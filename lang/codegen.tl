@@ -116,8 +116,12 @@ local record Codegen
   --- "string"`): a string is no member of an enum for being a string, and a program that is told otherwise is wrong.
   --- `wraps` names, by the id of an expression, the arguments after its value of a call of `__fact` that wraps it:
   --- `__fact(v, <arguments>)`, which a run that checks what [`lang.check`] concluded of a read defines.
+  --- `kinds` says what [`lang.check`] resolved a type name to, by the id of the name: `integer`, `number`, `string`,
+  --- `boolean`, `function`, `true`, `false` or `nil`. A test `v is T` of a name of another module, whose declaration
+  --- this generator cannot see, is then a test for that, where without it the name is a table.
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
-                     classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string}): Generated
+                     classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
+                     kinds?: {integer: string}): Generated
 
   --- `lua`, the Lua of this generator or of the fork's for the same Teal, once the layout of a `continue` is set
   --- aside: the `::continue::` that ends a loop is deleted, since the fork's source has it on a line of its own and
@@ -322,12 +326,14 @@ local record State
   enums: {integer: {string}}
   --- The arguments, after the value, of the call of `__fact` that wraps the read at a node, by the id of the node.
   wraps: {integer: string}
+  --- What the checker resolved a type name to, by the id of the name.
+  kinds: {integer: string}
 end
 
 local G: State = {
   tokens = {}, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
-  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {},
+  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {},
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -859,6 +865,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   local out = new(y)
   local kind = base_of(t).kind
   local class = class_named(t)
+  local resolved = G.kinds[base_of(t).id]
   if class ~= nil then
     if operand ~= nil then
       guard(UNARY_PRECEDENCE, operand, value)
@@ -879,9 +886,20 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "({" .. table.concat(members, ", ") .. "})[")
     add_child(out, value, "", G.indent)
     put(out, "] == true")
-  elseif kind == "TypeNil" then
+  elseif resolved == "integer" then
+    put(out, "math.type(")
+    add_child(out, value, "", G.indent)
+    put(out, ") == \"integer\"")
+  elseif kind == "TypeNil" or resolved == "nil" then
     add_child(out, value, "", G.indent)
     put(out, " == nil")
+  elseif resolved == "true" or resolved == "false" then
+    add_child(out, value, "", G.indent)
+    if resolved == "true" then
+      put(out, " == true")
+    else
+      put(out, " == false")
+    end
   elseif kind == "TypeBool" and t is Ast.TypeBool then
     add_child(out, value, "", G.indent)
     put(out, t.value and " == true" or " == false")
@@ -889,7 +907,11 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "type(")
     add_child(out, value, "", G.indent)
     -- The fork breaks the line inside the quotes where the type is on a later line than the test, which is no Lua.
-    put(out, ") == \"" .. lua_type(t, 32) .. "\"")
+    local word = resolved
+    if word == nil then
+      word = lua_type(t, 32)
+    end
+    put(out, ") == \"" .. word .. "\"")
   end
   return out
 end
@@ -1643,11 +1665,12 @@ stat = function(s: Ast.Stat): Output
 end
 
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
-                          classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string}): Codegen.Generated
+                          classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
+                          kinds?: {integer: string}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
   G.truthy = truthy or syntactically_truthy
   G.classes = classes or {}
-  G.enums, G.wraps = enums or {}, wraps or {}
+  G.enums, G.wraps, G.kinds = enums or {}, wraps or {}, kinds or {}
   G.guarded = nil
   G.indent, G.saved, G.errors, G.loops, G.declarations, G.matches = 0, {}, {}, {}, nil, 0
   G.body = chunk.body
@@ -1657,7 +1680,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local written = (flatten(whole):gsub(" *\n", "\n"))
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes = {}, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps = {}, {}
+  G.enums, G.wraps, G.kinds = {}, {}, {}
   return { text = written, errors = errors }
 end
 

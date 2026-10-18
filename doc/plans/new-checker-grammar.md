@@ -824,6 +824,14 @@ returns as the production named, when a use appears.
   pinned by file and code. its `lex` answers a `Lexed` record of the tokens and the errors,
   since [`build/contracts.tl`] holds an exported function to one result; the
   declaration in [`build/compiler.d.tl`] may keep the pair.
+- `cosmic compile --grammar new` ([`build/compile.tl`]) reads files in the
+  grammar: lex, parse, scope, lower, check and generate, writing the line
+  for line Lua despite type errors, as it does for Teal. the grammar is
+  named by that flag and never guessed from a file, since a file in the new
+  grammar keeps `.tl` (a marker in the file, or a path rule, would be the
+  second way to say it). a release that carries the flag compiles the
+  checker's own translated source once the switch's hand steps are made
+  ([the switch]), which is what lets the pin move before it.
 - the scope builder, [`lang/scopes.tl`], against the fork's `shadows`,
   `captured_assigned` and `unknown_variable` over the checker's corpora and
   generated programs, and over the tree: [`build/tree_checks.tl`]'s `scoped`
@@ -849,6 +857,7 @@ returns as the production named, when a use appears.
 [no implicit conversion or hidden code]: strict-teal.md#no-implicit-conversion-or-hidden-code
 [strict-teal.md]: strict-teal.md
 [the new checker]: strict-teal.md#the-new-checker
+[the switch]: strict-teal.md#the-switch
 [what the grammar leaves out]: #what-the-grammar-leaves-out-and-how-it-would-come-back
 [what the language keeps working]: strict-teal.md#what-the-language-keeps-working
 
@@ -858,6 +867,7 @@ returns as the production named, when a use appears.
 [`build/ast/node.tl`]: ../../build/ast/node.tl
 [`build/ast/rewrite.tl`]: ../../build/ast/rewrite.tl
 [`build/ast/walk.tl`]: ../../build/ast/walk.tl
+[`build/compile.tl`]: ../../build/compile.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`build/contracts.tl`]: ../../build/contracts.tl
 [`build/globals.tl`]: ../../build/globals.tl

@@ -1264,3 +1264,44 @@ local function test_the_arguments_of_a_call_whose_table_is_on_a_line_of_its_own_
     "  1 }",
     "return r, p, o")
 end
+
+--- The generator reads one file, so a name of another module is a table unless the checker says what it stands for.
+local function test_a_name_of_another_module_is_tested_for_what_the_checker_resolved_it_to()
+  local text = program(
+    "local D = require(\"d\")",
+    "local function f(v: any): boolean",
+    "  return v is D.Name",
+    "end",
+    "local function g(v: any): boolean",
+    "  return v is D.Count",
+    "end",
+    "local function h(v: any): boolean",
+    "  return v is D.Flag",
+    "end",
+    "return f, g, h")
+  local parsed = Parser.parse(Lexer.lex(text, "t.tl"), "t.tl", "tl")
+  local scoped = Scopes.build(parsed.chunk, "t.tl", {})
+  local words: {string: string} = { Name = "string", Count = "integer", Flag = "true" }
+  local kinds: {integer: string} = {}
+  -- Every node, the walk's own list growing as it goes.
+  local nodes: {Ast.Node} = { parsed.chunk.body }
+  for _, node in ipairs(nodes) do
+    if node is Ast.TypeName then
+      local member = node.path[2]
+      if member ~= nil then
+        local word = words[member]
+        if word ~= nil then
+          kinds[node.id] = word
+        end
+      end
+    end
+    Ast.children(node, function(child: Ast.Node)
+      nodes[#nodes + 1] = child
+    end)
+  end
+  local without = Codegen.generate(parsed.chunk, scoped)
+  assert(select(2, without.text:gsub('type%(v%) == "table"', "")) == 3, without.text)
+  local with = Codegen.generate(parsed.chunk, scoped, nil, nil, nil, nil, kinds)
+  assert(with.text:find('type(v) == "string"', 1, true) and with.text:find('math.type(v) == "integer"', 1, true), with.text)
+  assert(with.text:find("return v == true", 1, true), with.text)
+end

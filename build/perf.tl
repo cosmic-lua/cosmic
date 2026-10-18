@@ -629,8 +629,15 @@ end
 --- means a command/counter failed; status 2 means a measured regression or an
 --- unresolved comparison. Neither is a passing performance gate.
 function Perf.main(argv: {integer:string}): integer
+  local usage = "usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]"
+  -- .github/scripts/pinned-parse.sh runs this file with --help on the pinned
+  -- release and needs status 0: asking for the usage is not misusing it.
+  if argv[1] == "--help" or argv[1] == "-h" then
+    print(usage)
+    return 0
+  end
   if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
-    print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]")
+    print(usage)
     return 1
   end
   local count: integer = 200

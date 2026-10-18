@@ -2288,9 +2288,7 @@ end
 local translate_pins: {string: integer} = {
   -- a tuple type `{A, B}`, which the draft counts once, in the tour: write a record with a field for each
   -- position, or `{A | B}` for an array of either. What is left is the fork's own `unpack` (`{A1, A2}` is its
-  -- parameter), a file that runs on the pinned release and so stays as that release reads it, and the example
-  -- that teaches the form
-  ["build/vendor.tl tuple_type"] = 4,
+  -- parameter) and the example that teaches the form
   ["checker/stdlib.d.tl tuple_type"] = 4,
   ["ci/cosmic_ci/orchestration.tl tuple_type"] = 1,
   ["cosmic/removed_example.tl tuple_type"] = 1,
