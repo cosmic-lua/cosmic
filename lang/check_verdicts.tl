@@ -124,8 +124,9 @@ end
 
 --- The codes with a row in a catalog: those of the checker's expressions and flow, and of the declarations.
 --
--- TODO: read the rule of a code of the lexer, the parser and the scope builder from a catalog row too, and delete
--- testdata/gate/rules.json, once those codes have rows like [`lang.check_codes`]'s.
+-- TODO: read the rule of a code of the lexer, the parser and the scope builder from its row in [`lang.syntax_codes`] (which
+-- build/error_catalog_test.tl holds to the same words), and delete testdata/gate/rules.json, once this gate reads a catalog
+-- for every code.
 local catalogued: {string: boolean} = {}
 for _, code in ipairs(Codes.codes) do
   catalogued[code] = true

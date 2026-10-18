@@ -72,14 +72,29 @@ local function test_the_c_tree_answers_what_the_dump_leaves_out()
   end)
 end
 
---- The rules over C that hands buffers, allocations and statements a
---- status around: every one answers nil where an expression is none of
---- what it looks for.
-local function test_the_rules_over_the_cores_c_answer_as_declared()
+--- The rules over `file` of C that hands buffers, allocations and statements a status around: every one answers nil where
+--- an expression is none of what it looks for. A file a test of its own, since the check compiles it under each variant of the
+--- core and a checked run costs several times an unchecked one: all four in one test took more than the 10 s a CI test has.
+local function the_rules_answer_as_declared_over(file: string)
   honest("build.c.rules", function()
-    local files = { "core/sqlite.c", "core/store.c", "core/syscalls_fs.c", "core/surface.c" }
-    for i, outcome in ipairs(c.check(root, files)) do
-      assert(outcome.findings ~= nil, files[i] .. ": " .. tostring(outcome.trouble))
+    for _, outcome in ipairs(c.check(root, { file })) do
+      assert(outcome.findings ~= nil, file .. ": " .. tostring(outcome.trouble))
     end
   end)
+end
+
+local function test_the_rules_over_the_cores_sqlite_c_answer_as_declared()
+  the_rules_answer_as_declared_over("core/sqlite.c")
+end
+
+local function test_the_rules_over_the_cores_store_c_answer_as_declared()
+  the_rules_answer_as_declared_over("core/store.c")
+end
+
+local function test_the_rules_over_the_cores_syscalls_fs_c_answer_as_declared()
+  the_rules_answer_as_declared_over("core/syscalls_fs.c")
+end
+
+local function test_the_rules_over_the_cores_surface_c_answer_as_declared()
+  the_rules_answer_as_declared_over("core/surface.c")
 end

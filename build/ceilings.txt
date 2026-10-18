@@ -578,7 +578,7 @@ build/bom.tl nil_not_allowed 24
 build/bom_test.tl nil_not_allowed 21
 build/boot.tl nil_not_allowed 3
 build/bridge_cache_test.tl nil_not_allowed 1
-build/c/declared_types_test.tl nil_not_allowed 6
+build/c/declared_types_test.tl nil_not_allowed 5
 build/c/init.tl nil_not_allowed 13
 build/c/layout.tl nil_not_allowed 17
 build/c/rules.tl nil_not_allowed 34
@@ -1707,6 +1707,9 @@ build/driver_test.tl view_written 3
 build/embed.tl view_written 9
 build/embed_tool_test.tl view_written 4
 build/entrypoint_test.tl view_written 1
+build/error_catalog.tl view_written 16
+build/error_catalog_test.tl view_written 7
+build/error_render.tl view_written 6
 build/example_checks.tl view_written 11
 build/example_checks_test.tl view_written 5
 build/exports_test.tl view_written 3
@@ -1800,6 +1803,7 @@ build/refresh_store_test.tl view_written 7
 build/refresh_test.tl view_written 1
 build/refresh_tool_test.tl view_written 2
 build/relay_wire_fixture.tl view_written 10
+build/removed_fix_test.tl view_written 9
 build/roots.tl view_written 4
 build/roots_test.tl view_written 3
 build/runtime_checks_keys_test.tl view_written 1
@@ -2461,6 +2465,7 @@ build/doctest/generate_test.tl field_fixed 1
 build/driver.tl field_fixed 18
 build/driver_test.tl field_fixed 1
 build/embed.tl field_fixed 1
+build/error_render.tl field_fixed 1
 build/fetch.tl field_fixed 5
 build/fetch_test.tl field_fixed 2
 build/fix/breaks.tl field_fixed 2
@@ -2696,6 +2701,7 @@ lang/relation_programs.tl field_fixed 19
 lang/relation_test.tl field_fixed 1
 lang/scopes.tl field_fixed 19
 lang/stdlib_corrections.tl field_fixed 2
+lang/syntax_codes.tl field_fixed 1
 lang/translate.tl field_fixed 3
 lang/types_programs.tl field_fixed 2
 lang/warnings.tl field_fixed 2
@@ -3285,6 +3291,7 @@ build/reboot_test.tl overload_none 1
 build/receivers.tl overload_none 1
 build/refresh_store_test.tl overload_none 1
 build/refresh_tool_test.tl overload_none 1
+build/removed_fix_test.tl overload_none 1
 build/roots.tl overload_none 1
 build/scopes_test.tl overload_none 2
 build/shape_specs.tl overload_none 2
@@ -4042,6 +4049,7 @@ build/coverage/syntax_lines.tl is_on_record 2
 build/dataset.tl is_on_record 2
 build/flow.tl is_on_record 7
 build/lang_proof.tl is_on_record 3
+build/removed_fix.tl is_on_record 6
 build/shape_specs.tl is_on_record 1
 build/standalone.tl is_on_record 3
 build/syntax_compared.tl is_on_record 1

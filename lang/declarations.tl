@@ -478,7 +478,7 @@ Declarations.catalog = {
     code = "store_refused", rule = "the store's own checks",
     why = "the store checks what it can tell where a type or a declaration is made, and the lowering " ..
       "foresees each; an error of this code is a mistake of the lowering",
-    fix = "report the program",
+    fix = "none in the program: report the declaration that shows it as a bug of cosmic's lowering, and write the declaration another way meanwhile",
   },
 }
 
