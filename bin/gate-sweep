@@ -1,0 +1,42 @@
+#!/bin/sh
+# The full sweep of the switch gate's evidence, and its record: `bin/gate-sweep [iterations [seed...]]`.
+#
+# The gate's tests run a few draws of each fuzz property so that they fit a test (a few seconds under coverage); this
+# draws many, from several seeds, over the properties that stand for the gate's third condition -- the totality of
+# the new checker (lang/check_total_fuzz_test.tl), the definite-assignment oracle (lang/check_assigned_fuzz_test.tl)
+# and the soundness of narrowing (lang/check_flow_fuzz_test.tl) -- and runs the verdict table's tests once
+# (lang/check_verdicts_test.tl). It writes what it ran and what came of it to testdata/gate/sweep.txt (GATE_SWEEP_OUT
+# names another file), one line per seed, and exits non-zero when any run failed. The nightly fuzz workflow
+# (.github/workflows/fuzz.yml) draws the properties from a seed of its own; this is the run that is kept in the tree.
+#
+# Defaults: 2000 draws, seeds 1 2 3. The record holds the draws and seeds, not a date or a commit, so that rerunning it
+# on an unchanged tree rewrites the same file.
+set -u
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+iterations=${1:-2000}
+[ $# -gt 0 ] && shift
+seeds=${*:-1 2 3}
+out=${GATE_SWEEP_OUT:-$root/testdata/gate/sweep.txt}
+fuzz="lang/check_total_fuzz_test.tl lang/check_assigned_fuzz_test.tl lang/check_flow_fuzz_test.tl"
+
+cd "$root" || exit 2
+status=0
+{
+  printf 'gate sweep: %s draws a property, seeds %s\n' "$iterations" "$seeds"
+  for seed in $seeds; do
+    result=$(FUZZ_SEED=$seed FUZZ_ITERS=$iterations "$root/bin/cosmic" test --timeout 1200 $fuzz 2>&1)
+    code=$?
+    summary=$(printf '%s\n' "$result" | sed -n 's/^test: \([0-9]* tests\? passed in [0-9]* modules\?\).*/\1/p; s/^test: \([0-9]* of [0-9]* tests\? failed\).*/\1/p' | tail -n 1)
+    printf 'seed %s: exit %s, %s\n' "$seed" "$code" "${summary:-no summary}"
+    [ "$code" -eq 0 ] || status=1
+  done
+  result=$("$root/bin/cosmic" test lang/check_verdicts_test.tl 2>&1)
+  code=$?
+  summary=$(printf '%s\n' "$result" | sed -n 's/^test: \([0-9]* tests\? passed in [0-9]* modules\?\).*/\1/p; s/^test: \([0-9]* of [0-9]* tests\? failed\).*/\1/p' | tail -n 1)
+  printf 'verdict table: exit %s, %s\n' "$code" "${summary:-no summary}"
+  [ "$code" -eq 0 ] || status=1
+} > "$out.tmp"
+mv "$out.tmp" "$out"
+cat "$out"
+exit $status

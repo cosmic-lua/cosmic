@@ -3,6 +3,8 @@
 --- tree with the defect it is for planted in it, and passes the same
 --- tree without it.
 
+local Ceilings = require("build.ceilings")
+local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
@@ -10,7 +12,12 @@ local schema = require("build.schema")
 local symbols = require("build.symbols")
 local ast = require("build.ast")
 local teal = require("build.teal")
+local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
+
+Test.policy{
+  grants = { { path = "build/ceilings.txt", letters = "r" } },
+}
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -918,14 +925,15 @@ local function test_a_cut_form_of_the_new_grammar_past_its_pin_is_refused_with_i
   pins["build/gone.tl semicolon"] = 1
   local fallen = tree_checks.lexed(root, pins)
   assert(#fallen == 2 and fallen[1] == "build/gone.tl semicolon: pinned 1 but 0 found; lower the pin in " ..
-      "build/tree_checks.tl's lexer_pins" and fallen[2]:find("build/jumps.tl label_or_goto: pinned 3 but 2 found", 1, true),
+      "build/ceilings.txt's [lexed]" and fallen[2]:find("build/jumps.tl label_or_goto: pinned 3 but 2 found", 1, true),
     table.concat(fallen, "\n"))
 end
 
 --- The pins the tree is held to are the grammar draft's counts for what it
 --- cuts, apart from the fork's own [`checker/tl.tl`].
 local function test_the_tree_is_held_to_the_cut_forms_the_grammar_draft_counts(dir: string)
-  local stale = tree_checks.lexed(dir)
+  local ceilings = assert(Ceilings.read("."))
+  local stale = tree_checks.lexed(dir, Ceilings.of(ceilings, "lexed"))
   local totals: {string: integer} = {}
   for _, line in ipairs(stale) do
     local file, code, count = line:match("^(%S+) (%S+): pinned (%d+) but")
@@ -963,7 +971,7 @@ local function test_a_form_the_translator_leaves_is_refused_past_its_pin_with_it
   pins["build/gone.tl tuple_type"] = 1
   local fallen = tree_checks.translated(root, pins, 0)
   assert(#fallen == 2 and fallen[1] == "build/gone.tl tuple_type: pinned 1 but 0 found; lower the pin in " ..
-      "build/tree_checks.tl's translate_pins" and
+      "build/ceilings.txt's [translated]" and
       fallen[2]:find("build/tuple.tl tuple_type: pinned 2 but 1 found", 1, true), table.concat(fallen, "\n"))
 end
 
@@ -988,7 +996,7 @@ local function test_a_method_moved_above_a_name_it_reads_is_counted_against_the_
       over:find("methods moved into a class that read or give something else: 1, ceiling 0", 1, true), over)
   assert(#tree_checks.translated(root, pins, 1) == 0)
   local under = tree_checks.translated(root, pins, 2)
-  assert(#under == 1 and under[1]:find("lower translate_hazards", 1, true), table.concat(under, "\n"))
+  assert(#under == 1 and under[1]:find("lower the [hazards] ceiling in build/ceilings.txt", 1, true), table.concat(under, "\n"))
 end
 
 --- A file that has not changed is not read again: its findings come from the
@@ -1098,8 +1106,8 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_
   pins["build/gone.tl shadows"] = 1
   local fallen = tree_checks.scoped(root, pins)
   assert(#fallen == 2 and fallen[1] == "build/bad.tl shadows: pinned 2 but 1 found; lower the pin in " ..
-      "build/tree_checks.tl's scope_pins" and
-      fallen[2] == "build/gone.tl shadows: pinned 1 but 0 found; lower the pin in build/tree_checks.tl's scope_pins",
+      "build/ceilings.txt's [scoped]" and
+      fallen[2] == "build/gone.tl shadows: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [scoped]",
     table.concat(fallen, "\n"))
 end
 
@@ -1129,8 +1137,8 @@ local function test_a_declaration_the_lowering_refuses_is_refused_past_its_pin_w
   pins["build/gone.tl key_type"] = 1
   local fallen = tree_checks.declared(root, pins)
   assert(#fallen == 2 and fallen[1] == "build/bad.tl float_key: pinned 2 but 1 found; lower the pin in " ..
-      "build/tree_checks.tl's declare_pins" and
-      fallen[2] == "build/gone.tl key_type: pinned 1 but 0 found; lower the pin in build/tree_checks.tl's declare_pins",
+      "build/ceilings.txt's [declared]" and
+      fallen[2] == "build/gone.tl key_type: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [declared]",
     table.concat(fallen, "\n"))
 end
 
@@ -1248,8 +1256,8 @@ local function test_a_mistake_in_a_body_is_refused_past_its_pin_with_its_fix(dir
   pins["build/gone.tl nil_not_allowed"] = 1
   local fallen = tree_checks.checked(root, pins)
   assert(#fallen == 2 and fallen[1] == "build/bad.tl not_assignable: pinned 3 but 2 found; lower the pin in " ..
-      "build/check_pins.tl" and
-      fallen[2] == "build/gone.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/check_pins.tl",
+      "build/ceilings.txt's [checked]" and
+      fallen[2] == "build/gone.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [checked]",
     table.concat(fallen, "\n"))
 end
 
@@ -1411,8 +1419,8 @@ local function test_the_lua_of_a_file_is_held_to_the_forks_but_for_its_pins(dir:
   pins["build/ok.tl"] = 1
   local fallen = tree_checks.generated(root, pins)
   assert(#fallen == 2 and fallen[1] == "build/classy.tl: pinned " .. differ + 2 .. " lines but " .. differ ..
-      " differ; lower the pin in build/tree_checks.tl's generate_pins" and
-      fallen[2] == "build/ok.tl: pinned 1 line but 0 differ; lower the pin in build/tree_checks.tl's generate_pins",
+      " differ; lower the pin in build/ceilings.txt's [generated]" and
+      fallen[2] == "build/ok.tl: pinned 1 line but 0 differ; lower the pin in build/ceilings.txt's [generated]",
     table.concat(fallen, "\n"))
 end
 
@@ -1457,4 +1465,93 @@ local function test_a_memo_answers_the_generator_check_and_keeps_the_forks_lua_f
     "the fork's Lua is the one the memo kept: " .. again)
   assert(not again:find("planted (class_nested_refused)", 1, true), again)
   assert(memo:close())
+end
+
+--- A file's refusal by the tree's checks of this root, over `pins` for each stage.
+local function refused_by_the_tree(root: string, file: string, scoped: {string: integer}, translated: {string: integer},
+                                   declared: {string: integer}): boolean
+  for _, found in ipairs({ tree_checks.scoped(root, scoped), tree_checks.translated(root, translated, 99),
+      tree_checks.declared(root, declared), tree_checks.checked(root, {}) }) do
+    for _, line in ipairs(found) do
+      if line:find(file, 1, true) == 1 then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- The refusal of a compile through the driver for the same file, over the same pins.
+local function refused_by_the_driver(root: string, file: string, ceilings: Ceilings.Table): boolean
+  local entries: {{string}} = {}
+  for _, name in ipairs({ "hazard", "broken", "bad", "fine" }) do
+    local text = assert(Fs.read(root .. "/build/" .. name .. ".tl"))
+    entries[#entries + 1] = { "build/" .. name .. ".tl", tostring(text) }
+  end
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  build:provide(Driver.files(Driver.index(entries, true, function(_file: string): boolean
+    return false
+  end)))
+  local names = { "build.hazard", "build.broken", "build.bad", "build.fine" }
+  build:lower(names)
+  local result = assert(build:result("build." .. file:match("build/(%w+)%.tl$"), true))
+  return #build:held(result, ceilings) > 0
+end
+
+--- The tree's checks and a compile through the driver refuse the same files over the same ceilings, a file of the fork's Teal
+--- whose translation moves a method above a name it reads (counted in `[hazards]`, not `[scoped]`) and one whose translation
+--- does not parse (`[translated]`) among them.
+local function test_the_tree_checks_and_the_drivers_held_give_one_verdict_over_the_same_ceilings(dir: string)
+  local root = dir .. "/oneverdict"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/hazard.tl", source("local record R", "  n: integer", "end", "local helper = 1",
+    "function R:f(): integer", "  return self.n + helper", "end", "return R")))
+  assert(Fs.write(root .. "/build/broken.tl", source("local t: {{string, integer}}", "return t")))
+  assert(Fs.write(root .. "/build/bad.tl", source("local x: {number: integer}", "return x")))
+  assert(Fs.write(root .. "/build/fine.tl", source("local record Fine", "  n: integer", "end", "return Fine")))
+  local text = "[translated]\nbuild/broken.tl tuple_type 1\n[declared]\nbuild/bad.tl float_key 1\n"
+  local pinned = assert(Ceilings.parse(text))
+  local none = assert(Ceilings.parse(""))
+  for _, file in ipairs({ "build/hazard.tl", "build/broken.tl", "build/bad.tl", "build/fine.tl" }) do
+    local held = refused_by_the_tree(root, file, Ceilings.of(pinned, "scoped"), Ceilings.of(pinned, "translated"),
+      Ceilings.of(pinned, "declared"))
+    assert(held == refused_by_the_driver(root, file, pinned), file .. " over the ceilings: the tree says " .. tostring(held))
+    local open = refused_by_the_tree(root, file, {}, {}, {})
+    assert(open == refused_by_the_driver(root, file, none), file .. " over none: the tree says " .. tostring(open))
+  end
+  assert(not refused_by_the_tree(root, "build/hazard.tl", {}, {}, {}))
+  assert(refused_by_the_tree(root, "build/broken.tl", {}, {}, {}) and refused_by_the_tree(root, "build/bad.tl", {}, {}, {}))
+end
+
+--- A `.d.tl` edited under a warm memo changes the answer for the modules that read it.
+local function test_an_edit_of_the_declaration_of_a_module_given_as_declaration_and_source_misses_the_memo(dir: string)
+  local root = dir .. "/declpair"
+  assert(Fs.mkdirs(root .. "/p"))
+  assert(Fs.mkdirs(root .. "/q"))
+  assert(Fs.write(root .. "/p/foo.d.tl", source("local record Box", "  s: string", "end", "return Box")))
+  assert(Fs.write(root .. "/p/foo.tl", source("local record Box", "  n: integer", "end", "return Box")))
+  assert(Fs.write(root .. "/q/use.tl", source("local Box = require(\"foo\")", "local b: Box = { s = \"x\" }", "return b")))
+  local memo = assert(Sqlite.memory())
+  assert(#tree_checks.checked(root, {}, memo) == 0, table.concat(tree_checks.checked(root, {}), "\n"))
+  assert(Fs.write(root .. "/p/foo.d.tl", source("local record Box", "  s: integer", "end", "return Box")))
+  local again = table.concat(tree_checks.checked(root, {}, memo), "\n")
+  assert(again:find("q/use.tl:2:", 1, true), again)
+  assert(again == table.concat(tree_checks.checked(root, {}), "\n"), "a warm memo and a cold run agree")
+  assert(memo:close())
+end
+
+--- The ceilings a check reads from the tree are refused when one names a file the tree lacks: no run could lower it.
+local function test_a_ceiling_for_a_file_that_is_gone_is_refused_when_a_check_reads_the_trees_ceilings(dir: string)
+  local root = dir .. "/deadceiling"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/there.tl", source("local x: integer = 1", "return x")))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl nil_not_allowed 1\nbuild/gone.tl nil_not_allowed 1\n"))
+  local found = tree_checks.checked(root)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("holds ceilings for files that are gone", 1, true) ~= nil, found[1])
+  assert(found[1]:find("build/gone.tl nil_not_allowed: pinned in [checked]", 1, true) ~= nil, found[1])
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl nil_not_allowed 1\n"))
+  local fine = tree_checks.checked(root)
+  assert(#fine == 1, table.concat(fine, "\n"))
+  assert(fine[1] == "build/there.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [checked]", fine[1])
 end

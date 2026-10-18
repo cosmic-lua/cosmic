@@ -25,6 +25,16 @@ place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
+`islands.txt` lists the files that stay Teal until the pin moves past
+the switch (doc/plans/strict-teal.md): `ci/` and the scripts
+`bin/cosmic-bootstrap` runs. CI's `check-islands` command
+(`cosmic-driver cosmic_ci/driver.tl check-islands`) gives each file of the
+list to the running driver's `compile`, which parses and type-checks it
+and runs nothing, and fails on a syntax error or any type error. A
+directory of the list is compiled by the driver's own tests.
+`build/islands_test.tl` holds the list to the tree, and is its only other
+reader.
+
 ## running the platform job locally
 
 `ci/run-local` runs the platform job's phases (`build` through `portable-boundary`) on

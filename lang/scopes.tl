@@ -199,6 +199,11 @@ local record Scopes
     assigned: boolean
     --- The functions that read it from outside, in source order.
     captures: {Capture}
+    --- Whether it is a type declared in the body of another type, named through it (`Outer.Inner`).
+    nested: boolean
+    --- For `local function f`, the id of the [`Ast.Fn`](lang.ast) it binds: the reads inside it are the function's own
+    --- (a recursive call), which [`lang.warnings`] does not count as use.
+    fn?: integer
   end
 
   --- What [`Scopes.build`] answers.
@@ -648,7 +653,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
     declared = token, from = from, to = math.max(from, S.ends[#S.ends]), owner = f.id, depth = #S.frames,
     loop = f.loop,
     module = "", readonly = attr ~= nil, reads = {}, writes = {}, type_uses = {},
-    assigned = false, captures = {},
+    assigned = false, captures = {}, nested = false,
   }
   if copy ~= nil then
     local copied = copy.binding
@@ -1224,6 +1229,7 @@ typedecl = function(d: Ast.Node, nested: boolean)
   local v: Scopes.Var | nil = nil
   if kind ~= "Alias" then
     v = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+    v.nested = nested
   end
   if kind == "Import" and d is Ast.Import and v ~= nil then
     v.module = d.module
@@ -1256,7 +1262,8 @@ typedecl = function(d: Ast.Node, nested: boolean)
   close()
   S.defer = deferring
   if kind == "Alias" then
-    local _ = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+    local alias = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
+    alias.nested = nested
   end
 end
 
@@ -1334,7 +1341,9 @@ stat = function(s: Ast.Stat)
   elseif kind == "CallStat" and s is Ast.CallStat then
     exp(s.call)
   elseif kind == "LocalFunction" and s is Ast.LocalFunction then
-    S.own = declare(s.name, "function", s.name.first, true, nil, false)
+    local own = declare(s.name, "function", s.name.first, true, nil, false)
+    own.fn = s.fn.id
+    S.own = own
     walk_fn(s.fn, s.typeparams, nil)
     S.own = nil
   elseif kind == "Function" and s is Ast.Function then

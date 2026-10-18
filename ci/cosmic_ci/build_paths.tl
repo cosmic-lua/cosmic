@@ -14,8 +14,8 @@ local directories: {string:string} = {}
 
 --- A command line of the driver that is already running, past its
 --- launcher where it has one, with `words` after it, and the environment
---- and descriptors to start it with.
-local function driver(words: {string}, values: {string:string}):
+--- and descriptors to start it with (`values` added to the launcher's).
+function BuildPaths.driver(words: {string}, values: {string:string}):
     {string}, {string:string}, {integer:integer | string}
   local argv: {string} = {}
   local env: {string:string} = {}
@@ -55,7 +55,7 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
   end
   local key = Hash.hex_sha256(table.concat(parts, "\0"))
   if directories[key] then return directories[key] end
-  local argv, env, fds = driver({ "--standalone", resolver, root }, values)
+  local argv, env, fds = BuildPaths.driver({ "--standalone", resolver, root }, values)
   local answer, why = Child.run(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)

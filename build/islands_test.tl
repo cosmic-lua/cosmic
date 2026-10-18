@@ -1,29 +1,35 @@
---- The islands ([`build.islands`]) are what they say: each is in the tree, each is run on the pinned release
---- and checked to parse under it in CI (the tool checks them under the fork on every build), and each file of `build/` is held to the forms the new grammar
---- refuses that it still needs.
+--- The islands, [`ci/islands.txt`], are what they say: each is in the tree, each is run on the pinned release
+--- and checked under it in CI by the driver's `check-islands` (the tool checks them under the fork on every
+--- build), and each file of `build/` is held to the forms the new grammar refuses that it still needs
+--- ([`build.islands`]).
 
 local Fs = require("cosmic.fs")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local Grammar = require("build.compile_grammar")
 local islands = require("build.islands")
 
 Test.policy{ grants = {
   { path = "bin/", letters = "r" }, { path = "build/", letters = "r" }, { path = "ci/", letters = "r" },
-  { path = ".github/scripts/", letters = "r" },
 } }
 
---- The files of `build/` among the islands.
-local function build_islands(): {string}
+--- The islands, as the CI driver's `check-islands` reads the list (cosmic_ci/islands.tl): one path a line from the
+--- root of the tree, a directory ending in "/", with what a `#` starts and blank lines left out; only the files of
+--- `build/` where `build_only`.
+local function listed_islands(build_only: boolean): {string}
   local out: {string} = {}
-  for _, path in ipairs(islands.list) do
-    if path:sub(1, 6) == "build/" then out[#out + 1] = path end
+  for line in (assert(Fs.read("ci/islands.txt"))):gmatch("[^\n]+") do
+    local path = String.trim((line:gsub("#.*$", "")))
+    if path ~= "" and (not build_only or path:sub(1, 6) == "build/") then out[#out + 1] = path end
   end
   return out
 end
 
 local function test_each_island_is_in_the_tree_and_the_list_is_in_order()
   local last = ""
-  for _, path in ipairs(islands.list) do
+  local paths = listed_islands(false)
+  assert(#paths > 0, "ci/islands.txt names no island")
+  for _, path in ipairs(paths) do
     assert(path > last, path .. " is out of order or repeated")
     last = path
     if path:sub(-1) == "/" then
@@ -47,7 +53,7 @@ local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_bui
     end
   end
   local listed: {string: boolean} = {}
-  for _, path in ipairs(build_islands()) do
+  for _, path in ipairs(listed_islands(true)) do
     listed[path] = true
   end
   for path in pairs(run) do
@@ -58,18 +64,10 @@ local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_bui
   end
 end
 
---- CI compiles each of them on the pinned driver, so a form that release does not parse fails there.
-local function test_ci_parses_each_island_of_build_on_the_pinned_release()
-  local text = (assert(Fs.read(".github/scripts/pinned-parse.sh")))
-  for _, path in ipairs(build_islands()) do
-    assert(text:find("\"$root/" .. path .. "\"", 1, true), path .. " is not checked by .github/scripts/pinned-parse.sh")
-  end
-end
-
 --- The new grammar's parser refuses `blocked` of each island and nothing else: a count only falls, and a file
 --- with none is written in the subset both grammars read, so the switch can stage it unchanged.
 local function test_each_island_of_build_has_only_the_forms_blocked_names_that_the_new_grammar_refuses()
-  for _, path in ipairs(build_islands()) do
+  for _, path in ipairs(listed_islands(true)) do
     local text = (assert(Fs.read(path)))
     local made = Grammar.compile({ { path = path, relative = path, text = text, declaration = false } })
     local found: {string: integer} = {}
@@ -93,7 +91,7 @@ local function test_each_island_of_build_has_only_the_forms_blocked_names_that_t
   end
   for path in pairs(islands.blocked) do
     local listed = false
-    for _, island in ipairs(islands.list) do listed = listed or island == path end
+    for _, island in ipairs(listed_islands(false)) do listed = listed or island == path end
     assert(listed, path .. " is blocked but no island")
   end
 end

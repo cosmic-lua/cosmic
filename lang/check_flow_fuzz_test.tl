@@ -6,30 +6,23 @@
 --- `fact violated` and no nil operand. A program the checker refuses is not run: most of the draws are refused, for
 --- the narrowing of a field the new grammar declares `mut` is not one. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
+--- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is
+--- [`bin/gate-sweep`] (its result is testdata/gate/sweep.txt), and the nightly fuzz workflow draws from a seed of its own.
+---
+--- Fixed fields get their own generator: records whose paths (`r.a`, `r.leaf.n`) are tested, read, copied and
+--- replaced by an assignment of the record, with reads of a path after that, which the checker has to refuse.
+---
+--- TODO: run checked narrowing in a real `cosmic test` (the `__fact` hook of the tool's worker), once the tool wires
+--- `--check-types` to the new checker: until then the wraps of [`Programs.execute`] stand for it.
+local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+local adapt = require("lang.check_drawn")
 local drawn = require("build.checker_programs")
 
 Test.policy{}
-
---- The last declaration of the header every drawn program starts with.
-local HEADER_END <const> = "local function id(v: integer | nil): integer | nil\n  return v\nend\n"
-
---- The drawn program as the new grammar takes it: the labels `continue`, an array of integers, every field of a record
---- literal given, and the body in a function so that its `return`s are a function's. Nil where the program has not the
---- header (a draw of the totality property).
-local function adapted(source: string): string | nil
-  local text = source:gsub("local opts: {integer | nil}", "local opts: {integer}"):gsub("next%d+", "continue")
-  text = text:gsub("local r: R = { a = 1, n = 0 }", "local r: R = { a = 1, b = nil, n = 0 }")
-  text = text:gsub("local s: R = { b = 2, n = 0 }", "local s: R = { a = nil, b = 2, n = 0 }")
-  local _, stop = text:find(HEADER_END, 1, true)
-  if stop == nil then
-    return nil
-  end
-  return text:sub(1, stop) .. "local function main(): integer\n" .. text:sub(stop + 1) .. "end\nlocal _ = main()\n"
-end
 
 --- Constructs of a program that ran.
 local CONSTRUCTS <const>: {{string}} = {
@@ -44,12 +37,15 @@ local CONSTRUCTS <const>: {{string}} = {
   { "elseif", "elseif " },
 }
 
+--- How many programs to draw: `FUZZ_ITERS` where it is set, else `default`, which a test of a few seconds under coverage
+--- allows (each is checked and run).
+local function iterations(default: integer): integer
+  return math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", ""))) or default
+end
+
 local function check_program(input: string): boolean, string
-  local text = adapted(input)
-  if text == nil then
-    return true, ""
-  end
-  local source = Translate.translate(text, "fuzz.tl").text
+  -- A drawn program has the header; an input of the corpus may lack it, and is checked as it is.
+  local source = Translate.translate(adapt.adapted(input) or input, "fuzz.tl").text
   local x = Programs.execute(source, true)
   if not x.ran then
     Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
@@ -84,11 +80,26 @@ local function test_a_program_the_flow_takes_does_not_fail_at_a_narrowed_read(tm
     name = "flow sound",
     dir = tmp,
     -- Half the default: a draw is a program of the fork's generator, put in the new grammar, checked and run.
-    iters = 32,
+    iters = iterations(32),
     gen = drawn.well_formed,
     check = check_program,
     requires = { "accepted", "ran", "refused" },
     shares = { accepted = 0.05 },
+  })
+end
+
+--- The programs whose narrowing must stay refused, and some that must keep running, that the fork's soundness property
+--- keeps (`testdata/fuzz/checker-sound`), each put in the new grammar and checked: refused, or run to its end or to a
+--- failed `assert`. Most are refused, for the form of the fork's text or for the fields it leaves out; the programs
+--- are not drawn again.
+local function test_the_corpus_of_the_forks_soundness_property_is_refused_or_runs_clean(tmp: string)
+  Fuzz.run({
+    name = "flow sound corpus",
+    dir = tmp,
+    iters = 0,
+    corpus = "testdata/fuzz/checker-sound",
+    gen = drawn.well_formed,
+    check = check_program,
   })
 end
 
@@ -100,6 +111,9 @@ end
 local record Scope
   vars: {string}
   focus: {string}
+  --- Paths a test showed not nil that an assignment of their record has replaced since: a read of one, bare, is a read
+  --- the checker must refuse, and a program that takes it can fault.
+  stale: {string}
 end
 
 local record Gen
@@ -110,6 +124,9 @@ local record Gen
   depth: integer
   --- Whether a `break` and a `continue` leave a loop of the function being drawn.
   in_loop: boolean
+  --- Whether the program holds records `r` and `s` of fixed optional fields, whose paths (`r.a`, `s.leaf.n`) the
+  --- statements test and read as they do the locals, and which an assignment of `r` or `s` replaces.
+  fixed: boolean
 end
 
 local function copy(list: {string}): {string}
@@ -130,7 +147,7 @@ local function has(list: {string}, name: string): boolean
 end
 
 local function nested(scope: Scope): Scope
-  return { vars = copy(scope.vars), focus = copy(scope.focus) }
+  return { vars = copy(scope.vars), focus = copy(scope.focus), stale = copy(scope.stale) }
 end
 
 local function add(g: Gen, text: string)
@@ -167,6 +184,9 @@ end
 
 --- An `integer` that reads a local: bare where a guard names it, else mostly given a default.
 local function operand(g: Gen, scope: Scope): string
+  if g.fixed and #scope.stale > 0 and g.src:int(0, 2) == 0 then
+    return Fuzz.pick(g.src, scope.stale)
+  end
   local v = var_of(g, scope)
   if has(scope.focus, v) or g.src:int(0, 3) == 0 then
     return v
@@ -220,6 +240,11 @@ local gen_block: function(g: Gen, scope: Scope, n: integer)
 --- Draws `n` statements in the scope `scope`, which the statements add to.
 local function gen_statement(g: Gen, scope: Scope)
   local k = g.src:int(0, g.depth >= 3 and 7 or 13)
+  -- Over fixed fields a quarter of the statements replace a record, since what they are for is a test of a path that a
+  -- replacement then ends.
+  if g.fixed and g.depth > 0 and g.src:int(0, 3) == 0 then
+    k = 2
+  end
   if k <= 1 then
     local name = fresh(g, "v")
     local init = Fuzz.pick(g.src, { "maybe()", "maybe()", "nil", scope.vars[1] })
@@ -227,21 +252,39 @@ local function gen_statement(g: Gen, scope: Scope)
     scope.vars[#scope.vars + 1] = name
   elseif k == 2 then
     do
+      -- A local is assigned a value; a record of fixed fields is replaced, which ends what a test of its paths showed.
       local v = Fuzz.pick(g.src, scope.vars)
-      add(g, v .. " = " .. Fuzz.pick(g.src, { "maybe()", "nil", "1" }))
+      local drops = v .. "."
+      if g.fixed and (v:find(".", 1, true) ~= nil or g.src:int(0, 2) == 0) then
+        v = Fuzz.pick(g.src, { "r", "s" })
+        drops = v .. "."
+        add(g, v .. " = " .. Fuzz.pick(g.src, { "node()", "empty()" }))
+      else
+        add(g, v .. " = " .. Fuzz.pick(g.src, { "maybe()", "nil", "1" }))
+      end
       local kept: {string} = {}
       for _, f in ipairs(scope.focus) do
-        if f ~= v then
+        if f ~= v and f:sub(1, #drops) ~= drops then
           kept[#kept + 1] = f
+        else
+          scope.stale[#scope.stale + 1] = f
         end
       end
       scope.focus = kept
+      -- Often at once: a read of a path the replaced record was tested for, as the checker must refuse.
+      if g.fixed and #scope.stale > 0 and g.src:int(0, 2) > 0 then
+        add(g, "total = total + " .. Fuzz.pick(g.src, scope.stale))
+      end
     end
   elseif k <= 4 then
     add(g, "total = total + " .. operand(g, scope))
   elseif k == 5 then
-    local c = cond(g, scope, 2, {}, true)
+    local c, yes = cond(g, scope, 2, {}, true)
     add(g, "assert(" .. c .. ")")
+    -- What the test shows holds from here on.
+    for _, v in ipairs(yes) do
+      scope.focus[#scope.focus + 1] = v
+    end
   elseif k == 6 then
     local c, yes = cond(g, scope, 2, {}, true)
     add(g, "if " .. c .. " then")
@@ -335,8 +378,8 @@ end
 
 --- A program of the new grammar over locals of type `integer?`: tests, assignments, loops, closures and exits.
 local function gen_locals(src: Fuzz.Source): string
-  local g: Gen = { src = src, lines = {}, id = 0, fuel = 40, depth = 0, in_loop = false }
-  local scope: Scope = { vars = { "a", "b" }, focus = {} }
+  local g: Gen = { src = src, lines = {}, id = 0, fuel = 40, depth = 0, in_loop = false, fixed = false }
+  local scope: Scope = { vars = { "a", "b" }, focus = {}, stale = {} }
   gen_block(g, scope, src:int(4, 12))
   return table.concat({
     "local record State",
@@ -354,6 +397,52 @@ local function gen_locals(src: Fuzz.Source): string
     "  local total = 0",
     "  local a: integer? = maybe()",
     "  local b: integer? = maybe()",
+    table.concat(g.lines, "\n"),
+    "  return total",
+    "end",
+    "print(main())",
+    "",
+  }, "\n")
+end
+
+--- A program of the new grammar over fixed optional fields: records `r` and `s` whose paths `r.a` and `r.leaf.n` are places
+--- a test narrows, until an assignment of the record replaces what the test was about. The statements are those over locals,
+--- and the paths are drawn as the locals are, tested, read, copied and assigned around.
+local function gen_fixed(src: Fuzz.Source): string
+  local g: Gen = { src = src, lines = {}, id = 0, fuel = 40, depth = 0, in_loop = false, fixed = true }
+  local scope: Scope = { vars = { "a", "r.a", "s.a", "r.leaf.n", "s.leaf.n" }, focus = {}, stale = {} }
+  gen_block(g, scope, src:int(4, 12))
+  return table.concat({
+    "local record Leaf",
+    "  n?: integer",
+    "end",
+    "local record Node",
+    "  a?: integer",
+    "  leaf: Leaf",
+    "end",
+    "local record State",
+    "  mut count: integer",
+    "end",
+    "local st: State = { count = " .. tostring(src:int(0, 5)) .. " }",
+    "local function maybe(): integer?",
+    "  st.count = st.count + 1",
+    "  if st.count % 3 == 0 then",
+    "    return nil",
+    "  end",
+    "  return st.count",
+    "end",
+    "local function node(): Node",
+    "  return { a = maybe(), leaf = { n = maybe() } }",
+    "end",
+    "local function empty(): Node",
+    "  return { a = nil, leaf = { n = nil } }",
+    "end",
+    "local function main(): integer",
+    "  local total = 0",
+    "  local a: integer? = maybe()",
+    "  local b: integer? = maybe()",
+    "  local r: Node = node()",
+    "  local s: Node = node()",
     table.concat(g.lines, "\n"),
     "  return total",
     "end",
@@ -402,6 +491,44 @@ local function check_locals(source: string): boolean, string
   end
   return false, "the checker took a program that fails at run time: " .. fault .. "\n--- program ---\n" .. source ..
     "\n--- lua ---\n" .. x.lua
+end
+
+--- Whether the checker narrowed a read of a path of fixed fields in the program that ran.
+local function narrowed_a_path(x: Programs.Execution): boolean
+  for _, n in ipairs(x.run.result.narrowed) do
+    if n.text:find(".", 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+local function check_fixed(source: string): boolean, string
+  local ok, why = check_locals(source)
+  if ok then
+    local x = Programs.execute(source, true)
+    if x.ran and narrowed_a_path(x) then
+      Fuzz.label("narrowed path read")
+    end
+    if x.ran and source:find("\n%s*[rs] = %a+%(%)\n") ~= nil then
+      Fuzz.label("replaced a record")
+    end
+  end
+  return ok, why
+end
+
+local function test_a_program_over_fixed_fields_the_flow_takes_does_not_fail_at_a_narrowed_path(tmp: string)
+  Fuzz.run({
+    name = "flow sound fixed fields",
+    dir = tmp,
+    -- Under 3 s with coverage; a replaced record is drawn so often that the mutant that stops it ending a test is found by
+    -- the 8th draw.
+    iters = iterations(24),
+    gen = gen_fixed,
+    check = check_fixed,
+    requires = { "accepted", "ran", "refused", "narrowed read", "narrowed path read", "replaced a record" },
+    shares = { accepted = 0.05, ["narrowed path read"] = 0.05 },
+  })
 end
 
 local function test_a_program_over_locals_the_flow_takes_does_not_fail_at_a_narrowed_read(tmp: string)
@@ -654,7 +781,7 @@ end
 
 --- A program of [`SHAPES_HEAD`] and some shapes.
 local function gen_shapes(src: Fuzz.Source): string
-  local g: Gen = { src = src, lines = {}, id = 0, fuel = 0, depth = 0, in_loop = false }
+  local g: Gen = { src = src, lines = {}, id = 0, fuel = 0, depth = 0, in_loop = false, fixed = false }
   for _ = 1, src:int(2, 5) do
     gen_shape(g)
   end
