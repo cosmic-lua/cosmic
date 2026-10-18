@@ -5,10 +5,17 @@
 --- `local Fs = require("cosmic.fs")`, is [`cosmic.fs.read`].
 ---
 --- The project's build is the one the stage found ([`source.View`]'s
---- `where`), so a hover looks at none of the project's own paths.
+--- `where`), so a hover looks at none of the project's own paths. A
+--- build writes its projection, `cosmic.db`, anew and puts it in place
+--- of the old by a rename ([`build.writer`]), and a handle on the old
+--- would read it forever: each time the docs are read, the device and
+--- inode of the file the projection's path names are compared with
+--- those of the one read, and the docs are opened again when they part.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local build_paths = require("build.paths")
 local docs = require("build.docs")
 local protocol = require("build.lsp.protocol")
 local source = require("build.lsp.source")
@@ -24,8 +31,10 @@ local record hover
     --- The tree's view of the working database, whose stage found what
     --- the root is.
     tree: source.View
-    --- The docs databases, once read.
+    --- The docs databases, once read, and the device and inode of the
+    --- projection among them ("" where there was none).
     sources: docs.Sources | nil
+    projection: string
     view: docs.View | nil
     --- Why the docs could not be read, once they were tried.
     view_trouble: string | nil
@@ -38,27 +47,56 @@ local type Docs = hover.Docs
 --- given.
 function hover.new(root: string, tree: source.View, store: {Sqlite.Handle} | nil,
                    err: function(line: string)): Docs
-  return { root = root, store = store, err = err, tree = tree, sources = nil, view = nil,
-    view_trouble = nil }
+  return { root = root, store = store, err = err, tree = tree, sources = nil, projection = "",
+    view = nil, view_trouble = nil }
 end
 
---- The docs databases, opened once.
+--- The device and inode of the projection of the build the stage found,
+--- or "" where there is none.
+local function projection_of(d: Docs): string
+  local where = d.tree.where
+  if where == nil then return "" end
+  local directory = where.directory
+  if directory == nil then return "" end
+  local st, _ = Fs.stat(build_paths.under(directory).projection)
+  if st == nil then return "" end
+  return tostring(st.dev) .. ":" .. tostring(st.ino)
+end
+
+--- Lets go of the databases the docs opened, and of the view of them.
+local function closed(d: Docs)
+  local sources = d.sources
+  if sources ~= nil then
+    for _, db in ipairs(sources.opened) do
+      local _, _ = db:close()
+    end
+  end
+  d.sources, d.view, d.view_trouble = nil, nil, nil
+end
+
+--- The docs databases, opened again where the projection's path names
+--- another file than the one they read: a build wrote it again.
 function hover.sources(d: Docs): docs.Sources
   local sources = d.sources
+  local projection = projection_of(d)
+  if sources ~= nil and projection ~= d.projection then
+    closed(d)
+    sources = nil
+  end
   if sources == nil then
     local where = d.tree.where
     local known: docs.Known | nil = nil
     if where ~= nil then known = { directory = where.directory, own_tree = where.own_tree } end
     sources = docs.databases(d.store or Store.databases(), d.root, known)
-    d.sources = sources
+    d.sources, d.projection = sources, projection
   end
   return sources
 end
 
---- The docs view, read once.
+--- The docs view, read once of the databases [`hover.sources`] answers.
 local function view_of(d: Docs): docs.View | nil
-  if d.view ~= nil or d.view_trouble ~= nil then return d.view end
   local sources = hover.sources(d)
+  if d.view ~= nil or d.view_trouble ~= nil then return d.view end
   local view, trouble = docs.view(sources.handles, sources.public)
   d.view = view
   d.view_trouble = trouble
@@ -127,13 +165,7 @@ end
 --- Lets go of the databases the docs opened, which are opened again when
 --- next read.
 function hover.close(d: Docs)
-  local sources = d.sources
-  if sources ~= nil then
-    for _, db in ipairs(sources.opened) do
-      local _, _ = db:close()
-    end
-  end
-  d.sources, d.view, d.view_trouble = nil, nil, nil
+  closed(d)
 end
 
 return hover

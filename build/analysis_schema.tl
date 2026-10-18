@@ -28,6 +28,34 @@ local record analysis_schema
   tables: {string}
 end
 
+--- Where a build reads no module from, as `GLOB` patterns of a path
+--- below the root: a site's static files, and the programs a `testdata`
+--- directory holds for other projects. The `inputs` view leaves the Teal
+--- there out, and [`build.derivation`] the templates.
+local apart <const>: {string} = { "static/*", "testdata/*", "*/testdata/*" }
+
+--- The SQL that holds the path in `column` outside every pattern of
+--- [`apart`], an `AND <column> NOT GLOB '<pattern>'` each.
+function analysis_schema.outside_apart(column: string): string
+  local out: {string} = {}
+  for _, pattern in ipairs(apart) do
+    out[#out + 1] = "AND " .. column .. " NOT GLOB '" .. pattern .. "'"
+  end
+  return table.concat(out, " ")
+end
+
+--- Whether a build reads the file `path`, a path below the root, as a
+--- module: Teal or a template, outside [`apart`], each
+--- pattern matched as `GLOB` matches it, its `*` any run of characters.
+function analysis_schema.is_module_file(path: string): boolean
+  if path:match("%.tl$") == nil and path:match("%.tmpl$") == nil then return false end
+  for _, pattern in ipairs(apart) do
+    local lua = "^" .. pattern:gsub("[%^%$%(%)%%%.%[%]%+%-%?]", "%%%0"):gsub("%*", ".*") .. "$"
+    if path:match(lua) ~= nil then return false end
+  end
+  return true
+end
+
 analysis_schema.tables = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
   "stubs", "globals",
@@ -56,9 +84,7 @@ analysis_schema.statements = {
              CAST(data AS TEXT) AS source,
              sha256 AS source_hash
         FROM files WHERE path GLOB '*.tl'
-          AND path NOT GLOB 'static/*'
-          AND path NOT GLOB 'testdata/*'
-          AND path NOT GLOB '*/testdata/*'
+          ]] .. analysis_schema.outside_apart("path") .. [[
       UNION ALL
       SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]],
   [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,

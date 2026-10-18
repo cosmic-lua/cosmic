@@ -132,6 +132,40 @@ local function test_a_rollback_mode_database_is_put_in_write_ahead_mode(tmp: str
   assert(journal_mode(path) == "wal", journal_mode(path))
 end
 
+--- A commit is in the file itself, not in its write-ahead log alone,
+--- while the run that made it keeps its handle open, as `cosmic test`
+--- does while its tests run: a reader of the file alone, as
+--- [`Store.attach`] opens it, reads it.
+local function test_a_commit_is_in_the_file_while_its_run_goes_on(tmp: string)
+  local handle = assert(work.open(tmp))
+  assert(Sqlite.run(handle.db, "INSERT INTO meta (key, value) VALUES ('marker', 'committed')"))
+  assert(work.commit(handle))
+  local alone = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { immutable = true }))
+  -- Without the copy into the file, it holds no table yet.
+  local rows = assert(Sqlite.text_rows(alone, "SELECT value FROM meta WHERE key = 'marker'"))
+  assert(alone:close())
+  assert(work.close(handle))
+  assert(#rows == 1 and assert(rows[1]):text(1) == "committed", tostring(#rows))
+end
+
+--- An open that waits for no run answers at once, with no handle, while
+--- another run holds the write lock, and opens the database once it is
+--- free.
+local function test_an_open_that_waits_for_no_run_finds_one_holding_it(tmp: string)
+  assert(work.close((assert(work.open(tmp)))))
+  local held = assert(Sqlite.open(build_dir(tmp) .. "/build.db", { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local started = Clock.monotonic_ns()
+  local busy = assert(work.try_open(tmp))
+  local took = Clock.monotonic_ns() - started
+  assert(busy.handle == nil, "opened while another run holds it")
+  assert(took < Clock.seconds(5), tostring(took) .. " ns")
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  local free = assert(work.try_open(tmp))
+  assert(work.close((assert(free.handle))))
+end
+
 --- A read of the working database answers at once, with the last
 --- commit, while a run holds its write transaction open with more
 --- written than its cache holds. In rollback mode that run's spill holds

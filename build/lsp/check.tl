@@ -20,16 +20,22 @@
 --- is answered from an open document, then the working database
 --- ([`build.lsp.source`]), then the binary's own `cosmic.*` modules.
 ---
+--- A file a build reads no module from ([`analysis_schema.is_module_file`]:
+--- a `testdata` directory's, a site's static files) publishes nothing,
+--- and an open one is no module a `require` reads.
+---
 --- A module served stays checked between checks, its type in the
 --- checker's `modules`, until what it would be served from changes: an
---- open document's text, or the stage. Then every module served is
---- checked again, since one that requires the changed one may change
---- with it. A document whose text has not changed since its last check,
---- with no module served dropped since, publishes what it published then.
+--- open document's text, the document closing, or the stage. Then every
+--- module served is checked again, since one that requires the changed
+--- one may change with it. A document whose text has not changed since
+--- its last check, with no module served dropped since, publishes what
+--- it published then.
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Template = require("cosmic.template")
+local analysis_schema = require("build.analysis_schema")
 local compilation = require("build.compilation")
 local graph = require("build.lsp.graph")
 local importer = require("build.importer")
@@ -122,13 +128,38 @@ function check.set_text(document: Document, text: string)
   document.hash = nil
 end
 
---- Makes `document` one a `require` reads, or one it no longer does.
+--- Makes `document` one a `require` reads, where it is a module a build
+--- reads ([`analysis_schema.is_module_file`]).
 function check.opened(checker: Checker, document: Document)
-  checker.open[document.name] = document
+  if analysis_schema.is_module_file(document.name) then checker.open[document.name] = document end
 end
 
+--- The SHA-256 of `document`'s text.
+local function hash_of(document: Document): string
+  local hash = document.hash
+  if hash == nil then
+    hash = Hash.hex_sha256(document.text)
+    document.hash = hash
+  end
+  return hash
+end
+
+--- Makes `document` one a `require` no longer reads. Where it stood for
+--- its file with another text, or other requires, than the stage's, what
+--- is served moves as for an edit: every other open document is to be
+--- checked again ([`check.moved`]), and its modules served are dropped
+--- at the next check ([`refresh`]).
 function check.closed(checker: Checker, document: Document)
-  if checker.open[document.name] == document then checker.open[document.name] = nil end
+  if checker.open[document.name] ~= document then return end
+  checker.open[document.name] = nil
+  local listed = source.module(checker.source, document.name)
+  if listed == nil then return end
+  local staged = checker.source.requires[listed.source_hash] or {}
+  if hash_of(document) ~= listed.source_hash or
+      table.concat(document.requires or staged, "\0") ~= table.concat(staged, "\0") then
+    checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  end
 end
 
 --- Stages the tree again before the next check: files changed on disk.
@@ -155,12 +186,7 @@ local function open_of(checker: Checker): source.Open
   return function(file: string): source.Text | nil
     local document = checker.open[file]
     if document == nil then return nil end
-    local hash = document.hash
-    if hash == nil then
-      hash = Hash.hex_sha256(document.text)
-      document.hash = hash
-    end
-    return { text = document.text, hash = hash }
+    return { text = document.text, hash = hash_of(document) }
   end
 end
 
@@ -405,6 +431,11 @@ end
 --- The diagnostics of `document`, each encoded, its positions counted in
 --- `encoding`'s units.
 function check.diagnose(checker: Checker, document: Document, encoding: string): {string}
+  if not analysis_schema.is_module_file(document.name) then
+    local none: {string} = {}
+    document.published = none
+    return none
+  end
   local built, env = prepared(checker)
   source.refresh(checker.source, built)
   refresh(checker, env)

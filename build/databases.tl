@@ -250,7 +250,7 @@ local function run(argv: {integer:string}): integer
     return 1
   end
   local root: string = absolute
-  local code = reboot.stale_exit(argv)
+  local code = reboot.stale_exit(argv, true)
   if code ~= nil then
     return code
   end
@@ -364,6 +364,7 @@ databases.spec = {
   tests = { "build.verbs_store_test" },
   run = run,
   bare = false,
+  reads = true,
   takes = "the sources whose rows to count",
 }
 

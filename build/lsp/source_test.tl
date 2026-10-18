@@ -1,8 +1,9 @@
 --- What a `require` reads in a `cosmic lsp` session ([`build.lsp.source`]):
 --- the working database the build stages, as it was staged, with an open
 --- document standing in for its file; a package's `init.tl`, a
---- declaration, a template; and the stage made again when the editor says
---- a file changed on disk, and only then.
+--- declaration, a template; the stage made again when the editor says a
+--- file changed on disk, and only then; which roots are staged; and the
+--- files a build reads no module from.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -10,6 +11,7 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local session_fixture = require("build.lsp.session_fixture")
+local work = require("build.work")
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
   session_fixture.close
@@ -58,16 +60,20 @@ local function test_a_closed_document_no_longer_shadows_the_file()
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
-  local runs = published(served(root, {
+  local ran = served(root, {
     initialize(root),
     open(root, "lib/shapes.tl", 'return { sides = "three" }\n'),
     open(root, "main.tl", main),
     close(root, "lib/shapes.tl"),
     change(root, "main.tl", main),
-  }))
-  assert(#runs == 4)
-  assert(#runs[2] == 1, "the open document is what main reads")
-  assert(#runs[4] == 0, "the file is, once the document closes: " .. messages_of(assert(runs[4])))
+  })
+  local sent = publications(ran)
+  assert(#sent == 5, tostring(#sent))
+  assert(counts(ran) == "0,1,0,0,0", counts(ran))
+  -- The close clears its own, and publishes main again, now the file's.
+  local closed, main_again = assert(sent[3]), assert(sent[4])
+  assert(closed.uri:sub(-14) == "/lib/shapes.tl", closed.uri)
+  assert(main_again.uri:sub(-8) == "/main.tl", main_again.uri)
 end
 
 local function test_a_save_stages_again_and_publishes_what_changed()
@@ -314,4 +320,55 @@ local function test_a_database_made_again_is_opened_again()
     end)
   assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
   assert(counts(ran) == "0,1", "the new file is read: " .. counts(ran))
+end
+
+--- A directory whose first build failed, which left the working database
+--- every build opens first but no projection, is a project, as `cosmic
+--- test` treats it: it is staged, and a document is held to what the
+--- build refuses, not told its modules are not found.
+local function test_a_root_whose_first_build_failed_is_staged()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  assert(work.close((assert(work.open(root)))))
+  local a = 'local b = require("b")\nreturn { b = b }\n'
+  assert(Fs.write(root .. "/a.tl", a))
+  assert(Fs.write(root .. "/b.tl", 'local a = require("a")\nreturn { a = a }\n'))
+  local ran = served(root, { initialize(root), open(root, "a.tl", a) })
+  assert(only(nth(ran, 1)).message == "a cycle of imports reaches a", messages_of(nth(ran, 1)))
+  assert(ran.tally.stages == 1, tostring(ran.tally.stages))
+  assert(ran.err:find("is no project", 1, true) == nil, ran.err)
+end
+
+--- A file a build reads no module from -- a `testdata` directory's, a
+--- site's static files -- publishes nothing, however wrong, and an open
+--- one is no module a `require` finds.
+local function test_a_file_a_build_reads_no_module_from_publishes_nothing()
+  local root = project()
+  local bad = 'local x: integer = "no"\nreturn x\n'
+  local ran = served(root, { initialize(root), open(root, "testdata/bad.tl", bad),
+    open(root, "lib/testdata/bad.tl", bad), open(root, "testdata/page.tmpl", "{{.nope"),
+    open(root, "static/page.tmpl", "{{.nope"),
+    open(root, "main.tl", 'local m = require("testdata.bad")\nreturn m\n') })
+  assert(counts(ran) == "0,0,0,0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 5)))
+  assert(only(nth(ran, 5)).message:find("testdata.bad", 1, true) ~= nil, messages_of(nth(ran, 5)))
+end
+
+--- Another run that derives the stubs again with another analyzer is
+--- seen at the session's next check, with no stage of its own: each
+--- module is then made here from its source.
+local function test_stubs_another_run_derived_are_trusted_no_more()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
+    { change(root, "main.tl", main .. "\n") } }, function(_after: integer)
+      local other = assert(Sqlite.open(working, { writable = true }))
+      assert(other:exec("UPDATE meta SET value = 'another' WHERE key = 'analyzer'"))
+      assert(other:close())
+    end)
+  assert(counts(ran) == "0,0", counts(ran))
+  assert(ran.tally.stages == 1 and ran.tally.database_stubs == 1 and ran.tally.made_stubs == 1,
+    tostring(ran.tally.stages) .. "," .. tostring(ran.tally.database_stubs) .. "," ..
+      tostring(ran.tally.made_stubs))
 end

@@ -21,6 +21,14 @@ local record verb_spec
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
+    --- True for a verb that only reads the tree's databases, and writes
+    --- nothing of its working database but what a lookup's own build
+    --- writes ([`rebuild.here`]): no staleness check before it
+    --- ([`reboot.stale_exit`]) waits for another run that holds that
+    --- database's write lock, which builds the same tree; the verb reads
+    --- what that run last committed. A verb that writes waits, as its
+    --- build would.
+    reads: boolean | nil
     --- False when, after the verb refuses its command line (exit 2),
     --- [`build/dispatch.tl`] does not ask whether a tool older than the
     --- tree refused an option the tree added, as it asks of other verbs:

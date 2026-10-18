@@ -81,20 +81,6 @@ local function edges_of(src: source.View, subject: Module, opened: {string:{stri
   return out
 end
 
---- Every module `from` reaches through `edges`, `from` among them.
-local function reached(edges: {string:{string}}, from: string): {string:boolean}
-  local seen: {string:boolean} = {}
-  local stack: {string} = { from }
-  while #stack > 0 do
-    local at = table.remove(stack)
-    if seen[at] == nil and edges[at] ~= nil then
-      seen[at] = true
-      for _, name in ipairs(edges[at]) do stack[#stack + 1] = name end
-    end
-  end
-  return seen
-end
-
 --- Every module that reaches `target` through `edges`: `target` too
 --- where it reaches itself.
 local function reaching(edges: {string:{string}}, target: string): {string:boolean}
@@ -123,31 +109,56 @@ local function reaching(edges: {string:{string}}, target: string): {string:boole
   return seen
 end
 
---- The cycle of imports through `subject`, worded as a build words it,
---- at the first of `requires` that closes it; nil where there is none.
---- The build's own [`compilation.ordered`] words it, over the modules
---- that both reach `subject` and are reached by it, `subject` first.
+--- The cycle of imports through `subject`, at the first of `requires`
+--- that closes it; nil where there is none. It is worded as the build
+--- words it, whichever document is checked: the build's own
+--- [`compilation.ordered`] over every module, in the build's order, by
+--- import path ([`compilation.collect`]).
 local function cycle(src: source.View, subject: Module, requires: {Require},
                      opened: {string:{string}}): Refusal | nil
   local edges = edges_of(src, subject, opened)
   local back = reaching(edges, subject.path)
   for _, at in ipairs(requires) do
     if back[at.name] == true then
-      local forward = reached(edges, subject.path)
-      local members: {Module} = { subject }
       local names: {string} = {}
-      for name in pairs(back) do
-        if forward[name] == true and name ~= subject.path then names[#names + 1] = name end
-      end
+      for name in pairs(edges) do names[#names + 1] = name end
       table.sort(names)
+      local members: {Module} = {}
       for _, name in ipairs(names) do
-        members[#members + 1] = module_of(name, name, "module", edges[name] or {})
+        local named = edges[name]
+        if named ~= nil then members[#members + 1] = module_of(name, name, "module", named) end
       end
       local _, why = compilation.ordered(members)
       return placed(why, at)
     end
   end
   return nil
+end
+
+--- The open documents, by file, that require the module the file
+--- `file` is, or a module that does, and so on; none where the stage
+--- lists no module of `file`. `opened` is what each open document
+--- required at its last check, by file; every other module's requires
+--- are the stage's.
+function graph.dependents(src: source.View, file: string, opened: {string:{string}}): {string}
+  local subject = src.files[file]
+  if subject == nil then return {} end
+  local target = subject.path
+  local back = reaching(edges_of(src, module_of(target, file, subject.kind,
+    opened[file] or src.requires[subject.source_hash] or {}), opened), target)
+  local out: {string} = {}
+  for other, requires in pairs(opened) do
+    local found = src.files[other]
+    local reaches = found ~= nil and found.path ~= target and back[found.path] == true
+    if found == nil then
+      for _, name in ipairs(requires) do
+        if name == target or back[name] == true then reaches = true end
+      end
+    end
+    if reaches then out[#out + 1] = other end
+  end
+  table.sort(out)
+  return out
 end
 
 --- What a build refuses of the `require`s `requires` of the document

@@ -14,7 +14,7 @@
 --- template's Teal), and an open document stands in for the file it
 --- is; a name the database does not list is not found, whatever is
 --- open. The binary's own `cosmic.*` modules are the checker's
---- ([`build.lsp.check`]). A root that is no project ([`rebuild.where`])
+--- ([`build.lsp.check`]). A root that is no project ([`rebuild.stage`])
 --- is never staged, as a lookup never starts a tree of its own: it has
 --- no modules but the binary's, and the session says so once.
 ---
@@ -34,18 +34,19 @@
 --- the one this session's own stage recorded deriving them (the `meta`
 --- row `analyzer`), or before one, the binary's
 --- ([`importer.analyzer_identity`]); otherwise, and for an open document,
---- it is made here from the text, once a text.
+--- it is made here from the text, once a text. Another run may derive
+--- the rows again with another analyzer at any time, so the row is read
+--- again at every refresh, and a module served is named by which of the
+--- two it was served as ([`source.key`]).
 ---
 --- Reading waits on no lock. The database is in write-ahead mode
 --- ([`work.open`]), so the read handle reads the last commit at once
 --- while another run holds the write lock for minutes (a `cosmic test`
---- compiling, say). Staging is a write, and waits for no other run either: where
---- another holds the write lock, the session says so, does not stage, and
---- answers from the tree as last committed; that run stages the same
---- tree, and its commit brings the database up to it. It stages again at
---- its next check. Once the lock is free it stages as a build does,
---- waiting, as [`work.open`] waits, only for a run that took the lock in
---- between.
+--- compiling, say). Staging is a write, and waits for no other run
+--- either ([`rebuild.stage`]): where another holds the write lock, the
+--- session says so, does not stage, and answers from the tree as last
+--- committed; that run stages the same tree, and its commit brings the
+--- database up to it. It stages again at its next check.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -206,23 +207,6 @@ local function identity_of(path: string): string
   return tostring(st.dev) .. ":" .. tostring(st.ino)
 end
 
---- Whether another run holds the write lock of the database at `path`
---- now: asked by taking it, and letting it go, without waiting. It
---- decides only whether to stage, never whether to read.
-local function busy(path: string): boolean
-  local there, _ = Fs.exists(path)
-  if there ~= true then return false end
-  local db, _ = Sqlite.open(path, { writable = true })
-  if db == nil then return false end
-  db:busy_timeout(0)
-  local begun = db:exec_result("BEGIN IMMEDIATE")
-  if begun.code == Sqlite.OK then
-    local _, _ = db:exec("ROLLBACK")
-  end
-  local _, _ = db:close()
-  return begun.code == Sqlite.BUSY
-end
-
 --- The read handle on the database, opened once there is one to open.
 --- It waits on no lock: in write-ahead mode a read never needs to. In
 --- rollback mode -- a file no run of this tool has opened since an
@@ -246,9 +230,20 @@ local function database(src: source.View): Sqlite.Handle | nil
   return opened
 end
 
+--- Reads whether the database's stubs are the running analyzer's: the
+--- one that derived them, where this session `staged` them.
+local function trusted(src: source.View, staged: boolean)
+  local db = database(src)
+  if db == nil then return end
+  local named, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'")
+  local recorded: string | nil = nil
+  if named ~= nil and #named > 0 then recorded = named[1]:text(1) end
+  if staged and recorded ~= nil then src.analyzer = recorded end
+  src.stubs = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
+end
+
 --- Reads the modules the database lists, what each requires, and
---- whether its stubs are the running analyzer's: the one that derived
---- them, where this session `staged` them.
+--- whether its stubs are the running analyzer's ([`trusted`]).
 local function listed(src: source.View, staged: boolean)
   local db = database(src)
   if db == nil then return end
@@ -282,11 +277,7 @@ local function listed(src: source.View, staged: boolean)
     end
   end
   src.modules, src.files, src.requires = modules, files, requires
-  local named, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'")
-  local recorded: string | nil = nil
-  if named ~= nil and #named > 0 then recorded = named[1]:text(1) end
-  if staged and recorded ~= nil then src.analyzer = recorded end
-  src.stubs = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
+  trusted(src, staged)
 end
 
 --- Takes what a stage found of the root.
@@ -301,57 +292,55 @@ local function adopt(src: source.View, where: rebuild.Where)
 end
 
 --- Opens the database again where the file its path names is no longer
---- the one the handle reads: a run made it again.
-local function reopened(src: source.View)
+--- the one the handle reads, a run having made it again, and reads what
+--- it lists; answers whether it did.
+local function reopened(src: source.View): boolean
   local db, path = src.db, src.working
-  if db == nil or path == nil then return end
+  if db == nil or path == nil then return false end
   local identity = identity_of(path)
-  if identity == "" or identity == src.identity then return end
+  if identity == "" or identity == src.identity then return false end
   local _, _ = db:close()
   src.db = nil
   src.tally.reopened = src.tally.reopened + 1
   listed(src, false)
+  return true
 end
 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
---- run made the database again. `built` parses what is new.
+--- run made the database again, and whether its stubs are the running
+--- analyzer's in any case. `built` parses what is new.
 function source.refresh(src: source.View, built: compiler)
-  reopened(src)
-  if not src.pending then return end
-  local where, trouble = rebuild.where(src.root)
-  if where == nil then
-    src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
-    src.pending = false
+  if not src.pending then
+    if not reopened(src) then trusted(src, false) end
     return
   end
-  adopt(src, where)
-  if not where.project then
+  reopened(src)
+  local staged, trouble = rebuild.stage(src.root, built)
+  if staged ~= nil then adopt(src, staged) end
+  if staged ~= nil and not staged.project then
     if not src.told_outside then
       src.err("cosmic: lsp: " .. src.root .. " is no project (not cosmic's tree, and no build " ..
-          "of it); not staging it, and answering from the binary's own cosmic.* modules only: " ..
-          "`cosmic build` there first to check its modules")
+          "was started there); not staging it, and answering from the binary's own cosmic.* " ..
+          "modules only: `cosmic test` there first to check its modules")
       src.told_outside = true
     end
     src.pending = false
     src.modules, src.files, src.requires = {}, {}, {}
     return
   end
-  local path = src.working
-  if path ~= nil and busy(path) then
+  if staged ~= nil and staged.busy then
     if not src.told then
-      src.err("cosmic: lsp: another cosmic run holds the write lock of " .. path ..
-          "; not staging, answering from the tree as last committed")
+      src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
+          tostring(src.working) .. "; not staging, answering from the tree as last committed")
       src.told = true
     end
     listed(src, false)
     return
   end
-  local staged, stage_trouble = rebuild.stage(src.root, built)
   if staged == nil then
-    src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. stage_trouble)
+    src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
   else
-    adopt(src, staged)
     src.tally.stages = src.tally.stages + 1
   end
   src.pending, src.told = false, false
@@ -371,13 +360,15 @@ function source.module(src: source.View, file: string): Module | nil
 end
 
 --- What names the text the module `name` would be served now: its file
---- and its source's hash, or "" when it is not found.
+--- and its text's hash, and, for one read from the database, whether as
+--- the stub the stage derived ([`source.View`]'s `stubs`); "" when it is
+--- not found.
 function source.key(src: source.View, name: string, open: source.Open): string
   local found = src.modules[name]
   if found == nil then return "" end
   local opened = open(found.file)
   if opened ~= nil then return found.file .. "\0" .. opened.hash end
-  return found.file .. "\0" .. found.source_hash
+  return found.file .. "\0" .. found.source_hash .. "\0" .. (src.stubs and "derived" or "made")
 end
 
 --- The stub made here of `text`, the file `file` whose SHA-256 is
@@ -457,7 +448,7 @@ function source.served(src: source.View, built: compiler, name: string,
   end
   local db = database(src)
   if db == nil then return nil end
-  local key = found.file .. "\0" .. found.source_hash
+  local key = source.key(src, name, open)
   if found.kind ~= "decl" and src.stubs then
     local stubbed = first(db, "SELECT text FROM stubs WHERE source_hash = ?1", found.source_hash)
     if stubbed ~= nil then return serving_as("database", stubbed, key) end

@@ -2,12 +2,15 @@
 --- ([`build.lsp.check`], [`build.lsp.graph`]): a `require` position
 --- refuses, a cycle of imports, a template, a global an earlier text
 --- declared, the wording of a refused type-only `require`, cosmic's own
---- tree's stubs, and the name a declaration is read under.
+--- tree's stubs, and the name a declaration is read under; and the other
+--- open documents a change or a close checks again
+--- ([`build.lsp.publish`]).
 
 local Fs = require("cosmic.fs")
 local session_fixture = require("build.lsp.session_fixture")
 
-local change, counts, edge = session_fixture.change, session_fixture.counts, session_fixture.edge
+local change, close, counts = session_fixture.change, session_fixture.close, session_fixture.counts
+local edge = session_fixture.edge
 local initialize, messages_of = session_fixture.initialize, session_fixture.messages_of
 local nth, only, open = session_fixture.nth, session_fixture.only, session_fixture.open
 local project, publications = session_fixture.project, session_fixture.publications
@@ -71,7 +74,9 @@ local function test_a_cycle_of_imports_is_refused_in_each_document_of_it()
     open(root, "b.tl", 'local a = require("a")\nreturn { a = a }\n') })
   local in_a, in_b = only(nth(first, 1)), only(nth(first, 2))
   assert(in_a.message == "a cycle of imports reaches a", in_a.message)
-  assert(in_b.message == "a cycle of imports reaches b", in_b.message)
+  -- Worded as the build words it, whichever document is checked: the
+  -- build visits modules by import path.
+  assert(in_b.message == "a cycle of imports reaches a", in_b.message)
   assert(edge(in_a, "start").character == 18, tostring(edge(in_a, "start").character))
   -- b no longer requires a: both documents are published again, clear.
   local after = publications(send({ change(root, "b.tl", "return {}\n") }))
@@ -157,4 +162,56 @@ local function test_a_declaration_is_read_under_its_own_name()
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(found.message:find("(inferred at " .. root .. "/lib/decl.d.tl:1:14)", 1, true) ~= nil, found.message)
+end
+
+--- Closing a document that stood for its file with another text checks
+--- the other open documents again: the cycle of imports it closed is gone
+--- with it.
+local function test_closing_an_unsaved_document_checks_the_others_again()
+  local root = project()
+  local a = 'local b = require("b")\nreturn { b = b }\n'
+  assert(Fs.write(root .. "/a.tl", a))
+  assert(Fs.write(root .. "/b.tl", 'local c = require("c")\nreturn { c = c }\n'))
+  assert(Fs.write(root .. "/c.tl", "return {}\n"))
+  local send = serving(root)
+  local first = send({ initialize(root), open(root, "a.tl", a),
+    open(root, "c.tl", 'local a = require("a")\nreturn { a = a }\n') })
+  assert(counts(first) == "0,1,1", counts(first))
+  assert(only(nth(first, 3)).message == "a cycle of imports reaches a", messages_of(nth(first, 3)))
+  local closed = publications(send({ close(root, "c.tl") }))
+  assert(#closed == 5, tostring(#closed))
+  local c, a_again = assert(closed[4]), assert(closed[5])
+  assert(c.uri:sub(-5) == "/c.tl" and #c.diagnostics == 0, c.uri)
+  assert(a_again.uri:sub(-5) == "/a.tl" and #a_again.diagnostics == 0, a_again.uri)
+end
+
+--- A change of an open module checks again the open documents that
+--- require it, once its own check is published, and so does closing it;
+--- changes read together are checked as their last.
+local function test_the_dependents_of_a_changed_or_closed_document_are_checked_again()
+  local root = project()
+  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
+  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
+    "return { twice = twice }\n"
+  assert(Fs.write(root .. "/helper.tl", integer))
+  local main = 'local helper = require("helper")\nlocal n: integer = helper.twice(2)\nreturn n\n'
+  local send = serving(root)
+  assert(counts(send({ initialize(root), open(root, "helper.tl", integer), open(root, "main.tl", main) })) ==
+      "0,0")
+  local changed = publications(send({ change(root, "helper.tl", text) }))
+  assert(#changed == 4, tostring(#changed))
+  local dependent = assert(changed[4])
+  assert(dependent.uri:sub(-8) == "/main.tl", dependent.uri)
+  assert(only(dependent.diagnostics).message:find("got string", 1, true) ~= nil,
+    messages_of(dependent.diagnostics))
+  local closed = publications(send({ close(root, "helper.tl") }))
+  assert(#closed == 6, tostring(#closed))
+  local cleared = assert(closed[6])
+  assert(cleared.uri:sub(-8) == "/main.tl" and #cleared.diagnostics == 0, cleared.uri)
+  -- Read together, a change and its undoing are one change, to the text
+  -- main was checked against: helper alone is published.
+  local again = serving(root)
+  again({ initialize(root), open(root, "helper.tl", integer), open(root, "main.tl", main) })
+  local undone = publications(again({ change(root, "helper.tl", text), change(root, "helper.tl", integer) }))
+  assert(#undone == 3, tostring(#undone))
 end

@@ -4,16 +4,16 @@
 ---
 --- What it answers:
 ---
---- - Diagnostics, published as a document is opened, changed or saved,
----   as [`build.lsp.check`] finds them.
+--- - Diagnostics, published as a document is opened, changed, saved or
+---   closed, as [`build.lsp.check`] finds them, with those of the other
+---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
 --- - Formatting: the whole document as `cosmic fix` writes it.
 ---
---- A save, or a change on disk the editor reports of a file it watches,
---- stages the tree again ([`build.lsp.source`]) and checks each open
---- document again. A check that finds a document requiring other
---- modules than before checks every other open document again too, which
---- a cycle of imports may now reach ([`check.moved`]). Where the editor
+--- The open documents that require one whose text changed are checked
+--- again once its own check is published, and only when no other change
+--- is already read and waiting: an editor typing sends a change at each
+--- key, and the last is the one to check them against. Where the editor
 --- takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
@@ -27,6 +27,7 @@ local bare = require("build.bare")
 local check = require("build.lsp.check")
 local hover = require("build.lsp.hover")
 local protocol = require("build.lsp.protocol")
+local publish = require("build.lsp.publish")
 local type importer = require("build.importer")
 
 local record session
@@ -57,6 +58,9 @@ local record session
     watch: boolean
     store: {Sqlite.Handle} | nil
     docs: hover.Docs
+    --- The open documents, by URI, whose text changed and whose
+    --- dependents are yet to be checked again.
+    due: {string:boolean}
   end
 end
 
@@ -102,6 +106,7 @@ function session.new(root: string, options?: session.Options): Session
     watch = false,
     store = given.store,
     docs = hover.new(root, checker.source, given.store, err),
+    due = {},
   }
   held[1] = made
   return made
@@ -204,43 +209,9 @@ local function watch_request(): string
     ',"method":"client/registerCapability","params":' .. assert(Json.encode(params)) .. "}"
 end
 
---- The publication of `document`'s diagnostics.
-local function published(s: Session, document: check.Document): string
-  return protocol.publication(document.uri, check.diagnose(s.checker, document, s.encoding))
-end
-
---- Stages the tree again, then publishes each open document's diagnostics
---- that changed: a document may require a file saved or changed on disk.
-local function republished(s: Session): {string}
-  check.stale(s.checker)
-  local out: {string} = {}
-  for _, document in pairs(s.documents) do
-    local before = document.published
-    local now = check.diagnose(s.checker, document, s.encoding)
-    if before == nil or table.concat(now, ",") ~= table.concat(before, ",") then
-      out[#out + 1] = protocol.publication(document.uri, now)
-    end
-  end
-  return out
-end
-
---- The publication of `document`'s diagnostics, then, where its check
---- found it requiring other modules than before, those of every other
---- open document that changed.
-local function published_with(s: Session, document: check.Document): {string}
-  local out: {string} = { published(s, document) }
-  if not check.moved(s.checker) then return out end
-  for _, other in pairs(s.documents) do
-    if other ~= document then
-      local before = other.published
-      local now = check.diagnose(s.checker, other, s.encoding)
-      if before == nil or table.concat(now, ",") ~= table.concat(before, ",") then
-        out[#out + 1] = protocol.publication(other.uri, now)
-      end
-    end
-  end
-  check.moved(s.checker)
-  return out
+--- What [`build.lsp.publish`] reads of `s`.
+local function open_of(s: Session): publish.Open
+  return { checker = s.checker, documents = s.documents, encoding = s.encoding }
 end
 
 --- What `message` asks: each message to send in answer, encoded, in
@@ -291,7 +262,7 @@ local function handle(s: Session, message: protocol.Message): {string}
     return out
   end
   if method == "workspace/didChangeWatchedFiles" then
-    return republished(s)
+    return publish.restaged(open_of(s))
   end
   if method:sub(1, #"textDocument/") ~= "textDocument/" then
     if is_request then
@@ -309,28 +280,37 @@ local function handle(s: Session, message: protocol.Message): {string}
   if method == "textDocument/didOpen" then
     local document = document_of(s, params, params.textDocument.text)
     if document ~= nil then
-      for _, publication in ipairs(published_with(s, document)) do out[#out + 1] = publication end
+      for _, publication in ipairs(publish.with(open_of(s), document)) do
+        out[#out + 1] = publication
+      end
     end
   elseif method == "textDocument/didChange" then
     -- The server asked for whole texts, so the last is the document.
     local none: {protocol.ContentChange} = {}
     local changes = params.contentChanges or none
     local last = changes[#changes]
+    local held = s.documents[params.textDocument.uri]
+    local before = ""
+    if held ~= nil then before = held.text end
     if last ~= nil then
       local document = document_of(s, params, last.text)
       if document ~= nil then
-        for _, publication in ipairs(published_with(s, document)) do out[#out + 1] = publication end
+        for _, publication in ipairs(publish.with(open_of(s), document)) do
+          out[#out + 1] = publication
+        end
+        if held == nil or document.text ~= before then s.due[document.uri] = true end
       end
     end
   elseif method == "textDocument/didSave" then
-    for _, publication in ipairs(republished(s)) do out[#out + 1] = publication end
+    for _, publication in ipairs(publish.restaged(open_of(s))) do out[#out + 1] = publication end
   elseif method == "textDocument/didClose" then
     local document = document_of(s, params)
     if document ~= nil then
+      s.due[document.uri] = nil
       s.documents[document.uri] = nil
-      check.closed(s.checker, document)
-      local cleared: {string} = {}
-      out[#out + 1] = protocol.publication(document.uri, cleared)
+      for _, publication in ipairs(publish.closed(open_of(s), document)) do
+        out[#out + 1] = publication
+      end
     end
   elseif method == "textDocument/hover" then
     local found = hovered(s, params)
@@ -408,6 +388,40 @@ local function latest(frames: protocol.Frames, ahead: Ahead, body: string): stri
   end
 end
 
+--- Whether the next message, read already, changes a document: the
+--- dependents of a document changed before wait for it.
+local function change_ahead(frames: protocol.Frames, ahead: Ahead): boolean
+  local body = ahead.body
+  if body == nil then
+    body = frames:buffered()
+    ahead.body = body
+  end
+  return body ~= nil and changed_uri(body) ~= nil
+end
+
+--- The publications of the dependents of each document whose text
+--- changed ([`publish.dependents`]), once no change is read and waiting.
+local function dependents_due(s: Session, frames: protocol.Frames, ahead: Ahead): {string}
+  local out: {string} = {}
+  if next(s.due) == nil or change_ahead(frames, ahead) then return out end
+  local uris: {string} = {}
+  for uri in pairs(s.due) do uris[#uris + 1] = uri end
+  table.sort(uris)
+  s.due = {}
+  for _, uri in ipairs(uris) do
+    local document = s.documents[uri]
+    if document ~= nil then
+      local ok, found = pcall(publish.dependents, open_of(s), document)
+      if ok then
+        for _, publication in ipairs(found) do out[#out + 1] = publication end
+      else
+        s.err("cosmic: lsp: " .. tostring(found))
+      end
+    end
+  end
+  return out
+end
+
 --- [`session.serve`]'s loop: its exit status.
 local function served(s: Session, frames: protocol.Frames,
                       write: function(text: string): boolean, string): integer
@@ -424,7 +438,11 @@ local function served(s: Session, frames: protocol.Frames,
       if s.shut_down then return 0 end
       return 1
     end
-    for _, answer in ipairs(answers(s, latest(frames, ahead, body))) do
+    local sending = answers(s, latest(frames, ahead, body))
+    for _, publication in ipairs(dependents_due(s, frames, ahead)) do
+      sending[#sending + 1] = publication
+    end
+    for _, answer in ipairs(sending) do
       local sent, why = write(protocol.frame(answer))
       if not sent then
         s.err("cosmic: lsp: " .. why)

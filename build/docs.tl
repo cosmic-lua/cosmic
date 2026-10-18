@@ -2606,7 +2606,7 @@ local function run(argv: {integer:string}): integer
     log:complain("docs: " .. parse_trouble)
     return 2
   end
-  local exit = reboot.stale_exit(argv)
+  local exit = reboot.stale_exit(argv, true)
   if exit ~= nil then
     return exit
   end
@@ -2655,7 +2655,7 @@ local function run_uses(argv: {integer:string}): integer
         "or which file (doc/writing.md, doc/writing.md#heading)")
     return 2
   end
-  local exit = reboot.stale_exit(argv)
+  local exit = reboot.stale_exit(argv, true)
   if exit ~= nil then
     return exit
   end
@@ -2712,6 +2712,7 @@ docs.spec = {
   tests = { "build.docs_test" },
   run = function(argv: {integer:string}): integer return run(argv) end,
   bare = false,
+  reads = true,
   takes = "words to search for",
 }
 
@@ -2723,6 +2724,7 @@ docs.uses_spec = {
   tests = { "build.docs_test" },
   run = run_uses,
   bare = false,
+  reads = true,
   takes = "paths after its symbol",
 }
 

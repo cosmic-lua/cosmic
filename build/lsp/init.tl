@@ -20,8 +20,10 @@
 --- remove. A command line it refuses exits 2.
 ---
 --- Its `spec` (build/verb_spec.tl) is `bare`, since standard output is
---- the protocol's, and `fresh`: in cosmic's own tree a tool older than the
---- tree rebuilds itself first, as `docs` does. Complaints go to standard
+--- the protocol's, `fresh`: in cosmic's own tree a tool older than the
+--- tree rebuilds itself first, as `docs` does, and `reads`: where another
+--- run holds the working database, which builds the same tree, it starts
+--- at once, and checks nothing of the tool. Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
 local Cli = require("cosmic.cli")
@@ -249,6 +251,7 @@ lsp.spec = {
   -- tool in this process, as [`build.reboot`] does, keeping the editor's stream
   -- and handing it the session's root, encoding and open documents.
   fresh = true,
+  reads = true,
   recheck_on_refusal = nil,
   summarizes_failure = nil,
   program_slot = nil,

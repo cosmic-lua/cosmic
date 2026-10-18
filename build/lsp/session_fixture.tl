@@ -122,7 +122,7 @@ local function copied(tally: source.Tally): source.Tally
 end
 
 --- Makes the directory `root` a project to a session, as one a build has
---- been made of is ([`rebuild.where`]): its build directory holds a
+--- been made of is ([`rebuild.stage`]): its build directory holds a
 --- projection, here an empty one, which docs leave out
 --- ([`docs.databases`]). Answers `root`.
 function session_fixture.made_project(root: string): string
@@ -183,9 +183,10 @@ function Batches:skip(n: integer): boolean, string
 end
 
 --- What one session at `root`, served `batches` of messages in one
---- stream, answers, `between` called after each batch but the last.
+--- stream, answers, `between` called after each batch but the last,
+--- reading docs from `store` when given.
 function session_fixture.served_between(root: string, batches: {{string}},
-                                        between: function(after: integer)): Ran
+                                        between: function(after: integer), store?: {Sqlite.Handle}): Ran
   local framed: {string} = {}
   for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
   local reader: Batches = setmetatable({ batches = framed, following = 1, rest = "", between = between },
@@ -194,7 +195,7 @@ function session_fixture.served_between(root: string, batches: {{string}},
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
-    store = nil,
+    store = store,
   })
   local code = session.serve(s, reader, function(text: string): boolean, string
     wrote[#wrote + 1] = text

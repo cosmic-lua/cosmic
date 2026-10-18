@@ -11,6 +11,7 @@ local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local build_paths = require("build.paths")
 local docs_fixture = require("build.docs_fixture")
 local session = require("build.lsp.session")
 local session_fixture = require("build.lsp.session_fixture")
@@ -131,6 +132,33 @@ local function test_hover_shows_the_docs_of_a_required_symbol()
   assert(value:find("cosmic.fs.read", 1, true) ~= nil and value:find("Reads the whole of a file.", 1, true) ~= nil,
     value)
   assert(hovered(ran, 3) == nil, "a name nothing documents")
+end
+
+--- A build writes the projection anew and renames it into place: a
+--- hover reads the docs of the one there now, not the one it read first.
+local function test_hover_reads_the_projection_a_build_wrote_again()
+  local root = session_fixture.project()
+  local projection = build_paths.under((assert(build_paths.directory(root)))).projection
+  --- Writes, as the build does, a projection whose `lib.shapes.area` says `word`.
+  local function built(word: string)
+    local scratch = assert(Fs.mkdtemp("cosmic-lsp-docs-"))
+    local db = docs_fixture.database(scratch, { ["lib/shapes.tl"] = "--- Shapes.\nlocal record shapes\nend\n\n" ..
+        "--- " .. word .. " words.\nfunction shapes.area(): integer\n  return 1\nend\n\nreturn shapes\n" })
+    -- One file, whole, as a build's projection is.
+    assert(db:exec("VACUUM INTO '" .. scratch .. "/whole.db'"))
+    assert(db:close())
+    assert(Fs.rename(scratch .. "/whole.db", projection))
+  end
+  built("First")
+  local text = 'local shapes = require("lib.shapes")\nlocal _ = shapes.area\nreturn shapes\n'
+  local ran = session_fixture.served_between(root, {
+    { initialize(root), open(root, "main.tl", text), at(2, "textDocument/hover", root, "main.tl", 1, 18) },
+    { at(3, "textDocument/hover", root, "main.tl", 1, 18) },
+  }, function(_after: integer) built("Second") end, {})
+  local first = assert(hovered(ran, 2), ran.err)
+  assert(first:find("First words.", 1, true) ~= nil, first)
+  local second = assert(hovered(ran, 3), ran.err)
+  assert(second:find("Second words.", 1, true) ~= nil, second)
 end
 
 local function test_hover_counts_utf16_units_before_the_cursor()

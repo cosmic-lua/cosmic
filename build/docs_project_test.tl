@@ -5,8 +5,10 @@
 --- tests of the verbs' contract (build/verbs_store_test.tl) stand while
 --- the build's cache is out of their keys.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local invoke = require("build.invoke")
@@ -115,4 +117,41 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   for _ in result.stdout:gmatch(": link cosmic%.fs read\n") do linked = linked + 1 end
   local page = docs_in(project, "cosmic.fs.read")
   assert(page:find("linked from " .. linked .. ";", 1, true), linked .. " links listed:\n" .. page)
+end
+
+--- While another run holds the project's working database, as a `cosmic
+--- test` does through its build, `docs` and `uses` wait for it no more
+--- than to find it held: they answer from what it last committed, and
+--- say so once.
+local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local function module(word: string): string
+    return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
+      "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+  end
+  assert(Fs.write(project .. "/thing.tl", module("First")))
+  local built = cosmic(project, { "build" })
+  assert(built.code == 0, built.stdout .. built.stderr)
+  assert(Fs.write(project .. "/thing.tl", module("Second")))
+  local held = assert(Sqlite.open(build_paths.required(project) .. "/build.db", { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  for _, words in ipairs({ { "docs", "thing" }, { "uses", "cosmic.fs.read" } }) do
+    local started = Clock.monotonic_ns()
+    local result = cosmic(project, words)
+    local took = Clock.monotonic_ns() - started
+    assert(result.code == 0, result.stdout .. result.stderr)
+    assert(took < Clock.seconds(10), words[1] .. " took " .. tostring(took) .. " ns")
+    -- Said once a process, and both run in this one ([`build.invoke`]).
+    local _, told = result.stderr:gsub("not waiting for it", "")
+    assert(told == (words[1] == "docs" and 1 or 0), result.stderr)
+    if words[1] == "docs" then
+      assert(result.stdout:find("First words.", 1, true), result.stdout)
+    else
+      assert(result.stdout:find("thing.tl:", 1, true), result.stdout)
+    end
+  end
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(docs_in(project, "thing"):find("Second words.", 1, true))
 end
