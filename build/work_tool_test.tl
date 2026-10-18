@@ -52,9 +52,9 @@ end
 --- A build of `tmp` started beside this process running `script`, once
 --- it has said that it waits for another run's lock, which it says once
 --- it has waited a second; and what it said on stderr until then, or till
---- it ended.
-local function waiting(tmp: string, script: string): Child.Handle, string
-  local started = this_program.program({ "-e", script }, { cwd = tmp,
+--- it ended. `env`, where given, is its whole environment.
+local function waiting(tmp: string, script: string, env?: {string:string}): Child.Handle, string
+  local started = this_program.program({ "-e", script }, { cwd = tmp, env = env,
     stdout = "capture", stderr = "stream", timeout_ns = Clock.seconds(60) })
   local child = assert(Child.start(started.argv, started.options))
   local said = ""
@@ -199,6 +199,35 @@ local function test_a_build_waits_for_the_rebuild_lock_before_removing_a_file_of
   local schema = result.stdout or ""
   assert(result.ok, said .. schema)
   assert(schema ~= "another" and schema ~= "gone", "the file was not made again: " .. schema)
+end
+
+--- A build handed the checkout's rebuild lock by the run that holds it,
+--- as a boot is by the stale tool that starts it (build/zig.tl), makes a
+--- file of another schema again under that hold. Were it to wait for
+--- the lock instead, it would wait for its own parent, which waits for
+--- it: this test stops it the moment it says it waits.
+local function test_a_build_handed_the_rebuild_lock_makes_a_file_of_another_schema_again(tmp: string)
+  local path = of_another_schema(tmp)
+  -- Held here as a stale tool holds it while its boot runs.
+  assert(rebuild_lock.take(tmp, 0, "rebuild") == "held")
+  local child, said = waiting(tmp, opening_script(tmp),
+    rebuild_lock.hand(this_program.environment(), tmp))
+  local waited = said:find("waiting for it", 1, true) ~= nil
+  if waited then
+    local _, _ = child:stop()
+  end
+  local result, trouble = child:wait(Clock.seconds(60))
+  rebuild_lock.release()
+  assert(not waited, "the handed build waited for its parent's lock: " .. said)
+  assert(result ~= nil, tostring(trouble))
+  local schema = result.stdout or ""
+  assert(result.ok, said .. schema)
+  assert(schema ~= "" and schema ~= "another" and schema ~= "gone",
+    "the file was not made again: " .. schema)
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+  assert(db:close())
+  assert(assert(rows[1]):text(1) == schema, "the file at the path is not the one made again")
 end
 
 --- A build that waits for the write lock to put a file in write-ahead
