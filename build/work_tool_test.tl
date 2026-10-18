@@ -7,6 +7,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
@@ -87,7 +88,12 @@ local function test_a_build_waits_for_the_lock_before_removing_a_file_of_another
   local schema = result.stdout or ""
   assert(result.ok, said .. schema)
   assert(schema ~= "" and schema ~= "another", "the file of another schema was kept: " .. schema)
-  assert(assert(Fs.stat(path)).ino ~= before, "the file was not made again")
+  -- By its schema, not its inode, which a file made at once after the
+  -- old one is removed may be given again.
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+  assert(db:close())
+  assert(assert(rows[1]):text(1) == schema, "the file was not made again")
 end
 
 --- Two builds that both wait for the lock on a file of another schema
@@ -116,6 +122,62 @@ local function test_two_builds_waiting_on_a_file_of_another_schema_remove_it_onc
   assert(db:close())
   local runs = assert(rows[1]):text(1)
   assert(runs == "2", "the file the first build made was removed: its runs are " .. runs)
+end
+
+--- A script that opens `tmp`'s working database as a build does, and
+--- prints the schema the file at its path records once the build has
+--- closed it, or "gone" where there is none.
+local function opening_script(tmp: string): string
+  return 'local work = require("build.work"); local Sqlite = require("cosmic.sqlite"); ' ..
+    'local Fs = require("cosmic.fs"); ' ..
+    'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')); ' ..
+    'local path = handle.dir .. "/build.db"; assert(work.close(handle)); ' ..
+    'if not Fs.exists(path) then assert(Fs.put(1, "gone")) return end; ' ..
+    'local db = assert(Sqlite.open(path)); ' ..
+    'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'schema\'")); ' ..
+    'assert(db:close()); assert(Fs.put(1, rows[1]:text(1)))'
+end
+
+--- A build granted the write lock on a file another run removed while it
+--- waited opens the file at the path anew: building in the removed one,
+--- unlinked, it would lose its run and still pass.
+local function test_a_build_granted_the_lock_on_a_removed_file_opens_the_path_anew(tmp: string)
+  local made = assert(work.open(tmp))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local child, said = waiting(tmp, opening_script(tmp))
+  assert(Fs.remove(path))
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  local result = assert(child:wait(Clock.seconds(60)))
+  assert(said:find("waiting for it", 1, true), "the build did not wait for the lock: " .. said)
+  local schema = result.stdout or ""
+  assert(result.ok, said .. schema)
+  assert(schema ~= "gone", "the build ran in the removed file")
+end
+
+--- A build that waits for the lock on a fresh file another tool is
+--- making and stamping with its own schema finds that schema once the
+--- lock is granted, and makes the file again: its own stamp, which keeps
+--- a schema there is, would otherwise leave it building under another's.
+local function test_a_build_makes_again_a_fresh_file_another_tool_stamped_while_it_waited(tmp: string)
+  local path = build_paths.under((assert(build_paths.prepare(tmp)))).working
+  local other = assert(Sqlite.open(path, { writable = true }))
+  assert(Sqlite.text_rows(other, "PRAGMA journal_mode = WAL"))
+  assert(other:exec("BEGIN IMMEDIATE"))
+  assert(other:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL) WITHOUT ROWID"))
+  assert(other:exec("INSERT INTO meta (key, value) VALUES ('schema', 'another')"))
+  local child, said = waiting(tmp, opening_script(tmp))
+  assert(other:exec("COMMIT"))
+  assert(other:close())
+  local result = assert(child:wait(Clock.seconds(60)))
+  assert(said:find("waiting for it", 1, true), "the build did not wait for the lock: " .. said)
+  local schema = result.stdout or ""
+  assert(result.ok, said .. schema)
+  assert(schema ~= "" and schema ~= "another" and schema ~= "gone",
+    "the build kept another tool's schema: " .. schema)
 end
 
 --- A warmed compiled source cannot hide a rewrite behind a normalized mtime.

@@ -199,18 +199,22 @@ function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, stri
   return found, ""
 end
 
---- Builds the project in the working directory, as `project` does, for
---- the verb `verb`, which names itself in what it says: a lookup's,
---- which waits for no other run. With `start`, it builds one no build
---- has been made of yet too, and waits for another run as a build does:
---- `cosmic fix`, which stages and compiles the directory to check it
---- whatever it holds ([`build.fix.spill`]), so that what its links name
---- is the tree as it stands rather than whatever an earlier `cosmic test`
---- left.
-function rebuild.here(verb: string, start?: boolean): boolean, string
-  local root, trouble = Fs.absolute(".")
-  if root == nil then return false, trouble end
-  return project(root, verb, start == true)
+--- Builds the project at `root`, the working directory by default, as
+--- `project` does, for the verb `verb`, which names itself in what it
+--- says: a lookup's, which waits for no other run. With `start`, it
+--- builds one no build has been made of yet too, and waits for another
+--- run as a build does: `cosmic fix`, which stages and compiles the
+--- directory to check it whatever it holds ([`build.fix.spill`]), so
+--- that what its links name is the tree as it stands rather than
+--- whatever an earlier `cosmic test` left.
+function rebuild.here(verb: string, start?: boolean, root?: string): boolean, string
+  local at = root
+  if at == nil then
+    local found, trouble = Fs.absolute(".")
+    if found == nil then return false, trouble end
+    at = found
+  end
+  return project(at, verb, start == true)
 end
 
 return rebuild

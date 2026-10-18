@@ -748,8 +748,12 @@ end
 --- which writes a newer tool. This check is skipped, said once on stderr
 --- ([`work.tell_busy`]), and the verb goes on with this binary's code,
 --- stale or not, reading what that run last committed, which a newer
---- tool may have written. Where the lock is free, the check is as for
---- any verb. A verb that writes waits for the lock, as its build would.
+--- tool may have written. A database of another schema whose lock is
+--- held is skipped so too, said as [`work.tell_other_schema`] says.
+--- Where the lock is free, the check is as for any verb, a database of
+--- another schema made again as a build makes it
+--- ([`work.try_open_remaking`]). A verb that writes waits for the lock,
+--- as its build would.
 ---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tree is not cosmic's own
@@ -783,7 +787,7 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
   end
   local handle: work.Handle
   if reads == true then
-    local tried, try_trouble = work.try_open(at)
+    local tried, try_trouble = work.try_open_remaking(at)
     if tried == nil then
       log:complain(try_trouble)
       return 1

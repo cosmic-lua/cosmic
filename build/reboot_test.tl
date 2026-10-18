@@ -5,6 +5,7 @@ local Store = require("cosmic.store")
 local type Log = require("cosmic.log")
 local paths = require("build.paths")
 local reboot = require("build.reboot")
+local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local logger = require("build.logger")
@@ -26,6 +27,22 @@ local function tree_with_zig(tmp: string, status: integer): string
   assert(stand_in.place(probe, root .. "/bin/zig",
     "write $DIR/ran $@\nprint built\nexit " .. tostring(status)))
   return root
+end
+
+--- What `run` answers, as text, and what the logger is given to
+--- complain of while it runs, a line each.
+local function complaints(run: function(): string): string, string
+  local said: {string} = {}
+  local log = logger.log
+  local complain = log.complain
+  log.complain = function(_: Log.Logger, line: string): boolean, string
+    table.insert(said, line)
+    return true, ""
+  end
+  local ran, answer = pcall(run)
+  log.complain = complain
+  assert(ran, tostring(answer))
+  return tostring(answer), table.concat(said, "\n")
 end
 
 --- A boot that fails is reported, not re-entered.
@@ -110,19 +127,11 @@ end
 --- would otherwise be lost to the boot's own trouble.
 local function test_rebuild_failed_says_the_compile_failure_of_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
-  local said: {string} = {}
-  local log = logger.log
-  local complain = log.complain
-  log.complain = function(_: Log.Logger, line: string): boolean, string
-    table.insert(said, line)
-    return true, ""
-  end
-  local ran, code = pcall(reboot.rebuild_failed, root, { [0] = "cosmic", "test" },
-    "checker: T (unresolved generic)", true, {})
-  log.complain = complain
-  assert(ran, tostring(code))
-  assert(code == 3, tostring(code))
-  local all = table.concat(said, "\n")
+  local code, all = complaints(function(): string
+    return tostring(reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+      "checker: T (unresolved generic)", true, {}))
+  end)
+  assert(code == "3", code)
   assert(all:find("checker: T (unresolved generic)", 1, true), all)
   assert(all:find("bin/zig build boot failed", 1, true), all)
 end
@@ -270,4 +279,83 @@ local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lo
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
   assert(db:close())
   assert(#rows == 1, "the tree is staged")
+end
+
+--- The working database of a tree like cosmic's own at `tmp`, made and
+--- then stamped with another schema, as another tool's would be: its path.
+local function own_tree_of_another_schema(tmp: string): string
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
+  local made = assert(work.open(tmp))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  return path
+end
+
+--- Where no run holds a working database of another schema, the check
+--- before a verb that only reads is the check before any verb: it makes
+--- the file again as a build does, stages the tree and holds the tool to
+--- it, so a stale tool rebuilds rather than going on with its own code.
+--- The test runner's tool is not the tree's own ([`reboot.own_tool`]),
+--- so it refuses.
+local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_over_a_free_database_of_another_schema(tmp: string)
+  local path = own_tree_of_another_schema(tmp)
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  assert(code == 3, tostring(code))
+  local db = assert(Sqlite.open(path))
+  local schema = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
+  assert(db:close())
+  assert(assert(schema[1]):text(1) ~= "another", "the file of another schema was kept")
+  assert(#rows == 1, "the tree is staged")
+end
+
+--- Where another run holds a working database of another schema, the
+--- check before a verb that only reads is skipped, and says the file is
+--- of another schema, which the verb then reads none of, rather than that
+--- it reads what that run last committed. The file is left where it is.
+local function test_a_reading_verbs_check_says_a_held_database_is_of_another_schema(tmp: string)
+  local path = own_tree_of_another_schema(tmp)
+  local before = assert(Fs.stat(path)).ino
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local code, all = complaints(function(): string
+    return tostring(reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp))
+  end)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == "nil", code)
+  assert(all:find("docs: " .. path .. " is of schema another", 1, true), all)
+  assert(not all:find("reading what it last committed", 1, true), all)
+  assert(assert(Fs.stat(path)).ino == before, "the file was removed")
+end
+
+--- A lookup's own build ([`rebuild.here`]) that finds the working
+--- database of another schema builds nothing in it, writes no projection
+--- and leaves the file where it is, saying it is of another schema rather
+--- than that another run holds it. Here, beside the check before the
+--- lookup, which says the same.
+local function test_a_lookups_build_leaves_a_database_of_another_schema(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.close(made))
+  assert(Fs.write(root .. "/a.tl", "return {}\n"))
+  local layout = paths.resolve(root)
+  local before = assert(Fs.stat(layout.working)).ino
+  local _, all = complaints(function(): string
+    local built, trouble = rebuild.here("docs", false, root)
+    assert(built, trouble)
+    return trouble
+  end)
+  assert(all:find("docs: " .. layout.working .. " is of schema another", 1, true), all)
+  assert(assert(Fs.stat(layout.working)).ino == before, "the file was removed")
+  assert(Fs.exists(layout.projection) == false, "a projection was written")
+  local db = assert(Sqlite.open(layout.working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
+  assert(db:close())
+  assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
 end

@@ -139,9 +139,10 @@ local record source
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     pending: boolean
-    --- Whether the session has said the database is busy, or of another
-    --- schema, since it last staged.
-    told: boolean
+    --- Whether the session has said the database is busy, and whether
+    --- of another schema, each since it last staged.
+    told_busy: boolean
+    told_other: boolean
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     made: {string:string}
@@ -191,7 +192,8 @@ function source.new(root: string, err: function(line: string)): source.View
     stubs = false,
     analyzer = nil,
     pending = true,
-    told = false,
+    told_busy = false,
+    told_other = false,
     made = {},
     tally = tally,
     err = err,
@@ -360,20 +362,20 @@ function source.refresh(src: source.View, built: compiler)
   if staged ~= nil and (not staged.project or other ~= nil) then
     src.pending = other ~= nil
     src.modules, src.files, src.requires = {}, {}, {}
-    if other == nil then return end
-  end
-  if staged ~= nil and (staged.busy or other ~= nil) then
-    if not src.told then
-      local said = "another cosmic run holds the write lock of " .. tostring(src.working) ..
-        "; not staging, answering from the tree as last committed"
-      if other ~= nil then
-        said = tostring(src.working) .. " is of schema " .. other .. ", another tool's; not " ..
-          "staging or reading it until a `cosmic test` of this tool makes it again"
-      end
-      src.err("cosmic: lsp: " .. said)
-      src.told = true
+    if other ~= nil and not src.told_other then
+      src.err("cosmic: lsp: " .. tostring(src.working) .. " is of schema " .. other ..
+          ", another tool's; not staging or reading it until a `cosmic test` of this tool makes it again")
+      src.told_other = true
     end
-    if other == nil then listed(src, false) end
+    return
+  end
+  if staged ~= nil and staged.busy then
+    if not src.told_busy then
+      src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
+          tostring(src.working) .. "; not staging, answering from the tree as last committed")
+      src.told_busy = true
+    end
+    listed(src, false)
     return
   end
   if staged == nil then
@@ -381,7 +383,7 @@ function source.refresh(src: source.View, built: compiler)
   else
     src.tally.stages = src.tally.stages + 1
   end
-  src.pending, src.told = false, false
+  src.pending, src.told_busy, src.told_other = false, false, false
   listed(src, staged ~= nil)
 end
 

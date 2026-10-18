@@ -11,6 +11,8 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local session_fixture = require("build.lsp.session_fixture")
+local source = require("build.lsp.source")
+local teal = require("build.teal")
 local work = require("build.work")
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
@@ -250,6 +252,59 @@ local function test_a_database_of_another_schema_is_neither_staged_nor_read()
   local ran = send({ change(root, "main.tl", main .. "\n") })
   assert(counts(ran) == "0,1,1", "staged once made again: " .. counts(ran))
   assert(messages_of(nth(ran, 3)):find("got string", 1, true), messages_of(nth(ran, 3)))
+end
+
+--- Stamps the working database at `path` with another schema, through
+--- `db` where given, else a handle of its own.
+local function stamp_another(path: string, db?: Sqlite.Handle)
+  local handle = db or assert(Sqlite.open(path, { writable = true }))
+  assert(handle:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  if db == nil then assert(handle:close()) end
+end
+
+--- Whether `src` holds a read handle on the database.
+local function holds(src: source.View): boolean
+  return src.db ~= nil
+end
+
+--- A session that finds the working database of another schema lets go
+--- of the handle it read it through: a handle kept would be one on
+--- another tool's file, from which a later read reads that tool's rows.
+local function test_a_database_of_another_schema_is_let_go_of()
+  local root = project()
+  local src = source.new(root, function(_: string) end)
+  local built = assert(teal.load())
+  source.refresh(src, built)
+  assert(holds(src), "the database is not read")
+  stamp_another(assert(src.working))
+  source.stale(src)
+  source.refresh(src, built)
+  assert(not holds(src), "a handle on a database of another schema is kept")
+  source.close(src)
+end
+
+--- A session that has said the database is busy still says when it then
+--- finds it of another schema: each is said once, apart.
+local function test_a_busy_database_found_of_another_schema_is_said_so()
+  local root = project()
+  local main = "return 1\n"
+  local send = serving(root)
+  send({ initialize(root), open(root, "main.tl", main) })
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy = send({ save(root, "main.tl") })
+  assert(busy.err:find("another cosmic run holds the write lock", 1, true), busy.err)
+  stamp_another(working, held)
+  assert(held:exec("COMMIT"))
+  assert(held:close())
+  local other = send({ change(root, "main.tl", main .. "\n") })
+  assert(other.err:find("is of schema another", 1, true), "not said: " .. other.err)
+  -- What the session has said so far: each once.
+  local said = send({ change(root, "main.tl", main) }).err
+  local _, busy_times = said:gsub("holds the write lock", "")
+  local _, other_times = said:gsub("is of schema another", "")
+  assert(busy_times == 1 and other_times == 1, said)
 end
 
 --- A module is served as the stub the stage derived, as a stub made here

@@ -235,8 +235,9 @@ local function test_an_open_that_waits_for_no_run_reads_nothing_of_another_schem
   -- A run that waits for others makes it again, of this module's schema.
   local remade = assert(work.open(tmp))
   assert(work.close(remade))
-  assert(inode_of(path) ~= before, "the file of another schema was kept")
-  assert(meta_of(path, "marker") == "")
+  -- By its rows, not its inode, which a file made at once after the old
+  -- one is removed may be given again.
+  assert(meta_of(path, "marker") == "", "the file of another schema was kept")
   local again = assert(work.try_open(tmp))
   assert(again.other_schema == nil)
   assert(work.close((assert(again.handle))))

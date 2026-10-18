@@ -274,6 +274,25 @@ local function test_a_missing_database_and_bad_sql_fail()
   assert(Fs.remove_tree(root))
 end
 
+--- `--build` reads a working database of another schema, another
+--- tool's, as it is, and says once that it does: every other verb reads
+--- none of one ([`build.work.tell_other_schema`]).
+local function test_build_says_it_reads_a_database_of_another_schema()
+  local root = project()
+  local working = build_dir(root) .. "/build.db"
+  local db = assert(Sqlite.open(working, { writable = true }))
+  assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL) WITHOUT ROWID; " ..
+      "INSERT INTO meta VALUES ('schema', 'another')"))
+  assert(db:close())
+  local code, written = run(root, { "--build", "SELECT value FROM meta" })
+  assert(code == 0, table.concat(written.err, "\n"))
+  assert(written.out[2] == "another", table.concat(written.out, "|"))
+  assert(#written.err == 1 and written.err[1] == "cosmic: sql: " .. working ..
+      " is of schema another, not this tool's; reading it as it is, as another tool wrote it",
+    table.concat(written.err, "\n"))
+  assert(Fs.remove_tree(root))
+end
+
 local function test_a_command_line_it_cannot_read_is_a_usage_error()
   local root = project()
   assert(run(root, {}) == 2)
