@@ -235,13 +235,20 @@ a_function = function(c: Cursor, depth: integer): Types.Type
   elseif shape >= 2 then
     rets = {}
     local alts = shape - 1
-    for _ = 1, alts do
+    for k = 1, alts do
       local alt: Types.Alt = { items = {} }
+      if alts > 1 then
+        -- Lists that several are told apart by a position that is `true` in one and `false` in the other.
+        alt.items[1] = store:atom(k % 2 == 1 and "true" or "false")
+        if alts == 3 then
+          alt.items[2] = store:atom(k == 3 and "false" or "true")
+        end
+      end
       if alts == 1 and #params > 0 and pick(c, 5) == 0 then
         alt.narrows = { param = pick(c, #params) + 1, to = build(c, depth + 1), asserts = pick(c, 2) == 0 }
       else
         -- The grammar spells a list that is empty or ends in `T...` only as the one alternative.
-        for _ = 1, pick(c, 3) + (alts > 1 and 1 or 0) do
+        for _ = 1, pick(c, 3) do
           if depth + 1 < MAX_DEPTH and pick(c, 6) == 0 then
             -- A union of function types, which the grammar writes with parentheses around each.
             local first = a_function(c, depth + 1)

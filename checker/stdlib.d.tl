@@ -17,8 +17,7 @@ do
    global record coroutine
       type Function = function(any...): any...
 
-      -- TODO: declare these with the typed coroutines, once the piece that types `coroutine.*` lands: `close` answers a
-      -- message only on a failure, and `resume` answers `any` after its status.
+      -- The new checker reads these as lang/stdlib_corrections.tl declares them, over a typed `Coroutine<Y, R, S>`.
       close: function(thread): boolean, string
       create: function(Function): thread
       isyieldable: function(): boolean

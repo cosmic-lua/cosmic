@@ -411,6 +411,10 @@ local record Types
   --- type parameters a free variable stands for, outermost first.
   display: function(t: Type, binders?: {{string}}): string
 
+  --- The name display gives the type parameter at `index` (from 0) of a function type that has no binder around it:
+  --- a letter, and `P` and the index from the 27th.
+  letter: function(index: integer): string
+
   --- The canonical text of the type. Raises for a type of more than 100,000 types of text: a
   --- type that shares its parts has the text of the tree it unfolds to.
   encode: function(t: Type): string
@@ -692,6 +696,13 @@ local function parameter_name(names: Names, level: integer, index: integer): str
     name = name .. "_"
   end
   return name
+end
+
+function Types.letter(index: integer): string
+  if index < #NAME_LETTERS then
+    return NAME_LETTERS:sub(index + 1, index + 1)
+  end
+  return "P" .. index
 end
 
 --- How an atom or a form is told from another when a union is written: atoms in the order

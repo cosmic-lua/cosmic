@@ -106,10 +106,10 @@ local function test_is_and_type_and_a_tag_narrow_a_union()
 end
 
 local function test_assert_and_a_narrowing_declaration_narrow_what_follows_the_call()
-  -- `assert` is a generic call the generics piece types (`unchecked_generic`); it narrows now.
+  -- `assert` is a generic call, typed from its declaration; the narrowing is of the global.
   stands("local s = find()\nassert(s ~= nil)\nprint(#s)\n", "2")
   stands("local s = find()\nassert(s)\nprint(#s)\n", "2")
-  assert(codes_of("local s = find()\nassert(s ~= nil, \"no\")\nprint(#s)\n") == "unchecked_generic")
+  stands("local s = find()\nassert(s ~= nil, \"no\")\nprint(#s)\n", "2")
   -- Only the global `assert` is one: a function of the program that is called so narrows nothing.
   assert(codes_of("local function check(v: boolean) end\nlocal s = find()\ncheck(s ~= nil)\nprint(#s)\n") == "nil_not_allowed")
   local is_text = "local function is_text(v: any): v is string\n  return type(v) == \"string\"\nend\n"

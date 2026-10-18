@@ -2610,6 +2610,7 @@ local function declared_globals(root: string): {string: Scopes.Global}
   local stdlib, _ = Fs.read(root .. "/checker/stdlib.d.tl")
   if stdlib ~= nil then
     add("checker/stdlib.d.tl", stdlib)
+    add("lang/stdlib_corrections.tl", table.concat(Corrections.added, "\n"))
   end
   for _, name in ipairs(teal.withheld) do
     out[name] = nil

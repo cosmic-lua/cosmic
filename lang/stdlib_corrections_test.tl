@@ -41,18 +41,14 @@ local function lines_of(text: string): {string}
   return out
 end
 
-local function test_every_correction_replaces_the_lines_the_file_declares_and_moves_no_line()
+local function test_every_correction_replaces_the_lines_the_file_declares_and_moves_no_other_line()
   local source = stdlib()
   local applied = Corrections.apply(source)
   assert(#applied.problems == 0, table.concat(applied.problems, "\n"))
   local before, after = lines_of(source), lines_of(applied.text)
-  assert(#before == #after, "a correction moved a line")
-  local differ = 0
-  for i = 1, #before do
-    if before[i] ~= after[i] then
-      differ = differ + 1
-    end
-  end
+  -- A correction may write one line as several (overloads) and the file gets the declarations it lacks; no other line
+  -- changes.
+  local extra = #Corrections.added
   local wanted = 0
   for _, c in ipairs(Corrections.list) do
     assert(#c.was == #c.now and c.why ~= "", c.owner .. "." .. c.name)
@@ -61,9 +57,29 @@ local function test_every_correction_replaces_the_lines_the_file_declares_and_mo
       if c.was[i] ~= c.now[i] then
         wanted = wanted + 1
       end
+      local _, breaks = c.now[i]:gsub("\n", "")
+      extra = extra + breaks
     end
   end
-  assert(differ == wanted, differ .. " lines differ, and the corrections change " .. wanted)
+  assert(#after == #before + extra, "a correction moved a line it does not name")
+  -- Every line no correction replaces is still there, in its order.
+  local replaced: {string: boolean} = {}
+  for _, c in ipairs(Corrections.list) do
+    for _, line in ipairs(c.was) do
+      replaced[line] = true
+    end
+  end
+  local at = 1
+  for _, line in ipairs(before) do
+    if not replaced[(line:gsub("^%s+", ""))] then
+      while at <= #after and after[at] ~= line do
+        at = at + 1
+      end
+      assert(at <= #after, "a correction lost the line " .. line)
+      at = at + 1
+    end
+  end
+  assert(wanted > 0)
 end
 
 local function test_a_declaration_the_file_has_changed_or_lost_is_reported_and_left_as_it_is()
@@ -73,7 +89,7 @@ local function test_a_declaration_the_file_has_changed_or_lost_is_reported_and_l
   local applied = Corrections.apply(changed)
   assert(#applied.problems == 1 and has(applied.problems[1], "string.find: the file declares it otherwise"), applied.problems[1])
   assert(has(applied.text, "? boolean): integer, string... --[[special_function]]"))
-  local cut = source:gsub("remove: function<A>%({A}, %? integer%): A\n", "")
+  local cut = source:gsub("[ ]*remove: function<A>%({A}, %? integer%): A\n", "")
   local missing = Corrections.apply(cut)
   assert(#missing.problems == 1 and has(missing.problems[1], "table.remove: the file declares it 0 times"), missing.problems[1])
   local nothing = Corrections.apply("do\nend\n")
@@ -120,7 +136,21 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("string", "byte", "function(string, p2?: integer): integer?", "function(string, integer, p3?: integer): integer...")
   same("string", "find", "function(string, string, p3?: integer, p4?: boolean): integer?, integer?, string...")
   same("string", "match", "function(string, string, p3?: integer): string...")
-  same("table", "remove", "function<T>({T}, p2?: integer): T?")
+  same("table", "remove", "function<T>(mut {T}, p2?: integer): T?")
+  -- a function that changes the collection it is given declares it `mut`
+  same("table", "insert", "function<T>(mut {T}, integer, T)", "function<T>(mut {T}, T)")
+  same("table", "sort", "function(mut {integer}, p2?: function(integer, integer): boolean)",
+    "function(mut {number}, p2?: function(number, number): boolean)", "function(mut {string}, p2?: function(string, string): boolean)",
+    "function<T>(mut {T}, function(T, T): boolean)")
+  same("table", "move", "function<T>(mut {T}, integer, integer, integer): mut {T}",
+    "function<T>({T}, integer, integer, integer, mut {T}): mut {T}")
+  same("StandardLibrary", "rawset", "function<T, U>(mut {T: U}, T, U): mut {T: U}")
+  -- `assert` answers its argument without the nil, and its message too where one is given
+  same("StandardLibrary", "assert", "function<T>(T?): T", "function<T, U>(T?, U, ...: any): T, U, any...")
+  -- the numbers a function takes are numbers, and a call with none is refused
+  same("math", "abs", "function(integer): integer", "function(number): number")
+  same("math", "max", "function(integer, ...: integer): integer", "function(number, ...: number): number")
+  same("math", "min", "function(integer, ...: integer): integer", "function(number, ...: number): number")
   same("math", "tointeger", "function(any): integer?")
   same("math", "type", "function(any): string?")
   same("utf8", "len", "function(string, p2?: number, p3?: number, p4?: boolean): integer?, integer?")
@@ -280,4 +310,53 @@ local function test_collectgarbage_step_answers_whether_the_cycle_ended_and_a_se
   assert(Types.display(Programs.var(r, "ended")) == "boolean" and Types.display(Programs.var(r, "kb")) == "number" and
       Types.display(Programs.var(r, "old")) == "number" and Types.display(Programs.var(r, "mode")) == "string" and
       Types.display(Programs.var(r, "other")) == "string")
+end
+
+local function test_pcall_and_xpcall_are_declared_for_the_arities_and_answers_the_tree_uses_and_no_more()
+  local _ = lines_have({
+    { source = "local function f6(a: integer, b: integer, c: integer, d: integer, e: integer, g: integer): integer return a end", codes = "" },
+    { source = "local function f7(a: integer, b: integer, c: integer, d: integer, e: integer, g: integer, h: integer): integer return a end", codes = "" },
+    { source = "local function r3(): (integer, integer, integer) return 1, 2, 3 end", codes = "" },
+    { source = "local function r4(): (integer, integer, integer, integer) return 1, 2, 3, 4 end", codes = "" },
+    { source = "local p6, _p6 = pcall(f6, 1, 2, 3, 4, 5, 6)", codes = "" },
+    { source = "local p7, _p7 = pcall(f7, 1, 2, 3, 4, 5, 6, 7)", codes = "overload_none" },
+    { source = "local p3, _p3 = pcall(r3)", codes = "" },
+    { source = "local p4, _p4 = pcall(r4)", codes = "overload_none" },
+    { source = "local x3, _x3 = xpcall(f6, function(m: any): string return \"\" end, 1, 2, 3, 4, 5, 6)", codes = "overload_none" },
+    { source = "local x2, _x2 = xpcall(r3, function(m: any): string return \"\" end)", codes = "" },
+    { source = "local x4, _x4 = xpcall(r4, function(m: any): string return \"\" end)", codes = "overload_none" },
+  })
+end
+
+local function test_table_sort_without_a_comparator_takes_numbers_and_strings_only()
+  local r = lines_have({
+    { source = "local record P n: integer end", codes = "" },
+    { source = "local ps: mut {P} = { { n = 2 }, { n = 1 } }", codes = "" },
+    { source = "table.sort(ps)", codes = "overload_none" },
+    { source = "table.sort(ps, function(a: P, b: P): boolean return a.n < b.n end)", codes = "" },
+    { source = "local bs: mut {boolean} = { true, false }", codes = "" },
+    { source = "table.sort(bs)", codes = "overload_none" },
+    { source = "local mixed: mut {integer | string} = { 1, \"a\" }", codes = "" },
+    { source = "table.sort(mixed)", codes = "overload_none" },
+    { source = "local ns: mut {integer} = { 2, 1 }", codes = "" },
+    { source = "table.sort(ns)", codes = "" },
+    { source = "table.sort(ns, function(a: integer, b: integer): boolean return a > b end)", codes = "" },
+    { source = "local fs: mut {number} = { 2.5, 1 }", codes = "" },
+    { source = "table.sort(fs)", codes = "" },
+    { source = "local ss: mut {string} = { \"b\", \"a\" }", codes = "" },
+    { source = "table.sort(ss)", codes = "" },
+  })
+  local _ = r
+  -- The fix says what to pass.
+  local bad = run("local record P n: integer end\nlocal ps: mut {P} = {}\ntable.sort(ps)\n")
+  assert(#bad.errors == 1 and bad.errors[1].code == "overload_none", Programs.codes(bad))
+  assert(bad.errors[1].fix:find("pass a comparator", 1, true) ~= nil, bad.errors[1].fix)
+end
+
+local function test_the_typed_coroutine_records_can_be_written_against_the_real_declarations()
+  local r = lines_have({
+    { source = "local function body(h: Yielder<integer, nil>): string return \"done\" end", codes = "" },
+    { source = "local co: Coroutine<integer, string, nil> = coroutine.create(body)", codes = "" },
+  })
+  assert(#r.before == 0, table.concat(r.before, " "))
 end

@@ -147,12 +147,13 @@ local function test_an_optional_field_is_read_as_optional_and_written_as_its_typ
   refused(callback .. "r.done(1)\n", "nil_not_allowed", "`r.done` is `(function(integer))?`, so it may be nil, and it is called")
 end
 
--- `test_rawset_refuses_a_record`: `rawset` is generic, so the call is not yet checked and says so; a record is
--- no map in the relation, so the call is refused once the generics piece types it.
-local function test_a_generic_call_that_takes_a_record_for_a_map_is_reported_not_accepted()
+-- `test_rawset_refuses_a_record`: `rawset` is generic, and a record is no map in the relation, so the call is refused
+-- with the parameter as the function declares it.
+local function test_a_generic_call_that_takes_a_record_for_a_map_is_refused()
   local r = Programs.run("local record R\n  name: string\nend\nlocal r: R = { name = \"a\" }\n" ..
       "local function rawset<K, V>(m: {K: V}, k: K, v: V)\nend\nrawset(r, \"name\", 1)\n")
-  assert(#r.before == 0 and Programs.codes(r) == "unchecked_generic", Programs.codes(r))
+  assert(#r.before == 0 and Programs.codes(r) == "record_as_map", Programs.codes(r))
+  assert(r.errors[1].msg:find("where `{string: integer}` is wanted as argument 1 of `rawset`: a record is not a map", 1, true) ~= nil, r.errors[1].msg)
 end
 
 -- `test_a_wrong_call_through_a_typed_variable_is_refused`: a callee's parameters hold wherever the function came
