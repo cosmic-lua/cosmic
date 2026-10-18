@@ -4789,7 +4789,7 @@ cosmic/archive_fuzz_test.tl or_mix 1
 cosmic/archive_test.tl or_mix 17
 cosmic/child.tl or_mix 17
 cosmic/child_drain_test.tl or_mix 4
-cosmic/child_policy_anywhere_test.tl or_mix 12
+cosmic/child_policy_anywhere_test.tl or_mix 11
 cosmic/child_policy_cosmic_test.tl or_mix 4
 cosmic/child_policy_database_sandboxed_test.tl or_mix 4
 cosmic/child_policy_database_test.tl or_mix 1
@@ -5131,7 +5131,7 @@ core/sqlite_documented_test.tl and_ternary 1
 core/sqlite_functions_fuzz_test.tl and_ternary 8
 cosmic/archive.tl and_ternary 2
 cosmic/archive_fuzz_test.tl and_ternary 5
-cosmic/child.tl and_ternary 26
+cosmic/child.tl and_ternary 25
 cosmic/child_stream_failure_test.tl and_ternary 1
 cosmic/compress_test.tl and_ternary 1
 cosmic/csv.tl and_ternary 1

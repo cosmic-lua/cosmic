@@ -3378,12 +3378,13 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
   return exact && named == target;
 }
 
-/* The most grants one `spawn` takes, with their letters about 3 KB of its
- * frame -- a frame that already holds several times that, so these arrays
- * are not worth an allocation a failure path would have to free. No caller
- * grants more than a few dozen. It is cosmic.child's `MAX_GRANTS`, and
- * not `UNVEIL_MAX`: a sandbox's grants are not its unveiled paths. */
-#define GRANT_MAX 256
+/* The most grants one `spawn` takes: as many as a sandbox has paths
+ * (`UNVEIL_MAX`), since a policy's start under `isolate` file binds each
+ * grant into its root as an unveiled path (cosmic.child's `MAX_GRANTS`).
+ * With their letters they are 12 bytes each of a frame that already holds
+ * several times what these arrays come to, so they are not worth an
+ * allocation a failure path would have to free. */
+#define GRANT_MAX UNVEIL_MAX
 
 #if defined(__linux__)
 #ifndef LANDLOCK_ACCESS_FS_RESOLVE_UNIX
