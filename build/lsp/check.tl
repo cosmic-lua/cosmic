@@ -46,6 +46,7 @@ local analysis_schema = require("build.analysis_schema")
 local graph = require("build.lsp.graph")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local lines = require("build.lsp.lines")
 local plan = require("build.lsp.plan")
 local protocol = require("build.lsp.protocol")
 local receivers = require("build.receivers")
@@ -453,8 +454,8 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   end
   if not ok then error(tostring(outcome), 0) end
   local checked: Checked = outcome
-  local held = protocol.lines_of(document.text)
-  local starts = protocol.checker_starts(checked.text)
+  local held = lines.lines_of(document.text)
+  local starts = lines.checker_starts(checked.text)
   local out: {string} = {}
   --- The diagnostic `message` at the checker's line `y` and column `x`.
   local function add(y: integer, x: integer, message: string, code: string | nil)
@@ -465,8 +466,8 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     if checked.generated then offset = 1 end
     local word = document.text:match("^[%w_]+", offset) or ""
     local diagnostic: protocol.Diagnostic = {
-      range = protocol.range(protocol.position(held, offset, encoding),
-        protocol.position(held, offset + math.max(#word, 1), encoding)),
+      range = protocol.range(lines.position(held, offset, encoding),
+        lines.position(held, offset + math.max(#word, 1), encoding)),
       -- A build refuses a warning as it does an error.
       severity = 1,
       source = "cosmic",

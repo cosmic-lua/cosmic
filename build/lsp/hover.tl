@@ -17,6 +17,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local build_paths = require("build.paths")
 local docs = require("build.docs")
+local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local source = require("build.lsp.source")
 
@@ -136,8 +137,8 @@ end
 --- The hover of `text` at `where`, its character counted in
 --- `encoding`'s units, or nil when nothing is documented there.
 function hover.at(d: Docs, text: string, where: protocol.Position, encoding: string): protocol.Hover | nil
-  local line = protocol.lines_of(text).texts[where.line + 1] or ""
-  local name = name_at(line, protocol.byte_of(line, where.character, encoding))
+  local line = lines.lines_of(text).texts[where.line + 1] or ""
+  local name = name_at(line, lines.byte_of(line, where.character, encoding))
   if name == nil then return nil end
   local view = view_of(d)
   if view == nil then return nil end

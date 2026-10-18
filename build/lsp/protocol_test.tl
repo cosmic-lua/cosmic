@@ -65,16 +65,6 @@ local function test_a_large_body_arriving_in_pieces_is_whole()
   assert(frames:next() == body)
 end
 
-local function test_a_position_counts_utf16_units_or_bytes()
-  -- "😀" is four bytes and two UTF-16 units; byte 6 is the `x` after it.
-  local lines = protocol.lines_of('a\r"😀x"\n')
-  local wide = protocol.position(lines, 3 + 5, "utf-16")
-  assert(wide.line == 1 and wide.character == 3, tostring(wide.line) .. ":" .. tostring(wide.character))
-  local narrow = protocol.position(lines, 3 + 5, "utf-8")
-  assert(narrow.character == 5, tostring(narrow.character))
-  assert(protocol.byte_of('"😀x"', 3, "utf-16") == 6)
-end
-
 --- A path is below the root as the system reads both, but for symlinks,
 --- which are not asked: their `.` and `..` segments and doubled slashes
 --- resolved alike.

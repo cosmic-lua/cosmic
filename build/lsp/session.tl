@@ -29,6 +29,7 @@ local bare = require("build.bare")
 local check = require("build.lsp.check")
 local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
+local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local publish = require("build.lsp.publish")
 local source = require("build.lsp.source")
@@ -152,10 +153,10 @@ local function formatting(s: Session, params: protocol.DocumentParams): string |
   local fixed, trouble = require("build.fix").source(built, document.text, document.name)
   if fixed == nil then return nil, trouble end
   if fixed.source == document.text then return "[]", "" end
-  local held = protocol.lines_of(document.text)
+  local held = lines.lines_of(document.text)
   local edit: protocol.TextEdit = {
     range = protocol.range({ line = 0, character = 0 },
-      protocol.position(held, #document.text + 1, s.encoding)),
+      lines.position(held, #document.text + 1, s.encoding)),
     newText = fixed.source,
   }
   return "[" .. assert(Json.encode(edit)) .. "]", ""

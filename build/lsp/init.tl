@@ -289,7 +289,7 @@ lsp.spec = {
     "2 for a command line it refuses",
   passthrough = "it serves until its editor exits, which a case of the verb list cannot be",
   guide = "none: an editor starts it, not a person",
-  tests = { "build.lsp.check_test", "build.lsp.dependents_test", "build.lsp.protocol_test", "build.lsp.session_test",
+  tests = { "build.lsp.check_test", "build.lsp.dependents_test", "build.lsp.lines_test", "build.lsp.protocol_test", "build.lsp.session_test",
     "build.lsp.source_test", "build.lsp.tool_test" },
 }
 

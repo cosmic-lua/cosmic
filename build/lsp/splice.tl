@@ -4,7 +4,7 @@
 --- read back into the document's own.
 
 local ast = require("build.ast")
-local protocol = require("build.lsp.protocol")
+local lines = require("build.lsp.lines")
 local shape_specs = require("build.shape_specs")
 local source = require("build.lsp.source")
 local stub = require("build.stub")
@@ -24,7 +24,7 @@ end
 --- of it, [`stub.made`]); nil where a splice does not follow the same
 --- token in both.
 local function moved(from: string, text: string, splices: {shape_specs.Splice}): {shape_specs.Splice} | nil
-  local from_starts, starts = protocol.checker_starts(from), protocol.checker_starts(text)
+  local from_starts, starts = lines.checker_starts(from), lines.checker_starts(text)
   local out: {shape_specs.Splice} = {}
   for _, one in ipairs(splices) do
     local line = 1
