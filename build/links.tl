@@ -106,9 +106,33 @@ local record links
     blocks: {link_text.Block}
     known: Known
   end
+
+  --- What `rewrite` made of a file: its new text, and each span it linked
+  --- as `file:line: link: ...`, the file as named.
+  record Rewritten
+    source: string
+    linked: {string}
+    --- Whether a Markdown file's block of definitions changes.
+    redefined: boolean
+  end
+
+  --- How [`check_by`] and [`rewrite_by`] read a file named `name`, of `kind`
+  --- ([`link_files.kind_of`]): its comments in blocks, and what it
+  --- declares. Teal is read off a tree, the fork's or the new grammar's
+  --- ([`build.syntax_links`]).
+  record Reader
+    blocks: function(kind: string, source: string, name: string): {link_text.Block}
+    declarations: function(kind: string, source: string, name: string): Known
+  end
+
+  check_by: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
+                     source: string, facts?: Facts): {string}
+  rewrite_by: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
+                       source: string, facts?: Facts): Rewritten
 end
 
 local type Known = links.Known
+local type Rewritten = links.Rewritten
 
 --- The comment text of `source`, a file of `kind`
 --- ([`link_files.kind_of`]), in blocks. Teal is lexed with `built`,
@@ -136,6 +160,22 @@ local function declarations(kind: string, source: string, built: compiler, name:
   end
   local found = link_files.declarations(kind, source)
   return { at = found.at, module_level = found.module_level, parsed = true }
+end
+
+-- TODO: drop [`fork_reader`] and the `built` argument of `check` and `rewrite`, and rename [`check_by`] and [`rewrite_by`],
+-- once the switch deletes the fork's compiler: [`build.syntax_links`] reads Teal off the new tree
+-- (doc/plans/strict-teal.md, "the switch").
+
+--- The fork's way of reading a file: Teal lexed and parsed with `built`.
+local function fork_reader(built: compiler): links.Reader
+  return {
+    blocks = function(kind: string, source: string, name: string): {link_text.Block}
+      return comment_blocks(kind, source, built, name)
+    end,
+    declarations = function(kind: string, source: string, name: string): Known
+      return declarations(kind, source, built, name)
+    end,
+  }
 end
 
 --- The path from the directory `from` to `to`, both from the root.
@@ -204,6 +244,12 @@ end
 --- resolves to one thing.
 function links.check(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
                      source: string, built: compiler, facts?: links.Facts): {string}
+  return links.check_by(fork_reader(built), resolver, file, absolute, kind, source, facts)
+end
+
+--- [`links.check`] with the file read by `reader`.
+function links.check_by(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
+                        kind: string, source: string, facts?: links.Facts): {string}
   if facts ~= nil and facts.source ~= source then
     facts = nil
   end
@@ -217,10 +263,10 @@ function links.check(resolver: link_resolve.Resolver, file: string, absolute: st
   -- What the file declares, once a link asked for it.
   local own: {Known} = {}
   if facts ~= nil and facts.known ~= nil then own[1] = facts.known end
-  local blocks = facts ~= nil and facts.blocks or comment_blocks(kind, source, built, file)
+  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, source, file)
   for _, link in ipairs(link_text.in_blocks(blocks)) do
     local function declared(): link_text.Declared
-      local found: Known = own[1] or declarations(kind, source, built, file)
+      local found: Known = own[1] or reader.declarations(kind, source, file)
       own[1] = found
       return found.at(link.line)
     end
@@ -262,15 +308,6 @@ local function split_definitions(text: string): string, string
   return table.concat(lines, "\n", 1, first - 1), table.concat(lines, "\n", first, last)
 end
 
---- What `rewrite` made of a file: its new text, and each span it linked
---- as `file:line: link: ...`, the file as named.
-local record Rewritten
-  source: string
-  linked: {string}
-  --- Whether a Markdown file's block of definitions changes.
-  redefined: boolean
-end
-
 --- `source`, a file of `kind` at the absolute path `absolute`, with each
 --- plain code span [`link_resolve.linkable`] names a target for made a
 --- shortcut link (`` `x` `` to `` [`x`] ``); the rule is that
@@ -289,6 +326,12 @@ end
 --- its label is set right.
 function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
                        source: string, built: compiler, facts?: links.Facts): Rewritten
+  return links.rewrite_by(fork_reader(built), resolver, file, absolute, kind, source, facts)
+end
+
+--- [`links.rewrite`] with the file read by `reader`.
+function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
+                          kind: string, source: string, facts?: links.Facts): Rewritten
   local out: Rewritten = { source = source, linked = {}, redefined = false }
   if source:find("`", 1, true) == nil then
     return out
@@ -302,7 +345,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
   local function known(): Known
     local found = held[1]
     if found == nil then
-      found = declarations(kind, source, built, file)
+      found = reader.declarations(kind, source, file)
       held[1] = found
     end
     return found
@@ -318,7 +361,7 @@ function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: 
   local by_label: {string: {{integer}}} = {}
   local label_target: {string: string} = {}
   local refused: {string: boolean} = {}
-  local blocks = facts ~= nil and facts.blocks or comment_blocks(kind, body, built, file)
+  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, body, file)
   for _, block in ipairs(blocks) do
     local defined: {string: boolean} = {}
     if block.text:find("]:", 1, true) ~= nil then

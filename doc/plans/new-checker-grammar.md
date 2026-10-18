@@ -852,6 +852,24 @@ returns as the production named, when a use appears.
   compared by the unit tests alone; a pattern `function $F() end` no longer compiles, as a program may not declare
   a global function). The switch deletes the fork's readers and the comparison, and moves each
   `build/syntax_<name>.tl` to the name it replaces.
+- the readers of a parse's other rows follow the same way: [`build/syntax_analyzer.tl`] (the tests, the policy, the
+  catalog, the docs, the examples, the references and the bound names), [`build/syntax_link_text.tl`] (the part of
+  [`build/link_text.tl`] that reads a tree: the comments, what a file declares where each stands, and the links a source
+  records), [`build/syntax_links.tl`] (the entries of [`build/links.tl`] that use it) and the rows of [`build/syntax_derivation.tl`].
+  The rules a `policy` is held to are no tree's and moved into [`build/policy_rules.tl`], which both analyzers use;
+  [`build/links.tl`] takes the way a file is read as a `Reader`; and [`build/link_files.tl`] needs no tree. The same
+  `[read]` check compares each row of an analysis over every file, and a dimension that compared no row in a tree of any
+  size fails it. Differences the grammar forces, each tested in [`build/syntax_analyzer_test.tl`] or
+  `build/policy_rules_test.tl`: a class is documented as the record the fork documented, its methods as `method` rows
+  `Class:name` with the head as written (`function read(self, max: integer?)`, where the fork had a field row
+  `read: function(self: R)` and a `function R:read()` row, which the comparison merges); a field or method named `__x`
+  is a `metamethod` row, with no `metamethod` keyword in the signature; a `goto` is a parse error, so a policy is never
+  refused for a jump past its call. Kept as the fork reads them, each with a `TODO:` for the switch: a catalog message
+  keeps its escapes and the line break that opens a long string, enum values are listed sorted, and the members of a
+  generic type are not declared for link resolution. The consumers of a docs `signature` that the switch must read
+  again are in [`build/docs.tl`]: they match a function-typed field (`name: function(`) at the `signature:match` and
+  GLOB sites of the member listings and the parameter search, and a class method is now a `method` row whose signature
+  is `function read(self, ...)`.
 
 [annotated parameters]: strict-teal.md#annotated-parameters
 [assigned before read]: strict-teal.md#assigned-before-read
@@ -882,14 +900,23 @@ returns as the production named, when a use appears.
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`build/contracts.tl`]: ../../build/contracts.tl
 [`build/coverage/syntax_lines.tl`]: ../../build/coverage/syntax_lines.tl
+[`build/docs.tl`]: ../../build/docs.tl
 [`build/globals.tl`]: ../../build/globals.tl
 [`build/importer.tl`]: ../../build/importer.tl
+[`build/link_files.tl`]: ../../build/link_files.tl
 [`build/link_text.tl`]: ../../build/link_text.tl
+[`build/links.tl`]: ../../build/links.tl
+[`build/policy_rules.tl`]: ../../build/policy_rules.tl
 [`build/receivers.tl`]: ../../build/receivers.tl
 [`build/scopes.tl`]: ../../build/scopes.tl
 [`build/shape_specs.tl`]: ../../build/shape_specs.tl
 [`build/stub.tl`]: ../../build/stub.tl
+[`build/syntax_analyzer.tl`]: ../../build/syntax_analyzer.tl
+[`build/syntax_analyzer_test.tl`]: ../../build/syntax_analyzer_test.tl
 [`build/syntax_compared.tl`]: ../../build/syntax_compared.tl
+[`build/syntax_derivation.tl`]: ../../build/syntax_derivation.tl
+[`build/syntax_link_text.tl`]: ../../build/syntax_link_text.tl
+[`build/syntax_links.tl`]: ../../build/syntax_links.tl
 [`build/syntax_node.tl`]: ../../build/syntax_node.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl

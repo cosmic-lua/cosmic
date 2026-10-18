@@ -99,6 +99,27 @@ local record link_text
   end
 end
 
+-- TODO: drop this copy of `ast_rewrite.line_starts` (build/ast/rewrite.tl) when the switch deletes the fork's
+-- `build.ast`: [`build.link_files`] reads text files by this one, and nothing else needs the fork's
+-- (doc/plans/strict-teal.md, "the switch").
+
+--- The byte of `source` each of its lines starts at, counted from 1: a line
+--- ends at "\n". The text files of [`build.link_files`] are read by it, as the
+--- comments of a Teal source's tokens are by their own offsets.
+function link_text.line_starts(source: string): {integer}
+  local starts: {integer} = { 1 }
+  local pos = 1
+  while true do
+    local nl = source:find("\n", pos, true)
+    if nl == nil then
+      break
+    end
+    starts[#starts + 1] = nl + 1
+    pos = nl + 1
+  end
+  return starts
+end
+
 --- A label as a definition and a reference both match it: case and
 --- runs of whitespace aside.
 function link_text.label_key(label: string): string
