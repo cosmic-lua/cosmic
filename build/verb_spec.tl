@@ -25,7 +25,8 @@ local record verb_spec
     --- nothing of its working database but what a lookup's own build
     --- writes ([`rebuild.here`]): no staleness check before it
     --- ([`reboot.stale_exit`]) waits for another run that holds that
-    --- database's write lock, which builds the same tree; the verb reads
+    --- database's write lock -- a build, a lookup's build, `cosmic lsp`'s
+    --- stage or a boot -- and the verb goes on with its own code, reading
     --- what that run last committed. A verb that writes waits, as its
     --- build would.
     reads: boolean | nil

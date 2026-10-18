@@ -23,7 +23,14 @@ local record protocol
     --- The next message's body when the bytes read already hold all of
     --- it, without reading; nil otherwise, with nothing taken.
     buffered: function(Frames): string | nil
+    --- Whether bytes of another message are read already, or have
+    --- arrived to be read: the stream's `poll` is asked, without waiting.
+    waiting: function(Frames): boolean
   end
+
+  --- What has arrived of a stream, read without waiting: nil and "" when
+  --- nothing has, nil and why where the stream broke.
+  type Poll = function(): string | nil, string
 
   -- What the server reads of the messages it is sent, each checked by its
   -- shape before it is read.
@@ -264,8 +271,8 @@ end
 
 --- The messages `read` gives, one body at a time ([`protocol.Frames`]):
 --- `read` answers the next chunk of the stream, as a [`Stream.Reader`]'s
---- `read` does.
-function protocol.frames_of(read: function(): string | nil, string): protocol.Frames
+--- `read` does, and `poll`, when given, what has arrived of it.
+function protocol.frames_of(read: function(): string | nil, string, poll?: protocol.Poll): protocol.Frames
   local held: FrameState = { buffer = "", ended = false }
   --- The next chunk `read` gives: nil and "" at its end, nil and why
   --- where it breaks.
@@ -324,12 +331,21 @@ function protocol.frames_of(read: function(): string | nil, string): protocol.Fr
       held.buffer = held.buffer:sub(start + header.length)
       return body
     end,
+    waiting = function(_self: protocol.Frames): boolean
+      if held.buffer:match("%S") ~= nil then return true end
+      if poll == nil or held.ended then return false end
+      local chunk, why = poll()
+      if chunk == nil then return why ~= "" end
+      held.buffer = held.buffer .. chunk
+      return true
+    end,
   }
 end
 
---- The messages `reader` holds, one body at a time ([`protocol.Frames`]).
-function protocol.frames(reader: Stream.Reader): protocol.Frames
-  return protocol.frames_of(function(): string | nil, string return reader:read() end)
+--- The messages `reader` holds, one body at a time ([`protocol.Frames`]),
+--- and what has arrived of them, as `poll` says, when given.
+function protocol.frames(reader: Stream.Reader, poll?: protocol.Poll): protocol.Frames
+  return protocol.frames_of(function(): string | nil, string return reader:read() end, poll)
 end
 
 --- The path a `file:` URI names, or nil for another scheme.
@@ -426,6 +442,13 @@ end
 function protocol.publication(uri: string, diagnostics: {string}): string
   return '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":' ..
     Json.quote(uri) .. ',"diagnostics":[' .. table.concat(diagnostics, ",") .. "]}}"
+end
+
+--- The notification that shows the person `message`, of the type
+--- `kind` (3 is information).
+function protocol.shown(kind: integer, message: string): string
+  return '{"jsonrpc":"2.0","method":"window/showMessage","params":{"type":' .. tostring(kind) ..
+    ',"message":' .. Json.quote(message) .. "}}"
 end
 
 --- The response to the request `id` (encoded) answering `result` (encoded).

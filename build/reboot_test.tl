@@ -254,3 +254,20 @@ local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(
   assert(code == nil, tostring(code))
   assert(took < Clock.seconds(10), tostring(took) .. " ns")
 end
+
+--- Where no run holds the working database, the check before a verb
+--- that only reads is the check before any verb: it stages the tree and
+--- holds the tool to it. The test runner's tool is not the tree's own
+--- ([`reboot.own_tool`]), so it refuses, and rebuilds nothing.
+local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lock_is_free(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/core"))
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(tmp)))))
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp)
+  assert(code == 3, tostring(code))
+  local db = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
+  assert(db:close())
+  assert(#rows == 1, "the tree is staged")
+end

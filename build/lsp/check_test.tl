@@ -108,7 +108,7 @@ end
 --- A global an earlier text declared is no longer declared: neither its
 --- own document's next text nor another document is checked against it.
 local function test_a_global_an_earlier_text_declared_is_gone()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   local ran = served(root, { initialize(root),
     open(root, "a.tl", "global G_X: integer\nreturn {}\n"),
     change(root, "a.tl", "global G_X: string\nreturn {}\n"),
@@ -116,7 +116,7 @@ local function test_a_global_an_earlier_text_declared_is_gone()
   })
   assert(counts(ran) == "1,1,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)) .. "\n" ..
       messages_of(nth(ran, 3)))
-  assert(messages_of(nth(ran, 3)):find("a global is not allowed", 1, true) ~= nil, messages_of(nth(ran, 3)))
+  assert(messages_of(nth(ran, 3)):find("a global is not allowed", 1, true), messages_of(nth(ran, 3)))
 end
 
 local function test_a_refused_type_require_is_worded_as_a_build_words_it()
@@ -136,7 +136,7 @@ local function test_a_refused_type_require_is_worded_as_a_build_words_it()
 end
 
 local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
-  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local root = project()
   local unpruned = "local x = 1\nreturn { x = x }\n"
   local elsewhere = served(root, { initialize(root), open(root, "cosmic/thing.tl", unpruned) })
   assert(counts(elsewhere) == "0", messages_of(nth(elsewhere, 1)))
@@ -145,7 +145,7 @@ local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
   local own = only(nth(served(root, { initialize(root), open(root, "cosmic/thing.tl", unpruned) }), 1))
-  assert(own.message:find("its stub keeps every statement", 1, true) ~= nil, own.message)
+  assert(own.message:find("its stub keeps every statement", 1, true), own.message)
   local pruned = "--- Things.\nlocal record thing\nend\n\n--- Twice `n`.\n" ..
     "function thing.double(n: integer): integer\n  return n * 2\nend\n\nreturn thing\n"
   local good = served(root, { initialize(root), open(root, "cosmic/thing.tl", pruned) })
@@ -161,7 +161,7 @@ local function test_a_declaration_is_read_under_its_own_name()
   assert(Fs.write(root .. "/lib/decl.tl", "return { pair = { 1 } }\n"))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
-  assert(found.message:find("(inferred at " .. root .. "/lib/decl.d.tl:1:14)", 1, true) ~= nil, found.message)
+  assert(found.message:find("(inferred at " .. root .. "/lib/decl.d.tl:1:14)", 1, true), found.message)
 end
 
 --- Closing a document that stood for its file with another text checks
@@ -202,7 +202,7 @@ local function test_the_dependents_of_a_changed_or_closed_document_are_checked_a
   assert(#changed == 4, tostring(#changed))
   local dependent = assert(changed[4])
   assert(dependent.uri:sub(-8) == "/main.tl", dependent.uri)
-  assert(only(dependent.diagnostics).message:find("got string", 1, true) ~= nil,
+  assert(only(dependent.diagnostics).message:find("got string", 1, true),
     messages_of(dependent.diagnostics))
   local closed = publications(send({ close(root, "helper.tl") }))
   assert(#closed == 6, tostring(#closed))
@@ -214,4 +214,47 @@ local function test_the_dependents_of_a_changed_or_closed_document_are_checked_a
   again({ initialize(root), open(root, "helper.tl", integer), open(root, "main.tl", main) })
   local undone = publications(again({ change(root, "helper.tl", text), change(root, "helper.tl", integer) }))
   assert(#undone == 3, tostring(#undone))
+end
+
+--- The dependents of a changed document are every open document that
+--- reaches it through the modules on disk: one that requires a module
+--- that requires it, and one the stage does not list, which requires one
+--- that does.
+local function test_a_dependent_reached_through_another_module_is_checked_again()
+  local root = project()
+  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
+  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
+    "return { twice = twice }\n"
+  assert(Fs.write(root .. "/helper.tl", integer))
+  assert(Fs.write(root .. "/mid.tl", 'local helper = require("helper")\nreturn { twice = helper.twice }\n'))
+  local top = 'local mid = require("mid")\nlocal n: integer = mid.twice(2)\nreturn n\n'
+  assert(Fs.write(root .. "/top.tl", top))
+  local send = serving(root)
+  -- fresh.tl is on no disk: the stage lists no module of it.
+  assert(counts(send({ initialize(root), open(root, "helper.tl", integer), open(root, "top.tl", top),
+    open(root, "fresh.tl", top) })) == "0,0,0")
+  local changed = publications(send({ change(root, "helper.tl", text) }))
+  -- What each document was told after the change, by its file's name.
+  local told: {string:string} = {}
+  for i = 4, #changed do
+    local publication = assert(changed[i])
+    told[publication.uri:match("[^/]+$") or ""] = messages_of(publication.diagnostics)
+  end
+  assert((told["top.tl"] or ""):find("got string", 1, true), "the open document requiring mid, " ..
+      "which requires helper: " .. (told["top.tl"] or "not published"))
+  assert((told["fresh.tl"] or ""):find("got string", 1, true), "the open document no stage lists, " ..
+      "requiring mid: " .. (told["fresh.tl"] or "not published"))
+end
+
+--- In cosmic's own tree, a document of a tree of its own inside it
+--- (`ci/`), which a build of it never reads, publishes nothing.
+local function test_a_tree_of_its_own_inside_cosmics_publishes_nothing()
+  local root = assert(Fs.mkdtemp("cosmic-lsp-"))
+  -- What tells cosmic's own tree ([`build.tree`]).
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  local bad = 'local n: integer = "no"\nreturn n\n'
+  local ran = served(root, { initialize(root), open(root, "ci/thing.tl", bad), open(root, "cin/thing.tl", bad) })
+  assert(counts(ran) == "0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
 end

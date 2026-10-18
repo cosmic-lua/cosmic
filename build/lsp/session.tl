@@ -11,9 +11,11 @@
 --- - Formatting: the whole document as `cosmic fix` writes it.
 ---
 --- The open documents that require one whose text changed are checked
---- again once its own check is published, and only when no other change
---- is already read and waiting: an editor typing sends a change at each
---- key, and the last is the one to check them against. Where the editor
+--- again once its own check is published, where what it serves them
+--- changed, one at a time, while no other message waits
+--- ([`build.lsp.dependents`]). A root no build was started in has its
+--- documents checked against nothing: none is published, and the person
+--- is shown, once, what to run there ([`source.outside`]). Where the editor
 --- takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
@@ -25,9 +27,11 @@ local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local check = require("build.lsp.check")
+local dependents = require("build.lsp.dependents")
 local hover = require("build.lsp.hover")
 local protocol = require("build.lsp.protocol")
 local publish = require("build.lsp.publish")
+local source = require("build.lsp.source")
 local type importer = require("build.importer")
 
 local record session
@@ -58,9 +62,10 @@ local record session
     watch: boolean
     store: {Sqlite.Handle} | nil
     docs: hover.Docs
-    --- The open documents, by URI, whose text changed and whose
-    --- dependents are yet to be checked again.
-    due: {string:boolean}
+    --- The dependents yet to be checked again.
+    queue: dependents.Queue
+    --- Whether the person was shown that the root is no project.
+    told_outside: boolean
   end
 end
 
@@ -106,7 +111,8 @@ function session.new(root: string, options?: session.Options): Session
     watch = false,
     store = given.store,
     docs = hover.new(root, checker.source, given.store, err),
-    due = {},
+    queue = dependents.new(),
+    told_outside = false,
   }
   held[1] = made
   return made
@@ -283,22 +289,20 @@ local function handle(s: Session, message: protocol.Message): {string}
       for _, publication in ipairs(publish.with(open_of(s), document)) do
         out[#out + 1] = publication
       end
+      dependents.opened(s.queue, document)
     end
   elseif method == "textDocument/didChange" then
     -- The server asked for whole texts, so the last is the document.
     local none: {protocol.ContentChange} = {}
     local changes = params.contentChanges or none
     local last = changes[#changes]
-    local held = s.documents[params.textDocument.uri]
-    local before = ""
-    if held ~= nil then before = held.text end
     if last ~= nil then
       local document = document_of(s, params, last.text)
       if document ~= nil then
         for _, publication in ipairs(publish.with(open_of(s), document)) do
           out[#out + 1] = publication
         end
-        if held == nil or document.text ~= before then s.due[document.uri] = true end
+        dependents.changed(s.queue, document)
       end
     end
   elseif method == "textDocument/didSave" then
@@ -306,7 +310,7 @@ local function handle(s: Session, message: protocol.Message): {string}
   elseif method == "textDocument/didClose" then
     local document = document_of(s, params)
     if document ~= nil then
-      s.due[document.uri] = nil
+      dependents.closed(s.queue, document.uri)
       s.documents[document.uri] = nil
       for _, publication in ipairs(publish.closed(open_of(s), document)) do
         out[#out + 1] = publication
@@ -336,7 +340,14 @@ local function answers(s: Session, body: string): {string}
   if message == nil then return { refusal } end
   -- A fault answering one message fails that message, not the session.
   local ok, handled = pcall(handle, s, message)
-  if ok then return handled end
+  if ok then
+    if not s.told_outside and source.outside(s.checker.source) then
+      s.told_outside = true
+      handled[#handled + 1] = protocol.shown(3, s.root .. " is not built yet, so its modules " ..
+          "are not found and nothing is checked: run `cosmic test` (or `cosmic build`) there")
+    end
+    return handled
+  end
   s.err("cosmic: lsp: " .. tostring(handled))
   local id = protocol.id_of(message)
   if id == "null" or message.method == nil then return {} end
@@ -388,38 +399,9 @@ local function latest(frames: protocol.Frames, ahead: Ahead, body: string): stri
   end
 end
 
---- Whether the next message, read already, changes a document: the
---- dependents of a document changed before wait for it.
-local function change_ahead(frames: protocol.Frames, ahead: Ahead): boolean
-  local body = ahead.body
-  if body == nil then
-    body = frames:buffered()
-    ahead.body = body
-  end
-  return body ~= nil and changed_uri(body) ~= nil
-end
-
---- The publications of the dependents of each document whose text
---- changed ([`publish.dependents`]), once no change is read and waiting.
-local function dependents_due(s: Session, frames: protocol.Frames, ahead: Ahead): {string}
-  local out: {string} = {}
-  if next(s.due) == nil or change_ahead(frames, ahead) then return out end
-  local uris: {string} = {}
-  for uri in pairs(s.due) do uris[#uris + 1] = uri end
-  table.sort(uris)
-  s.due = {}
-  for _, uri in ipairs(uris) do
-    local document = s.documents[uri]
-    if document ~= nil then
-      local ok, found = pcall(publish.dependents, open_of(s), document)
-      if ok then
-        for _, publication in ipairs(found) do out[#out + 1] = publication end
-      else
-        s.err("cosmic: lsp: " .. tostring(found))
-      end
-    end
-  end
-  return out
+--- Whether a message waits: read already, or arrived to be read.
+local function waiting(frames: protocol.Frames, ahead: Ahead): boolean
+  return ahead.body ~= nil or frames:waiting()
 end
 
 --- [`session.serve`]'s loop: its exit status.
@@ -439,10 +421,11 @@ local function served(s: Session, frames: protocol.Frames,
       return 1
     end
     -- The answers go out before the dependents of a changed document are
-    -- checked: the editor shows them without waiting for those.
+    -- checked, and each dependent's as it is checked: the editor shows
+    -- them without waiting for those after.
     local sending = answers(s, latest(frames, ahead, body))
-    for round = 1, 2 do
-      if round == 2 then sending = dependents_due(s, frames, ahead) end
+    local more = true
+    while more do
       for _, answer in ipairs(sending) do
         local sent, why = write(protocol.frame(answer))
         if not sent then
@@ -450,19 +433,29 @@ local function served(s: Session, frames: protocol.Frames,
           return 1
         end
       end
+      local ok, step = pcall(dependents.next, s.queue, open_of(s), function(): boolean
+        return waiting(frames, ahead)
+      end)
+      if ok then
+        sending, more = step.publications, step.checked
+      else
+        s.err("cosmic: lsp: " .. tostring(step))
+        sending, more = {}, true
+      end
     end
   end
 end
 
 --- Serves `s` the messages `reader` holds, writing each answer through
---- `write`, until `exit` or the end of the stream, then lets go of the
+--- `write`, and asking `poll`, when given, what has arrived of them
+--- without waiting, between the dependents it checks, until `exit` or the end of the stream, then lets go of the
 --- databases the session opened. Answers the exit status: 0 after
 --- `shutdown`, at `exit` or the stream's end, and 1 at an `exit` or an
 --- end with no `shutdown` before it, a stream that breaks or a write that
 --- fails.
 function session.serve(s: Session, reader: Stream.Reader,
-                       write: function(text: string): boolean, string): integer
-  local code = served(s, protocol.frames(reader), write)
+                       write: function(text: string): boolean, string, poll?: protocol.Poll): integer
+  local code = served(s, protocol.frames(reader, poll), write)
   hover.close(s.docs)
   check.close(s.checker)
   return code

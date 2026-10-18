@@ -15,8 +15,11 @@
 --- is; a name the database does not list is not found, whatever is
 --- open. The binary's own `cosmic.*` modules are the checker's
 --- ([`build.lsp.check`]). A root that is no project ([`rebuild.stage`])
---- is never staged, as a lookup never starts a tree of its own: it has
---- no modules but the binary's, and the session says so once.
+--- is never staged, as a lookup never starts a tree of its own: a build
+--- would find its modules, and this finds none, so nothing is checked
+--- there ([`source.outside`]). Each refresh asks again whether a build was
+--- started there, looking at the build directory's own files alone
+--- ([`rebuild.started`]), and the first that finds one stages the tree.
 ---
 --- The stage is also what tells whether the root is cosmic's own tree,
 --- and where its build directory is, so nothing else here looks at the
@@ -134,9 +137,8 @@ local record source
     --- since a stage that found the database busy.
     pending: boolean
     --- Whether the session has said the database is busy, since it last
-    --- staged, and whether it has said the root is no project.
+    --- staged.
     told: boolean
-    told_outside: boolean
     --- The stub made here of each text, by its SHA-256: "" for a text
     --- with none.
     made: {string:string}
@@ -187,7 +189,6 @@ function source.new(root: string, err: function(line: string)): source.View
     analyzer = nil,
     pending = true,
     told = false,
-    told_outside = false,
     made = {},
     tally = tally,
     err = err,
@@ -198,6 +199,14 @@ end
 function source.own_tree(src: source.View): boolean
   local where = src.where
   return where ~= nil and where.own_tree
+end
+
+--- Whether the root is no project, as the last refresh found it
+--- ([`rebuild.stage`]): no build was started there, so none of its
+--- modules is found.
+function source.outside(src: source.View): boolean
+  local where = src.where
+  return where ~= nil and not where.project
 end
 
 --- The device and inode of the file at `path`, or "" where there is none.
@@ -311,6 +320,14 @@ end
 --- run made the database again, and whether its stubs are the running
 --- analyzer's in any case. `built` parses what is new.
 function source.refresh(src: source.View, built: compiler)
+  local where = src.where
+  if where ~= nil and not where.project then
+    local directory = where.directory
+    if directory == nil then return end
+    local started, _ = rebuild.started(directory)
+    if started ~= true then return end
+    src.pending = true
+  end
   if not src.pending then
     if not reopened(src) then trusted(src, false) end
     return
@@ -319,12 +336,6 @@ function source.refresh(src: source.View, built: compiler)
   local staged, trouble = rebuild.stage(src.root, built)
   if staged ~= nil then adopt(src, staged) end
   if staged ~= nil and not staged.project then
-    if not src.told_outside then
-      src.err("cosmic: lsp: " .. src.root .. " is no project (not cosmic's tree, and no build " ..
-          "was started there); not staging it, and answering from the binary's own cosmic.* " ..
-          "modules only: `cosmic test` there first to check its modules")
-      src.told_outside = true
-    end
     src.pending = false
     src.modules, src.files, src.requires = {}, {}, {}
     return
@@ -403,9 +414,11 @@ end
 
 --- What the checker reads for the module `name`, or nil when the
 --- database lists none, or it is a template that does not compile.
---- `built` parses a text to stub here.
+--- `built` parses a text to stub here. It is counted in the tally
+--- ([`source.Tally`]) unless `uncounted`: what is served, not what is
+--- looked at.
 function source.served(src: source.View, built: compiler, name: string,
-                       open: source.Open): Served | nil
+                       open: source.Open, uncounted?: boolean): Served | nil
   local found = src.modules[name]
   if found == nil then return nil end
   local template = found.file:match("%.tmpl$") ~= nil
@@ -420,7 +433,9 @@ function source.served(src: source.View, built: compiler, name: string,
   local tally = src.tally
   --- The module served as `text`, counted as `kind` is ([`source.Tally`]).
   local function serving_as(kind: string, text: string, key: string): Served
-    if template then
+    if uncounted == true then
+      return { file = file, text = text, key = key }
+    elseif template then
       tally.templates = tally.templates + 1
     elseif kind == "database" then
       tally.database_stubs = tally.database_stubs + 1

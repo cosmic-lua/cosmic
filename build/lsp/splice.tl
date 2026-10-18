@@ -11,6 +11,12 @@ local stub = require("build.stub")
 local type compiler = require("build.compiler")
 
 local record splice
+  --- What the checker reads for a module: its text, then a close.
+  record Handle
+    text: string
+    read: function(Handle, what: string): string
+    close: function(Handle): boolean
+  end
 end
 
 --- `splices`, found in `from`, moved to the same lines and columns of
@@ -76,6 +82,27 @@ function splice.unspliced(splices: {shape_specs.Splice}, offset: integer): integ
     shift = shift + #one.text
   end
   return offset - shift
+end
+
+--- What the checker reads for a module of the text `text`.
+function splice.handle_of(text: string): splice.Handle
+  return {
+    text = text,
+    read = function(self: splice.Handle, _what: string): string return self.text end,
+    close = function(_self: splice.Handle): boolean return true end,
+  }
+end
+
+--- `served`, the module `name`, as a build rewrites it ([`shape_specs.resolve`]),
+--- in `env` of `built`, or as it is before there are both. A rewrite
+--- that fails leaves the text as it is: the module's refusal is its own,
+--- not the document's.
+function splice.rewritten(built: compiler | nil, env: compiler.Env | nil, name: string,
+                          served: source.Served): string
+  if built == nil or env == nil then return served.text end
+  local ok, resolved, _ = pcall(shape_specs.resolve, built, env, served.file, name, served.text)
+  if ok and resolved ~= nil then return resolved end
+  return served.text
 end
 
 return splice

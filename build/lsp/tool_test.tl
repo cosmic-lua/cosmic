@@ -84,7 +84,7 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
     local ran = cosmic(tmp, words)
     local line = table.concat(words, " ")
     assert(ran.code == 2 and ran.out == "", line .. ": " .. tostring(ran.code) .. " " .. ran.err)
-    assert(ran.err:find("cosmic: lsp: ", 1, true) ~= nil, line .. ": " .. ran.err)
+    assert(ran.err:find("cosmic: lsp: ", 1, true), line .. ": " .. ran.err)
   end
 end
 
@@ -192,7 +192,7 @@ local function test_a_socket_file_already_there_is_refused_and_left(tmp: string)
   local ran = cosmic(tmp, { "lsp", "--socket", path })
   assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.err:find(path .. " is a socket file already; remove it if no server is running there",
-    1, true) ~= nil, ran.err)
+    1, true), ran.err)
   assert(Fs.exists(path) == true, "the socket file is left")
 end
 
@@ -226,6 +226,6 @@ local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   assert(result.code == 0, tostring(result.code) .. ": " .. said)
   local at = said:match("cosmic: lsp: listening at (0%.0%.0%.0:%d+)\n")
   assert(at ~= nil, said)
-  assert(said:find("cosmic: lsp: warning: " .. at .. " is reached from beyond this host", 1, true) ~= nil,
+  assert(said:find("cosmic: lsp: warning: " .. at .. " is reached from beyond this host", 1, true),
     said)
 end

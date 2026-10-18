@@ -719,10 +719,11 @@ function reboot.guard(handle: work.Handle, root: string,
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
 
---- The staleness guard for a verb -- `docs`, `uses`, `db`, `help`,
---- `todos`, `fix`, and the `fresh` ones, `lsp` among them
---- ([`verb_spec.Spec`]) -- that never compiles the tree itself but still runs
---- `build.*` Teal that this binary embedded at its own boot. Inside
+--- The staleness guard for a verb that runs `build.*` Teal this binary
+--- embedded at its own boot before, or without, compiling the tree
+--- itself -- `docs`, `uses`, `db`, `help`, `todos`, `fix`, and the
+--- `fresh` ones, `lsp` among them ([`verb_spec.Spec`]). `fix` compiles
+--- the tree after this check, with the code the check holds to it. Inside
 --- cosmic's own tree, an edit to that Teal is otherwise invisible
 --- until `bin/zig build boot`, where `AGENTS.md` (step 3) promises an
 --- edit to Teal rebuilds on its own.
@@ -741,17 +742,27 @@ end
 ---
 --- A verb that only reads (`reads`: [`verb_spec.Spec`]'s `reads`) never
 --- waits here for another run that holds the working database's write
---- lock: that run builds the same tree, and checks the tool against it
---- as it does, so this check is skipped, said once on stderr
---- ([`work.tell_busy`]), and the verb reads what that run last
---- committed. Where the lock is free, the check is as for any verb. A
---- verb that writes waits for the lock, as its build would.
+--- lock, whatever that run is: a build or a test run, which checks the
+--- tool against the tree as it goes; a lookup's own build or `cosmic
+--- lsp`'s stage, which stage the tree and check no tool; or a boot,
+--- which writes a newer tool. This check is skipped, said once on stderr
+--- ([`work.tell_busy`]), and the verb goes on with this binary's code,
+--- stale or not, reading what that run last committed, which a newer
+--- tool may have written. Where the lock is free, the check is as for
+--- any verb. A verb that writes waits for the lock, as its build would.
 ---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tree is not cosmic's own
 --- or the tool is fresh, or an exit code to return at once, having said
 --- why.
 --- @param argv the command line, re-entered after a rebuild
+-- TODO: a reader that skipped this check reads rows and a projection a
+-- newer tool may have written with its own older code, and `cosmic lsp`,
+-- which runs for good, reads them so at every stage and hover once a
+-- boot or a rebuild has moved the tool on. Once the working database and
+-- the projection record the code of the tool that wrote them, as `meta`'s
+-- `analyzer` records the stubs', a reader whose code is other than that
+-- says so and reads none of what its code may misread.
 function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string): integer | nil
   local at = root
   if at == nil then

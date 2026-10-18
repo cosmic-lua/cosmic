@@ -71,12 +71,16 @@ local record session_fixture
   end
 
   --- What a session answered: its exit status, the body of each message
-  --- it sent, its complaints, and how it served each module, all told.
+  --- it sent, its complaints, how it served each module, and how many
+  --- dependents it checked, all told ([`dependents.Queue`]), and as it
+  --- sent each message, where it was asked to tell.
   record Ran
     code: integer
     sent: {string}
     err: string
     tally: source.Tally
+    dependents: integer
+    checked: {integer}
   end
 
   SHUTDOWN: string
@@ -202,7 +206,8 @@ function session_fixture.served_between(root: string, batches: {{string}},
     return true, ""
   end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
+    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
+    dependents = s.queue.checked, checked = {} }
 end
 
 --- What a session at `root` answers `messages` with, reading docs from
@@ -220,7 +225,38 @@ function session_fixture.served(root: string, messages: {string}, store?: {Sqlit
       return true, ""
     end)
   return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
+    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
+    dependents = s.queue.checked, checked = {} }
+end
+
+--- What a session at `root` answers `messages` with, where `arrived`
+--- answers, between the dependents it checks, the message that has
+--- arrived since, if any, given how many it has checked: what an editor
+--- sends while the session checks ([`protocol.Poll`]). It tells how many
+--- dependents were checked as each message was sent.
+function session_fixture.served_arriving(root: string, messages: {string},
+                                         arrived: function(checked: integer): string | nil): Ran
+  local wrote: {string} = {}
+  local checked: {integer} = {}
+  local complaints: {string} = {}
+  local s = session.new(root, {
+    err = function(line: string) complaints[#complaints + 1] = line end,
+    store = nil,
+  })
+  local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
+    function(text: string): boolean, string
+      wrote[#wrote + 1] = text
+      checked[#checked + 1] = s.queue.checked
+      return true, ""
+    end,
+    function(): string | nil, string
+      local message = arrived(s.queue.checked)
+      if message == nil then return nil, "" end
+      return protocol.frame(message), ""
+    end)
+  return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
+    err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
+    dependents = s.queue.checked, checked = checked }
 end
 
 --- A session at `root` served one batch of messages after another, as an
@@ -239,7 +275,8 @@ function session_fixture.serving(root: string): function(messages: {string}): Ra
         return true, ""
       end)
     return { code = code, sent = session_fixture.bodies(table.concat(wrote)),
-      err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally) }
+      err = table.concat(complaints, "\n"), tally = copied(s.checker.source.tally),
+      dependents = s.queue.checked, checked = {} }
   end
 end
 

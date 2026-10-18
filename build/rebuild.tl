@@ -35,6 +35,21 @@ local record rebuild
   end
 end
 
+--- Whether a build was started with the build directory `directory`,
+--- failed or not: it holds the working database, which every build opens
+--- before it does anything else ([`work.open`]), or a projection. It
+--- looks at nothing but those two files, and nothing outside the build
+--- directory. Nil and why where it cannot tell.
+function rebuild.started(directory: string): boolean | nil, string
+  local layout = build_paths.under(directory)
+  for _, path in ipairs({ layout.working, layout.projection }) do
+    local there, trouble = Fs.exists(path)
+    if there == nil then return nil, trouble end
+    if there == true then return true, "" end
+  end
+  return false, ""
+end
+
 --- What the directory `root` is to a build: whether it is one to build,
 --- whether it is cosmic's own tree, and its build directory. A project
 --- is what `cosmic test` builds: cosmic's own tree, or a directory a build
@@ -53,14 +68,9 @@ local function where(root: string): rebuild.Where | nil, string
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
     return { project = own_tree, own_tree = own_tree, directory = nil, busy = false }, ""
   end
-  local project = own_tree
-  local layout = build_paths.under(directory)
-  for _, path in ipairs({ layout.working, layout.projection }) do
-    local there, trouble = Fs.exists(path)
-    if there == nil then return nil, trouble end
-    if there == true then project = true end
-  end
-  return { project = project, own_tree = own_tree, directory = directory, busy = false }, ""
+  local started, trouble = rebuild.started(directory)
+  if started == nil then return nil, trouble end
+  return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false }, ""
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at

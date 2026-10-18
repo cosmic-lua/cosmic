@@ -22,7 +22,9 @@
 ---
 --- A file a build reads no module from ([`analysis_schema.is_module_file`]:
 --- a `testdata` directory's, a site's static files) publishes nothing,
---- and an open one is no module a `require` reads.
+--- and an open one is no module a `require` reads; nor does one in a tree
+--- of its own inside cosmic's (`ci/`), nor any of a root that is no
+--- project, whose modules no build has found ([`source.outside`]).
 ---
 --- A module served stays checked between checks, its type in the
 --- checker's `modules`, until what it would be served from changes: an
@@ -38,6 +40,7 @@ local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
 local compilation = require("build.compilation")
 local graph = require("build.lsp.graph")
+local identity = require("build.identity")
 local importer = require("build.importer")
 local plan = require("build.lsp.plan")
 local protocol = require("build.lsp.protocol")
@@ -182,7 +185,7 @@ function check.close(checker: Checker)
 end
 
 --- The open documents as [`source.Open`] reads them.
-local function open_of(checker: Checker): source.Open
+function check.open_files(checker: Checker): source.Open
   return function(file: string): source.Text | nil
     local document = checker.open[file]
     if document == nil then return nil end
@@ -190,44 +193,18 @@ local function open_of(checker: Checker): source.Open
   end
 end
 
---- What the checker reads for a module: its text, then a close.
-local record Handle
-  text: string
-  read: function(Handle, what: string): string
-  close: function(Handle): boolean
-end
-
-local function handle_of(text: string): Handle
-  return {
-    text = text,
-    read = function(self: Handle, _what: string): string return self.text end,
-    close = function(_self: Handle): boolean return true end,
-  }
-end
-
---- `served` as a build rewrites it ([`shape_specs.resolve`]). A rewrite
---- that fails leaves the text as it is: the module's refusal is its own,
---- not the document's.
-local function rewritten(checker: Checker, name: string, served: source.Served): string
-  local built, env = checker.built, checker.env
-  if built == nil or env == nil then return served.text end
-  local ok, resolved, _ = pcall(shape_specs.resolve, built, env, served.file, name, served.text)
-  if ok and resolved ~= nil then return resolved end
-  return served.text
-end
-
 --- The checker and its environment, made on first use.
 local function prepared(checker: Checker): compiler, compiler.Env
   local built, env = checker.built, checker.env
   if built ~= nil and env ~= nil then return built, env end
   local loaded = assert(teal.load())
-  local open = open_of(checker)
+  local open = check.open_files(checker)
   loaded.search_module = function(name: string, _search_all: boolean): string | nil, any
     local listed = checker.source.modules[name] ~= nil
     local found = source.served(checker.source, loaded, name, open)
     if found ~= nil then
       checker.served[name] = found.key
-      return found.file, handle_of(rewritten(checker, name, found))
+      return found.file, splice.handle_of(splice.rewritten(checker.built, checker.env, name, found))
     end
     if listed then
       checker.served[name] = source.key(checker.source, name, open)
@@ -238,7 +215,7 @@ local function prepared(checker: Checker): compiler, compiler.Env
       checker.served[name] = ""
       return nil, nil
     end
-    return name:gsub("%.", "/") .. ".tl", handle_of(standard.text)
+    return name:gsub("%.", "/") .. ".tl", splice.handle_of(standard.text)
   end
   local made, env_trouble = loaded.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
@@ -273,7 +250,7 @@ local function refresh(checker: Checker, env: compiler.Env)
       stale = true
     end
   end
-  local open = open_of(checker)
+  local open = check.open_files(checker)
   for name, key in pairs(checker.served) do
     if stale then break end
     if source.key(checker.source, name, open) ~= key then stale = true end
@@ -428,16 +405,33 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
   return checked(refusals, spliced, splices, teal.refused_type_requires(document.name, text, result))
 end
 
+--- Whether the file `name` is in a tree of its own inside cosmic's
+--- ([`identity.is_foreign_tree`]), which a build of it never reads.
+local function apart(checker: Checker, name: string): boolean
+  return source.own_tree(checker.source) and identity.is_foreign_tree(identity.first_of(name))
+end
+
 --- The diagnostics of `document`, each encoded, its positions counted in
 --- `encoding`'s units.
 function check.diagnose(checker: Checker, document: Document, encoding: string): {string}
+  local none: {string} = {}
   if not analysis_schema.is_module_file(document.name) then
-    local none: {string} = {}
     document.published = none
     return none
   end
   local built, env = prepared(checker)
+  local outside = source.outside(checker.source)
   source.refresh(checker.source, built)
+  if source.outside(checker.source) or apart(checker, document.name) then
+    document.published = none
+    return none
+  end
+  -- A build was started where there was none: every open document is
+  -- checked again, against the modules now found.
+  if outside then
+    checker.graph_moved = true
+    checker.epoch = checker.epoch + 1
+  end
   refresh(checker, env)
   local published = document.published
   if published ~= nil and document.published_text == document.text and

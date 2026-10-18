@@ -544,17 +544,28 @@ local function test_self_rebuild_docs_verb(tmp: string)
     "docs: second invocation reported staleness though the tool is fresh")
 end
 
+-- Marks `build/todos.tl`'s verb with an extra line, as the docs marker
+-- does for `docs`: a `todos` the stale tool ran itself would not print it.
+local function apply_todos_marker_edit(tree: string)
+  local path = tree .. "/build/todos.tl"
+  local lines = split_lines(Fixture.read(path))
+  lines = insert_after(lines,
+    "local function run(argv: {integer:string}): integer",
+    { "  local _, _ = Fs.put(Fs.stdout, \"step8-todos-marker\\n\")" })
+  Fixture.write(path, table.concat(lines, "\n") .. "\n")
+end
+
 -- Runs of one stale tool started at once in one checkout -- an editor's,
 -- a watcher's and a terminal's -- rebuild it one at a time: each either
 -- rebuilds it or waits for the run that is and re-enters on the tool that
--- run wrote, and shows the edit. Unserialized, their rebuilds would write
--- o/cosmic.db, o/carried.db and the tool under one another, and end in
--- "disk I/O error" or "portable program database has no SQLite header"
--- and a spurious "(the tool is stale)" failure. `docs` only reads, so a
--- run that finds another holding the working database while it builds
--- waits for none of it (build/reboot.tl's `stale_exit`): it says so, and
--- answers from what that run last committed, which the edit need not be
--- in yet.
+-- run wrote, and every one shows the edit. Unserialized, their rebuilds
+-- would write o/cosmic.db, o/carried.db and the tool under one another,
+-- and end in "disk I/O error" or "portable program database has no SQLite
+-- header" and a spurious "(the tool is stale)" failure. The runs are of
+-- `todos`, which writes the working database and so waits for a run that
+-- holds it. `docs` only reads, and waits for no run (build/reboot.tl's
+-- `stale_exit`): one started while another holds the working database
+-- says so and answers at once, from what that run last committed.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-concurrent"
@@ -566,6 +577,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
+  apply_todos_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
   local since = Clock.now_ns()
@@ -575,7 +587,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   supervised(function(active: {Running})
     for n = 1, 3 do
       active[#active + 1] = start("concurrent-" .. tostring(n),
-        { program, "docs", "cosmic.child" }, tree, values, diagnostics)
+        { program, "todos", "build/reboot.tl" }, tree, values, diagnostics)
     end
     local rebuilt = 0
     for _, child in ipairs(active) do
@@ -584,18 +596,16 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       assert(result.ok, child.label .. ": exit status " ..
           tostring(result.code) .. ", want 0; it said:\n" .. err)
       said[#said + 1] = err
+      Fixture.contains(child.out, "step8-todos-marker")
       -- Started together, before any rebuild could land, each run meets
       -- the tool stale: it rebuilds, waits for the run that does (or for
       -- one writing o/cosmic.db, which holds the same lock), or finds
-      -- that run's rebuild already landed and enters it; or, finding a
-      -- run holding the working database, it reads without waiting.
-      local skipped = err:find("not waiting for it, reading what it last committed", 1, true) ~= nil
-      if not skipped then Fixture.contains(child.out, "step8-docs-marker") end
-      assert(skipped or err:find("the tool is stale; rebuilding it from the tree", 1, true) or
+      -- that run's rebuild already landed and enters it.
+      assert(err:find("the tool is stale; rebuilding it from the tree", 1, true) or
           err:find("in this checkout is [^\n]*; waiting for it") or
           err:find("rebuilt the tool; entering it", 1, true),
-        child.label .. ": neither rebuilt the tool, waited, entered " ..
-          "another's nor read without waiting; it said:\n" .. err)
+        child.label .. ": neither rebuilt the tool, waited nor entered " ..
+          "another's; it said:\n" .. err)
       rebuilt = rebuilt + count_occurrences(err,
         "the tool is stale; rebuilding it from the tree")
     end
@@ -604,6 +614,25 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   took_compiles("concurrent", seed, since, table.concat(said, "\n"))
   assert(Fixture.hash(program) ~= before_hash,
     "concurrent: no run changed the artifact")
+
+  -- Another run holding the working database's write lock, as a build
+  -- does while it stages and compiles.
+  local working = assert(Sqlite.open(BuildPaths.directory(tree) .. "/build.db", { writable = true }))
+  assert(working:exec("BEGIN IMMEDIATE"))
+  local read_ok, failure = pcall(function(): boolean
+    local reader = Fixture.call_with_environment("concurrent-reader",
+      { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+    local err = Fixture.read(reader.err)
+    assert(reader.result.code == 0, "reader: exit status was " ..
+        tostring(reader.result.code) .. ", want 0; it said:\n" .. err)
+    Fixture.contains(reader.out, "step8-docs-marker")
+    Fixture.contains(reader.err, "not waiting for it, reading what it last committed")
+    assert(count_occurrences(err, "; waiting for it") == 0,
+      "reader: waited for the run holding the working database; it said:\n" .. err)
+    return true
+  end)
+  local _, _ = working:close()
+  if not read_ok then error(failure) end
 end
 
 -- A run a reboot entered (COSMIC_REBOOTED) that would refuse as still

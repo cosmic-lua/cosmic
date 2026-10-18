@@ -132,7 +132,7 @@ local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
     -- The session starts at another directory: only the root it is
     -- given finds lib/shapes.tl.
     local found = only(nth(served(base, { init, opened }), 1))
-    assert(found.message:find("expected integer", 1, true) ~= nil, params .. ": " .. found.message)
+    assert(found.message:find("expected integer", 1, true), params .. ": " .. found.message)
   end
 end
 
@@ -145,11 +145,11 @@ local function test_a_template_is_a_module_and_testdata_is_none()
   local main = 'local page = require("page")\nlocal data = require("data")\n' ..
     'local p: data.Page = { title = "t" }\nlocal n: integer = page.render(p)\nreturn n\n'
   local rendered = only(nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1))
-  assert(rendered.message:find("expected integer", 1, true) ~= nil, "the template renders a string: " ..
+  assert(rendered.message:find("expected integer", 1, true), "the template renders a string: " ..
       rendered.message)
   local fixture = 'local m = require("testdata.m")\nreturn m\n'
   local unfound = only(nth(served(root, { initialize(root), open(root, "main.tl", fixture) }), 1))
-  assert(unfound.message:find("testdata.m", 1, true) ~= nil, unfound.message)
+  assert(unfound.message:find("testdata.m", 1, true), unfound.message)
 end
 
 local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
@@ -164,7 +164,7 @@ local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
     open(root, "main.tl", main) })
   local asked = table.concat(requests(first), " ")
   assert(asked == "client/registerCapability", asked)
-  assert(table.concat(first.sent, "\n"):find('"globPattern":"**/*.tl"', 1, true) ~= nil)
+  assert(table.concat(first.sent, "\n"):find('"globPattern":"**/*.tl"', 1, true))
   assert(#requests(served(root, { initialize(root), initialized })) == 0,
     "no registration where the editor takes none")
   local declined = '{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":false}}}'
@@ -182,8 +182,8 @@ local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
   local ran = send({ changed_on_disk(root, "lib/shapes.tl") })
   assert(counts(ran) == "0,0,1,1", "as staged, until the editor says it changed: " .. counts(ran) ..
       "\n" .. messages_of(nth(ran, 3)) .. "\n" .. messages_of(nth(ran, 4)))
-  assert(messages_of(nth(ran, 3)):find("lib.more", 1, true) ~= nil, messages_of(nth(ran, 3)))
-  assert(messages_of(nth(ran, 4)):find("got string", 1, true) ~= nil, messages_of(nth(ran, 4)))
+  assert(messages_of(nth(ran, 3)):find("lib.more", 1, true), messages_of(nth(ran, 3)))
+  assert(messages_of(nth(ran, 4)):find("got string", 1, true), messages_of(nth(ran, 4)))
 end
 
 --- While another run holds the database's write transaction open, with
@@ -212,7 +212,7 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   local started = Clock.monotonic_ns()
   local busy = send({ save(root, "lib/shapes.tl") })
   local took = Clock.monotonic_ns() - started
-  assert(busy.err:find("another cosmic run holds the write lock", 1, true) ~= nil, busy.err)
+  assert(busy.err:find("another cosmic run holds the write lock", 1, true), busy.err)
   assert(busy.err:find("locked", 1, true) == nil, busy.err)
   assert(counts(busy) == "0", "nothing changed as last committed: " .. counts(busy))
   assert(took < Clock.seconds(10), "the answer took " .. tostring(took) .. " ns")
@@ -275,29 +275,47 @@ local function test_a_stage_that_fails_answers_from_the_last()
   assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
   assert(Fs.write(root .. "/lib/broken.tl", "local = \n"))
   local ran = send({ save(root, "lib/broken.tl") })
-  assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true) ~= nil,
+  assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true),
     ran.err)
   assert(ran.tally.stages == 1, tostring(ran.tally.stages))
   assert(counts(ran) == "0", "as last staged: " .. counts(ran))
 end
 
---- A root that is no project is not staged, nor given a build directory:
---- only the binary's modules are found, and the session says so once.
-local function test_a_root_that_is_no_project_is_never_staged()
+--- How many times `ran` showed the person a message.
+local function shown(ran: session_fixture.Ran): integer
+  local out = 0
+  for _, body in ipairs(ran.sent) do
+    if session_fixture.sent(body).method == "window/showMessage" then out = out + 1 end
+  end
+  return out
+end
+
+--- A root no build was started in is not staged, nor given a build
+--- directory: none of its modules is found, so nothing is checked there,
+--- and the person is shown once what to run. The first check after a
+--- build is started there stages it, with no save or watched file, and
+--- publishes what the build refuses.
+local function test_a_root_no_build_was_started_in_publishes_nothing_until_one_is()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
   assert(Fs.mkdirs(root .. "/lib"))
   assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
-  local main = 'local Fs = require("cosmic.fs")\nlocal shapes = require("lib.shapes")\n' ..
-    "return { Fs = Fs, shapes = shapes }\n"
-  local ran = served(root, { initialize(root), open(root, "main.tl", main), change(root, "main.tl", main),
+  local main = 'local shapes = require("lib.shapes")\nlocal s: string = shapes.sides\nreturn s\n'
+  local send = serving(root)
+  local before = send({ initialize(root), open(root, "main.tl", main), change(root, "main.tl", main .. "\n"),
     save(root, "main.tl") })
-  assert(only(nth(ran, 1)).message == "module not found: 'lib.shapes'", messages_of(nth(ran, 1)))
-  local _, told = ran.err:gsub("is no project", "")
-  assert(told == 1, ran.err)
-  assert(ran.tally.stages == 0)
+  assert(counts(before) == "0,0", counts(before))
+  assert(shown(before) == 1, table.concat(before.sent, "\n"))
+  assert(before.tally.stages == 0)
   local made, trouble = Fs.exists((assert(build_paths.directory(root))))
   assert(made ~= nil, trouble)
   assert(made == false, "a root that is no project gets a build directory")
+  -- A build is started there, as `cosmic test` starts one.
+  assert(work.close((assert(work.open(root)))))
+  local after = send({ change(root, "main.tl", main) })
+  assert(counts(after) == "0,0,1", counts(after))
+  assert(only(nth(after, 3)).message:find("got integer, expected string", 1, true), messages_of(nth(after, 3)))
+  assert(shown(after) == 1, table.concat(after.sent, "\n"))
+  assert(after.tally.stages == 1, tostring(after.tally.stages))
 end
 
 --- A run that finds the database's schema stale makes it again
@@ -335,7 +353,7 @@ local function test_a_root_whose_first_build_failed_is_staged()
   local ran = served(root, { initialize(root), open(root, "a.tl", a) })
   assert(only(nth(ran, 1)).message == "a cycle of imports reaches a", messages_of(nth(ran, 1)))
   assert(ran.tally.stages == 1, tostring(ran.tally.stages))
-  assert(ran.err:find("is no project", 1, true) == nil, ran.err)
+  assert(shown(ran) == 0, table.concat(ran.sent, "\n"))
 end
 
 --- A file a build reads no module from -- a `testdata` directory's, a
@@ -349,7 +367,7 @@ local function test_a_file_a_build_reads_no_module_from_publishes_nothing()
     open(root, "static/page.tmpl", "{{.nope"),
     open(root, "main.tl", 'local m = require("testdata.bad")\nreturn m\n') })
   assert(counts(ran) == "0,0,0,0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 5)))
-  assert(only(nth(ran, 5)).message:find("testdata.bad", 1, true) ~= nil, messages_of(nth(ran, 5)))
+  assert(only(nth(ran, 5)).message:find("testdata.bad", 1, true), messages_of(nth(ran, 5)))
 end
 
 --- Another run that derives the stubs again with another analyzer is

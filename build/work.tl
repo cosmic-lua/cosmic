@@ -638,6 +638,11 @@ local function opened(root: string, dir: string | nil, wait: boolean): work.Open
     local _, _ = db:close()
     return nil, path .. ": " .. version_trouble
   end
+  -- TODO: take the write lock before removing a file of another schema:
+  -- it is removed here before any lock is held, so a run of an older
+  -- tool, a reader that waits for no run among them, removes the file a
+  -- newer one is building in. The fix: `BEGIN IMMEDIATE` first, and a
+  -- reader that finds the lock held reads nothing of a schema not its own.
   if #versions > 0 and versions[1]:text(1) ~= version then
     local _, _ = db:close()
     local removed, remove_trouble = Fs.remove(path)

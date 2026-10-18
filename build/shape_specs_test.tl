@@ -85,7 +85,7 @@ end
 local function has(lua: string, want: string)
   local flat = lua:gsub("%s+", "")
   local wanted = want:gsub("%s+", "")
-  assert(flat:find(wanted, 1, true) ~= nil,
+  assert(flat:find(wanted, 1, true),
     ("the compile does not hold %s:\n%s"):format(want, lua))
 end
 
@@ -94,10 +94,10 @@ end
 local function refused(case: string, declaration: string, field: string, reason: string)
   local lua, trouble = of_record(case, declaration)
   assert(lua == nil, case .. ": the build accepted a record it has no spec for")
-  assert(trouble:find("main.tl:", 1, true) ~= nil, "no file in: " .. trouble)
-  assert(trouble:find('record_of("R")', 1, true) ~= nil, "no call in: " .. trouble)
-  assert(trouble:find(field .. ": ", 1, true) ~= nil, ("%s: %q not named in: %s"):format(case, field, trouble))
-  assert(trouble:find(reason, 1, true) ~= nil, ("%s: %q not said in: %s"):format(case, reason, trouble))
+  assert(trouble:find("main.tl:", 1, true), "no file in: " .. trouble)
+  assert(trouble:find('record_of("R")', 1, true), "no call in: " .. trouble)
+  assert(trouble:find(field .. ": ", 1, true), ("%s: %q not named in: %s"):format(case, field, trouble))
+  assert(trouble:find(reason, 1, true), ("%s: %q not said in: %s"):format(case, reason, trouble))
 end
 
 local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
@@ -262,12 +262,12 @@ local function test_a_name_that_is_no_record_is_refused()
   local lua, trouble = of_record("unknown", "local record R\n  n: integer\nend",
     'Shape.record_of("Missing")')
   assert(lua == nil)
-  assert(trouble:find('record_of("Missing")', 1, true) ~= nil, trouble)
-  assert(trouble:find("names no record declared above it", 1, true) ~= nil, trouble)
+  assert(trouble:find('record_of("Missing")', 1, true), trouble)
+  assert(trouble:find("names no record declared above it", 1, true), trouble)
   local nested, nested_trouble = of_record("no-field", "local record R\n  n: integer\nend",
     'Shape.record_of("R.Inner")')
   assert(nested == nil)
-  assert(nested_trouble:find('has no field "Inner"', 1, true) ~= nil, nested_trouble)
+  assert(nested_trouble:find('has no field "Inner"', 1, true), nested_trouble)
 end
 
 local function test_a_module_the_caller_does_not_require_is_refused()
@@ -277,20 +277,20 @@ local function test_a_module_the_caller_does_not_require_is_refused()
   }
   local lua, trouble = compiled("unrequired", files, "main")
   assert(lua == nil)
-  assert(trouble:find("no module it requires at its top level", 1, true) ~= nil, trouble)
+  assert(trouble:find("no module it requires at its top level", 1, true), trouble)
 end
 
 local function test_a_name_that_is_no_literal_is_refused()
   local lua, trouble = of_record("computed", "local record R\n  n: integer\nend",
     'Shape.record_of("R" .. "")')
   assert(lua == nil, "the build accepted a name it cannot read")
-  assert(trouble:find("string literal", 1, true) ~= nil, trouble)
+  assert(trouble:find("string literal", 1, true), trouble)
 end
 
 local function test_an_enum_is_no_record()
   local lua, trouble = of_record("enum", "local type R = enum 'a' 'b' end")
   assert(lua == nil)
-  assert(trouble:find("an enum", 1, true) ~= nil, trouble)
+  assert(trouble:find("an enum", 1, true), trouble)
 end
 
 local function test_a_module_that_does_not_use_it_is_compiled_as_written()
@@ -320,7 +320,8 @@ local function test_into_answers_the_records_type_and_no_annotation_can_say_anot
   assert(lua ~= nil, trouble)
   local other, refusal = compiled("other", { ["main.tl"] = with_annotation("Other") }, "main")
   assert(other == nil, "a spec built from R answered an Other")
-  assert(refusal:find("Other", 1, true) ~= nil and refusal:find("R", 1, true) ~= nil, refusal)
+  assert(refusal:find("Other", 1, true), refusal)
+  assert(refusal:find("R", 1, true), refusal)
 end
 
 local function test_a_record_in_a_function_is_the_one_its_block_declares()
@@ -361,7 +362,7 @@ local function test_a_record_declared_below_the_call_is_not_read()
   }, "\n")
   local lua, trouble = compiled("below", { ["main.tl"] = source }, "main")
   assert(lua == nil, "a record declared after the call was read")
-  assert(trouble:find("names no record declared above it", 1, true) ~= nil, trouble)
+  assert(trouble:find("names no record declared above it", 1, true), trouble)
 end
 
 local function test_an_enum_value_with_an_escape_is_refused_by_name()
@@ -439,6 +440,6 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
     (source:gsub('record_of%("B"%)', 'record_of(("B"))')))
   assert(#unread.splices == 0, "a refused call splices none")
   assert(unread.line == 8, tostring(unread.line))
-  assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true) ~= nil,
+  assert(unread.refusal:find("main.tl:8: Shape.record_of: the name must be a string literal", 1, true),
     unread.refusal)
 end

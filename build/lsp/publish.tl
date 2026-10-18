@@ -10,8 +10,9 @@
 ---   checks every other open document again, which a cycle of imports
 ---   may now reach ([`check.moved`]); so does closing a document that
 ---   stood for its file with another text than the stage's.
---- - A change of a module's text checks again the open documents that
----   require it, or require one that does ([`graph.dependents`]).
+--- - A change of what a module serves the modules that require it checks
+---   again the open documents that require it, or require one that does
+---   ([`graph.dependents`]), one at a time ([`build.lsp.dependents`]).
 
 local check = require("build.lsp.check")
 local graph = require("build.lsp.graph")
@@ -96,20 +97,25 @@ function publish.closed(o: Open, document: check.Document): {string}
   return out
 end
 
---- The publications of the other open documents that require
---- `document`'s module, or require one that does, and so on
---- ([`graph.dependents`]), whose diagnostics changed: checked once its
---- text changed.
+--- The other open documents that require `document`'s module, or
+--- require one that does, and so on ([`graph.dependents`]), by URI, in
+--- order: those whose diagnostics may change with its text.
 function publish.dependents(o: Open, document: check.Document): {string}
   local open = o.checker.open
   local opened: {string:{string}} = {}
   for name, other in pairs(open) do opened[name] = other.requires end
-  local dependents: {check.Document} = {}
+  local out: {string} = {}
   for _, file in ipairs(graph.dependents(o.checker.source, document.name, opened)) do
     local other = open[file]
-    if other ~= nil and other ~= document then dependents[#dependents + 1] = other end
+    if other ~= nil and other ~= document then out[#out + 1] = other.uri end
   end
-  return changed(o, dependents)
+  return out
+end
+
+--- The publication of `document`'s diagnostics where they changed since
+--- it last published them: one dependent checked again.
+function publish.again(o: Open, document: check.Document): {string}
+  return changed(o, { document })
 end
 
 return publish

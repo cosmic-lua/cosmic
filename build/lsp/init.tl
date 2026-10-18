@@ -22,8 +22,8 @@
 --- Its `spec` (build/verb_spec.tl) is `bare`, since standard output is
 --- the protocol's, `fresh`: in cosmic's own tree a tool older than the
 --- tree rebuilds itself first, as `docs` does, and `reads`: where another
---- run holds the working database, which builds the same tree, it starts
---- at once, and checks nothing of the tool. Complaints go to standard
+--- run holds the working database, it starts at once, and checks nothing
+--- of the tool ([`reboot.stale_exit`]). Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
 local Cli = require("cosmic.cli")
@@ -31,8 +31,10 @@ local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
+local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
 local verb_spec = require("build.verb_spec")
 
@@ -117,6 +119,30 @@ local function named(address: Net.Address): string
   return host .. ":" .. tostring(address.port)
 end
 
+--- What has arrived on standard input, read through `reader`
+--- without waiting ([`protocol.Poll`]).
+local function polled_input(reader: Stream.Reader): protocol.Poll
+  return function(): string | nil, string
+    local ready, _ = Poll.readable(0, 0)
+    if not ready then return nil, "" end
+    return reader:read()
+  end
+end
+
+--- What has arrived on `conn`, read without waiting ([`protocol.Poll`]).
+local function polled_conn(conn: Net.Conn): protocol.Poll
+  return function(): string | nil, string
+    conn:set_timeout(0)
+    local chunk, why = conn:read()
+    conn:set_timeout(nil)
+    if chunk == nil then
+      if why == Poll.TIMEOUT then return nil, "" end
+      return nil, why
+    end
+    return chunk, ""
+  end
+end
+
 --- The connections a listener has open, closed as it stops.
 local record Open
   conns: {Net.Conn: boolean}
@@ -145,7 +171,7 @@ local function listen(root: string, listeners: {Net.Address}): integer
       })
       local _ = session.serve(s, conn, function(text: string): boolean, string
         return conn:write(text)
-      end)
+      end, polled_conn(conn))
       open.conns[conn] = nil
     end,
     limits = nil,
@@ -228,7 +254,8 @@ local function run(argv: {integer:string}): integer
     return bare.failed
   end
   if #listeners == 0 then
-    return session.serve(session.new(root), Stream.from_fd(0), bare.out)
+    local input = Stream.from_fd(0)
+    return session.serve(session.new(root), input, bare.out, polled_input(input))
   end
   for _, path in ipairs(parsed.all["--socket"] or none) do
     local taken = socket_taken(path)

@@ -42,17 +42,20 @@ local function test_frames_refuse_what_is_no_message()
   }
   for bytes, said in pairs(cases) do
     local body, trouble = protocol.frames(Stream.from_string(bytes)):next()
-    assert(body == nil and trouble:find(said, 1, true) ~= nil, bytes .. ": " .. trouble)
+    assert(body == nil, bytes)
+    assert(trouble:find(said, 1, true), bytes .. ": " .. trouble)
   end
 end
 
 local function test_a_header_too_long_is_refused_whole_or_not()
   local long = "X-Long: " .. ("a"):rep(9000) .. "\r\nContent-Length: 2\r\n\r\n{}"
   local body, trouble = protocol.frames(Stream.from_string(long)):next()
-  assert(body == nil and trouble:find("a header longer than", 1, true) ~= nil, trouble)
+  assert(body == nil, "a header too long is refused")
+  assert(trouble:find("a header longer than", 1, true), trouble)
   local endless = "X-Long: " .. ("a"):rep(9000)
   local none, why = protocol.frames_of(trickle(endless)):next()
-  assert(none == nil and why:find("a header longer than", 1, true) ~= nil, why)
+  assert(none == nil, "a header that never ends is refused")
+  assert(why:find("a header longer than", 1, true), why)
 end
 
 local function test_a_large_body_arriving_in_pieces_is_whole()
