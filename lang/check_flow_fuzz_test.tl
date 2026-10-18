@@ -12,8 +12,11 @@
 --- Fixed fields get their own generator: records whose paths (`r.a`, `r.leaf.n`) are tested, read, copied and
 --- replaced by an assignment of the record, with reads of a path after that, which the checker has to refuse.
 ---
---- TODO: run checked narrowing in a real `cosmic test` (the `__fact` hook of the tool's worker), once the tool wires
---- `--check-types` to the new checker: until then the wraps of [`Programs.execute`] stand for it.
+--- The wraps are run with the `__fact` hook of the tool's worker ([`build.test_worker`]'s `fact`, which `install_checks`
+--- defines), which a violation also records as a row of `type_violations` in a checked run.
+---
+--- TODO: run checked narrowing in a real `cosmic test --check-types` run, the Lua compiled by the tool and not by
+--- [`Programs.execute`], once the tool wires `--check-types` to the new checker (doc/plans/strict-teal.md, "the switch").
 local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
@@ -21,6 +24,7 @@ local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local adapt = require("lang.check_drawn")
 local drawn = require("build.checker_programs")
+local worker = require("build.test_worker")
 
 Test.policy{}
 
@@ -37,6 +41,11 @@ local CONSTRUCTS <const>: {{string}} = {
   { "elseif", "elseif " },
 }
 
+--- `source` checked and run with every read of a narrowed place checked by the worker's hook.
+local function execute(source: string): Programs.Execution
+  return Programs.execute(source, true, nil, nil, worker.fact)
+end
+
 --- How many programs to draw: `FUZZ_ITERS` where it is set, else `default`, which a test of a few seconds under coverage
 --- allows (each is checked and run).
 local function iterations(default: integer): integer
@@ -46,7 +55,7 @@ end
 local function check_program(input: string): boolean, string
   -- A drawn program has the header; an input of the corpus may lack it, and is checked as it is.
   local source = Translate.translate(adapt.adapted(input) or input, "fuzz.tl").text
-  local x = Programs.execute(source, true)
+  local x = execute(source)
   if not x.ran then
     Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
     return true, ""
@@ -466,7 +475,7 @@ local LOCAL_CONSTRUCTS <const>: {{string}} = {
 }
 
 local function check_locals(source: string): boolean, string
-  local x = Programs.execute(source, true)
+  local x = execute(source)
   if not x.ran then
     local first = x.run.errors[1]
     Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
@@ -506,7 +515,7 @@ end
 local function check_fixed(source: string): boolean, string
   local ok, why = check_locals(source)
   if ok then
-    local x = Programs.execute(source, true)
+    local x = execute(source)
     if x.ran and narrowed_a_path(x) then
       Fuzz.label("narrowed path read")
     end
@@ -795,7 +804,7 @@ local SHAPE_CONSTRUCTS <const>: {{string}} = {
 }
 
 local function check_shapes(source: string): boolean, string
-  local x = Programs.execute(source, true)
+  local x = execute(source)
   if not x.ran then
     local first = x.run.errors[1]
     Fuzz.label(#x.run.before > 0 and "not a program" or "refused")

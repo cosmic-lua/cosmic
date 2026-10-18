@@ -6,6 +6,7 @@ local Codegen = require("lang.codegen")
 local Codes = require("lang.check_codes")
 local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
+local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
@@ -49,6 +50,11 @@ local record Programs
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
 
+  --- A `__fact`: it is called with the value of a narrowed read, what the checker concluded of it ([`lang.fact_wraps`]) and
+  --- where the read is, answers the value and raises where the conclusion is false of it.
+  type FactHook = function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
+                           tags?: {string}, at?: string): any
+
   --- What running a checked program did.
   record Execution
     run: Run
@@ -66,8 +72,10 @@ local record Programs
   --- every read of a place whose type a test narrowed ([`Check.Checked.narrowed`]) is wrapped in a check of what the
   --- checker concluded: that the value is none of the kinds taken out, a member of the enum, of a class, or of the
   --- members a tag tells apart, which raises `fact violated: <place> is ...`. `kind_only` writes `v is E` of an enum as the
-  --- fork does, a test for the kind, to show that the checks see what that lets through.
-  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Execution
+  --- fork does, a test for the kind, to show that the checks see what that lets through. `hook` is the `__fact` to run
+  --- the wraps with, in place of this module's own: the one the tool's worker defines ([`build.test_worker`]'s
+  --- `install_checks`) can be run on the programs a test draws.
+  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean, hook?: FactHook): Execution
 
   --- The type of the first variable called `name`.
   var: function(run: Run, name: string): Types.Type
@@ -252,27 +260,6 @@ local function taken(run: Programs.Run): boolean
   return true
 end
 
---- The Lua text of the strings of `list`, as a table.
-local function lua_strings(list: {string}): string
-  local out: {string} = {}
-  for i, v in ipairs(list) do
-    out[i] = (string.format("%q", v):gsub("\\\n", "\\n"))
-  end
-  return "{" .. table.concat(out, ", ") .. "}"
-end
-
---- The arguments after the value of the call of `__fact` that wraps the read `n`: the kinds taken out, the place, and what
---- the checker concluded of the strings, classes and tag of the value, each nil where it concluded nothing.
-local function fact_arguments(n: Check.Narrowed): string
-  local strings, classes, tags = n.strings, n.classes, n.tags
-  local parts: {string} = {
-    lua_strings({ table.concat(n.taken, ",") }):sub(2, -2), (string.format("%q", n.text):gsub("\\\n", "\\n")),
-    strings ~= nil and lua_strings(strings) or "nil", classes ~= nil and "{" .. table.concat(classes, ", ") .. "}" or "nil",
-    n.tag ~= nil and lua_strings({ n.tag }):sub(2, -2) or "nil", tags ~= nil and lua_strings(tags) or "nil",
-  }
-  return table.concat(parts, ", ")
-end
-
 --- A coroutine of the typed library, over Lua's own: what can be done with it, each closed over the thread.
 local record Co
   resume: function(...: any): (boolean, any...)
@@ -335,7 +322,46 @@ local function typed_coroutines(): {string: any}
   return library
 end
 
-function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean): Programs.Execution
+--- The `__fact` that [`Programs.execute`] runs a program with unless it is given another: it raises `fact violated: ...`
+--- for a read whose conclusion is false of the value.
+local function own_fact(v: any, kinds: string, name: string, strings?: {string}, tables?: {any}, tag?: string, tags?: {string},
+                        _at?: string): any
+  local kind = type(v)
+  local function fails(why: string)
+    error("fact violated: " .. name .. " is " .. why, 0)
+  end
+  for k in kinds:gmatch("[^,]+") do
+    if k == kind then
+      fails("a " .. kind .. ", the checker proved not " .. kinds)
+    end
+  end
+  local function among(list: {any}, value: any): boolean
+    for _, each in ipairs(list) do
+      if each == value then
+        return true
+      end
+    end
+    return false
+  end
+  if strings ~= nil and kind == "string" and not among(strings, v) then
+    fails("the string " .. tostring(v) .. ", the checker proved one of " .. table.concat(strings, ","))
+  end
+  if v is {string: any} then
+    if tables ~= nil and not among(tables, getmetatable(v)) then
+      fails("a table of another class than the checker proved")
+    end
+    if tag ~= nil and tags ~= nil then
+      local field = v[tag]
+      if not among(tags, field) then
+        fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(tags, ","))
+      end
+    end
+  end
+  return v
+end
+
+function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean,
+                          hook?: Programs.FactHook): Programs.Execution
   local run = Programs.run(source, modules)
   local done: Programs.Execution = { run = run, ran = false, lua = "", printed = {}, fault = nil }
   if not taken(run) then
@@ -343,9 +369,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   end
   local wraps: {integer: string} = {}
   if facts then
-    for _, n in ipairs(run.result.narrowed) do
-      wraps[n.id] = fact_arguments(n)
-    end
+    wraps = FactWraps.of(run.result.narrowed, source, "t")
   end
   local classes: {integer: string} = {}
   for id, decl in pairs(run.result.literals) do
@@ -364,41 +388,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     end
     done.printed[#done.printed + 1] = table.concat(parts, "\t")
   end
-  env.__fact = function(v: any, kinds: string, name: string, strings: {string} | nil, tables: {any} | nil, tag: string | nil,
-                        tags: {string} | nil): any
-    local kind = type(v)
-    local function fails(why: string)
-      error("fact violated: " .. name .. " is " .. why, 0)
-    end
-    for k in kinds:gmatch("[^,]+") do
-      if k == kind then
-        fails("a " .. kind .. ", the checker proved not " .. kinds)
-      end
-    end
-    local function among(list: {any}, value: any): boolean
-      for _, each in ipairs(list) do
-        if each == value then
-          return true
-        end
-      end
-      return false
-    end
-    if strings ~= nil and kind == "string" and not among(strings, v) then
-      fails("the string " .. tostring(v) .. ", the checker proved one of " .. table.concat(strings, ","))
-    end
-    if v is {string: any} then
-      if tables ~= nil and not among(tables, getmetatable(v)) then
-        fails("a table of another class than the checker proved")
-      end
-      if tag ~= nil and tags ~= nil then
-        local field = v[tag]
-        if not among(tags, field) then
-          fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(tags, ","))
-        end
-      end
-    end
-    return v
-  end
+  env.__fact = hook or own_fact
   local chunk, why = load(done.lua, "=t", "t", env)
   if chunk == nil then
     done.fault = "the Lua does not load: " .. tostring(why)

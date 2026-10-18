@@ -79,6 +79,12 @@ local record worker
   --- that sent it: the caller's file and line for a parameter, the `return`
   --- or the write for a return value and a field. The same boundary, place
   --- and kinds again count up `count`.
+  ---
+  --- A "fact" is the exception: a read whose type the new checker narrowed
+  --- ([`lang.fact_wraps`]), of a value the conclusion is false of. `at` is
+  --- the read (`file:line:column`), `target` the place as written, `declared`
+  --- what the checker proved ("not nil", "one of a|b") and `actual` what the
+  --- value was; the read raises, which fails its test.
   record Violation
     kind: string
     at: string
@@ -203,6 +209,10 @@ local record worker
   most_kept: integer
 
   install_checks: function()
+  --- The `__fact` that [`install_checks`] defines: the hook the calls of [`lang.fact_wraps`] run, for a test that runs
+  --- the Lua of a program with them.
+  fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
+                 tags?: {string}, at?: string): any
   violations: function(): {Violation}
   dropped_violations: function(): integer
 
@@ -324,6 +334,8 @@ end
 local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
 local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, string.char, string.gsub, tonumber, error
+local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
+  table.concat, string.format, string.sub, getmetatable, tostring, string.find
 
 --- A fact of a narrowed read, parsed.
 local record Fact
@@ -395,6 +407,32 @@ local function parse_check(text: string): Check
   return check
 end
 
+-- The metatable of a value is read as the code of a class does: `@v`, which answers
+-- the metatable whatever its `__metatable` says, where the runtime's parser takes
+-- the form from text. Where it does not, `getmetatable`, which a class that hides
+-- its metatable would fail.
+--
+-- TODO: read the class with whatever form the runtime keeps for the code the compiler writes, once the runtime cut takes
+-- text `load` from programs (doc/plans/strict-teal.md, "no implicit conversion or hidden code"): the `@` of text is
+-- then gone, and a class that hides its metatable is a false "fact violated" again.
+local raw_reader = load("local v = ... return @v")
+
+-- Counts up a violation met again.
+local function again(known: worker.Violation)
+  known.count = known.count + 1
+end
+
+-- Keeps `met`, the first violation of its kind at `at` among `sites`, unless
+-- the worker keeps as many as it may: then it is only counted.
+local function keep(sites: {string:worker.Violation}, at: string, met: worker.Violation)
+  if #found >= worker.most_kept then
+    tally.dropped = tally.dropped + 1
+    return
+  end
+  sites[at] = met
+  found[#found + 1] = met
+end
+
 local function note(check: Check, index: integer, value: any, absent: boolean)
   local actual = lua_type(value)
   if actual == "number" then actual = math_type(value) end
@@ -414,11 +452,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   end
   local known = sites[at]
   if known ~= nil then
-    known.count = known.count + 1
-    return
-  end
-  if #found >= worker.most_kept then
-    tally.dropped = tally.dropped + 1
+    again(known)
     return
   end
   local target: string
@@ -431,8 +465,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   end
   local met: worker.Violation = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
     at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
-  sites[at] = met
-  found[#found + 1] = met
+  keep(sites, at, met)
 end
 
 local function parse_fact(text: string)
@@ -523,13 +556,114 @@ local function hook(_: integer, text: string, ...: any): any...
   return ...
 end
 
+local fact_sites: {string:worker.Violation} = {}
+
+local function among(list: {any}, value: any): boolean
+  for i = 1, #list do
+    if list[i] == value then return true end
+  end
+  return false
+end
+
+-- Whether the metatable of `v` is one of `classes`, as the code of a class reads it.
+local function of_class(v: any, classes: {any}): boolean
+  if raw_reader == nil then return among(classes, lua_getmetatable(v)) end
+  return among(classes, (raw_reader(v)))
+end
+
+local function among_strings(list: {string}, value: any): boolean
+  for i = 1, #list do
+    if list[i] == value then return true end
+  end
+  return false
+end
+
+-- A value as a row says it: a string quoted and cut short, a boolean as it
+-- prints, a number by its kind, any other value by its type. A row is keyed by
+-- it, so it names no address.
+local function shown(value: any): string
+  if value is string then
+    local text = lua_format("%q", value)
+    if #text > 40 then text = lua_sub(text, 1, 37) .. "..." end
+    return "string " .. text
+  elseif value is boolean then
+    return lua_tostring(value)
+  elseif lua_type(value) == "number" then
+    if math_type(value) == "integer" then return "integer" end
+    return "float"
+  end
+  return lua_type(value)
+end
+
+-- Records a fact false of a value, the same place, read and what was seen
+-- again counted up in the row it made.
+local function note_fact(at: string, name: string, declared: string, actual: string)
+  local key = at .. "\0" .. name .. "\0" .. declared .. "\0" .. actual
+  local known = fact_sites[key]
+  if known ~= nil then
+    again(known)
+    return
+  end
+  keep(fact_sites, key, { kind = "fact", at = at, target = name, declared = declared, actual = actual, count = 1 })
+end
+
+-- Records the fact `declared` false of the read of `name` at `at`, which was
+-- `actual`, and fails the test.
+local function fact_broken(at: string, name: string, declared: string, actual: string)
+  note_fact(at, name, declared, actual)
+  lua_error("fact violated at " .. at .. ": " .. name .. " is " .. actual .. ", the checker proved " .. declared, 0)
+end
+
+-- The hook the code of the new checker calls at each read of a place whose
+-- type a test narrowed: `__fact(v, taken, place, strings, classes, tag, tags,
+-- at)` ([`lang.fact_wraps`]). It answers `v`, or records the violation and
+-- raises as the fork's "n" check does, since the checker's own conclusion
+-- was wrong there: a kind `taken` names (joined by ","; no kind is part of
+-- another's name), a string that is no member of `strings`, a table of another
+-- metatable than the `classes`', a table whose field `tag` is none of `tags`.
+-- `at` is the place of the read; a call that gives none is placed by the frame
+-- that made it.
+local function fact(v: any, taken: string, name: string, strings?: {string}, classes?: {any}, tag?: string,
+                    tags?: {string}, at?: string): any
+  if lua_type(taken) ~= "string" then return v end
+  local kind = lua_type(v)
+  if lua_find(taken, kind, 1, true) ~= nil then
+    local actual = kind
+    if kind == "number" then actual = shown(v) end
+    fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
+  end
+  if strings ~= nil and kind == "string" and not among_strings(strings, v) then
+    fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
+  end
+  if v is {string:any} then
+    if classes ~= nil and not of_class(v, classes) then
+      fact_broken(at or raw_errors.where(2) or "?", name, "a table of one of its classes", "a table of another class")
+    end
+    if tag ~= nil and tags ~= nil then
+      local field = v[tag]
+      if not among_strings(tags, field) then
+        fact_broken(at or raw_errors.where(2) or "?", name, tag .. " one of " .. lua_concat(tags, "|"),
+          "a table whose " .. tag .. " is " .. shown(field))
+      end
+    end
+  end
+  return v
+end
+
 worker.most_kept = 2000
+worker.fact = fact
 
 --- Defines the global `__cosmic_tc` the Lua of a checked run calls, which
---- records what [`worker.violations`] answers. Install it before a test's
+--- records what [`worker.violations`] answers, and `__fact`, which the Lua the
+--- new checker's code generator writes calls at a read it narrowed
+--- ([`lang.fact_wraps`]) and which records a violation of kind "fact" (the
+--- place of the read, the place as written, what the checker proved and what
+--- the value was) before it fails the read. Install them before a test's
 --- module loads: the boundaries its load crosses are checked too.
 function worker.install_checks()
-  rawset(_G as {string:any}, "__cosmic_tc", hook)
+  local globals = _G as {string:any}
+  rawset(globals, "__cosmic_tc", hook)
+  rawset(globals, "__fact", fact)
 end
 
 --- The violations this process has met since it installed its checks, in
