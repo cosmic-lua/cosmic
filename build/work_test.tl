@@ -243,6 +243,32 @@ local function test_an_open_that_waits_for_no_run_reads_nothing_of_another_schem
   assert(work.close((assert(again.handle))))
 end
 
+--- An open that remakes a file of another schema waiting for no run
+--- leaves it to a run that holds the checkout's rebuild lock, as a `cosmic
+--- test` run does from its compile's commit to its records' own
+--- transaction: the file's write lock is free between the two, and a
+--- file removed then is one that run goes on writing its records to,
+--- unlinked, and loses.
+local function test_a_remaking_open_leaves_a_file_a_run_holding_the_rebuild_lock_writes_to(tmp: string)
+  local path = build_dir(tmp) .. "/build.db"
+  local running = assert(work.open(tmp))
+  assert(Sqlite.run(running.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.commit(running))
+  -- Held as another process holds the rebuild lock
+  -- ([`build.rebuild_lock`]): one this process holds through that
+  -- module is one it takes as its own.
+  local lock = assert(sys.open(build_paths.resolve(tmp).lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local tried = assert(work.try_open_remaking(tmp))
+  assert(tried.handle == nil, "opened a file of another schema another run writes to")
+  assert(tried.other_schema == "another", tostring(tried.other_schema))
+  assert(work.begin(running))
+  assert(Sqlite.run(running.db, "INSERT INTO meta (key, value) VALUES ('marker', 'kept')"))
+  assert(work.close(running))
+  assert(sys.close(lock))
+  assert(meta_of(path, "marker") == "kept", "the run's records were lost to a removed file")
+end
+
 --- A read of the working database answers at once, with the last
 --- commit, while a run holds its write transaction open with more
 --- written than its cache holds. In rollback mode that run's spill holds

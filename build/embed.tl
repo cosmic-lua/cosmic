@@ -399,9 +399,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, project, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+  local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
   local _, _ = work.close(handle)
   if not written then
     return nil, write_trouble

@@ -359,3 +359,20 @@ local function test_a_lookups_build_leaves_a_database_of_another_schema(tmp: str
   assert(db:close())
   assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
 end
+
+--- Each kind of line said of a working database ([`work.tell_busy`],
+--- [`work.tell_other_schema`]) is said once a process, and one kind said
+--- does not keep another from being said.
+local function test_each_kind_of_line_about_a_working_database_is_said_once(tmp: string)
+  local path = tmp .. "/build.db"
+  local _, said = complaints(function(): string
+    for _ = 1, 2 do
+      work.tell_busy("docs", path)
+      work.tell_other_schema("docs", path, "another")
+    end
+    return ""
+  end)
+  local _, busy = said:gsub("holds the write lock", "")
+  local _, other = said:gsub("is of schema another", "")
+  assert(busy == 1 and other == 1, said)
+end

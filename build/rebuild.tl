@@ -148,9 +148,8 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, build_paths.resolve(root).projection, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+  local written, write_trouble = writer.write_recorded(handle,
+    build_paths.resolve(root).projection, result, started, staged)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
   return true, ""

@@ -862,6 +862,7 @@ local doing: {string:string} = {
   test = "is running its tests",
   rebuild = "is rebuilding the tool",
   write = "is writing its projection",
+  remake = "is making its working database again",
 }
 
 --- How long a waiting boot waits in one go before it says it still is.

@@ -15,6 +15,7 @@
 --- leaves every store's bytes alone moves no store's address.
 
 local build_paths = require("build.paths")
+local clock = require("build.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Mime = require("cosmic.mime")
@@ -599,6 +600,27 @@ function writer.write_result(handle: work.Handle, out: string,
     rebuild_lock.release()
   end
   if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
+--- Writes `result` to `out` as [`writer.write_result`] does, for a build
+--- that holds no rebuild lock, begun at `started` (monotonic ns), that
+--- staged `staged`. Its row in `builds` ([`work.record`]) goes in with
+--- the commit, timed to it, so the build writes nothing to the working
+--- database after: a run of another schema that removes the file once
+--- the locks are free ([`work.try_open_remaking`]) takes none of the
+--- build's rows with it but what it means to. Only a write that fails
+--- once committed records so after.
+function writer.write_recorded(handle: work.Handle, out: string, result: importer.Result,
+                               started: integer, staged: work.Staged): boolean, string
+  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+    result.cached, "PASS")
+  local written, trouble = writer.write_result(handle, out, result)
+  if not written then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+      result.cached, "FAIL")
     return false, trouble
   end
   return true, ""

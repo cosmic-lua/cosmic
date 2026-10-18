@@ -8,6 +8,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
+local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
@@ -178,6 +179,68 @@ local function test_a_build_makes_again_a_fresh_file_another_tool_stamped_while_
   assert(result.ok, said .. schema)
   assert(schema ~= "" and schema ~= "another" and schema ~= "gone",
     "the build kept another tool's schema: " .. schema)
+end
+
+--- A build that finds the working database of another schema waits for
+--- the run that holds the checkout's rebuild lock before it removes the
+--- file: that run, a `cosmic test`, keeps a handle on it between its own
+--- transactions, while its write lock is free.
+local function test_a_build_waits_for_the_rebuild_lock_before_removing_a_file_of_another_schema(tmp: string)
+  local path = of_another_schema(tmp)
+  local before = assert(Fs.stat(path)).ino
+  -- Held here as a `cosmic test` run holds it.
+  assert(rebuild_lock.take(tmp, 0, "test") == "held")
+  local child, said = waiting(tmp, opening_script(tmp))
+  local during = Fs.stat(path)
+  rebuild_lock.release()
+  local result = assert(child:wait(Clock.seconds(60)))
+  assert(said:find("waiting for it", 1, true), "the build did not wait for the rebuild lock: " .. said)
+  assert(during ~= nil and during.ino == before, "the file was removed under the rebuild lock: " .. said)
+  local schema = result.stdout or ""
+  assert(result.ok, said .. schema)
+  assert(schema ~= "another" and schema ~= "gone", "the file was not made again: " .. schema)
+end
+
+--- A build that waits for the write lock to put a file in write-ahead
+--- mode, and is granted it on a file another run put in place of the
+--- one it opened, opens the path anew: its run, built in the file it
+--- opened, would go to a file no longer there, and the run count of the
+--- one at the path stay as it was.
+local function test_a_build_whose_file_is_replaced_while_it_waits_to_log_opens_the_path_anew(tmp: string)
+  local made = assert(work.open(tmp))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  -- In rollback mode, which a build switches out of under the write lock.
+  local rollback = assert(Sqlite.open(path, { writable = true }))
+  local mode = assert(Sqlite.text_rows(rollback, "PRAGMA journal_mode = DELETE"))
+  assert(assert(mode[1]):text(1) == "delete")
+  assert(rollback:close())
+  local bytes = assert(Fs.read(path))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local child, said = waiting(tmp, 'local work = require("build.work"); ' ..
+      'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
+      'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')); ' ..
+      'local path = handle.dir .. "/build.db"; assert(work.close(handle)); ' ..
+      'local db = assert(Sqlite.open(path)); ' ..
+      'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'run\'")); ' ..
+      'assert(db:close()); assert(Fs.put(1, rows[1]:text(1)))')
+  -- Another file, at another inode, at the path.
+  assert(Fs.remove(path))
+  assert(Fs.write(path, bytes))
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  local stderr = assert(child.stderr_stream)
+  while true do
+    local chunk = stderr:read()
+    if chunk == nil or chunk == "" then break end
+    said = said .. chunk
+  end
+  local result = assert(child:wait(Clock.seconds(60)))
+  assert(said:find("waiting for it", 1, true), "the build did not wait for the lock: " .. said)
+  local runs = result.stdout or ""
+  assert(result.ok, said .. runs)
+  assert(runs == "2", "the build ran in the file it opened, not the one at the path: its runs are " .. runs)
 end
 
 --- A warmed compiled source cannot hide a rewrite behind a normalized mtime.
