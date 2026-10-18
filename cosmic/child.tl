@@ -3108,9 +3108,12 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       "which the \"nest\" promise refuses a child"
   end
   -- TODO: count the grants again once these two are added: [`unmet`]
-  -- counted them before, so a start at the most then raises "too many
-  -- unveiled paths" inside spawn rather than refusing with a message. The
-  -- fix: count after adding them and refuse with the count and the most.
+  -- counted them before, so a start at the most then raises inside spawn
+  -- rather than refusing with a message: "too many grants" where the
+  -- grants are handed to it (core/syscalls.c's `read_grants`), and under
+  -- `nest`, which hands none, "too many unveiled paths" for the root they
+  -- are bound into. The fix: count after adding them and refuse with the
+  -- count and the most.
   if found ~= nil then
     relaunch = found
     local granted = assert(merged.grants)
