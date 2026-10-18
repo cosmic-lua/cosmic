@@ -2525,7 +2525,7 @@ build/lsp/plan.tl field_fixed 1
 build/lsp/protocol.tl field_fixed 6
 build/lsp/session.tl field_fixed 10
 build/lsp/session_fixture.tl field_fixed 2
-build/lsp/source.tl field_fixed 30
+build/lsp/source.tl field_fixed 28
 build/lsp/splice.tl field_fixed 2
 build/perf_test.tl field_fixed 3
 build/perf_validation.tl field_fixed 3

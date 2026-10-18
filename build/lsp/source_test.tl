@@ -283,6 +283,36 @@ local function test_a_database_of_another_schema_is_let_go_of()
   source.close(src)
 end
 
+--- A session that reads the database finds, at its next check, the
+--- file made again under it as another schema's, another tool's: it
+--- reads none of the new file, which lists the same modules, and says
+--- why.
+local function test_a_database_made_again_of_another_schema_under_the_session_is_not_read()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
+    { change(root, "main.tl", main .. "\n") } }, function(_after: integer)
+      -- A copy at another inode, stamped as another tool's. The old
+      -- file's log, which keeps its name, is emptied first, so the copy
+      -- is read as it is.
+      local copy = working .. ".another"
+      local db = assert(Sqlite.open(working, { writable = true }))
+      assert(Sqlite.text_rows(db, "PRAGMA wal_checkpoint(TRUNCATE)"))
+      assert(Sqlite.run(db, "VACUUM INTO ?1", { { text = copy } }))
+      assert(db:close())
+      stamp_another(copy)
+      assert(Fs.rename(copy, working))
+    end)
+  assert(ran.err:find("is of schema another", 1, true), "not said: " .. ran.err)
+  assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
+  assert(counts(ran) == "0,1", "a module of another schema's file is read: " .. counts(ran))
+  assert(messages_of(nth(ran, 2)):find("module not found: 'lib.shapes'", 1, true),
+    messages_of(nth(ran, 2)))
+end
+
 --- A session that has said the database is busy still says when it then
 --- finds it of another schema: each is said once, apart.
 local function test_a_busy_database_found_of_another_schema_is_said_so()
@@ -299,7 +329,7 @@ local function test_a_busy_database_found_of_another_schema_is_said_so()
   assert(held:exec("COMMIT"))
   assert(held:close())
   local other = send({ change(root, "main.tl", main .. "\n") })
-  assert(other.err:find("is of schema another", 1, true), "not said: " .. other.err)
+  assert(other.err:find("is of schema another", 1, true), "not said: " .. other.err .. counts(other) .. " reopened " .. tostring(other.tally.reopened) .. " stages " .. tostring(other.tally.stages))
   -- What the session has said so far: each once.
   local said = send({ change(root, "main.tl", main) }).err
   local _, busy_times = said:gsub("holds the write lock", "")
