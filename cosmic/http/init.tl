@@ -43,6 +43,9 @@ else
 end
 
 local Stream = require("cosmic.stream")
+-- Only the type: cosmic.net is the networking stack a program that
+-- only fetches over the network does not carry.
+local type Net = require("cosmic.net")
 
 local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
@@ -74,6 +77,20 @@ local record Http
   --- `sha256`, `sha512`, `sha3_256` and `cancelled` are read only by
   --- [`Http.download_result`] and [`Http.download`].
   ---
+  --- `via`, a unix address ([`Net.unix`]), sends the request over the
+  --- socket file at its path instead of the network. The URL still gives
+  --- the request line and the Host header, so `http://docker/containers/json`
+  --- over `Net.unix("/var/run/docker.sock")` asks for `/containers/json` of
+  --- host `docker`; its scheme must be http or https, and no name is
+  --- resolved. A proxy is never used. Only kind "unix" is taken: any
+  --- other address raises, naming `via`; an empty `path` returns `nil, err`.
+  --- The path must fit the system's `sun_path` (104 bytes on macOS, 108
+  --- on Linux), or the request fails; a sandboxed process also needs
+  --- the socket permitted, as [`Net.connect`] to a unix address does.
+  --- With `via`, `follow` defaults to false, since a `Location` names a
+  --- host the socket may not serve; `follow = true` follows redirects, each
+  --- one through the same socket, wherever its URL points.
+  ---
   --- `script` is for tests: instead of connecting anywhere, the Nth
   --- connection curl opens (one request each) reads `script[N]` as the
   --- server's whole reply, and [`Response:sent`] returns what curl wrote.
@@ -97,12 +114,14 @@ local record Http
     headers?: {string:string}
     --- The request body, sent whole.
     body?: string
-    --- Whether to follow redirects; true by default.
+    --- Whether to follow redirects; true by default, false with `via`.
     follow?: boolean
     --- The most redirects followed, 10 by default.
     max_redirects?: integer
     --- The schemes a redirect may lead to, "http" and "https" by default.
     redirect_protocols?: {string}
+    --- A unix address to send the request over in place of the network.
+    via?: Net.Address
     --- How long connecting may take, in nanoseconds; 30 seconds by default.
     connect_timeout_ns?: integer
     --- How long the whole request may take, in nanoseconds; no limit by default.
@@ -139,7 +158,7 @@ local record Http
     -- only while they wait for data, so a guard alone ends a download
     -- whose body never makes them wait: the C waits do not read the
     -- guard when data is already there.
-    cancelled: function(): boolean
+    cancelled?: function(): boolean
   end
 
   --- An open response, and a [`cosmic.stream`] Reader of its body.
@@ -285,11 +304,22 @@ local function raw_options(opts: Http.Options | nil, method?: string): raw_http.
   if opts == nil then
     return method ~= nil and { method = method } or nil
   end
+  local via = opts.via
+  local follow = opts.follow
+  if via ~= nil then
+    if via.kind ~= "unix" or type(via.path) ~= "string" then
+      -- One level nearer than `counted`'s, raised from here directly.
+      error("http: opts.via must be a unix address, as Net.unix builds one", CALLER - 1)
+    end
+    -- A redirect's Location names a host the socket may not serve.
+    if follow == nil then follow = false end
+  end
   return {
+    unix_socket = via and via.path,
     method = method or opts.method,
     headers = opts.headers,
     body = opts.body,
-    follow = opts.follow,
+    follow = follow,
     max_redirects = opts.max_redirects,
     redirect_protocols = opts.redirect_protocols,
     connect_timeout_ms = counted(opts.connect_timeout_ns, MS, math.maxinteger, "connect_timeout_ns"),
@@ -557,7 +587,8 @@ local function downloading(url: string, path: string,
   local sink: Stream.Writer = file
   for _, check in ipairs(checks) do sink = Stream.tee(sink, check.hashing) end
   local source: Stream.Reader = response
-  if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
+  local cancelled = opts.cancelled
+  if cancelled ~= nil then source = cancellable(response, cancelled) end
   local copied, trouble = Stream.copy(source, sink)
   local _, _ = response:close()
   pending.response = nil
