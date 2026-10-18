@@ -25,7 +25,12 @@ local test = require("build.test")
 local todo_scan = require("build.todo_scan")
 local TypeWatch = require("build.type_watch")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+-- The import closure, which holds every verb through build.verb_list, is
+-- one grant a module, and a worker's start takes 255: build/lsp/ is given
+-- as one directory, which shows the closure's modules beneath it.
+-- TODO: drop the grant once a worker's grants show a directory's modules
+-- as one (build.test_sandbox's `plan`), which a closure past 255 needs.
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "build/lsp/", letters = "r" } } }
 
 local built = assert(teal.load())
 
