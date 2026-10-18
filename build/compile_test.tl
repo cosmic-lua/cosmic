@@ -68,9 +68,7 @@ end
 --- compile of the tree uses.
 local function generated(text: string): string
   local built = compiler_in_use()
-  local env = assert(built.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(built.new_env({ defaults = teal.defaults() }))
   local code, result = built.gen(text, env, nil, "tl")
   assert(code ~= nil and #result.syntax_errors == 0)
   return code

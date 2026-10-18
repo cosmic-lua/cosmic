@@ -229,12 +229,12 @@ local function prepared(checker: Checker): compiler, compiler.Env
   if built ~= nil and env ~= nil then return built, env end
   local loaded = assert(teal.load())
   local open = check.open_files(checker)
-  loaded.search_module = function(name: string, _search_all: boolean): string | nil, any
+  loaded.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local listed = checker.source.modules[name] ~= nil
     local found = source.served(checker.source, loaded, name, open)
     if found ~= nil then
       checker.served[name] = found.key
-      return found.file, splice.handle_of(splice.rewritten(checker.built, checker.env, name, found))
+      return found.file, teal.served(splice.rewritten(checker.built, checker.env, name, found))
     end
     if listed then
       checker.served[name] = source.key(checker.source, name, open)
@@ -245,11 +245,9 @@ local function prepared(checker: Checker): compiler, compiler.Env
       checker.served[name] = ""
       return nil, nil
     end
-    return name:gsub("%.", "/") .. ".tl", splice.handle_of(standard.text)
+    return name:gsub("%.", "/") .. ".tl", teal.served(standard.text)
   end
-  local made, env_trouble = loaded.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  })
+  local made, env_trouble = loaded.new_env({ defaults = teal.defaults() })
   if made == nil then error(env_trouble, 0) end
   teal.strip(made)
   for name in pairs(made.globals) do checker.base_globals[name] = true end

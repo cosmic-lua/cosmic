@@ -26,7 +26,7 @@ Test.policy{ grants = {
 --- capsule finds the written value, not the compiler's own.
 local function test_lazy_write_lands_on_the_compiler()
   local built = teal.lazy()
-  local marker = function(_name: string, _search_all: boolean): string | nil, any
+  local marker = function(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     return nil
   end
   built.search_module = marker
@@ -47,10 +47,10 @@ end
 local function test_lazy_capsules_are_independent()
   local first = teal.lazy()
   local second = teal.lazy()
-  local function one(_name: string, _search_all: boolean): string | nil, any
+  local function one(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     return nil
   end
-  local function other(_name: string, _search_all: boolean): string | nil, any
+  local function other(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     return nil
   end
   first.search_module = one
@@ -2627,9 +2627,7 @@ end
 --- the test of its code.
 local function diagnostics(source: string, code: compiler.ErrorCode, five_four?: boolean): {compiler.Error}
   local built = assert(teal.load(true))
-  local env = five_four and assert(built.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } })) or nil
+  local env = five_four and assert(built.new_env({ defaults = teal.defaults() })) or nil
   local ok, _, result = pcall(built.gen, source, env, nil, "tl")
   assert(ok and result ~= nil, source)
   vet(result)

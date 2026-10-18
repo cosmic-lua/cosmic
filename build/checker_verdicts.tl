@@ -142,9 +142,7 @@ end
 --- itself to and without the names the runtime removes, as
 --- [`build.teal`]'s `environment_for` makes one.
 function verdicts.environment(built: compiler): compiler.Env
-  local env = assert(built.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = false,
-  } }))
+  local env = assert(built.new_env({ defaults = teal.defaults(false) }))
   teal.strip(env)
   return env
 end
@@ -208,26 +206,16 @@ end
 --- Points `built` at the modules under `root` and the binary's own
 --- `cosmic.*` modules ([`build.teal`]'s `standard_text`), and nothing else.
 local function serving(built: compiler, root: string)
-  local function handle(text: string): any
-    return {
-      read = function(_self: any, _what: string): string
-        return text
-      end,
-      close = function(_self: any): boolean
-        return true
-      end,
-    }
-  end
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     for _, relative in ipairs(candidates(name)) do
       local text, _ = Fs.read(root .. "/" .. relative)
       if text ~= nil then
-        return relative, handle(text)
+        return relative, teal.served(text)
       end
     end
     local standard = teal.standard_text(name)
     if standard ~= nil then
-      return name:gsub("%.", "/") .. ".tl", handle(standard.text)
+      return name:gsub("%.", "/") .. ".tl", teal.served(standard.text)
     end
     return nil, nil
   end

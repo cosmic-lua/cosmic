@@ -12,9 +12,7 @@ local worker = require("build.test_worker")
 --- the Lua text the build writes. Fails when the checker refuses it.
 local function compiled(source: string, checks: boolean): string
   local built = assert(teal.load(true))
-  local env = assert(built.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = checks,
-  } }))
+  local env = assert(built.new_env({ defaults = teal.defaults(checks) }))
   local result = built.check_string(source, env, "snippet", "tl")
   local problems: {string} = {}
   for _, list in ipairs({ result.syntax_errors, result.type_errors }) do

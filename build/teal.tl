@@ -158,26 +158,42 @@ function teal.lazy(): compiler
   return capsule as compiler
 end
 
---- What the checker gets when it asks for a module by name: the source
---- as one string, then a close. It reads `inputs` rows and nothing
---- else; a path never enters into it.
-local record Served
-  text: string
-  read: function(Served, what: string): string
-  close: function(Served): boolean
-end
-
-local function served(text: string): Served
+--- What the checker reads for a module it is asked to `require`, a
+--- `search_module` answering with the text `text`: the whole text at the
+--- first read, then a close. Every reader of the tree that hands the
+--- checker a module hands it one of these.
+function teal.served(text: string): compiler.Handle
   return {
-    text = text,
-    read = function(self: Served, _what: string): string
-      return self.text
+    read = function(_self: compiler.Handle, _what: string): string
+      return text
     end,
-    close = function(_self: Served): boolean
+    close = function(_self: compiler.Handle): boolean
       return true
     end,
   }
 end
+local served <const> = teal.served
+
+--- The options of every checker environment the tree makes
+--- (`new_env`'s `defaults`): Teal's compat targets off and Lua 5.4
+--- generated, the strictness a compile of the tree holds itself to.
+--- `runtime_checks` is `checks` as given, absent when it is
+--- ([`environment_for`]'s `checks`). A fresh table each time, since an
+--- environment keeps the table it is made with.
+function teal.defaults(checks?: boolean): compiler.Defaults
+  return { feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = checks }
+end
+
+-- TODO: core/bridge.lua holds the last copies of [`teal.defaults`] and
+-- [`teal.served`], in the environments of `searcher_for` and of
+-- `bootstrap`'s stage one and in its `text_handle`; keep one copy. The
+-- bridge is Lua run before the tree is compiled, so it cannot require
+-- this module. The wrapper that joins the checker's parts is one copy
+-- already ([`build/checker_wrapper.tl`], which the bridge loads as the
+-- seed compiled it). Waits on the seed step of build.zig (`seedCompiler`)
+-- compiling the closure of `cosmic compile` ([`build.compile`], which
+-- requires this module) beside the checker, so that the bridge's second
+-- stage runs through it.
 
 --- What the checker reads for the standard-library module `name`: what
 --- [`Store.source`] answers, a declaration's source or the module's, but
@@ -211,7 +227,7 @@ end
 --- A `cosmic.*` module from this binary's own database
 --- ([`teal.standard_text`]), under the name it would have on disk below
 --- `at`; nil for any other name.
-local function standard(name: string, at: string): string | nil, any
+local function standard(name: string, at: string): string | nil, compiler.Handle | nil
   local found = teal.standard_text(name)
   if found == nil then
     return nil
@@ -223,7 +239,7 @@ end
 --- stub or its source ([`teal.standard_text`]), and nothing else: no path
 --- is searched, and any other name is not found.
 function teal.serve_standard(built: compiler)
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     return standard(name, "")
   end
 end
@@ -240,7 +256,7 @@ end
 --- found, however a file of that name sits on disk, so a module reaches
 --- a build only by being staged.
 local function serve(built: compiler, db: Sqlite.Handle, root: string)
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local rows, _ = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
         "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
@@ -313,14 +329,7 @@ end
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
                               root: string, checks?: boolean): compiler.Env | nil, string
   serve(built, db, root)
-  local env, trouble = built.new_env({
-    defaults = {
-      feat_lax = "off",
-      gen_compat = "off",
-      gen_target = "5.4",
-      runtime_checks = checks == true,
-    },
-  })
+  local env, trouble = built.new_env({ defaults = teal.defaults(checks == true) })
   if env == nil then
     return nil, trouble
   end

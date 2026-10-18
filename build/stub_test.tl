@@ -36,19 +36,14 @@ end
 --- A checker environment that answers each module `modules` names with
 --- its text, and nothing else.
 local function environment(modules: {string:string}): compiler.Env
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local text = modules[name]
     if text == nil then
       return nil
     end
-    return (name:gsub("%.", "/")) .. ".tl", {
-      read = function(_self: any, _what: string): string return text end,
-      close = function(_self: any): boolean return true end,
-    }
+    return (name:gsub("%.", "/")) .. ".tl", teal.served(text)
   end
-  local env = assert(built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  }))
+  local env = assert(built.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   return env
 end
@@ -207,19 +202,14 @@ end
 --- What the checker says of `program` when each standard-library module
 --- is answered by `text_of` its name.
 local function said(program: string, text_of: function(string): string | nil): {string}
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local text = name:sub(1, 7) == "cosmic." and text_of(name) or nil
     if text == nil then
       return nil
     end
-    return (name:gsub("%.", "/")) .. ".tl", {
-      read = function(_self: any, _what: string): string return text end,
-      close = function(_self: any): boolean return true end,
-    }
+    return (name:gsub("%.", "/")) .. ".tl", teal.served(text)
   end
-  local env = assert(built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  }))
+  local env = assert(built.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   local checked = built.check_string(program, env, "app.tl", "tl")
   local out: {string} = {}

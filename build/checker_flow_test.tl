@@ -41,9 +41,7 @@ local function setup(): compiler, Flow
     return value, flow_value
   end
   local compiled = assert(teal.load(true))
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local code, result = compiled.gen(assert(Fs.read("checker/flow.tl")), env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0, "checker/flow.tl does not compile")
   local chunk = assert(load(code, "@checker/flow.tl", "t"))
@@ -61,9 +59,7 @@ end
 --- `source` checked as a program, and what the checker said of it.
 local function check(source: string): Node, {string}
   local compiled = setup()
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local code, result = compiled.gen(source, env, nil, "tl")
   assert(code ~= nil, "the program did not parse: " .. source)
   local messages: {string} = {}
