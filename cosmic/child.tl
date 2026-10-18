@@ -3107,6 +3107,10 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     return nil, "sandbox: this program runs from descriptors of its artifact and core, " ..
       "which the \"nest\" promise refuses a child"
   end
+  -- TODO: count the grants again once these two are added: [`unmet`]
+  -- counted them before, so a start at the most then raises "too many
+  -- unveiled paths" inside spawn rather than refusing with a message. The
+  -- fix: count after adding them and refuse with the count and the most.
   if found ~= nil then
     relaunch = found
     local granted = assert(merged.grants)
