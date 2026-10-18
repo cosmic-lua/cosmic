@@ -493,21 +493,27 @@ end
 
 local function test_socks_request_reads_each_address_type()
   local be = Fixture.be
-  local cases: {{string, string, string, integer}} = {
-    { Fixture.socks_request(1, 3, "\11example.com", 443), "example.com", "name", 443 },
-    { Fixture.socks_request(1, 3, "\11Example.COM", 80), "example.com", "name", 80 },
-    { Fixture.socks_request(1, 3, "\12example.com.", 1), "example.com", "name", 1 },
-    { Fixture.socks_request(1, 1, "\127\0\0\1", 65535), "127.0.0.1", "ipv4", 65535 },
-    { Fixture.socks_request(1, 4, ("\0"):rep(15) .. "\1", 22), "::1", "ipv6", 22 },
-    { Fixture.socks_request(1, 4, ("\0"):rep(16), 22), "::", "ipv6", 22 },
-    { Fixture.socks_request(1, 4, "\32\1\13\184" .. ("\0"):rep(11) .. "\1", 22), "2001:db8::1", "ipv6", 22 },
-    { Fixture.socks_request(1, 4, be(0, 10) .. "\255\255\1\2\3\4", 22), "::ffff:102:304", "ipv6", 22 },
+  local record Case
+    input: string
+    host: string
+    kind: string
+    port: integer
+  end
+  local cases: {Case} = {
+    { input = Fixture.socks_request(1, 3, "\11example.com", 443), host = "example.com", kind = "name", port = 443 },
+    { input = Fixture.socks_request(1, 3, "\11Example.COM", 80), host = "example.com", kind = "name", port = 80 },
+    { input = Fixture.socks_request(1, 3, "\12example.com.", 1), host = "example.com", kind = "name", port = 1 },
+    { input = Fixture.socks_request(1, 1, "\127\0\0\1", 65535), host = "127.0.0.1", kind = "ipv4", port = 65535 },
+    { input = Fixture.socks_request(1, 4, ("\0"):rep(15) .. "\1", 22), host = "::1", kind = "ipv6", port = 22 },
+    { input = Fixture.socks_request(1, 4, ("\0"):rep(16), 22), host = "::", kind = "ipv6", port = 22 },
+    { input = Fixture.socks_request(1, 4, "\32\1\13\184" .. ("\0"):rep(11) .. "\1", 22), host = "2001:db8::1", kind = "ipv6", port = 22 },
+    { input = Fixture.socks_request(1, 4, be(0, 10) .. "\255\255\1\2\3\4", 22), host = "::ffff:102:304", kind = "ipv6", port = 22 },
   }
   for _, case in ipairs(cases) do
-    local input = case[1]
+    local input = case.input
     local r = socks_request(input .. "tunnel")
     assert(r.status == "done", ("%q: %s %s"):format(input, r.status, tostring(r.reason)))
-    assert(r.host == case[2] and tostring(r.kind) == case[3] and r.port == case[4], ("%q: %s %s %s"):format(input, r.host, r.kind, r.port))
+    assert(r.host == case.host and tostring(r.kind) == case.kind and r.port == case.port, ("%q: %s %s %s"):format(input, r.host, r.kind, r.port))
     assert(r.consumed == #input)
     for cut = 0, #input - 1 do
       assert(socks_request(input:sub(1, cut)).status == "more", ("%q at %d"):format(input, cut))
@@ -517,33 +523,38 @@ end
 
 local function test_socks_request_refusals_name_their_reply()
   local name = "\11example.com"
-  local cases: {{string, string, string}} = {
-    { "\4\1\0\1\1\2\3\4\0\80", "failure", "version 4" },
-    { Fixture.socks_request(2, 1, "\1\2\3\4", 80), "command_not_supported", "command 2" },
-    { Fixture.socks_request(3, 1, "\1\2\3\4", 80), "command_not_supported", "command 3" },
-    { Fixture.socks_request(0, 1, "\1\2\3\4", 80), "command_not_supported", "command 0" },
-    { Fixture.socks_request(255, 1, "\1\2\3\4", 80), "command_not_supported", "command 255" },
-    { "\5\1\1\1\1\2\3\4\0\80", "failure", "reserved byte" },
-    { Fixture.socks_request(1, 0, "\1\2\3\4", 80), "address_type_not_supported", "address type 0" },
-    { Fixture.socks_request(1, 2, "\1\2\3\4", 80), "address_type_not_supported", "address type 2" },
-    { Fixture.socks_request(1, 5, "\1\2\3\4", 80), "address_type_not_supported", "address type 5" },
-    { Fixture.socks_request(1, 1, "\1\2\3\4", 0), "failure", "port 0" },
-    { Fixture.socks_request(1, 3, name, 0), "failure", "port 0" },
-    { Fixture.socks_request(1, 3, "\0", 80), "failure", "empty domain" },
-    { Fixture.socks_request(1, 3, "\13exam_ple.com", 80), "failure", "letters, digits and inner hyphens" },
-    { (Fixture.socks_request(1, 3, "\11example.com", 80):gsub("example", "exam\0le")), "failure", "letters, digits and inner hyphens" },
-    { Fixture.socks_request(1, 3, "\x09127.0.0.1", 80), "failure", "last label is a number" },
-    { Fixture.socks_request(1, 3, "\1.", 80), "failure", "empty host name" },
-    { Fixture.socks_request(1, 3, "\7a..b.cd", 80), "failure", "empty label" },
-    { Fixture.socks_request(1, 3, "\64" .. ("a"):rep(64), 80), "failure", "label longer than 63" },
-    { Fixture.socks_request(1, 3, "\255" .. ("a"):rep(255), 80), "failure", "longer than 253" },
+  local record Case
+    input: string
+    reply: string
+    says: string
+  end
+  local cases: {Case} = {
+    { input = "\4\1\0\1\1\2\3\4\0\80", reply = "failure", says = "version 4" },
+    { input = Fixture.socks_request(2, 1, "\1\2\3\4", 80), reply = "command_not_supported", says = "command 2" },
+    { input = Fixture.socks_request(3, 1, "\1\2\3\4", 80), reply = "command_not_supported", says = "command 3" },
+    { input = Fixture.socks_request(0, 1, "\1\2\3\4", 80), reply = "command_not_supported", says = "command 0" },
+    { input = Fixture.socks_request(255, 1, "\1\2\3\4", 80), reply = "command_not_supported", says = "command 255" },
+    { input = "\5\1\1\1\1\2\3\4\0\80", reply = "failure", says = "reserved byte" },
+    { input = Fixture.socks_request(1, 0, "\1\2\3\4", 80), reply = "address_type_not_supported", says = "address type 0" },
+    { input = Fixture.socks_request(1, 2, "\1\2\3\4", 80), reply = "address_type_not_supported", says = "address type 2" },
+    { input = Fixture.socks_request(1, 5, "\1\2\3\4", 80), reply = "address_type_not_supported", says = "address type 5" },
+    { input = Fixture.socks_request(1, 1, "\1\2\3\4", 0), reply = "failure", says = "port 0" },
+    { input = Fixture.socks_request(1, 3, name, 0), reply = "failure", says = "port 0" },
+    { input = Fixture.socks_request(1, 3, "\0", 80), reply = "failure", says = "empty domain" },
+    { input = Fixture.socks_request(1, 3, "\13exam_ple.com", 80), reply = "failure", says = "letters, digits and inner hyphens" },
+    { input = (Fixture.socks_request(1, 3, "\11example.com", 80):gsub("example", "exam\0le")), reply = "failure", says = "letters, digits and inner hyphens" },
+    { input = Fixture.socks_request(1, 3, "\x09127.0.0.1", 80), reply = "failure", says = "last label is a number" },
+    { input = Fixture.socks_request(1, 3, "\1.", 80), reply = "failure", says = "empty host name" },
+    { input = Fixture.socks_request(1, 3, "\7a..b.cd", 80), reply = "failure", says = "empty label" },
+    { input = Fixture.socks_request(1, 3, "\64" .. ("a"):rep(64), 80), reply = "failure", says = "label longer than 63" },
+    { input = Fixture.socks_request(1, 3, "\255" .. ("a"):rep(255), 80), reply = "failure", says = "longer than 253" },
   }
   for _, case in ipairs(cases) do
-    local input = case[1]
+    local input = case.input
     local r = socks_request(input)
     assert(r.status == "refused", ("%q: %s"):format(input, r.status))
-    assert(tostring(r.reply) == case[2], ("%q: reply %s"):format(input, tostring(r.reply)))
-    assert(assert(r.reason):find(case[3], 1, true), ("%q: reason %q"):format(input, r.reason))
+    assert(tostring(r.reply) == case.reply, ("%q: reply %s"):format(input, tostring(r.reply)))
+    assert(assert(r.reason):find(case.says, 1, true), ("%q: reason %q"):format(input, r.reason))
     assert(r.consumed == 0)
     for cut = 0, #input do
       local part = socks_request(input:sub(1, cut))
@@ -555,14 +566,18 @@ local function test_socks_request_refusals_name_their_reply()
 end
 
 local function test_socks_replies_carry_their_codes()
-  local codes: {{string, integer}} = {
-    { "succeeded", 0 }, { "failure", 1 }, { "not_allowed", 2 }, { "network_unreachable", 3 },
-    { "host_unreachable", 4 }, { "refused", 5 }, { "ttl_expired", 6 },
-    { "command_not_supported", 7 }, { "address_type_not_supported", 8 },
+  local record Code
+    name: string
+    code: integer
+  end
+  local codes: {Code} = {
+    { name = "succeeded", code = 0 }, { name = "failure", code = 1 }, { name = "not_allowed", code = 2 }, { name = "network_unreachable", code = 3 },
+    { name = "host_unreachable", code = 4 }, { name = "refused", code = 5 }, { name = "ttl_expired", code = 6 },
+    { name = "command_not_supported", code = 7 }, { name = "address_type_not_supported", code = 8 },
   }
   for _, case in ipairs(codes) do
-    local reply = Wire.socks_reply(case[1] as Wire.SocksReply)
-    assert(reply == "\5" .. string.char(case[2]) .. "\0\1\0\0\0\0\0\0", case[1])
+    local reply = Wire.socks_reply(case.name as Wire.SocksReply)
+    assert(reply == "\5" .. string.char(case.code) .. "\0\1\0\0\0\0\0\0", case.name)
     assert(#reply == 10)
   end
   assert(not pcall(Wire.socks_reply, "bogus" as Wire.SocksReply))
@@ -591,14 +606,19 @@ local function hello_splits_agree(input: string, want: string)
 end
 
 local function test_client_hello_reads_captured_hellos()
-  local cases: {{string, string, string}} = {
-    { OPENSSL_SNI, "name", "api.github.com" },
-    { OPENSSL_NO_SNI, "no_sni", "" },
-    { CURL, "name", "example.org" },
-    { PYTHON, "name", "python.example.com" },
+  local record Case
+    input: string
+    status: string
+    name: string
+  end
+  local cases: {Case} = {
+    { input = OPENSSL_SNI, status = "name", name = "api.github.com" },
+    { input = OPENSSL_NO_SNI, status = "no_sni", name = "" },
+    { input = CURL, status = "name", name = "example.org" },
+    { input = PYTHON, status = "name", name = "python.example.com" },
   }
   for _, case in ipairs(cases) do
-    local input, status, name = case[1], case[2], case[3]
+    local input, status, name = case.input, case.status, case.name
     local r = client_hello(input)
     assert(tostring(r.status) == status, ("%s %s"):format(r.status, tostring(r.reason)))
     assert(r.consumed == #input)
@@ -703,32 +723,36 @@ local function test_client_hello_refuses_broken_lengths()
   local be = Fixture.be
   local sni = Fixture.server_name
   local ext = Fixture.extension
-  local cases: {{string, string}} = {
-    { records_of("\2" .. good:sub(2)), "not a ClientHello" },
-    { records_of("\1\0\0\0"), "shorter than its fixed fields" },
-    { records_of(Fixture.hello({ name = "a.example", session = 33 })), "session id" },
-    { records_of("\1" .. be(40, 3) .. ("\3\3" .. ("r"):rep(32) .. "\32" .. ("s"):rep(5))), "session id past" },
-    { records_of(Fixture.hello({ name = "a.example", suites = 0 })), "cipher suites" },
-    { records_of((good:gsub("\0\47\1\0", "\0\47\0\0"))), "compression" },
-    { records_of(Fixture.hello({ extra = { ext(0, sni("a.example")), ext(0, sni("b.example")) } })), "repeats an extension" },
-    { records_of(Fixture.hello({ name = "a.example", extra = { ext(0, sni("b.example")) } })), "repeats an extension" },
-    { records_of(Fixture.hello({ extra = { ext(21, ""), ext(21, "") } })), "repeats an extension" },
-    { records_of(Fixture.hello({ server_name = "" })), "list length" },
-    { records_of(Fixture.hello({ server_name = "\0" })), "list length" },
-    { records_of(Fixture.hello({ server_name = "\0\0" })), "list length" },
-    { records_of(Fixture.hello({ server_name = "\0\5\0\0\3abc" })), "list length" },
-    { records_of(Fixture.hello({ server_name = "\0\6\0\0\9abc" })), "entry past its end" },
-    { records_of(Fixture.hello({ server_name = "\0\3\0\0\3" })), "entry past its end" },
-    { records_of(Fixture.hello({ server_name = "\0\2\0\0" })), "entry past its end" },
-    { records_of(Fixture.hello({ server_name = "\0\6\1\0\3abc" })), "not host_name" },
-    { records_of(Fixture.hello({ server_name = "\0\12\0\0\3abc\0\0\3def" })), "server_name names two hosts" },
-    { records_of(Fixture.hello({ server_name = "\0\6\0\0\3a_c" })), "not a host name" },
-    { records_of(Fixture.hello({ name = "127.0.0.1" })), "last label is a number" },
-    { records_of(Fixture.hello({ name = "" })), "empty host name" },
-    { records_of(Fixture.hello({ name = "a..b" })), "empty label" },
-    { records_of(Fixture.hello({ name = "bad name.example" })), "not a host name" },
-    { records_of(Fixture.hello({ name = ("a"):rep(64) .. ".example" })), "label longer" },
-    { records_of(Fixture.hello({ name = "a\0b.example" })), "not a host name" },
+  local record Case
+    input: string
+    says: string
+  end
+  local cases: {Case} = {
+    { input = records_of("\2" .. good:sub(2)), says = "not a ClientHello" },
+    { input = records_of("\1\0\0\0"), says = "shorter than its fixed fields" },
+    { input = records_of(Fixture.hello({ name = "a.example", session = 33 })), says = "session id" },
+    { input = records_of("\1" .. be(40, 3) .. ("\3\3" .. ("r"):rep(32) .. "\32" .. ("s"):rep(5))), says = "session id past" },
+    { input = records_of(Fixture.hello({ name = "a.example", suites = 0 })), says = "cipher suites" },
+    { input = records_of((good:gsub("\0\47\1\0", "\0\47\0\0"))), says = "compression" },
+    { input = records_of(Fixture.hello({ extra = { ext(0, sni("a.example")), ext(0, sni("b.example")) } })), says = "repeats an extension" },
+    { input = records_of(Fixture.hello({ name = "a.example", extra = { ext(0, sni("b.example")) } })), says = "repeats an extension" },
+    { input = records_of(Fixture.hello({ extra = { ext(21, ""), ext(21, "") } })), says = "repeats an extension" },
+    { input = records_of(Fixture.hello({ server_name = "" })), says = "list length" },
+    { input = records_of(Fixture.hello({ server_name = "\0" })), says = "list length" },
+    { input = records_of(Fixture.hello({ server_name = "\0\0" })), says = "list length" },
+    { input = records_of(Fixture.hello({ server_name = "\0\5\0\0\3abc" })), says = "list length" },
+    { input = records_of(Fixture.hello({ server_name = "\0\6\0\0\9abc" })), says = "entry past its end" },
+    { input = records_of(Fixture.hello({ server_name = "\0\3\0\0\3" })), says = "entry past its end" },
+    { input = records_of(Fixture.hello({ server_name = "\0\2\0\0" })), says = "entry past its end" },
+    { input = records_of(Fixture.hello({ server_name = "\0\6\1\0\3abc" })), says = "not host_name" },
+    { input = records_of(Fixture.hello({ server_name = "\0\12\0\0\3abc\0\0\3def" })), says = "server_name names two hosts" },
+    { input = records_of(Fixture.hello({ server_name = "\0\6\0\0\3a_c" })), says = "not a host name" },
+    { input = records_of(Fixture.hello({ name = "127.0.0.1" })), says = "last label is a number" },
+    { input = records_of(Fixture.hello({ name = "" })), says = "empty host name" },
+    { input = records_of(Fixture.hello({ name = "a..b" })), says = "empty label" },
+    { input = records_of(Fixture.hello({ name = "bad name.example" })), says = "not a host name" },
+    { input = records_of(Fixture.hello({ name = ("a"):rep(64) .. ".example" })), says = "label longer" },
+    { input = records_of(Fixture.hello({ name = "a\0b.example" })), says = "not a host name" },
   }
   -- Extensions that run past their own or the hello's end.
   local base = Fixture.hello({ name = "ok.example" })
@@ -737,16 +761,16 @@ local function test_client_hello_refuses_broken_lengths()
     return message:sub(1, at - 1) .. bytes .. message:sub(at + #bytes)
   end
   local ext_len_at = #base - (#ext(0, sni("ok.example"))) - 1
-  cases[#cases + 1] = { records_of(patched(base, ext_len_at, be(0xffff, 2))), "extensions length" }
-  cases[#cases + 1] = { records_of(patched(base, ext_len_at, be(#ext(0, sni("ok.example")) - 1, 2))), "extensions length" }
-  cases[#cases + 1] = { records_of(patched(base, #base - #ext(0, sni("ok.example")) + 3, be(0xffff, 2))), "extension past its end" }
+  cases[#cases + 1] = { input = records_of(patched(base, ext_len_at, be(0xffff, 2))), says = "extensions length" }
+  cases[#cases + 1] = { input = records_of(patched(base, ext_len_at, be(#ext(0, sni("ok.example")) - 1, 2))), says = "extensions length" }
+  cases[#cases + 1] = { input = records_of(patched(base, #base - #ext(0, sni("ok.example")) + 3, be(0xffff, 2))), says = "extension past its end" }
   assert(at_ext_len > 0)
   for _, case in ipairs(cases) do
-    local r = client_hello(case[1])
-    assert(r.status == "malformed", ("%q: %s"):format(case[1], r.status))
-    assert(assert(r.reason):find(case[2], 1, true), ("%q: reason %q lacks %q"):format(case[1], r.reason, case[2]))
+    local r = client_hello(case.input)
+    assert(r.status == "malformed", ("%q: %s"):format(case.input, r.status))
+    assert(assert(r.reason):find(case.says, 1, true), ("%q: reason %q lacks %q"):format(case.input, r.reason, case.says))
     assert(r.consumed == 0)
-    hello_splits_agree(case[1], "malformed")
+    hello_splits_agree(case.input, "malformed")
   end
 end
 
@@ -759,14 +783,18 @@ local function test_client_hello_without_extensions_has_no_sni()
 end
 
 local function test_client_hello_name_rules_match_connects()
-  local names: {{string, string}} = {
-    { "Example.COM", "example.com" },
-    { "example.com.", "example.com" },
-    { "a-b.example", "a-b.example" },
-    { ("a"):rep(63) .. ".example", ("a"):rep(63) .. ".example" },
+  local record Name
+    given: string
+    canonical: string
+  end
+  local names: {Name} = {
+    { given = "Example.COM", canonical = "example.com" },
+    { given = "example.com.", canonical = "example.com" },
+    { given = "a-b.example", canonical = "a-b.example" },
+    { given = ("a"):rep(63) .. ".example", canonical = ("a"):rep(63) .. ".example" },
   }
   for _, case in ipairs(names) do
-    assert(sni_of(Fixture.records(Fixture.hello({ name = case[1] }))) == case[2], case[1])
+    assert(sni_of(Fixture.records(Fixture.hello({ name = case.given }))) == case.canonical, case.given)
   end
 end
 
@@ -817,11 +845,16 @@ end
 --- loaded host.)
 local function string_work(work: function()): integer
   local total = { value = 0 }
-  local saved: {{{string: any}, string, any}} = {}
+  local record Patched
+    host: {string: any}
+    name: string
+    original: any
+  end
+  local saved: {Patched} = {}
   --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
   local function patch(host: {string: any}, name: string, cost: function({any}, {any}): integer)
     local original = host[name] as function(...: any): any...
-    saved[#saved + 1] = { host, name, original }
+    saved[#saved + 1] = { host = host, name = name, original = original }
     host[name] = function(...: any): any...
       local args = table.pack(...)
       local results = table.pack(original(...))
@@ -854,7 +887,7 @@ local function string_work(work: function()): integer
     return true
   end)
   for _, entry in ipairs(saved) do
-    entry[1][entry[2]] = entry[3]
+    entry.host[entry.name] = entry.original
   end
   assert(ok, trouble)
   return total.value

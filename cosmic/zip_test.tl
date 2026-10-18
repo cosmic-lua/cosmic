@@ -299,15 +299,21 @@ local function test_an_entry_past_the_end_of_the_archive_is_refused_at_open(tmp:
   -- "Invalid argument").
   local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) ..
     le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
-  local cases: {{string, integer, integer, integer}} = {
-    { "offset into the central directory", 0, #lfh, -1 },
-    { "32-bit offset", 0, 0xFFFFFFFE, -1 },
-    { "32-bit csize", 1000, 0, -1 },
-    { "zip64 offset", 0, 0xFFFFFFFF, math.maxinteger - 10 },
-    { "zip64 csize", 0xFFFFFFFF, 0, 1 << 40 },
+  local record Case
+    which: string
+    csize: integer
+    offset: integer
+    wide: integer
+  end
+  local cases: {Case} = {
+    { which = "offset into the central directory", csize = 0, offset = #lfh, wide = -1 },
+    { which = "32-bit offset", csize = 0, offset = 0xFFFFFFFE, wide = -1 },
+    { which = "32-bit csize", csize = 1000, offset = 0, wide = -1 },
+    { which = "zip64 offset", csize = 0, offset = 0xFFFFFFFF, wide = math.maxinteger - 10 },
+    { which = "zip64 csize", csize = 0xFFFFFFFF, offset = 0, wide = 1 << 40 },
   }
   for i, case in ipairs(cases) do
-    local which, csize, offset, wide = case[1], case[2], case[3], case[4]
+    local which, csize, offset, wide = case.which, case.csize, case.offset, case.wide
     local extra = wide >= 0 and le16(1) .. le16(8) .. le64(wide) or ""
     local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
       le32(0) .. le32(csize) .. le32(0) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..

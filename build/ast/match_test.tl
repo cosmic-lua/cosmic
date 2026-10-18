@@ -1,6 +1,6 @@
 --- Correctness probes for [`build.ast.match`].
 local teal = require("build.teal")
-local match = require("build.ast.match")
+local ast_match = require("build.ast.match")
 local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node
@@ -21,7 +21,7 @@ end
 --- @param pattern_src string A `$NAME`/`$$$NAME` pattern
 --- @return Node The pattern's own top node
 local function pattern_ok(pattern_src: string): Node
-  local pattern, err = match.compile_pattern(built, pattern_src)
+  local pattern, err = ast_match.compile_pattern(built, pattern_src)
   assert(pattern ~= nil, "compile_pattern failed: " .. tostring(err))
   return pattern
 end
@@ -35,7 +35,7 @@ local function test_typed_declarations_match_across_separate_parses()
       local source = scope .. " value: " .. annotation .. " = make_value()"
       local pattern = pattern_ok(source)
       local candidate = parse_ok(source, "typed_declaration.tl")[1]
-      assert(match.match(pattern, candidate) ~= nil,
+      assert(ast_match.match(pattern, candidate) ~= nil,
         "separately parsed declaration must match: " .. source)
     end
   end
@@ -51,7 +51,7 @@ local function test_typed_declarations_still_compare_annotation_shape()
         "{number: {number}}" }) do
       local candidate = parse_ok(prefix .. annotation .. " = make_value()",
         "different_annotation.tl")[1]
-      assert(match.match(pattern, candidate) == nil,
+      assert(ast_match.match(pattern, candidate) == nil,
         "different annotation must not match: " .. annotation)
     end
   end
@@ -67,9 +67,9 @@ local function test_record_typeid_field_still_compares_its_declared_type()
       local pattern = pattern_ok(source)
       local same = parse_ok(source, "same_record.tl")[1]
       local different = parse_ok(prefix .. "string end", "different_record.tl")[1]
-      assert(match.match(pattern, same) ~= nil,
+      assert(ast_match.match(pattern, same) ~= nil,
         "separately parsed record must match: " .. source)
-      assert(match.match(pattern, different) == nil,
+      assert(ast_match.match(pattern, different) == nil,
         "record field's declared type must be compared: " .. scope .. " " .. field)
     end
   end
@@ -90,7 +90,7 @@ local function collect_matches(root: Node, pattern: Node): {Node}
     end
     seen[n] = true
     local as_node = n as Node -- cast: a table walked from a real Node tree is one
-    if match.match(pattern, as_node) then
+    if ast_match.match(pattern, as_node) then
       hits[#hits + 1] = as_node
     end
     for _, v in pairs(n) do
@@ -116,7 +116,7 @@ end
 local function test_value_position_capture_binds_variable_kind()
   local pattern = pattern_ok("print($X)")
   local candidate = parse_ok("print(y)", "value.tl")[1]
-  local caps = match.match(pattern, candidate)
+  local caps = ast_match.match(pattern, candidate)
   assert(caps ~= nil, "expected a match")
   local cap = caps["_X"]
   assert(cap ~= nil and cap.kind == "variable" and cap.tk == "y",
@@ -129,7 +129,7 @@ end
 local function test_member_position_capture_binds_identifier_kind()
   local pattern = pattern_ok("mod.$F(1)")
   local candidate = parse_ok("mod.load(1)", "member.tl")[1]
-  local caps = match.match(pattern, candidate)
+  local caps = ast_match.match(pattern, candidate)
   assert(caps ~= nil, "mod.$F(...) must match a real mod.load(...) call site")
   local cap = caps["_F"]
   assert(cap ~= nil and cap.kind == "identifier" and cap.tk == "load",
@@ -142,8 +142,8 @@ local function test_repeated_capture_name_is_linear()
   local pattern = pattern_ok("f($X, $X)")
   local same = parse_ok("f(y, y)", "same.tl")[1]
   local different = parse_ok("f(y, z)", "different.tl")[1]
-  assert(match.match(pattern, same) ~= nil, "f(y, y) must match f($X, $X)")
-  assert(match.match(pattern, different) == nil,
+  assert(ast_match.match(pattern, same) ~= nil, "f(y, y) must match f($X, $X)")
+  assert(ast_match.match(pattern, different) == nil,
     "f(y, z) must NOT match f($X, $X): $X is bound twice to different names")
 end
 
@@ -152,13 +152,13 @@ end
 local function test_rest_capture_matches_variable_arity_call_args()
   local pattern = pattern_ok("f($$$ARGS)")
   local three = parse_ok("f(1, 2, 3)", "three.tl")[1]
-  local caps3 = match.match(pattern, three)
+  local caps3 = ast_match.match(pattern, three)
   assert(caps3 ~= nil, "expected a match")
   assert(#caps3["___ARGS"] == 3,
     "expected 3 captured args, got " .. tostring(#caps3["___ARGS"]))
 
   local zero = parse_ok("f()", "zero.tl")[1]
-  local caps0 = match.match(pattern, zero)
+  local caps0 = ast_match.match(pattern, zero)
   assert(caps0 ~= nil, "f() must match f($$$ARGS) with zero trailing args")
   assert(#caps0["___ARGS"] == 0,
     "expected 0 captured args, got " .. tostring(#caps0["___ARGS"]))
@@ -168,7 +168,7 @@ end
 --- `$$$NAME()` (a zero-argument call). Teal has no bare-expression
 --- statements, so the bare spelling does not parse as a pattern.
 local function test_bare_rest_capture_is_not_a_legal_statement()
-  local pattern, err = match.compile_pattern(built, "if $C then $$$BODY end")
+  local pattern, err = ast_match.compile_pattern(built, "if $C then $$$BODY end")
   assert(pattern == nil, "a bare $$$BODY in a block position must fail to compile")
   assert(err ~= nil and err ~= "", "expected a parse error message")
 end
@@ -181,7 +181,7 @@ end
 local function test_rest_capture_in_block_matches_and_ignores_tk()
   local pattern = pattern_ok("if $C then $$$BODY() end")
   local candidate = parse_ok("if a then print(1)\nprint(2) end", "block.tl")[1]
-  local caps = match.match(pattern, candidate)
+  local caps = ast_match.match(pattern, candidate)
   assert(caps ~= nil, "if $C then $$$BODY() end must match a real if with a differing" ..
       " first-statement token")
   assert(#caps["___BODY"] == 2, "expected 2 captured body statements, got " ..
@@ -195,8 +195,8 @@ local function test_tk_still_compared_on_leaf_kinds()
   local pattern = pattern_ok("print(1)")
   local same_name = parse_ok("print(1)", "same_name.tl")[1]
   local other_name = parse_ok("output(1)", "other_name.tl")[1]
-  assert(match.match(pattern, same_name) ~= nil, "print(1) must match print(1)")
-  assert(match.match(pattern, other_name) == nil,
+  assert(ast_match.match(pattern, same_name) ~= nil, "print(1) must match print(1)")
+  assert(ast_match.match(pattern, other_name) == nil,
     "output(1) must NOT match print(1): the literal callee name differs")
 end
 
@@ -207,23 +207,23 @@ local function test_capture_predicate_matches_only_names_the_pattern_allows()
   local pattern = pattern_ok("$F:^test_()")
   local hit = parse_ok("test_a()", "hit.tl")[1]
   local miss = parse_ok("run()", "miss.tl")[1]
-  local caps = match.match(pattern, hit)
+  local caps = ast_match.match(pattern, hit)
   assert(caps ~= nil, "test_a() must match $F:^test_()")
   assert(caps["_F"] ~= nil and caps["_F"].tk == "test_a",
     "captured node: " .. tostring(caps["_F"] and caps["_F"].tk))
-  assert(match.match(pattern, miss) == nil,
+  assert(ast_match.match(pattern, miss) == nil,
     "run() must NOT match $F:^test_(): its name fails the ^test_ predicate")
 end
 
 --- `desugar` rewrites both metavariable spellings before lexing and
 --- leaves everything else byte for byte.
 local function test_desugar_rewrites_both_spellings()
-  assert(match.desugar("f($X, $$$REST)") == "f(_X, ___REST)",
-    "desugar: " .. match.desugar("f($X, $$$REST)"))
-  assert(match.desugar("os.execute(cmd)") == "os.execute(cmd)",
+  assert(ast_match.desugar("f($X, $$$REST)") == "f(_X, ___REST)",
+    "desugar: " .. ast_match.desugar("f($X, $$$REST)"))
+  assert(ast_match.desugar("os.execute(cmd)") == "os.execute(cmd)",
     "desugar must leave metavariable-free source untouched")
-  assert(match.desugar("$F:^test_()") == "_F()",
-    "desugar: " .. match.desugar("$F:^test_()"))
+  assert(ast_match.desugar("$F:^test_()") == "_F()",
+    "desugar: " .. ast_match.desugar("$F:^test_()"))
 end
 
 --- `os.execute($X)` over a small multi-statement fixture with exactly
@@ -325,7 +325,7 @@ local function test_cast_capture_binds_every_cast_and_the_cast_node()
   assert(#hits == 2, "expected 2 matches, got " .. tostring(#hits))
   local exps = root[3].exps -- `local b = v as {string: any}`
   assert(exps ~= nil, "no local b's exps")
-  local caps = match.match(pattern, exps[1])
+  local caps = ast_match.match(pattern, exps[1])
   assert(caps ~= nil, "expected a match")
   local cap = caps["_T"]
   assert(cap ~= nil, "no $T capture")

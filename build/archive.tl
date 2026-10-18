@@ -733,11 +733,15 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
     end
     local rooted, _ = Fs.is_dir(given)
     if (root and rooted) or (not root and by_name[name].kind == "dir") then
-      local seen: {{string, string}} = {}
+      local record Seen
+        relative: string
+        kind: string
+      end
+      local seen: {Seen} = {}
       local odd: {string} = {}
       local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
-          seen[#seen + 1] = { relative, kind }
+          seen[#seen + 1] = { relative = relative, kind = kind }
         elseif kind ~= "file" and odd[1] == nil then
           -- A fifo, a socket or a device: [`Fs.walk`] lists only files,
           -- directories and links, so it is met here or not at all.
@@ -749,9 +753,11 @@ local function gather(paths: {string}, skip_file: string | nil): {Item} | nil, O
       if odd[1] ~= nil then
         return nil, fail(bare.refused, given .. "/" .. odd[1] .. ": neither a file, a directory nor a symlink")
       end
-      for _, relative in ipairs(listed) do seen[#seen + 1] = { relative, "file" } end
+      for _, relative in ipairs(listed) do
+        seen[#seen + 1] = { relative = relative, kind = "file" }
+      end
       for _, pair in ipairs(seen) do
-        local sub = add(root and pair[1] or (name .. "/" .. pair[1]), given .. "/" .. pair[1])
+        local sub = add(root and pair.relative or (name .. "/" .. pair.relative), given .. "/" .. pair.relative)
         if sub ~= nil then return nil, sub end
       end
     end

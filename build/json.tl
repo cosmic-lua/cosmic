@@ -201,11 +201,11 @@ local standard: verb.Io = {
 local function distinct(found: {Json.Match}): {Json.Match}
   local seen: {string:boolean} = {}
   local kept: {Json.Match} = {}
-  for _, match in ipairs(found) do
-    local pointer = assert(Json.pointer(match.steps))
+  for _, hit in ipairs(found) do
+    local pointer = assert(Json.pointer(hit.steps))
     if not seen[pointer] then
       seen[pointer] = true
-      kept[#kept + 1] = match
+      kept[#kept + 1] = hit
     end
   end
   return kept
@@ -219,12 +219,12 @@ end
 local function outermost(found: {Json.Match}): {Json.Match}
   local pointers: {string} = {}
   local matched: {string:boolean} = {}
-  for i, match in ipairs(found) do
-    pointers[i] = assert(Json.pointer(match.steps))
+  for i, hit in ipairs(found) do
+    pointers[i] = assert(Json.pointer(hit.steps))
     matched[pointers[i]] = true
   end
   local kept: {Json.Match} = {}
-  for i, match in ipairs(found) do
+  for i, hit in ipairs(found) do
     local pointer = pointers[i]
     local inside = pointer ~= "" and matched[""]
     local slash = pointer:find("/", 2, true)
@@ -232,7 +232,7 @@ local function outermost(found: {Json.Match}): {Json.Match}
       inside = matched[pointer:sub(1, slash - 1)]
       slash = pointer:find("/", slash + 1, true)
     end
-    if not inside then kept[#kept + 1] = match end
+    if not inside then kept[#kept + 1] = hit end
   end
   return kept
 end
@@ -311,8 +311,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   -- The leaves under each of `found`, in its order.
   local function flattened(found: {Json.Match}): integer
     local leaves: {Json.Match} = {}
-    for _, match in ipairs(found) do
-      local under, why = json_query.flatten(match.value, { max_depth = Json.depth_limit, root = match.steps })
+    for _, hit in ipairs(found) do
+      local under, why = json_query.flatten(hit.value, { max_depth = Json.depth_limit, root = hit.steps })
       if under == nil then
         complain(why)
         return bare.refused

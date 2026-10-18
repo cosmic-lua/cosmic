@@ -450,8 +450,13 @@ end
 -- cell's kind then its value (`false` for NULL, which a table cannot
 -- hold as nil). A text row, whose cells are all text, holds only each
 -- value, one slot a column, and has accessors of its own. Only the
--- accessors below look inside.
-local record Stored is {any}, Sqlite.Row
+-- accessors below look inside. A stored row has the accessors of
+-- [`Sqlite.Row`] but is not declared to implement it: a record that has an
+-- array part takes no interface, so the rows are cast where they are made.
+-- TODO: once the grammar lets a record carry an array part and an interface, or a stored row is a class, delete
+-- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contracts.tl's casts) and list
+-- [`Sqlite.Row`] on [`Stored`] and [`TextStored`].
+local record Stored is {any}
   count: function(Stored): integer
   kind: function(Stored, integer): Sqlite.Kind
   is_null: function(Stored, integer): boolean
@@ -579,7 +584,7 @@ function Stored.value(self: Stored, index: integer): Sqlite.Value
 end
 
 --- A row of [`text_rows`]: one slot a column, each its bytes.
-local record TextStored is {any}, Sqlite.Row
+local record TextStored is {any}
   count: function(TextStored): integer
   kind: function(TextStored, integer): Sqlite.Kind
   is_null: function(TextStored, integer): boolean
@@ -677,7 +682,7 @@ local function cells_of(statement: Sqlite.Statement): Sqlite.Row
       row[at], row[at + 1] = "null", false
     end
   end
-  return row
+  return row as Sqlite.Row
 end
 
 --- The row `statement` was just stepped to, as the bytes of each column
@@ -687,7 +692,7 @@ local function texts_of(statement: Sqlite.Statement): Sqlite.Row
   for index = 0, statement:columns() - 1 do
     row[index + 1] = statement:bytes(index)
   end
-  return row
+  return row as Sqlite.Row
 end
 
 --- Steps `statement` once and gives `project` the row it stands on: the

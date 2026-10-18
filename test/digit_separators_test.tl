@@ -39,21 +39,26 @@ local function value_of(literal: string): any, string
 end
 
 local function test_a_separated_literal_has_the_value_without_its_separators()
-  local cases: {{string, any}} = {
-    { "1_000_000", 1000000 },
-    { "0_7", 7 },
-    { "3.141_592", 3.141592 },
-    { "1_000.5", 1000.5 },
-    { ".5_5", 0.55 },
-    { "6.02e2_3", 6.02e23 },
-    { "1e1_0", 1e10 },
-    { "1E+1_0", 1e10 },
-    { "0xFF_FF", 0xFFFF },
-    { "0x1_e5", 0x1e5 },
-    { "0x1.8_0p1_0", 0x1.80p10 },
+  local record Case
+    literal: string
+    want: any
+  end
+  local cases: {Case} = {
+    { literal = "1_000_000", want = 1000000 },
+    { literal = "0_7", want = 7 },
+    { literal = "3.141_592", want = 3.141592 },
+    { literal = "1_000.5", want = 1000.5 },
+    { literal = ".5_5", want = 0.55 },
+    { literal = "6.02e2_3", want = 6.02e23 },
+    { literal = "1e1_0", want = 1e10 },
+    { literal = "1E+1_0", want = 1e10 },
+    { literal = "0xFF_FF", want = 0xFFFF },
+    { literal = "0x1_e5", want = 0x1e5 },
+    -- 0x1.80p10 in decimal: the grammar has no hexadecimal float.
+    { literal = "0x1.8_0p1_0", want = 1536.0 },
   }
   for _, case in ipairs(cases) do
-    local literal, want = case[1], case[2]
+    local literal, want = case.literal, case.want
     local got, code = value_of(literal)
     assert(got == want, literal .. " should be " .. tostring(want) .. ", but is " .. tostring(got))
     assert(math.type(got) == math.type(want), literal .. " should be " ..

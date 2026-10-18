@@ -697,7 +697,7 @@ local function render(body: string, page: {string: any}): string
   end
   local chunk = assert(load(assert(code), "=template", "t", env))
   local loaded = chunk()
-  assert(loaded is {string: function}, "no render")
+  assert(loaded is {string: function(any...): any...}, "no render")
   local made = loaded.render(page)
   assert(made is Html.SafeHtml, "render answered a " .. type(made))
   return (Html.raw(made):gsub("^\n", ""))

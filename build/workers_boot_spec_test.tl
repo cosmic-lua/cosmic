@@ -30,14 +30,18 @@ local function test_workers_start_quickly_only_where_the_compiles_are_cached()
   assert(spec_with({ XDG_CACHE_HOME = "/cache" }) == "1000000000\t524288", "with XDG_CACHE_HOME")
   assert(spec_with({ XDG_CACHE_HOME = "relative", HOME = "/home/someone" }) ==
       "1000000000\t524288", "with a relative XDG_CACHE_HOME and an absolute HOME")
-  local off: {{string, {string:string}}} = {
-    { "COSMIC_BUILD_CACHE=0", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "0" } },
-    { "a relative name", { HOME = "/home/someone", COSMIC_BUILD_CACHE = "cache.db" } },
-    { "no absolute HOME", { HOME = "home" } },
-    { "no absolute HOME or XDG_CACHE_HOME", { HOME = "home", XDG_CACHE_HOME = "relative" } },
+  local record Case
+    name: string
+    environment: {string:string}
+  end
+  local off: {Case} = {
+    { name = "COSMIC_BUILD_CACHE=0", environment = { HOME = "/home/someone", COSMIC_BUILD_CACHE = "0" } },
+    { name = "a relative name", environment = { HOME = "/home/someone", COSMIC_BUILD_CACHE = "cache.db" } },
+    { name = "no absolute HOME", environment = { HOME = "home" } },
+    { name = "no absolute HOME or XDG_CACHE_HOME", environment = { HOME = "home", XDG_CACHE_HOME = "relative" } },
   }
   for _, case in ipairs(off) do
-    assert(spec_with(case[2]) == "9000000000\t3145728", "with " .. case[1])
+    assert(spec_with(case.environment) == "9000000000\t3145728", "with " .. case.name)
   end
   local absolute = { HOME = "/home/someone", COSMIC_BUILD_CACHE = "/shared/cache.db" }
   assert(spec_with(absolute) == "1000000000\t524288", "with an absolute name")
