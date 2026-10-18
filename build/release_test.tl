@@ -2,8 +2,9 @@
 --- transport ([`build.release.Io.script`]: a canned reply per request, in
 --- order, so no test reaches the network; [`build.release.Io.api`] points
 --- it at http, since a canned reply cannot answer TLS). A run asks the
---- API for a page, then SHA256SUMS, source.json and, when it keeps or
---- pins it, the binary.
+--- API for every page of releases -- or, for a `--commit` prefix, the
+--- tags it starts and each one's release -- then SHA256SUMS, source.json
+--- and, when it keeps or pins it, the binary.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -124,17 +125,22 @@ end
 --- the rest are sorted newest first.
 local function test_a_prefix_passes_over_tags_without_a_release()
   local bare_tag = "abcdef0" .. string.rep("1", 33)
+  local draft = "abcdef0" .. string.rep("4", 33)
   local earlier = "abcdef0" .. string.rep("2", 33)
   local later = "abcdef0" .. string.rep("3", 33)
   local ran = run({ "--list", "--commit", "abcdef0" }, {
-    refs(bare_tag, earlier, later),
+    refs(bare_tag, draft, earlier, later),
     reply("404 Not Found", "{}"),
+    ok(entry(draft, "2026-10-19T10:00:00Z", true)),
     ok(entry(earlier, "2026-10-17T10:00:00Z")),
     ok(entry(later, "2026-10-18T10:00:00Z")),
   })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-18T10:00:00Z  " .. later .. "\n2026-10-17T10:00:00Z  " .. earlier .. "\n", ran.out)
   failed(run({ "--commit", "abcdef0" }, { refs() }), "no release matches, among the tags next-abcdef0 starts")
+  failed(run({ "--commit", "abcdef0", "--until", "2026-01-01" }, { refs(earlier), ok(entry(earlier, "2026-10-17T10:00:00Z")) }),
+    "published by --until 2026-01-01")
+  failed(run({ "--commit", "abcdef0" }, { reply("404 Not Found", "{}") }), "matching-refs/tags/next-abcdef0: HTTP 404")
 end
 
 local function test_a_prefix_two_releases_share_is_refused_naming_both()
@@ -148,8 +154,12 @@ end
 
 local function test_a_prefix_naming_too_many_tags_is_refused()
   local many: {string} = {}
-  for i = 1, 21 do many[i] = string.format("1234567%033x", i) end
-  failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "21 tags start with next-1234567")
+  for i = 1, 11 do many[i] = string.format("1234567%033x", i) end
+  failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "11 tags start with next-1234567")
+  -- Ten are each asked for, none with a release.
+  local ten: {string} = { refs(table.unpack(many, 1, 10)) }
+  for i = 2, 11 do ten[i] = reply("404 Not Found", "{}") end
+  failed(run({ "--commit", "1234567" }, ten), "no release matches, among the tags")
 end
 
 local function test_until_takes_the_newest_published_at_or_before()
@@ -199,7 +209,7 @@ local function test_a_full_commit_is_asked_for_by_its_tag()
   local ran = run({ "--commit", oldest }, { ok(entry(oldest, "2026-10-16T10:00:00Z")), sums(), source(oldest) })
   assert(ran.code == 0, ran.err)
   assert(ran.out:sub(1, 41) == oldest .. "\n", ran.out)
-  failed(run({ "--commit", oldest }, { reply("404 Not Found", "{}") }), "no release matches")
+  failed(run({ "--commit", oldest }, { reply("404 Not Found", "{}") }), "no release matches, by its tag")
 end
 
 local function test_a_release_that_disagrees_with_itself_fails()

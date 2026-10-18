@@ -20,8 +20,9 @@
 --- Reading every page costs a request per hundred releases, against an
 --- unauthenticated limit of 60 an hour, so a `--commit` reads none: the
 --- API's git matching-refs names the tags `next-<prefix>` starts (one
---- request), and each is asked for its release by its tag. A full commit
---- names its one tag without asking.
+--- request), and each is asked for its release by its tag, so a prefix
+--- naming more than 10 tags is refused as too short to tell one. A full
+--- commit names its one tag without asking.
 ---
 --- A release is verified before anything about it is printed or kept:
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
@@ -130,8 +131,9 @@ local api <const> = "https://api.github.com/repos/" .. repository
 local downloads <const> = "https://github.com/" .. repository .. "/releases/download/"
 local per_page <const> = 100
 --- The most tags a `--commit` prefix may name, each a request: more is a
---- prefix too short to tell one release.
-local max_tags <const> = 20
+--- prefix too short to tell one release, and would cost about what
+--- reading every page does.
+local max_tags <const> = 10
 --- The most pages one scan reads, against a runaway: 10000 releases,
 --- some years of them at the rate main publishes.
 local max_pages <const> = 100
@@ -380,9 +382,12 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       else
         local url = repo_url .. "/git/matching-refs/tags/next-" .. prefix
         local text, why = call(url)
-        if text == nil and why ~= "" then return nil, why end
-        local refs, shape_trouble: {Ref} | nil, string = {}, ""
-        if text ~= nil then refs, shape_trouble = Shape.decode_into(text, REFS_SPEC) end
+        -- No match answers `[]`, so a 404 is a repository not found.
+        if text == nil then
+          if why == "" then why = url .. ": HTTP 404" end
+          return nil, why
+        end
+        local refs, shape_trouble: {Ref} | nil, string = Shape.decode_into(text, REFS_SPEC)
         if refs == nil then return nil, url .. ": no list of refs: " .. shape_trouble end
         if #refs > max_tags then
           return nil, plural.count(#refs, "tag") .. " start with next-" .. prefix .. "; give more of it"
@@ -451,10 +456,14 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if found == nil then return fail(why) end
   local release = found[1]
   if release == nil then
-    if prefix ~= nil then
-      return fail("no release matches, among the tags next-" .. prefix .. " starts")
+    local where = ""
+    if prefix ~= nil and #prefix == 40 then
+      where = ", by its tag"
+    elseif prefix ~= nil then
+      where = ", among the tags next-" .. prefix .. " starts"
     end
-    return fail("no release matches")
+    if until_text ~= nil then where = where .. ", published by --until " .. until_text end
+    return fail("no release matches" .. where)
   end
   local second = found[2]
   if prefix ~= nil and second ~= nil then
