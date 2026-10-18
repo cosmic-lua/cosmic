@@ -25,14 +25,7 @@ local test = require("build.test")
 local todo_scan = require("build.todo_scan")
 local TypeWatch = require("build.type_watch")
 
--- TODO: drop the grant of build/ once `UNVEIL_MAX` of core/process.h no longer bounds the paths a test worker's closure
--- gives its sandbox: build.fix's closure holds nearly as many modules as it takes, and a directory is one path.
--- The import closure, which holds every verb through build.verb_list, is
--- one grant a module, and a worker's start takes 255: build/lsp/ is given
--- as one directory, which shows the closure's modules beneath it.
--- TODO: drop the grant once a worker's grants show a directory's modules
--- as one (build.test_sandbox's `plan`), which a closure past 255 needs.
-Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "build", letters = "r" }, { path = "build/lsp/", letters = "r" } } }
+Test.policy{ loopback = { "127.0.0.1" } }
 
 local built = assert(teal.load())
 

@@ -52,6 +52,7 @@ Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "
 local record Confine
   confine: function(declared: {string:{string}} | nil)
   must_confine: function(declared: {string:{string}} | nil)
+  unveil_max: integer
   call: function(fn: function(any...): (any...), argument?: any, own?: {string}): {string:any}
 end
 -- The worker's own, which a suite outside the tree cannot require.
@@ -135,7 +136,7 @@ end
 
 local function test_too_many(tmp: string)
   local many: {string} = {}
-  for i = 1, 300 do many[i] = tmp .. "/many" .. tostring(i) end
+  for i = 1, confine.unveil_max + 1 do many[i] = tmp .. "/many" .. tostring(i) end
   confine.must_confine({ reads = many })
   local _, _ = Child.run({ "bin/probe", "exit 0" })
   confine.confine(nil)
@@ -173,8 +174,8 @@ end
   assert(String.starts_with(raised, refused .. "; and then: ") and
       raised:find("its own failure$"), text)
   assert(assert(failure(text, "test_too_many")):find("^must_confine: bin/probe could not start " ..
-      "confined: unveil could not be applied: %d+ paths, more than the 256 a sandbox unveils " ..
-      "%(EINVAL%)$"), text)
+      "confined: unveil could not be applied: %d+ paths, more than the " .. tostring(confine.unveil_max) ..
+      " a sandbox unveils %(EINVAL%)$"), text)
   assert(assert(failure(text, "test_pledged_alone")):find("^must_confine: bin/probe could not " ..
       "start confined: unveil and offline could not be applied: a sandbox of its own that does " ..
       "not unveil and take the network, which must_confine does not add to %(EINVAL%)$"), text)

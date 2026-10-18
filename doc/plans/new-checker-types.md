@@ -459,6 +459,12 @@ qualified only when two in scope share it.
   it holds and the fix template, indexed by FTS5, so `cosmic docs <code>` and
   the error read one text. a test per code builds the program and pins the fix,
   as `test_a_value_that_may_be_nil_is_told_the_check` does for the fork.
+  [`lang/syntax_codes.tl`] holds the rows of the lexer, the parser and the scope
+  builder; [`build/error_catalog.tl`] joins them with the other catalogs and writes
+  each as a `catalog` row of kind `code`, which `cosmic docs <code>` answers from;
+  [`build/error_render.tl`] prints an error as `file:line:column: message (code):
+  fix`; and [`build/removed_fix.tl`] gives the error for a name [`cosmic.removed`]
+  lists its replacement as the fix. the build calls them at the switch.
 - **a fix is never empty.** an error whose fix the checker cannot state is a
   bug in the error. where two places matter it names both: a nil names the
   call that answered it and where that is declared; a dropped narrowing
@@ -1058,6 +1064,9 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build/cache.tl`]: ../../build/cache.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
 [`build/driver.tl`]: ../../build/driver.tl
+[`build/error_catalog.tl`]: ../../build/error_catalog.tl
+[`build/error_render.tl`]: ../../build/error_render.tl
+[`build/removed_fix.tl`]: ../../build/removed_fix.tl
 [`build/shards.tl`]: ../../build/shards.tl
 [`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
@@ -1067,6 +1076,7 @@ silent. *not adopted:* each reading's looser form, named here.
 [`cosmic.internal.process`]: ../../core/process.h
 [`cosmic.internal.socket`]: ../../core/socket.h
 [`cosmic.poll`]: ../../cosmic/poll.tl
+[`cosmic.removed`]: ../../cosmic/removed.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.sys`]: ../../core/syscalls.h
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl
@@ -1086,6 +1096,7 @@ silent. *not adopted:* each reading's looser form, named here.
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
 [`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
+[`lang/syntax_codes.tl`]: ../../lang/syntax_codes.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
 [`lang/warnings.tl`]: ../../lang/warnings.tl
 [`Proc.exit`]: ../../cosmic/proc.tl

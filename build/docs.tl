@@ -892,6 +892,61 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   return out
 end
 
+--- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to
+--- it has none to answer with.
+local function has_catalog(db: Sqlite.Handle): boolean | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('catalog', 'catalog_fts')")
+  if rows == nil then return nil, trouble end
+  local held = false
+  for _, row in ipairs(rows) do
+    held = row:text(1) == "2"
+  end
+  return held, ""
+end
+
+--- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
+--- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row.
+local function coded_entries(view: docs.View, join: string, where: string, binds: {Sqlite.Value},
+                             limit: integer): {docs.Entry} | nil, string
+  for _, db in ipairs(view.databases) do
+    local held, held_trouble = has_catalog(db)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if held then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT c.module, c.symbol, c.symbol, '1', 'code', '', c.text, c.file, c.line, 0, 0 FROM catalog c " .. join ..
+          " WHERE c.kind = 'code' AND " .. where .. " ORDER BY c.id LIMIT " .. tostring(limit),
+        binds)
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return entries_of(rows), ""
+      end
+    end
+  end
+  return {}, ""
+end
+
+--- The code `query` names exactly (`not_assignable`): its row of the catalog.
+local function coded(view: docs.View, query: string): {docs.Entry} | nil, string
+  if query:match("^[%l_]+$") == nil then
+    return {}, ""
+  end
+  return coded_entries(view, "", "c.symbol = ?1", { text(query) }, 1)
+end
+
+--- The rows of codes whose rule, reason or fix carries every word of `query`, best match first.
+local function coded_words(view: docs.View, query: string): {docs.Entry} | nil, string
+  local fts = fts_query(query)
+  if fts == "" then
+    return {}, ""
+  end
+  return coded_entries(view, "JOIN catalog_fts ON catalog_fts.rowid = c.id", "catalog_fts MATCH ?1", { text(fts) }, 10)
+end
+
 --- The places that refer to what `query` names, by the rule
 --- [`symbols.used_where`] keeps: the uses, then the links, which also
 --- answer a query that is a file's path from the root, alone or with
@@ -1247,11 +1302,21 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
     use_counts = {}, link_counts = {}, value_records = {} }
 end
 
---- `entries` as a lookup's answer.
+--- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
 local function lookup(entries: {docs.Entry}, exact: boolean, count: integer,
-                      partial?: boolean): docs.Lookup
+                      partial?: boolean, ahead?: {docs.Entry}): docs.Lookup
   local out: docs.Lookup = { exact = exact, named = count, closest = partial == true }
-  for i, entry in ipairs(entries) do out[i] = entry end
+  local at = 0
+  local first: {docs.Entry} = {}
+  if ahead ~= nil then
+    first = ahead
+  end
+  for _, list in ipairs({ first, entries }) do
+    for _, entry in ipairs(list) do
+      at = at + 1
+      out[at] = entry
+    end
+  end
   return out
 end
 
@@ -1348,7 +1413,7 @@ local removed_by: function(view: docs.View, query: string): {docs.Entry} | nil, 
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
 ---   options do (see [`by_options`]).
-function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
+local function lookup_names(view: docs.View, query: string): docs.Lookup | nil, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
@@ -1499,6 +1564,13 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     end
     for _, entry in ipairs(verbs) do found[#found + 1] = entry end
     if #found == 0 then
+      local ruled, ruled_trouble = coded_words(view, query)
+      if ruled == nil then
+        return nil, ruled_trouble
+      end
+      found = ruled
+    end
+    if #found == 0 then
       local near, near_trouble = across(view,
         function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
           return closest(db, public, query)
@@ -1519,6 +1591,27 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     return nil, count_trouble
   end
   return lookup(found, false, 0), ""
+end
+
+--- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
+--- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
+--- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone.
+function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
+  local rule, rule_trouble = coded(view, query)
+  if rule == nil then
+    return nil, rule_trouble
+  end
+  local names, trouble = lookup_names(view, query)
+  if names == nil then
+    return nil, trouble
+  end
+  if #rule == 0 then
+    return names, ""
+  end
+  if not names.exact then
+    return lookup(rule, true, #rule), ""
+  end
+  return lookup(names, true, names.named + #rule, false, rule), ""
 end
 
 --- The first sentence of `documented`'s first paragraph, on one line:
@@ -2188,6 +2281,9 @@ local function heading(entry: docs.Entry): string
   if entry.kind == "removed" then
     return entry.module .. " " .. entry.source_symbol .. " (removed)"
   end
+  if entry.kind == "code" then
+    return entry.module .. " " .. entry.symbol .. " (" .. entry.file .. ")"
+  end
   if entry.symbol == "" then
     return entry.module .. " (" .. entry.file .. ")"
   end
@@ -2215,6 +2311,14 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     -- A name that is gone has no declaration to show, only what its
     -- module's catalog says to write instead.
     return { lines[1], "  " .. entry.text }, ""
+  end
+  if entry.kind == "code" then
+    -- A code has no declaration, only its row: what emits it, its rule, why it holds and the fix.
+    local title, rule, why, fix = entry.text:match("^([^\n]*)\nrule: ([^\n]*)\nwhy: ([^\n]*)\nfix: ([^\n]*)$")
+    if title == nil or rule == nil or why == nil or fix == nil then
+      return { heading(entry), "  " .. entry.text }, ""
+    end
+    return { heading(entry), "  " .. title, "  rule: " .. rule, "  why: " .. why, "  fix: " .. fix }, ""
   end
   if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands

@@ -19,7 +19,7 @@
   {"code":"not_a_type","rule":"one namespace, a space per binding","why":"a parameter, a loop variable, a function or a local that holds no module names no type"},
   {"code":"not_a_value","rule":"one namespace, a space per binding","why":"a type used as a value is the table of its functions, which the program cannot use as a value of the type"},
   {"code":"primitive_type_name","rule":"one namespace, a space per binding","why":"a primitive type name is never a binding, so a type declared with one would be unreachable"},
-  {"code":"shadows","rule":"shadowing is the fork's","why":"a declaration whose name is visible hides the earlier one, and a reader takes the first for the second"},
+  {"code":"shadows","rule":"a name is declared once where it is visible","why":"a declaration whose name is visible hides the earlier one, and a reader takes the first for the second"},
   {"code":"statement_after_return","rule":"the syntactic grammar","why":"a statement after `return` never runs, and a `return` that has no statement to end is a mistake of the program"},
   {"code":"string_call","rule":"what the grammar leaves out","why":"`f 'x'` and `f [[x]]` have no form: a call has parentheses"},
   {"code":"string_literal_type","rule":"what the grammar leaves out","why":"a string literal as a type has no form: the strings a value may be are an enum"},
