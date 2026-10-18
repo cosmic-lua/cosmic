@@ -123,21 +123,29 @@ local function test_asset_set()
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
-local function release(id: integer, name: string): {string:any}
-  return { id = id, tag_name = name }
+local function release(id: integer, name: string, draft: boolean): {string:any}
+  return { id = id, tag_name = name, draft = draft }
 end
 
-local function test_release_ids_gathers_every_page()
-  local pages: {any} = { Json.array({ release(1, "next-a") }),
-    Json.array({ release(2, tag), release(3, "next-b") }), Json.array(),
-    Json.array({ release(4, tag) }) }
-  local ids = Prerelease.release_ids(pages, tag)
-  assert(#ids == 2 and ids[1] == 2 and ids[2] == 4)
-  assert(#Prerelease.release_ids({ Json.array() }, tag) == 0)
-  refused("no array", function() Prerelease.release_ids({ { id = 1 } }, tag) end)
-  refused("is no object", function() Prerelease.release_ids({ Json.array({ 7 }) }, tag) end)
+local function test_draft_ids_reads_a_page_and_says_where_the_drafts_end()
+  local full: {any} = {}
+  for i = 1, 98 do full[i] = release(10 + i, "next-x" .. i, true) end
+  full[99] = release(2, tag, true)
+  full[100] = release(3, tag, true)
+  local ids, ends = Prerelease.draft_ids(Json.array(full), tag)
+  assert(#ids == 2 and ids[1] == 2 and ids[2] == 3 and not ends, "a full page of drafts goes on")
+  local mixed, mixed_ends = Prerelease.draft_ids(Json.array({ release(4, tag, true),
+    release(5, tag, false) }), tag)
+  assert(#mixed == 1 and mixed[1] == 4 and mixed_ends, "a published release, never counted, ends the drafts")
+  local _, short = Prerelease.draft_ids(Json.array({ release(6, "next-y", true) }), tag)
+  assert(short, "a page short of 100 ends the list")
+  refused("no array", function() Prerelease.draft_ids({ id = 1 }, tag) end)
+  refused("is no object", function() Prerelease.draft_ids(Json.array({ 7 }), tag) end)
+  refused("has no draft flag", function()
+    Prerelease.draft_ids(Json.array({ { tag_name = tag } }), tag)
+  end)
   refused("has no id", function()
-    Prerelease.release_ids({ Json.array({ { tag_name = tag } }) }, tag)
+    Prerelease.draft_ids(Json.array({ { tag_name = tag, draft = true } }), tag)
   end)
 end
 
@@ -323,17 +331,21 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
 end
 
 local function serve_page(r: Repo, rest: string): GithubApi.Reply
-  -- One release to a page, so a caller must gather every page.
+  -- Pages of 100, drafts first, as GitHub lists them.
   local page = math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")) as integer
-  local rel = r.releases[page]
-  local list: {any} = {}
-  if rel then list[1] = { id = rel.id, tag_name = rel.tag } end
-  local headers: {string:string} = {}
-  if r.releases[page + 1] then
-    headers.link = '<' .. api .. "repos/" .. repository .. "/releases?per_page=100&page=" ..
-      (page + 1) .. '>; rel="next"'
+  local ordered: {Release} = {}
+  for _, rel in ipairs(r.releases) do
+    if rel.draft then ordered[#ordered + 1] = rel end
   end
-  return reply(200, Json.array(list), headers)
+  for _, rel in ipairs(r.releases) do
+    if not rel.draft then ordered[#ordered + 1] = rel end
+  end
+  local list: {any} = {}
+  for i = (page - 1) * 100 + 1, math.min(page * 100, #ordered) do
+    local rel = ordered[i]
+    list[#list + 1] = { id = rel.id, tag_name = rel.tag, draft = rel.draft }
+  end
+  return reply(200, Json.array(list))
 end
 
 local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil, string
@@ -357,6 +369,14 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
   assert(path:sub(1, #prefix) == prefix, "an unexpected path " .. path)
   local rest = path:sub(#prefix + 1)
   if rest:match("^releases%?per_page=100") and method == "GET" then return serve_page(r, rest) end
+  local by_tag = rest:match("^releases/tags/(.+)$")
+  if by_tag and method == "GET" then
+    -- The get-by-tag endpoint answers a published release alone.
+    for _, rel in ipairs(r.releases) do
+      if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)) end
+    end
+    return not_found()
+  end
   local probed = rest:match("^git/ref/tags/(.+)$")
   if probed and method == "GET" then
     if r.fail["ref-transport"] then return nil, "connection reset" end
@@ -506,15 +526,16 @@ local function logged(r: Repo): string return table.concat(r.log, "\n") end
 
 local function test_publish_creates_tag_and_release(tmp: string)
   local r = repo(tmp)
-  -- Other commits' releases, so the list takes two pages.
-  for id, letter in ipairs({ "a", "b" }) do
-    r.releases[id] = { id = id, tag = "next-" .. string.rep(letter, 40), draft = false,
+  -- Other commits' releases, two pages of them: the published ones end
+  -- the drafts on the first, so the second is never asked for.
+  for id = 1, 150 do
+    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = false,
       prerelease = true, assets = {}, title = "", notes = "" }
   end
   assert(publish(r) == "prerelease published and verified: " .. tag)
   assert(r.tags[tag] == commit)
-  assert(#r.releases == 3)
-  local rel = r.releases[3]
+  assert(#r.releases == 151)
+  local rel = r.releases[151]
   assert(not rel.draft and rel.prerelease and #rel.assets == 3)
   local data = staged(r)
   for _, asset in ipairs(rel.assets) do assert(asset.data == data[asset.name], asset.name) end
@@ -526,7 +547,36 @@ local function test_publish_creates_tag_and_release(tmp: string)
   assert(r.uploaded["source.json"] == "application/json" and
       r.uploaded.SHA256SUMS == "text/plain" and
       r.uploaded.cosmic == "application/octet-stream")
-  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, log)
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 0, log)
+  assert(count(r, "GET repos/owner/repo/releases/tags/" .. tag) == 1, log)
+end
+
+--- A draft past the first page of drafts is found: a page of nothing but
+--- drafts leads to the next, and the publish resumes it rather than make
+--- another.
+local function test_publish_finds_a_draft_past_a_page_of_drafts(tmp: string)
+  local r = repo(tmp)
+  for id = 1, 100 do
+    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "" }
+  end
+  seed(r, true, {})
+  assert(publish(r) == "prerelease published and verified: " .. tag)
+  assert(#r.releases == 101, "no second release was made")
+  assert(not r.releases[101].draft)
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, logged(r))
+end
+
+--- Ten pages of nothing but drafts are all the list serves: the publish
+--- refuses rather than ask for an eleventh.
+local function test_publish_refuses_a_list_of_only_drafts(tmp: string)
+  local r = repo(tmp)
+  for id = 1, 1000 do
+    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "" }
+  end
+  refused("first 1000 are all drafts", function() publish(r) end)
+  assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=11") == 0, logged(r))
 end
 
 local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: string)
@@ -694,7 +744,8 @@ local function test_publish_refuses_two_releases_for_the_tag(tmp: string)
   seed(r, false, staged(r))
   seed(r, true, {})
   refused("2 releases are tagged " .. tag, function() publish(r) end)
-  -- Both pages of the list were read, and nothing else was asked.
+  -- The published one by its tag, the draft from the list's first page,
+  -- and nothing else was asked.
   assert(#r.log == 2, logged(r))
 end
 
