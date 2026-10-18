@@ -6,11 +6,17 @@
 --- What a module serves the modules that require it is its served form
 --- ([`source.served`]: its stub, a template's Teal, or its source), whose
 --- type is all a `require` of it reads. Its key ([`key_of`]) is
---- the form's tokens, which leaves out its comments and its whitespace: a
---- change that moves neither, such as an edit to a comment or to a
---- function's body, checks no dependent, and any change of a type moves
---- a token. A dependent's message that names a place in the module (a
---- type "inferred at" it) may then name the place as it was.
+--- the form's tokens and where each is, which leaves out its comments
+--- and its whitespace but where they move a token: an edit that moves
+--- none, such as one to a comment's words or to the spaces ending a
+--- line, checks no dependent, and any change of a type changes a token. A dependent's message that names a place in the module (a type
+--- "inferred at" it) is checked again once the place moves.
+---
+--- What the dependents were last checked against is what was keyed of
+--- the module, by its file: closing a document compares that with what
+--- the module serves once closed, its stage's form, and so a change and
+--- the close that reverts it, read together, still check the dependents
+--- that were checked against the change.
 ---
 --- An editor typing sends a change at each key, and a dependent can take
 --- seconds to check: so a dependent is checked only while no message is
@@ -25,7 +31,7 @@ local source = require("build.lsp.source")
 local record dependents
   --- One session's dependents yet to check.
   record Queue
-    --- The open documents, by URI, whose served form changed since their
+    --- The files, by name, whose served form changed since their
     --- dependents were found.
     due: {string:boolean}
     --- The dependents found, by URI, in the order they are checked, and
@@ -37,6 +43,10 @@ local record dependents
     --- opened, "change" for one whose text changed since.
     served: {string:string}
     keying: {string:string}
+    --- The files of the documents closed, by name, and the key their
+    --- dependents were last checked against: "?", which no key is, where
+    --- that is not known.
+    closing: {string:string}
     --- How many dependents were checked, all told: what a test reads.
     checked: integer
   end
@@ -53,20 +63,23 @@ local type Queue = dependents.Queue
 
 --- A session's queue, with nothing due.
 function dependents.new(): Queue
-  return { due = {}, waiting = {}, queued = {}, served = {}, keying = {}, checked = 0 }
+  return { due = {}, waiting = {}, queued = {}, served = {}, keying = {}, closing = {}, checked = 0 }
 end
 
---- What `document` serves the modules that require it, as tokens: ""
---- where it is no module the stage lists, which no `require` reads.
-local function key_of(checker: check.Checker, document: check.Document): string
-  local listed = source.module(checker.source, document.name)
+--- What the file `name` serves the modules that require it now, as its
+--- tokens and their places: "" where it is no module the stage lists,
+--- which no `require` reads.
+local function key_of(checker: check.Checker, name: string): string
+  local listed = source.module(checker.source, name)
   if listed == nil then return "" end
   local built = check.compiler(checker)
   local served = source.served(checker.source, built, listed.path, check.open_files(checker), true)
   if served == nil then return "" end
   local tokens, _ = built.lex(served.text, served.file)
   local parts: {string} = {}
-  for _, token in ipairs(tokens) do parts[#parts + 1] = token.tk end
+  for _, token in ipairs(tokens) do
+    parts[#parts + 1] = tostring(token.y) .. ":" .. tostring(token.x) .. " " .. token.tk
+  end
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end
 
@@ -99,22 +112,30 @@ function dependents.changed(q: Queue, document: check.Document)
   q.keying[document.uri] = "change"
 end
 
---- Forgets the document `uri`, closed.
-function dependents.closed(q: Queue, uri: string)
+--- Notes that the document `document` was closed: its dependents are
+--- due where what its file serves now is not what they were last
+--- checked against, as is found once the close is answered
+--- ([`dependents.next`]).
+function dependents.closed(q: Queue, document: check.Document)
+  local uri = document.uri
   drop(q, uri)
-  q.due[uri] = nil
+  if q.due[document.name] == nil then q.closing[document.name] = q.served[uri] or "?" end
   q.served[uri] = nil
   q.keying[uri] = nil
 end
 
 --- Keys what each document to key serves now, and finds which of those
---- that changed serve their dependents something else.
+--- that changed, or were closed, serve their dependents something else.
 local function keyed(q: Queue, o: publish.Open)
+  for name, before in pairs(q.closing) do
+    if key_of(o.checker, name) ~= before then q.due[name] = true end
+  end
+  q.closing = {}
   for uri, why in pairs(q.keying) do
     local document = o.documents[uri]
     if document ~= nil then
-      local key = key_of(o.checker, document)
-      if why == "change" and q.served[uri] ~= key then q.due[uri] = true end
+      local key = key_of(o.checker, document.name)
+      if why == "change" and q.served[uri] ~= key then q.due[document.name] = true end
       q.served[uri] = key
     end
   end
@@ -123,25 +144,22 @@ end
 
 --- Checks the next dependent, unless none is left to check or `waiting`
 --- says a message waits. What each document opened or changed serves is
---- keyed first, then the dependents of each document due are found, in
---- order of URI.
+--- keyed first, then the dependents of each file due are found, in
+--- order of name.
 function dependents.next(q: Queue, o: publish.Open, waiting: function(): boolean): dependents.Step
   local none: dependents.Step = { publications = {}, checked = false }
   if waiting() then return none end
   keyed(q, o)
   if next(q.due) ~= nil then
-    local uris: {string} = {}
-    for uri in pairs(q.due) do uris[#uris + 1] = uri end
-    table.sort(uris)
+    local names: {string} = {}
+    for name in pairs(q.due) do names[#names + 1] = name end
+    table.sort(names)
     q.due = {}
-    for _, uri in ipairs(uris) do
-      local document = o.documents[uri]
-      if document ~= nil then
-        for _, found in ipairs(publish.dependents(o, document)) do
-          if q.queued[found] == nil then
-            q.queued[found] = true
-            q.waiting[#q.waiting + 1] = found
-          end
+    for _, name in ipairs(names) do
+      for _, found in ipairs(publish.dependents(o, name)) do
+        if q.queued[found] == nil then
+          q.queued[found] = true
+          q.waiting[#q.waiting + 1] = found
         end
       end
     end

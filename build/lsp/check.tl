@@ -24,7 +24,12 @@
 --- a `testdata` directory's, a site's static files) publishes nothing,
 --- and an open one is no module a `require` reads; nor does one in a tree
 --- of its own inside cosmic's (`ci/`), nor any of a root that is no
---- project, whose modules no build has found ([`source.outside`]).
+--- project, whose modules no build has found ([`source.outside`]), nor
+--- a document that is no file below the root (another directory's, an
+--- `untitled:` one, `<root>/../x.tl`), which no build at the root reads.
+--- A file below the root that the stage does not list yet, one new and
+--- unsaved, is the root's: the build that next stages the tree reads it,
+--- so it is checked as the module it will be.
 ---
 --- A module served stays checked between checks, its type in the
 --- checker's `modules`, until what it would be served from changes: an
@@ -58,8 +63,10 @@ local record check
     uri: string
     text: string
     --- The name the checker knows it by: its path below the root, or its
-    --- absolute path when it is not below it.
+    --- absolute path or URI when it is not below it.
     name: string
+    --- Whether it is no file below the root, which no build there reads.
+    outside: boolean
     --- The SHA-256 of `text`, once asked for.
     hash: string | nil
     --- What it last published, each diagnostic encoded, and the text and
@@ -119,10 +126,17 @@ function check.new(root: string, err: function(line: string), hints: importer.Hi
   }
 end
 
---- A document of `text` at `uri`, named `name`.
-function check.document(uri: string, name: string, text: string): Document
-  return { uri = uri, text = text, name = name, hash = nil, published = nil, published_text = "",
-    published_epoch = 0, requires = nil }
+--- A document of `text` at `uri`, named `name`, which is no file below
+--- the root where `outside`.
+function check.document(uri: string, name: string, text: string, outside?: boolean): Document
+  return { uri = uri, text = text, name = name, outside = outside == true, hash = nil, published = nil,
+    published_text = "", published_epoch = 0, requires = nil }
+end
+
+--- Whether `document` is no module a build at the root reads
+--- ([`analysis_schema.is_module_file`]), or is no file below the root.
+local function unread(document: Document): boolean
+  return document.outside or not analysis_schema.is_module_file(document.name)
 end
 
 --- Gives `document` the text `text`.
@@ -132,9 +146,9 @@ function check.set_text(document: Document, text: string)
 end
 
 --- Makes `document` one a `require` reads, where it is a module a build
---- reads ([`analysis_schema.is_module_file`]).
+--- at the root reads ([`unread`]).
 function check.opened(checker: Checker, document: Document)
-  if analysis_schema.is_module_file(document.name) then checker.open[document.name] = document end
+  if not unread(document) then checker.open[document.name] = document end
 end
 
 --- The SHA-256 of `document`'s text.
@@ -415,7 +429,7 @@ end
 --- `encoding`'s units.
 function check.diagnose(checker: Checker, document: Document, encoding: string): {string}
   local none: {string} = {}
-  if not analysis_schema.is_module_file(document.name) then
+  if unread(document) then
     document.published = none
     return none
   end

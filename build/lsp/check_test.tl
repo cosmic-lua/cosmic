@@ -258,3 +258,21 @@ local function test_a_tree_of_its_own_inside_cosmics_publishes_nothing()
   local ran = served(root, { initialize(root), open(root, "ci/thing.tl", bad), open(root, "cin/thing.tl", bad) })
   assert(counts(ran) == "0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
 end
+
+--- A document that is no file below the root publishes nothing, which
+--- no build there reads: one of another directory, an `untitled:` one,
+--- and one whose path leaves the root by `..`. One below the root that
+--- the stage does not list yet is the root's, and is checked.
+local function test_a_document_that_is_no_file_below_the_root_publishes_nothing()
+  local root = project()
+  local elsewhere = assert(Fs.mkdtemp("cosmic-lsp-"))
+  local bad = 'local n: integer = "no"\nreturn n\n'
+  local untitled = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":' ..
+    '{"uri":"untitled:Untitled-1.tl","languageId":"teal","version":1,"text":' ..
+    '"local n: integer = \\"no\\"\\nreturn n\\n"}}}'
+  local ran = served(root, { initialize(root), open(elsewhere, "y.tl", bad), untitled,
+    open(root, "../" .. elsewhere:match("[^/]+$") .. "/y.tl", bad), open(root, "sub/../new.tl", bad) })
+  assert(counts(ran) == "0,0,0,1", counts(ran))
+  local new = assert(publications(ran)[4])
+  assert(new.uri:sub(-14) == "/sub/../new.tl", new.uri)
+end

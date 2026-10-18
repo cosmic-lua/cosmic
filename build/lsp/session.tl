@@ -123,8 +123,10 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
   local uri = params.textDocument.uri
   local document = s.documents[uri]
   if document == nil and text ~= nil then
-    local path = protocol.path_of(uri) or uri
-    document = check.document(uri, protocol.below(path, s.root) or path, text)
+    local path = protocol.path_of(uri)
+    local name: string | nil = nil
+    if path ~= nil then name = protocol.below(path, s.root) end
+    document = check.document(uri, name or path or uri, text, name == nil)
     s.documents[uri] = document
     check.opened(s.checker, document)
   elseif document ~= nil and text ~= nil then
@@ -310,7 +312,7 @@ local function handle(s: Session, message: protocol.Message): {string}
   elseif method == "textDocument/didClose" then
     local document = document_of(s, params)
     if document ~= nil then
-      dependents.closed(s.queue, document.uri)
+      dependents.closed(s.queue, document)
       s.documents[document.uri] = nil
       for _, publication in ipairs(publish.closed(open_of(s), document)) do
         out[#out + 1] = publication

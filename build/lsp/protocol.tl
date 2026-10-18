@@ -356,12 +356,27 @@ function protocol.path_of(uri: string): string | nil
   return path
 end
 
---- `path` below `root`, or nil when it is not below it.
+--- `path` below `root`, its `.` and `..` segments resolved and its
+--- slashes collapsed, or nil when it is not below it: `<root>/../x.tl`
+--- is not.
 function protocol.below(path: string, root: string): string | nil
   local prefix = root
   if prefix:sub(-1) ~= "/" then prefix = prefix .. "/" end
-  if path:sub(1, #prefix) == prefix then return path:sub(#prefix + 1) end
-  return nil
+  if path:sub(1, #prefix) ~= prefix then return nil end
+  -- The segments kept are the first `depth` of `kept`.
+  local kept: {string} = {}
+  local depth = 0
+  for segment in path:sub(#prefix + 1):gmatch("[^/]+") do
+    if segment == ".." then
+      if depth == 0 then return nil end
+      depth = depth - 1
+    elseif segment ~= "." then
+      depth = depth + 1
+      kept[depth] = segment
+    end
+  end
+  if depth == 0 then return nil end
+  return table.concat(kept, "/", 1, depth)
 end
 
 --- The lines of `text` ([`protocol.Lines`]).

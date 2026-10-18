@@ -1,7 +1,9 @@
 --- `cosmic lsp` run as this program: the command lines it refuses, one
 --- editor over standard input and output, a listener that a signal
---- stops while an editor holds a connection open, and the socket paths it
---- refuses. These start this program, so they need `tool`; a session's
+--- stops while an editor holds a connection open, the socket paths it
+--- refuses, and a request that arrives over standard input or a
+--- connection while dependents are checked, answered before the rest of
+--- them. These start this program, so they need `tool`; a session's
 --- answers are in session_test.tl.
 
 local Child = require("cosmic.child")
@@ -13,6 +15,7 @@ local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local protocol = require("build.lsp.protocol")
+local session_fixture = require("build.lsp.session_fixture")
 local this_program = require("build.this_program")
 local unix_socket = require("build.unix_socket")
 
@@ -157,14 +160,19 @@ local function served_and_stopped(root: string, started: Listening, address: Net
   assert(ended == nil, "the held connection is closed")
 end
 
-local function test_a_tcp_listener_stops_at_sigterm_with_a_connection_open(tmp: string)
-  local started = listening(tmp, { "lsp", "--listen", "127.0.0.1:0" })
+--- The loopback port `started` listens at.
+local function port_of(started: Listening): integer
   local port = math.tointeger(tonumber(started.at:match("^127%.0%.0%.1:(%d+)$")))
   if port == nil then
     local _, _ = started.handle:close()
     error("listening at " .. started.at)
   end
-  served_and_stopped(tmp, started, Net.tcp("127.0.0.1", port))
+  return port
+end
+
+local function test_a_tcp_listener_stops_at_sigterm_with_a_connection_open(tmp: string)
+  local started = listening(tmp, { "lsp", "--listen", "127.0.0.1:0" })
+  served_and_stopped(tmp, started, Net.tcp("127.0.0.1", port_of(started)))
 end
 
 local function test_a_socket_listener_stops_at_sigterm_with_a_connection_open(tmp: string)
@@ -228,4 +236,89 @@ local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   assert(at ~= nil, said)
   assert(said:find("cosmic: lsp: warning: " .. at .. " is reached from beyond this host", 1, true),
     said)
+end
+
+--- How many open documents require the helper the editor changes: one
+--- check each, which must outlast the request's way to the server.
+local DEPENDENTS <const> = 8
+
+--- A project of a helper and the [`DEPENDENTS`] modules requiring it,
+--- and the messages that open them all, framed.
+local function helped(): string, string
+  local root = session_fixture.project()
+  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
+  local main = 'local helper = require("helper")\nlocal n: integer = helper.twice(2)\nreturn n\n'
+  assert(Fs.write(root .. "/helper.tl", integer))
+  local opening = protocol.frame(session_fixture.initialize(root)) ..
+    protocol.frame(session_fixture.open(root, "helper.tl", integer))
+  for i = 1, DEPENDENTS do
+    local name = "d" .. tostring(i) .. ".tl"
+    assert(Fs.write(root .. "/" .. name, main))
+    opening = opening .. protocol.frame(session_fixture.open(root, name, main))
+  end
+  return root, opening
+end
+
+--- Whether `body` is a publication of the dependent `d<n>.tl`.
+local function a_dependent(body: string): boolean
+  return session_fixture.sent(body).method == "textDocument/publishDiagnostics" and
+    body:match('"uri":"[^"]*/d%d+%.tl"') ~= nil
+end
+
+--- Opens the helper and its dependents through `write`, changes the
+--- helper's type, and sends a hover once the helper's own publication is
+--- read from `frames`: it arrives while the dependents are checked, read
+--- by the program's poll of its stream, so it is answered before the last
+--- of them is published. Then shuts the session down.
+local function asked_while_checking(root: string, opening: string, write: function(text: string),
+                                    frames: protocol.Frames)
+  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
+    "return { twice = twice }\n"
+  write(opening)
+  -- The initialize's answer, the helper's publication and each dependent's.
+  for _ = 1, DEPENDENTS + 2 do assert(frames:next()) end
+  write(protocol.frame(session_fixture.change(root, "helper.tl", text)))
+  local own = assert(frames:next())
+  assert(own:match('"uri":"[^"]*/helper%.tl"') ~= nil, own)
+  write(protocol.frame(session_fixture.at(7, "textDocument/hover", root, "d1.tl", 0, 0)))
+  -- What was read after the helper's publication, in order.
+  local seen = ""
+  local published = 0
+  while published < DEPENDENTS do
+    local body = assert(frames:next())
+    if a_dependent(body) then
+      published = published + 1
+      seen = seen .. " d"
+    elseif session_fixture.sent(body).id == 7 then
+      seen = seen .. " answer"
+    end
+  end
+  assert(seen:find("answer", 1, true), "answered before the last dependent:" .. seen)
+  write(protocol.frame(session_fixture.SHUTDOWN) .. EXIT)
+end
+
+local function test_a_request_over_standard_input_is_answered_while_dependents_are_checked()
+  local root, opening = helped()
+  local started = this_program.program({ "lsp" }, {
+    cwd = root, stdin = "stream", stdout = "stream", stderr = "capture", timeout_ns = Clock.seconds(60),
+  })
+  local handle <close> = assert(Child.start(started.argv, started.options))
+  local input = assert(handle.stdin_stream)
+  asked_while_checking(root, opening, function(text: string) assert(input:write(text)) end,
+    protocol.frames(assert(handle.stdout_stream)))
+  assert(input:close())
+  local result = assert(handle:wait(Clock.seconds(30)))
+  assert(result.code == 0, tostring(result.code) .. ": " .. (result.stderr or ""))
+end
+
+local function test_a_request_over_a_connection_is_answered_while_dependents_are_checked()
+  local root, opening = helped()
+  local started = listening(root, { "lsp", "--listen", "127.0.0.1:0" })
+  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port_of(started)),
+    { timeout_ns = Clock.seconds(30) }))
+  asked_while_checking(root, opening, function(text: string) assert(conn:write(text)) end,
+    protocol.frames(conn))
+  assert(started.handle:stop())
+  local result = assert(started.handle:wait(Clock.seconds(20)))
+  assert(result.code == 0, tostring(result.code) .. ": " .. (Fs.read(started.err) or ""))
 end
