@@ -61,6 +61,13 @@ local function page(): string
   }, ",") .. "]"
 end
 
+--- What git matching-refs answers for tags of these commits.
+local function refs(...: string): string
+  local items: {string} = {}
+  for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/next-' .. commit .. '"}' end
+  return ok("[" .. table.concat(items, ",") .. "]")
+end
+
 local function sums(): string return ok(digest .. "  cosmic\n") end
 
 local function source(commit: string, d?: string): string
@@ -77,7 +84,7 @@ local function run(words: {string}, script: {string}, env?: {string:string}): Ra
   local err: {string} = {}
   local code = release.run(argv, {
     script = scripts,
-    api = "http://cosmic.test/releases",
+    api = "http://cosmic.test/repo",
     downloads = "http://cosmic.test/download/",
     env = env or {},
     out = function(text: string): boolean, string
@@ -104,19 +111,45 @@ local function test_the_newest_published_release_prints_as_a_pin()
   assert(ran.out == release.pin_text(newest, digest), ran.out)
 end
 
-local function test_a_commit_prefix_picks_its_release()
-  local ran = run({ "--commit", "ABCCCCC" }, { ok(page()), sums(), source(older) })
+--- A prefix is looked up by its tags, not the pages: the script holds
+--- no page, so reading one would fail the run.
+local function test_a_commit_prefix_picks_its_release_by_its_tags()
+  local ran = run({ "--commit", "ABCCCCC" },
+    { refs(older), ok(entry(older, "2026-10-17T10:00:00Z")), sums(), source(older) })
   assert(ran.code == 0, ran.err)
   assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
+end
+
+--- A tag with no release (404) or only a draft's is passed over, and
+--- the rest are sorted newest first.
+local function test_a_prefix_passes_over_tags_without_a_release()
+  local bare_tag = "abcdef0" .. string.rep("1", 33)
+  local earlier = "abcdef0" .. string.rep("2", 33)
+  local later = "abcdef0" .. string.rep("3", 33)
+  local ran = run({ "--list", "--commit", "abcdef0" }, {
+    refs(bare_tag, earlier, later),
+    reply("404 Not Found", "{}"),
+    ok(entry(earlier, "2026-10-17T10:00:00Z")),
+    ok(entry(later, "2026-10-18T10:00:00Z")),
+  })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "2026-10-18T10:00:00Z  " .. later .. "\n2026-10-17T10:00:00Z  " .. earlier .. "\n", ran.out)
+  failed(run({ "--commit", "abcdef0" }, { refs() }), "no release matches, among the tags next-abcdef0 starts")
 end
 
 local function test_a_prefix_two_releases_share_is_refused_naming_both()
   local first = "1234567" .. string.rep("0", 33)
   local second = "1234567" .. string.rep("1", 33)
-  local text = "[" .. entry(first, "2026-10-18T10:00:00Z") .. "," .. entry(second, "2026-10-17T10:00:00Z") .. "]"
-  local ran = run({ "--commit", "1234567" }, { ok(text) })
+  local ran = run({ "--commit", "1234567" },
+    { refs(first, second), ok(entry(first, "2026-10-18T10:00:00Z")), ok(entry(second, "2026-10-17T10:00:00Z")) })
   failed(ran, first)
   assert(ran.err:find(second, 1, true) ~= nil, ran.err)
+end
+
+local function test_a_prefix_naming_too_many_tags_is_refused()
+  local many: {string} = {}
+  for i = 1, 21 do many[i] = string.format("1234567%033x", i) end
+  failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "21 tags start with next-1234567")
 end
 
 local function test_until_takes_the_newest_published_at_or_before()
@@ -160,15 +193,13 @@ local function test_every_page_is_read_and_a_repeat_taken_once()
   local ran = run({ "--list" }, { page1, page2 })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
-  local unique = run({ "--commit", "abccccc" }, { page1, page2, sums(), source(older) })
-  assert(unique.code == 0, unique.err)
 end
 
 local function test_a_full_commit_is_asked_for_by_its_tag()
   local ran = run({ "--commit", oldest }, { ok(entry(oldest, "2026-10-16T10:00:00Z")), sums(), source(oldest) })
   assert(ran.code == 0, ran.err)
   assert(ran.out:sub(1, 41) == oldest .. "\n", ran.out)
-  failed(run({ "--commit", oldest }, { reply("404 Not Found", "{}") }), "no release matches, by its tag")
+  failed(run({ "--commit", oldest }, { reply("404 Not Found", "{}") }), "no release matches")
 end
 
 local function test_a_release_that_disagrees_with_itself_fails()
@@ -234,10 +265,10 @@ local function test_list_prints_the_matches_newest_first()
   assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n" ..
       "2026-10-17T10:00:00Z  " .. older .. "\n" ..
       "2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
-  local none = run({ "--list", "--commit", "abcdeff" }, { ok(page()) })
+  local none = run({ "--list", "--commit", "abcdeff" }, { refs() })
   assert(none.code == 0, none.err)
   assert(none.out == "", none.out)
-  local empty = run({ "--list", "--json", "--commit", "abcdeff" }, { ok(page()) })
+  local empty = run({ "--list", "--json", "--commit", "abcdeff" }, { refs() })
   assert(empty.code == 0, empty.err)
   assert(empty.out == "[]\n", empty.out)
   local json = run({ "--list", "--json", "-n", "1" }, { ok(page()) })

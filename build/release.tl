@@ -12,12 +12,16 @@
 --- they were published. A draft, a release not tagged `next-<40 hex>`
 --- and one missing any of the three assets are passed over. With no
 --- criterion the newest is picked. `--commit <hex>` keeps the release
---- whose commit starts with the hex (7 to 40 digits; a full commit is
---- asked for by its tag alone), and `--until <time>` those published at
---- or before an RFC 3339 time, or by the end of a date in UTC. Both may
---- be given. A prefix that matches two releases is refused, naming both.
+--- whose commit starts with the hex (7 to 40 digits), and `--until
+--- <time>` those published at or before an RFC 3339 time, or by the end
+--- of a date in UTC. Both may be given. A prefix that matches two
+--- releases is refused, naming both.
+---
 --- Reading every page costs a request per hundred releases, against an
---- unauthenticated limit of 60 an hour.
+--- unauthenticated limit of 60 an hour, so a `--commit` reads none: the
+--- API's git matching-refs names the tags `next-<prefix>` starts (one
+--- request), and each is asked for its release by its tag. A full commit
+--- names its one tag without asking.
 ---
 --- A release is verified before anything about it is printed or kept:
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
@@ -93,7 +97,7 @@ local record verb
     --- empty reply.
     script?: {{string}}
     --- In place of GitHub's, for a test whose script cannot answer TLS:
-    --- the API's releases URL and the prefix of a release's asset URLs,
+    --- the API's URL of the repository and the prefix of a release's asset URLs,
     --- which the printed and pinned URLs still name GitHub's.
     api?: string
     downloads?: string
@@ -122,9 +126,12 @@ local usage = "cosmic release [--commit <hex>] [--until <time>] " ..
   "[--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]"
 
 local repository <const> = "cosmic-lua/cosmic"
-local api <const> = "https://api.github.com/repos/" .. repository .. "/releases"
+local api <const> = "https://api.github.com/repos/" .. repository
 local downloads <const> = "https://github.com/" .. repository .. "/releases/download/"
 local per_page <const> = 100
+--- The most tags a `--commit` prefix may name, each a request: more is a
+--- prefix too short to tell one release.
+local max_tags <const> = 20
 --- The most pages one scan reads, against a runaway: 10000 releases,
 --- some years of them at the rate main publishes.
 local max_pages <const> = 100
@@ -152,6 +159,12 @@ local RELEASE_SPEC <const> = Shape.record({
   assets = Shape.list(Shape.record({ name = Shape.string })),
 })
 local PAGE_SPEC <const> = Shape.list(RELEASE_SPEC)
+
+--- One ref as git matching-refs lists it: `refs/tags/<tag>`.
+local record Ref
+  ref: string
+end
+local REFS_SPEC <const> = Shape.list(Shape.record({ ref = Shape.string }))
 
 --- What source.json says.
 local record Source
@@ -286,7 +299,8 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("--json shapes what is printed with no -o, --cache or --pin")
   end
 
-  local releases_url = to.api or api
+  local repo_url = to.api or api
+  local releases_url = repo_url .. "/releases"
   local assets_url = to.downloads or downloads
   local token = getenv("GH_TOKEN")
   local https_only: {string} = { "https" }
@@ -341,9 +355,6 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   -- Every match, newest first.
-  -- TODO: look a --commit prefix up with the API's git matching-refs
-  -- (`git/matching-refs/tags/next-<prefix>`, one request for the tags it
-  -- names) rather than every page of releases, a request per hundred.
   local function matches(): {verb.Release} | nil, string
     local found: {verb.Release} = {}
     local seen: {string:boolean} = {}
@@ -354,18 +365,46 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         found[#found + 1] = release
       end
     end
-    if prefix ~= nil and #prefix == 40 then
-      local url = releases_url .. "/tags/next-" .. prefix
-      local text, why = call(url)
-      if text == nil then
-        if why ~= "" then return nil, why end
-        return found, ""
+    local function sorted(): {verb.Release}
+      -- RFC 3339 in UTC, as the API writes every time, sorts as text.
+      table.sort(found, function(a: verb.Release, b: verb.Release): boolean
+        if a.published_at ~= b.published_at then return a.published_at > b.published_at end
+        return a.tag > b.tag
+      end)
+      return found
+    end
+    if prefix ~= nil then
+      local tags: {string} = {}
+      if #prefix == 40 then
+        tags[1] = "next-" .. prefix
+      else
+        local url = repo_url .. "/git/matching-refs/tags/next-" .. prefix
+        local text, why = call(url)
+        if text == nil and why ~= "" then return nil, why end
+        local refs, shape_trouble: {Ref} | nil, string = {}, ""
+        if text ~= nil then refs, shape_trouble = Shape.decode_into(text, REFS_SPEC) end
+        if refs == nil then return nil, url .. ": no list of refs: " .. shape_trouble end
+        if #refs > max_tags then
+          return nil, plural.count(#refs, "tag") .. " start with next-" .. prefix .. "; give more of it"
+        end
+        for _, ref in ipairs(refs) do
+          local tag = ref.ref:match("^refs/tags/(next%-%x+)$")
+          if tag ~= nil then tags[#tags + 1] = tag end
+        end
       end
-      local r, shape_trouble: ApiRelease | nil, string =
-        Shape.decode_into(text, RELEASE_SPEC, { null_value = Json.null })
-      if r == nil then return nil, url .. ": no release: " .. shape_trouble end
-      take(r)
-      return found, ""
+      for _, tag in ipairs(tags) do
+        local url = releases_url .. "/tags/" .. tag
+        local text, why = call(url)
+        -- A tag with no release, or only a draft's, answers 404.
+        if text == nil and why ~= "" then return nil, why end
+        if text ~= nil then
+          local r, shape_trouble: ApiRelease | nil, string =
+            Shape.decode_into(text, RELEASE_SPEC, { null_value = Json.null })
+          if r == nil then return nil, url .. ": no release: " .. shape_trouble end
+          take(r)
+        end
+      end
+      return sorted(), ""
     end
     for page = 1, max_pages + 1 do
       if page > max_pages then
@@ -383,12 +422,7 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       for _, r in ipairs(releases) do take(r) end
       if #releases < per_page then break end
     end
-    -- RFC 3339 in UTC, as the API writes every time, sorts as text.
-    table.sort(found, function(a: verb.Release, b: verb.Release): boolean
-      if a.published_at ~= b.published_at then return a.published_at > b.published_at end
-      return a.tag > b.tag
-    end)
-    return found, ""
+    return sorted(), ""
   end
 
   local function written(ok: boolean, why: string): integer
@@ -417,7 +451,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   if found == nil then return fail(why) end
   local release = found[1]
   if release == nil then
-    if prefix ~= nil and #prefix == 40 then return fail("no release matches, by its tag") end
+    if prefix ~= nil then
+      return fail("no release matches, among the tags next-" .. prefix .. " starts")
+    end
     return fail("no release matches")
   end
   local second = found[2]
