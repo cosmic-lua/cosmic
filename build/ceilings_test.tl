@@ -1,0 +1,120 @@
+--- Tests of [`build.ceilings`]: the data file's shape, what it refuses, and the words a ceiling is enforced in, which a
+--- compile and the check of the tree share.
+local Ceilings = require("build.ceilings")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy{
+  grants = { { path = "build/ceilings.txt", letters = "r" } },
+}
+
+local function parsed(text: string): Ceilings.Table
+  local table_, why = Ceilings.parse(text)
+  return (assert(table_, why))
+end
+
+local function refused(text: string): string
+  local table_, why = Ceilings.parse(text)
+  assert(table_ == nil, "accepted:\n" .. text)
+  return why
+end
+
+local function test_a_section_holds_a_line_for_each_ceiling_and_a_comment_says_why()
+  local ceilings = parsed("# the first stage\n[checked]\n# a comment before its lines\nbuild/a.tl nil_not_allowed 3\n" ..
+      "build/b.tl view_written 12\n\n[generated]\nbuild/c.tl 4\n[hazards]\nmethods 55\n")
+  local checked = Ceilings.of(ceilings, "checked")
+  assert(checked["build/a.tl nil_not_allowed"] == 3 and checked["build/b.tl view_written"] == 12)
+  assert(Ceilings.of(ceilings, "generated")["build/c.tl"] == 4)
+  assert(Ceilings.of(ceilings, "hazards")["methods"] == 55)
+  assert(next(Ceilings.of(ceilings, "lexed")) == nil, "a stage the file lacks has no ceilings")
+end
+
+local function test_a_line_outside_a_section_or_of_the_wrong_shape_is_refused_with_its_place()
+  assert(refused("build/a.tl nil_not_allowed 3\n"):find("a ceiling before any [stage] line", 1, true))
+  local zero = refused("[checked]\nbuild/a.tl nil_not_allowed 0\n")
+  assert(zero:find("build/ceilings.txt:2: expected `<file> <code> <count>` with a count of 1 or more", 1, true), zero)
+  assert(refused("[checked]\nbuild/a.tl nil_not_allowed\n"):find(":2: expected", 1, true))
+  assert(refused("[checked]\nbuild/a.tl nil_not_allowed three\n"):find(":2: expected", 1, true))
+  assert(refused("[checked]\nbuild/a.tl nil_not_allowed -1\n"):find(":2: expected", 1, true))
+end
+
+local function test_a_stage_no_check_has_and_a_ceiling_given_twice_are_refused()
+  assert(refused("[checks]\n"):find("no stage checks in a check of the tree", 1, true))
+  local twice = refused("[checked]\nbuild/a.tl nil_not_allowed 3\nbuild/a.tl nil_not_allowed 4\n")
+  assert(twice:find(":3: `build/a.tl nil_not_allowed` has a ceiling twice in [checked]", 1, true), twice)
+  -- the same key in two stages is two ceilings
+  local both = parsed("[checked]\nbuild/a.tl nil_not_allowed 3\n[declared]\nbuild/a.tl float_key 4\n")
+  assert(Ceilings.of(both, "checked")["build/a.tl nil_not_allowed"] == 3 and
+      Ceilings.of(both, "declared")["build/a.tl float_key"] == 4)
+end
+
+local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_checks_hold()
+  local ceilings = assert(Ceilings.read("."))
+  local counted = 0
+  local stages: {Ceilings.Stage} = { "lexed", "translated", "scoped", "declared", "hazards", "generated", "checked" }
+  for _, stage in ipairs(stages) do
+    local held = Ceilings.of(ceilings, stage)
+    for key, n in pairs(held) do
+      assert(n >= 1, key)
+      counted = counted + 1
+    end
+  end
+  assert(counted > 6000, "the checked ceilings alone are thousands: " .. tostring(counted))
+  assert(Ceilings.of(ceilings, "hazards")["methods"] == 55)
+end
+
+local function finding(code: string, y: integer): Ceilings.Finding
+  return { code = code, y = y, x = 3, msg = "message " .. tostring(y), fix = "fix " .. tostring(y) }
+end
+
+local function test_errors_over_their_ceiling_are_listed_with_the_count_and_what_it_is_pinned_at()
+  local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }
+  local held = Ceilings.over("build/a.tl", errors, { "nil_not_allowed", "view_written" }, { ["build/a.tl nil_not_allowed"] = 1 }, "bodies")
+  assert(#held.lines == 5, table.concat(held.lines, "\n"))
+  assert(held.lines[1] == "build/a.tl:4:3: message 4 (nil_not_allowed): fix 4", held.lines[1])
+  assert(held.lines[2]:find(":9:3:", 1, true), held.lines[2])
+  assert(held.lines[3] == "build/a.tl: 2 errors of nil_not_allowed in its bodies, pinned 1; follow the fix above rather than raise the pin",
+    held.lines[3])
+  assert(held.lines[5] == "build/a.tl: 1 error of view_written in its bodies, pinned 0; follow the fix above rather than raise the pin",
+    held.lines[5])
+  assert(held.found["build/a.tl nil_not_allowed"] == 2 and held.found["build/a.tl view_written"] == 1)
+end
+
+local function test_errors_at_or_under_their_ceiling_and_codes_nobody_asked_for_are_not_listed()
+  local errors = { finding("nil_not_allowed", 4), finding("view_written", 2), finding("other_code", 1) }
+  local held = Ceilings.over("build/a.tl", errors, { "nil_not_allowed", "view_written" },
+    { ["build/a.tl nil_not_allowed"] = 1, ["build/a.tl view_written"] = 5 }, "bodies")
+  assert(#held.lines == 0, table.concat(held.lines, "\n"))
+  assert(held.found["build/a.tl other_code"] == nil)
+end
+
+local function test_a_ceiling_above_what_is_found_is_told_to_fall_in_the_order_of_the_keys()
+  local lines = Ceilings.fallen({ ["b.tl x"] = 2, ["a.tl x"] = 1 }, { ["b.tl x"] = 3, ["a.tl x"] = 1, ["c.tl y"] = 2 }, "the file")
+  assert(#lines == 2 and lines[1] == "b.tl x: pinned 3 but 2 found; lower the pin in the file" and
+      lines[2] == "c.tl y: pinned 2 but 0 found; lower the pin in the file", table.concat(lines, "\n"))
+end
+
+local function test_a_key_that_can_never_be_met_is_refused_at_the_parse()
+  assert(refused("[checked]\nbuild/a.tl nil_not_alowed 3\n"):find(":2: `nil_not_alowed` is no code of [checked]", 1, true))
+  assert(refused("[declared]\nbuild/a.tl nil_not_allowed 3\n"):find("is no code of [declared]", 1, true))
+  assert(refused("[checked]\nbuild/a.tl 3\n"):find(":2: a ceiling of [checked] is a file and a code, not `build/a.tl`", 1, true))
+  assert(refused("[checked]\nbuild/a.tl  nil_not_allowed 3\n"):find("is a file and a code", 1, true))
+  assert(refused("[checked]\nbuild/a.tl nil_not_allowed extra 3\n"):find("is a file and a code", 1, true))
+  assert(refused("[generated]\nbuild/a.tl lines 3\n"):find("a ceiling of [generated] is one word", 1, true))
+  assert(refused("[hazards]\nmore than one 3\n"):find("is one word", 1, true))
+  -- a code of the stage is met: each stage has its own list
+  local ceilings = parsed("[lexed]\nbuild/a.tl label_or_goto 1\n[scoped]\nbuild/a.tl shadows 1\n[declared]\nbuild/a.tl float_key 1\n" ..
+      "[translated]\nbuild/a.tl tuple_type 1\n[checked]\nbuild/a.tl nil_not_allowed 1\n[generated]\nbuild/a.tl 2\n")
+  assert(Ceilings.of(ceilings, "generated")["build/a.tl"] == 2)
+end
+
+local function test_a_ceiling_for_a_file_the_tree_lacks_is_dead(dir: string)
+  assert(Fs.mkdirs(dir .. "/build"))
+  assert(Fs.write(dir .. "/build/ceilings.tl", "-- here\n"))
+  local ceilings = parsed("[checked]\nbuild/ceilings.tl nil_not_allowed 3\nbuild/gone.tl nil_not_allowed 1\n[hazards]\nmethods 5\n" ..
+      "[scoped]\nbuild/nothing.tl shadows 2\n")
+  local dead = Ceilings.dead(dir, ceilings)
+  assert(#dead == 2, table.concat(dead, "\n"))
+  assert(dead[1] == "build/gone.tl nil_not_allowed: pinned in [checked], and the tree has no file build/gone.tl", dead[1])
+  assert(dead[2]:find("build/nothing.tl shadows: pinned in [scoped]", 1, true), dead[2])
+end

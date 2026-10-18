@@ -272,7 +272,9 @@ stack can carry.
 - **a count the tree cannot yet bring to zero is a ceiling that only
   falls.** the run-time reports and each rule's violations over the
   translated tree are each counted per file and code, and each count is a
-  ceiling kept in the build database. a rise fails the build, so a change cannot add what the
+  ceiling kept in the build database, filled from [`build/ceilings.txt`] (data, not Teal compiled into the tool): `cosmic fix --check .`
+  and a compile through [`build/driver.tl`] read the same file and refuse a count above its ceiling with the same words
+  (`pinned N`). a rise fails the build, so a change cannot add what the
   tree is working to remove, and a rewrite that lowers a count lowers its
   ceiling with it. [`build/compiler_test.tl`] pins the frozen fork's own
   count as an exact number in its source, and the pin goes with the
@@ -1410,7 +1412,9 @@ since the seed's Lua runs on the tree's VM.
 [`build/vendor.tl`]: ../../build/vendor.tl
 [`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
 [`build/zig.tl`]: ../../build/zig.tl
+[`build/ceilings.txt`]: ../../build/ceilings.txt
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
+[`build/driver.tl`]: ../../build/driver.tl
 [`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
 [`build/confine.tl`]: ../../build/confine.tl
 [`build/teal.tl`]: ../../build/teal.tl

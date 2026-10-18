@@ -170,7 +170,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {}, types = {}, warnings = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end

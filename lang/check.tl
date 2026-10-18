@@ -73,6 +73,7 @@ local Lexer = require("lang.lexer")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")
+local Warnings = require("lang.warnings")
 
 local type Type = Types.Type
 local type Named = Types.Named
@@ -124,12 +125,23 @@ local record Check
     --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
+    --- The type of each expression that was typed, by the id of its node (empty where the check was asked not to keep them,
+    --- `typed` false; kept by default): the type report the readers of the build take ([`build.driver`]). A name, a
+    --- literal, a call (the first value of the first list it answers), an operator and each link of a chain has one, as the
+    --- checker left it after the narrowing there; the callee of a call of an overloaded function has the overload taken. These
+    --- have none: the target of an assignment, the string of a `require`, the head name of a `function M.f()` statement, a `...`,
+    --- a type name (see [`Declarations.Lowered.types`]) and a node the checker did not reach (a body it skipped).
+    types: {integer: Type}
+    --- The warnings ([`lang.warnings`]), in source order: the unused and unread names, and the `hint` ones.
+    warnings: {Warnings.Warning}
   end
 
   --- Checks `input`, which `program` has lowered into `lowered` ([`Declarations.Program.lower`]), and answers
   --- its errors. The modules it requires must be lowered: a type whose declaration has no body raises
-  --- `relation: <declaration> is not defined`.
-  check: function(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered): Checked
+  --- `relation: <declaration> is not defined`. With `typed` false the type of each node is not kept ([`Check.Checked.types`]),
+  --- which saves the time of recording them; the hints, which read what they need as they go, are the same.
+  check: function(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
+                  typed?: boolean): Checked
 
   --- The values of the enum each type node of `lowered` stands for, by the id of the node: what the code generator
   --- ([`lang.codegen`]'s `enums`) tests membership of for `v is Enum`, since a string that passed `type(v) == "string"` is
@@ -263,6 +275,14 @@ local record Ctx
   unfixed: {integer: {integer: boolean}}
   --- The reads of narrowed places, by the offset of the place.
   narrowed: {integer: Check.Narrowed}
+  --- The type of each expression typed, by the id of its node, and the warnings found.
+  types: {integer: Type}
+  --- Whether the type of each node is kept in `types`.
+  typed: boolean
+  --- The field read last in a chain and the type of the value it was read from, for the hint of a method called with `.`.
+  field_node: Ast.Node | nil
+  field_base: Type | nil
+  warnings: {Warnings.Warning}
   unite: function(Type, Type): Type
   covers: function(Type, Type): boolean
   --- What [`lang.generics`] reads types through, made when a generic call first needs it.
@@ -704,7 +724,7 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
           ", where " .. quoted(w) .. " is wanted" .. where,
         "no change of this program fixes it: the grammar has no type for " .. quoted(name) .. " used as a value yet " ..
-          "(the TODO of `declaration_value` in lang/check.tl), and build/check_pins.tl holds the places that need one", shown)
+          "(the TODO of `declaration_value` in lang/check.tl), and build/ceilings.txt holds the places that need one", shown)
     elseif sub is Named and sub.value then
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
           ", where a value of " .. quoted(w) .. " is wanted" .. where,
@@ -1537,7 +1557,7 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     local call = "call it on the declaration: `" .. t.decl.name .. "." .. name .. "(...)`"
     local module = "no change of this program fixes it where this value is a module typed with its record: the grammar " ..
       "has no type for " .. owner .. " used as a value yet (the TODO of `declaration_value` in lang/check.tl), and " ..
-      "build/check_pins.tl holds the places that need one"
+      "build/ceilings.txt holds the places that need one"
     -- A class has no module among its values; a record read through a field is a module re-exported by a record.
     local fix = call .. "; " .. module
     if t.decl.kind == "class" then
@@ -2091,6 +2111,16 @@ local record Tests
   by_kind: function(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   keep_is: function(ctx: Ctx, cur: Type, tested: Type): Type
   drop_is: function(ctx: Ctx, cur: Type, tested: Type): Type
+  --- Adds the warning `code` on the tokens of `node`; none in a pass that reports nothing.
+  warn: function(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
+end
+
+function Tests.warn(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
+  if ctx.quiet > 0 then
+    return
+  end
+  local b = base_of(node)
+  Warnings.add(ctx.warnings, ctx.filename, ctx.tokens, code, b.first, b.last, msg, fix)
 end
 
 --- The kind of Lua value a value of type `t` is, or "" where the type does not say (`any`, a type variable, a union).
@@ -3412,6 +3442,8 @@ local record Calls
                   recv: Type | nil, expected: Type | nil, loud: boolean): Instance
   generic: function(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, recv: Type | nil,
                     recv_node: Ast.Node | nil, expected: Type | nil): {Alt}
+  plain_place: function(e: Ast.Exp): boolean
+  method_dot: function(ctx: Ctx, n: Ast.Call, callee: Type, object: Type)
 end
 
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
@@ -3884,6 +3916,10 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             end
           end
         end
+        if ctx.typed and node is Ast.Call then
+          -- The callee is the overload taken (instantiated, for a generic one), not the first the name has.
+          ctx.types[base_of(node.callee).id] = c
+        end
         return c.rets
       end
       reasons[#reasons + 1] = overload_line(ctx, declared, failure)
@@ -4134,11 +4170,60 @@ local function leaf(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
   return ctx.invalid
 end
 
+--- The hint for `r.m(r, ...)`, a call of a method with `.` and its receiver as the first argument. `callee` is the type of the
+--- function: a method is a function whose first parameter is the declaration of the object it is read from, and the call
+--- passes a value of that declaration first.
+--- Whether `e` is a name, or a chain of fields of a name: a place that reads the same each time, with no call, method call or
+--- index to run between.
+function Calls.plain_place(e: Ast.Exp): boolean
+  local node = e
+  while node is Ast.Field do
+    node = node.object
+  end
+  return node is Ast.Name
+end
+
+function Calls.method_dot(ctx: Ctx, n: Ast.Call, callee: Type, object: Type)
+  local field = n.callee
+  if not (field is Ast.Field) or not (callee is Fn) or not (object is Named) or object.value then
+    return
+  end
+  local first = callee.params[1]
+  local given = n.args[1]
+  if first == nil or given == nil then
+    return
+  end
+  local receiver = first.type
+  if not (receiver is Named) or receiver.value or receiver.decl ~= object.decl then
+    return
+  end
+  -- The receiver named twice: the first argument is the object the method was read from. Only a place that reads the same
+  -- twice (a name, or fields of one) is: `mk().get(mk())` makes two objects, and `mk():get()` would make one.
+  if not Calls.plain_place(field.object) then
+    return
+  end
+  local who = text_of(ctx, field.object)
+  if text_of(ctx, given) ~= who then
+    return
+  end
+  local rest: {string} = {}
+  for i = 2, #n.args do
+    local item = n.args[i]
+    if item ~= nil then
+      rest[#rest + 1] = text_of(ctx, item)
+    end
+  end
+  local call = who .. ":" .. field.name .. "(" .. table.concat(rest, ", ") .. ")"
+  Tests.warn(ctx, "method_dot", n, quoted(field.name) .. " is a method of " .. tq(ctx, object) .. ", called with `.` and its " ..
+      "receiver as the first argument", "write " .. quoted(call) .. " and pass the receiver once")
+end
+
 --- Applies the chain node `n` to the type `t` of its first operand.
 local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_lists: boolean): Type, {Alt} | nil
   if n is Ast.Binary then
     return binary(ctx, n, t, expected), nil
   elseif n is Ast.Field then
+    ctx.field_node, ctx.field_base = n, t
     local base = readable(ctx, n.object, t, "it has no field " .. quoted(n.name) .. " to read")
     if base == nil then
       return ctx.invalid, nil
@@ -4158,9 +4243,16 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type | nil, wants_
   elseif n is Ast.Call then
     local saved = ctx.lenient
     ctx.lenient = 0
+    local object: Type | nil = nil
+    if ctx.field_node == n.callee then
+      object = ctx.field_base
+    end
     local alts = apply_call(ctx, n, t, expected)
     ctx.lenient = saved
     after_call(ctx, n, n.callee, alts, n.args, nil)
+    if object ~= nil then
+      Calls.method_dot(ctx, n, t, object)
+    end
     if wants_lists then
       return ctx.invalid, alts
     end
@@ -4202,11 +4294,19 @@ local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type | nil, wants_lists:
     node = nxt
   end
   local t = leaf(ctx, node, ctx.top == base and expected or nil)
+  local types = ctx.types
+  local typed = ctx.typed
+  if typed then
+    types[base_of(node).id] = t
+  end
   local alts: {Alt} | nil = nil
   for i = ctx.top, base + 1, -1 do
     local n = ctx.spine[i]
     ctx.top = i - 1
     t, alts = apply(ctx, n, t, i == base + 1 and expected or nil, wants_lists and i == base + 1)
+    if typed then
+      types[base_of(n).id] = t
+    end
   end
   if ctx.cand_node == e then
     ctx.cands, ctx.cand_node = nil, nil
@@ -4226,6 +4326,21 @@ end
 lists_of = function(ctx: Ctx, e: Ast.Exp, expected: Type | nil): {Alt}
   local t, alts = evaluate(ctx, e, expected, true)
   if alts ~= nil then
+    if ctx.typed then
+      -- A call that answers lists has the type of the first value of its lists, for the type report.
+      local first: {Type} = {}
+      for _, alt in ipairs(alts) do
+        local item = ctx.nil_type
+        local head, tail = alt.items[1], alt.tail
+        if head ~= nil then
+          item = head
+        elseif tail ~= nil then
+          item = ctx.store:optional(tail)
+        end
+        first[#first + 1] = item
+      end
+      ctx.types[base_of(e).id] = ctx.store:union(first)
+    end
     return alts
   end
   return { { items = { t } } }
@@ -5340,14 +5455,15 @@ function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
   return out
 end
 
-function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered): Check.Checked
+function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
+                     typed?: boolean): Check.Checked
   local store = program.store
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
     bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
     top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -5385,7 +5501,19 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   table.sort(narrowed, function(a: Check.Narrowed, b: Check.Narrowed): boolean
     return a.offset < b.offset
   end)
-  return { errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed }
+  local warnings = ctx.warnings
+  for _, w in ipairs(Warnings.usage(ctx.filename, ctx.tokens, ctx.scoped, ctx.vars, function(t: Type): string
+    return Types.display(t, {})
+  end)) do
+    warnings[#warnings + 1] = w
+  end
+  table.sort(warnings, function(a: Warnings.Warning, b: Warnings.Warning): boolean
+    return a.offset < b.offset
+  end)
+  return {
+    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed, types = ctx.types,
+    warnings = warnings,
+  }
 end
 
 return Check
