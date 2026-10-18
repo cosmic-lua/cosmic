@@ -6,9 +6,14 @@ local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
+-- The import closure, which holds every verb through build.verb_list, is
+-- one grant a module, and a worker's start takes 255: build/lsp/ is given
+-- as one directory, which shows the closure's modules beneath it.
+-- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
+-- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
 --- `help` reads every module's docs through [`Store.databases()`], and a
 --- test here counts the databases it returns. Without `store`, it raises.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "build/lsp/", letters = "r" }, { path = "o/cosmic.db", letters = "r" } } }
 
 --- A verb's output and exit come back as a started binary's would.
 local function test_a_run_captures_a_verbs_output(tmp: string)

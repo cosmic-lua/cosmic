@@ -7,6 +7,7 @@
 local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")
 local lines = require("build.coverage.lines")
+local syntax_lines = require("build.coverage.syntax_lines")
 local importer = require("build.importer")
 local type compiler = require("build.compiler")
 
@@ -15,6 +16,30 @@ local type Module = importer.Module
 local record coverage
   --- One module's own executable lines, hit (true) or not (false).
   type LineHits = {integer: boolean}
+
+  --- The executable lines of `source`, a module's own Teal, read by the fork's tree: what [`coverage.lines_of`] counts.
+  --- nil and why on a parse failure.
+  executable: function(built: compiler, source: string, name: string): {integer: boolean} | nil, string
+
+  --- The executable lines of `source`, a file in the new grammar, read by the new syntax tree
+  --- ([`build.coverage.syntax_lines`]).
+  syntax_executable: function(source: string, name: string): {integer: boolean} | nil, string
+end
+
+function coverage.executable(built: compiler, source: string, name: string): {integer: boolean} | nil, string
+  local found, why = lines.executable(built, source, name)
+  if found == nil then
+    return nil, why
+  end
+  return found, ""
+end
+
+function coverage.syntax_executable(source: string, name: string): {integer: boolean} | nil, string
+  local found, why = syntax_lines.executable(source, name)
+  if found == nil then
+    return nil, why
+  end
+  return found, ""
 end
 
 --- Every executable line of `m`'s own source, hit or not: the form a

@@ -47,6 +47,7 @@ local importer = require("build.importer")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
+local Compared = require("build.syntax_compared")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
@@ -86,6 +87,19 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
+
+-- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts,
+-- build/fix and build/lsp are rewritten to the new syntax tree and call the readers that the tree's checks and tests
+-- alone call now (doc/plans/strict-teal.md, "the switch").
+for _, name in ipairs({
+    "build.coverage.syntax_lines.executable_cached", "build.syntax_derivation.rows_of", "build.syntax_derivation.insert",
+    "build.syntax_match.matches", "build.syntax_match.text", "build.syntax_rewrite.rewrite", "build.syntax_scopes.position",
+    "build.syntax_scopes.bindings_of", "build.syntax_shape_specs.resolve", "build.syntax_node.children",
+    "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
+}) do
+  allowed[name] = "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's " ..
+    "tree call; tested directly until they do"
+end
 
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
   "from the file hands its text here, and the tests read fixtures"
@@ -199,8 +213,6 @@ allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.
   "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
 allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
   "holds ci/testdata/host_features to: a key names each recorded host as ci/cosmic_ci/host_id.tl does"
-allowed["build.coverage.lines.executable"] = "tested directly: the test compares " ..
-  "what executable_cached keeps against what this computes afresh"
 allowed["build.confine.confine"] = "a test's own declaration: " ..
   "what the processes a test starts need, which only a test makes"
 allowed["build.confine.must_confine"] = "a test's own declaration: " ..
@@ -3213,6 +3225,113 @@ function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: 
       out[#out + 1] = key .. ": pinned " .. String.counted(pinned[key], "line") .. " but " .. count ..
         " differ; lower the pin in " .. Ceilings.path .. "'s [generated]"
     end
+  end
+  return out
+end
+
+--- The outcome a memo kept, or nil where it kept none or it does not read.
+local function kept_reading(text: string): Compared.Outcome | nil
+  local outcome: Compared.Outcome = { skipped = "", differences = {} }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    if fields[1] == "S" and #fields == 2 then
+      outcome.skipped = fields[2]
+    elseif fields[1] == "D" and #fields == 2 then
+      outcome.differences[#outcome.differences + 1] = fields[2]
+    else
+      return nil
+    end
+  end
+  return outcome
+end
+
+--- The outcome of reading `source`, a file named `file`, by both sets of readers, from `memo` where it holds it under `key`;
+--- nil and why where the fork's compiler is not in this binary.
+local function read_outcome(file: string, source: string, memo: Sqlite.Handle | nil, key: string, held: {compiler}):
+    Compared.Outcome | nil, string
+  if memo ~= nil then
+    local text = check_memo.get(memo, "read", key)
+    local kept = text ~= nil and kept_reading(text) or nil
+    if kept ~= nil then
+      return kept, ""
+    end
+  end
+  local built = fork_compiler(held)
+  if built == nil then
+    return nil, "the fork's compiler is not in this binary"
+  end
+  local outcome = Compared.file(built, file, source)
+  if memo ~= nil then
+    local rows: {{string}} = {}
+    if outcome.skipped ~= "" then
+      rows[1] = { "S", outcome.skipped }
+    end
+    for _, line in ipairs(outcome.differences) do
+      rows[#rows + 1] = { "D", line }
+    end
+    check_memo.put(memo, "read", key, check_memo.encode(rows))
+  end
+  return outcome, ""
+end
+
+--- Every `.tl` file of the tree read by the fork's readers ([`build.ast`], [`build.scopes`], [`build.globals`],
+--- [`build.stub`], [`build.coverage`]) and by their ports ([`build.syntax_compared`]) over the file translated to the
+--- new grammar, and what each reader answers compared: the modules a file requires, the lines of its global
+--- declarations, the references through an alias and the names in scope, its stub, its executable lines. A file that
+--- differs in more readers than `pinned` (by default the `[read]` ceilings) allows is listed with each reader that
+--- differs and how; one that differs in fewer, and a pin for a file that agrees, is told to lower the pin. A file the
+--- check cannot compare (the fork or its translation does not parse, which `translated` counts), the fork's own
+--- [`checker/tl.tl`] and the declaration files, which the fork's readers do not read, are left out. The answer for a
+--- file is kept in `memo` under its source and the sources of every reader and of the fork's parser; the format of what
+--- it keeps ([`kept_reading`], [`read_outcome`]) is the label of the salt, bumped when either changes.
+function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+  local ceilings, why = ceilings_for(root, "read", pinned)
+  if ceilings == nil then
+    return { "reading the ceilings: " .. why }
+  end
+  pinned = ceilings
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "build/syntax_compared.tl", "build/syntax_node.tl",
+    "build/syntax_match.tl", "build/syntax_rewrite.tl",
+    "build/syntax_scopes.tl", "build/syntax_globals.tl",
+    "build/syntax_stub.tl", "build/coverage/syntax_lines.tl", "build/ast/init.tl", "build/ast/node.tl", "build/ast/walk.tl",
+    "build/ast/match_cast.tl", "build/coverage/init.tl",
+    "build/ast/match.tl", "build/ast/rewrite.tl", "build/ast/requires.tl", "build/scopes.tl", "build/globals.tl",
+    "build/stub.tl", "build/coverage/lines.tl", "checker/tl.tl", "build/check_memo.tl" }, "read 2")
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "read")
+  end
+  local out: {string} = {}
+  local found: {string: integer} = {}
+  local held: {compiler} = {}
+  for _, row in ipairs(files) do
+    local file, source = row[1], row[2]
+    if file ~= "checker/tl.tl" and not file:match("%.d%.tl$") then
+      local outcome, missing = read_outcome(file, source, memo, check_memo.key(salt, "tl", source), held)
+      if outcome == nil then
+        return { missing }
+      end
+      local count = #outcome.differences
+      if outcome.skipped == "" and count > 0 then
+        found[file] = count
+        if count > (pinned[file] or 0) then
+          for _, line in ipairs(outcome.differences) do
+            out[#out + 1] = file .. ": " .. line
+          end
+          out[#out + 1] = file .. ": " .. String.counted(count, "reader") .. (count == 1 and " differs" or " differ") ..
+            " from the fork's, pinned " .. (pinned[file] or 0) .. "; read what the fork reads rather than raise the pin"
+        end
+      end
+    end
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "read")
+  end
+  for _, line in ipairs(Ceilings.fallen(found, pinned, Ceilings.path .. "'s [read]")) do
+    out[#out + 1] = line
   end
   return out
 end

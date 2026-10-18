@@ -6,7 +6,15 @@
 --- whole tree by build/tree_checks.tl's `verbs`.
 
 local Cli = require("cosmic.cli")
+local Test = require("cosmic.test")
 local verb_list = require("build.verb_list")
+
+-- The import closure, which holds every verb through build.verb_list, is
+-- one grant a module, and a worker's start takes 255: build/lsp/ is given
+-- as one directory, which shows the closure's modules beneath it.
+-- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
+-- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
+Test.policy{ grants = { { path = "build/lsp/", letters = "r" } } }
 
 --- The verbs that run code -- a file, a chunk, `--version` -- which no
 --- module of the list holds, and `help`, which build/dispatch.tl holds
