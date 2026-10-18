@@ -489,7 +489,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local pending_order: {PendingLink} = {}
   -- How many paths `pending` holds.
   local pending_count = 0
-  local dir_times: {{string, integer}} = {}
+  local record DirTime
+    path: string
+    mtime: integer
+  end
+  local dir_times: {DirTime} = {}
 
   local function bail(message: string): nil, string
     local _, _ = reader:close()
@@ -707,7 +711,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
               local ok, dtrouble = ensure_dirs(split, #split, entry.path)
               if not ok then return bail(dtrouble) end
             end
-            dir_times[#dir_times + 1] = { dest_path, entry.mtime }
+            dir_times[#dir_times + 1] = { path = dest_path, mtime = entry.mtime }
           else
             if parent ~= nil and (pending_count > 0 or not real_dirs[parent]) then
               local split = parts or components(rel)
@@ -735,7 +739,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   -- undone by then touching something inside it.
   for i = #dir_times, 1, -1 do
     local d = dir_times[i]
-    local _, _ = Fs.set_mtime(d[1], d[2])
+    local _, _ = Fs.set_mtime(d.path, d.mtime)
   end
   local _, _ = reader:close()
   return written, ""

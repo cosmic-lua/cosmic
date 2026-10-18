@@ -9,9 +9,9 @@ local generate = require("build.doctest.generate")
 local type Block = markdown.Block
 local type Modifiers = markdown.Modifiers
 
-local function mods(continue: boolean, file: string | nil,
+local function mods(continued: boolean, file: string | nil,
                     skip: string | nil): Modifiers
-  return { continue = continue, file = file, skip = skip }
+  return { continue = continued, file = file, skip = skip }
 end
 
 local function block(lang: string, content: string, m: Modifiers): Block

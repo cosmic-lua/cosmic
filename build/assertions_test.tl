@@ -66,13 +66,12 @@ local function test_a_message_that_is_not_a_string_is_raised_as_it_is()
 end
 
 local function test_no_condition_is_a_bad_argument()
-  local message = position_of(function() (assert as function)() end)
+  local message = position_of(function() (assert as function(any...): any...)() end)
   assert(tostring(message):find("bad argument #1 to 'assert' (value expected)", 1, true), tostring(message))
 end
 
 --- Values packed with their count, as `table.pack` gives them.
-local record Packed
-  {any}
+local record Packed is {any}
   n: integer
 end
 

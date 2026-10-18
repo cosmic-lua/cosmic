@@ -321,7 +321,7 @@ end
 -- replaces `string.match` or `table.concat` with a wrapper of its own, as
 -- one counts the string work of what it measures, must not have the hook
 -- call it, for the wrapper's own checked parameters would call the hook.
-local gmatch, match = string.gmatch, string.match
+local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
 local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, string.char, string.gsub, tonumber, error
 
@@ -363,7 +363,7 @@ local function parse_check(text: string): Check
     local index = i - first + 1
     local label, declared = fields[i], fields[i]
     if check.kind == "p" then
-      label, declared = match(fields[i], "^([^=]*)=(.*)$")
+      label, declared = lua_match(fields[i], "^([^=]*)=(.*)$")
     elseif check.kind == "r" then
       label = "return value " .. tostring(index)
     else
@@ -436,7 +436,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
 end
 
 local function parse_fact(text: string)
-  local at, name, declared = match(text, "^n;([^;]*);([^;]*);([^;]*)$")
+  local at, name, declared = lua_match(text, "^n;([^;]*);([^;]*);([^;]*)$")
   if at == nil then error("a fact of no place") end
   local negated = lua_byte(declared, 1) == 126
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string

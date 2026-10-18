@@ -4182,7 +4182,7 @@ local function look_up_verdicts(ctx: Run)
       local id = m.path .. " " .. name
       if unmet ~= nil then
         settle_unmet(rec, m, name, id, unmet, assert(ctx.limits))
-        goto next_test
+        goto continue
       end
       -- A test is keyed by what it is given, and runs unless a verdict
       -- under that key passed, here or in another checkout -- or it is
@@ -4210,7 +4210,7 @@ local function look_up_verdicts(ctx: Run)
       else
         share(rec, m, name, id, assert(key), assert(elsewhere))
       end
-      ::next_test::
+      ::continue::
     end
   end
   -- The digests the run's keys hold, which each row it keeps in the

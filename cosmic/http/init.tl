@@ -516,18 +516,27 @@ local pending_mt: metatable<PendingDownload> = {
 local function downloading(url: string, path: string,
                            opts: Http.Options | nil): Http.DownloadResult
   opts = opts or {}
-  local given: {{Hash.Algorithm, string}} = {
-    { "sha256", opts.sha256 or "" },
-    { "sha512", opts.sha512 or "" },
-    { "sha3-256", opts.sha3_256 or "" },
+  local record Given
+    algorithm: Hash.Algorithm
+    wanted: string
+  end
+  local record Check
+    algorithm: Hash.Algorithm
+    hex: string
+    hashing: Stream.Hashing
+  end
+  local given: {Given} = {
+    { algorithm = "sha256", wanted = opts.sha256 or "" },
+    { algorithm = "sha512", wanted = opts.sha512 or "" },
+    { algorithm = "sha3-256", wanted = opts.sha3_256 or "" },
   }
-  local checks: {{Hash.Algorithm, string, Stream.Hashing}} = {}
+  local checks: {Check} = {}
   for _, pair in ipairs(given) do
-    local algorithm, wanted = pair[1], pair[2]
+    local algorithm, wanted = pair.algorithm, pair.wanted
     if wanted ~= "" then
       local hashing, trouble = Stream.hashing(algorithm)
       if hashing == nil then return { kind = "failed", reason = trouble } end
-      checks[#checks + 1] = { algorithm, wanted:lower(), hashing }
+      checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
     end
   end
   local pending <close>: PendingDownload = setmetatable({}, pending_mt)
@@ -546,7 +555,7 @@ local function downloading(url: string, path: string,
     return { kind = "failed", reason = create_trouble }
   end
   local sink: Stream.Writer = file
-  for _, check in ipairs(checks) do sink = Stream.tee(sink, check[3]) end
+  for _, check in ipairs(checks) do sink = Stream.tee(sink, check.hashing) end
   local source: Stream.Reader = response
   if opts.cancelled ~= nil then source = cancellable(response, opts.cancelled) end
   local copied, trouble = Stream.copy(source, sink)
@@ -556,14 +565,14 @@ local function downloading(url: string, path: string,
     return { kind = "failed", reason = trouble }
   end
   for _, check in ipairs(checks) do
-    local digest, digest_trouble = check[3]:digest()
+    local digest, digest_trouble = check.hashing:digest()
     if digest == nil then
       return { kind = "failed", reason = digest_trouble }
     end
     local hex = Codec.hex(digest)
-    if hex ~= check[2] then
-      return { kind = "digest_mismatch", algorithm = check[1], expected = check[2], actual = hex,
-        reason = path .. ": " .. check[1] .. " mismatch: want " .. check[2] .. ", got " .. hex }
+    if hex ~= check.hex then
+      return { kind = "digest_mismatch", algorithm = check.algorithm, expected = check.hex, actual = hex,
+        reason = path .. ": " .. check.algorithm .. " mismatch: want " .. check.hex .. ", got " .. hex }
     end
   end
   local committed, commit_trouble = file:sync()

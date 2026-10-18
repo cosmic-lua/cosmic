@@ -657,25 +657,30 @@ end
 --- must not flip its sign or leave it short of `to`: each answer has one
 --- sign and `add_calendar` adds it back to `to`.
 local function test_between_holds_across_folds_and_skipped_days()
-  local cases: {{string, string, string}} = {
-    { "Europe/London", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Europe/Dublin", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Antarctica/Troll", "2000-02-29T01:00:00Z", "2023-10-29T01:30:00+01:00" },
-    { "Pacific/Apia", "1900-03-30T12:33:00-11:27", "2011-12-31T00:00:00+14:00" },
-    { "America/New_York", "2023-03-12T01:59:59-05:00", "2023-11-05T01:30:00-05:00" },
-    { "Pacific/Apia", "2010-12-30T00:00:00-10:00", "2012-01-01T00:00:00+14:00" },
+  local record Case
+    zone: string
+    from: string
+    to: string
+  end
+  local cases: {Case} = {
+    { zone = "Europe/London", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Europe/Dublin", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Antarctica/Troll", from = "2000-02-29T01:00:00Z", to = "2023-10-29T01:30:00+01:00" },
+    { zone = "Pacific/Apia", from = "1900-03-30T12:33:00-11:27", to = "2011-12-31T00:00:00+14:00" },
+    { zone = "America/New_York", from = "2023-03-12T01:59:59-05:00", to = "2023-11-05T01:30:00-05:00" },
+    { zone = "Pacific/Apia", from = "2010-12-30T00:00:00-10:00", to = "2012-01-01T00:00:00+14:00" },
   }
   local options: Time.AddOptions = { overflow = "clamp", disambiguation = "compatible" }
   for _, case in ipairs(cases) do
-    local z, from, to = zone(case[1]), at(case[2]), at(case[3])
+    local z, from, to = zone(case.zone), at(case.from), at(case.to)
     for _, pair in ipairs({ { from, to }, { to, from } } as {{integer}}) do
       local d = Time.between(pair[1], pair[2], z)
       local dir = pair[2] > pair[1] and 1 or -1
       local text = Time.format_duration(d)
       assert((d.years or 0) * dir >= 0 and (d.months or 0) * dir >= 0 and (d.days or 0) * dir >= 0 and
           (d.ns or 0) * dir >= 0,
-        case[1] .. " " .. text)
-      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case[1] .. " " .. text)
+        case.zone .. " " .. text)
+      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case.zone .. " " .. text)
     end
   end
   local ny = zone("America/New_York")

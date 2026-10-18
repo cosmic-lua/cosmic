@@ -57,8 +57,9 @@ end
 function Example.hint()
   local record Counter
     n: integer
+    bump: function(self: Counter)
   end
-  function Counter:bump()
+  function Counter.bump(self: Counter)
     self.n = self.n + 1
   end
   local bare: Counter = { n = 0 }

@@ -90,16 +90,8 @@ local function render(t: any): string
   return tostring(tn)
 end
 
---- Match a pattern `cast` node against a candidate `cast` node.
---- [`build.ast.match`]'s `match_value` calls this once both sides have
---- `kind == "cast"`.
---- @param pv {any: any} The pattern's own `cast` node
---- @param nv {any: any} The candidate `cast` node
---- @param caps {string: Node} Capture bindings accumulated so far
---- @param capture_predicates {any: string} `:PATTERN` predicates, by pattern node id
---- @return boolean
-local function match(pv: {any: any}, nv: {any: any}, caps: {string: Node},
-                     capture_predicates: {any: string}): boolean
+local function matched(pv: {any: any}, nv: {any: any}, caps: {string: Node},
+                       capture_predicates: {any: string}): boolean
   local cap = capture_name(pv["casttype"])
   if not cap then
     return render(pv["casttype"]) == render(nv["casttype"])
@@ -119,13 +111,26 @@ end
 
 local record MatchCastModule
   capture_name: function(t: any): string | nil
+
+  -- TODO: rename `match`, so that [`build.ast.match_cast.match`] does not repeat the module's name. Nothing blocks
+  -- it: it touches its one call, in build/ast/match.tl, and the local function `matched` that
+  -- this field is set from.
+
+  --- Match a pattern `cast` node against a candidate `cast` node.
+  --- [`build.ast.match`]'s `match_value` calls this once both sides have
+  --- `kind == "cast"`.
+  --- @param pv {any: any} The pattern's own `cast` node
+  --- @param nv {any: any} The candidate `cast` node
+  --- @param caps {string: Node} Capture bindings accumulated so far
+  --- @param capture_predicates {any: string} `:PATTERN` predicates, by pattern node id
+  --- @return boolean
   match: function(pv: {any: any}, nv: {any: any}, caps: {string: Node},
   capture_predicates: {any: string}): boolean
 end
 
 local M: MatchCastModule = {
   capture_name = capture_name,
-  match = match,
+  match = matched,
 }
 
 return M

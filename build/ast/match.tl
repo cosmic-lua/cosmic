@@ -359,16 +359,7 @@ local function compile_pattern(built: compiler, pattern_src: string): Node | nil
   return attach_predicates(exps[1], predicates), ""
 end
 
---- Match `pattern` against `node`, returning the capture bindings on
---- success. Subset matching: every named field `pattern` sets must
---- match; a field `pattern` leaves unset is never consulted, so a
---- partial pattern matches without spelling out every field of the
---- kind it names. Capture keys carry the desugared `_` prefix (`$CMD`
---- binds as `_CMD`).
---- @param pattern Node A compiled pattern (see [`compile_pattern`])
---- @param node Node A candidate node to test
---- @return {string: Node}|nil Capture bindings by name, or nil when it does not match
-local function match(pattern: Node, node: Node): {string: Node} | nil
+local function matched(pattern: Node, node: Node): {string: Node} | nil
   local caps: {string: Node} = {}
   if match_value(pattern, node, caps, {}) then
     return caps
@@ -379,13 +370,27 @@ end
 local record MatchModule
   desugar: function(pattern_src: string): string
   compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
+
+  -- TODO: rename `match`, so that [`build.ast.match.match`] does not repeat the module's name. Nothing blocks it:
+  -- it touches the 17 calls in build/ast/match_test.tl, the one in build/ast/rewrite.tl, and the local function
+  -- `matched` that this field is set from.
+
+  --- Match `pattern` against `node`, returning the capture bindings on
+  --- success. Subset matching: every named field `pattern` sets must
+  --- match; a field `pattern` leaves unset is never consulted, so a
+  --- partial pattern matches without spelling out every field of the
+  --- kind it names. Capture keys carry the desugared `_` prefix (`$CMD`
+  --- binds as `_CMD`).
+  --- @param pattern Node A compiled pattern (see [`compile_pattern`])
+  --- @param node Node A candidate node to test
+  --- @return {string: Node}|nil Capture bindings by name, or nil when it does not match
   match: function(pattern: Node, node: Node): {string: Node} | nil
 end
 
 local M: MatchModule = {
   desugar = desugar,
   compile_pattern = compile_pattern,
-  match = match,
+  match = matched,
 }
 
 return M
