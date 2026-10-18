@@ -349,8 +349,19 @@ local function test_a_copy_that_fails_leaves_the_paths_as_they_were(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   local copies = tmp .. "/" .. string.rep("c", 250) .. "/" .. string.rep("d", 250)
   assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
-  -- Beneath many/, short enough at its place in the tree, too long in a copy.
-  local deep = "many/" .. string.rep(string.rep("p", 200), 18, "/")
+  -- Beneath many/, short enough at its place in the tree, too long in a
+  -- copy: its path in the tree comes within 50 of the host's bound on a
+  -- path (PATH_MAX: Linux's 4096, macOS's 1024), and a copy's
+  -- directory is 500 longer than the tree's.
+  local bound = assert(sys.uname()).sysname == "Linux" and 4096 or 1024
+  local deep = "many"
+  local room = bound - 50 - #(root .. "/many/f.tl")
+  while room > 1 do
+    local width = room - 1
+    if width > 200 then width = 200 end
+    deep = deep .. "/" .. string.rep("p", width)
+    room = room - width - 1
+  end
   assert(Fs.mkdirs(root .. "/" .. deep))
   assert(Fs.write(root .. "/" .. deep .. "/f.tl", "f"))
   local files = joined(spread(root, "many", confine.unveil_max + 20), { deep .. "/f.tl" })
