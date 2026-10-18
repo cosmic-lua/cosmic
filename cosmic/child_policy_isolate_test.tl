@@ -18,6 +18,7 @@ local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
+local confine = require("build.confine")
 local stand_in = require("build.stand_in")
 local unix_socket = require("build.unix_socket")
 local type raw_process = require("cosmic.internal.process")
@@ -143,6 +144,39 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   -- not themselves granted: Landlock refuses listing one.
   local listed = under(at.probe, policy, at.work, "ls /tmp")
   assert(listed.code == 1 and listed.said:find("Permission denied", 1, true), listed.said)
+end
+
+--- A start takes a grant for each path a sandbox unveils (`UNVEIL_MAX`), as
+--- a supervised test process is given one for each file of its closure,
+--- less the /proc its root adds: 400 grants, and the most that leaves, are
+--- all there in the child, and one more is refused, naming the most.
+local function test_a_start_takes_as_many_grants_as_a_sandbox_unveils_paths_less_its_proc(tmp: string)
+  local at = placed(tmp)
+  assert(Fs.mkdirs(tmp .. "/many"))
+  local most = confine.unveil_max - 1
+  --- `count` grants: the program and the directory, and a file each of the rest.
+  local function grants(count: integer): {Sandbox.Grant}
+    local out = at.grants
+    for i = 1, count - 2 do
+      local path = tmp .. "/many/f" .. tostring(i)
+      assert(Fs.write(path, "x"))
+      out = with(out, { path = path, letters = "r" })
+    end
+    return out
+  end
+  for _, count in ipairs({ 400, most }) do
+    local policy: Sandbox.Policy = { isolate = { "file" }, grants = grants(count) }
+    local read = under(at.probe, policy, at.work,
+      "cat " .. tmp .. "/many/f1; cat " .. tmp .. "/many/f" .. tostring(count - 2))
+    assert(read.code == 0, tostring(count) .. " grants: " .. tostring(read.code) .. ": " .. read.said)
+    assert(read.said == "xx", tostring(count) .. " grants: " .. read.said)
+  end
+  local none, why = Child.start({ at.probe, "print hi" },
+    { policy = { isolate = { "file" }, grants = grants(most + 1) }, cwd = at.work })
+  assert(none == nil, "a start over the most was made")
+  assert(why:find("^child: start: sandbox: grants: "), why)
+  assert(why:find("/proc is one more", 1, true), why)
+  assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
 end
 
 local function test_isolate_file_has_a_proc_of_its_own_holding_its_own_processes(tmp: string)

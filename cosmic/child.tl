@@ -2300,9 +2300,10 @@ local record Held
   seatbelt_options?: Seatbelt.Options
 end
 
---- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c), the
+--- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c, which is
+--- `UNVEIL_MAX`: under `isolate` file each is a path the root unveils), the
 --- temporary directory's included.
-local MAX_GRANTS <const> = 256
+local MAX_GRANTS <const> = raw.UNVEIL_MAX
 
 --- Whether `file` is `grant` or beneath it.
 local function beneath(file: string, grant: string): boolean

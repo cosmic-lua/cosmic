@@ -186,6 +186,7 @@ Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "
 local record Confine
   confine: function(declared: {string:{string}} | nil)
   must_confine: function(declared: {string:{string}} | nil)
+  unveil_max: integer
 end
 -- The worker's own, which a suite outside the tree cannot require.
 local confine = package.loaded["build.confine"] as Confine
@@ -193,7 +194,7 @@ local confine = package.loaded["build.confine"] as Confine
 local function test_falls_back(tmp: string)
   local probe = assert(Fs.absolute("bin/probe"))
   local many: {string} = { probe }
-  for i = 1, 300 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
+  for i = 1, confine.unveil_max + 1 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
   confine.confine({ reads = many })
   local r = assert(Child.run({ probe, "exit 0" }))
   confine.confine(nil)

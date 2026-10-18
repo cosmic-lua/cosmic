@@ -27,13 +27,25 @@
 
 /* The most paths a sandbox unveils (`Unveil`): a test worker's
  * (build/test_sandbox.tl) is given each file of its module's import
- * closure by name. */
-#define UNVEIL_MAX 256
+ * closure by name, and a supervised test process's policy
+ * (cosmic.child's `start`) a grant of each, which `isolate` file unveils
+ * and one more path, /proc, is added to. The largest closure of the tree
+ * held 253 files when this was raised from 256, so it is twice that and a
+ * little over. It is also the most grants one `spawn` takes (`GRANT_MAX`).
+ * The paths are held in arrays on `spawn`'s frame, some 64 bytes each with
+ * the grants'; the kernel limits neither a Landlock ruleset's rules nor the
+ * bind mounts of a root (one each, far below `fs.mount-max`). Only Linux
+ * unveils: macOS answers ENOSYS, and holds a policy's grants by Seatbelt
+ * parameters, [`SEATBELT_PARAMETER_MAX`], which a grant takes one of. */
+#define UNVEIL_MAX 512
 
 /* The most parameters a Seatbelt profile takes (`Seatbelt`'s
  * `parameters`): a grant's path is one each, and a start's argv carries
- * them ([`cosmic_trampoline`]). */
-#define SEATBELT_PARAMETER_MAX 512
+ * them ([`cosmic_trampoline`], two words each, well within the 1 MiB
+ * macOS gives argv and environment). It is [`UNVEIL_MAX`], the most grants
+ * a start takes, and 8 more for what the profile adds beside them: ROOT,
+ * the terminal's TTY and the temporary directory's TMP. */
+#define SEATBELT_PARAMETER_MAX 520
 
 /* How many descriptors `spawn` places above the highest it hands a
  * child (`top` + 2 and up), besides a copy of each it hands: the status
