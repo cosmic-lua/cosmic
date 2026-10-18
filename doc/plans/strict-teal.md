@@ -1161,7 +1161,8 @@ constrained to Teal the fork also accepts.
 - the islands, which stay Teal until the pin moves past the switch, are
   `ci/` and the bootstrap scripts [`build/zig.tl`], [`build/vendor.tl`],
   [`build/verify_codesign.tl`], [`build/perf.tl`] and [`build/paths.tl`]
-  ([`build/islands.tl`] lists them); the new checker's own source is not
+  ([`ci/islands.txt`] lists them, and the CI driver's `check-islands`
+  type-checks them on the pinned release); the new checker's own source is not
   one, since the pin moves before the switch to a release whose
   `cosmic compile --grammar new` reads the new grammar (option A), and
   `lang/` is translated with the rest. `ci/` is read by the pinned
@@ -1174,7 +1175,11 @@ constrained to Teal the fork also accepts.
   or by compiling them with the pinned release's `compile`; the count of
   each form, which only falls, is `blocked` in [`build/islands.tl`].
 - the pin move to that release follows the change that adds the flag,
-  and waits for the release main publishes from it.
+  and waits for the release main publishes from it. it has moved: the
+  pin names `next-8a4d0e65`, whose `compile --grammar new` writes, for
+  the translation [`build/lang_proof.tl`] makes of `lang/`, the Lua the
+  tool's own writes. what waits is the translated tree: the switch has
+  build.zig's `seedCompiler` run it over `lang/`.
 - the switch change rewrites, in lang/ and in [`build/tree_checks.tl`],
   every test `x is Ast.Local` or `x is Types.Named` of a record that a
   `where` clause told apart (about 900) to a tag test or a `match`, and
@@ -1343,6 +1348,7 @@ since the seed's Lua runs on the tree's VM.
 [`build.fuzz`]: ../../build/fuzz/init.tl
 [`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`build/islands.tl`]: ../../build/islands.tl
+[`ci/islands.txt`]: ../../ci/islands.txt
 [`build/lang_proof.tl`]: ../../build/lang_proof.tl
 [`build/paths.tl`]: ../../build/paths.tl
 [`build/perf.tl`]: ../../build/perf.tl

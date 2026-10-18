@@ -1,0 +1,15 @@
+# The islands: the files that stay Teal until the pin moves past the
+# switch (doc/plans/strict-teal.md, "the switch"), because the release in
+# ci/cosmic-driver.pin parses them and reads Teal alone. One path a line
+# from the checkout's root, in the order of their bytes, with what a `#`
+# starts and blank lines left out. A directory ends in "/" and is
+# compiled by the driver's own tests (`cosmic-driver test cosmic_ci`);
+# a file is type-checked on the pinned release by `driver.tl
+# check-islands`. build/islands_test.tl holds this list to the tree and
+# to the scripts of bin/ that run its files.
+build/paths.tl
+build/perf.tl
+build/vendor.tl
+build/verify_codesign.tl
+build/zig.tl
+ci/

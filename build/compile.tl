@@ -86,14 +86,15 @@ local spec = Cli.verbs.compile.spec or {}
 
 local usage = "cosmic compile [--grammar teal|new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 
--- TODO: once ci/cosmic-driver.pin names a release whose compile reads the new grammar, have build.zig's
--- `seedCompiler` run `compile --grammar new` over the translated `lang/*.tl` and [`build/checker_wrapper.tl`] in
--- place of `checker/*.tl` (no declaration file is needed: the Lua does not depend on them), and make the switch:
--- commit the translated tree but for the `ci/` island of [`build/islands.tl`], decide how the tool reads the
--- islands of `build/` that it also requires as modules (they hold `T | nil`, which the pinned release alone
--- reads), rewrite the tests of `where` records ([`build/lang_proof.tl`] does it on the translation) and rerun
--- that proof. The pin moves to that release in the change that follows the one that added the flag
--- (doc/plans/strict-teal.md, "the switch").
+-- TODO: at the switch (doc/plans/strict-teal.md, "the switch"), once the translated `lang/` is committed: have
+-- build.zig's `seedCompiler` run `compile --grammar new` over the translated `lang/*.tl` and
+-- [`build/checker_wrapper.tl`] in place of `checker/*.tl` (no declaration file is needed: the Lua does not depend
+-- on them; the pinned release's `compile` reads the grammar, and writes for the translation that
+-- [`build/lang_proof.tl`] makes the Lua this verb writes), and make the switch: commit the translated tree but
+-- for the `ci/` island of [`ci/islands.txt`], decide how the tool reads the islands of `build/` that it also
+-- requires as modules (they hold `T | nil`, which the pinned release alone reads), rewrite the tests of `where`
+-- records ([`build/lang_proof.tl`] does it on the translation) and rerun that proof. `seedCompiler` runs
+-- `compile` over `checker/*.tl` until the translated source exists to give it.
 
 --- What a command line asks for.
 local record Request

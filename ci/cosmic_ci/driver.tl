@@ -7,6 +7,7 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
+local Islands = require("cosmic_ci.islands")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
@@ -100,7 +101,7 @@ local record Command
   usage: string
   handler: function({string}): integer
   spec?: {string:boolean | Flags.Option}
-  options: function(Flags.Parsed): integer
+  options?: function(Flags.Parsed): integer
 end
 
 local commands: {string:Command} = {
@@ -136,6 +137,8 @@ local commands: {string:Command} = {
     usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
     usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
+  ["check-islands"] = { about = "type-check the files of ci/islands.txt on the running driver's Teal, running none of them",
+    usage = "[ROOT]", handler = Islands.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",

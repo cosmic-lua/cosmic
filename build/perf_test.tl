@@ -184,9 +184,3 @@ local function test_sample_counts_are_validated_apart_for_benchmark_and_lifecycl
     assert(not lifecycle_ok and tostring(lifecycle_trouble):find("6 to 29", 1, true))
   end
 end
-
-local function test_help_is_a_request_not_a_misuse()
-  -- pinned-parse.sh runs perf.tl with --help and needs status 0.
-  assert(Perf.main({ [1] = "--help" }) == 0 and Perf.main({ [1] = "-h" }) == 0)
-  assert(Perf.main({}) == 1 and Perf.main({ [1] = "a", [2] = "b" }) == 1)
-end

@@ -9,8 +9,9 @@
 # so neither the tree's state nor its build directory matters to it.
 #
 # What this runs must parse under that release's Teal, which the tree's
-# may be ahead of. ci.yml's checked job compiles it on the pinned driver
-# (.github/scripts/pinned-parse.sh), and `cosmic-driver test cosmic_ci`
+# may be ahead of. ci.yml's checked job type-checks it on the pinned driver
+# (`cosmic-driver cosmic_ci/driver.tl check-islands`, which reads
+# ci/islands.txt), and `cosmic-driver test cosmic_ci`
 # compiles ci/ on the pinned release.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
