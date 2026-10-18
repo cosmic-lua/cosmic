@@ -18,10 +18,16 @@ local build_paths = require("build.paths")
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
 --- `store`: the verbs it runs in this process ([`build.invoke`]) read
 --- every module's rows.
+--- The import closure, which holds every verb through build.verb_list, is
+--- one grant a module, and a worker's start takes 255: build/lsp/ is given
+--- as one directory, which shows the closure's modules beneath it.
+-- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
+-- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
 Test.policy{
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },
+    { path = "build/lsp/", letters = "r" },
     { path = "vendor/cacert/cacert.pem", letters = "r" },
     { path = "o/cosmic.db", letters = "r" },
   },

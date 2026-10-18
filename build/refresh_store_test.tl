@@ -27,10 +27,16 @@ local build_paths = require("build.paths")
 --- whose core a program it builds runs on.
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows, and
 --- `docs` searches them.
+--- The import closure, which holds every verb through build.verb_list, is
+--- one grant a module, and a worker's start takes 255: build/lsp/ is given
+--- as one directory, which shows the closure's modules beneath it.
+-- TODO: drop the build/lsp/ grant once a worker's grants show a directory's
+-- modules as one (build.test_sandbox's `plan`), which a closure past 255 needs.
 Test.policy{
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },
+    { path = "build/lsp/", letters = "r" },
     { path = "vendor/cacert/", letters = "r" },
     { path = "vendor/tzdata/", letters = "r" },
     { path = "o/cosmic.db", letters = "r" },
