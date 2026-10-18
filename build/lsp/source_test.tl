@@ -11,6 +11,8 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local session_fixture = require("build.lsp.session_fixture")
+local source = require("build.lsp.source")
+local teal = require("build.teal")
 local work = require("build.work")
 
 local change, changed_on_disk, close = session_fixture.change, session_fixture.changed_on_disk,
@@ -223,6 +225,118 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   assert(counts(ran) == "0,1", "staged once the lock is free: " .. counts(ran))
 end
 
+--- A database of another schema, another tool's, the session neither
+--- stages nor reads, saying so, and leaves where it is; once a build of
+--- this tool makes it again, it stages it.
+local function test_a_database_of_another_schema_is_neither_staged_nor_read()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local send = serving(root)
+  send({ initialize(root), open(root, "main.tl", main) })
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local stale = assert(Sqlite.open(working, { writable = true }))
+  assert(stale:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(stale:close())
+  local before = assert(Fs.stat(working)).ino
+  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  local other = send({ save(root, "lib/shapes.tl") })
+  assert(other.err:find("is of schema another", 1, true), other.err)
+  assert(assert(Fs.stat(working)).ino == before, "the file was removed")
+  -- None of its modules is read.
+  assert(counts(other) == "0,1", counts(other))
+  assert(messages_of(nth(other, 2)):find("module not found: 'lib.shapes'", 1, true),
+    messages_of(nth(other, 2)))
+  assert(work.close((assert(work.open(root)))))
+  local ran = send({ change(root, "main.tl", main .. "\n") })
+  assert(counts(ran) == "0,1,1", "staged once made again: " .. counts(ran))
+  assert(messages_of(nth(ran, 3)):find("got string", 1, true), messages_of(nth(ran, 3)))
+end
+
+--- Stamps the working database at `path` with another schema, through
+--- `db` where given, else a handle of its own.
+local function stamp_another(path: string, db?: Sqlite.Handle)
+  local handle = db or assert(Sqlite.open(path, { writable = true }))
+  assert(handle:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  if db == nil then assert(handle:close()) end
+end
+
+--- Whether `src` holds a read handle on the database.
+local function holds(src: source.View): boolean
+  return src.db ~= nil
+end
+
+--- A session that finds the working database of another schema lets go
+--- of the handle it read it through: a handle kept would be one on
+--- another tool's file, from which a later read reads that tool's rows.
+local function test_a_database_of_another_schema_is_let_go_of()
+  local root = project()
+  local src = source.new(root, function(_: string) end)
+  local built = assert(teal.load())
+  source.refresh(src, built)
+  assert(holds(src), "the database is not read")
+  stamp_another(assert(src.working))
+  source.stale(src)
+  source.refresh(src, built)
+  assert(not holds(src), "a handle on a database of another schema is kept")
+  source.close(src)
+end
+
+--- A session that reads the database finds, at its next check, the
+--- file made again under it as another schema's, another tool's: it
+--- reads none of the new file, which lists the same modules, and says
+--- why.
+local function test_a_database_made_again_of_another_schema_under_the_session_is_not_read()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
+    { change(root, "main.tl", main .. "\n") } }, function(_after: integer)
+      -- A copy at another inode, stamped as another tool's. The old
+      -- file's log, which keeps its name, is emptied first, so the copy
+      -- is read as it is.
+      local copy = working .. ".another"
+      local db = assert(Sqlite.open(working, { writable = true }))
+      assert(Sqlite.text_rows(db, "PRAGMA wal_checkpoint(TRUNCATE)"))
+      assert(Sqlite.run(db, "VACUUM INTO ?1", { { text = copy } }))
+      assert(db:close())
+      stamp_another(copy)
+      assert(Fs.rename(copy, working))
+    end)
+  assert(ran.err:find("is of schema another", 1, true), "not said: " .. ran.err)
+  assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
+  assert(counts(ran) == "0,1", "a module of another schema's file is read: " .. counts(ran))
+  assert(messages_of(nth(ran, 2)):find("module not found: 'lib.shapes'", 1, true),
+    messages_of(nth(ran, 2)))
+end
+
+--- A session that has said the database is busy still says when it then
+--- finds it of another schema: each is said once, apart.
+local function test_a_busy_database_found_of_another_schema_is_said_so()
+  local root = project()
+  local main = "return 1\n"
+  local send = serving(root)
+  send({ initialize(root), open(root, "main.tl", main) })
+  local working = build_paths.under((assert(build_paths.directory(root)))).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy = send({ save(root, "main.tl") })
+  assert(busy.err:find("another cosmic run holds the write lock", 1, true), busy.err)
+  stamp_another(working, held)
+  assert(held:exec("COMMIT"))
+  assert(held:close())
+  local other = send({ change(root, "main.tl", main .. "\n") })
+  assert(other.err:find("is of schema another", 1, true), "not said: " .. other.err .. counts(other) .. " reopened " .. tostring(other.tally.reopened) .. " stages " .. tostring(other.tally.stages))
+  -- What the session has said so far: each once.
+  local said = send({ change(root, "main.tl", main) }).err
+  local _, busy_times = said:gsub("holds the write lock", "")
+  local _, other_times = said:gsub("is of schema another", "")
+  assert(busy_times == 1 and other_times == 1, said)
+end
+
 --- A module is served as the stub the stage derived, as a stub made here
 --- of an open document, or as its source where it has no stub: a
 --- declaration, or a source that returns nothing.
@@ -334,7 +448,9 @@ local function test_a_database_made_again_is_opened_again()
       local stale = assert(Sqlite.open(working, { writable = true }))
       assert(stale:exec("UPDATE meta SET value = 'stale' WHERE key = 'schema'"))
       assert(stale:close())
-      -- Another session's stage makes the file again, and stages the change.
+      -- A build makes the file again; a stage, which removes no file,
+      -- then stages the change in it.
+      assert(work.close((assert(work.open(root)))))
       assert(counts(served(root, { initialize(root), open(root, "main.tl", main) })) == "1")
     end)
   assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))

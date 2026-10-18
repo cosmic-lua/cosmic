@@ -842,7 +842,7 @@ build/vendor_test.tl nil_not_allowed 1
 build/verbs_fixture.tl nil_not_allowed 2
 build/verbs_store_test.tl nil_not_allowed 2
 build/warnings_fork_test.tl nil_not_allowed 2
-build/work.tl nil_not_allowed 11
+build/work.tl nil_not_allowed 10
 build/work_test.tl nil_not_allowed 26
 build/work_tool_test.tl nil_not_allowed 1
 build/worker.tl nil_not_allowed 17

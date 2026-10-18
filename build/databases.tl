@@ -13,6 +13,7 @@ local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
+local work = require("build.work")
 
 local logger = require("build.logger")
 local log = logger.log
@@ -144,16 +145,18 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 
 --- The source file each module name and each source hash stands for,
 --- from whichever of the two databases hold one: `cosmic.db`'s modules
---- and `build.db`'s derived rows and staged files.
-local function module_files(root: string): {string:string} | nil, string
+--- and `build.db`'s derived rows and staged files, unless `working`
+--- is false.
+local function module_files(root: string, working: boolean): {string:string} | nil, string
   local files: {string:string} = {}
   local layout = build_paths.resolve(root)
-  for _, source in ipairs({
-      { layout.projection, "SELECT path, file FROM modules" },
-      { layout.working, "SELECT path, file FROM derived" },
-      { layout.working, "SELECT source_hash, file FROM derived" },
-      { layout.working, "SELECT sha256, path FROM files" },
-  }) do
+  local sources = { { layout.projection, "SELECT path, file FROM modules" } }
+  if working then
+    table.insert(sources, { layout.working, "SELECT path, file FROM derived" })
+    table.insert(sources, { layout.working, "SELECT source_hash, file FROM derived" })
+    table.insert(sources, { layout.working, "SELECT sha256, path FROM files" })
+  end
+  for _, source in ipairs(sources) do
     local path = source[1]
     local present, present_trouble = Fs.exists(path)
     if present == nil then
@@ -227,9 +230,31 @@ local function describe_under(path: string, about: function(string): boolean): i
   return kept
 end
 
+--- Whether the working database at `path` is there and of this tool's
+--- schema, so that it is read. One of another schema is another tool's,
+--- whose rows this tool's code may misread: it is said once on stderr
+--- ([`work.tell_other_schema`]) and none of it beyond its schema is read.
+--- Nil and why where that cannot be told.
+local function readable(path: string): boolean | nil, string
+  local present, present_trouble = Fs.exists(path)
+  if present == nil then return nil, present_trouble end
+  if not present then return false, "" end
+  local db, open_trouble = Sqlite.open(path)
+  if db == nil then return nil, open_trouble end
+  local other, other_trouble = work.other_schema(db)
+  local _, _ = db:close()
+  if other == nil then
+    if other_trouble ~= "" then return nil, other_trouble end
+    return true, ""
+  end
+  work.tell_other_schema("db", path, other)
+  return false, ""
+end
+
 --- `cosmic db [path...]`: describes `cosmic.db`, `carried.db` (what
 --- the tool built from cosmic's own tree carries) and `build.db` under
---- the working directory, each one there is, and how many closure stores
+--- the working directory, each one there is but a `build.db` of another
+--- schema ([`readable`]), and how many closure stores
 --- the build directory's `stores` holds and their bytes. It ends in its
 --- summary on stderr and returns the exit code. Paths narrow it to the rows about the sources
 --- under them: each table's count of those rows, and the slowest of
@@ -254,10 +279,16 @@ local function run(argv: {integer:string}): integer
   if code ~= nil then
     return code
   end
+  local layout = build_paths.resolve(root)
+  local working, working_trouble = readable(layout.working)
+  if working == nil then
+    log:complain(layout.working .. ": " .. working_trouble)
+    return 1
+  end
   local paths = narrow.paths(root, parsed.words)
   local files: {string:string} = {}
   if #paths > 0 then
-    local found, files_trouble = module_files(root)
+    local found, files_trouble = module_files(root, working)
     if found == nil then
       log:complain(files_trouble)
       return 1
@@ -276,8 +307,9 @@ local function run(argv: {integer:string}): integer
   local seen = 0
   local tables = 0
   local rows = 0
-  local layout = build_paths.resolve(root)
-  for _, path in ipairs({ layout.projection, layout.carried, layout.working }) do
+  local described = { layout.projection, layout.carried }
+  if working then table.insert(described, layout.working) end
+  for _, path in ipairs(described) do
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       log:complain(present_trouble)

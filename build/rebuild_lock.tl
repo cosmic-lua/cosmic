@@ -1,6 +1,8 @@
 --- A project's rebuild lock, `rebuild.lock` in its build directory
 --- ([`build.paths`]): what makes one run at a time rebuild or boot the
---- tool, run the tree's tests, or write a projection there, `cosmic.db`.
+--- tool, run the tree's tests, write a projection there, `cosmic.db`, or
+--- remove a working database of another schema and make it again
+--- ([`build.work`]).
 ---
 --- `cosmic test` holds it for its whole run ([`build.test`]), so a second
 --- run in the checkout waits for the first: one run's closure stores,
@@ -65,6 +67,7 @@ local record rebuild_lock
     "test"
     "rebuild"
     "write"
+    "remake"
   end
 
   --- What `take` found of the lock: this process holds it, or another
@@ -92,12 +95,14 @@ local doing: {string:string} = {
   test = "is running its tests",
   rebuild = "is rebuilding the tool",
   write = "is writing its projection",
+  remake = "is making its working database again",
 }
 
 --- Set by a holder in the environment of a child that would take the
 --- lock itself, to the lock's path: a boot (build/zig.tl), or a write of
---- the projection (`hold` as "write"), that finds the lock busy and this
---- naming it goes on under its parent's hold rather than wait for it.
+--- the projection or a remake of the working database (`hold` as "write"
+--- or "remake"), that finds the lock busy and this naming it goes on
+--- under its parent's hold rather than wait for it.
 --- One that finds the lock free takes it, so a variable left in an
 --- environment it no longer describes holds nothing up; a `cosmic test`
 --- run never goes on under it, and gives none to its workers
@@ -357,8 +362,8 @@ end
 --- for `what` (a verb, which names itself in what it says). Answers
 --- true when this call took it -- the caller releases it
 --- ([`rebuild_lock.release`]) when done, or leaves it to its exit -- and
---- false when this process held it already, or, for a write, a parent
---- that holds it handed it on (`handed_variable`). A run that finds
+--- false when this process held it already, or, for a write or a remake,
+--- a parent that holds it handed it on (`handed_variable`). A run that finds
 --- another holding it says so, naming that run and what it is doing,
 --- and waits for it (`wait`): the other may be a whole `cosmic test`
 --- run. Answers nil and why when it cannot take the lock.
@@ -381,7 +386,7 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
   if taken == "held" then
     return true, ""
   end
-  if role == "write" and handed(root) then
+  if (role == "write" or role == "remake") and handed(root) then
     return false, ""
   end
   local waited, wait_trouble = rebuild_lock.wait(root, role, what .. ": " ..

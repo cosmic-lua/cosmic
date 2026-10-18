@@ -32,6 +32,10 @@ local record rebuild
     --- Whether [`rebuild.stage`] staged nothing, another run holding
     --- the working database.
     busy: boolean
+    --- The schema [`rebuild.stage`] found the working database of, where
+    --- it staged nothing, the file being of another schema than this
+    --- tool's ([`work.try_open`]).
+    other_schema: string | nil
   end
 end
 
@@ -66,11 +70,13 @@ local function where(root: string): rebuild.Where | nil, string
   local directory, directory_trouble = build_paths.optional(root)
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
-    return { project = own_tree, own_tree = own_tree, directory = nil, busy = false }, ""
+    return { project = own_tree, own_tree = own_tree, directory = nil, busy = false,
+      other_schema = nil }, ""
   end
   local started, trouble = rebuild.started(directory)
   if started == nil then return nil, trouble end
-  return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false }, ""
+  return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false,
+    other_schema = nil }, ""
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -91,7 +97,7 @@ local function opened_for(root: string, wait: boolean): work.Opening | nil, stri
   if not wait then return work.try_open(root) end
   local handle, trouble = work.open(root)
   if handle == nil then return nil, trouble end
-  return { handle = handle }, ""
+  return { handle = handle, other_schema = nil }, ""
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
@@ -120,7 +126,13 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   if opening == nil then return false, open_trouble end
   local handle = opening.handle
   if handle == nil then
-    work.tell_busy(verb, build_paths.resolve(root).working)
+    local working = build_paths.resolve(root).working
+    local other = opening.other_schema
+    if other ~= nil then
+      work.tell_other_schema(verb, working, other)
+    else
+      work.tell_busy(verb, working)
+    end
     return true, ""
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
@@ -136,9 +148,8 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, build_paths.resolve(root).projection, result)
-  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+  local written, write_trouble = writer.write_recorded(handle,
+    build_paths.resolve(root).projection, result, started, staged)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
   return true, ""
@@ -153,8 +164,9 @@ end
 --- build directory is made. A derive that fails leaves the database as
 --- it was, stage and all. It waits for no other run: where one holds the
 --- database ([`work.try_open`]), nothing is staged, and what it answers
---- is `busy`. Answers what the directory is, or nil and why it could not
---- be staged.
+--- is `busy`. Where the database is of another schema, nothing is staged
+--- and none of it read, and what it answers names that schema. Answers
+--- what the directory is, or nil and why it could not be staged.
 function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, string
   local found, found_trouble = where(root)
   if found == nil then return nil, found_trouble end
@@ -163,7 +175,9 @@ function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, stri
   if opening == nil then return nil, open_trouble end
   local handle = opening.handle
   if handle == nil then
-    return { project = true, own_tree = found.own_tree, directory = found.directory, busy = true }, ""
+    local other = opening.other_schema
+    return { project = true, own_tree = found.own_tree, directory = found.directory,
+      busy = other == nil, other_schema = other }, ""
   end
   local staged, stage_trouble = work.stage(handle, found.own_tree)
   if staged == nil then
@@ -184,18 +198,22 @@ function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, stri
   return found, ""
 end
 
---- Builds the project in the working directory, as `project` does, for
---- the verb `verb`, which names itself in what it says: a lookup's,
---- which waits for no other run. With `start`, it builds one no build
---- has been made of yet too, and waits for another run as a build does:
---- `cosmic fix`, which stages and compiles the directory to check it
---- whatever it holds ([`build.fix.spill`]), so that what its links name
---- is the tree as it stands rather than whatever an earlier `cosmic test`
---- left.
-function rebuild.here(verb: string, start?: boolean): boolean, string
-  local root, trouble = Fs.absolute(".")
-  if root == nil then return false, trouble end
-  return project(root, verb, start == true)
+--- Builds the project at `root`, the working directory by default, as
+--- `project` does, for the verb `verb`, which names itself in what it
+--- says: a lookup's, which waits for no other run. With `start`, it
+--- builds one no build has been made of yet too, and waits for another
+--- run as a build does: `cosmic fix`, which stages and compiles the
+--- directory to check it whatever it holds ([`build.fix.spill`]), so
+--- that what its links name is the tree as it stands rather than
+--- whatever an earlier `cosmic test` left.
+function rebuild.here(verb: string, start?: boolean, root?: string): boolean, string
+  local at = root
+  if at == nil then
+    local found, trouble = Fs.absolute(".")
+    if found == nil then return false, trouble end
+    at = found
+  end
+  return project(at, verb, start == true)
 end
 
 return rebuild

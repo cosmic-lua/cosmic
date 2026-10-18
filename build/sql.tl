@@ -49,6 +49,7 @@ local clock = require("build.clock")
 local dataset = require("build.dataset")
 local logger = require("build.logger")
 local verb_spec = require("build.verb_spec")
+local work = require("build.work")
 
 local log = logger.log
 
@@ -931,6 +932,15 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)
     return 1
+  end
+  -- A debugging read: another tool's working database is read as it
+  -- is, unlike every other verb ([`work.tell_other_schema`]), but said.
+  if parsed.set["--build"] == true then
+    local other, _ = work.other_schema(opened.db)
+    if other ~= nil then
+      complain(source.name .. " is of schema " .. other ..
+          ", not this tool's; reading it as it is, as another tool wrote it")
+    end
   end
   local refusal = { unwritable = false }
   local written: Writer | nil = nil
