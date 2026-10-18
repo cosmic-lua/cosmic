@@ -564,12 +564,14 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
-  --- `cosmic release [--commit hex] [--before time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
+  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
   --- finds cosmic's own releases, the `next-<commit>` prereleases of
-  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. With no
-  --- criterion it picks the newest; `--commit` the one whose commit starts
-  --- with the hex (7 to 40 digits), `--before` the newest published
-  --- before an RFC 3339 time or a date's first moment in UTC, and both
+  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Every page
+  --- of releases is read, since the API does not list them by time, and
+  --- they are sorted newest first by when they were published. With no
+  --- criterion it picks the newest; `--commit` the one whose commit
+  --- starts with the hex (7 to 40 digits), `--until` the newest published
+  --- at or before an RFC 3339 time, or by the end of a date in UTC; both
   --- may be given. A release is verified first: its SHA256SUMS names one
   --- digest for cosmic and its source.json the same commit and digest.
   --- With nothing more it prints the release as the three lines of
@@ -582,10 +584,10 @@ local record Cli
   --- printing that path; either renames it into place only once its
   --- sha256 is the release's digest. `--pin` writes the three pin lines
   --- to a file once the binary's bytes are verified. GH_TOKEN goes with
-  --- the API's requests when set, and every redirect must stay on https. It prints no summary. Exits 0 when it
-  --- did what was asked, 1 when it could not (no connection, no matching
-  --- release, a release that fails verification, a write that failed), 2
-  --- for a command line it refused
+  --- the API's requests when set, and every redirect must stay on https.
+  --- It prints no summary. Exits 0 when it did what was asked, 1 when it
+  --- could not (no connection, no matching release, a release that fails
+  --- verification, a write that failed), 2 for a command line it refused
   release: string
   --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
   --- to nothing at all but what the options grant, and everything it
@@ -965,10 +967,10 @@ local module: Module = {
     },
     release = {
       about = "find, verify and download cosmic's own releases",
-      usage = "[--commit <hex>] [--before <time>] [--list | -o <file> | --cache] [--pin <file>]",
+      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]",
       spec = {
         ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
-        ["--before"] = { value = "time", about = "the newest published before this RFC 3339 time or date (UTC)" },
+        ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
         ["--list"] = { about = "print the matching releases, newest first, verifying none" },
         ["-n"] = { value = "count", about = "with --list, print at most this many (default 20)" },
         ["--json"] = { about = "print the release, or with --list the releases, as JSON" },

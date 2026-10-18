@@ -1803,8 +1803,8 @@ build/refresh_store_test.tl view_written 7
 build/refresh_test.tl view_written 1
 build/refresh_tool_test.tl view_written 2
 build/relay_wire_fixture.tl view_written 10
-build/release.tl view_written 4
-build/release_test.tl view_written 4
+build/release.tl view_written 6
+build/release_test.tl view_written 6
 build/removed_fix_test.tl view_written 9
 build/roots.tl view_written 4
 build/roots_test.tl view_written 3
@@ -2727,7 +2727,7 @@ build/driver_test.tl field_unknown 1
 build/fetch.tl field_unknown 2
 build/hash_tool_test.tl field_unknown 3
 build/lang_proof.tl field_unknown 4
-build/release.tl field_unknown 1
+build/release.tl field_unknown 2
 build/syntax_compared.tl field_unknown 1
 build/syntax_match.tl field_unknown 1
 build/syntax_shape_specs.tl field_unknown 5
@@ -3295,6 +3295,7 @@ build/reboot_test.tl overload_none 1
 build/receivers.tl overload_none 1
 build/refresh_store_test.tl overload_none 1
 build/refresh_tool_test.tl overload_none 1
+build/release.tl overload_none 1
 build/removed_fix_test.tl overload_none 1
 build/roots.tl overload_none 1
 build/scopes_test.tl overload_none 2

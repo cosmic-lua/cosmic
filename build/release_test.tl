@@ -49,14 +49,15 @@ local function entry(commit: string, published: string, draft?: boolean, assets?
 end
 
 --- A page of the API's: a draft newest of all, a release missing its
---- assets, then three usable ones, newest first.
+--- assets, then three usable ones out of time order, as the API sorts
+--- by day and tag name.
 local function page(): string
   return "[" .. table.concat({
     entry(string.rep("f", 40), "2026-10-18T12:00:00Z", true),
     entry(string.rep("e", 40), "2026-10-18T11:00:00Z", false, '[{"name":"cosmic"}]'),
+    entry(oldest, "2026-10-16T10:00:00Z"),
     entry(newest, "2026-10-18T10:00:00Z"),
     entry(older, "2026-10-17T10:00:00Z"),
-    entry(oldest, "2026-10-16T10:00:00Z"),
   }, ",") .. "]"
 end
 
@@ -118,14 +119,32 @@ local function test_a_prefix_two_releases_share_is_refused_naming_both()
   assert(ran.err:find(second, 1, true) ~= nil, ran.err)
 end
 
-local function test_before_takes_the_newest_published_earlier()
-  local ran = run({ "--before", "2026-10-18" }, { ok(page()), sums(), source(older) })
+local function test_until_takes_the_newest_published_at_or_before()
+  local day = run({ "--until", "2026-10-17" }, { ok(page()), sums(), source(older) })
+  assert(day.code == 0, day.err)
+  assert(day.out:sub(1, 41) == older .. "\n", "a date runs to its end: " .. day.out)
+  local at = run({ "--until", "2026-10-17T10:00:00Z" }, { ok(page()), sums(), source(older) })
+  assert(at.code == 0, at.err)
+  assert(at.out:sub(1, 41) == older .. "\n", "a time includes itself: " .. at.out)
+  local just = run({ "--until", "2026-10-17T09:59:59Z" }, { ok(page()), sums(), source(oldest) })
+  assert(just.code == 0, just.err)
+  assert(just.out:sub(1, 41) == oldest .. "\n", just.out)
+  failed(run({ "--until", "2026-01-01" }, { ok(page()) }), "no release matches")
+end
+
+--- Every page is read, a full one leading to the next, and a release
+--- that comes back on two pages is taken once.
+local function test_every_page_is_read_and_a_repeat_taken_once()
+  local first: {string} = {}
+  for i = 1, 99 do first[i] = entry(string.format("%040x", i), "2026-10-19T00:00:00Z", true) end
+  first[100] = entry(older, "2026-10-17T10:00:00Z")
+  local second = "[" .. entry(older, "2026-10-17T10:00:00Z") .. "," .. entry(newest, "2026-10-18T10:00:00Z") .. "]"
+  local page1, page2 = ok("[" .. table.concat(first, ",") .. "]"), ok(second)
+  local ran = run({ "--list" }, { page1, page2 })
   assert(ran.code == 0, ran.err)
-  assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
-  local timed = run({ "--before", "2026-10-17T10:00:00Z" }, { ok(page()), sums(), source(oldest) })
-  assert(timed.code == 0, timed.err)
-  assert(timed.out:sub(1, 41) == oldest .. "\n", timed.out)
-  failed(run({ "--before", "2026-01-01" }, { ok(page()) }), "no release matches")
+  assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
+  local unique = run({ "--commit", "abccccc" }, { page1, page2, sums(), source(older) })
+  assert(unique.code == 0, unique.err)
 end
 
 local function test_a_full_commit_is_asked_for_by_its_tag()
@@ -140,6 +159,7 @@ local function test_a_release_that_disagrees_with_itself_fails()
   local other = string.rep("0", 64)
   failed(run({}, { ok(page()), sums(), source(newest, other) }), "source.json names digest " .. other)
   failed(run({}, { ok(page()), ok("") }), "no digest for cosmic")
+  failed(run({}, { ok(page()), ok(string.rep("x", 65537)) }), "more than 65536 bytes")
 end
 
 local function test_o_writes_the_verified_binary_executable(tmp: string)
@@ -228,7 +248,7 @@ local function test_a_command_line_it_cannot_use_is_refused()
   for _, words in ipairs({
       { "--commit", "abc" },
       { "--commit", "xyzxyzx" },
-      { "--before", "yesterday" },
+      { "--until", "yesterday" },
       { "-o", "a", "--cache" },
       { "--list", "-o", "a" },
       { "--list", "--pin", "a" },

@@ -4,17 +4,20 @@
 --- holding three assets: `cosmic`, `SHA256SUMS` (`<sha256>  cosmic`) and
 --- `source.json` (the commit, the digest and the run that made it).
 ---
---- The releases come from GitHub's REST API, newest first, a page of 100
---- at a time; a draft, a release not tagged `next-<40 hex>` and one
---- missing any of the three assets are passed over. With no criterion
---- the newest is picked. `--commit <hex>` keeps the release whose commit
---- starts with the hex (7 to 40 digits; a full commit is asked for by
---- its tag, so its age does not matter), and `--before <time>` those
---- published before an RFC 3339 time or a date's first moment in UTC.
---- Both may be given. The API lists releases by creation, which follows
---- publication closely, so the newest match is taken from the first page
---- that holds one. A prefix that matches two releases is refused,
---- naming both.
+--- The releases come from GitHub's REST API, a page of 100 at a time,
+--- every page read: the API orders them by day and then by tag name, not
+--- by time, so no page can be known to hold the newest match, and a
+--- release published between two pages' requests can come back on both.
+--- So they are taken once each, by tag, and sorted newest first by when
+--- they were published. A draft, a release not tagged `next-<40 hex>`
+--- and one missing any of the three assets are passed over. With no
+--- criterion the newest is picked. `--commit <hex>` keeps the release
+--- whose commit starts with the hex (7 to 40 digits; a full commit is
+--- asked for by its tag alone), and `--until <time>` those published at
+--- or before an RFC 3339 time, or by the end of a date in UTC. Both may
+--- be given. A prefix that matches two releases is refused, naming both.
+--- Reading every page costs a request per hundred releases, against an
+--- unauthenticated limit of 60 an hour.
 ---
 --- A release is verified before anything about it is printed or kept:
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
@@ -36,7 +39,8 @@
 --- * `-o <file>`: writes the binary there, mode 0755.
 --- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
 ---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
----   path. A file already there whose sha256 is the digest is kept.
+---   path. A file already there whose sha256 is the digest is kept, and
+---   made executable, as a run cut off before its chmod would leave it.
 --- * `--pin <file>`: writes the three pin lines there, once the binary's
 ---   bytes are verified: streamed and hashed when neither `-o` nor
 ---   `--cache` keeps them.
@@ -56,6 +60,7 @@
 
 local bare = require("build.bare")
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -111,15 +116,16 @@ end
 
 local spec <const> = assert((assert(Cli.verbs["release"])).spec)
 
-local usage = "cosmic release [--commit <hex>] [--before <time>] " ..
+local usage = "cosmic release [--commit <hex>] [--until <time>] " ..
   "[--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]"
 
 local repository <const> = "cosmic-lua/cosmic"
 local api <const> = "https://api.github.com/repos/" .. repository .. "/releases"
 local downloads <const> = "https://github.com/" .. repository .. "/releases/download/"
 local per_page <const> = 100
---- The most pages one scan reads: the newest 1000 releases.
-local max_pages <const> = 10
+--- The most pages one scan reads, against a runaway: 10000 releases,
+--- some years of them at the rate main publishes.
+local max_pages <const> = 100
 local default_count <const> = 20
 --- What SHA256SUMS or source.json may weigh; each is a line or two.
 local max_small <const> = 65536
@@ -232,15 +238,19 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     end
     prefix = prefix:lower()
   end
-  local before: integer | nil = nil
-  local before_text = parsed.values["--before"]
-  if before_text ~= nil then
-    local ns, _ = Time.parse_rfc3339(before_text)
-    if ns == nil then ns, _ = Time.parse_date(before_text) end
+  -- The last moment a release may have been published at.
+  local until_ns: integer | nil = nil
+  local until_text = parsed.values["--until"]
+  if until_text ~= nil then
+    local ns, _ = Time.parse_rfc3339(until_text)
     if ns == nil then
-      return refuse("--before wants an RFC 3339 time or a date, not " .. before_text)
+      local day, _ = Time.parse_date(until_text)
+      if day ~= nil then ns = day + Clock.seconds(86400) - 1 end
     end
-    before = ns
+    if ns == nil then
+      return refuse("--until wants an RFC 3339 time or a date, not " .. until_text)
+    end
+    until_ns = ns
   end
   local listing = parsed.set["--list"] == true
   local as_json = parsed.set["--json"] == true
@@ -314,20 +324,23 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
 
   local function wanted(r: verb.Release): boolean
     if prefix ~= nil and r.commit:sub(1, #prefix) ~= prefix then return false end
-    if before ~= nil then
+    if until_ns ~= nil then
       local at, _ = Time.parse_rfc3339(r.published_at)
-      if at == nil or at >= before then return false end
+      if at == nil or at > until_ns then return false end
     end
     return true
   end
 
-  -- Up to `limit` matches, newest first as the API lists them: the pages
-  -- are read until one holds the limit's last or the releases run out.
-  local function matches(limit: integer): {verb.Release} | nil, string
+  -- Every match, newest first.
+  local function matches(): {verb.Release} | nil, string
     local found: {verb.Release} = {}
+    local seen: {string:boolean} = {}
     local function take(r: ApiRelease)
       local release = usable(r)
-      if release ~= nil and wanted(release) and #found < limit then found[#found + 1] = release end
+      if release ~= nil and seen[release.tag] == nil and wanted(release) then
+        seen[release.tag] = true
+        found[#found + 1] = release
+      end
     end
     if prefix ~= nil and #prefix == 40 then
       local url = releases_url .. "/tags/next-" .. prefix
@@ -342,7 +355,10 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       take(r)
       return found, ""
     end
-    for page = 1, max_pages do
+    for page = 1, max_pages + 1 do
+      if page > max_pages then
+        return nil, releases_url .. ": more than " .. plural.count(max_pages, "page") .. " of releases"
+      end
       local url = releases_url .. "?per_page=" .. tostring(per_page) .. "&page=" .. tostring(page)
       local text, why = call(url)
       if text == nil then
@@ -353,8 +369,13 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
         Shape.decode_into(text, PAGE_SPEC, { null_value = Json.null })
       if releases == nil then return nil, url .. ": no list of releases: " .. shape_trouble end
       for _, r in ipairs(releases) do take(r) end
-      if #found >= limit or #releases < per_page then break end
+      if #releases < per_page then break end
     end
+    -- RFC 3339 in UTC, as the API writes every time, sorts as text.
+    table.sort(found, function(a: verb.Release, b: verb.Release): boolean
+      if a.published_at ~= b.published_at then return a.published_at > b.published_at end
+      return a.tag > b.tag
+    end)
     return found, ""
   end
 
@@ -363,46 +384,54 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
   end
 
   if listing then
-    local found, why = matches(count)
+    local found, why = matches()
     if found == nil then return fail(why) end
+    local shown: {verb.Release} = {}
+    for _, r in ipairs(found) do
+      if #shown == count then break end
+      shown[#shown + 1] = r
+    end
     if as_json then
-      if #found == 0 then return written(to.out("[]\n")) end
-      local encoded = assert(Json.encode(found, { pretty = true }))
+      if #shown == 0 then return written(to.out("[]\n")) end
+      local encoded = assert(Json.encode(shown, { pretty = true }))
       return written(to.out(encoded .. "\n"))
     end
     local lines: {string} = {}
-    for _, r in ipairs(found) do lines[#lines + 1] = r.published_at .. "  " .. r.commit .. "\n" end
+    for _, r in ipairs(shown) do lines[#lines + 1] = r.published_at .. "  " .. r.commit .. "\n" end
     return written(to.out(table.concat(lines)))
   end
 
-  -- A prefix asks for two, so a second match is seen and refused.
-  local limit = 1
-  if prefix ~= nil then limit = 2 end
-  local found, why = matches(limit)
+  local found, why = matches()
   if found == nil then return fail(why) end
   local release = found[1]
   if release == nil then
-    local where = "among the newest " .. plural.count(per_page * max_pages, "release")
-    if prefix ~= nil and #prefix == 40 then where = "by its tag" end
-    return fail("no release matches, " .. where)
+    if prefix ~= nil and #prefix == 40 then return fail("no release matches, by its tag") end
+    return fail("no release matches")
   end
   local second = found[2]
-  if second ~= nil then
+  if prefix ~= nil and second ~= nil then
     return fail("the commits of two releases start with " .. tostring(prefix) .. ", " .. release.commit ..
         " and " .. second.commit .. "; give more of it")
   end
 
   local function small(name: string): string | nil, string
     local url = assets_url .. release.tag .. "/" .. name
-    local got, get_trouble = Http.get(url, options())
-    if got == nil then return nil, url .. ": " .. get_trouble end
-    if got.status < 200 or got.status >= 300 then
-      return nil, url .. ": HTTP " .. tostring(got.status)
+    local response, open_trouble = Http.open(url, options())
+    if response == nil then return nil, url .. ": " .. open_trouble end
+    local body, read_trouble: string | nil, string = nil, ""
+    if response.status >= 200 and response.status < 300 then
+      -- One byte past the cap tells a body at it from one over it.
+      body, read_trouble = Stream.read_all(Stream.limit(response, max_small + 1))
     end
-    if #got.body > max_small then
+    local _, _ = response:close()
+    if response.status < 200 or response.status >= 300 then
+      return nil, url .. ": HTTP " .. tostring(response.status)
+    end
+    if body == nil then return nil, url .. ": " .. read_trouble end
+    if #body > max_small then
       return nil, url .. ": more than " .. plural.count(max_small, "byte")
     end
-    return got.body, ""
+    return body, ""
   end
   local sums, sums_trouble = small("SHA256SUMS")
   if sums == nil then return fail(sums_trouble) end
@@ -467,6 +496,9 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     if have == nil or Hash.hex_sha256(have) ~= digest then
       local ok, download_trouble = download(path)
       if not ok then return fail(download_trouble) end
+    else
+      local ok, chmod_trouble = Fs.chmod(path, 0x1ed)
+      if not ok then return fail(chmod_trouble) end
     end
     kept = path
   else
