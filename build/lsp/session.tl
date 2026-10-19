@@ -15,7 +15,10 @@
 --- changed, one at a time, while no other message waits
 --- ([`build.lsp.dependents`]). A root no build was started in has its
 --- documents checked against nothing: none is published, and the person
---- is shown, once, what to run there ([`source.outside`]). Where the editor
+--- is shown, once, what to run there ([`source.outside`]); a tool not
+--- checked against its tree, which stages nothing, says so once too
+--- ([`source.unchecked`]).
+--- Where the editor
 --- takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
@@ -65,7 +68,8 @@ local record session
     docs: hover.Docs
     --- The dependents yet to be checked again.
     queue: dependents.Queue
-    --- Whether the person was shown that the root is no project.
+    --- Whether the person was shown that the root is no project, or that
+    --- the tool was not checked against the tree: one message a session.
     told_outside: boolean
   end
 end
@@ -347,10 +351,21 @@ local function answers(s: Session, body: string): {string}
   -- A fault answering one message fails that message, not the session.
   local ok, handled = pcall(handle, s, message)
   if ok then
-    if not s.told_outside and source.outside(s.checker.source) then
-      s.told_outside = true
-      handled[#handled + 1] = protocol.shown(3, s.root .. " is not built yet, so its modules " ..
-          "are not found and nothing is checked: run `cosmic test` (or `cosmic build`) there")
+    -- One message shown a session: a root outside any build has no stage
+    -- to leave unchecked.
+    if not s.told_outside then
+      local shown: string | nil = nil
+      if source.outside(s.checker.source) then
+        shown = s.root .. " is not built yet, so its modules " ..
+          "are not found and nothing is checked: run `cosmic test` (or `cosmic build`) there"
+      else
+        shown = source.unchecked(s.checker.source)
+        if shown ~= nil then s.err("cosmic: lsp: " .. shown) end
+      end
+      if shown ~= nil then
+        s.told_outside = true
+        handled[#handled + 1] = protocol.shown(3, shown)
+      end
     end
     return handled
   end

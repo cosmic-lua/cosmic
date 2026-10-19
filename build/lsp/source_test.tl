@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
+local reboot = require("build.reboot")
 local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
 local teal = require("build.teal")
@@ -506,4 +507,65 @@ local function test_stubs_another_run_derived_are_trusted_no_more()
   assert(ran.tally.stages == 1 and ran.tally.database_stubs == 1 and ran.tally.made_stubs == 1,
     tostring(ran.tally.stages) .. "," .. tostring(ran.tally.database_stubs) .. "," ..
       tostring(ran.tally.made_stubs))
+end
+
+--- `cosmic lsp` whose tool check went on without holding the tool to
+--- the tree, another run holding the working database
+--- ([`reboot.unchecked`]), stages nothing at any check, even once the
+--- database is free, rather than derive stubs with code that may be
+--- older than the tree's; it serves the stubs last staged and says why
+--- once: on stderr, and to the person.
+local function test_an_unchecked_lsp_stages_nothing_and_says_so_once()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local working = build_paths.resolve(root).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local code = reboot.stale_exit({ [1] = "lsp" }, true, root)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == nil, tostring(code))
+  assert(reboot.unchecked(root), "the skipped check is not remembered")
+  local send = serving(root)
+  local main = "return 1\n"
+  send({ initialize(root), open(root, "main.tl", main) })
+  local ran = send({ change(root, "main.tl", main .. "\n"), save(root, "main.tl"),
+    changed_on_disk(root, "main.tl"), change(root, "main.tl", main) })
+  assert(ran.tally.stages == 0, "staged " .. tostring(ran.tally.stages) .. " times unchecked")
+  local _, said = ran.err:gsub("was not checked against the tree", "")
+  assert(said == 1, ran.err)
+  local told = 0
+  for _, body in ipairs(ran.sent) do
+    if session_fixture.sent(body).method == "window/showMessage" and
+        body:find("was not checked against the tree", 1, true) ~= nil then
+      told = told + 1
+    end
+  end
+  assert(told == 1, table.concat(ran.sent, "\n"))
+end
+
+--- A session whose tool was not checked against the tree takes none of
+--- the database's stubs for its own: the analyzer the database records
+--- is not taken as one this session staged with.
+local function test_an_unchecked_lsp_trusts_no_analyzer_the_database_records()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local working = build_paths.resolve(root).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(Sqlite.run(held, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'another analyzer')"))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local code = reboot.stale_exit({ [1] = "lsp" }, true, root)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == nil, tostring(code))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src, (assert(teal.load())))
+  assert(src.analyzer ~= "another analyzer", "took the database's analyzer for its own")
+  assert(not src.stubs, "trusted the database's stubs")
 end

@@ -354,6 +354,13 @@ local function reopened(src: source.View): Reopening
   return "read"
 end
 
+--- What a session says of a tree its tool was not checked against
+--- ([`rebuild.Where`]'s `unchecked`).
+local unchecked_line <const> = "this tool was not checked against the tree when it started, " ..
+  "since another cosmic run held the tree's build or its database was another tool's, so its " ..
+  "code may be older than the tree's: until the editor starts it again it stages nothing, " ..
+  "and answers from what the tree last staged, or finds no module where that is another tool's"
+
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
 --- run made the database again, and whether its stubs are the running
@@ -394,6 +401,13 @@ function source.refresh(src: source.View, built: compiler)
     end
     return
   end
+  if staged ~= nil and staged.unchecked then
+    -- Its stubs stay as last staged for the session, which says why once
+    -- ([`source.unchecked`]); the stage it asks for at each check stages
+    -- nothing.
+    listed(src, false)
+    return
+  end
   if staged ~= nil and staged.busy then
     if not src.told_busy then
       src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
@@ -410,6 +424,15 @@ function source.refresh(src: source.View, built: compiler)
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- What to say once, on stderr and to the person, where the session's
+--- tool was not checked against its tree, so the stage stages nothing
+--- ([`rebuild.Where`]'s `unchecked`), or nil.
+function source.unchecked(src: source.View): string | nil
+  local where = src.where
+  if where ~= nil and where.unchecked then return unchecked_line end
+  return nil
 end
 
 --- Stages the tree again at the next [`source.refresh`]: files changed on

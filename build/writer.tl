@@ -530,9 +530,13 @@ end
 --- though its fingerprint is not the tree's (`running`).
 --- @param library in a project, the standard library its links may
 --- name, in place of the running binary's ([`link_index.running`])
+--- @param reader the verb of a lookup's build ([`rebuild.here`]), which
+--- waits for no run holding the rebuild lock: where one does, it leaves
+--- the projection there as it is, says so once
+--- ([`rebuild_lock.try_hold`]), and answers true
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
-                             library?: link_index.Library): boolean, string
+                             library?: link_index.Library, reader?: string): boolean, string
   local db = handle.db
   if not handle.inside then
     local begun, begin_trouble = work.begin(handle)
@@ -579,11 +583,21 @@ function writer.write_result(handle: work.Handle, out: string,
   -- and a boot's bridge is handed by the `bin/zig build` that holds it.
   -- Taken only now, with the working database's transaction ended
   -- above, so a holder waiting for that database is not waited on in
-  -- turn.
+  -- turn. A reader takes it only where it is free: the run holding it
+  -- writes a projection of its own.
   local took = false
   local directory = build_paths.resolve(handle.root).directory
   if Fs.within(out, directory) then
-    local taken, lock_trouble = rebuild_lock.hold(handle.root, "write", out)
+    local taken, lock_trouble: boolean | nil, string
+    if reader ~= nil then
+      taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
+      if taken == nil and lock_trouble == "" then
+        local _, _ = db:exec("DETACH out")
+        return true, ""
+      end
+    else
+      taken, lock_trouble = rebuild_lock.hold(handle.root, "write", out)
+    end
     if taken == nil then
       local _, _ = db:exec("DETACH out")
       return false, lock_trouble
@@ -612,12 +626,14 @@ end
 --- database after: a run of another schema that removes the file once
 --- the locks are free ([`work.try_open_remaking`]) takes none of the
 --- build's rows with it but what it means to. Only a write that fails
---- once committed records so after.
+--- once committed records so after. `reader` is as
+--- [`writer.write_result`] takes it.
 function writer.write_recorded(handle: work.Handle, out: string, result: importer.Result,
-                               started: integer, staged: work.Staged): boolean, string
+                               started: integer, staged: work.Staged,
+                               reader?: string): boolean, string
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, "PASS")
-  local written, trouble = writer.write_result(handle, out, result)
+  local written, trouble = writer.write_result(handle, out, result, nil, nil, reader)
   if not written then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
       result.cached, "FAIL")

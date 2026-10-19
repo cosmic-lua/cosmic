@@ -36,6 +36,10 @@ local record rebuild
     --- it staged nothing, the file being of another schema than this
     --- tool's ([`work.try_open`]).
     other_schema: string | nil
+    --- Whether [`rebuild.stage`] staged nothing, the check before the verb
+    --- not having held the tool to the tree ([`reboot.unchecked`]): what
+    --- its code derived could be older code's than the tree's.
+    unchecked: boolean
   end
 end
 
@@ -71,12 +75,21 @@ local function where(root: string): rebuild.Where | nil, string
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
     return { project = own_tree, own_tree = own_tree, directory = nil, busy = false,
-      other_schema = nil }, ""
+      other_schema = nil, unchecked = false }, ""
   end
   local started, trouble = rebuild.started(directory)
   if started == nil then return nil, trouble end
   return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false,
-    other_schema = nil }, ""
+    other_schema = nil, unchecked = false }, ""
+end
+
+--- Whether the check before the verb went on in the tree at `root`
+--- without holding the tool to it ([`reboot.unchecked`]), so that what
+--- this tool's code derives there could be older code's than the tree's.
+--- Loaded only here: a stage or a lookup that reaches this is one the
+--- check came before.
+local function unchecked(root: string): boolean
+  return require("build.reboot").unchecked(root)
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -109,10 +122,22 @@ end
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
 --- say so once ([`work.tell_busy`]), and answers true, the caller reading
---- what that run last committed.
+--- what that run last committed. Nor does a lookup's wait for a run that
+--- holds the rebuild lock, a `cosmic test` run above all: it writes no
+--- projection under it, says so once ([`rebuild_lock.try_hold`]), and
+--- the caller reads the projection that is there. Where the check before
+--- the verb went on without holding the tool to the tree
+--- ([`reboot.unchecked`]), a lookup's builds nothing, and the caller reads
+--- what is there.
 local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
+  if unchecked(root) then
+    -- Compiled by code that may be older than the tree's, the rows and
+    -- the projection would be keyed and signed as no build of the tree
+    -- would make them.
+    return true, ""
+  end
   if not found.project and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
@@ -148,8 +173,12 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
+  -- A lookup's build leaves the projection as it is where another run
+  -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
+  local reader: string | nil = nil
+  if not start then reader = verb end
   local written, write_trouble = writer.write_recorded(handle,
-    build_paths.resolve(root).projection, result, started, staged)
+    build_paths.resolve(root).projection, result, started, staged, reader)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
   return true, ""
@@ -162,22 +191,29 @@ end
 --- projection. `built` parses what is new. A directory that is no
 --- project ([`where`]) is left alone: nothing is staged, and no
 --- build directory is made. A derive that fails leaves the database as
---- it was, stage and all. It waits for no other run: where one holds the
+--- it was, stage and all. Where the check before the verb went on
+--- without holding the tool to the tree ([`reboot.unchecked`]), nothing
+--- is staged, for the life of the process, and what it answers is
+--- `unchecked`. Otherwise it waits for no other run: where one holds the
 --- database ([`work.try_open`]), nothing is staged, and what it answers
---- is `busy`. Where the database is of another schema, nothing is staged
+--- is `busy`; where the database is of another schema, nothing is staged
 --- and none of it read, and what it answers names that schema. Answers
 --- what the directory is, or nil and why it could not be staged.
 function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, string
   local found, found_trouble = where(root)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
+  if unchecked(root) then
+    return { project = true, own_tree = found.own_tree, directory = found.directory,
+      busy = false, other_schema = nil, unchecked = true }, ""
+  end
   local opening, open_trouble = work.try_open(root)
   if opening == nil then return nil, open_trouble end
   local handle = opening.handle
   if handle == nil then
     local other = opening.other_schema
     return { project = true, own_tree = found.own_tree, directory = found.directory,
-      busy = other == nil, other_schema = other }, ""
+      busy = other == nil, other_schema = other, unchecked = false }, ""
   end
   local staged, stage_trouble = work.stage(handle, found.own_tree)
   if staged == nil then
