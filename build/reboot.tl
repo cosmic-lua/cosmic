@@ -448,7 +448,10 @@ end
 --- nothing ([`rebuild.here`]), `cosmic lsp` stages nothing
 --- ([`rebuild.stage`]), and each reads what is there.
 function reboot.unchecked(root: string): boolean
-  return unchecked_trees[build_paths.resolve(root).directory] == true
+  -- A directory that can have no build directory, as one the build home
+  -- is beneath, was never checked, and so never left unchecked.
+  local directory, _ = build_paths.optional(root)
+  return directory ~= nil and unchecked_trees[directory] == true
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
