@@ -1750,6 +1750,7 @@
             RUN_ID: "${{ github.run_id }}",
             ATTEMPT: "${{ github.run_attempt }}",
             SELF: "cancel the run on a failed leg",
+            EXEMPT: "linux-x86_64-new-grammar",
           },
           run: ".github/scripts/cancel-on-failure.sh",
         },

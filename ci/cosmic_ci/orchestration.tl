@@ -1476,7 +1476,11 @@ local function phase_rehearsal(p: PlatformContext): integer
   release_promises(values)
   local argv: {string} = { cosmic }
   for _, word in ipairs(words) do
-    argv[#argv + 1] = word
+    -- A queue run bails on its first failure, which fails it whatever the rest says. The rehearsal judges every failure of the
+    -- whole suite against the list, so a test it never ran would read as one that did not fail.
+    if word ~= "--bail" then
+      argv[#argv + 1] = word
+    end
   end
   local status = logged(c, "new grammar", argv, out, p.local_diagnostics .. "/rehearsal-test.err", rehearsal_timeout_ns,
     c.root, values)
