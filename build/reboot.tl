@@ -53,11 +53,15 @@ local record reboot
 
   --- How a test has [`reboot.stale_exit`] see the running tool, where it
   --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
-  --- `executable`), and the environment that says whether it boots
-  --- ([`reboot.auto_boot`]) and whether a reboot entered it (`marker`).
+  --- `executable`), the environment that says whether it boots
+  --- ([`reboot.auto_boot`]) and whether a reboot entered it (`marker`),
+  --- and what its database's `meta` says, by key, in place of the running
+  --- binary's (`boot_hash`, `image_hash`, and `written_by`, `writer`,
+  --- `compiled_by` and `compiler`, which say whether it is `unsettled`).
   record Seen
     tool: string
     environment: {string:string}
+    meta: {string:string}
   end
 end
 
@@ -67,17 +71,27 @@ end
 --- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
 
+--- The running binary's `meta` value of `key`, or what `seen` says in
+--- its place ([`reboot.Seen`]).
+local function meta_of(key: string, seen?: reboot.Seen): string | nil
+  if seen ~= nil then
+    local given = seen.meta[key]
+    if given ~= nil then return given end
+  end
+  return Store.meta(key)
+end
+
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
 --- ([`identity.Identities`]). A rebuild uses the stale tool's compiler and
 --- writer, so the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too.
-local function unsettled(): boolean
-  local written_by = Store.meta("written_by")
-  local compiled_by = Store.meta("compiled_by")
-  return written_by == nil or written_by ~= Store.meta("writer") or
-    compiled_by == nil or compiled_by ~= Store.meta("compiler")
+local function unsettled(seen?: reboot.Seen): boolean
+  local written_by = meta_of("written_by", seen)
+  local compiled_by = meta_of("compiled_by", seen)
+  return written_by == nil or written_by ~= meta_of("writer", seen) or
+    compiled_by == nil or compiled_by ~= meta_of("compiler", seen)
 end
 
 --- What a tool stale against the core says when it does not boot.
@@ -152,15 +166,15 @@ local function reentry(program: string, argv: {integer:string}): {string}
 end
 
 --- Compares the tree's fingerprints with the running binary's.
-local function state_of(handle: work.Handle): reboot.State | nil, string
+local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State | nil, string
   local fingerprint, trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     return nil, trouble
   end
-  if fingerprint.boot == (Store.meta("boot_hash") or "") then
+  if fingerprint.boot == (meta_of("boot_hash", seen) or "") then
     return "fresh"
   end
-  if fingerprint.image == (Store.meta("image_hash") or "") then
+  if fingerprint.image == (meta_of("image_hash", seen) or "") then
     return "teal"
   end
   return "core"
@@ -414,15 +428,39 @@ local read_on <const> = -1
 --- tree's, so its lookup builds as any does.
 local read_on_fresh <const> = -2
 
---- The tree this process's check of the tool ([`reboot.stale_exit`]) went
---- on in without holding the tool to it ([`reboot.unchecked`]), by its
---- build directory, however its root is spelled, and the one it found
---- the tool older than.
+--- The trees this process's check of the tool ([`reboot.stale_exit`])
+--- went on in without holding the tool to them ([`reboot.unchecked`]),
+--- and those of them it found the tool older than, each a set of build
+--- directories, so a tree is one however its root is spelled. A set is
+--- its members each ended by a newline, which no path holds here.
 local record WentOn
-  unchecked: string | nil
-  stale: string | nil
+  unchecked: string
+  stale: string
 end
-local went_on: WentOn = { unchecked = nil, stale = nil }
+local went_on: WentOn = { unchecked = "", stale = "" }
+
+--- Whether the set `set` ([`WentOn`]) holds `directory`.
+local function holds(set: string, directory: string): boolean
+  return ("\n" .. set):find("\n" .. directory .. "\n", 1, true) ~= nil
+end
+
+--- The set `set` with `directory` in it.
+local function with(set: string, directory: string): string
+  if holds(set, directory) then return set end
+  return set .. directory .. "\n"
+end
+
+--- The set `set` without `directory`.
+local function without(set: string, directory: string): string
+  local at = ("\n" .. set):find("\n" .. directory .. "\n", 1, true)
+  if at == nil then return set end
+  return set:sub(1, at - 1) .. set:sub(at + #directory + 1)
+end
+
+--- The build directory of the tree at `root`, as `went_on` holds it.
+local function directory_of(root: string): string
+  return build_paths.resolve(root).directory
+end
 
 --- Whether this process's check before a verb that only reads
 --- ([`reboot.stale_exit`]) went on in the tree at `root` without holding
@@ -432,14 +470,47 @@ local went_on: WentOn = { unchecked = nil, stale = nil }
 --- this tool's code may be older than the tree's, and reads what is
 --- there.
 function reboot.unchecked(root: string): boolean
-  return went_on.unchecked ~= nil and went_on.unchecked == build_paths.resolve(root).directory
+  return holds(went_on.unchecked, directory_of(root))
 end
 
 --- Whether that check found the tool older than the tree at `root` and
---- went on with it, another run holding the rebuild lock: then `cosmic
---- lsp` stages nothing either ([`rebuild.stage`]).
+--- went on with it, another run holding the rebuild lock, or a later
+--- [`reboot.recheck`] found it so: then `cosmic lsp` stages nothing
+--- either ([`rebuild.stage`]).
 function reboot.read_stale(root: string): boolean
-  return went_on.stale ~= nil and went_on.stale == build_paths.resolve(root).directory
+  return holds(went_on.stale, directory_of(root))
+end
+
+--- Checks again a tree at `root` that the check before a verb that only
+--- reads went on in unchecked ([`reboot.unchecked`]), not yet found
+--- stale, once no run holds its working database: it stages the tree
+--- and compares it with the running tool, as that check does, but
+--- rebuilds and re-enters nothing, so it can be asked in a running
+--- `cosmic lsp`. A tool as new as the tree, settled or not, leaves the
+--- tree checked; any other is stale to it ([`reboot.read_stale`]). Where
+--- a run still holds the database, or the check fails, the tree stays
+--- unchecked. `seen` is [`reboot.Seen`].
+function reboot.recheck(root: string, seen?: reboot.Seen)
+  local directory = directory_of(root)
+  if not holds(went_on.unchecked, directory) or holds(went_on.stale, directory) then return end
+  local own_tree, _ = tree.is_own(root)
+  if own_tree == nil then return end
+  local tried, _ = work.try_open(root)
+  if tried == nil then return end
+  local handle = tried.handle
+  if handle == nil then return end
+  local staged, _ = work.stage(handle, own_tree)
+  if staged == nil then
+    local _, _ = work.abort(handle)
+    return
+  end
+  local state, _ = state_of(handle, seen)
+  local _, _ = work.close(handle)
+  if state == "fresh" then
+    went_on.unchecked = without(went_on.unchecked, directory)
+  elseif state ~= nil then
+    went_on.stale = with(went_on.stale, directory)
+  end
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
@@ -702,12 +773,12 @@ end
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
                       argv: {integer:string}, reads?: boolean, seen?: reboot.Seen): integer | nil
-  local state, state_trouble = state_of(handle)
+  local state, state_trouble = state_of(handle, seen)
   if state == nil then
     log:complain(closing(handle, state_trouble))
     return 1
   end
-  if state == "fresh" and not unsettled() then
+  if state == "fresh" and not unsettled(seen) then
     return nil
   end
   local tool: string | nil = nil
@@ -775,7 +846,7 @@ function reboot.guard(handle: work.Handle, root: string,
   -- which is the tree's ([`carries_tree_code`]), takes of the tree, rather
   -- than refusing; `into` sets the marker to "2", so a tool stale after
   -- that refuses.
-  local settle = entered_by(seen) == "1" and unsettled()
+  local settle = entered_by(seen) == "1" and unsettled(seen)
   local refused = refusal(settle, seen)
   if refused ~= nil then
     log:complain(closing(handle, refused))
@@ -890,7 +961,7 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
       else
         work.tell_busy(argv[1] or "cosmic", working)
       end
-      went_on.unchecked = build_paths.resolve(at).directory
+      went_on.unchecked = with(went_on.unchecked, directory_of(at))
       return nil
     end
     handle = held
@@ -915,10 +986,10 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
       log:complain(closing(handle, recorded_trouble))
       return 1
     end
-    fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
+    fresh = recorded ~= nil and recorded == (meta_of("boot_hash", seen) or "")
     -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
-    if fresh and unsettled() then
+    if fresh and unsettled(seen) then
       local tool: string | nil = nil
       if seen ~= nil then tool = seen.tool end
       local own, _ = reboot.own_tool(at, tool)
@@ -933,24 +1004,25 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
     end
     local code = reboot.guard(handle, at, argv, reads, seen)
     if code == read_on then
-      local directory = build_paths.resolve(at).directory
-      if went_on.stale ~= directory then
+      local directory = directory_of(at)
+      if not holds(went_on.stale, directory) then
         log:complain((argv[1] or "cosmic") .. ": this tool is older than the tree, so what it answers " ..
             "comes from its own older code")
       end
-      went_on.unchecked, went_on.stale = directory, directory
+      went_on.unchecked = with(went_on.unchecked, directory)
+      went_on.stale = with(went_on.stale, directory)
       return nil
     end
     if code == read_on_fresh then
+      went_on.unchecked = without(went_on.unchecked, directory_of(at))
       return nil
     end
     if code ~= nil then
       return code
     end
   end
-  if reboot.unchecked(at) then
-    went_on.unchecked, went_on.stale = nil, nil
-  end
+  went_on.unchecked = without(went_on.unchecked, directory_of(at))
+  went_on.stale = without(went_on.stale, directory_of(at))
   local closed, close_trouble = work.close(handle)
   if not closed then
     log:complain(close_trouble)

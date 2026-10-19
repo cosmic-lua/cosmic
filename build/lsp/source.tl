@@ -354,6 +354,12 @@ local function reopened(src: source.View): Reopening
   return "read"
 end
 
+--- What a session says of a tool older than the tree it serves
+--- ([`rebuild.Where`]'s `stale`).
+local older_line <const> = "this tool is older than the tree, and another cosmic run held the " ..
+  "rebuild lock when it started; not staging, answering from the tree as last staged, with " ..
+  "its older code, until the editor starts it again"
+
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
 --- run made the database again, and whether its stubs are the running
@@ -395,13 +401,15 @@ function source.refresh(src: source.View, built: compiler)
     return
   end
   if staged ~= nil and (staged.busy or staged.stale) then
-    if not src.told_busy and staged.stale then
-      src.err("cosmic: lsp: this tool is older than the tree, and another cosmic run held the " ..
-          "rebuild lock when it started; not staging, answering from the tree as last staged " ..
-          "until the editor starts it again")
-    elseif not src.told_busy then
-      src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
-          tostring(src.working) .. "; not staging, answering from the tree as last committed")
+    -- Each said once a session ([`source.older`] for the editor), though
+    -- the stage is tried again at each check.
+    if not src.told_busy then
+      if staged.stale then
+        src.err("cosmic: lsp: " .. older_line)
+      else
+        src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
+            tostring(src.working) .. "; not staging, answering from the tree as last committed")
+      end
       src.told_busy = true
     end
     listed(src, false)
@@ -414,6 +422,14 @@ function source.refresh(src: source.View, built: compiler)
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- What to show the person, once, where the last stage found the tool
+--- older than the tree ([`rebuild.Where`]'s `stale`), or nil.
+function source.older(src: source.View): string | nil
+  local where = src.where
+  if where ~= nil and where.stale then return older_line end
+  return nil
 end
 
 --- Stages the tree again at the next [`source.refresh`]: files changed on

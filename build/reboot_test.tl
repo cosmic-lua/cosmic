@@ -273,6 +273,10 @@ local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(
   -- Unchecked, the tool's code may be older than the tree's: a lookup
   -- there builds nothing, though the lock is free now.
   assert(reboot.unchecked(tmp), "the skipped check is not remembered")
+  -- Nor does `cosmic lsp`'s stage derive with it: checked again now the
+  -- database is free, the test runner's tool is older than this tree.
+  local staged = assert(rebuild.stage(tmp, (assert(require("build.teal").load()))))
+  assert(staged.stale, "lsp's stage staged with a tool the check skipped")
   local before = builds_of(tmp)
   assert(rebuild.here("docs", false, tmp))
   assert(builds_of(tmp) == before, "a lookup built with a tool the check skipped")

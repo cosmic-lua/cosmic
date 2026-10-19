@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
+local reboot = require("build.reboot")
 local session_fixture = require("build.lsp.session_fixture")
 local source = require("build.lsp.source")
 local teal = require("build.teal")
@@ -506,4 +507,43 @@ local function test_stubs_another_run_derived_are_trusted_no_more()
   assert(ran.tally.stages == 1 and ran.tally.database_stubs == 1 and ran.tally.made_stubs == 1,
     tostring(ran.tally.stages) .. "," .. tostring(ran.tally.database_stubs) .. "," ..
       tostring(ran.tally.made_stubs))
+end
+
+--- `cosmic lsp` whose tool check went on unchecked, another run holding
+--- the working database ([`reboot.stale_exit`]), checks the tool again
+--- once the database is free ([`reboot.recheck`]). Older than the tree, as
+--- the test runner's tool is than this one shaped as cosmic's own, it
+--- stages nothing at any check, rather than derive stubs with its older
+--- code, and says why once: on stderr, and to the person.
+local function test_a_stale_lsp_stages_nothing_and_says_so_once()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local working = build_paths.resolve(root).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local code = reboot.stale_exit({ [1] = "lsp" }, true, root)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == nil, tostring(code))
+  assert(reboot.unchecked(root), "the skipped check is not remembered")
+  local send = serving(root)
+  local main = "return 1\n"
+  send({ initialize(root), open(root, "main.tl", main) })
+  local ran = send({ change(root, "main.tl", main .. "\n"), save(root, "main.tl"),
+    changed_on_disk(root, "main.tl"), change(root, "main.tl", main) })
+  assert(reboot.read_stale(root), "the tool was not checked again")
+  assert(ran.tally.stages == 0, "staged " .. tostring(ran.tally.stages) .. " times with a stale tool")
+  local _, said = ran.err:gsub("this tool is older than the tree", "")
+  assert(said == 1, ran.err)
+  local older = 0
+  for _, body in ipairs(ran.sent) do
+    if session_fixture.sent(body).method == "window/showMessage" and
+        body:find("older than the tree", 1, true) ~= nil then
+      older = older + 1
+    end
+  end
+  assert(older == 1, table.concat(ran.sent, "\n"))
 end

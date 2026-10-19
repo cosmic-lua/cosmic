@@ -36,10 +36,9 @@ local record rebuild
     --- it staged nothing, the file being of another schema than this
     --- tool's ([`work.try_open`]).
     other_schema: string | nil
-    --- Whether [`rebuild.stage`] staged nothing, the check before the
-    --- verb having found the tool older than the tree and gone on with it,
-    --- another run holding the rebuild lock ([`reboot.read_stale`]): what
-    --- this tool's code derived would be another's than the tree's.
+    --- Whether [`rebuild.stage`] staged nothing, the tool being older than
+    --- the tree ([`reboot.read_stale`]): what its code derived would be
+    --- another's than the tree's.
     stale: boolean
   end
 end
@@ -84,6 +83,17 @@ local function where(root: string): rebuild.Where | nil, string
     other_schema = nil, stale = false }, ""
 end
 
+--- Whether the check before the verb went on in the tree at `root`
+--- without holding the tool to it, having checked it again first
+--- ([`reboot.recheck`]): a stage or a lookup's build there would run code
+--- that may be older than the tree's. Loaded only here, as a lookup that
+--- reaches this is one the check came before.
+local function unchecked(root: string): boolean
+  local reboot = require("build.reboot")
+  reboot.recheck(root)
+  return reboot.unchecked(root)
+end
+
 --- Whether `root` looks like a project that has not been built: Teal at
 --- its top, or a `cmd/`.
 local function looks_unbuilt(root: string): boolean
@@ -119,12 +129,13 @@ end
 --- projection under it, says so once ([`rebuild_lock.try_hold`]), and
 --- the caller reads the projection that is there. Where the check before
 --- the verb went on without holding the tool to the tree
---- ([`reboot.unchecked`]), the tool's code may be older than the tree's,
---- so a lookup's builds nothing, and the caller reads what is there.
+--- ([`reboot.unchecked`]), it checks the tool again ([`reboot.recheck`]);
+--- where the tool may still be older than the tree, a lookup's builds
+--- nothing, and the caller reads what is there.
 local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
-  if not start and require("build.reboot").unchecked(root) then
+  if not start and unchecked(root) then
     -- Compiled by code that may be older than the tree's, the rows and
     -- the projection would be keyed and signed as no build of the tree
     -- would make them.
@@ -187,17 +198,20 @@ end
 --- database ([`work.try_open`]), nothing is staged, and what it answers
 --- is `busy`. Where the database is of another schema, nothing is staged
 --- and none of it read, and what it answers names that schema. Where
---- the check before the verb found the tool older than the tree and went
---- on with it ([`reboot.read_stale`]), nothing is staged, and what it
---- answers is `stale`. Answers what the directory is, or nil and why it
---- could not be staged.
+--- the check before the verb went on without holding the tool to the
+--- tree ([`reboot.unchecked`]), the tool is checked again
+--- ([`reboot.recheck`]): where it is older than the tree, nothing is
+--- staged and what it answers is `stale`; where a run still holds the
+--- database, what it answers is `busy`. Answers what the directory is,
+--- or nil and why it could not be staged.
 function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, string
   local found, found_trouble = where(root)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
-  if require("build.reboot").read_stale(root) then
+  if unchecked(root) then
+    local stale = require("build.reboot").read_stale(root)
     return { project = true, own_tree = found.own_tree, directory = found.directory,
-      busy = false, other_schema = nil, stale = true }, ""
+      busy = not stale, other_schema = nil, stale = stale }, ""
   end
   local opening, open_trouble = work.try_open(root)
   if opening == nil then return nil, open_trouble end

@@ -23,6 +23,7 @@ local this_program = require("build.this_program")
 local build_paths = require("build.paths")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
+local identity = require("build.identity")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
@@ -403,7 +404,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
   local started = Clock.monotonic_ns()
   local ok, failure = pcall(function()
     local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root,
-      { tool = layout.tool, environment = {} })
+      { tool = layout.tool, environment = {}, meta = {} })
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
     assert(took < Clock.seconds(10), tostring(took) .. " ns")
@@ -416,4 +417,55 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
   end)
   assert(sys.close(lock))
   if not ok then error(failure) end
+end
+
+--- A tree shaped as cosmic's own at `root`, its working database made
+--- and staged: the fingerprint the stage recorded of it.
+local function own_tree(root: string): identity.Fingerprint
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.mkdirs(build_paths.resolve(root).bin))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  assert(work.close(handle))
+  return fingerprint
+end
+
+--- Runs `body` while the rebuild lock of `root` is held as another process
+--- holds it, then lets it go, raising what `body` raised.
+local function held_elsewhere(root: string, body: function())
+  local lock = assert(sys.open(build_paths.resolve(root).lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local ok, failure = pcall(function(): boolean
+    body()
+    return true
+  end)
+  assert(sys.close(lock))
+  if not ok then error(failure) end
+end
+
+--- A tool as new as the tree but unsettled, its database written by
+--- other code than it carries, goes on as a stale one does while another
+--- run holds the rebuild lock, rebuilding nothing; but its code is the
+--- tree's, so the tree is not left unchecked and its lookup builds. Its
+--- running binary's `meta` is named ([`reboot.Seen`]), as the test
+--- runner's is not this tree's.
+local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_and_builds(tmp: string)
+  local root = tmp .. "/tree"
+  local fingerprint = own_tree(root)
+  local layout = build_paths.resolve(root)
+  held_elsewhere(root, function()
+    local started = Clock.monotonic_ns()
+    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, {
+      tool = layout.tool, environment = {},
+      meta = { boot_hash = fingerprint.boot, written_by = "an older writer", writer = "this writer" },
+    })
+    local took = Clock.monotonic_ns() - started
+    assert(code == nil, tostring(code))
+    assert(took < Clock.seconds(10), tostring(took) .. " ns")
+    assert(not reboot.read_stale(root), "a fresh tool is taken for a stale one")
+    assert(not reboot.unchecked(root), "a fresh tool's tree is left unchecked")
+  end)
 end

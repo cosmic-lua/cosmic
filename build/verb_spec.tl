@@ -22,9 +22,13 @@ local record verb_spec
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
     --- True for a verb that only reads the tree's databases, and writes
-    --- nothing of its working database but what a lookup's own build
-    --- writes ([`rebuild.here`]) and, for `todos`, the blame it keeps: no
-    --- staleness check before it ([`reboot.stale_exit`]) waits for another
+    --- nothing of its working database but the stage of the tree its
+    --- staleness check makes, as any verb's does ([`reboot.stale_exit`]),
+    --- what a lookup's own build writes ([`rebuild.here`]) and, for `todos`,
+    --- its own stage and the blame it keeps, each where no other run holds
+    --- the database. The flag says so of the verb whatever it changes: it
+    --- is the contract, which `sql` is marked by too though nothing reads
+    --- the flag for it. No staleness check before such a verb waits for another
     --- run that holds that database's write lock -- a build, a lookup's
     --- build, `cosmic lsp`'s stage or a boot -- or the checkout's rebuild
     --- lock ([`build.rebuild_lock`]) -- a `cosmic test` run, a rebuild of

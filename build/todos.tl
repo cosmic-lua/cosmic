@@ -15,8 +15,10 @@
 --- listed, with no commit.
 ---
 --- It only reads ([`verb_spec.Spec`]'s `reads`): it waits for no other
---- run. Where one holds `build.db`'s write lock, it stages and blames
---- nothing and lists what that run last committed (`read`).
+--- run. Where one holds `build.db`'s write lock, or the check of the
+--- tool before it went on without holding the tool to the tree
+--- ([`reboot.unchecked`]), it stages and blames nothing and lists what
+--- is committed there (`read`).
 
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
@@ -676,8 +678,9 @@ end
 --- does, which indexes its TODOs, blames the ones not yet blamed, and
 --- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then its summary on stderr. Where another run holds
---- the working database's write lock, it lists what that run last
---- committed (`read`), waiting for none.
+--- the working database's write lock, or the check of the tool went on
+--- unchecked ([`reboot.unchecked`]), it lists what is committed there
+--- (`read`), staging nothing and waiting for none.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
 local function run(argv: {integer:string}): integer
@@ -728,6 +731,12 @@ local function run(argv: {integer:string}): integer
   end
   local db: Sqlite.Handle
   if handle ~= nil then
+    -- TODO: blame outside the write transaction. A free database is
+    -- staged and blamed, one git run per file, under its write lock, so
+    -- a `cosmic test` started meanwhile waits for this `todos`. It waits
+    -- on [`todos.list`] split in two: a read of the rows and their blame
+    -- by git with no transaction held, then one short write of what git
+    -- said, made again where the rows moved meanwhile.
     local staged, stage_trouble = work.stage(handle, own_tree)
     if staged == nil then
       local _, _ = work.abort(handle)
