@@ -453,6 +453,9 @@ local function run(file: string, argv: {integer:string}): integer
   end
   -- A broken file the file run does not reach is left out of the database
   -- too, the run going on without it ([`importer.compile_for`]).
+  -- TODO: keep a left-out module's last good rows in the projection, once
+  -- the writer can carry a module's rows from the projection it replaces:
+  -- until a whole build, `cosmic docs` and `uses` miss it and what requires it.
   for _, line in ipairs(result.left_out) do
     log:complain("warning: " .. line)
   end

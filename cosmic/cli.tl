@@ -31,16 +31,17 @@ local record Cli
   --- `argv[1]` reads it as the end of the options, so `cosmic f.tl --
   --- --help` gives it the word "--help" and no option.
   ---
-  --- A file of the tree that does not parse or compile stops the run
-  --- only when the file requires it, itself or through another module.
-  --- One it does not require is left out, with a warning naming it and
-  --- why, and the file runs. `cosmic test` and `cosmic fix` still build
-  --- the whole tree and refuse it.
-  ---
   ---     return function(argv: {string}): integer
   ---       print("from " .. argv[1] .. " to " .. argv[2])
   ---       return 0
   ---     end
+  ---
+  --- A file of the tree that does not parse or type-check stops the run
+  --- only when the file requires it, itself or through another module.
+  --- One it does not require is left out, with a warning naming it and
+  --- why, and the file runs. A check of the whole tree -- a global, a
+  --- cycle of imports -- stops every run wherever it is met. `cosmic test`
+  --- and `cosmic fix` build the whole tree, and refuse a broken file anywhere.
   ---
   --- A tree's build directory is outside it, this user's own:
   --- $XDG_CACHE_HOME/cosmic/trees/<key> (~/.cache/cosmic/trees/<key>),

@@ -1165,29 +1165,38 @@ local record Hinting
   projection: Sqlite.Handle | nil
 end
 
---- Every module `target` reaches through what each requires, itself
---- included, by path: the paths of `modules`, and the names no module of
---- them has (a standard-library module, a declaration, or a source that
---- does not parse), which reach no further.
-local function reach(modules: {Module}, target: string): {string:boolean}
-  local by_path: {string:Module} = {}
-  for _, m in ipairs(modules) do
-    by_path[m.path] = m
+--- Every module path `target` reaches through what each source at a
+--- path requires, itself included: a declaration's requires as well as
+--- its implementation's, since a caller is checked against the one and
+--- runs the other. A name no source of the tree is (a standard-library
+--- module), or one whose only source does not parse, reaches no further.
+local function reach(db: Sqlite.Handle, target: string): {string:boolean} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
+      "WHERE i.kind <> 'vendor' ORDER BY i.path, r.ordinal")
+  if rows == nil then
+    return nil, trouble
+  end
+  local requires: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local list = requires[row:text(1)]
+    if list == nil then
+      list = {}
+      requires[row:text(1)] = list
+    end
+    list[#list + 1] = row:text(2)
   end
   local reached: {string:boolean} = { [target] = true }
   local pending: {string} = { target }
   while #pending > 0 do
-    local m = by_path[table.remove(pending)]
-    if m ~= nil then
-      for _, name in ipairs(m.requires) do
-        if not reached[name] then
-          reached[name] = true
-          pending[#pending + 1] = name
-        end
+    for _, name in ipairs(requires[table.remove(pending)] or {}) do
+      if not reached[name] then
+        reached[name] = true
+        pending[#pending + 1] = name
       end
     end
   end
-  return reached
+  return reached, ""
 end
 
 --- Whether `m` requires a module the run left out (`failed`).
@@ -1201,13 +1210,21 @@ local function leans_on(m: Module, failed: {string:boolean}): boolean
 end
 
 --- The line [`importer.Result`]'s `left_out` holds for `file`, refused
---- with `trouble`: a parse's (`file: file:y:x: why`) or the checker's
---- (`file: the compiler refused it`, then a line per error), of which it
---- keeps the first line that says why.
-local function left_out(file: string, trouble: string): string
-  local why = trouble:match("^[^\n]*\n([^\n]*)") or trouble:match("^[^\n]*") or trouble
-  if why:sub(1, #file + 2) == file .. ": " then
-    why = why:sub(#file + 3)
+--- with `trouble`, which names `named` -- `file`, or another file of the
+--- same source -- at the start of its lines: why, from its first line
+--- (`named: named:y:x: why`, a parse's), or from the line after it where
+--- the first only says the checker refused it (`named: the compiler
+--- refused it`, then a line per error), with `named` there read as `file`.
+local function left_out(file: string, named: string, trouble: string): string
+  local first = trouble:match("^[^\n]*") or trouble
+  local why = first
+  if first == named .. ": the compiler refused it" then
+    why = trouble:match("^[^\n]*\n([^\n]*)") or first
+  elseif first:sub(1, #named + 2) == named .. ": " then
+    why = first:sub(#named + 3)
+  end
+  if why:sub(1, #named + 1) == named .. ":" then
+    why = file .. why:sub(#named + 1)
   end
   return file .. " is left out of this run, which does not require it: " .. why
 end
@@ -1231,21 +1248,27 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   local failed: {string:boolean} = {}
   local left: {string} = {}
   if target ~= nil then
-    local reached = reach(modules, target)
+    local reached, reach_trouble = reach(handle.db, target)
+    if reached == nil then
+      return nil, reach_trouble
+    end
     needed = reached
     for _, one in ipairs(broken or {}) do
-      local paths, paths_trouble = Sqlite.text_rows(handle.db,
-        "SELECT path FROM inputs WHERE source_hash = ?1", { text(one.source_hash) })
-      if paths == nil then
-        return nil, paths_trouble
+      -- Each file holding the broken source: files alike are one source.
+      local holders, holders_trouble = Sqlite.text_rows(handle.db,
+        "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+      if holders == nil then
+        return nil, holders_trouble
       end
-      for _, row in ipairs(paths) do
+      for _, row in ipairs(holders) do
         if reached[row:text(1)] then
           return nil, one.message
         end
-        failed[row:text(1)] = true
       end
-      left[#left + 1] = left_out(one.file, one.message)
+      for _, row in ipairs(holders) do
+        failed[row:text(1)] = true
+        left[#left + 1] = left_out(row:text(2), one.file, one.message)
+      end
     end
   end
   local positioned, position_trouble = positions.check(modules, own_tree,
@@ -1448,7 +1471,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
                 progress.failure = generate_trouble
                 break
               end
-              result.left_out[#result.left_out + 1] = left_out(m.file, generate_trouble)
+              result.left_out[#result.left_out + 1] = left_out(m.file, m.file, generate_trouble)
               failed[m.path] = true
             end
             generated = made_generated

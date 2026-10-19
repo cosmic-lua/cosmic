@@ -157,6 +157,11 @@ end
 --- says why where it cannot be, or lists it in `broken` when given, as
 --- `parse_fresh` does. The answer and the counts are `parse_fresh`'s,
 --- and `tally.worked` counts the sources a worker parsed.
+--
+-- TODO: have a worker go past a source that does not parse, once its
+-- results can say which it could not: it stops its shard there, so with
+-- `broken` the rest of the shard is parsed here, one by one, on every run
+-- the broken source stays.
 --- @param pool the workers, already ready for these sources
 --- @param built the compiler a source that no worker parsed is parsed with
 function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
