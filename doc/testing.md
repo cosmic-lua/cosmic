@@ -33,6 +33,10 @@ stands on another checkout's pass.
 
 - `--all` (`COSMIC_TEST_ALL=1`) runs every test.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
+- `COSMIC_GRAMMAR=new` asks for the new checker ([`build.grammar_mode`]).
+  The compiles and verdicts of such a run are keyed apart from the fork's.
+  The build's compile does not call [`build.pipeline`] yet, so the run still
+  compiles with the fork.
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
 `--bail` (`COSMIC_TEST_BAIL=1`) starts no test after the first failure.
@@ -340,7 +344,8 @@ checker takes to run without one. Those properties run it with the hook the tool
 ([`build.test_worker`]'s `install_checks`), the `__fact` that [`lang.fact_wraps`] gives each read the place, the kinds, the
 enum strings, the classes and the tag of: a false conclusion raises as above and is also kept as a row of
 `type_violations` of kind `fact` (the read as `<file>:<line>:<column>`, the place as written, what the checker proved,
-what the value was), which survives a test that catches the error. [`build.compile_grammar`]'s `compile`
+what the value was), which survives a test that catches the error. A `cosmic` that such a test starts defines a `__fact`
+that answers its value and checks nothing ([`cmd/cosmic/main.tl`]). [`build.compile_grammar`]'s `compile`
 writes the wraps given `facts` (no flag of `cosmic compile` asks for them); the build compiles with the fork until the tool
 is wired to the new checker.
 
@@ -466,10 +471,12 @@ Other rules:
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
+[`build.grammar_mode`]: ../build/grammar_mode.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
 [`build.harness_epoch`]: ../build/harness_epoch.tl
 [`build.host_names`]: ../build/host_names.tl
 [`build.paths`]: ../build/paths.tl
+[`build.pipeline`]: ../build/pipeline.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
@@ -481,6 +488,7 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`ci/README.md`]: ../ci/README.md
+[`cmd/cosmic/main.tl`]: ../cmd/cosmic/main.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl

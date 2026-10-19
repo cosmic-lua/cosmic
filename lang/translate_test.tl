@@ -1395,3 +1395,18 @@ local function test_the_forms_the_draft_has_rewritten_by_hand_are_the_errors_lef
   end
   assert(table.concat(codes, " ") == "tuple_type reserved_word string_call", table.concat(codes, " "))
 end
+
+-- A function that answers nothing may say so with an empty return list, which a doctest's helper does; reading its list
+-- for a union in parentheses must not look at a first type that is not there.
+local function test_an_empty_return_list_is_read_and_left_as_it_is()
+  local source = lines(
+    "local into = function(...: any): ()",
+    "end",
+    "local function done(): ()",
+    "end",
+    "local t: function(): ()",
+    "return into")
+  local result = Translate.translate(source, "t.tl")
+  assert(result.text:sub(1, #"local into = function(...: any): ()") == "local into = function(...: any): ()", result.text)
+  assert(result.text:find("local function done(): ()", 1, true) ~= nil, result.text)
+end

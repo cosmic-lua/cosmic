@@ -2184,16 +2184,17 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
 end
 
---- Only three jobs save a cache every run restores: the platform legs
---- and the checked job, where COSMIC_CI_SAVES (main's push and the
---- scheduled run), and `seed`, which runs only on a push to main that
---- found the queue's run.
+--- Only four jobs save a cache every run restores: the platform legs,
+--- the checked job and the rehearsal, where COSMIC_CI_SAVES (main's push
+--- and the scheduled run), and `seed`, which runs only on a push to main
+--- that found the queue's run.
 local function test_only_the_legs_and_their_seed_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
     local saves = 0
     for _ in pairs(saves_of(job.steps as {{string: any}} or {})) do saves = saves + 1 end
-    assert(saves == 0 or name == "platform" or name == "checked" or name == "seed", "job " .. name .. " saves a cache")
+    assert(saves == 0 or name == "platform" or name == "checked" or name == "rehearsal" or name == "seed",
+      "job " .. name .. " saves a cache")
   end
 end
 
@@ -2339,7 +2340,87 @@ local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
   [DIR .. "/ci.yml prune"] = true,
   [DIR .. "/ci.yml invalidate"] = true,
   [DIR .. "/ci.yml cancel"] = true,
+  -- A rehearsal of a full run only: a branch push has no suite to run on it, and starting a runner to skip every step costs
+  -- as much as the job's boot.
+  [DIR .. "/ci.yml rehearsal"] = true,
 }
+
+--- The object `steps` reach in `value` as a table of values of any type, empty where there is none.
+local function object_at(value: any, steps: Json.Steps): {string: any}
+  local reached = Json.encode((Json.get(value, steps)))
+  if reached == nil then
+    return {}
+  end
+  local object = Json.decode_object(reached)
+  if object == nil then
+    return {}
+  end
+  return object
+end
+
+--- How many elements the array `steps` reach in `value` has, none where there is none.
+local function length_at(value: any, steps: Json.Steps): integer
+  local reached = Json.encode((Json.get(value, steps)))
+  if reached == nil then
+    return 0
+  end
+  local array = Json.decode_array(reached)
+  if array == nil then
+    return 0
+  end
+  return #array
+end
+
+--- The value of `key` in `map` where it is a string, and "" where it is not.
+local function text_at(map: {string: any}, key: string): string
+  local found = map[key]
+  if found is string then
+    return found
+  end
+  return ""
+end
+
+--- The rehearsal runs the whole suite with the new checker in a job of its own, beside the legs and the checked job, on
+--- linux-x86_64's host under a name of its own. It is informational: it is a full run's only, it fails nothing it
+--- belongs to, and no job that gates a merge or prunes a cache waits on it. Its verdicts are the one cache it saves.
+local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keeps_verdicts_of_its_own()
+  local jobs = assert(decoded_workflows()[DIR .. "/ci.yml"])
+  local rehearsal, checked = object_at(jobs, { "jobs", "rehearsal" }), object_at(jobs, { "jobs", "checked" })
+  assert(rehearsal["continue-on-error"] == true, "the rehearsal fails the run")
+  assert(Json.encode(rehearsal["needs"]) == Json.encode(checked["needs"]) and rehearsal["runs-on"] == checked["runs-on"],
+    "the rehearsal runs elsewhere")
+  local condition = text_at(rehearsal, "if")
+  assert(condition:find("needs.reuse.outputs.run == ''", 1, true) ~= nil and
+      condition:find("github.event_name != 'push' || github.ref == 'refs/heads/main'", 1, true) ~= nil,
+    "the rehearsal runs other than on a full run that found no queue run: " .. condition)
+  local name = text_at(rehearsal, "name")
+  assert(name == "linux-x86_64-new-grammar" and text_at(object_at(rehearsal, { "env" }), "COSMIC_WORKER") == name, name)
+  -- no job waits on it, whether `needs` is a list or one name
+  for other in pairs(object_at(jobs, { "jobs" })) do
+    local needs = Json.encode((Json.get(jobs, { "jobs", other, "needs" }))) or ""
+    assert(needs:find('"rehearsal"', 1, true) == nil, other .. " waits on the rehearsal")
+  end
+  local phases = ""
+  local named = false
+  local saved = ""
+  for index = 1, length_at(rehearsal, { "steps" }) do
+    local step = object_at(rehearsal, { "steps", index })
+    local run = text_at(step, "run")
+    local phase = run:match("driver%.tl platform ([%w-]+)$")
+    if phase ~= nil then
+      phases = phases .. phase .. " "
+    end
+    named = named or run:find('leg-host-id "linux-x86_64-new-grammar" ', 1, true) ~= nil
+    if text_at(step, "uses"):find("actions/cache/save@", 1, true) ~= nil then
+      local with = object_at(step, { "with" })
+      saved = saved .. text_at(with, "path") .. " " .. text_at(with, "key") .. "\n"
+    end
+  end
+  assert(phases == "boot rehearsal ", "the rehearsal runs the phases " .. phases)
+  assert(named, "the rehearsal's verdicts are named by another host")
+  assert(saved == "${{ runner.temp }}/verdicts ${{ steps.host-id.outputs.verdicts }}" ..
+      "${{ steps.verdicts-trim.outputs.digest }}\n", "the rehearsal saves " .. saved)
+end
 
 local function test_a_branch_push_starts_no_job_it_skips()
   local count = 0

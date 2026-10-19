@@ -536,8 +536,11 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
 local fixed_point_per_test_timeout_s <const> = "420"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
---- for what it takes.
-local checked_suite_timeout_ns <const> = Clock.seconds(1200)
+--- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
+--- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
+--- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). The job's 45 minutes hold the
+--- build before this step and the narrowing run after it.
+local checked_suite_timeout_ns <const> = Clock.seconds(1500)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -554,6 +557,14 @@ local checked_suite_test_timeout_s <const> = "120"
 -- time; they are sized from that one local run.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
 local checked_narrowing_test_timeout_s <const> = "120"
+
+--- The whole suite with the new checker ([`phase_rehearsal`]): bounded as the checked run is, which it is the size of
+--- plus the cold compile of the tree by the new pipeline.
+
+-- TODO: lower these bounds once CI's own runs of the phase show its elapsed time; they are the checked run's, since the
+-- build's compile does not call the new pipeline yet.
+local rehearsal_timeout_ns <const> = Clock.seconds(1800)
+local rehearsal_test_timeout_s <const> = "120"
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1062,12 +1073,14 @@ local function checked_suite(c: Context, target: string, work: string,
   mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- The bound is about twice what the suite takes when no verdict
-  -- stands: 271 s whole (248 to 285 over six main runs of September 2026)
-  -- for 1948 tests on a 4-core host, each worker sandboxed, the checked
-  -- core running each test about 2.9 times slower than the release core
-  -- does; 3709 tests took 395 s locally on four cores in October 2026,
-  -- and more than 600 s on CI's, in the merge queue.
+  -- The bound is a little over a third above what the suite takes when
+  -- no verdict stands: 271 s whole (248 to 285 over six main runs of
+  -- September 2026) for 1948 tests on a 4-core host, each worker
+  -- sandboxed, the checked core running each test about 2.9 times slower
+  -- than the release core does; 3709 tests took 395 s locally on four
+  -- cores in October 2026, and more than 600 s on CI's, in the merge
+  -- queue; 7800 tests took 800 to 1114 s there, and 1700 to 1900 s on
+  -- four cores here (see `checked_suite_timeout_ns`).
   -- Where its key holds, it stands on the last run's verdicts as the
   -- local suite does: a commit that moves neither the core nor the
   -- runner keys the checked core by the same digest, since its image
@@ -1404,6 +1417,17 @@ local function phase_declared_types(p: PlatformContext): integer
   return status
 end
 
+--- `values`, the environment of a suite on the release core, without the promise of `checked`. The checked job's leg
+--- promises it, the sanitized core's instruments, which a run on the release core lacks: a held run would fail every test
+--- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
+local function release_promises(values: {string:string})
+  local promised: {string} = {}
+  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
+    if name ~= "checked" then promised[#promised + 1] = name end
+  end
+  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+end
+
 --- The whole suite on a checked run (`cosmic test --check-types`), on the
 --- linux-x86_64 target alone: each read the checker narrowed by a test is
 --- written as a check of the test's fact, and a test that meets a read
@@ -1419,16 +1443,7 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local _, values = Orchestration.suite_run()
   values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
-  -- The checked job's leg promises `checked`, the sanitized core's
-  -- instruments, which this run's core (the release one, with checks
-  -- compiled into the modules) lacks: a held run would fail every test that
-  -- requires it, where it should find it not applicable. The `checked`
-  -- phase runs those on the core that has them.
-  local promised: {string} = {}
-  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
-    if name ~= "checked" then promised[#promised + 1] = name end
-  end
-  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  release_promises(values)
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
   -- A run that prints no "run-time types" line (the summary of a checked
@@ -1438,6 +1453,30 @@ local function phase_checked_narrowing(p: PlatformContext): integer
     return 1
   end
   return status
+end
+
+--- The whole suite with the new checker (`COSMIC_GRAMMAR=new`, build/pipeline.tl), on the linux-x86_64 target alone,
+--- in the verdicts of a file of its own (`new-grammar.db`, [`suite_verdicts`]): a compile and a verdict of one grammar
+--- stand for none of the other's. It is a rehearsal of the switch (doc/plans/strict-teal.md, "the switch") and the run is
+--- informational: ci.yml's `rehearsal` job gates nothing. It fails where the suite does.
+local function phase_rehearsal(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local cosmic = BuildPaths.directory(p.root) .. "/bin/cosmic"
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/rehearsal-test.out"
+  local words, values = Orchestration.suite_run({
+    COSMIC_GRAMMAR = "new",
+    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "new-grammar"),
+    COSMIC_TEST_TIMEOUT = rehearsal_test_timeout_s,
+  })
+  release_promises(values)
+  local argv: {string} = { cosmic }
+  for _, word in ipairs(words) do
+    argv[#argv + 1] = word
+  end
+  return logged(c, "new grammar", argv, out, p.local_diagnostics .. "/rehearsal-test.err", rehearsal_timeout_ns, c.root,
+    values)
 end
 
 --- The native suite, on the tree `boot` built: the `build` phase
@@ -2006,6 +2045,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_declared_types(p)
   elseif phase == "checked-narrowing" then
     return phase_checked_narrowing(p)
+  elseif phase == "rehearsal" then
+    return phase_rehearsal(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then

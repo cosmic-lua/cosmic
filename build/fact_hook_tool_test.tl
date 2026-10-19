@@ -100,3 +100,27 @@ local function test_a_checked_run_reports_the_fact_that_is_false(tmp: string)
   assert(table.concat(row:texts(), " | ") == "fact | unsound_assert.tl:3:10 | x | not nil | nil | 1",
     table.concat(row:texts(), " | "))
 end
+
+--- What `chunk` prints in a `cosmic` started with `set` among its variables.
+local function printed(chunk: string, set: {string: string}): string
+  local env = this_program.environment()
+  for name, value in pairs(set) do
+    env[name] = value
+  end
+  local started = this_program.program({ "-e", chunk }, {
+    env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+  return result.stdout or ""
+end
+
+-- A wrapped read in a process a test of a checked run starts would otherwise raise "attempt to call a nil value (global
+-- '__fact')": only the worker holds the checking hook.
+local function test_a_process_a_checked_run_starts_answers_the_value_of_a_wrapped_read()
+  local chunk = "print(type(__fact), __fact ~= nil and __fact(41, 'string', 'x') or 'none')"
+  assert(printed(chunk, { COSMIC_TEST_TYPES = "1" }) == "function\t41\n", printed(chunk, { COSMIC_TEST_TYPES = "1" }))
+  -- no other run has the global
+  assert(printed(chunk, {}) == "nil\tnone\n", printed(chunk, {}))
+  assert(printed(chunk, { COSMIC_TEST_TYPES = "0" }) == "nil\tnone\n", printed(chunk, { COSMIC_TEST_TYPES = "0" }))
+end

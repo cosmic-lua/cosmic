@@ -50,6 +50,9 @@ lang/types.tl expected_token 7
 # a method written in a block, not at the top of the file, where its record cannot hold it: the example
 # that teaches a record's methods
 cosmic/removed_example.tl method_in_record 1
+# a method of a generic record written `function Kv.Lru.get<K, V>(...)` in an example of the guide `doc/guides/project.md`, whose Teal
+# the build writes (a guide is held under its own name, as the template is)
+doc/guides/project.md function_path 1
 
 [scoped]
 # The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
@@ -80,13 +83,17 @@ checker/captures.tl shadows 1
 # a rewrite removes it and a pin falls with it. A change that adds or sharpens a rule of the lowering may raise some, or
 # add some for a new code, and says why in its message. A file whose translation did not parse, and now does, is
 # pinned at what it has.
+# The program is the one the pipeline reads ([`build.tree_program`]): lang/ast.tl and lang/types.tl have the steps of
+# [`build.lang_proof`] made (their `where` clauses are blanked), so they are pinned at what they have.
 # a class whose metatable keeps its `__close` as a field, since the metatable also holds a `__gc` that a class has
 # no form for: the process handle becomes a C userdata whose finalizer C owns (doc/plans/strict-teal.md,
 # "compiler-written classes, in the new checker")
 cosmic/internal/connector.tl class_metamethod 1
 # a union of records told apart by the `where` clause the grammar drops, which the tagged unions of the plan (a field of a
 # single-member enum) replace: the syntax tree's union of declarations
+lang/ast.tl untagged_union 9
 lang/parser.tl untagged_union 1
+lang/types.tl untagged_union 1
 # a map keyed by `any` (the registry, a decoded table's keys, the shape validators), by a union or by a collection:
 # key by an `integer` or a `string`, or declare an enum or a record for the keys
 build/analyzer.tl key_type 2
@@ -147,6 +154,8 @@ build/doctest_test.tl member_missing 1
 build/gen_syscalls_test.tl member_missing 1
 build/importer.tl member_missing 7
 build/importer_test.tl member_missing 4
+build/pipeline.tl member_missing 2
+build/pipeline_test.tl member_missing 1
 build/positions.tl member_missing 4
 build/positions_test.tl member_missing 2
 build/runtime_checks_keys_test.tl member_missing 3
@@ -183,6 +192,8 @@ cosmic/tar.tl interface_disagrees 10
 cosmic/time.tl interface_disagrees 8
 cosmic/web/sse.tl interface_disagrees 2
 cosmic/zip.tl interface_disagrees 10
+lang/ast.tl interface_disagrees 288
+lang/types.tl interface_disagrees 63
 # an array of optional elements: a map `{integer: T}` for sparse data
 build/stub.tl array_of_optional 1
 ci/cosmic_ci/github_test.tl array_of_optional 1
@@ -520,8 +531,14 @@ test/terminal/pty.tl 1
 # lower its pin. A rewrite or a later piece only lowers pins. A change that adds or sharpens a rule of the checker may
 # raise some, or add some for a new code, and says why in its message: the places the rule newly refuses, and the lines
 # it adds to the files it edits. A file whose translation did not parse, and now does, is pinned at what it has: the
-# errors the checker finds in a file it could not see are not a rule newly broken. The pins below are grouped by
-# code, with the rule or the later piece that brings each to zero.
+# errors the checker finds in a file it could not see are not a rule newly broken. A source the build writes from another
+# file (a doc guide, a template) is held under the name of that file. The program is the one the pipeline reads
+# ([`build.tree_program`]), so that the pins and the compile agree: lang/ast.tl and lang/types.tl are mended by the steps of
+# [`build.lang_proof`], so that a file which reads them sees unions of records with no tag (their `where` clauses are
+# gone) and is pinned at what that shows, `field_unknown` and `any_use` above all, until the change of the switch tags
+# the unions by hand; and a call of [`Shape.record_of`] is resolved ([`build.syntax_shape_specs`]), which removes the
+# `cannot_infer` it was and shows the errors it hid. The pins below are grouped by code, with the rule or the later
+# piece that brings each to zero.
 # a call of `setmetatable`, which the translator writes as the literal of a class where the metatable is a
 # class's and the place gives the class: the calls left (a metatable that holds a `__gc` or a `__mode`, a table
 # built before the call, a place that gives no class, a metatable chosen at run time) wait for the rewrite to a
@@ -586,6 +603,7 @@ cosmic/web/testing.tl setmetatable_call 3
 cosmic/zip.tl setmetatable_call 1
 lang/declarations.tl setmetatable_call 1
 lang/relation.tl setmetatable_call 1
+lang/types.tl setmetatable_call 1
 # a `require` of a binding of C ([`cosmic.sys`], [`cosmic.internal.process`], [`cosmic.internal.socket`]) or a global the
 # declarations lack, which the checker types once it reads the bindings from declaration files
 build/assertions.tl unchecked_binding 1
@@ -605,7 +623,7 @@ build/teal_test.tl unchecked_binding 2
 build/test_worker.tl unchecked_binding 1
 cmd/cosmic/main.tl unchecked_binding 1
 core/surface_test.tl unchecked_binding 1
-cosmic/template_build_test.tl unchecked_binding 1
+cosmic/template_build_test.tl unchecked_binding 2
 cosmic/template_check_test.tl unchecked_binding 1
 cosmic/template_go_test.tl unchecked_binding 1
 # a value that may be nil where one that is not is wanted, an operand, an index base or a callee, that no test of a
@@ -629,7 +647,7 @@ build/ast/rewrite_test.tl nil_not_allowed 6
 build/ast/walk_test.tl nil_not_allowed 11
 build/bare.tl nil_not_allowed 4
 build/bom.tl nil_not_allowed 24
-build/bom_test.tl nil_not_allowed 21
+build/bom_test.tl nil_not_allowed 33
 build/boot.tl nil_not_allowed 3
 build/bridge_cache_test.tl nil_not_allowed 1
 build/c/declared_types_test.tl nil_not_allowed 5
@@ -669,9 +687,10 @@ build/codec_fuzz_test.tl nil_not_allowed 1
 build/codec_test.tl nil_not_allowed 5
 build/codec_tool_test.tl nil_not_allowed 1
 build/codec_verb_fuzz_test.tl nil_not_allowed 4
-build/compilation.tl nil_not_allowed 2
+build/compilation.tl nil_not_allowed 1
 build/compilation_globals_test.tl nil_not_allowed 8
 build/compile.tl nil_not_allowed 7
+build/compile_grammar.tl nil_not_allowed 1
 build/compile_tool_test.tl nil_not_allowed 1
 build/compiler_readers_test.tl nil_not_allowed 2
 build/compiler_test.tl nil_not_allowed 2
@@ -747,6 +766,7 @@ build/fuzz/shrink_test.tl nil_not_allowed 14
 build/gen_syscalls.tl nil_not_allowed 16
 build/gen_syscalls_test.tl nil_not_allowed 7
 build/globals.tl nil_not_allowed 3
+build/grammar_mode_test.tl nil_not_allowed 1
 build/harness_epoch_test.tl nil_not_allowed 5
 build/hash_sums_fuzz_test.tl nil_not_allowed 1
 build/hash_test.tl nil_not_allowed 41
@@ -772,11 +792,13 @@ build/link_text.tl nil_not_allowed 19
 build/link_text_fuzz_test.tl nil_not_allowed 2
 build/links.tl nil_not_allowed 10
 build/locator_fuzz_test.tl nil_not_allowed 3
+build/lua_tail.tl nil_not_allowed 1
 build/narrow.tl nil_not_allowed 1
 build/patch_test.tl nil_not_allowed 1
 build/perf.tl nil_not_allowed 28
 build/perf_test.tl nil_not_allowed 10
 build/perf_validation.tl nil_not_allowed 9
+build/pipeline_test.tl nil_not_allowed 1
 build/policy_rules.tl nil_not_allowed 2
 build/positions.tl nil_not_allowed 1
 build/rand.tl nil_not_allowed 8
@@ -833,7 +855,7 @@ build/stub_test.tl nil_not_allowed 8
 build/stub_tree_test.tl nil_not_allowed 3
 build/subdirectory_verbs_test.tl nil_not_allowed 1
 build/symbol_index.tl nil_not_allowed 4
-build/syntax_analyzer.tl nil_not_allowed 1
+build/syntax_analyzer.tl nil_not_allowed 5
 build/syntax_analyzer_test.tl nil_not_allowed 26
 build/syntax_compared.tl nil_not_allowed 6
 build/syntax_compared_test.tl nil_not_allowed 11
@@ -844,17 +866,17 @@ build/syntax_globals.tl nil_not_allowed 2
 build/syntax_link_text.tl nil_not_allowed 1
 build/syntax_links_test.tl nil_not_allowed 14
 build/syntax_match.tl nil_not_allowed 11
-build/syntax_match_test.tl nil_not_allowed 11
+build/syntax_match_test.tl nil_not_allowed 12
 build/syntax_node.tl nil_not_allowed 8
-build/syntax_node_test.tl nil_not_allowed 1
+build/syntax_node_test.tl nil_not_allowed 3
 build/syntax_report.tl nil_not_allowed 1
 build/syntax_rewrite.tl nil_not_allowed 13
 build/syntax_rewrite_test.tl nil_not_allowed 3
 build/syntax_scopes.tl nil_not_allowed 9
 build/syntax_scopes_test.tl nil_not_allowed 11
-build/syntax_shape_specs.tl nil_not_allowed 11
+build/syntax_shape_specs.tl nil_not_allowed 10
 build/syntax_shape_specs_test.tl nil_not_allowed 1
-build/syntax_stub.tl nil_not_allowed 11
+build/syntax_stub.tl nil_not_allowed 10
 build/syntax_stub_test.tl nil_not_allowed 6
 build/syntax_typed.tl nil_not_allowed 3
 build/syntax_typed_fixture.tl nil_not_allowed 3
@@ -893,6 +915,7 @@ build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
 build/tree_checks.tl nil_not_allowed 125
 build/tree_checks_test.tl nil_not_allowed 91
+build/tree_program_test.tl nil_not_allowed 21
 build/tree_root.tl nil_not_allowed 8
 build/vendor.tl nil_not_allowed 12
 build/vendor_test.tl nil_not_allowed 1
@@ -1094,7 +1117,7 @@ cosmic/sandbox_test.tl nil_not_allowed 35
 cosmic/seatbelt_network_probe_test.tl nil_not_allowed 7
 cosmic/shape.tl nil_not_allowed 1
 cosmic/shape_fuzz_test.tl nil_not_allowed 3
-cosmic/shape_record_test.tl nil_not_allowed 1
+cosmic/shape_record_test.tl nil_not_allowed 3
 cosmic/shape_test.tl nil_not_allowed 1
 cosmic/signal.tl nil_not_allowed 1
 cosmic/sqlite.tl nil_not_allowed 7
@@ -1192,6 +1215,7 @@ cosmic/zip.tl nil_not_allowed 3
 cosmic/zip_example.tl nil_not_allowed 3
 cosmic/zip_fuzz_test.tl nil_not_allowed 14
 cosmic/zip_test.tl nil_not_allowed 16
+doc/guides/sql.md nil_not_allowed 2
 eval/arena.tl nil_not_allowed 10
 eval/arena_test.tl nil_not_allowed 2
 eval/check/grade.tl nil_not_allowed 67
@@ -1203,8 +1227,9 @@ eval/round_test.tl nil_not_allowed 19
 eval/solve.tl nil_not_allowed 5
 eval/summarize.tl nil_not_allowed 15
 eval/summarize_test.tl nil_not_allowed 2
+lang/ast.tl nil_not_allowed 21
 lang/ast_dump.tl nil_not_allowed 5
-lang/check.tl nil_not_allowed 130
+lang/check.tl nil_not_allowed 125
 lang/check_class_test.tl nil_not_allowed 35
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
@@ -1215,39 +1240,39 @@ lang/check_match_test.tl nil_not_allowed 6
 lang/check_refused_test.tl nil_not_allowed 7
 lang/check_speed_test.tl nil_not_allowed 5
 lang/check_test.tl nil_not_allowed 25
-lang/codegen.tl nil_not_allowed 43
+lang/codegen.tl nil_not_allowed 32
 lang/codegen_fuzz_test.tl nil_not_allowed 16
 lang/codegen_test.tl nil_not_allowed 16
-lang/declarations.tl nil_not_allowed 49
+lang/declarations.tl nil_not_allowed 42
 lang/declarations_speed_test.tl nil_not_allowed 2
-lang/declarations_test.tl nil_not_allowed 51
-lang/generics.tl nil_not_allowed 4
+lang/declarations_test.tl nil_not_allowed 46
 lang/lexer.tl nil_not_allowed 20
 lang/lexer_cover.tl nil_not_allowed 3
 lang/lexer_parity_test.tl nil_not_allowed 13
 lang/lexer_test.tl nil_not_allowed 83
-lang/parser.tl nil_not_allowed 115
+lang/parser.tl nil_not_allowed 117
 lang/parser_cover.tl nil_not_allowed 2
-lang/parser_error_test.tl nil_not_allowed 3
+lang/parser_error_test.tl nil_not_allowed 4
 lang/parser_fuzz_test.tl nil_not_allowed 8
-lang/parser_recovery_test.tl nil_not_allowed 52
-lang/parser_test.tl nil_not_allowed 14
-lang/relation.tl nil_not_allowed 13
-lang/relation_fuzz_test.tl nil_not_allowed 10
+lang/parser_recovery_test.tl nil_not_allowed 57
+lang/parser_test.tl nil_not_allowed 20
+lang/relation.tl nil_not_allowed 12
+lang/relation_fuzz_test.tl nil_not_allowed 6
 lang/relation_programs.tl nil_not_allowed 2
 lang/relation_refused_test.tl nil_not_allowed 16
-lang/relation_test.tl nil_not_allowed 18
-lang/scopes.tl nil_not_allowed 82
-lang/scopes_cover.tl nil_not_allowed 10
+lang/relation_test.tl nil_not_allowed 16
+lang/scopes.tl nil_not_allowed 87
+lang/scopes_cover.tl nil_not_allowed 7
 lang/scopes_fuzz_test.tl nil_not_allowed 5
 lang/scopes_programs.tl nil_not_allowed 3
 lang/scopes_test.tl nil_not_allowed 26
 lang/stdlib_corrections.tl nil_not_allowed 2
 lang/stdlib_corrections_test.tl nil_not_allowed 4
-lang/translate.tl nil_not_allowed 148
+lang/translate.tl nil_not_allowed 144
 lang/translate_fuzz_test.tl nil_not_allowed 5
 lang/translate_test.tl nil_not_allowed 17
-lang/types_programs.tl nil_not_allowed 4
+lang/types.tl nil_not_allowed 42
+lang/types_programs.tl nil_not_allowed 5
 lang/types_test.tl nil_not_allowed 28
 lang/warnings_test.tl nil_not_allowed 1
 test/context_typing_test.tl nil_not_allowed 6
@@ -1265,6 +1290,7 @@ test/sqlite_transaction_test.tl nil_not_allowed 1
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
 build/receivers.tl narrowing_dropped 3
 build/tree_checks.tl narrowing_dropped 7
+lang/check.tl narrowing_dropped 1
 # a local declared with no value and read, or named by a function made, before every path assigns it: the functions declared
 # ahead for mutual recursion (`local expr: function(...)`), which the rewrite makes the functions of a record
 build/analyzer.tl not_assigned 1
@@ -1317,6 +1343,7 @@ lang/scopes.tl not_assigned 5
 lang/scopes_fuzz_test.tl not_assigned 2
 lang/scopes_programs.tl not_assigned 2
 lang/translate_fuzz_test.tl not_assigned 1
+lang/types.tl not_assigned 3
 lang/types_programs.tl not_assigned 2
 # a statement after `error(...)`, a `return`, a `break` or a test no value can take: dead code the rewrite deletes
 build/ast/walk.tl unreachable 1
@@ -1425,6 +1452,7 @@ build/patch.tl index_may_be_nil 1
 build/patch_test.tl index_may_be_nil 2
 build/perf.tl index_may_be_nil 8
 build/perf_validation.tl index_may_be_nil 2
+build/pipeline.tl index_may_be_nil 1
 build/positions_test.tl index_may_be_nil 2
 build/rand.tl index_may_be_nil 5
 build/reboot.tl index_may_be_nil 3
@@ -1452,14 +1480,13 @@ build/symbol_index.tl index_may_be_nil 1
 build/symbols.tl index_may_be_nil 1
 build/syntax_analyzer_test.tl index_may_be_nil 2
 build/syntax_compared.tl index_may_be_nil 5
-build/syntax_contracts.tl index_may_be_nil 24
+build/syntax_contracts.tl index_may_be_nil 20
 build/syntax_derivation.tl index_may_be_nil 2
 build/syntax_link_text.tl index_may_be_nil 1
 build/syntax_links_test.tl index_may_be_nil 1
-build/syntax_match.tl index_may_be_nil 7
+build/syntax_match.tl index_may_be_nil 6
 build/syntax_match_test.tl index_may_be_nil 1
 build/syntax_node.tl index_may_be_nil 1
-build/syntax_node_test.tl index_may_be_nil 1
 build/syntax_rewrite_test.tl index_may_be_nil 1
 build/syntax_shape_specs_test.tl index_may_be_nil 1
 build/syntax_stub.tl index_may_be_nil 10
@@ -1488,6 +1515,7 @@ build/todos.tl index_may_be_nil 3
 build/todos_git_test.tl index_may_be_nil 3
 build/todos_test.tl index_may_be_nil 2
 build/tree_checks.tl index_may_be_nil 43
+build/tree_program.tl index_may_be_nil 1
 build/tree_root.tl index_may_be_nil 1
 build/vendor.tl index_may_be_nil 2
 build/verb_list_test.tl index_may_be_nil 2
@@ -1645,16 +1673,17 @@ eval/result.tl index_may_be_nil 1
 eval/round.tl index_may_be_nil 3
 eval/solve.tl index_may_be_nil 1
 eval/summarize.tl index_may_be_nil 1
+lang/ast.tl index_may_be_nil 4
 lang/ast_dump.tl index_may_be_nil 3
 lang/check.tl index_may_be_nil 39
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 lang/check_fuzz_test.tl index_may_be_nil 3
 lang/check_programs.tl index_may_be_nil 2
 lang/check_test.tl index_may_be_nil 1
-lang/codegen.tl index_may_be_nil 17
+lang/codegen.tl index_may_be_nil 16
 lang/codegen_fuzz_test.tl index_may_be_nil 2
 lang/codegen_test.tl index_may_be_nil 1
-lang/declarations.tl index_may_be_nil 14
+lang/declarations.tl index_may_be_nil 13
 lang/declarations_test.tl index_may_be_nil 8
 lang/generics.tl index_may_be_nil 10
 lang/lexer.tl index_may_be_nil 3
@@ -1665,7 +1694,7 @@ lang/parser_fuzz_test.tl index_may_be_nil 2
 lang/parser_recovery_test.tl index_may_be_nil 2
 lang/parser_test.tl index_may_be_nil 9
 lang/relation.tl index_may_be_nil 3
-lang/relation_fuzz_test.tl index_may_be_nil 22
+lang/relation_fuzz_test.tl index_may_be_nil 17
 lang/relation_programs.tl index_may_be_nil 2
 lang/relation_refused_test.tl index_may_be_nil 18
 lang/relation_speed_test.tl index_may_be_nil 7
@@ -1678,7 +1707,8 @@ lang/scopes_programs.tl index_may_be_nil 4
 lang/scopes_test.tl index_may_be_nil 2
 lang/stdlib_corrections.tl index_may_be_nil 8
 lang/stdlib_corrections_test.tl index_may_be_nil 3
-lang/translate.tl index_may_be_nil 14
+lang/translate.tl index_may_be_nil 9
+lang/types.tl index_may_be_nil 7
 lang/types_fuzz_test.tl index_may_be_nil 3
 lang/types_programs.tl index_may_be_nil 16
 lang/types_test.tl index_may_be_nil 13
@@ -1752,10 +1782,10 @@ build/codec.tl view_written 3
 build/codec_fuzz_test.tl view_written 4
 build/codec_test.tl view_written 11
 build/codec_verb_fuzz_test.tl view_written 4
-build/compilation.tl view_written 31
+build/compilation.tl view_written 30
 build/compile.tl view_written 9
 build/compile_checker_test.tl view_written 4
-build/compile_grammar.tl view_written 24
+build/compile_grammar.tl view_written 19
 build/compile_grammar_test.tl view_written 8
 build/compile_lang_test.tl view_written 4
 build/compile_test.tl view_written 6
@@ -1800,7 +1830,7 @@ build/docs_test.tl view_written 28
 build/doctest/generate.tl view_written 55
 build/doctest/generate_test.tl view_written 1
 build/doctest/markdown.tl view_written 5
-build/driver.tl view_written 31
+build/driver.tl view_written 35
 build/driver_test.tl view_written 4
 build/embed.tl view_written 9
 build/embed_tool_test.tl view_written 4
@@ -1812,7 +1842,7 @@ build/example_checks.tl view_written 11
 build/example_checks_test.tl view_written 5
 build/exports_test.tl view_written 3
 build/fact_hook_test.tl view_written 2
-build/fact_hook_tool_test.tl view_written 2
+build/fact_hook_tool_test.tl view_written 3
 build/fetch.tl view_written 4
 build/fetch_test.tl view_written 5
 build/fix/breaks.tl view_written 14
@@ -1821,7 +1851,7 @@ build/fix/emit.tl view_written 5
 build/fix/equiv.tl view_written 3
 build/fix/expr.tl view_written 1
 build/fix/fix_test.tl view_written 1
-build/fix/init.tl view_written 102
+build/fix/init.tl view_written 103
 build/fix/link_build_tool_test.tl view_written 1
 build/fix/near.tl view_written 18
 build/fix/near_test.tl view_written 1
@@ -1847,6 +1877,7 @@ build/gate_record.tl view_written 18
 build/gen_syscalls.tl view_written 45
 build/gen_syscalls_test.tl view_written 4
 build/globals.tl view_written 2
+build/grammar_mode_test.tl view_written 2
 build/harness_epoch_test.tl view_written 24
 build/hash.tl view_written 9
 build/hash_sums_fuzz_test.tl view_written 5
@@ -1896,6 +1927,7 @@ build/lsp/source.tl view_written 5
 build/lsp/splice.tl view_written 1
 build/lua_children_test.tl view_written 1
 build/lua_standalone_test.tl view_written 3
+build/lua_tail.tl view_written 1
 build/must_confine_fixture.tl view_written 1
 build/must_confine_sandboxed_test.tl view_written 1
 build/must_confine_test.tl view_written 1
@@ -1906,6 +1938,9 @@ build/paths_test.tl view_written 1
 build/perf.tl view_written 35
 build/perf_test.tl view_written 12
 build/perf_validation.tl view_written 17
+build/pipeline.tl view_written 9
+build/pipeline_check.tl view_written 19
+build/pipeline_test.tl view_written 5
 build/policy_rules.tl view_written 5
 build/policy_rules_test.tl view_written 5
 build/positions.tl view_written 2
@@ -2036,8 +2071,10 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 320
+build/tree_checks.tl view_written 314
 build/tree_checks_test.tl view_written 25
+build/tree_program.tl view_written 11
+build/tree_program_test.tl view_written 3
 build/tree_root.tl view_written 2
 build/type_watch.tl view_written 2
 build/unix_socket.tl view_written 4
@@ -2366,6 +2403,17 @@ cosmic/web_example.tl view_written 1
 cosmic/zip.tl view_written 5
 cosmic/zip_fuzz_test.tl view_written 19
 cosmic/zip_test.tl view_written 4
+doc/guides/command-line.md view_written 5
+doc/guides/portable-runtime.md view_written 2
+doc/guides/quickstart.md view_written 4
+doc/guides/sql.md view_written 2
+doc/guides/web-api.md view_written 4
+doc/guides/web-deploy.md view_written 4
+doc/guides/web-forms.md view_written 4
+doc/guides/web-live.md view_written 4
+doc/guides/web-security.md view_written 4
+doc/guides/web-sessions.md view_written 4
+doc/guides/web.md view_written 4
 eval/arena.tl view_written 1
 eval/arena_test.tl view_written 1
 eval/check/grade.tl view_written 35
@@ -2378,6 +2426,7 @@ eval/solve.tl view_written 10
 eval/solve_test.tl view_written 2
 eval/summarize.tl view_written 37
 eval/summarize_test.tl view_written 1
+lang/ast.tl view_written 7
 lang/check.tl view_written 129
 lang/check_assigned_fuzz_test.tl view_written 4
 lang/check_class_test.tl view_written 2
@@ -2430,6 +2479,7 @@ lang/translate.tl view_written 150
 lang/translate_fuzz_test.tl view_written 16
 lang/translate_speed_test.tl view_written 4
 lang/translate_test.tl view_written 5
+lang/types.tl view_written 89
 lang/types_fuzz_test.tl view_written 23
 lang/types_programs.tl view_written 21
 lang/types_speed_test.tl view_written 7
@@ -2440,6 +2490,7 @@ test/coverage_children_test.tl view_written 2
 test/digit_separators_test.tl view_written 1
 test/portable/init.tl view_written 2
 test/portable/tool.tl view_written 8
+test/profile_page.tmpl view_written 14
 test/sqlite_parameter_test.tl view_written 1
 test/sqlite_row_test.tl view_written 1
 # a view passed where a `mut` collection is wanted: the same locals and fields, declared `mut` by the rewrite
@@ -2455,7 +2506,6 @@ build/checker_facts_test.tl view_as_mut 4
 build/checker_programs.tl view_as_mut 6
 build/checker_verdicts.tl view_as_mut 8
 build/closure_store.tl view_as_mut 1
-build/compile_grammar.tl view_as_mut 1
 build/confine.tl view_as_mut 1
 build/contracts.tl view_as_mut 11
 build/core_image_fuzz_test.tl view_as_mut 1
@@ -2463,7 +2513,7 @@ build/declared_key_fuzz_test.tl view_as_mut 2
 build/derivation.tl view_as_mut 1
 build/dispatch.tl view_as_mut 1
 build/doctest/generate.tl view_as_mut 2
-build/driver.tl view_as_mut 4
+build/driver.tl view_as_mut 5
 build/fix/fix_test.tl view_as_mut 5
 build/fix/init.tl view_as_mut 6
 build/flow.tl view_as_mut 6
@@ -2493,7 +2543,8 @@ build/syntax_stub.tl view_as_mut 1
 build/test.tl view_as_mut 10
 build/test_inputs.tl view_as_mut 1
 build/test_worker.tl view_as_mut 5
-build/tree_checks.tl view_as_mut 11
+build/tree_checks.tl view_as_mut 10
+build/tree_program.tl view_as_mut 1
 build/work.tl view_as_mut 3
 build/workers.tl view_as_mut 1
 build/workflows_test.tl view_as_mut 1
@@ -2537,6 +2588,7 @@ cosmic/web/session/init.tl view_as_mut 4
 eval/check/grade.tl view_as_mut 4
 eval/round.tl view_as_mut 2
 eval/summarize.tl view_as_mut 2
+lang/ast.tl view_as_mut 1
 lang/ast_dump.tl view_as_mut 1
 lang/check.tl view_as_mut 1
 lang/check_assigned_fuzz_test.tl view_as_mut 1
@@ -2553,6 +2605,7 @@ lang/scopes.tl view_as_mut 3
 lang/scopes_fuzz_test.tl view_as_mut 1
 lang/translate.tl view_as_mut 10
 lang/translate_fuzz_test.tl view_as_mut 3
+lang/types.tl view_as_mut 3
 lang/types_speed_test.tl view_as_mut 1
 lang/warnings.tl view_as_mut 1
 # a field assigned after its record is made, not declared `mut`: the translator writes `mut` on the fields the fork's
@@ -2591,7 +2644,7 @@ build/codec.tl field_fixed 1
 build/codec_test.tl field_fixed 6
 build/compilation.tl field_fixed 14
 build/compile.tl field_fixed 3
-build/compile_grammar.tl field_fixed 2
+build/compile_grammar.tl field_fixed 1
 build/compiler_test.tl field_fixed 1
 build/confine.tl field_fixed 14
 build/confine_tool_test.tl field_fixed 2
@@ -2605,7 +2658,7 @@ build/docs.tl field_fixed 9
 build/docs_checks_test.tl field_fixed 4
 build/doctest/generate.tl field_fixed 1
 build/doctest/generate_test.tl field_fixed 1
-build/driver.tl field_fixed 19
+build/driver.tl field_fixed 21
 build/driver_test.tl field_fixed 1
 build/embed.tl field_fixed 1
 build/error_render.tl field_fixed 1
@@ -2655,6 +2708,7 @@ build/lsp/splice.tl field_fixed 2
 build/patch_test.tl field_fixed 1
 build/perf_test.tl field_fixed 3
 build/perf_validation.tl field_fixed 3
+build/pipeline.tl field_fixed 2
 build/policy_rules.tl field_fixed 9
 build/rand.tl field_fixed 3
 build/rand_test.tl field_fixed 1
@@ -2856,6 +2910,7 @@ cosmic/zip_test.tl field_fixed 13
 eval/check/grade.tl field_fixed 2
 eval/result.tl field_fixed 7
 eval/round.tl field_fixed 1
+lang/ast.tl field_fixed 2
 lang/check.tl field_fixed 6
 lang/check_codes.tl field_fixed 2
 lang/check_programs.tl field_fixed 5
@@ -2873,6 +2928,7 @@ lang/scopes.tl field_fixed 19
 lang/stdlib_corrections.tl field_fixed 2
 lang/syntax_codes.tl field_fixed 1
 lang/translate.tl field_fixed 3
+lang/types.tl field_fixed 4
 lang/types_programs.tl field_fixed 2
 lang/warnings.tl field_fixed 2
 test/portable/tool.tl field_fixed 1
@@ -2889,19 +2945,30 @@ build/codec.tl field_unknown 5
 build/codec_fuzz_test.tl field_unknown 2
 build/codec_test.tl field_unknown 14
 build/codec_verb_fuzz_test.tl field_unknown 2
-build/compile_grammar.tl field_unknown 5
-build/driver_test.tl field_unknown 3
+build/compile_grammar.tl field_unknown 15
+build/coverage/syntax_lines.tl field_unknown 2
+build/driver_test.tl field_unknown 8
 build/fetch.tl field_unknown 2
 build/hash_tool_test.tl field_unknown 3
-build/lang_proof.tl field_unknown 4
+build/lang_proof.tl field_unknown 7
 build/release.tl field_unknown 2
-build/syntax_compared.tl field_unknown 1
-build/syntax_contracts.tl field_unknown 6
-build/syntax_match.tl field_unknown 1
-build/syntax_receivers.tl field_unknown 3
-build/syntax_shape_specs.tl field_unknown 5
-build/syntax_stub.tl field_unknown 4
+build/syntax_analyzer.tl field_unknown 152
+build/syntax_compared.tl field_unknown 3
+build/syntax_contracts.tl field_unknown 315
+build/syntax_globals.tl field_unknown 2
+build/syntax_link_text.tl field_unknown 37
+build/syntax_match.tl field_unknown 6
+build/syntax_match_test.tl field_unknown 2
+build/syntax_node.tl field_unknown 18
+build/syntax_node_test.tl field_unknown 4
+build/syntax_receivers.tl field_unknown 24
+build/syntax_report.tl field_unknown 2
+build/syntax_rewrite.tl field_unknown 1
+build/syntax_scopes.tl field_unknown 11
+build/syntax_shape_specs.tl field_unknown 32
+build/syntax_stub.tl field_unknown 53
 build/time.tl field_unknown 7
+build/tree_checks.tl field_unknown 1
 build/worker.tl field_unknown 2
 ci/cosmic_ci/github_api.tl field_unknown 1
 ci/cosmic_ci/report.tl field_unknown 2
@@ -2960,32 +3027,38 @@ cosmic/zip.tl field_unknown 16
 cosmic/zip_example.tl field_unknown 10
 cosmic/zip_fuzz_test.tl field_unknown 10
 cosmic/zip_test.tl field_unknown 43
-lang/check.tl field_unknown 173
+lang/ast.tl field_unknown 4
+lang/check.tl field_unknown 695
+lang/check_class_test.tl field_unknown 6
 lang/check_generics_test.tl field_unknown 1
 lang/check_programs.tl field_unknown 2
 lang/check_test.tl field_unknown 1
-lang/codegen.tl field_unknown 89
-lang/codegen_test.tl field_unknown 1
-lang/declarations.tl field_unknown 56
-lang/declarations_test.tl field_unknown 9
-lang/generics.tl field_unknown 10
-lang/parser.tl field_unknown 15
-lang/parser_cover.tl field_unknown 6
+lang/codegen.tl field_unknown 252
+lang/codegen_test.tl field_unknown 3
+lang/declarations.tl field_unknown 215
+lang/declarations_test.tl field_unknown 14
+lang/generics.tl field_unknown 84
+lang/parser.tl field_unknown 42
+lang/parser_cover.tl field_unknown 13
+lang/parser_error_test.tl field_unknown 1
 lang/parser_fuzz_test.tl field_unknown 2
-lang/parser_test.tl field_unknown 18
-lang/relation.tl field_unknown 56
-lang/relation_fuzz_test.tl field_unknown 40
-lang/relation_test.tl field_unknown 2
-lang/scopes.tl field_unknown 44
-lang/scopes_cover.tl field_unknown 15
-lang/scopes_fuzz_test.tl field_unknown 15
-lang/scopes_test.tl field_unknown 2
-lang/translate.tl field_unknown 16
-lang/types_fuzz_test.tl field_unknown 25
-lang/types_programs.tl field_unknown 1
+lang/parser_recovery_test.tl field_unknown 14
+lang/parser_test.tl field_unknown 42
+lang/relation.tl field_unknown 122
+lang/relation_fuzz_test.tl field_unknown 123
+lang/relation_test.tl field_unknown 13
+lang/scopes.tl field_unknown 177
+lang/scopes_cover.tl field_unknown 19
+lang/scopes_fuzz_test.tl field_unknown 54
+lang/scopes_test.tl field_unknown 5
+lang/translate.tl field_unknown 212
+lang/types.tl field_unknown 169
+lang/types_fuzz_test.tl field_unknown 75
+lang/types_programs.tl field_unknown 2
 lang/types_speed_test.tl field_unknown 1
-lang/types_test.tl field_unknown 30
-lang/warnings_test.tl field_unknown 16
+lang/types_test.tl field_unknown 38
+lang/warnings.tl field_unknown 3
+lang/warnings_test.tl field_unknown 25
 # `m.k` on a map: a table written `{ k = v }` with no record to be, which the rewrite declares as a record
 build/archive.tl map_field 2
 build/archive_test.tl map_field 42
@@ -3334,6 +3407,7 @@ cosmic/web_example.tl map_field 9
 cosmic/zip.tl map_field 5
 cosmic/zip_fuzz_test.tl map_field 9
 cosmic/zip_test.tl map_field 18
+doc/guides/web.md map_field 5
 eval/check/grade.tl map_field 16
 eval/check/grade_test.tl map_field 15
 eval/result_test.tl map_field 37
@@ -3341,6 +3415,7 @@ eval/round.tl map_field 5
 eval/round_test.tl map_field 11
 eval/solve.tl map_field 5
 eval/solve_test.tl map_field 6
+lang/ast.tl map_field 3
 lang/ast_dump.tl map_field 2
 lang/check_programs.tl map_field 9
 lang/check_test.tl map_field 2
@@ -3350,6 +3425,7 @@ lang/relation_speed_test.tl map_field 4
 lang/scopes_test.tl map_field 9
 lang/translate.tl map_field 2
 lang/translate_test.tl map_field 9
+lang/types.tl map_field 4
 lang/types_test.tl map_field 4
 test/coverage_children_test.tl map_field 1
 test/coverage_startup_test.tl map_field 1
@@ -3515,6 +3591,7 @@ build/time_input_fuzz_test.tl overload_none 1
 build/todos.tl overload_none 4
 build/todos_test.tl overload_none 1
 build/tree_checks.tl overload_none 28
+build/tree_program_test.tl overload_none 1
 build/unix_socket.tl overload_none 1
 build/warnings_fork_test.tl overload_none 2
 build/work.tl overload_none 3
@@ -3631,6 +3708,7 @@ lang/stdlib_corrections.tl overload_none 10
 lang/translate.tl overload_none 5
 lang/translate_fuzz_test.tl overload_none 4
 lang/translate_test.tl overload_none 1
+lang/types.tl overload_none 4
 lang/warnings.tl overload_none 1
 test/coverage_cache_test.tl overload_none 1
 test/portable/tool.tl overload_none 1
@@ -3640,7 +3718,7 @@ build/ast/requires.tl return_arity 1
 build/bom.tl return_arity 10
 build/c/init.tl return_arity 4
 build/checker_readonly_test.tl return_arity 1
-build/compilation.tl return_arity 5
+build/compilation.tl return_arity 4
 build/compile.tl return_arity 1
 build/confine.tl return_arity 3
 build/databases.tl return_arity 2
@@ -3657,6 +3735,7 @@ build/fix/render.tl return_arity 2
 build/fix/rule.tl return_arity 1
 build/flow.tl return_arity 2
 build/gen_syscalls.tl return_arity 5
+build/grammar_mode.tl return_arity 2
 build/host_names.tl return_arity 5
 build/host_requires.tl return_arity 3
 build/identity.tl return_arity 5
@@ -3666,6 +3745,8 @@ build/link_files.tl return_arity 1
 build/link_index.tl return_arity 3
 build/link_index_test.tl return_arity 2
 build/link_resolve.tl return_arity 8
+build/lua_tail.tl return_arity 1
+build/pipeline.tl return_arity 2
 build/reboot.tl return_arity 3
 build/roots.tl return_arity 1
 build/shared_compiles.tl return_arity 1
@@ -3679,6 +3760,7 @@ build/teal_test.tl return_arity 4
 build/test.tl return_arity 3
 build/todos.tl return_arity 4
 build/tree_checks.tl return_arity 6
+build/tree_program.tl return_arity 3
 build/tree_root.tl return_arity 1
 build/work.tl return_arity 5
 build/work_test.tl return_arity 1
@@ -3702,6 +3784,7 @@ cosmic/web/input.tl return_arity 1
 lang/check.tl return_arity 22
 lang/scopes.tl return_arity 1
 lang/stdlib_corrections.tl return_arity 2
+lang/types.tl return_arity 1
 test/portable/init.tl return_arity 1
 test/sqlite_json_test.tl return_arity 1
 # untrusted data read, operated on or stored: the rewrite validates it with a [`cosmic.shape`] validator
@@ -3759,7 +3842,7 @@ build/shape_specs.tl any_use 2
 build/sql.tl any_use 3
 build/stand_in_probe.tl any_use 1
 build/stub.tl any_use 4
-build/syntax_match.tl any_use 2
+build/syntax_match.tl any_use 75
 build/teal.tl any_use 19
 build/term_relay_backpressure_test.tl any_use 1
 build/test.tl any_use 3
@@ -3910,16 +3993,19 @@ cosmic/web/typed_test.tl any_use 7
 cosmic/web_example.tl any_use 1
 cosmic/zip.tl any_use 54
 cosmic/zip_fuzz_test.tl any_use 43
+doc/guides/web.md any_use 1
 eval/check/grade.tl any_use 46
 eval/declared_types_test.tl any_use 12
 eval/result.tl any_use 11
 eval/result_test.tl any_use 18
 eval/round.tl any_use 1
 eval/summarize_test.tl any_use 52
+lang/ast.tl any_use 146
 lang/check_programs.tl any_use 13
 lang/codegen_fuzz_test.tl any_use 3
 lang/codegen_test.tl any_use 12
 lang/relation_fuzz_test.tl any_use 2
+lang/translate.tl any_use 146
 test/digit_separators_test.tl any_use 11
 test/portable/init.tl any_use 21
 test/sqlite_parameter_test.tl any_use 9
@@ -3983,8 +4069,10 @@ build/host_requires_test.tl cast_refused 3
 build/json_query_fuzz_test.tl cast_refused 1
 build/json_query_test.tl cast_refused 6
 build/links_test.tl cast_refused 2
+build/lua_tail_test.tl cast_refused 1
 build/patch_test.tl cast_refused 3
 build/paths_test.tl cast_refused 3
+build/pipeline_test.tl cast_refused 2
 build/rebuild_lock_lua_test.tl cast_refused 1
 build/receivers.tl cast_refused 3
 build/run_build_dir_tool_test.tl cast_refused 2
@@ -4237,37 +4325,19 @@ test/terminal/pty.tl cast_refused 2
 # replace the `where` clause
 build/ast/match.tl is_on_record 3
 build/ast/walk.tl is_on_record 1
-build/compile_grammar.tl is_on_record 4
 build/compile_grammar_test.tl is_on_record 3
 build/compile_lang_test.tl is_on_record 3
-build/coverage/syntax_lines.tl is_on_record 2
 build/dataset.tl is_on_record 2
-build/driver_test.tl is_on_record 4
 build/flow.tl is_on_record 7
-build/lang_proof.tl is_on_record 3
+build/lang_proof.tl is_on_record 1
 build/removed_fix.tl is_on_record 6
 build/shape_specs.tl is_on_record 1
 build/standalone.tl is_on_record 3
-build/syntax_analyzer.tl is_on_record 93
-build/syntax_compared.tl is_on_record 1
-build/syntax_contracts.tl is_on_record 165
-build/syntax_globals.tl is_on_record 1
-build/syntax_link_text.tl is_on_record 19
-build/syntax_match.tl is_on_record 12
-build/syntax_match_test.tl is_on_record 1
-build/syntax_node.tl is_on_record 6
-build/syntax_node_test.tl is_on_record 4
-build/syntax_receivers.tl is_on_record 7
-build/syntax_report.tl is_on_record 1
-build/syntax_rewrite.tl is_on_record 1
-build/syntax_scopes.tl is_on_record 9
-build/syntax_shape_specs.tl is_on_record 14
-build/syntax_stub.tl is_on_record 26
+build/syntax_match.tl is_on_record 9
 build/syntax_typed_fixture.tl is_on_record 1
 build/teal.tl is_on_record 1
 build/test_closure_test.tl is_on_record 1
 build/test_worker.tl is_on_record 4
-build/tree_checks.tl is_on_record 1
 build/tree_root.tl is_on_record 1
 build/verbs_store_test.tl is_on_record 2
 build/verbs_tool_test.tl is_on_record 2
@@ -4307,33 +4377,10 @@ eval/check/grade.tl is_on_record 3
 eval/result.tl is_on_record 6
 eval/round.tl is_on_record 2
 eval/summarize.tl is_on_record 9
+lang/ast.tl is_on_record 8
 lang/ast_dump.tl is_on_record 3
-lang/check.tl is_on_record 274
-lang/check_class_test.tl is_on_record 2
 lang/check_programs.tl is_on_record 1
-lang/codegen.tl is_on_record 95
-lang/codegen_test.tl is_on_record 1
-lang/declarations.tl is_on_record 93
-lang/declarations_test.tl is_on_record 6
-lang/generics.tl is_on_record 22
-lang/parser.tl is_on_record 21
-lang/parser_cover.tl is_on_record 1
-lang/parser_error_test.tl is_on_record 1
-lang/parser_recovery_test.tl is_on_record 7
-lang/parser_test.tl is_on_record 21
-lang/relation.tl is_on_record 28
-lang/relation_fuzz_test.tl is_on_record 31
-lang/relation_test.tl is_on_record 7
-lang/scopes.tl is_on_record 60
-lang/scopes_cover.tl is_on_record 4
-lang/scopes_fuzz_test.tl is_on_record 18
-lang/scopes_test.tl is_on_record 2
-lang/translate.tl is_on_record 116
-lang/types_fuzz_test.tl is_on_record 22
-lang/types_programs.tl is_on_record 1
-lang/types_test.tl is_on_record 5
-lang/warnings.tl is_on_record 2
-lang/warnings_test.tl is_on_record 8
+lang/translate.tl is_on_record 3
 test/sqlite_result_test.tl is_on_record 2
 # an `is` of a type the value cannot have: the position captures of `string.match` (`source:match("^%s*():", at)`),
 # which the standard library declares as strings (a TODO in checker/stdlib.d.tl)
@@ -4425,6 +4472,7 @@ cosmic/web/serve_test.tl close_not_closable 4
 cosmic/web/sse.tl close_not_closable 1
 cosmic/web/testing.tl close_not_closable 1
 cosmic/web/testing_test.tl close_not_closable 1
+doc/guides/quickstart.md close_not_closable 1
 eval/solve.tl close_not_closable 1
 test/sqlite_query_test.tl close_not_closable 1
 test/sqlite_row_test.tl close_not_closable 1
@@ -4557,6 +4605,7 @@ build/patch.tl condition_type 3
 build/patch_test.tl condition_type 1
 build/paths_test.tl condition_type 1
 build/perf.tl condition_type 6
+build/pipeline_test.tl condition_type 1
 build/rand.tl condition_type 7
 build/rand_test.tl condition_type 3
 build/rebuild_lock.tl condition_type 1
@@ -4661,7 +4710,7 @@ ci/cosmic_ci/queue_seed.tl condition_type 2
 ci/cosmic_ci/queue_seed_test.tl condition_type 1
 ci/cosmic_ci/queue_stage.tl condition_type 1
 ci/cosmic_ci/queue_stage_test.tl condition_type 12
-ci/cosmic_ci/report.tl condition_type 5
+ci/cosmic_ci/report.tl condition_type 6
 ci/cosmic_ci/report_test.tl condition_type 2
 ci/cosmic_ci/runner.tl condition_type 2
 ci/cosmic_ci/runtime_setup.tl condition_type 1
@@ -4780,6 +4829,7 @@ cosmic/web/static.tl condition_type 2
 cosmic/web/testing.tl condition_type 3
 cosmic/web/typed.tl condition_type 3
 cosmic/zip.tl condition_type 3
+doc/guides/web.md condition_type 1
 eval/arena_test.tl condition_type 3
 eval/check/grade.tl condition_type 4
 eval/check/grade_test.tl condition_type 9
@@ -4816,7 +4866,8 @@ lang/scopes_programs.tl condition_type 1
 lang/stdlib_corrections_test.tl condition_type 1
 lang/translate.tl condition_type 14
 lang/translate_fuzz_test.tl condition_type 1
-lang/types_fuzz_test.tl condition_type 8
+lang/types.tl condition_type 25
+lang/types_fuzz_test.tl condition_type 6
 lang/types_test.tl condition_type 1
 test/coverage_children_test.tl condition_type 1
 test/portable/tool.tl condition_type 2
@@ -4897,7 +4948,7 @@ build/reboot_test.tl or_mix 1
 build/rebuild_lock_lua_test.tl or_mix 1
 build/rebuild_lock_test.tl or_mix 2
 build/receivers.tl or_mix 3
-build/refresh.tl or_mix 1
+build/refresh.tl or_mix 2
 build/refresh_store_test.tl or_mix 3
 build/refresh_test.tl or_mix 2
 build/refresh_tool_test.tl or_mix 3
@@ -4980,7 +5031,7 @@ ci/cosmic_ci/place_tree_test.tl or_mix 1
 ci/cosmic_ci/prerelease.tl or_mix 1
 ci/cosmic_ci/prerelease_test.tl or_mix 2
 ci/cosmic_ci/process_test.tl or_mix 1
-ci/cosmic_ci/report.tl or_mix 6
+ci/cosmic_ci/report.tl or_mix 7
 ci/cosmic_ci/report_test.tl or_mix 6
 ci/cosmic_ci/runner_test.tl or_mix 3
 ci/cosmic_ci/verdicts.tl or_mix 1
@@ -5160,6 +5211,7 @@ cosmic/web/static_test.tl or_mix 1
 cosmic/web/testing_test.tl or_mix 1
 cosmic/web/typed_test.tl or_mix 2
 cosmic/zip_test.tl or_mix 4
+doc/guides/web.md or_mix 1
 eval/arena_test.tl or_mix 4
 eval/check/grade.tl or_mix 2
 eval/check/grade_test.tl or_mix 2
@@ -5169,7 +5221,7 @@ eval/round_test.tl or_mix 1
 eval/solve.tl or_mix 1
 eval/solve_test.tl or_mix 1
 eval/summarize.tl or_mix 17
-lang/check.tl or_mix 12
+lang/check.tl or_mix 9
 lang/check_flow_fuzz_test.tl or_mix 1
 lang/check_flow_test.tl or_mix 4
 lang/codegen.tl or_mix 2
@@ -5187,6 +5239,7 @@ lang/scopes_oracle_test.tl or_mix 1
 lang/scopes_programs.tl or_mix 1
 lang/translate.tl or_mix 7
 lang/translate_test.tl or_mix 2
+lang/types.tl or_mix 1
 lang/types_fuzz_test.tl or_mix 1
 lang/types_test.tl or_mix 1
 test/digit_separators_test.tl or_mix 1
@@ -5293,14 +5346,14 @@ build/stub.tl and_ternary 4
 build/stub_test.tl and_ternary 1
 build/symbols.tl and_ternary 1
 build/syntax_compared.tl and_ternary 1
-build/syntax_contracts.tl and_ternary 4
+build/syntax_contracts.tl and_ternary 3
 build/syntax_contracts_test.tl and_ternary 1
 build/syntax_derivation_test.tl and_ternary 1
 build/syntax_match.tl and_ternary 2
 build/syntax_rewrite.tl and_ternary 2
 build/syntax_scopes.tl and_ternary 4
 build/syntax_shape_specs.tl and_ternary 6
-build/syntax_stub.tl and_ternary 2
+build/syntax_stub.tl and_ternary 1
 build/syntax_typed_fixture.tl and_ternary 1
 build/syntax_typed_test.tl and_ternary 3
 build/teal.tl and_ternary 50
@@ -5318,7 +5371,9 @@ build/this_program_test.tl and_ternary 1
 build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
-build/tree_checks.tl and_ternary 21
+build/tree_checks.tl and_ternary 20
+build/tree_program.tl and_ternary 1
+build/tree_program_test.tl and_ternary 1
 build/vendor.tl and_ternary 2
 build/vendor_test.tl and_ternary 1
 build/verbs_store_test.tl and_ternary 1
@@ -5467,7 +5522,7 @@ eval/round.tl and_ternary 9
 eval/round_test.tl and_ternary 1
 eval/summarize.tl and_ternary 13
 lang/ast_dump.tl and_ternary 1
-lang/check.tl and_ternary 81
+lang/check.tl and_ternary 69
 lang/check_class_test.tl and_ternary 2
 lang/check_expressions_test.tl and_ternary 2
 lang/check_fuzz_test.tl and_ternary 2
@@ -5475,22 +5530,22 @@ lang/check_refused_test.tl and_ternary 2
 lang/check_test.tl and_ternary 2
 lang/codegen.tl and_ternary 11
 lang/codegen_test.tl and_ternary 5
-lang/declarations.tl and_ternary 30
+lang/declarations.tl and_ternary 26
 lang/declarations_test.tl and_ternary 1
 lang/flow.tl and_ternary 3
-lang/generics.tl and_ternary 1
 lang/lexer_cover.tl and_ternary 1
 lang/parser.tl and_ternary 1
 lang/parser_fuzz_test.tl and_ternary 1
 lang/relation.tl and_ternary 7
-lang/relation_fuzz_test.tl and_ternary 11
+lang/relation_fuzz_test.tl and_ternary 7
 lang/scopes.tl and_ternary 5
 lang/scopes_cover.tl and_ternary 1
 lang/scopes_fuzz_test.tl and_ternary 1
 lang/scopes_programs.tl and_ternary 1
-lang/scopes_test.tl and_ternary 3
+lang/scopes_test.tl and_ternary 2
 lang/stdlib_corrections_test.tl and_ternary 1
-lang/translate.tl and_ternary 20
+lang/translate.tl and_ternary 17
+lang/types.tl and_ternary 7
 lang/types_fuzz_test.tl and_ternary 2
 lang/types_programs.tl and_ternary 1
 lang/types_speed_test.tl and_ternary 1
@@ -5665,6 +5720,7 @@ build/todos_git_test.tl concat_type 7
 build/todos_test.tl concat_type 19
 build/tree_checks.tl concat_type 26
 build/tree_checks_test.tl concat_type 9
+build/tree_program_test.tl concat_type 2
 build/unix_socket_declared_types_test.tl concat_type 1
 build/vendor.tl concat_type 2
 build/verb_list_test.tl concat_type 1
@@ -5864,6 +5920,7 @@ cosmic/web/sse_fuzz_test.tl concat_type 1
 cosmic/web/sse_test.tl concat_type 9
 cosmic/web/static_test.tl concat_type 4
 cosmic/web/testing.tl concat_type 1
+doc/guides/command-line.md concat_type 1
 eval/check/grade.tl concat_type 55
 eval/check/grade_test.tl concat_type 5
 eval/check/testdata_test.tl concat_type 1
@@ -5888,7 +5945,7 @@ lang/lexer_fuzz_test.tl concat_type 1
 lang/lexer_parity_test.tl concat_type 14
 lang/lexer_test.tl concat_type 10
 lang/parser.tl concat_type 12
-lang/parser_cover.tl concat_type 13
+lang/parser_cover.tl concat_type 12
 lang/parser_error_test.tl concat_type 8
 lang/parser_fuzz_test.tl concat_type 11
 lang/parser_speed_test.tl concat_type 1
@@ -5910,6 +5967,7 @@ lang/translate.tl concat_type 1
 lang/translate_fuzz_test.tl concat_type 53
 lang/translate_speed_test.tl concat_type 7
 lang/translate_test.tl concat_type 3
+lang/types.tl concat_type 26
 lang/types_fuzz_test.tl concat_type 4
 lang/types_speed_test.tl concat_type 4
 lang/types_test.tl concat_type 2
@@ -6308,18 +6366,19 @@ cosmic/web/typed_test.tl literal_missing 19
 cosmic/web_example.tl literal_missing 17
 cosmic/web_serve_example.tl literal_missing 2
 cosmic/zip.tl literal_missing 5
+doc/guides/web.md literal_missing 5
 eval/check/grade.tl literal_missing 3
 eval/result.tl literal_missing 1
 eval/solve_test.tl literal_missing 3
 eval/summarize.tl literal_missing 1
 lang/check.tl literal_missing 8
-lang/codegen.tl literal_missing 1
 lang/declarations.tl literal_missing 5
 lang/lexer.tl literal_missing 8
-lang/parser.tl literal_missing 29
+lang/parser.tl literal_missing 1
 lang/relation.tl literal_missing 1
-lang/scopes.tl literal_missing 2
+lang/scopes.tl literal_missing 1
 lang/translate.tl literal_missing 4
+lang/types.tl literal_missing 2
 test/sqlite_json_test.tl literal_missing 1
 # a field a literal names that its record lacks: the fields an interface gives
 cosmic/http/init.tl literal_unknown 3
@@ -6331,6 +6390,7 @@ cosmic/zip.tl literal_unknown 6
 lang/codegen.tl literal_unknown 4
 lang/parser.tl literal_unknown 112
 lang/scopes.tl literal_unknown 4
+lang/types.tl literal_unknown 63
 # a `{}` with no type to make it from: the rewrite declares the local `mut {T}`
 build/analyzer.tl literal_needs_type 2
 build/archive.tl literal_needs_type 1
@@ -6397,7 +6457,6 @@ ci/cosmic_ci/github_api_test.tl literal_needs_type 3
 ci/cosmic_ci/host_id_test.tl literal_needs_type 1
 ci/cosmic_ci/orchestration_test.tl literal_needs_type 1
 ci/cosmic_ci/prerelease_test.tl literal_needs_type 1
-ci/cosmic_ci/report.tl literal_needs_type 1
 ci/cosmic_ci/report_test.tl literal_needs_type 5
 ci/cosmic_ci/verdicts_test.tl literal_needs_type 1
 core/artifact_fd_test.tl literal_needs_type 3
@@ -6745,6 +6804,7 @@ cosmic/template_html5lib_tree_test.tl array_hole 1
 cosmic/time.tl array_hole 1
 cosmic/web/router.tl array_hole 1
 cosmic/web/session/cookie_test.tl array_hole 1
+lang/ast.tl array_hole 1
 lang/ast_dump.tl array_hole 1
 lang/check.tl array_hole 13
 lang/check_fuzz_test.tl array_hole 4
@@ -6755,11 +6815,13 @@ lang/scopes.tl array_hole 6
 lang/scopes_programs.tl array_hole 3
 lang/translate.tl array_hole 3
 lang/translate_fuzz_test.tl array_hole 4
+lang/types.tl array_hole 13
 lang/types_programs.tl array_hole 1
 # a `number` as an index or key: the rewrite converts it with `math.floor`
 cosmic/json_test.tl float_key 2
 cosmic/shape_test.tl float_key 1
 cosmic/time.tl float_key 1
+lang/ast.tl float_key 3
 lang/declarations.tl float_key 2
 lang/lexer.tl float_key 3
 # a module that returns something no declaration describes
@@ -6819,35 +6881,40 @@ cosmic/web/static_example.tl export_not_declared 1
 cosmic/web_example.tl export_not_declared 1
 cosmic/web_serve_example.tl export_not_declared 1
 cosmic/zip_example.tl export_not_declared 1
+test/profile_page.tmpl export_not_declared 1
 # a `require` of a module the tree lacks
-cosmic/template_build_test.tl require_unknown 1
 # a value whose type is not below the one wanted: a union read as one of its members without a test, a
 # callback with fewer parameters than the type wanted, a `number` for an `integer`
 build/ast/walk.tl not_assignable 2
 build/boot.tl not_assignable 1
 build/cache.tl not_assignable 5
 build/child_policy_database_fixture.tl not_assignable 1
-build/compilation.tl not_assignable 2
+build/compilation.tl not_assignable 1
 build/confine.tl not_assignable 1
 build/confine_declared_types_test.tl not_assignable 1
 build/confine_tool_test.tl not_assignable 11
 build/database_start_fixture.tl not_assignable 1
 build/dataset_fuzz_test.tl not_assignable 1
-build/driver_test.tl not_assignable 1
+build/driver_test.tl not_assignable 2
 build/fix/fix_test.tl not_assignable 1
 build/fix/init.tl not_assignable 5
 build/flow_test.tl not_assignable 1
 build/harness_epoch_test.tl not_assignable 2
 build/hash_test.tl not_assignable 1
 build/importer.tl not_assignable 2
+build/lang_proof.tl not_assignable 1
 build/link_files.tl not_assignable 1
 build/link_text.tl not_assignable 1
+build/lua_tail.tl not_assignable 1
 build/reboot.tl not_assignable 3
 build/refresh_store_test.tl not_assignable 1
 build/sandbox.tl not_assignable 1
 build/sandbox_connect_test.tl not_assignable 16
 build/sandbox_seal_tool_test.tl not_assignable 1
 build/stand_in_probe.tl not_assignable 29
+build/syntax_analyzer.tl not_assignable 3
+build/syntax_contracts.tl not_assignable 8
+build/syntax_shape_specs.tl not_assignable 1
 build/teal.tl not_assignable 2
 build/test_sandbox_system_confined_test.tl not_assignable 1
 build/test_test.tl not_assignable 1
@@ -6907,10 +6974,24 @@ eval/check/grade.tl not_assignable 1
 eval/declared_types_test.tl not_assignable 1
 eval/result.tl not_assignable 1
 eval/round_test.tl not_assignable 2
-lang/declarations.tl not_assignable 1
-lang/parser.tl not_assignable 1
+lang/check.tl not_assignable 72
+lang/codegen.tl not_assignable 21
+lang/declarations.tl not_assignable 14
+lang/generics.tl not_assignable 3
+lang/parser.tl not_assignable 6
 lang/parser_fuzz_test.tl not_assignable 3
-lang/translate.tl not_assignable 1
+lang/parser_test.tl not_assignable 2
+lang/relation.tl not_assignable 16
+lang/relation_fuzz_test.tl not_assignable 2
+lang/relation_test.tl not_assignable 3
+lang/scopes.tl not_assignable 14
+lang/scopes_cover.tl not_assignable 4
+lang/scopes_fuzz_test.tl not_assignable 2
+lang/scopes_test.tl not_assignable 1
+lang/translate.tl not_assignable 17
+lang/types.tl not_assignable 4
+lang/types_fuzz_test.tl not_assignable 2
+lang/types_test.tl not_assignable 2
 # a call that answers one of several lists used as the value of one name: a `pcall` whose first value is read
 # (`assert(not pcall(f))`, `local ok = pcall(f)`), which the rewrite makes a `match`
 build/checker_assigned_fuzz_test.tl alternatives_as_value 1
@@ -6980,32 +7061,16 @@ cosmic/web/csrf_test.tl alternatives_as_value 1
 cosmic/web/headers_test.tl alternatives_as_value 3
 cosmic/web/session/cookie_test.tl alternatives_as_value 1
 cosmic/web/session/session_test.tl alternatives_as_value 3
+doc/guides/web.md alternatives_as_value 1
 lang/declarations.tl alternatives_as_value 2
 lang/relation_test.tl alternatives_as_value 2
 lang/types_speed_test.tl alternatives_as_value 1
 # a call of a generic function whose type parameter nothing at the call fixes: `Shape.record_of("Row")` and `Channel.new()` with no
 # type expected, and an inner call that is the argument of another generic (`must(Shape.into(v, SPEC))`); the rewrite types the result
-build/archive_test.tl cannot_infer 1
-build/bom_test.tl cannot_infer 1
-build/bom_verb_test.tl cannot_infer 1
-build/fetch_test.tl cannot_infer 1
-build/hash_test.tl cannot_infer 1
-build/refresh.tl cannot_infer 1
-build/sandbox_test.tl cannot_infer 1
-ci/cosmic_ci/cache_trim.tl cannot_infer 1
-ci/cosmic_ci/prerelease.tl cannot_infer 1
-ci/cosmic_ci/report.tl cannot_infer 3
 cosmic/channel_test.tl cannot_infer 5
-cosmic/declared_types_test.tl cannot_infer 1
-cosmic/json_example.tl cannot_infer 1
-cosmic/shape_example.tl cannot_infer 1
 cosmic/shape_fuzz_test.tl cannot_infer 6
-cosmic/shape_record_test.tl cannot_infer 3
+cosmic/shape_record_test.tl cannot_infer 1
 cosmic/shape_test.tl cannot_infer 26
-cosmic/web/input_example.tl cannot_infer 5
-cosmic/web/input_fuzz_test.tl cannot_infer 2
-cosmic/web/input_multipart_test.tl cannot_infer 2
-cosmic/web/input_test.tl cannot_infer 6
-cosmic/web/typed_test.tl cannot_infer 6
+cosmic/web/input_fuzz_test.tl cannot_infer 1
 # a call that answers nothing, used where a value is wanted
 cosmic/declared_types_test.tl no_value 1
