@@ -97,21 +97,23 @@ end
 --- A broken file the run's file requires, itself or through another,
 --- still stops the run with the refusal a whole build gives.
 local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
-  local cases: {{string}} = {
-    { "direct-syntax", SYNTAX_ERROR, "bad.tl: bad.tl:1:21: syntax error" },
-    { "direct-types", TYPE_ERROR, "bad.tl: the compiler refused it" },
-    { "through-syntax", SYNTAX_ERROR, "bad.tl: bad.tl:1:21: syntax error" },
-    { "through-types", TYPE_ERROR, "bad.tl: the compiler refused it" },
+  local direct = 'local b = require("bad")\nprint(b)\n'
+  local through = 'local m = require("mid")\nprint(m)\n'
+  local mid = 'local b = require("bad")\nreturn b\n'
+  local record Case
+    name: string
+    files: {string:string}
+  end
+  local cases: {Case} = {
+    { name = "direct-syntax", files = { ["good.tl"] = direct, ["bad.tl"] = SYNTAX_ERROR } },
+    { name = "direct-types", files = { ["good.tl"] = direct, ["bad.tl"] = TYPE_ERROR } },
+    { name = "through-syntax", files = { ["good.tl"] = through, ["mid.tl"] = mid, ["bad.tl"] = SYNTAX_ERROR } },
+    { name = "through-types", files = { ["good.tl"] = through, ["mid.tl"] = mid, ["bad.tl"] = TYPE_ERROR } },
   }
   for _, case in ipairs(cases) do
-    local name, broken, refusal = case[1], case[2], case[3]
-    local files: {string:string} = { ["bad.tl"] = broken }
-    if name:find("^through") then
-      files["good.tl"] = 'local m = require("mid")\nprint(m)\n'
-      files["mid.tl"] = 'local b = require("bad")\nreturn b\n'
-    else
-      files["good.tl"] = 'local b = require("bad")\nprint(b)\n'
-    end
+    local name, files = case.name, case.files
+    local refusal = files["bad.tl"] == SYNTAX_ERROR and "bad.tl: bad.tl:1:21: syntax error" or
+      "bad.tl: the compiler refused it"
     local result = run_in(tree_of(tmp, name, files), "good.tl")
     local said = tostring(result.stdout) .. tostring(result.stderr)
     assert(result.code == 1 and result.stdout == "", said)

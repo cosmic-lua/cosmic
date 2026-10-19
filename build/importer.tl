@@ -802,7 +802,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     made = {}
     tally.parsed, tally.shared, tally.worked = 0, 0, 0
     if broken ~= nil then
-      for at = #broken, 1, -1 do broken[at] = nil end
+      while #broken > 0 do table.remove(broken) end
     end
     local again, again_trouble = derive_new(handle, built, tally, made, nil, pool, broken)
     if again == nil then
@@ -1189,8 +1189,8 @@ local function reach(db: Sqlite.Handle, target: string): {string:boolean} | nil,
   local reached: {string:boolean} = { [target] = true }
   local pending: {string} = { target }
   while #pending > 0 do
-    for _, name in ipairs(requires[table.remove(pending)] or {}) do
-      if not reached[name] then
+    for _, name in ipairs(requires[assert(table.remove(pending))] or {}) do
+      if reached[name] ~= true then
         reached[name] = true
         pending[#pending + 1] = name
       end
@@ -1202,7 +1202,7 @@ end
 --- Whether `m` requires a module the run left out (`failed`).
 local function leans_on(m: Module, failed: {string:boolean}): boolean
   for _, name in ipairs(m.requires) do
-    if failed[name] then
+    if failed[name] == true then
       return true
     end
   end
@@ -1261,7 +1261,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         return nil, holders_trouble
       end
       for _, row in ipairs(holders) do
-        if reached[row:text(1)] then
+        if reached[row:text(1)] == true then
           return nil, one.message
         end
       end
@@ -1403,7 +1403,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       m.graph_key = keys[m.path].graph
 
       local refusal = compilation.refusal(m)
-      if needed ~= nil and not needed[m.path] and leans_on(m, failed) then
+      if needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
         -- Left out quietly: the module it requires was told of.
         failed[m.path] = true
       elseif refusal ~= nil then
@@ -1467,7 +1467,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
                   return complain(file, source, checked, hints)
                 end)
             if made_generated == nil then
-              if needed == nil or needed[m.path] then
+              if needed == nil or needed[m.path] == true then
                 progress.failure = generate_trouble
                 break
               end
