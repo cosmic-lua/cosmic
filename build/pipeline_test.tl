@@ -5,17 +5,21 @@ local Ceilings = require("build.ceilings")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
+local Fixture = require("build.syntax_typed_fixture")
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Pipeline = require("build.pipeline")
 local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
+local Stub = require("build.stub")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local compilation = require("build.compilation")
 local compile = require("build.compile")
 local importer = require("build.importer")
+local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
 
@@ -55,7 +59,7 @@ local function options(pins: string): Pipeline.Options
       sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
-    ceilings = ceilings(pins), types = false, standard = Driver.stubs(STANDARD),
+    ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD),
   }
 end
 
@@ -88,6 +92,60 @@ local function test_a_module_is_checked_written_and_dumped_and_the_lua_and_the_b
   assert(value_of(made.lua) == 42 and not made.refused and #made.references == 0)
   assert(assert(load(made.bytecode, "=m", "b"))() == 42)
   assert(made.bytecode:sub(1, 4) == "\27Lua")
+end
+
+local function test_a_method_that_reads_a_function_written_after_its_record_runs_through_the_hoist()
+  local source = table.concat({
+    "local record R",
+    "  n: integer",
+    "end",
+    "local function bump(r: R): integer",
+    "  return r.n + 1",
+    "end",
+    "function R:next(): integer",
+    "  return bump(self)",
+    "end",
+    "local r: R = { n = 41 }",
+    "return R.next(r)",
+    "",
+  }, "\n")
+  local made, why = generated(source, EXPORT)
+  assert(made ~= nil, tostring(why))
+  assert(value_of(made.lua) == 42, made.lua)
+  local bump_at = assert(made.lua:find("local function bump", 1, true), made.lua)
+  local next_at = made.lua:find("function R.next", 1, true) or made.lua:find("R.next = ", 1, true)
+  assert(next_at ~= nil and bump_at < next_at, made.lua)
+end
+
+local function test_a_literal_a_hoisted_function_reads_moves_with_it_and_a_value_made_by_a_call_is_refused()
+  local head = "local record R\n  n: integer\nend\n"
+  local moved = generated(head .. "local base = 40\nlocal function plus(r: R): integer\n  return r.n + base\nend\n" ..
+      "function R:go(): integer\n  return plus(self)\nend\nlocal r: R = { n = 2 }\nreturn R.go(r)\n", EXPORT)
+  assert(moved ~= nil and value_of(moved.lua) == 42)
+  -- the same program with `base` made by a call cannot move: the method would read a name declared below it
+  local made, why = generated("local function forty(): integer\n  return 40\nend\n" .. head ..
+      "local base = forty()\nfunction R:go(): integer\n  return self.n + base\nend\nlocal r: R = { n = 2 }\nreturn R.go(r)\n", EXPORT)
+  assert(made == nil and why:find("(unknown_variable)", 1, true) ~= nil, tostring(why))
+  -- a function that reads a call-made value stays where it is, so a method that calls it is refused as well
+  local indirect, indirect_why = generated("local function forty(): integer\n  return 40\nend\n" .. head ..
+      "local base = forty()\nlocal function plus(r: R): integer\n  return r.n + base\nend\nfunction R:go(): integer\n" ..
+      "  return plus(self)\nend\nlocal r: R = { n = 2 }\nreturn R.go(r)\n", EXPORT)
+  assert(indirect == nil and indirect_why:find("(unknown_variable)", 1, true) ~= nil, tostring(indirect_why))
+end
+
+local function test_an_import_read_as_a_value_stays_a_require_and_one_never_read_is_not_loaded()
+  local dep = "local record Dep\n  n: integer\nend\nlocal d: Dep = { n = 3 }\nreturn d\n"
+  local function lua_of(source: string): string
+    local pipeline = Pipeline.over({ { "dep.tl", dep }, { "m.tl", source } }, { ["dep.tl"] = "module", ["m.tl"] = "module" },
+      options(EXPORT))
+    local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline)
+    assert(made ~= nil, tostring(why))
+    return made.lua
+  end
+  local kept = lua_of("local type Dep = require(\"dep\")\nreturn Dep.n\n")
+  assert(kept:find('local Dep = require("dep")', 1, true) ~= nil, kept)
+  local erased = lua_of("local type _dep = require(\"dep\")\nreturn 7\n")
+  assert(erased:find("require", 1, true) == nil and value_of(erased) == 7, erased)
 end
 
 local function test_a_test_module_hands_its_tests_back_and_none_is_unused()
@@ -156,7 +214,7 @@ end
 local function test_an_if_expression_over_a_value_the_translator_knows_is_never_false_is_not_written_as_a_call()
   -- the middle is a cast to a string: no literal, so only what the translator knows of it keeps the `and` and `or`
   local made = assert(generated("local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n",
-    "[checked]\nm.tl cast_refused 1\nm.tl any_use 1\n"))
+    "[checked]\nm.tl cast_refused 1\nm.tl any_use 1\n", "example"))
   assert(made.lua:find("function", 1, true) == nil, made.lua)
   assert(value_of(made.lua) == "v")
 end
@@ -275,7 +333,7 @@ local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_cei
   local own = assert(Pipeline.options("."))
   assert(#own.globals.sources == 2)
   assert((Ceilings.of(own.ceilings, "checked")["build/tree_checks.tl view_written"] or 0) > 0, "the tree's ceilings are not read")
-  assert(next(own.ceilings.stages) ~= nil and not own.types)
+  assert(next(own.ceilings.stages) ~= nil and own.types)
   local project, why = Pipeline.options("/nonexistent-project-root")
   assert(project == nil and why:find("carries no declaration of the standard library", 1, true) ~= nil, tostring(why))
 end
@@ -322,4 +380,267 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
   local guide = assert(pipeline.build:parsed("doc.guides.g"))
   assert(guide.source.filename == "doc/guides/g.md" and guide.source.tests and guide.source.translate)
   assert(work.close(handle))
+end
+
+-- what the compile holds a module to besides the checker
+
+--- What the fork's contracts say of `source` as the file `m.tl` (the problems, one to a line), with the fixture's prelude of
+--- functions that fail.
+local function fork_says(source: string): string
+  local said = Fixture.fork(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
+  local lines: {string} = {}
+  for _, line in ipairs(said.problems) do
+    lines[#lines + 1] = (line:gsub("^x%.tl:(%d+):", "m.tl:%1:"))
+  end
+  return table.concat(lines, "\n")
+end
+
+--- The contract refusals of the compile for `source`: what it says of the module beyond the prelude's lines.
+local function compile_says(source: string): string
+  local text = Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
+  local made, why = generated(text, "", "module")
+  assert(made == nil, "the compile accepts:\n" .. source)
+  return why
+end
+
+--- Programs the fork's discipline refuses, each refused by the compile with the fork's words, in the fork's order.
+local function test_the_compile_refuses_what_the_forks_discipline_refuses_with_its_words()
+  local programs: {string} = {
+    "local v = get()\nuse(v)",
+    "put()",
+    "use(get(), 1)",
+    "local function f(): integer | nil, string\n  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)",
+    "local function f(): string | nil, integer\n  return nil, 127\nend\nuse(f)",
+    "if get() then use(1) end",
+    "use((get()))",
+  }
+  for _, program in ipairs(programs) do
+    local want = fork_says(program)
+    assert(want ~= "", "the fork finds nothing in:\n" .. program)
+    local got = compile_says(program)
+    assert(got == want, "in:\n" .. program .. "\nthe fork says:\n" .. want .. "\nthe compile says:\n" .. got)
+  end
+end
+
+local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and_marks_it_refused()
+  local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
+  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local m = module_of("m", "m.tl", "module", text, {})
+  local kept = assert(Pipeline.generate(m, pipeline, false, false))
+  assert(kept.refused and #kept.lua > 0)
+  local pipeline_again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local refused, why = Pipeline.generate(m, pipeline_again, false, true)
+  assert(refused == nil and why:find("its error slot is dropped", 1, true) ~= nil, tostring(why))
+end
+
+local function test_a_refused_call_points_to_the_worked_example_when_the_docs_hold_it()
+  local db = assert(Sqlite.memory())
+  for _, statement in ipairs(schema.create("")) do
+    assert(db:exec(statement))
+  end
+  assert(Sqlite.run(db,
+    "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
+      "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
+  assert(Sqlite.run(db,
+    "INSERT INTO examples (module, name, text, file, line, source) " ..
+      "VALUES ('cosmic.fs', 'generics_functions_returns', 'Calls.', 'cosmic/fs.tl', 9, 'local x = 1')"))
+  assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
+  local text = "local function f(a: integer): integer\n  return a\nend\nreturn f(1, 2)\n"
+  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local m = module_of("m", "m.tl", "module", text, {})
+  local bare, bare_why = Pipeline.generate(m, pipeline)
+  assert(bare == nil and bare_why:find("(arity)", 1, true) ~= nil and not bare_why:find("see also", 1, true), tostring(bare_why))
+  local pointed, why = Pipeline.generate(m, pipeline, false, true, function(): {Sqlite.Handle}, {boolean}
+    return { db }, { false }
+  end)
+  assert(pointed == nil and why:find("(arity): ", 1, true) ~= nil and
+      why:find(" -- see also: cosmic docs generics_functions_returns", 1, true) ~= nil, tostring(why))
+end
+
+local function test_a_guide_example_is_forgiven_the_shadowing_of_print_and_no_other_name()
+  local function shadow(name: string): Driver.Problem
+    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem
+  end
+  local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome
+  Pipeline.discounted(result)
+  assert(#result.scope_errors == 2 and result.scope_errors[1].msg:find("`printer`", 1, true) ~= nil and
+      result.scope_errors[2].msg:find("`println`", 1, true) ~= nil)
+end
+
+local function test_a_test_or_an_example_or_a_generated_module_is_not_held_to_the_discipline()
+  local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
+  for _, kind in ipairs({ "test", "example" }) do
+    local made, why = generated(text, "", kind, kind == "test" and { "test_none" } or {})
+    assert(made ~= nil or why:find("error slot", 1, true) == nil, tostring(why))
+  end
+end
+
+--- A calls the checker gave no function is held to the ceiling of `[untyped]`, and a type error to its own.
+local function test_a_call_the_checker_could_not_type_is_held_to_its_untyped_ceiling()
+  local source = "local missing: string = 1\nlocal function f(): integer\n  return missing()\nend\nreturn f\n"
+  local made, why = generated(source, "[checked]\nm.tl not_assignable 1\nm.tl not_callable 1\n")
+  assert(made == nil and why:find("1 call the checker gave no function, which no rule of the discipline judged, pinned 0", 1, true) ~= nil,
+    tostring(why))
+  local allowed = generated(source, "[checked]\nm.tl not_assignable 1\nm.tl not_callable 1\n[untyped]\nm.tl 1\n")
+  assert(allowed ~= nil)
+end
+
+local function test_a_standard_library_module_is_held_to_its_stub()
+  local source = table.concat({ "local record Box", "  n: integer", "  more: string", "end", "return Box", "" }, "\n")
+  local stub = table.concat({ "local record Box", "  n: integer", "end", "return Box", "" }, "\n")
+  local entries: {{string}} = { { "cosmic/box.tl", source } }
+  local kinds: {string: string} = { ["cosmic/box.tl"] = "module" }
+  local pipeline = Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub })
+  local m = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
+  m.stub = { text = stub, pruned = true }
+  local made, why = Pipeline.generate(m, pipeline)
+  assert(made == nil and why:find("cosmic/box.tl: the stub a project's checker reads in its place", 1, true) == 1, tostring(why))
+  assert(why:find("Box", 1, true) ~= nil, tostring(why))
+  -- a stub that keeps every statement is no stub
+  local unpruned = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
+  unpruned.stub = { text = source, pruned = false }
+  local whole, whole_why = Pipeline.generate(unpruned, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }))
+  assert(whole == nil and whole_why:find("its stub keeps every statement", 1, true) ~= nil, tostring(whole_why))
+  -- a run that does not judge keeps the compile for the tool it builds, marked
+  local kept = assert(Pipeline.generate(m, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }), false, false))
+  assert(kept.refused)
+  -- the stub that types the module as its source does holds it
+  local fine = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
+  fine.stub = { text = source, pruned = true }
+  local held = assert(Pipeline.generate(fine, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = source })))
+  assert(not held.refused)
+end
+
+--- Whether the fork's checker types `stub` otherwise than `source`: the difference cosmic's own build refuses a stub for.
+local function fork_stub_differs(source: string, stub: string): boolean
+  local function type_of(text: string): any
+    local env = assert(built.new_env({ defaults = teal.defaults() }))
+    return built.check_string(text, env, "m.tl", "tl").type
+  end
+  return Stub.difference(type_of(source), type_of(stub)) ~= nil
+end
+
+local function test_a_stub_that_types_a_module_otherwise_than_its_source_is_refused_as_the_fork_refuses_it()
+  local cases: {{string}} = {
+    { "local record Box\n  n: integer\n  more: string\nend\nreturn Box\n", "local record Box\n  n: integer\nend\nreturn Box\n" },
+    { "local record Box\n  f: function(string): integer\nend\nreturn Box\n",
+      "local record Box\n  f: function(string): string\nend\nreturn Box\n" },
+    { "local record Box\n  record Inner\n    x: integer\n  end\n  inner: Inner\nend\nreturn Box\n",
+      "local record Box\n  record Inner\n    x: string\n  end\n  inner: Inner\nend\nreturn Box\n" },
+    { "local record Box\n  items: {integer}\nend\nreturn Box\n", "local record Box\n  items: {string}\nend\nreturn Box\n" },
+    { "local record Box\n  n: integer\nend\nreturn Box\n", "local record Box\n  n: integer\n  extra: boolean\nend\nreturn Box\n" },
+  }
+  for _, case in ipairs(cases) do
+    local source, stub = assert(case[1]), assert(case[2])
+    assert(fork_stub_differs(source, stub), "the fork finds no difference in:\n" .. stub)
+    local entries: {{string}} = { { "cosmic/box.tl", source } }
+    local kinds: {string: string} = { ["cosmic/box.tl"] = "module" }
+    local m = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
+    m.stub = { text = stub, pruned = true }
+    local made, why = Pipeline.generate(m, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }))
+    assert(made == nil and why:find("the stub a project's checker reads in its place", 1, true) ~= nil, "accepted:\n" .. stub)
+  end
+end
+
+local function test_the_record_field_uses_of_a_module_are_found_through_the_types_the_checker_gave()
+  local entries: {{string}} = {
+    { "cosmic/shape_of.tl", table.concat({
+      "local record Shape", "  record Point", "    x: integer", "  end", "  origin: function(): Shape.Point", "end",
+      "function Shape.origin(): Shape.Point", "  return { x = 0 }", "end", "return Shape", "" }, "\n") },
+    { "user.tl", table.concat({
+      'local Shape = require("cosmic.shape_of")', "local p = Shape.origin()", "return p.x + 1", "" }, "\n") },
+  }
+  local pipeline = Pipeline.over(entries, { ["cosmic/shape_of.tl"] = "module", ["user.tl"] = "module" },
+    options("[checked]\nuser.tl export_not_declared 1\n"))
+  local user = assert(entries[2])
+  local m = module_of("user", "user.tl", "module", assert(user[2]), {})
+  local made = assert(Pipeline.generate(m, pipeline))
+  local use = assert(made.references[1], "no use found")
+  assert(#made.references == 1 and use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3,
+    #made.references .. " uses")
+end
+
+local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_ceiling()
+  local source = "local record R\n  n: integer\nend\nlocal function f(v: R | string): boolean\n  if v is R then\n    return v.n > 0\n  end\n" ..
+    "  return false\nend\nreturn f\n"
+  local made = assert(generated(source, "[checked]\nm.tl is_on_record 1\nm.tl export_not_declared 1\n"))
+  assert(made.lua:find('if type(v) == "table" then', 1, true) ~= nil, made.lua)
+  local f = value_of(made.lua) as function(any): boolean
+  assert(f({ n = 1 }) == true and f("s") == false)
+  -- the ceiling is held: a test the pins do not count is refused
+  local over, why = generated(source, "[checked]\nm.tl export_not_declared 1\n")
+  assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
+end
+
+-- In the closure, so the store the worker is given carries the module the build reads the stub of ([`Pipeline.carried`]).
+local type _shape = require("cosmic.shape")
+
+local function test_into_answers_the_records_type_and_no_annotation_can_say_another()
+  local function with_annotation(annotation: string): string
+    return table.concat({
+      'local Shape = require("cosmic.shape")',
+      "local record R",
+      "  n: integer",
+      "end",
+      "local record Other",
+      "  s: string",
+      "end",
+      'local S = Shape.record_of("R")',
+      "local got, err: " .. annotation .. " | nil, string = S:into({ n = 1 })",
+      'local other: Other = { s = "x" }',
+      "local function show(a: R | nil, b: string, c: Other): string",
+      "  return tostring(a) .. b .. c.s",
+      "end",
+      "return show(got, err, other)",
+      "",
+    }, "\n")
+  end
+  local carried = options("[checked]\nm.tl export_not_declared 1\n")
+  carried.standard = Pipeline.carried()
+  local function compiled(annotation: string): compilation.Generated | nil, string
+    local source = with_annotation(annotation)
+    local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, carried)
+    return Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline)
+  end
+  local made, trouble = compiled("R")
+  assert(made ~= nil, tostring(trouble))
+  local other, refusal = compiled("Other")
+  assert(other == nil, "a spec built from R answered an Other")
+  assert(refusal:find("Other", 1, true) ~= nil and refusal:find("R", 1, true) ~= nil, tostring(refusal))
+end
+
+-- a program the fork's compiler refuses is refused
+
+--- Whether the fork's compiler refuses `source`: a syntax error, a type error or a warning, as the build refuses a module for.
+local function fork_refuses(source: string): boolean
+  local fork = teal.lazy()
+  teal.serve_standard(fork)
+  local env = assert(fork.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local code, result = fork.gen(source, env, nil, "tl")
+  return code == nil or #result.syntax_errors > 0 or #result.type_errors > 0 or #result.warnings > 0
+end
+
+local function test_a_program_the_fork_refuses_for_its_types_is_refused_with_the_checkers_words_through_the_renderer()
+  local programs: {{string}} = {
+    { "local n: string = 1\nreturn n\n", "(not_assignable)" },
+    { "local function f(a: integer): integer\n  return a\nend\nreturn f(1, 2)\n", "(arity)" },
+    { "return undefined_name\n", "(unknown_variable)" },
+    { "local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r.m\n", "(field_unknown)" },
+    { "local unused = 1\nreturn 2\n", "(unused" },
+    { "local x: integer = \"a\"\nreturn x\n", "(not_assignable)" },
+    { "local function f(a: integer): string\n  return a\nend\nreturn f(1)\n", "(not_assignable)" },
+    { "local t: {string} = { 1 }\nreturn t\n", "(not_assignable)" },
+    { "local function f(a: string): integer\n  return #a\nend\nreturn f(1)\n", "(not_assignable)" },
+    { "local s: string? = nil\nreturn #s\n", "(nil_not_allowed)" },
+    { "local record R\n  n: integer\nend\nlocal r: R = { n = 1, m = 2 }\nreturn r\n", "(literal_unknown)" },
+  }
+  for _, case in ipairs(programs) do
+    local source, wanted = assert(case[1]), assert(case[2])
+    assert(fork_refuses(source), "the fork accepts:\n" .. source)
+    local made, why = generated(source)
+    assert(made == nil, "the compile accepts:\n" .. source)
+    -- the renderer's layout: the file, the line, the column, the words, the code and the fix
+    assert(why:find("^m.tl: the compiler refused it\nm.tl:%d+:%d+: .+ %([%w_]+%): ") ~= nil, why)
+    assert(why:find(wanted, 1, true) ~= nil, "expected " .. wanted .. " in:\n" .. why)
+  end
 end

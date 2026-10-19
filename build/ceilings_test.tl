@@ -60,7 +60,7 @@ local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_ch
     end
   end
   assert(counted > 6000, "the checked ceilings alone are thousands: " .. tostring(counted))
-  assert(Ceilings.of(ceilings, "hazards")["methods"] == 55)
+  assert(Ceilings.of(ceilings, "hazards")["methods"] == 13)
 end
 
 local function finding(code: string, y: integer): Ceilings.Finding

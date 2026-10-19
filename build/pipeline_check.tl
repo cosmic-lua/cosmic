@@ -89,13 +89,23 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   build:lower(names)
   for _, row in ipairs(staged) do
     local result = build:result(row.module, row.dialect == "tl")
+    if result ~= nil and row.file:match("%.md$") ~= nil then
+      Pipeline.discounted(result)
+    end
     local counted = false
     local code = ""
     if result ~= nil then
       for _, line in ipairs(build:held(result, pipeline.ceilings)) do
-        counted = counted or over_file(line) ~= nil
+        -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of the
+        -- tree's checks counts it, and the module is refused for it.
+        local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;")
+        if scoped ~= nil then
+          code = scoped
+        else
+          counted = counted or over_file(line) ~= nil
+        end
       end
-      if not counted then
+      if not counted and code == "" then
         local first = result.syntax[1]
         local warning = result.warnings[1]
         if row.dialect ~= "tl" then
@@ -105,7 +115,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
         elseif warning ~= nil then
           code = warning.code
         else
-          local emitted = CompileGrammar.emit(build, result)
+          local emitted = CompileGrammar.emit(build, result, nil, true, true)
           if emitted.code == nil then
             code = emitted.trouble:match("%(([%a_]+)%)") or "unwritten"
           end
@@ -134,6 +144,8 @@ function PipelineCheck.compare(
   if options == nil then
     return { "the pipeline's options: " .. why }
   end
+  -- Only the counts of the checker are compared, which keep no type of a node.
+  options.types = false
   local refused: {string: boolean} = {}
   for _, lines in ipairs({ declared, checked }) do
     for _, line in ipairs(lines) do

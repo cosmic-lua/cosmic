@@ -841,6 +841,55 @@ local function attributes(type_bits: integer, mode: integer): integer
   return ((type_bits | (mode & 0xFFF)) << 16) | (type_bits == S_IFDIR and DOS_DIR_ATTR or 0)
 end
 
+--- What a streamed body is copied to: compressed, if it is, as it goes,
+--- into the writer's sink, counting what it comes to in `done`.
+local record FeedWriter is Stream.Writer
+  --- Puts bytes through the entry writer's sink, counting them into its offset, and fails that sink with a reason: the
+  --- writer is no type of this record, whose class stands above the writer's.
+  put: function(string): boolean, string
+  fail: function(string): boolean, string
+  done: Written
+  --- The body's deflater, or nil for a stored one.
+  deflater?: Compress.Stream
+  --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
+  wide: boolean
+  too_big: string
+  write: function(FeedWriter, string): boolean, string
+  close: function(FeedWriter): boolean, string
+  abort: function(FeedWriter): boolean, string
+end
+
+local feed_writer_mt: metatable<FeedWriter> = { __index = FeedWriter }
+
+--- Writes the body's compressed bytes `data`, counting them.
+local function emit(self: FeedWriter, data: string): boolean, string
+  if data == "" then return true, "" end
+  local done = self.done
+  done.csize = done.csize + #data
+  if not self.wide and done.csize >= U32_MAX then return self.fail(self.too_big) end
+  return self.put(data)
+end
+
+function FeedWriter:write(chunk: string): boolean, string
+  local done = self.done
+  done.usize = done.usize + #chunk
+  if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
+  done.crc = sums.crc32(chunk, done.crc)
+  local deflater = self.deflater
+  if deflater == nil then return emit(self, chunk) end
+  local out, etrouble = deflater:update(chunk)
+  if out == nil then return self.fail(etrouble) end
+  return emit(self, out)
+end
+
+function FeedWriter:close(): boolean, string
+  return true, ""
+end
+
+function FeedWriter:abort(): boolean, string
+  return true, ""
+end
+
 --- What [`Zip.writer`] answers.
 local record EntryWriter is Zip.Writer
   sink: Stream.Sticky
@@ -889,52 +938,6 @@ local function write_whole(self: EntryWriter, path: string, data: string, method
   return put(self, payload)
 end
 
---- What a streamed body is copied to: compressed, if it is, as it goes,
---- into the writer's sink, counting what it comes to in `done`.
-local record FeedWriter is Stream.Writer
-  owner: EntryWriter
-  done: Written
-  --- The body's deflater, or nil for a stored one.
-  deflater?: Compress.Stream
-  --- Whether the entry is written as zip64, so that its sizes may pass 4 GiB.
-  wide: boolean
-  too_big: string
-  write: function(FeedWriter, string): boolean, string
-  close: function(FeedWriter): boolean, string
-  abort: function(FeedWriter): boolean, string
-end
-
-local feed_writer_mt: metatable<FeedWriter> = { __index = FeedWriter }
-
---- Writes the body's compressed bytes `data`, counting them.
-local function emit(self: FeedWriter, data: string): boolean, string
-  if data == "" then return true, "" end
-  local done = self.done
-  done.csize = done.csize + #data
-  if not self.wide and done.csize >= U32_MAX then return self.owner.sink:fail(self.too_big) end
-  return put(self.owner, data)
-end
-
-function FeedWriter:write(chunk: string): boolean, string
-  local done = self.done
-  done.usize = done.usize + #chunk
-  if not self.wide and done.usize >= U32_MAX then return self.owner.sink:fail(self.too_big) end
-  done.crc = sums.crc32(chunk, done.crc)
-  local deflater = self.deflater
-  if deflater == nil then return emit(self, chunk) end
-  local out, etrouble = deflater:update(chunk)
-  if out == nil then return self.owner.sink:fail(etrouble) end
-  return emit(self, out)
-end
-
-function FeedWriter:close(): boolean, string
-  return true, ""
-end
-
-function FeedWriter:abort(): boolean, string
-  return true, ""
-end
-
 --- A [`Stream.Reader`] body, read to its end and compressed as it
 --- goes, its CRC32 and sizes in a data descriptor after it. `hint` is
 --- the size `opts.size` promised, if any. Fills `done`.
@@ -952,7 +955,9 @@ local function write_streamed(self: EntryWriter, path: string, body: Stream.Read
     FLAG_DESCRIPTOR, wide))
   if not ok then return false, trouble end
   local feed: FeedWriter = setmetatable({
-    owner = self, done = done, deflater = deflater, wide = wide,
+    put = function(data: string): boolean, string return put(self, data) end,
+    fail = function(why: string): boolean, string return self.sink:fail(why) end,
+    done = done, deflater = deflater, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
   }, feed_writer_mt)
   local copied, ctrouble = Stream.copy(body, feed)

@@ -81,12 +81,12 @@ local function test_the_counts_of_the_table_are_the_gates()
   local list = rows()
   -- The programs the fork's tests pin and the corpora, by what each checker says. A change to the table or to the
   -- checker that moves these is meant, and moves them here.
-  assert(#list == 759, tostring(#list))
-  assert(count(list, "refused", "refused") == 502, "refused by both: " .. tostring(count(list, "refused", "refused")))
+  assert(#list == 768, tostring(#list))
+  assert(count(list, "refused", "refused") == 510, "refused by both: " .. tostring(count(list, "refused", "refused")))
   assert(count(list, "refused", "accepted") == 25, "retired: " .. tostring(count(list, "refused", "accepted")))
   assert(count(list, "accepted", "refused") == 123,
     "refused only by the new checker: " .. tostring(count(list, "accepted", "refused")))
-  assert(count(list, "accepted", "accepted") == 109, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
+  assert(count(list, "accepted", "accepted") == 110, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
   assert(#retired() == 25)
 end
 

@@ -2,6 +2,9 @@
 --- arguments and implement an interface, a generator of random types over them, and a parse of
 --- a type's display by the parser and the lowering ([`lang.declarations`]).
 local Ast = require("lang.ast")
+-- The new grammar tests a record of the tree by its tag, which leaves this import unused once translated: it names the node a
+-- test below asks for.
+local _alias_node: Ast.TypeAlias | nil = nil
 local Declarations = require("lang.declarations")
 local DeclPrograms = require("lang.declarations_programs")
 local Types = require("lang.types")

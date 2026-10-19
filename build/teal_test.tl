@@ -428,6 +428,29 @@ local function test_return_types_end_before_the_next_parameter()
     tostring((result.type_errors[1] or result.syntax_errors[1] or {}).msg))
 end
 
+--- A table literal that gives a key twice is refused, whatever the literal is checked against: a name and the same string
+--- in brackets are one key, as are a number and a boolean written twice. The new checker holds the same rule
+--- (`literal_repeated`, [`lang.check`]), which the switch's gate reads from this test's programs.
+local function test_a_table_literal_repeating_a_key_is_refused()
+  local built = assert(teal.load(true))
+  for _, source in ipairs({
+      "local t = { a = 1, a = 2 }\nprint(t)\n",
+      "local t = { [\"a\"] = 1, [\"a\"] = 2 }\nprint(t)\n",
+      "local t = { a = 1, [\"a\"] = 2 }\nprint(t)\n",
+      "local t: {integer: string} = { [1] = \"x\", [1] = \"y\" }\nprint(t)\n",
+      "local t: {boolean: string} = { [true] = \"x\", [true] = \"y\" }\nprint(t)\n",
+      "local t: {string: integer} = { a = 1, b = 2, a = 3 }\nprint(t)\n",
+      "local record R\n  a: integer\nend\nlocal r: R = { a = 1, a = 2 }\nprint(r)\n",
+      "local t = { inner = { a = 1, a = 2 } }\nprint(t)\n",
+  }) do
+    local _, result = built.gen(source, nil, nil, "tl")
+    local message = tostring((assert(result).type_errors[1] or result.syntax_errors[1] or {}).msg)
+    assert(message:find("redeclared key", 1, true) ~= nil, source .. message)
+  end
+  local _, fine = built.gen("local t = { a = 1, b = 2 }\nlocal u = { [1] = \"x\", [2] = \"y\" }\nprint(t, u)\n", nil, nil, "tl")
+  assert(#assert(fine).type_errors == 0 and #fine.syntax_errors == 0)
+end
+
 --- `record`, `interface` and `enum` name variables as well as start
 --- types: one after `=` is read as the type syntax 0.7.1 dropped only
 --- where a type body declaring something follows it, so a loop's

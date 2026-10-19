@@ -513,7 +513,7 @@ local function test_a_name_declared_between_the_record_and_a_method_is_reported(
     "local record R",
     "  n: integer",
     "end",
-    "local helper = 1",
+    "local helper = tonumber(\"1\")",
     "function R:f(): integer",
     "  return self.n + helper",
     "end"))
@@ -949,7 +949,7 @@ local function test_a_method_that_reads_a_name_declared_again_between_is_reporte
 end
 
 local function test_a_name_declared_only_between_is_a_scope_hazard()
-  local result = clean(lines("local record R", "end", "local x = 2", "function R:get(): integer", "  return x", "end"))
+  local result = clean(lines("local record R", "end", "local x = tonumber(\"2\")", "function R:get(): integer", "  return x", "end"))
   assert(#result.hazards == 1 and result.hazards[1].kind == "scope")
 end
 
@@ -1409,4 +1409,276 @@ local function test_an_empty_return_list_is_read_and_left_as_it_is()
   local result = Translate.translate(source, "t.tl")
   assert(result.text:sub(1, #"local into = function(...: any): ()") == "local into = function(...: any): ()", result.text)
   assert(result.text:find("local function done(): ()", 1, true) ~= nil, result.text)
+end
+
+-- a function a method reads moves above the class
+
+local function test_a_local_function_between_the_record_and_a_method_that_reads_it_moves_above_the_record()
+  local result = clean(lines(
+    "--- A counter.",
+    "local record R",
+    "  n: integer",
+    "end",
+    "",
+    "--- Bumps `r`.",
+    "local function bump(r: R): integer",
+    "  return r.n + 1",
+    "end",
+    "",
+    "function R:next(): integer",
+    "  return bump(self)",
+    "end"))
+  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  local at_function, at_class = result.text:find("local function bump", 1, true), result.text:find("local class R", 1, true)
+  assert(at_function ~= nil and at_class ~= nil and at_function < at_class, result.text)
+  -- its docs go with it, and the record keeps its own
+  assert(result.text:find("--- Bumps `r`.\nlocal function bump", 1, true) ~= nil and
+      result.text:find("--- A counter.\nlocal class R", 1, true) ~= nil, result.text)
+  assert(select(2, result.text:gsub("local function bump", "")) == 1, result.text)
+end
+
+local function test_a_function_moves_with_the_functions_it_reads_in_the_order_it_had()
+  local result = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local function first(r: R): integer",
+    "  return r.n",
+    "end",
+    "local function second(r: R): integer",
+    "  return first(r) + 1",
+    "end",
+    "local function unread(r: R): integer",
+    "  return r.n - 1",
+    "end",
+    "function R:next(): integer",
+    "  return second(self)",
+    "end"))
+  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  local a, b = result.text:find("local function first", 1, true), result.text:find("local function second", 1, true)
+  local c, d = result.text:find("local class R", 1, true), result.text:find("local function unread", 1, true)
+  assert(a ~= nil and b ~= nil and c ~= nil and d ~= nil and a < b and b < c and c < d, result.text)
+end
+
+local function test_a_literal_the_function_reads_moves_with_it_and_a_value_made_by_a_call_keeps_it()
+  local moved = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local step = 2",
+    "local function bump(r: R): integer",
+    "  return r.n + step",
+    "end",
+    "function R:next(): integer",
+    "  return bump(self)",
+    "end"))
+  assert(#moved.hazards == 0, #moved.hazards .. " hazards")
+  local at_step, at_bump, at_class = moved.text:find("local step = 2", 1, true), moved.text:find("local function bump", 1, true),
+    moved.text:find("local class R", 1, true)
+  assert(at_step ~= nil and at_bump ~= nil and at_class ~= nil and at_step < at_bump and at_bump < at_class, moved.text)
+  local kept = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local step = tonumber(\"2\")",
+    "local function bump(r: R): integer",
+    "  return r.n + step",
+    "end",
+    "function R:next(): integer",
+    "  return bump(self)",
+    "end"))
+  local result = kept
+  local names: {string} = {}
+  for _, h in ipairs(result.hazards) do
+    names[#names + 1] = h.name
+  end
+  table.sort(names)
+  assert(table.concat(names, " ") == "bump", table.concat(names, " "))
+  assert(result.text:find("local class R", 1, true) < result.text:find("local function bump", 1, true), result.text)
+end
+
+local function test_a_function_that_reads_the_record_as_a_value_stays()
+  local result = clean(lines(
+    "local record R",
+    "  n: integer",
+    "  make: function(): R",
+    "end",
+    "local function fresh(): R",
+    "  return R.make()",
+    "end",
+    "function R:again(): R",
+    "  return fresh()",
+    "end"))
+  assert(#result.hazards == 1 and result.hazards[1].name == "fresh", #result.hazards .. " hazards")
+end
+
+local function test_a_function_that_names_a_type_in_a_local_annotation_moves_with_the_type_unless_the_type_is_a_class()
+  local moved = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local record Pair",
+    "  a: integer",
+    "end",
+    "local function pair(r: R): integer",
+    "  local p: Pair = { a = r.n }",
+    "  return p.a",
+    "end",
+    "function R:both(): integer",
+    "  return pair(self)",
+    "end"))
+  assert(#moved.hazards == 0, #moved.hazards .. " hazards")
+  local at_type, at_function, at_class = moved.text:find("local record Pair", 1, true), moved.text:find("local function pair", 1, true),
+    moved.text:find("local class R", 1, true)
+  assert(at_type ~= nil and at_function ~= nil and at_class ~= nil and at_type < at_function and at_function < at_class, moved.text)
+  -- a class with methods of its own stays where it was written, and the function that names it in its body with it
+  local stays = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local record Pair",
+    "  a: integer",
+    "end",
+    "local function pair(r: R): integer",
+    "  local p: Pair = { a = r.n }",
+    "  return p.a",
+    "end",
+    "function R:both(): integer",
+    "  return pair(self)",
+    "end",
+    "function Pair:twice(): integer",
+    "  return self.a * 2",
+    "end"))
+  assert(#stays.hazards == 1 and stays.hazards[1].name == "pair", #stays.hazards .. " hazards")
+  -- the same function that names the type in its signature alone moves
+  local signature = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local record Pair",
+    "  a: integer",
+    "end",
+    "local function pair(r: R): Pair",
+    "  return { a = r.n }",
+    "end",
+    "function R:both(): integer",
+    "  return pair(self).a",
+    "end",
+    "function Pair:twice(): integer",
+    "  return self.a * 2",
+    "end"))
+  assert(#signature.hazards == 0 and signature.text:find("local function pair", 1, true) < signature.text:find("local class R", 1, true),
+    signature.text)
+end
+
+local function test_a_function_two_records_read_is_moved_once()
+  local result = clean(lines(
+    "local record A",
+    "  n: integer",
+    "end",
+    "local record B",
+    "  n: integer",
+    "end",
+    "local function shared(n: integer): integer",
+    "  return n + 1",
+    "end",
+    "function A:f(): integer",
+    "  return shared(self.n)",
+    "end",
+    "function B:g(): integer",
+    "  return shared(self.n)",
+    "end"))
+  assert(select(2, result.text:gsub("local function shared", "")) == 1, result.text)
+  local moved_at, first_at = result.text:find("local function shared", 1, true), result.text:find("local class A", 1, true)
+  assert(moved_at < first_at, result.text)
+end
+
+local function test_a_function_that_shares_its_line_with_another_statement_stays_and_its_reader_is_a_hazard()
+  -- moving a span from the middle of a line would leave the rest of the line behind or take it along
+  for _, line in ipairs({
+      "local y = 2 local function bump(r: R): integer return r.n + y end",
+      "local function bump(r: R): integer return r.n end local y = 2",
+  }) do
+    local result = clean(lines(
+      "local record R",
+      "  n: integer",
+      "end",
+      line,
+      "function R:next(): integer",
+      "  return bump(self)",
+      "end"))
+    assert(#result.hazards >= 1, "no hazard for " .. line .. "\n" .. result.text)
+    local at_function, at_class = result.text:find("local function bump", 1, true), result.text:find("local class R", 1, true)
+    assert(at_function ~= nil and at_class ~= nil and at_function > at_class, result.text)
+  end
+end
+
+local function test_a_function_the_second_record_reads_through_another_finds_what_the_first_took_already_above()
+  local result = clean(lines(
+    "local record A",
+    "  n: integer",
+    "end",
+    "local record B",
+    "  n: integer",
+    "end",
+    "local function shared(n: integer): integer",
+    "  return n + 1",
+    "end",
+    "local function twice(n: integer): integer",
+    "  return shared(n) * 2",
+    "end",
+    "function A:f(): integer",
+    "  return shared(self.n)",
+    "end",
+    "function B:g(): integer",
+    "  return twice(self.n)",
+    "end"))
+  assert(#result.hazards == 0, #result.hazards .. " hazards\n" .. result.text)
+  assert(select(2, result.text:gsub("local function shared", "")) == 1, result.text)
+  assert(select(2, result.text:gsub("local function twice", "")) == 1, result.text)
+  local shared_at, twice_at = result.text:find("local function shared", 1, true), result.text:find("local function twice", 1, true)
+  local a_at, b_at = result.text:find("local class A", 1, true), result.text:find("local class B", 1, true)
+  assert(shared_at < a_at and a_at < twice_at and twice_at < b_at, result.text)
+end
+
+local function test_a_record_and_a_table_a_function_reads_move_above_the_record_with_it()
+  local result = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local record Info",
+    "  n: integer",
+    "end",
+    "local info: Info = { n = 0 }",
+    "local function look(): integer",
+    "  local seen: Info = info",
+    "  return seen.n",
+    "end",
+    "function R:size(): integer",
+    "  return look()",
+    "end"))
+  assert(#result.hazards == 0, #result.hazards .. " hazards")
+  local at_class, at_table, at_look, at_type = result.text:find("local class R", 1, true), result.text:find("local info:", 1, true),
+    result.text:find("local function look", 1, true), result.text:find("local record Info", 1, true)
+  assert(at_class ~= nil and at_table ~= nil and at_look ~= nil and at_type ~= nil, result.text)
+  assert(at_type < at_table and at_table < at_look and at_look < at_class, result.text)
+end
+
+local function test_a_record_that_declares_a_type_of_its_own_stays_where_it_was_written()
+  local result = clean(lines(
+    "local record R",
+    "  n: integer",
+    "end",
+    "local record Leaf",
+    "  type Other = R",
+    "  n: integer",
+    "end",
+    "local function leaf(): Leaf",
+    "  return { n = 1 }",
+    "end",
+    "function R:get(): integer",
+    "  local l: Leaf = leaf()",
+    "  return l.n",
+    "end"))
+  assert(result.text:find("local record Leaf", 1, true) > result.text:find("local class R", 1, true), result.text)
 end

@@ -119,9 +119,12 @@ local record Codegen
   --- `kinds` says what [`lang.check`] resolved a type name to, by the id of the name: `integer`, `number`, `string`,
   --- `boolean`, `function`, `true`, `false` or `nil`. A test `v is T` of a name of another module, whose declaration
   --- this generator cannot see, is then a test for that, where without it the name is a table.
+  --- `served` says the Lua is for a build that serves every module, as the fork compiles one: it drops every `local type`
+  --- import that the file does not read or write as a value. A file compiled alone drops only the imports it uses as a type
+  --- and keeps the `require` of the rest.
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                     kinds?: {integer: string}): Generated
+                     kinds?: {integer: string}, served?: boolean): Generated
 
   --- `lua`, the Lua of this generator or of the fork's for the same Teal, once the layout of a `continue` is set
   --- aside: the `::continue::` that ends a loop is deleted, since the fork's source has it on a line of its own and
@@ -328,12 +331,14 @@ local record State
   wraps: {integer: string}
   --- What the checker resolved a type name to, by the id of the name.
   kinds: {integer: string}
+  --- Whether the build serves every module ([`Codegen.generate`]'s `served`).
+  served: boolean
 end
 
 local G: State = {
   tokens = {}, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
-  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {},
+  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -1313,9 +1318,14 @@ local function record_statement(node: Ast.Record): Output
   return out
 end
 
---- `local type T = require("m")` is `local T = require("m")` where `T` is not used only as a type.
+--- `local type T = require("m")` is `local T = require("m")` where `T` is read or written as a value, and is erased where `T` is
+--- used as a type alone. A file compiled alone also keeps the import of a name it does not use; a build that serves every module
+--- (`G.served`) erases it, as the fork then erases every `local type`.
 local function import_statement(node: Ast.Import): Output
   local var = G.scoped.vars[node.name.id]
+  if G.served and (var == nil or (#var.reads == 0 and #var.writes == 0)) then
+    return new(1)
+  end
   if var ~= nil and #var.reads == 0 and #var.writes == 0 and #var.type_uses > 0 then
     return new(1)
   end
@@ -1666,8 +1676,9 @@ end
 
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                           classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                          kinds?: {integer: string}): Codegen.Generated
+                          kinds?: {integer: string}, served?: boolean): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
+  G.served = served == true
   G.truthy = truthy or syntactically_truthy
   G.classes = classes or {}
   G.enums, G.wraps, G.kinds = enums or {}, wraps or {}, kinds or {}
@@ -1680,7 +1691,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local written = (flatten(whole):gsub(" *\n", "\n"))
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes = {}, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps, G.kinds = {}, {}, {}
+  G.enums, G.wraps, G.kinds, G.served = {}, {}, {}, false
   return { text = written, errors = errors }
 end
 

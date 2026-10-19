@@ -735,7 +735,7 @@ end
   assert(file ~= nil and file.kind == "userdata")
   local body = body_of(program, "decl", "FILE")
   assert(#body.methods == 1 and body.methods[1].name == "close" and #body.fields == 2)
-  assert(program.globals["FILE"] ~= nil and program.scope_globals(program)["FILE"].space == "both")
+  assert(program.globals["FILE"] ~= nil and program:scope_globals()["FILE"].space == "both")
   local user = Programs.lower(program, "user", "local f: FILE\nlocal m: FILE.Mode\nlocal g: Nope\n")
   assert(#user.lowered.errors == 0 and #user.scope_errors == 1)
   assert(annotation(user, 2).tag == "named")

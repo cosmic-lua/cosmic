@@ -1575,11 +1575,22 @@ local function test_the_rehearsal_phase_runs_the_whole_suite_with_the_new_gramma
     status: integer
     ok: boolean
     ran: boolean
+    --- What the suite prints, and the list of expected failures the tree holds.
+    output: string
+    listed: string
   end
+  local failure = "test: FAIL  a_test test_x: no\n"
   local cases: {Case} = {
-    { name = "linux", target = "x86_64-linux-musl", status = 0, ok = true, ran = true },
-    { name = "linux-failing", target = "x86_64-linux-musl", status = 1, ok = false, ran = true },
-    { name = "linux-aarch64", target = "aarch64-linux-musl", status = 0, ok = true, ran = false },
+    { name = "linux", target = "x86_64-linux-musl", status = 0, ok = true, ran = true, output = "", listed = "# none\n" },
+    { name = "linux-failing", target = "x86_64-linux-musl", status = 1, ok = false, ran = true, output = "",
+      listed = "# none\n" },
+    { name = "linux-expected", target = "x86_64-linux-musl", status = 1, ok = true, ran = true, output = failure,
+      listed = "a_test test_x -- the fork's hint\n" },
+    { name = "linux-unexpected", target = "x86_64-linux-musl", status = 1, ok = false, ran = true, output = failure,
+      listed = "# none\n" },
+    { name = "linux-stale", target = "x86_64-linux-musl", status = 0, ok = false, ran = true, output = "",
+      listed = "a_test test_x -- the fork's hint\n" },
+    { name = "linux-aarch64", target = "aarch64-linux-musl", status = 0, ok = true, ran = false, output = "", listed = "" },
   }
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
@@ -1587,11 +1598,13 @@ local function test_the_rehearsal_phase_runs_the_whole_suite_with_the_new_gramma
     assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    assert(Fs.mkdirs(fake .. "/testdata/gate") and Fs.write(fake .. "/testdata/gate/rehearsal.txt", case.listed))
     -- bin/zig's boot leaves a cosmic that logs what it was asked and the variables the phase sets.
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s|%s|%s|%s|%s\\n' \"$1\" \"$COSMIC_GRAMMAR\" \"$COSMIC_TEST_TIMEOUT\" " ..
         "\"${COSMIC_VERDICT_CACHE##*/}\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
+        "printf '%s' '" .. (case.output:gsub("\n$", "")) .. "'\n" ..
         "exit " .. tostring(case.status) .. "\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,

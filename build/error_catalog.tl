@@ -9,10 +9,13 @@
 --- that emits it as `module` and the code as `symbol`, so that `cosmic docs <code>` ([`build.docs`]) answers with the rule,
 --- why the language holds it and the fix. The `message` is left NULL: the guidance of an uncaught run-time error
 --- ([`cosmic.errors`]) matches that column alone, and a code's words are no message of a running program.
+---
+--- [`build.writer`] writes these rows into the projection after the extracted ones, for a compile with the new checker
+--- (`COSMIC_GRAMMAR=new`, [`build.importer`]'s [`Result.catalog`]): its keys hold the code that reads, so the rows belong to
+--- that compile.
 --
--- TODO: have [`build.writer`] write these rows into the shipped catalog and the build database, after the extracted
--- ones, once the build compiles with the new checker (doc/plans/strict-teal.md, "the switch"): the writer's projection is
--- keyed by the compiler that parsed the tree, and rows from the new checker belong to the new compiler's key.
+-- TODO: write these rows into every projection and the shipped catalog, and delete the fork's extracted `catalog` rows,
+-- once the new checker compiles the tool (doc/plans/strict-teal.md, "the switch").
 local Codes = require("lang.check_codes")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
@@ -76,9 +79,10 @@ local record ErrorCatalog
   --- The words of a row as `cosmic docs` shows them under its heading: what emits the code, then its rule, why and fix.
   text: function(row: Row): string
 
-  --- Writes a row per code to the `catalog` table of `db`, in the order of `rows`, and answers how many it wrote. The
-  --- index of `catalog_fts` is rebuilt by the caller ([`build.schema`]'s `rebuild`) once the table is filled.
-  insert: function(db: Sqlite.Handle): integer | nil, string
+  --- Writes a row per code to the `catalog` table of `db` (of the attached schema `schema`, "" for the main one), in the
+  --- order of `rows`, and answers how many it wrote. The index of `catalog_fts` is rebuilt by the caller
+  --- ([`build.schema`]'s `rebuild`) once the table is filled.
+  insert: function(db: Sqlite.Handle, schema: string): integer | nil, string
 end
 
 --- The module that emits the codes of a stage and the file that holds their rows.
@@ -238,11 +242,11 @@ function ErrorCatalog.text(row: ErrorCatalog.Row): string
   return words_of(row) .. " of " .. row.module .. "\nrule: " .. row.rule .. "\nwhy: " .. row.why .. "\nfix: " .. row.fix
 end
 
-function ErrorCatalog.insert(db: Sqlite.Handle): integer | nil, string
+function ErrorCatalog.insert(db: Sqlite.Handle, schema: string): integer | nil, string
   local count = 0
   for _, r in ipairs(ErrorCatalog.rows()) do
     local ok, why = Sqlite.run(db,
-      "INSERT INTO catalog (kind, module, symbol, message, text, file, line) VALUES ('code', ?1, ?2, NULL, ?3, ?4, 0)",
+      "INSERT INTO " .. schema .. "catalog (kind, module, symbol, message, text, file, line) VALUES ('code', ?1, ?2, NULL, ?3, ?4, 0)",
       { bind.text(r.module), bind.text(r.code), bind.text(ErrorCatalog.text(r)), bind.text(r.file) })
     if not ok then
       return nil, r.code .. ": " .. why

@@ -993,17 +993,20 @@ local function test_a_method_moved_above_a_name_it_reads_is_counted_against_the_
   local root = dir .. "/translatehazard"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/moved.tl", source(
+    "local function one(): integer",
+    "  return 1",
+    "end",
     "local record R",
     "  n: integer",
     "end",
-    "local helper = 1",
+    "local helper = one()",
     "function R:f(): integer",
     "  return self.n + helper",
     "end",
     "return R")))
   local pins: {string: integer} = {}
   local over = table.concat(tree_checks.translated(root, pins, 0), "\n")
-  assert(over:find("build/moved.tl:5: R:f reads helper", 1, true) and
+  assert(over:find("build/moved.tl:8: R:f reads helper", 1, true) and
       over:find("methods moved into a class that read or give something else: 1, ceiling 0", 1, true), over)
   assert(#tree_checks.translated(root, pins, 1) == 0)
   local under = tree_checks.translated(root, pins, 2)

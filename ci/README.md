@@ -548,6 +548,13 @@ of its own, `new-grammar.db`, under a cache name of its own: a verdict of
 one grammar stands for no run of the other. A branch push shows the job as
 skipped, one of the exceptions `build/workflows_test.tl` names.
 
+The run's failures are held to `testdata/gate/rehearsal.txt`, the failures the
+new checker is expected to have, one `<failure> -- <reason>` a line: a test
+(`<module> <test>`), a module the new checker refused (`<file>`) or a C function
+no test entered (`<file>:<function>`). The job fails for a failure the list lacks
+and for an entry whose failure did not happen, so the list only shrinks, and is
+empty at the switch (`ci/cosmic_ci/rehearsal.tl`).
+
 ### the Linux legs' container
 
 spawn's sandbox (`core/process.h`'s `Sandbox`) confines a test's child

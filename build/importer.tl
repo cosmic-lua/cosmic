@@ -25,6 +25,9 @@ local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local identities = require("build.identity")
+-- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
+-- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
+local type Pipeline = require("build.pipeline")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local receivers = require("build.receivers")
@@ -38,6 +41,7 @@ local plural = require("build.plural")
 
 local compilation = require("build.compilation")
 local derivation = require("build.derivation")
+local type GrammarMode = require("build.grammar_mode")
 
 local type Module = compilation.Module
 local type Source = derivation.Source
@@ -85,7 +89,15 @@ local record importer
     worked: integer
     --- What the derive the compile began with parsed.
     parses: derivation.Parses
+    --- Writes the rows the checker that compiled adds to the shipped catalog (`catalog` of the attached schema `schema`,
+    --- "" for the main one), after the extracted ones: the rule behind each code the new checker emits
+    --- ([`build.error_catalog`]). nil for the fork's compile, which adds none.
+    catalog: Catalog | nil
   end
+
+  --- Writes rows to the `catalog` table of `db` (of the attached schema `schema`, "" for the main one): how many, or nil and
+  --- why.
+  type Catalog = function(db: Sqlite.Handle, schema: string): integer | nil, string
 
   --- What a derive parsed ([`importer.derive`]): how many sources it
   --- parsed, and how many more another checkout's parse stood in for.
@@ -336,17 +348,33 @@ function importer.analyzer_identity(code?: importer.Code): string
   return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
 end
 
+--- Whether `identity` names an analyzer at all: one named by a binary
+--- with no boot hash ([`importer.analyzer_identity`]) is every such
+--- binary's, so no parse is shared under it.
+local function nameless(identity: string): boolean
+  return identity == "binary "
+end
+
 --- The identity of the analyzer that is running ([`importer.analyzer_identity`]):
 --- the binary's, or in a boot, which carries no database, the tree's.
-local function running_analyzer(handle: work.Handle): string | nil, string
+local function running_analyzer(handle: work.Handle, grammar?: GrammarMode.Mode): string | nil, string
+  local identity = ""
   if Store.meta("boot_hash") ~= nil then
-    return importer.analyzer_identity()
+    identity = importer.analyzer_identity()
+  else
+    local code, trouble = importer.tree_code(handle)
+    if code == nil then
+      return nil, trouble
+    end
+    identity = importer.analyzer_identity(code)
   end
-  local code, trouble = importer.tree_code(handle)
-  if code == nil then
-    return nil, trouble
+  -- The new checker's readers write the rows of a parse: another analyzer, whose rows and whose shared parses are told apart
+  -- from the fork's, and by the code that reads them.
+  if grammar == "new" and not nameless(identity) then
+    local pipeline = require("build.pipeline")
+    return pipeline.coded(identity), ""
   end
-  return importer.analyzer_identity(code)
+  return identity, ""
 end
 
 --- Names the rows the analysis tables hold as derived by `identity`.
@@ -394,9 +422,9 @@ end
 --- the analyzer's name is a function of the compiler, the pins and the
 --- Teal sources it reaches, and of nothing else, so a change to the
 --- core's C or build.zig does not move it, by design.
-local function forget_stale_analysis(handle: work.Handle): boolean | nil, string
+local function forget_stale_analysis(handle: work.Handle, grammar?: GrammarMode.Mode): boolean | nil, string
   local db = handle.db
-  local identity, identity_trouble = running_analyzer(handle)
+  local identity, identity_trouble = running_analyzer(handle, grammar)
   if identity == nil then
     return nil, identity_trouble
   end
@@ -448,8 +476,8 @@ end
 
 --- What a boot names its analyzer ([`running_analyzer`]) with `guessed`,
 --- by hash, written as `requires` rows for the while, then taken back.
-local function named_over(handle: work.Handle,
-                          guessed: {string:{string}}): string | nil, string
+local function named_over(handle: work.Handle, guessed: {string:{string}},
+                          grammar?: GrammarMode.Mode): string | nil, string
   local db = handle.db
   local begun, begin_trouble = db:exec("SAVEPOINT shared_analyzer")
   if not begun then return nil, begin_trouble end
@@ -462,7 +490,7 @@ local function named_over(handle: work.Handle,
         if not ok then return nil, why end
       end
     end
-    return running_analyzer(handle)
+    return running_analyzer(handle, grammar)
   end
   local identity, identity_trouble = named()
   local _, _ = db:exec("ROLLBACK TO shared_analyzer")
@@ -521,9 +549,9 @@ end
 -- row encoding belongs to build.derivation, in X; the outer shared-cache
 -- format is versioned by build.shared_compiles' `parsed_version`.
 local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
-                               sources: {Source}): string | nil, string
+                               sources: {Source}, grammar?: GrammarMode.Mode): string | nil, string
   if Store.meta("boot_hash") ~= nil then
-    return running_analyzer(handle)
+    return running_analyzer(handle, grammar)
   end
   local db = handle.db
   local roots: {string} = {}
@@ -578,7 +606,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     local missing, missing_trouble = unguessed(guessed)
     if missing == nil then return nil, missing_trouble end
     if missing == "" then
-      local identity, identity_trouble = named_over(handle, guessed)
+      local identity, identity_trouble = named_over(handle, guessed, grammar)
       if identity == nil then return nil, identity_trouble end
       if identity == candidate then return candidate, "" end
     end
@@ -586,20 +614,13 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   return "", ""
 end
 
---- Whether `identity` names an analyzer at all: one named by a binary
---- with no boot hash ([`importer.analyzer_identity`]) is every such
---- binary's, so no parse is shared under it.
-local function nameless(identity: string): boolean
-  return identity == "binary "
-end
-
 --- Takes the parse another checkout made of each of `sources` from
 --- `shared`, where its analyzer is this tree's ([`shared_analyzer`]), and
 --- writes it as the parse would have, counting it in `tally`; the rest
 --- are left to [`parse_new`]. Answers that analyzer, "" for none.
 local function take_parses(handle: work.Handle, shared: importer.Shared, sources: {Source},
-                           tally: importer.Parses): string | nil, string
-  local identity, trouble = shared_analyzer(handle, shared, sources)
+                           tally: importer.Parses, grammar?: GrammarMode.Mode): string | nil, string
+  local identity, trouble = shared_analyzer(handle, shared, sources, grammar)
   if identity == nil then return nil, trouble end
   if identity == "" or nameless(identity) then return "", "" end
   local db = handle.db
@@ -638,11 +659,16 @@ end
 --- parse rather than stopping there.
 local function parse_new(handle: work.Handle, built: compiler, tally: importer.Parses,
                          made: {Source}, pool: importer.Workers | nil,
-                         broken: {derivation.Broken} | nil): boolean, string
+                         broken: {derivation.Broken} | nil, grammar?: GrammarMode.Mode): boolean, string
   local db = handle.db
   local fresh, trouble = derivation.fresh(db)
   if fresh == nil then
     return false, trouble
+  end
+  if grammar == "new" then
+    -- The syntax tree of the new checker is read in this process, whose tree the readers take.
+    local pipeline = require("build.pipeline")
+    return pipeline.derive(db, built, fresh, tally, made, broken)
   end
   if pool ~= nil and #fresh > 1 then
     local bytes = 0
@@ -664,7 +690,7 @@ end
 local function derive_new(handle: work.Handle, built: compiler, tally: importer.Parses,
                           made: {Source}, shared: importer.Shared | nil,
                           pool: importer.Workers | nil,
-                          broken: {derivation.Broken} | nil): string | nil, string
+                          broken: {derivation.Broken} | nil, grammar?: GrammarMode.Mode): string | nil, string
   local db = handle.db
   local swept, sweep_trouble = db:exec(
     "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
@@ -682,14 +708,14 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
       return nil, sources_trouble
     end
     if #sources > 0 then
-      local identity, take_trouble = take_parses(handle, shared, sources, tally)
+      local identity, take_trouble = take_parses(handle, shared, sources, tally, grammar)
       if identity == nil then
         return nil, take_trouble
       end
       taken = identity
     end
   end
-  local parsed, parse_trouble = parse_new(handle, built, tally, made, pool, broken)
+  local parsed, parse_trouble = parse_new(handle, built, tally, made, pool, broken, grammar)
   if not parsed then
     return nil, parse_trouble
   end
@@ -726,11 +752,15 @@ end
 ---   caller must close it.
 --- @param broken where a source that does not parse is listed, rather
 ---   than stopping the derive ([`derivation.parse_fresh`]), or nil to stop
+--- @param grammar `new` to read the sources with the new checker's syntax
+---   tree ([`build.pipeline`]'s `derive`), in this process (no pool is
+---   asked): the rows are then another analyzer's, kept apart from the
+---   fork's by its name ([`running_analyzer`]); nil or `teal` for the fork's
 --- @return what it parsed and took, or nil and why it could not
 function importer.derive(handle: work.Handle, self_tree: boolean,
                          built: compiler, shared?: importer.Shared,
                          pool?: importer.Workers,
-                         broken?: {derivation.Broken}): importer.Parses | nil, string
+                         broken?: {derivation.Broken}, grammar?: GrammarMode.Mode): importer.Parses | nil, string
   local db = handle.db
   if not self_tree then
     local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
@@ -753,17 +783,17 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
 
   local tally: importer.Parses = { parsed = 0, shared = 0, worked = 0 }
   local made: {Source} = {}
-  local forgotten, forget_trouble = forget_stale_analysis(handle)
+  local forgotten, forget_trouble = forget_stale_analysis(handle, grammar)
   if forgotten == nil then
     return nil, forget_trouble
   end
-  local taken, derive_trouble = derive_new(handle, built, tally, made, shared, pool, broken)
+  local taken, derive_trouble = derive_new(handle, built, tally, made, shared, pool, broken, grammar)
   if taken == nil then
     return nil, derive_trouble
   end
   if Store.meta("boot_hash") ~= nil then
     if shared ~= nil and #made > 0 then
-      local identity, identity_trouble = running_analyzer(handle)
+      local identity, identity_trouble = running_analyzer(handle, grammar)
       if identity == nil then
         return nil, identity_trouble
       end
@@ -788,7 +818,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
   if before == nil then
     return nil, before_trouble
   end
-  local after, after_trouble = running_analyzer(handle)
+  local after, after_trouble = running_analyzer(handle, grammar)
   if after == nil then
     return nil, after_trouble
   end
@@ -804,11 +834,11 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     if broken ~= nil then
       while #broken > 0 do table.remove(broken) end
     end
-    local again, again_trouble = derive_new(handle, built, tally, made, nil, pool, broken)
+    local again, again_trouble = derive_new(handle, built, tally, made, nil, pool, broken, grammar)
     if again == nil then
       return nil, again_trouble
     end
-    after, after_trouble = running_analyzer(handle)
+    after, after_trouble = running_analyzer(handle, grammar)
     if after == nil then
       return nil, after_trouble
     end
@@ -1156,6 +1186,13 @@ local record Progress
   scanned: boolean
 end
 
+--- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
+--- that no cache answers needs it.
+local record Reading
+  options: Pipeline.Options | nil
+  built: Pipeline.Built | nil
+end
+
 --- The databases a hint looks the name of a refused module up in, found
 --- when the first refusal asks, and the projection among them that the
 --- end of the compile closes.
@@ -1236,7 +1273,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
                                unjudged: boolean | nil, shared: importer.Shared | nil,
                                pool: importer.Workers | nil,
                                checks: boolean, target: string | nil,
-                               broken: {derivation.Broken} | nil): importer.Result | nil, string
+                               broken: {derivation.Broken} | nil,
+                               grammar?: GrammarMode.Mode): importer.Result | nil, string
   local modules, trouble = compilation.collect(handle.db)
   if modules == nil then
     return nil, trouble
@@ -1247,6 +1285,24 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   local needed: {string:boolean} | nil = nil
   local failed: {string:boolean} = {}
   local left: {string} = {}
+  -- A run with the new checker reads every module and goes on past one it refuses, so that one refusal does not hide the
+  -- rest of the tree: a refused module, a module that does not parse and each module that requires one are named in the
+  -- result's `refused`, run no tests, and fail the run ([`build.test`]).
+  local lenient = grammar == "new" and target == nil
+  local refusals: {string} = {}
+  if lenient then
+    for _, one in ipairs(broken or {}) do
+      local holders, holders_trouble = Sqlite.text_rows(handle.db,
+        "SELECT path FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+      if holders == nil then
+        return nil, holders_trouble
+      end
+      refusals[#refusals + 1] = one.message
+      for _, row in ipairs(holders) do
+        failed[row:text(1)] = true
+      end
+    end
+  end
   if target ~= nil then
     local reached, reach_trouble = reach(handle.db, target)
     if reached == nil then
@@ -1295,9 +1351,29 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if keys == nil then
     return nil, keys_trouble
   end
+  -- The new checker's compile: what it is made over ([`build.pipeline`]), read once the first module needs it. A module is
+  -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
+  local reading: Reading = { options = nil, built = nil }
+  if grammar == "new" then
+    local pipeline = require("build.pipeline")
+    local made_options, options_trouble = pipeline.options(handle.root)
+    if made_options == nil then
+      return nil, options_trouble
+    end
+    reading.options = made_options
+    local pinned = pipeline.pinned(made_options.ceilings)
+    for _, m in ipairs(modules) do
+      local held = keys[m.path]
+      local digest = pinned[m.file]
+      if held ~= nil and digest ~= nil then
+        held.key = Hash.hex_sha256(held.key .. "\0" .. digest)
+      end
+    end
+  end
   local result: importer.Result = {
-    modules = {}, tool = tool, main = nil, refused = {}, left_out = left,
+    modules = {}, tool = tool, main = nil, refused = refusals, left_out = left,
     compiled = 0, cached = 0, shared = 0, worked = 0, parses = parses,
+    catalog = grammar == "new" and require("build.pipeline").catalog or nil,
   }
   local db = handle.db
   -- `env` and `typed` are made on first use, by whichever module first
@@ -1406,6 +1482,16 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       if needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
         -- Left out quietly: the module it requires was told of.
         failed[m.path] = true
+      elseif lenient and leans_on(m, failed) then
+        local lacking = ""
+        for _, name in ipairs(m.requires) do
+          if failed[name] == true and lacking == "" then
+            lacking = name
+          end
+        end
+        failed[m.path] = true
+        result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
+          ", which the new checker refused"
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
       else
@@ -1452,22 +1538,41 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
             generated = early
             result.worked = result.worked + 1
           else
-            if progress.env == nil then
-              local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
-              if made_env == nil then
-                progress.failure = env_trouble
-                break
+            local made_generated: compilation.Generated | nil = nil
+            local generate_trouble = ""
+            if grammar == "new" then
+              -- Read the tree once, when the first module that is not cached asks.
+              if reading.built == nil then
+                local pipeline = require("build.pipeline")
+                local made_built, built_trouble = pipeline.build(handle.db, assert(reading.options))
+                if made_built == nil then
+                  progress.failure = built_trouble
+                  break
+                end
+                reading.built = made_built
               end
-              progress.env = made_env
-              progress.typed = receivers.install(made_env)
+              made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), false, judged, hints)
+            else
+              if progress.env == nil then
+                local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
+                if made_env == nil then
+                  progress.failure = env_trouble
+                  break
+                end
+                progress.env = made_env
+                progress.typed = receivers.install(made_env)
+              end
+              made_generated, generate_trouble =
+                compilation.generate(m, built, assert(progress.env), assert(progress.typed), own_tree, judged,
+                  function(file: string, source: string, checked: compiler.Result): string
+                    return complain(file, source, checked, hints)
+                  end)
             end
-            local made_generated, generate_trouble =
-              compilation.generate(m, built, assert(progress.env), assert(progress.typed), own_tree, judged,
-                function(file: string, source: string, checked: compiler.Result): string
-                  return complain(file, source, checked, hints)
-                end)
             if made_generated == nil then
-              if needed == nil or needed[m.path] == true then
+              if lenient then
+                result.refused[#result.refused + 1] = generate_trouble
+                failed[m.path] = true
+              elseif needed == nil or needed[m.path] == true then
                 progress.failure = generate_trouble
                 break
               end
@@ -1563,12 +1668,13 @@ local function prepare_compile(handle: work.Handle, built: compiler, tool: strin
                                unjudged: boolean | nil, shared: importer.Shared | nil,
                                pool: importer.Workers | nil,
                                choose: Choose | nil,
-                               checks: boolean, target: string | nil): importer.Result | nil, string
+                               checks: boolean, target: string | nil,
+                               grammar?: GrammarMode.Mode): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local broken: {derivation.Broken} | nil = nil
-  if target ~= nil then broken = {} end
-  local parses, derive_trouble = importer.derive(handle, own_tree, built, shared, pool, broken)
+  if target ~= nil or grammar == "new" then broken = {} end
+  local parses, derive_trouble = importer.derive(handle, own_tree, built, shared, pool, broken, grammar)
   if parses == nil then return nil, derive_trouble end
   if choose ~= nil then
     local recorded, record_trouble = identities.record_identities(handle.db)
@@ -1578,7 +1684,7 @@ local function prepare_compile(handle: work.Handle, built: compiler, tool: strin
     tool = selected
   end
   return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool, checks,
-    target, broken)
+    target, broken, grammar)
 end
 
 --- The cache belongs to the whole derive/identity/compile operation,
@@ -1587,9 +1693,10 @@ local function consuming_compile(handle: work.Handle, built: compiler, tool: str
                                  unjudged: boolean | nil, shared: importer.Shared | nil,
                                  pool: importer.Workers | nil,
                                  choose?: function(identities.Identities): string | nil, string,
-                                 checks?: boolean, target?: string): importer.Result | nil, string
+                                 checks?: boolean, target?: string,
+                                 grammar?: GrammarMode.Mode): importer.Result | nil, string
   local result, trouble = prepare_compile(handle, built, tool, unjudged, shared, pool, choose,
-    checks == true, target)
+    checks == true, target, grammar)
   if shared ~= nil then shared.finish() end
   if pool ~= nil then pool.close() end
   if result == nil then return nil, trouble end
@@ -1647,6 +1754,9 @@ end
 ---   and each module is compiled to the same Lua and bytecode in
 ---   whichever process compiles it, so the rows written do not depend on
 ---   the pool. Closed before this returns, whatever it returns.
+--- @param grammar `new` to read, check and write the tree with the new checker ([`build.pipeline`]) in place of the
+---   fork's; `tool` is then the one [`build.grammar_mode`] chose, and the keys hold the code that reads as well
+---   ([`build.pipeline`]'s `coded`). nil or `teal` for the fork's, which is every other caller's.
 --- @param checks whether the compiled Lua checks a value against its declared
 ---   kind at each declared parameter, return value and record field write,
 ---   and reports a mismatch to the hook `__cosmic_tc` ([`build.test_worker`]
@@ -1657,7 +1767,20 @@ function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared,
                           pool?: importer.Workers,
-                          checks?: boolean): importer.Result | nil, string
+                          checks?: boolean,
+                          grammar?: GrammarMode.Mode): importer.Result | nil, string
+  if grammar == "new" then
+    -- The new checker reads the tree in this process, and its run-time checks are not wired yet.
+    if pool ~= nil or checks == true then
+      if pool ~= nil then pool.close() end
+      if shared ~= nil then shared.finish() end
+      return nil, "a compile with the new checker (COSMIC_GRAMMAR=new) is made in this process, without run-time checks: " ..
+        "it takes no pool and no --check-types yet"
+    end
+    -- What it is made by is the code that reads: the checker and the readers.
+    local pipeline = require("build.pipeline")
+    tool = pipeline.coded(tool)
+  end
   if checks == true then
     -- The pool's processes compile in environments of their own, which write
     -- no checks: given one, the compile would be keyed as checked and not be.
@@ -1671,7 +1794,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     -- generator writes the checks as the calls of `__fact` ([`build.compile_grammar`]'s `facts`).
     tool = importer.checked_tool(tool)
   end
-  return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks)
+  return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks, nil, grammar)
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run

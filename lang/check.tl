@@ -1391,10 +1391,6 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
             (close ~= "" and ", nearest " .. quoted(close) or ""),
           (close ~= "" and "write " .. quoted(close) .. ", or declare " or "declare ") .. quoted(name) .. " in " .. owner)
       elseif value ~= nil then
-        if given[name] then
-          report(ctx, "literal_repeated", item, "the field " .. quoted(name) .. " is written twice",
-            "remove the second " .. quoted(name))
-        end
         given[name] = true
         local want = put_in(ctx, n, field.type)
         local v = expr(ctx, value, want)
@@ -1482,6 +1478,37 @@ end
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
 local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type | nil): Type
+  -- Reports each key a table literal gives a second time: a name (`a = 1`), a constant key (`["a"]`, `[1]`, `[true]`), or the
+  -- place of a positional item (`{ "x", [1] = "y" }`). The second value would replace the first, whatever type the literal is
+  -- checked against, so this stands apart from the shape of the literal. A name and the same string as a key are one key.
+  local seen: {string: boolean} = {}
+  local place = 0
+  for _, item in ipairs(e.items) do
+    local key: string | nil = nil
+    local shown = ""
+    if item is Ast.Positional then
+      place = place + 1
+      key, shown = "n" .. tostring(place), tostring(place)
+    elseif item is Ast.Named then
+      key, shown = "s" .. item.name, quoted(item.name)
+    elseif item is Ast.Keyed then
+      local at = peel(item.key)
+      if at is Ast.String then
+        key, shown = "s" .. at.value, quoted(at.value)
+      elseif at is Ast.Integer then
+        key, shown = "n" .. tostring(at.value), tostring(at.value)
+      elseif at is Ast.Boolean then
+        key, shown = "b" .. tostring(at.value), tostring(at.value)
+      end
+    end
+    if key ~= nil then
+      if seen[key] == true then
+        report(ctx, "literal_repeated", item, "the key " .. shown .. " is written twice in this literal",
+          "remove the second " .. shown .. ", or give the two different keys")
+      end
+      seen[key] = true
+    end
+  end
   if expected == nil or ctx.lenient > 0 then
     return literal_inferred(ctx, e)
   end

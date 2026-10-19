@@ -19,10 +19,6 @@
 --- string-keyed maps of those; enums, as `one_of` in byte order; records of those; and `T?` for a field that may be
 --- missing. Anything else (a function, a union of more than one type, a generic, an interface, a class, a record that
 --- holds itself) is refused where the call is, naming the field.
---
--- TODO: port the fork's test that `into` answers the record's own type and refuses an annotation of another
--- (build/shape_specs_test.tl), which compiles the module, once the build compiles with the new checker, which waits on the
--- wiring of [`build.compilation`] to [`build.pipeline`].
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")

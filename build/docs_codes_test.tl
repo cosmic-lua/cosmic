@@ -24,7 +24,7 @@ local function database(with_codes: boolean, with_symbols?: boolean): Sqlite.Han
     assert(db:exec(statement))
   end
   if with_codes then
-    local count, trouble = ErrorCatalog.insert(db)
+    local count, trouble = ErrorCatalog.insert(db, "")
     assert(count ~= nil, trouble)
   end
   if with_symbols == true then

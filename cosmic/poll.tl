@@ -680,7 +680,7 @@ local function close_task(task: State)
     task.parked = nil
   end
   local ready: {Wake} = {}
-  local lost: {NotifierState} = {}
+  local lost: {Poll.Notifier} = {}
   for _, wakened in ipairs(running().ready) do
     local notice = wakened.notice
     if wakened.task ~= task then

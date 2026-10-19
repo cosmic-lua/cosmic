@@ -216,7 +216,7 @@ local function literal_function(c: Ctx, n: Node)
   sig.returns(c, rets, args, body.y, body.x, n.never)
   c.header = header
   c.margin = base
-  c.block(c, body)
+  c:block(body)
   local closing = n.yend or body.y
   local inline = closing <= c.em.line
   local xend = n.xend

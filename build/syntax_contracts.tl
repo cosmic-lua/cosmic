@@ -24,9 +24,10 @@
 --
 -- TODO: the switch waits on judging the calls the checker could not type (a call has no callee in [`Checked.callees`] where its
 -- callee is `invalid`: a value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count
--- them per file), and on the build's own compile declaring the bindings of C the way the tree checks do ([`build.tree_checks`]'s
--- `bindings_of`) in place of marking them `external`: build/receivers.tl and build/contracts.tl judge those calls today, and must
--- not be deleted before the `[untyped]` ceilings reach 0, which they do as the files' `[checked]` pins do.
+-- them per file, and the build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling): the
+-- build's compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so
+-- their calls are judged. build/receivers.tl and build/contracts.tl judge the calls no rule here does, and must not be
+-- deleted before the `[untyped]` ceilings reach 0, which they do as the files' `[checked]` pins do.
 --
 -- TODO: say what the discipline is for a function that answers one of several lists of values (`(true, R) | (false, E)`), which
 -- no rule reads here as the fork could not write one, once the new grammar's convention for a failure is settled
