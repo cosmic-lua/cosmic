@@ -27,6 +27,7 @@ local record AstModule
   type RewriteResult = RewriteResult
   type Site = Site
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
+  vararg_name_hint: function(source: string, e: compiler.Error): string | nil
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
   each_child_node: function(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
@@ -43,6 +44,7 @@ end
 
 local M: AstModule = {
   parse = ast_node.parse,
+  vararg_name_hint = ast_node.vararg_name_hint,
   walk = ast_walk.walk,
   children = ast_walk.children,
   each_child_node = ast_walk.each_child_node,

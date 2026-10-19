@@ -5756,7 +5756,6 @@ build/fetch_test.tl operand_type 1
 build/link_index.tl operand_type 1
 build/link_text.tl operand_type 3
 build/symbol_index.tl operand_type 1
-build/teal.tl operand_type 1
 build/term_relay.tl operand_type 2
 cosmic/template/markup.tl operand_type 1
 cosmic/web/testing.tl operand_type 1
@@ -6671,7 +6670,7 @@ build/sandbox.tl not_assignable 1
 build/sandbox_connect_test.tl not_assignable 16
 build/sandbox_seal_tool_test.tl not_assignable 1
 build/stand_in_probe.tl not_assignable 29
-build/teal.tl not_assignable 6
+build/teal.tl not_assignable 2
 build/test_sandbox_system_confined_test.tl not_assignable 1
 build/test_test.tl not_assignable 1
 build/test_worker.tl not_assignable 3

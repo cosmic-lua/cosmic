@@ -258,6 +258,25 @@ local record Parsed
   tokens: {compiler.Token}
 end
 
+--- Line `y` of `source`, without its newline: nil before the first and
+--- past the last one. [`build.teal`] keeps a copy, which goes with its
+--- hint layer at the switch (its TODO).
+local function line_at(source: string, y: integer): string | nil
+  if y < 1 then
+    return nil
+  end
+  local start = 1
+  for _ = 2, y do
+    local newline = source:find("\n", start, true)
+    if newline == nil then
+      return nil
+    end
+    start = newline + 1
+  end
+  local stop = source:find("\n", start, true)
+  return source:sub(start, stop ~= nil and stop - 1 or #source)
+end
+
 --- What to write for a type declared under a dotted name, which the
 --- parser refuses: `local record Ledger.Month` (or `enum`, `interface`,
 --- `type`, or `global`) at the dot, `record Ledger.Month` as needing a
@@ -271,15 +290,7 @@ local function dotted_declaration(source: string, e: compiler.Error): string | n
   if not unscoped and e.code ~= "syntax_error" then
     return nil
   end
-  local line: string | nil = nil
-  local y = 0
-  for text in (source .. "\n"):gmatch("([^\n]*)\n") do
-    y = y + 1
-    if y == e.y then
-      line = text
-      break
-    end
-  end
+  local line = line_at(source, e.y)
   if line == nil or (not unscoped and line:sub(e.x, e.x) ~= ".") then
     return nil
   end
@@ -298,6 +309,87 @@ local function dotted_declaration(source: string, e: compiler.Error): string | n
   return "declare `" .. declared .. "` inside `local record " .. outer ..
     " ... end`: it is then " .. outer .. "." .. inner ..
     ", here and in every module that requires this one"
+end
+
+--- Whether `before`, the text of a line up to a `...`, ends inside a
+--- function's parameter list: its nearest unmatched `(` follows `function`,
+--- `function name`, `function a.b`, `function a:b`, with or without a
+--- generic `<...>` after the name. A `(` of a call does not.
+local function in_parameters(before: string): boolean
+  local depth = 0
+  for i = #before, 1, -1 do
+    local c = before:sub(i, i)
+    if c == ")" then
+      depth = depth + 1
+    elseif c == "(" then
+      if depth == 0 then
+        local head = before:sub(1, i - 1):gsub("%s+$", "")
+        head = head:gsub("%b<>$", "")
+        return head:match("%f[%w_]function$") ~= nil or
+          head:match("%f[%w_]function%s+[%a_][%w_]*[%.:]?[%w_%.:]*$") ~= nil
+      end
+      depth = depth - 1
+    end
+  end
+  return false
+end
+
+--- The type text of a parameter whose `:` starts `rest`, up to the `,` or
+--- `)` that ends it outside any brackets; nil when none does on the line.
+local function type_text(rest: string): string | nil
+  local depth = 0
+  local from = rest:match("^%s*:%s*()")
+  if from == nil then
+    return nil
+  end
+  for i = from, #rest do
+    local c = rest:sub(i, i)
+    if c == "(" or c == "{" or c == "[" or c == "<" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == "]" or c == ">") then
+      depth = depth - 1
+    elseif depth == 0 and (c == "," or c == ")") then
+      local text = rest:sub(from, i - 1):gsub("%s+$", "")
+      return text ~= "" and text or nil
+    end
+  end
+  return nil
+end
+
+--- What to write for a vararg given a name (`...names: string`), when the
+--- syntax error `e` is the parser's `expected one of: ')', ','` on that
+--- name: the text before it on the line ends in `...` inside a function's
+--- parameter list ([`in_parameters`]) and an identifier starts there,
+--- followed by `:`, `?`, `,` or `)`. The type is the one the line spells
+--- ([`type_text`]), else `<type>`. nil for any other error, including a
+--- `...` that is an expression (`f(...x)`) and a list whose `...` and
+--- name are on different lines. [`parse`] gives it, since the build
+--- parses every file before it checks one, and so does [`build.teal`]'s
+--- `replacement`, for what is checked unparsed (`cosmic --standalone`).
+local function vararg_name_hint(source: string, e: compiler.Error): string | nil
+  local expected = e.expected_tokens
+  if e.code ~= "expected_one_of" or expected == nil or #expected ~= 2 or
+      expected[1] ~= ")" or expected[2] ~= "," then
+    return nil
+  end
+  local x = e.x
+  local line = line_at(source, e.y)
+  if line == nil or x < 1 then
+    return nil
+  end
+  local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
+  if before == nil or not in_parameters(before) then
+    return nil
+  end
+  local rest = line:sub(x)
+  local name = rest:match("^[%a_][%w_]*")
+  if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
+    return nil
+  end
+  local after = rest:sub(#name + 1):gsub("^%s*%?", "")
+  local typed = type_text(after) or "<type>"
+  return "a vararg takes no name: write `...: " .. typed ..
+    "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
 end
 
 --- Lex and parse `source` into a [`Node`] tree and its token stream.
@@ -331,7 +423,7 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   end
   if #parse_errs > 0 then
     local e = parse_errs[1]
-    local hint = dotted_declaration(source, e)
+    local hint = dotted_declaration(source, e) or vararg_name_hint(source, e)
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg) ..
       (hint ~= nil and " -- " .. hint or "")
   end
@@ -345,10 +437,12 @@ local record NodeModule
   type Node = Node
   type Parsed = Parsed
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
+  vararg_name_hint: function(source: string, e: compiler.Error): string | nil
 end
 
 local M: NodeModule = {
   parse = parse,
+  vararg_name_hint = vararg_name_hint,
 }
 
 return M

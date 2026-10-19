@@ -25,7 +25,11 @@ local record Cli
   --- nothing is 0, a whole number from 0 to 255, or text naming one, is
   --- itself, and anything else is complained about and exits 2. The
   --- file's top level finds the same words in the global `arg`; its `...`
-  --- is what `require` hands a module, its own name.
+  --- is what `require` hands a module, its own name. The words are the
+  --- file's as typed, since no option of this program's comes after the
+  --- file. A "--" there is the file's own too. [`Flags.parse`] from
+  --- `argv[1]` reads it as the end of the options, so `cosmic f.tl --
+  --- --help` gives it the word "--help" and no option.
   ---
   ---     return function(argv: {string}): integer
   ---       print("from " .. argv[1] .. " to " .. argv[2])
