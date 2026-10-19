@@ -246,7 +246,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       end))
       local staged = assert(work.open(root))
       local first: importer.Result = {
-        main = nil, tool = "", modules = {}, refused = {},
+        main = nil, tool = "", modules = {}, refused = {}, left_out = {},
         compiled = 0, cached = 0, shared = 0, worked = 0,
         parses = { parsed = 0, shared = 0, worked = 0 },
       }

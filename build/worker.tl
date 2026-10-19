@@ -154,16 +154,17 @@ end
 --- are written here in `all`'s order, as a parse here writes them. While
 --- the workers load ([`worker.Pool`]'s `warming`) the first sources are
 --- parsed here instead. A source no worker parsed is parsed here, which
---- says why where it cannot be. The answer and the counts are
---- `parse_fresh`'s, and `tally.worked` counts the sources a worker parsed.
+--- says why where it cannot be, or lists it in `broken` when given, as
+--- `parse_fresh` does. The answer and the counts are `parse_fresh`'s,
+--- and `tally.worked` counts the sources a worker parsed.
 --- @param pool the workers, already ready for these sources
 --- @param built the compiler a source that no worker parsed is parsed with
 function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
                       all: {Fresh}, tally: derivation.Parses,
-                      made: {derivation.Source}): boolean, string
+                      made: {derivation.Source}, broken?: {derivation.Broken}): boolean, string
   local here = 0
   while here < #all and pool.warming() > 0 do
-    local ok, why = derivation.parse_fresh(db, built, { all[here + 1] }, tally, made)
+    local ok, why = derivation.parse_fresh(db, built, { all[here + 1] }, tally, made, broken)
     if not ok then return false, why end
     here = here + 1
   end
@@ -176,7 +177,7 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
   if made_job == nil or made_widths == nil then
     local _, _ = log:complain("build: workers: " .. (job_trouble ~= "" and job_trouble or widths_trouble) ..
         "; parsing in this process")
-    return derivation.parse_fresh(db, built, fresh, tally, made)
+    return derivation.parse_fresh(db, built, fresh, tally, made, broken)
   end
   local job, widths: string, {string:integer} = made_job, made_widths
 
@@ -216,7 +217,7 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
       tally.worked = tally.worked + 1
       made[#made + 1] = { source_hash = one.source_hash, mapped = one.mapped }
     else
-      local ok, why = derivation.parse_fresh(db, built, { one }, tally, made)
+      local ok, why = derivation.parse_fresh(db, built, { one }, tally, made, broken)
       if not ok then
         close_results()
         return false, why
