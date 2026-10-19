@@ -429,7 +429,7 @@ local function run(file: string, argv: {integer:string}): integer
 
   local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile(handle, built, tool, false,
+  local result, compile_trouble = importer.compile_for(handle, built, tool, name,
     shared_compiles.for_build(), workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
@@ -449,6 +449,14 @@ local function run(file: string, argv: {integer:string}): integer
   -- collides with the tail generated for its tests) is left out of the
   -- database. The file asked for compiled, so this only warns.
   for _, line in ipairs(result.refused) do
+    log:complain("warning: " .. line)
+  end
+  -- A broken file the file run does not reach is left out of the database
+  -- too, the run going on without it ([`importer.compile_for`]).
+  -- TODO: keep a left-out module's last good rows in the projection, once
+  -- the writer can carry a module's rows from the projection it replaces:
+  -- until a whole build, `cosmic docs` and `uses` miss it and what requires it.
+  for _, line in ipairs(result.left_out) do
     log:complain("warning: " .. line)
   end
 

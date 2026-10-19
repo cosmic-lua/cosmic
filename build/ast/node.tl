@@ -360,38 +360,48 @@ local function type_text(rest: string): string | nil
   return nil
 end
 
---- What to write for a vararg given a name (`...names: string`), when the
---- syntax error `e` is the parser's `expected one of: ')', ','` on that
---- name: the text before it on the line ends in `...` inside a function's
---- parameter list ([`in_parameters`]) and an identifier starts there,
---- followed by `:`, `?`, `,` or `)`. The type is the one the line spells
+--- What to write for a vararg given a name, when the syntax error `e`
+--- is on that name: the parser's `expected one of: ')', ','` at the name
+--- of `...names: string`, or its `'...' needs to be declared as a typed
+--- argument` at the `...` of `names...: string`. Either is told only when
+--- it sits inside a function's parameter list ([`in_parameters`]), the
+--- name followed by `:`, `?`, `,` or `)` in the first and preceding the
+--- `...` in the second. The type is the one the line spells
 --- ([`type_text`]), else `<type>`. nil for any other error, including a
 --- `...` that is an expression (`f(...x)`) and a list whose `...` and
 --- name are on different lines. [`parse`] gives it, since the build
 --- parses every file before it checks one, and so does [`build.teal`]'s
 --- `replacement`, for what is checked unparsed (`cosmic --standalone`).
 local function vararg_name_hint(source: string, e: compiler.Error): string | nil
-  local expected = e.expected_tokens
-  if e.code ~= "expected_one_of" or expected == nil or #expected ~= 2 or
-      expected[1] ~= ")" or expected[2] ~= "," then
-    return nil
-  end
   local x = e.x
   local line = line_at(source, e.y)
   if line == nil or x < 1 then
     return nil
   end
-  local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
-  if before == nil or not in_parameters(before) then
+  local after: string
+  local expected = e.expected_tokens
+  if e.code == "expected_one_of" and expected ~= nil and #expected == 2 and
+      expected[1] == ")" and expected[2] == "," then
+    local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
+    if before == nil or not in_parameters(before) then
+      return nil
+    end
+    local rest = line:sub(x)
+    local name = rest:match("^[%a_][%w_]*")
+    if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
+      return nil
+    end
+    after = rest:sub(#name + 1)
+  elseif e.code == "other" and e.msg == "'...' needs to be declared as a typed argument" then
+    local before = line:sub(1, x - 1):match("^(.-)[%a_][%w_]*%s*$")
+    if before == nil or line:sub(x, x + 2) ~= "..." or not in_parameters(before) then
+      return nil
+    end
+    after = line:sub(x + 3)
+  else
     return nil
   end
-  local rest = line:sub(x)
-  local name = rest:match("^[%a_][%w_]*")
-  if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
-    return nil
-  end
-  local after = rest:sub(#name + 1):gsub("^%s*%?", "")
-  local typed = type_text(after) or "<type>"
+  local typed = type_text((after:gsub("^%s*%?", ""))) or "<type>"
   return "a vararg takes no name: write `...: " .. typed ..
     "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
 end

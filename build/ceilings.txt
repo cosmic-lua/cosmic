@@ -1855,7 +1855,7 @@ build/host_features_test.tl view_written 7
 build/host_names.tl view_written 4
 build/host_requires.tl view_written 4
 build/identity.tl view_written 13
-build/importer.tl view_written 28
+build/importer.tl view_written 37
 build/importer_boot_test.tl view_written 6
 build/importer_store_test.tl view_written 6
 build/importer_test.tl view_written 29
@@ -2460,6 +2460,7 @@ build/confine.tl view_as_mut 1
 build/contracts.tl view_as_mut 11
 build/core_image_fuzz_test.tl view_as_mut 1
 build/declared_key_fuzz_test.tl view_as_mut 2
+build/derivation.tl view_as_mut 1
 build/dispatch.tl view_as_mut 1
 build/doctest/generate.tl view_as_mut 2
 build/driver.tl view_as_mut 4
@@ -2494,7 +2495,6 @@ build/test_inputs.tl view_as_mut 1
 build/test_worker.tl view_as_mut 5
 build/tree_checks.tl view_as_mut 11
 build/work.tl view_as_mut 3
-build/worker.tl view_as_mut 1
 build/workers.tl view_as_mut 1
 build/workflows_test.tl view_as_mut 1
 build/zig_fetch_test.tl view_as_mut 12
@@ -6839,6 +6839,7 @@ build/fix/init.tl not_assignable 5
 build/flow_test.tl not_assignable 1
 build/harness_epoch_test.tl not_assignable 2
 build/hash_test.tl not_assignable 1
+build/importer.tl not_assignable 2
 build/link_files.tl not_assignable 1
 build/link_text.tl not_assignable 1
 build/reboot.tl not_assignable 3
@@ -6855,6 +6856,7 @@ build/tree_checks_test.tl not_assignable 1
 build/tree_root_test.tl not_assignable 8
 build/vendor.tl not_assignable 2
 build/work_test.tl not_assignable 2
+build/worker.tl not_assignable 3
 build/zig.tl not_assignable 1
 build/zig_fetch_test.tl not_assignable 1
 build/zig_lock_test.tl not_assignable 4

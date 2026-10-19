@@ -43,6 +43,13 @@ local record derivation
     --- Its rows in every other analysis table ([`packed_parses`]).
     rows: string
   end
+  --- A source [`derivation.parse_fresh`] could not parse, and why: the
+  --- message a parse that stops on it answers.
+  record Broken
+    source_hash: string
+    file: string
+    message: string
+  end
 end
 
 local type Source = derivation.Source
@@ -264,6 +271,147 @@ function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh} | nil, string
   return out, ""
 end
 
+--- Writes the rows of `one`'s parse, `parsed`, whose `requires` and
+--- analysis `found` [`derivation.parse_fresh`] made, counting it in
+--- `tally` and listing it in `made`. False and why when a row cannot be
+--- written.
+local function put_parse_rows(db: Sqlite.Handle, built: compiler, one: derivation.Fresh,
+                              parsed: ast.Parsed, requires: {string}, found: analyzer.Analysis,
+                              tally: derivation.Parses, made: {Source}): boolean, string
+  local source_hash, file, source = one.source_hash, one.file, one.source
+  local mapped = one.mapped and origin_lines(source) or nil
+  tally.parsed = tally.parsed + 1
+  made[#made + 1] = { source_hash = source_hash, mapped = one.mapped }
+  local ok, why = Sqlite.run(db,
+    "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
+    { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
+      text(found.export) })
+  if not ok then
+    return false, file .. ": " .. why
+  end
+  for ordinal, name in ipairs(requires) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
+      { text(source_hash), { integer = ordinal }, text(name) })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  for ordinal, name in ipairs(found.tests) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO tests (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
+      { text(source_hash), { integer = ordinal }, text(name) })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  ok, why = insert_test_inputs(db, source_hash, found)
+  if not ok then
+    return false, file .. ": " .. why
+  end
+  for ordinal, entry in ipairs(found.catalog) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
+      { text(source_hash), { integer = ordinal }, text(entry.symbol),
+        text(entry.message), { integer = entry.line } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  for ordinal, entry in ipairs(found.docs) do
+    local line = entry.line
+    if mapped ~= nil then
+      line = mapped[entry.symbol] or 0
+    end
+    ok, why = Sqlite.run(db,
+      "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
+        "exported, kind, signature, text, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      { text(source_hash), { integer = ordinal }, text(entry.symbol),
+        text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
+        text(entry.kind), text(entry.signature), text(entry.text),
+        { integer = line } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  for ordinal, entry in ipairs(found.references) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
+      { text(source_hash), { integer = ordinal }, text(entry.module),
+        text(entry.member), { integer = entry.line } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  for ordinal, entry in ipairs(found.bound) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO bound (source_hash, ordinal, name, module) VALUES (?1, ?2, ?3, ?4)",
+      { text(source_hash), { integer = ordinal }, text(entry.name), text(entry.module) })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  -- A source from outside the tree (a doc guide's test module) is
+  -- read at lines of its own, not its file's, so its links are not
+  -- kept: they would name lines the file does not have. The guide's
+  -- links are its Markdown's, which the stage reads ([`build.work`]'s
+  -- `linked`).
+  local found_links: {link_text.Found} = {}
+  if not one.mapped then
+    found_links = link_text.found(built, parsed.node, source, file)
+  end
+  for ordinal, entry in ipairs(found_links) do
+    local link = entry.link
+    ok, why = Sqlite.run(db,
+      "INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, " ..
+        "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+      { text(source_hash), { integer = ordinal }, { integer = link.line },
+        { integer = link.column }, text(link.form), { integer = entry.doc and 1 or 0 },
+        text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
+        text(entry.alias) })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  for ordinal, entry in ipairs(found.examples) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
+        "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      { text(source_hash), { integer = ordinal }, text(entry.name),
+        text(entry.text), text(entry.source), { integer = entry.line } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  -- TODO: once build.doctest's generated source carries a line map for
+  -- every line of an example (it names only the line each example's
+  -- block opens on, `-- line NAME N`), keep a guide example's global at
+  -- its Markdown line: it is kept at the generated module's own.
+  for ordinal, place in ipairs(globals.found(parsed)) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO globals (source_hash, ordinal, line, column) VALUES (?1, ?2, ?3, ?4)",
+      { text(source_hash), { integer = ordinal }, { integer = place.line },
+        { integer = place.column } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  -- A source that returns nothing (a test, as a rule) is no module a
+  -- checker reads in place of anything.
+  if found.has_top_level_return then
+    local stubbed = stub.made(parsed)
+    ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
+      { text(source_hash), text(stubbed.text), { integer = stubbed.pruned and 1 or 0 } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+  end
+  return true, ""
+end
+
 --- One parse of each of `fresh`, in the order given, each counted in
 --- `tally` and listed in `made`: what it requires, in order, the tests
 --- it defines, and whether it returns its own value. The rows go into
@@ -272,151 +420,34 @@ end
 --- `require("cosmic.foo")` inside a string literal or a comment is not
 --- an import. Type-only requires and conditional reassignments are real
 --- dependencies the build order must see. It stops at the first source
---- that does not parse, naming its file.
+--- that does not parse, naming its file -- unless given `broken`, where
+--- it lists each such source and goes on, writing no row of it, as a
+--- file run does for the sources its file does not reach
+--- ([`build.importer`]'s `compile_for`). A row it cannot write stops it
+--- either way.
 function derivation.parse_fresh(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
-                                tally: derivation.Parses, made: {Source}): boolean, string
+                                tally: derivation.Parses, made: {Source},
+                                broken?: {derivation.Broken}): boolean, string
   for _, one in ipairs(fresh) do
-    local source_hash, file, source = one.source_hash, one.file, one.source
-    local mapped = one.mapped and origin_lines(source) or nil
-    local parsed, parse_trouble = ast.parse(built, source, file)
-    if parsed == nil then
-      return false, file .. ": " .. parse_trouble
-    end
-    local requires, requires_trouble = ast.all_requires(built, parsed)
-    if requires == nil then
-      return false, file .. ": " .. requires_trouble
-    end
-    local found, analysis_trouble = analyzer.analysis_of(built, parsed, source)
-    if found == nil then
-      return false, file .. ": " .. analysis_trouble
-    end
-    tally.parsed = tally.parsed + 1
-    made[#made + 1] = { source_hash = source_hash, mapped = one.mapped }
-    local ok, why = Sqlite.run(db,
-      "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
-      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
-        text(found.export) })
-    if not ok then
-      return false, file .. ": " .. why
-    end
-    for ordinal, name in ipairs(requires) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
-        { text(source_hash), { integer = ordinal }, text(name) })
-      if not ok then
-        return false, file .. ": " .. why
+    local file = one.file
+    local parsed, trouble = ast.parse(built, one.source, file)
+    local requires: {string} | nil = nil
+    local found: analyzer.Analysis | nil = nil
+    if parsed ~= nil then
+      requires, trouble = ast.all_requires(built, parsed)
+      if requires ~= nil then
+        found, trouble = analyzer.analysis_of(built, parsed, one.source)
       end
     end
-    for ordinal, name in ipairs(found.tests) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO tests (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
-        { text(source_hash), { integer = ordinal }, text(name) })
-      if not ok then
-        return false, file .. ": " .. why
+    if parsed == nil or requires == nil or found == nil then
+      if broken == nil then
+        return false, file .. ": " .. trouble
       end
-    end
-    ok, why = insert_test_inputs(db, source_hash, found)
-    if not ok then
-      return false, file .. ": " .. why
-    end
-    for ordinal, entry in ipairs(found.catalog) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5)",
-        { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.message), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.docs) do
-      local line = entry.line
-      if mapped ~= nil then
-        line = mapped[entry.symbol] or 0
-      end
-      ok, why = Sqlite.run(db,
-        "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
-          "exported, kind, signature, text, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
-          text(entry.kind), text(entry.signature), text(entry.text),
-          { integer = line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.references) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
-          "VALUES (?1, ?2, ?3, ?4, ?5)",
-        { text(source_hash), { integer = ordinal }, text(entry.module),
-          text(entry.member), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.bound) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO bound (source_hash, ordinal, name, module) VALUES (?1, ?2, ?3, ?4)",
-        { text(source_hash), { integer = ordinal }, text(entry.name), text(entry.module) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    -- A source from outside the tree (a doc guide's test module) is
-    -- read at lines of its own, not its file's, so its links are not
-    -- kept: they would name lines the file does not have. The guide's
-    -- links are its Markdown's, which the stage reads ([`build.work`]'s
-    -- `linked`).
-    local found_links: {link_text.Found} = {}
-    if not one.mapped then
-      found_links = link_text.found(built, parsed.node, source, file)
-    end
-    for ordinal, entry in ipairs(found_links) do
-      local link = entry.link
-      ok, why = Sqlite.run(db,
-        "INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, " ..
-          "target, own, alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        { text(source_hash), { integer = ordinal }, { integer = link.line },
-          { integer = link.column }, text(link.form), { integer = entry.doc and 1 or 0 },
-          text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
-          text(entry.alias) })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    for ordinal, entry in ipairs(found.examples) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
-          "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        { text(source_hash), { integer = ordinal }, text(entry.name),
-          text(entry.text), text(entry.source), { integer = entry.line } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    -- TODO: once build.doctest's generated source carries a line map for
-    -- every line of an example (it names only the line each example's
-    -- block opens on, `-- line NAME N`), keep a guide example's global at
-    -- its Markdown line: it is kept at the generated module's own.
-    for ordinal, place in ipairs(globals.found(parsed)) do
-      ok, why = Sqlite.run(db,
-        "INSERT INTO globals (source_hash, ordinal, line, column) VALUES (?1, ?2, ?3, ?4)",
-        { text(source_hash), { integer = ordinal }, { integer = place.line },
-          { integer = place.column } })
-      if not ok then
-        return false, file .. ": " .. why
-      end
-    end
-    -- A source that returns nothing (a test, as a rule) is no module a
-    -- checker reads in place of anything.
-    if found.has_top_level_return then
-      local stubbed = stub.made(parsed)
-      ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
-        { text(source_hash), text(stubbed.text), { integer = stubbed.pruned and 1 or 0 } })
-      if not ok then
-        return false, file .. ": " .. why
+      broken[#broken + 1] = { source_hash = one.source_hash, file = file, message = file .. ": " .. trouble }
+    else
+      local put, why = put_parse_rows(db, built, one, parsed, requires, found, tally, made)
+      if not put then
+        return false, why
       end
     end
   end

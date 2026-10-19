@@ -68,7 +68,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- A fixture's tree stands in for cosmic's own, whose links name its
   -- own standard library and not the binary's.
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = "", refused = {}, compiled = 0, cached = 0, shared = 0,
+    modules = {}, tool = "", refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
     worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
   }, nil, link_index.none))
   assert(db:close())
