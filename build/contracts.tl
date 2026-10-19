@@ -291,6 +291,18 @@ local quieted: {string: contracts.Quiet} = {
   },
 }
 
+--- The exemptions this module holds a module to, which [`build.syntax_contracts`] holds the new tree to as well: one
+--- table of entries, each keyed by the file and the function it names, not two.
+function contracts.own_exemptions(): contracts.Exemptions
+  return own_exemptions
+end
+
+--- The methods a statement may ignore the failure of, by `<module> <record>` ([`contracts.quieted_names`]), shared with
+--- [`build.syntax_contracts`] as the exemptions are.
+function contracts.quiet_entries(): {string: contracts.Quiet}
+  return quieted
+end
+
 --- What `quieted` names, each as `<module> <symbol>`, sorted: every
 --- record, and every method as `<record>.<method>`.
 function contracts.quieted_names(): {string}
@@ -358,6 +370,12 @@ end
 --- the public syscall table and the raw process and socket tables.
 local binding_modules <const>: {string} = { "cosmic.sys", "cosmic.internal.process",
   "cosmic.internal.socket" }
+
+--- The modules whose tables are C bindings, which answer `nil | false, error, errno`: [`cosmic.sys`], and the raw process and
+--- socket tables.
+function contracts.binding_names(): {string}
+  return binding_modules
+end
 
 --- Each table of C bindings the checker in `env` has loaded, by the
 --- type id of its record, to its module's name: what `check` takes as

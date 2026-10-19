@@ -1,5 +1,6 @@
 --- What a stub ([`build.syntax_stub`]) keeps and leaves out of a source in the new grammar.
 local Node = require("build.syntax_node")
+local Programs = require("lang.check_programs")
 local Stub = require("build.syntax_stub")
 local Test = require("cosmic.test")
 
@@ -238,4 +239,122 @@ local function test_a_stub_of_every_statement_drops_bodies_alone()
   assert(not every.pruned, "every statement is kept")
   assert(every.text:find("local unused = Json.encode({})", 1, true) ~= nil, every.text)
   assert(every.text:find("return 1", 1, true) == nil, "a body is left out: " .. every.text)
+end
+
+--- The module `text` read as a source, and read as its stub, each in a program of its own: where they differ.
+local function difference_of(text: string, stubbed_text?: string): string | nil
+  local chunk, why = Node.parse(text, "m.tl")
+  local made = Stub.made((assert(chunk, why)))
+  local from = Programs.run(text)
+  local to = Programs.run(stubbed_text or made.text)
+  return Stub.difference(from.program, to.program, "t")
+end
+
+local MODULE <const> = source(
+  "local record M",
+  "  record Item",
+  "    n: integer",
+  "    tag: string?",
+  "  end",
+  "  enum Mode",
+  '    "a"',
+  '    "b"',
+  "  end",
+  "end",
+  "local record Hidden",
+  "  x: integer",
+  "end",
+  "local hidden: Hidden = { x = 1 }",
+  "function M.make(mode: M.Mode): M.Item",
+  "  return { n = hidden.x }",
+  "end",
+  "return M")
+
+local function test_a_stub_that_types_its_module_as_the_source_does_differs_nowhere()
+  assert(difference_of(MODULE) == nil)
+end
+
+local function test_a_stub_that_lacks_a_field_a_declaration_the_answer_reaches_is_told_where()
+  local lacking = MODULE:gsub("    tag: string%?\n", "")
+  local found = difference_of(MODULE, lacking)
+  assert(found ~= nil and found:find("M.Item", 1, true) == 1, tostring(found))
+  assert(found:find("in the source", 1, true) ~= nil and found:find("in the stub", 1, true) ~= nil, found)
+end
+
+local function test_a_stub_that_changes_an_enum_or_a_function_signature_is_told_where()
+  local enum = MODULE:gsub('    "b"\n', '    "c"\n')
+  local found = difference_of(MODULE, enum)
+  assert(found ~= nil and found:find("M.Mode", 1, true) == 1, tostring(found))
+  local signature = MODULE:gsub("function M.make%(mode: M.Mode%): M.Item", "function M.make(mode: M.Mode): M.Item?")
+  local second = difference_of(MODULE, signature)
+  assert(second ~= nil and second:find("M.make: ", 1, true) == 1, tostring(second))
+end
+
+local function test_a_declaration_one_has_and_the_other_lacks_is_told()
+  local extra = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  extra: Extra\n  enum Mode")
+  local found = difference_of(MODULE, extra)
+  -- the record that lists it differs first
+  assert(found ~= nil and found:find("^M: "), tostring(found))
+  local reverse = difference_of(extra, MODULE)
+  assert(reverse ~= nil and reverse:find("^M: "), tostring(reverse))
+  -- a declaration only one reaches, with the same answer otherwise
+  local nested = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  enum Mode")
+  assert(difference_of(MODULE, nested) == nil)
+end
+
+local function test_a_declaration_the_answer_does_not_reach_is_no_part_of_the_modules_type()
+  local changed = MODULE:gsub("  x: integer\n", "  x: string\n"):gsub("{ x = 1 }", "{ x = 'a' }")
+  assert(difference_of(MODULE, changed) == nil)
+end
+
+local function test_a_module_that_returns_a_value_of_a_written_type_is_compared_by_its_type()
+  local text = source("local function f(a: integer): integer", "  return a", "end", "return f")
+  assert(difference_of(text) == nil)
+  local found = difference_of(text, source("local function f(a: integer): string", "  return 'a'", "end", "return f"))
+  assert(found ~= nil and found:find("the value it returns", 1, true) == 1, tostring(found))
+end
+
+--- A module of functions written `function M.f(...)`, which are members of the record used as a value, and not in its text.
+local STATICS <const> = source(
+  "local record M",
+  "  record Item",
+  "    n: integer",
+  "  end",
+  "end",
+  "function M.stat(a: integer, b?: string): M.Item?",
+  "  return nil",
+  "end",
+  "function M.pair(): integer, string",
+  "  return 1, ''",
+  "end",
+  "function M.same<T>(x: T): T",
+  "  return x",
+  "end",
+  "function M.items(): {M.Item}",
+  "  return {}",
+  "end",
+  "return M")
+
+--- Each plant changes one function and nothing else, and is told by the function's name.
+local function test_a_stub_that_changes_or_drops_a_function_written_as_a_static_is_told_by_its_name()
+  assert(difference_of(STATICS) == nil)
+  local plants: {{string}} = {
+    { "(a: integer, b?: string)", "(a: string, b?: string)" },
+    { "b?: string): M.Item?", "b?: string): string" },
+    { "(a: integer, b?: string)", "(a: integer, b: string)" },
+    { "(a: integer, b?: string)", "(a: integer, b?: string, c: integer)" },
+    { "M.Item?\n  return nil", "M.Item\n  return {}" },
+    { "function M.pair(): integer, string\n  return 1, ''", "function M.pair(): integer\n  return 1" },
+    { "function M.same<T>(x: T): T", "function M.same(x: integer): integer" },
+    { "function M.items(): {M.Item}", "function M.items(): {integer}" },
+  }
+  for i, plant in ipairs(plants) do
+    local changed = STATICS:gsub(plant[1]:gsub("[%(%)%?%.%-%+%*%[%]%^%$%%]", "%%%0"), (plant[2]:gsub("%%", "%%%%")), 1)
+    assert(changed ~= STATICS, "plant " .. tostring(i) .. " changes nothing")
+    local found = difference_of(STATICS, changed)
+    assert(found ~= nil and found:find("^M%.%a+: "), "plant " .. tostring(i) .. ": " .. tostring(found))
+  end
+  local absent = STATICS:gsub("function M.pair%(%): integer, string\n  return 1, ''\nend\n", "")
+  assert(difference_of(STATICS, absent) == "M.pair: a function of the source and not of the stub")
+  assert(difference_of(absent, STATICS) == "M.pair: a function of the stub and not of the source")
 end

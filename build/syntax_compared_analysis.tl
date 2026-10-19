@@ -9,10 +9,13 @@
 --- Those are compared by the words they hold, set apart `nil`, `mut`, `self`, `metamethod`, and a class read as a
 --- record; where the translation made a class, the lines of the translation are not the source's, so the rows are
 --- compared sorted and without a line.
--- TODO: cut the cost of the analysis rows of `read` (about 75 s of 210 s cold) before the next readers are added to
--- it: read the fork's rows from the working database, where the live build has already written them by source hash,
--- in place of calling the fork's analyzer again, and key the memo of the fork's half by the fork's modules alone, so
--- that an edit to a port does not run the fork's readers on every file again (doc/plans/strict-teal.md, "the switch").
+-- TODO: cut the cost of the analysis rows of `read` (about 75 s of 210 s cold): read the fork's rows from the working database,
+-- where the live build has already written them by source hash, in place of calling the fork's analyzer again, and key the memo
+-- of the fork's half by the fork's modules alone, so that an edit to a port does not run the fork's readers on every file
+-- again. The readers that need the checker's types were not added here for that reason: [`build.tree_checks`]'s `typed` reads the
+-- fork's rows from the database and keeps nothing of the fork's code in its memo. It waits on this comparison being written over
+-- the database's flattened rows (`docs`, `refs`, `bound`, ...) in place of the analyzer's structures, whose class merges and
+-- word-by-word signatures it normalises (doc/plans/strict-teal.md, "the switch").
 -- TODO: delete this module with [`build.syntax_compared`] and the fork's analyzer and link_text at the switch, when the tree
 -- is written in the new grammar and nothing is translated on read (doc/plans/strict-teal.md, "the switch").
 local Analyzer = require("build.syntax_analyzer")

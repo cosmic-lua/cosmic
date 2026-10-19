@@ -110,6 +110,8 @@ local record Driver
     warnings: {Problem}
     --- The type of each node the checker typed (an expression) or lowered (a type), by the id of the node.
     types: {integer: Types.Type}
+    --- The function each call and method call took, by the id of the call node ([`Check.Checked.callees`]).
+    callees: {integer: Types.Type}
   end
 
   --- The nanoseconds a build spent in each phase, for the speed of a run.
@@ -441,7 +443,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     local result: Driver.Outcome = {
       module = source.module, source = source, chunk = read.chunk, scoped = scoped, broken = #syntax > 0,
       lowered = nil, checked = nil, syntax = syntax, scope_errors = {}, declared = {}, bodies = {}, errors = {},
-      warnings = {}, types = {},
+      warnings = {}, types = {}, callees = {},
     }
     return {
       result = result, lowered = false, closed = false, checked = false, bodies = false,
@@ -606,6 +608,7 @@ function Driver.new(options: Driver.Options): Driver.Build
             types[id] = t
           end
           result.types = types
+          result.callees = checked.callees
         end
       end
     end

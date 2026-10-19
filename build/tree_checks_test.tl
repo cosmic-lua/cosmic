@@ -4,6 +4,13 @@
 --- tree without it.
 
 local Ceilings = require("build.ceilings")
+local Contracts = require("build.contracts")
+local Declarations = require("lang.declarations")
+local Receivers = require("build.syntax_receivers")
+local Report = require("build.syntax_report")
+local SyntaxContracts = require("build.syntax_contracts")
+local SyntaxStub = require("build.syntax_stub")
+local Typed = require("build.syntax_typed")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -17,7 +24,10 @@ local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
 
 Test.policy{
-  grants = { { path = "build/ceilings.txt", letters = "r" } },
+  grants = {
+    { path = "build/ceilings.txt", letters = "r" }, { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" },
+  },
 }
 
 --- Lines as one source file's text.
@@ -1664,4 +1674,205 @@ local function test_a_dimension_of_the_analysis_that_compared_nothing_is_named_c
   assert(#rich == 0, table.concat(rich, "\n"))
   assert(table.concat(tree_checks.read(root, {}, memo), "\n") == "")
   assert(memo:close())
+end
+
+--- A tree for `typed`: a standard-library module with a record nested in its own, and a module that reads a field of it.
+local function typed_tree(root: string)
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/cosmic"))
+  assert(Fs.write(root .. "/cosmic/m.tl", source(
+    "local record M",
+    "  record Item",
+    "    n: integer",
+    "  end",
+    "  make: function(): Item",
+    "end",
+    "function M.make(): M.Item",
+    "  return { n = 1 }",
+    "end",
+    "return M")))
+  assert(Fs.write(root .. "/build/use.tl", source(
+    'local M = require("cosmic.m")',
+    "local item = M.make()",
+    "local n = item.n",
+    "return n")))
+end
+
+--- What the fork's build wrote of that tree.
+local function typed_fork(): Typed.Fork
+  return { files = {
+    ["cosmic/m.tl"] = { kind = "module", refused = false, refs = {} },
+    ["build/use.tl"] = { kind = "module", refused = false, refs = { { module = "cosmic.m", member = "Item.n", line = 3 } } },
+  } }
+end
+
+--- A tree the fork's build and the port read alike passes, and a difference in each dimension is named: the uses of a
+--- record's fields, whether the discipline holds, which files it holds, and whether a standard-library module's stub types it
+--- as its source; a pin for a file that agrees is told to lower.
+local function test_a_tree_read_through_the_checkers_types_is_held_to_what_the_forks_build_wrote_of_it(dir: string)
+  local root = dir .. "/typed"
+  typed_tree(root)
+  local counts: {string: integer} = {}
+  local clean = tree_checks.typed(root, {}, nil, typed_fork(), counts)
+  assert(#clean == 0, table.concat(clean, "\n"))
+  assert(counts["typed refs"] == 1 and counts["contracts"] == 2 and counts["stub"] == 1 and counts["kind"] == 2, "counts")
+  assert(counts["files compared"] == 2 and counts["rule exports"] == 1)
+  local fork = typed_fork()
+  fork.files["build/use.tl"].refs = {}
+  local port_finds = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
+  assert(port_finds:find("build/use.tl: typed refs: the port finds cosmic.m Item.n:3 and the fork does not", 1, true) ~= nil and
+      port_finds:find("build/use.tl: 1 difference from the fork's build, pinned 0", 1, true) ~= nil, port_finds)
+  assert(#tree_checks.typed(root, { ["build/use.tl"] = 1 }, nil, fork) == 0)
+  local fallen = tree_checks.typed(root, { ["build/use.tl"] = 1 }, nil, typed_fork())
+  assert(#fallen == 1 and fallen[1] == "build/use.tl: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [typed]",
+    table.concat(fallen, "\n"))
+  fork = typed_fork()
+  fork.files["build/use.tl"].refused = true
+  fork.files["cosmic/m.tl"].kind = "test"
+  local refused = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
+  assert(refused:find("build/use.tl: contracts: the fork refuses it and the port finds nothing to refuse", 1, true) ~= nil and
+      refused:find("cosmic/m.tl: kind: the build staged it as test, the port reads it as module", 1, true) ~= nil, refused)
+  assert(tree_checks.typed(root, {}, nil, nil)[1]:find("no compile of the tree to compare with", 1, true) ~= nil)
+end
+
+--- The answer for a file is kept under its source, the sources of what it requires and the places the fork found a use at.
+local function test_a_memo_answers_the_typed_check_until_the_tree_or_the_forks_rows_change(dir: string)
+  local root = dir .. "/typedmemo"
+  typed_tree(root)
+  local memo = assert(Sqlite.memory())
+  assert(#tree_checks.typed(root, {}, memo, typed_fork()) == 0)
+  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'typed'"))
+  assert(count[1]:integer(1) == 2, "each file once")
+  -- Plant a use under the keys: a run that finds it did not read.
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = 'A\t1\nR\tcosmic.m\tItem.n\t9'"))
+  local hit = table.concat(tree_checks.typed(root, {}, memo, typed_fork()), "\n")
+  assert(hit:find("typed refs: the port finds cosmic.m Item.n:9", 1, true) ~= nil, hit)
+  -- Another row of the fork's moves the key of that file: it is read again.
+  local fork = typed_fork()
+  fork.files["build/use.tl"].refs = { { module = "cosmic.m", member = "Item.n", line = 3 }, { module = "cosmic.m", member = "Item.n", line = 2 } }
+  local again = table.concat(tree_checks.typed(root, {}, memo, fork), "\n")
+  assert(again:find("the fork finds cosmic.m Item.n:2 and the port does not", 1, true) ~= nil, again)
+  assert(memo:close())
+end
+
+--- A dimension that compared no row over a tree of some size, and a rule that judged no place in it, are named.
+local function test_a_dimension_of_the_typed_check_that_compared_nothing_is_named(dir: string)
+  local root = dir .. "/typedempty"
+  assert(Fs.mkdirs(root .. "/build"))
+  local fork: Typed.Fork = { files = {} }
+  for index = 1, 12 do
+    assert(Fs.write(root .. "/build/small" .. index .. ".tl", source("local x = " .. index, "return x")))
+    fork.files["build/small" .. index .. ".tl"] = { kind = "module", refused = false, refs = {} }
+  end
+  local joined = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
+  assert(joined:find("typed refs: no row compared in 12 files", 1, true) ~= nil and
+      joined:find("stub: no row compared in 12 files", 1, true) ~= nil and
+      joined:find("contracts used: no row compared in 12 files", 1, true) ~= nil and
+      joined:find("contracts: the rule calls judged no place in 12 files", 1, true) ~= nil, joined)
+  assert(joined:find("kind: no row compared", 1, true) == nil and joined:find("contracts: no row compared", 1, true) == nil, joined)
+end
+
+--- Each dimension reports a difference when its reader answers otherwise: a reader planted with another answer is named by
+--- the dimension's name.
+local function test_every_dimension_of_the_typed_comparison_reports_a_difference_in_its_reader(dir: string)
+  local root = dir .. "/typedplant"
+  typed_tree(root)
+  assert(#tree_checks.typed(root, {}, nil, typed_fork()) == 0)
+  local function planted(patch: function(): function(), wanted: string)
+    local restore = patch()
+    local ok, raised = pcall(function(): string
+      local found = table.concat(tree_checks.typed(root, {}, nil, typed_fork()), "\n")
+      assert(found:find(wanted, 1, true) ~= nil, "wanted " .. wanted .. " in:\n" .. found)
+      return ""
+    end)
+    restore()
+    assert(ok, raised)
+  end
+  local references = Receivers.references
+  planted(function(): function()
+    Receivers.references = function(subject: Report.Subject): {Receivers.Reference}
+      local found = references(subject)
+      found[#found + 1] = { module = "cosmic.m", member = "Item.planted", line = 99 }
+      return found
+    end
+    return function() Receivers.references = references end
+  end, "build/use.tl: typed refs: the port finds cosmic.m Item.planted:99")
+  local check = SyntaxContracts.check
+  planted(function(): function()
+    SyntaxContracts.check = function(subject: Report.Subject, given?: Contracts.Exemptions): SyntaxContracts.Result
+      local made = check(subject, given)
+      made.problems[#made.problems + 1] = "x.tl:1: planted"
+      return made
+    end
+    return function() SyntaxContracts.check = check end
+  end, "contracts: the fork holds it and the port finds 1: x.tl:1: planted")
+  planted(function(): function()
+    SyntaxContracts.check = function(subject: Report.Subject, given?: Contracts.Exemptions): SyntaxContracts.Result
+      local made = check(subject, given)
+      made.used[#made.used + 1] = "casts cosmic/m.tl:planted"
+      return made
+    end
+    return function() SyntaxContracts.check = check end
+  end, "contracts used: the exemptions the fork needs")
+  local difference = SyntaxStub.difference
+  planted(function(): function()
+    SyntaxStub.difference = function(_source: Declarations.Program, _stubbed: Declarations.Program, _module: string): string | nil
+      return "planted"
+    end
+    return function() SyntaxStub.difference = difference end
+  end, "cosmic/m.tl: stub: the fork holds it and the port finds: the stub a project's checker reads in its place types it differently")
+  local kind_of = SyntaxContracts.kind_of
+  planted(function(): function()
+    SyntaxContracts.kind_of = function(_file: string): string
+      return "test"
+    end
+    return function() SyntaxContracts.kind_of = kind_of end
+  end, "kind: the build staged it as module, the port reads it as test")
+end
+
+--- A pin of `[typed]` covers the uses the port finds and the fork loses, and nothing else: a use only the fork finds is told
+--- whatever the pin.
+local function test_a_pin_of_the_typed_check_covers_only_the_uses_the_port_finds_and_the_fork_loses(dir: string)
+  local root = dir .. "/typedpin"
+  typed_tree(root)
+  local fork = typed_fork()
+  fork.files["build/use.tl"].refs = { { module = "cosmic.m", member = "Item.n", line = 3 }, { module = "cosmic.m", member = "Item.m", line = 2 } }
+  local found = table.concat(tree_checks.typed(root, { ["build/use.tl"] = 5 }, nil, fork), "\n")
+  assert(found:find("the fork finds cosmic.m Item.m:2 and the port does not", 1, true) ~= nil and
+      found:find("1 difference from the fork's build that no pin covers", 1, true) ~= nil, found)
+end
+
+--- The calls the checker gave no function are held to a ceiling that only falls.
+local function test_a_call_the_checker_could_type_no_function_for_is_held_to_its_ceiling(dir: string)
+  local root = dir .. "/typeduntyped"
+  typed_tree(root)
+  assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2)", "local y = x.field(1)", "return y")))
+  local fork = typed_fork()
+  fork.files["build/open.tl"] = { kind = "module", refused = false, refs = {} }
+  local found = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
+  assert(found:find("build/open.tl: 2 calls the checker gave no function, which no rule of the discipline judged, pinned 0", 1, true) ~=
+      nil, found)
+  assert(#tree_checks.typed(root, {}, nil, fork, nil, { ["build/open.tl"] = 2 }) == 0)
+  local fallen = tree_checks.typed(root, {}, nil, fork, nil, { ["build/open.tl"] = 3 })
+  assert(#fallen == 1 and fallen[1] == "build/open.tl: pinned 3 but 2 found; lower the pin in build/ceilings.txt's [untyped]",
+    table.concat(fallen, "\n"))
+end
+
+--- A tree with the headers of the bindings of C declares them from the headers (as the build derives them), so a call of one is
+--- judged; a tree without them leaves the bindings untyped.
+local function test_the_bindings_of_c_are_typed_where_the_tree_has_their_headers(dir: string)
+  local root = dir .. "/typedbindings"
+  typed_tree(root)
+  local user = source("local sys = require(\"cosmic.sys\")", "sys.unlink(\"x\")", "return {}")
+  assert(Fs.write(root .. "/build/uses_sys.tl", user))
+  local fork = typed_fork()
+  fork.files["build/uses_sys.tl"] = { kind = "module", refused = false, refs = {} }
+  assert(#tree_checks.typed(root, {}, nil, fork, nil, { ["build/uses_sys.tl"] = 1 }) == 0, "untyped: no header, no judgment")
+  assert(Fs.mkdirs(root .. "/core"))
+  for _, header in ipairs({ "core/syscalls.h", "core/process.h", "core/socket.h" }) do
+    assert(Fs.write(root .. "/" .. header, (assert(Fs.read(header)))))
+  end
+  local found = table.concat(tree_checks.typed(root, {}, nil, fork, nil, {}), "\n")
+  assert(found:find("build/uses_sys.tl: contracts: the fork holds it and the port finds 1: build/uses_sys.tl:2: sys.unlink: " ..
+      "its failure is ignored", 1, true) ~= nil, found)
 end

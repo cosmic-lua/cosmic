@@ -18,7 +18,9 @@
 --- other module keeps every statement, which cosmic's own build refuses of a standard-library module
 --- ([`Stub.Made`]'s `pruned`).
 local Ast = require("lang.ast")
+local Declarations = require("lang.declarations")
 local Node = require("build.syntax_node")
+local Types = require("lang.types")
 
 local record Stub
   --- A stub ([`Stub.made`]).
@@ -36,6 +38,16 @@ local record Stub
   --- either way, which `cosmic lsp` reads the top-level calls of ([`build.lsp.check`]). The stub made is never `pruned`
   --- then.
   made: function(chunk: Ast.Chunk, every?: boolean): Made
+
+  --- Where the types `module` has in `source`, a program that read its source, and in `stubbed`, a program that read its stub
+  --- instead, differ: nil when the stub types the module as its source does, and otherwise a line that names the first
+  --- declaration that differs and how. The declarations compared are those the module's answer reaches (the record it returns,
+  --- or the type of the value it returns, and every declaration of the module those name, through their fields, methods,
+  --- listings and type arguments): a declaration the module keeps to itself and nothing reaches is not part of its type. Two
+  --- declarations are the same when their canonical text ([`Types.encode_declaration`]) is, which names every other module's
+  --- declaration by its path, so a module whose stub differs is told of in its own comparison and not in each that names it.
+  --- The port of [`build.stub`]'s `difference`, which walked the fork's type objects.
+  difference: function(source: Declarations.Program, stubbed: Declarations.Program, module: string): string | nil
 end
 
 --- What stands for a `: never` function's body.
@@ -307,6 +319,157 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
     end
   end
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
+end
+
+--- The declarations of `module` that its answer in `program` reaches, by name, and the names in the order they were found;
+--- and the canonical text of the type of the value it returns when that is no declaration.
+local record Reached
+  decls: {string: Types.Decl}
+  order: {string}
+  value: string
+  --- The canonical text of the type of each function written `function M.f(...)`, by declaration and then by name: they are
+  --- members of the declaration used as a value, and the declaration's own text ([`Types.encode_declaration`]) holds none.
+  statics: {string: {string: string}}
+end
+
+local function reached(program: Declarations.Program, module: string): Reached
+  local out: Reached = { decls = {}, order = {}, value = "", statics = {} }
+  local seen: {integer: boolean} = {}
+  local add: function(d: Types.Decl)
+  local function walk(t: Types.Type)
+    if seen[t.id] then
+      return
+    end
+    seen[t.id] = true
+    if t is Types.Named then
+      add(t.decl)
+    end
+    for _, part in ipairs(Types.parts(t)) do
+      walk(part)
+    end
+  end
+  add = function(d: Types.Decl)
+    if d.module ~= module or out.decls[d.name] ~= nil then
+      return
+    end
+    out.decls[d.name] = d
+    out.order[#out.order + 1] = d.name
+    local body = d.body
+    if body == nil then
+      return
+    end
+    for _, super in ipairs(body.supers) do
+      walk(super)
+    end
+    for _, field in ipairs(body.fields) do
+      walk(field.type)
+    end
+    for _, method in ipairs(body.methods) do
+      walk(method.type)
+    end
+    local array = body.array
+    if array ~= nil then
+      walk(array)
+    end
+    for _, param in ipairs(body.tparams) do
+      local bound = param.bound
+      if bound ~= nil then
+        walk(bound)
+      end
+    end
+    -- The functions written `function R.f(...)` are members of the declaration used as a value.
+    local statics = program.statics[d] or {}
+    local names: {string} = {}
+    for name in pairs(statics) do
+      names[#names + 1] = name
+    end
+    table.sort(names)
+    local texts: {string: string} = {}
+    for _, name in ipairs(names) do
+      walk(statics[name].type)
+      texts[name] = Types.encode(statics[name].type)
+    end
+    out.statics[d.name] = texts
+  end
+  local known = program.modules[module]
+  if known ~= nil then
+    local export = known.export
+    if export ~= nil then
+      local root = export.decl
+      if root ~= nil then
+        add(root)
+      end
+    end
+    local value = known.value
+    if value ~= nil then
+      walk(value)
+      out.value = Types.encode(value)
+    end
+  end
+  return out
+end
+
+--- The first place two texts differ, with a few characters of each around it.
+local function first_difference(a: string, b: string): string
+  local at = 1
+  while at <= #a and at <= #b and a:byte(at) == b:byte(at) do
+    at = at + 1
+  end
+  local from = math.max(1, at - 20)
+  return "`" .. a:sub(from, at + 30) .. "` in the source, `" .. b:sub(from, at + 30) .. "` in the stub"
+end
+
+function Stub.difference(source: Declarations.Program, stubbed: Declarations.Program, module: string): string | nil
+  local a, b = reached(source, module), reached(stubbed, module)
+  local names: {string} = {}
+  local listed: {string: boolean} = {}
+  for _, list in ipairs({ a.order, b.order }) do
+    for _, name in ipairs(list) do
+      if listed[name] ~= true then
+        listed[name] = true
+        names[#names + 1] = name
+      end
+    end
+  end
+  for _, name in ipairs(names) do
+    local from, to = a.decls[name], b.decls[name]
+    if to == nil then
+      return name .. ": declared by the source and not by the stub"
+    elseif from == nil then
+      return name .. ": declared by the stub and not by the source"
+    elseif (from.body == nil) ~= (to.body == nil) then
+      return name .. ": defined by the " .. (from.body == nil and "stub" or "source") .. " only"
+    elseif from.body ~= nil then
+      local text, stubbed_text = Types.encode_declaration(from), Types.encode_declaration(to)
+      if text ~= stubbed_text then
+        return name .. ": " .. first_difference(text, stubbed_text)
+      end
+      local ours, theirs = a.statics[name] or {}, b.statics[name] or {}
+      local static_names: {string} = {}
+      for static in pairs(ours) do
+        static_names[#static_names + 1] = static
+      end
+      for static in pairs(theirs) do
+        if ours[static] == nil then
+          static_names[#static_names + 1] = static
+        end
+      end
+      table.sort(static_names)
+      for _, static in ipairs(static_names) do
+        if theirs[static] == nil then
+          return name .. "." .. static .. ": a function of the source and not of the stub"
+        elseif ours[static] == nil then
+          return name .. "." .. static .. ": a function of the stub and not of the source"
+        elseif ours[static] ~= theirs[static] then
+          return name .. "." .. static .. ": " .. first_difference(ours[static], theirs[static])
+        end
+      end
+    end
+  end
+  if a.value ~= b.value then
+    return "the value it returns: " .. first_difference(a.value, b.value)
+  end
+  return nil
 end
 
 return Stub
