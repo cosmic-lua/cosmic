@@ -19,7 +19,7 @@ local built = { value = nil as compiler | nil }
 local function verdict(source: string): string
   local c = built.value or assert(teal.load(true))
   built.value = c
-  local env = assert(c.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local env = assert(c.new_env({ defaults = teal.defaults() }))
   local code, result = c.gen(source, env, nil, "tl")
   local codes: {string} = {}
   for _, e in ipairs(code == nil and result.syntax_errors or result.type_errors) do
@@ -103,7 +103,7 @@ end
 local function test_a_u_escape_with_no_brace_is_reported_at_the_string()
   local c = built.value or assert(teal.load(true))
   built.value = c
-  local env = assert(c.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local env = assert(c.new_env({ defaults = teal.defaults() }))
   local code, result = c.gen("return \"\\ux\"", env, nil, "tl")
   assert(code == nil)
   local e = assert(result.syntax_errors[1])

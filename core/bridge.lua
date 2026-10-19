@@ -453,6 +453,16 @@ local function note_failed(path)
   failed_reads[#failed_reads + 1] = path
 end
 
+-- TODO: this and the defaults of the environments of [`searcher_for`] and
+-- of `bootstrap`'s stage one are the last copies of build/teal.tl's
+-- `served` and `defaults`; keep one copy. The bridge is Lua run before
+-- the tree is compiled, so it cannot require that module. The wrapper
+-- that joins the checker's parts is one copy already
+-- (build/checker_wrapper.tl, which the bridge loads as the seed compiled
+-- it). Waits on the seed step of build.zig (`seedCompiler`) compiling the
+-- closure of `cosmic compile` (build/compile.tl, which requires
+-- build/teal.tl) beside the checker, so that the bridge's second stage
+-- runs through it.
 local function text_handle(text)
   local h = { is_boot_handle = true }
   function h:read() return text end

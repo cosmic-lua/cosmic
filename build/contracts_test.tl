@@ -16,9 +16,7 @@ local built = teal.lazy()
 local function problems_in(source: string, exemptions?: contracts.Exemptions): {string}
   -- A case may require the real [`cosmic.sys`].
   teal.serve_standard(built)
-  local env = assert(built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  }))
+  local env = assert(built.new_env({ defaults = teal.defaults() }))
   -- A stand-in [`cosmic.log`], known to the checker the way the importer
   -- makes a compiled module known to the ones after it.
   local log_code, log_result = built.gen(table.concat({

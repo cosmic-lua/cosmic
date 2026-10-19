@@ -410,7 +410,7 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
   -- document, rather than compiled as a fixture.
   local direct = assert(teal.load(true))
   teal.serve_standard(direct)
-  local env = assert(direct.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local env = assert(direct.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   local source = table.concat({
     'local Shape = require("cosmic.shape")',

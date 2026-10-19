@@ -3601,12 +3601,10 @@ build/checked_narrowing_test.tl any_use 13
 build/checker_facts_test.tl any_use 1
 build/checker_fuzz_test.tl any_use 6
 build/checker_narrowing_test.tl any_use 7
-build/checker_verdicts.tl any_use 1
 build/checker_verdicts_test.tl any_use 1
 build/compilation.tl any_use 14
 build/compile_grammar_test.tl any_use 1
 build/compile_lang_test.tl any_use 1
-build/compiler_test.tl any_use 1
 build/confine.tl any_use 1
 build/confine_tool_test.tl any_use 3
 build/core_image.tl any_use 3
@@ -3629,7 +3627,7 @@ build/lang_proof.tl any_use 1
 build/link_index.tl any_use 2
 build/link_index_test.tl any_use 1
 build/link_resolve.tl any_use 1
-build/lsp/check.tl any_use 5
+build/lsp/check.tl any_use 1
 build/lsp/session.tl any_use 5
 build/lsp/splice.tl any_use 1
 build/perf.tl any_use 23
@@ -3643,7 +3641,7 @@ build/sql.tl any_use 3
 build/stand_in_probe.tl any_use 1
 build/stub.tl any_use 4
 build/syntax_match.tl any_use 2
-build/teal.tl any_use 21
+build/teal.tl any_use 19
 build/term_relay_backpressure_test.tl any_use 1
 build/test.tl any_use 3
 build/test_worker.tl any_use 3
@@ -6392,10 +6390,6 @@ build/cache_maintenance.tl arms_differ 1
 build/checked_narrowing_test.tl arms_differ 1
 build/checker_facts_test.tl arms_differ 1
 build/checker_narrowing_test.tl arms_differ 3
-build/checker_readonly_test.tl arms_differ 1
-build/checker_verdicts.tl arms_differ 1
-build/compile.tl arms_differ 1
-build/compiler_test.tl arms_differ 1
 build/confine.tl arms_differ 1
 build/fetch.tl arms_differ 1
 build/fix/breaks.tl arms_differ 1
@@ -6412,7 +6406,6 @@ build/sandbox_connect.tl arms_differ 1
 build/shared_compiles.tl arms_differ 1
 build/sql.tl arms_differ 1
 build/stand_in_test.tl arms_differ 1
-build/stub_test.tl arms_differ 2
 build/teal.tl arms_differ 1
 build/test_worker.tl arms_differ 1
 build/this_program_test.tl arms_differ 1

@@ -269,6 +269,13 @@ local record compiler
     warnings: {Error}
   end
 
+  -- What [`search_module`] answers with for a module it finds: a handle
+  -- that reads the module's whole source and then closes.
+  record Handle
+    read: function(Handle, what: string): string
+    close: function(Handle): boolean
+  end
+
   record Defaults
     feat_lax: string
     gen_compat: string
@@ -345,7 +352,7 @@ local record compiler
   -- `read("*a")` and then closes. An ordinary field, so the build
   -- replaces it with one that answers from the staged tree; the
   -- compiler's own finds nothing.
-  search_module: function(name: string, search_all: boolean): string | nil, any
+  search_module: function(name: string, search_all: boolean): string | nil, Handle | nil
 
   new_env: function(Options): Env | nil, string
   -- The Lua source for a Teal source, and what the checker found. The

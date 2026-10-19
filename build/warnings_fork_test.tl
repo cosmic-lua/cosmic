@@ -85,7 +85,7 @@ local function key(kind: string, msg: string, line: integer): string
 end
 
 local function fork_warnings(source: string): {string}
-  local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local env = assert(built.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   local result = built.check_string(source, env, "case.tl", "tl")
   local out: {string} = {}

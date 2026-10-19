@@ -41,21 +41,14 @@ local parts: {{string}} = {
 }
 
 --- Makes `built` find the checker's other files by name in `texts`, as
---- the bridge makes `stage0` do, and nothing else.
+--- the bridge makes its stage one do, and nothing else.
 local function serving(built: compiler, texts: {string:string})
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local text = texts[name]
     if text == nil then
       return nil, nil
     end
-    return name:gsub("%.", "/") .. ".tl", {
-      read = function(_self: any, _what: string): string
-        return text
-      end,
-      close = function(_self: any): boolean
-        return true
-      end,
-    }
+    return name:gsub("%.", "/") .. ".tl", teal.served(text)
   end
 end
 
@@ -76,9 +69,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   end
   serving(built, texts)
   local function compile(text: string): string, compiler.Result
-    local env = assert(built.new_env({ defaults = {
-      feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-    } }))
+    local env = assert(built.new_env({ defaults = teal.defaults() }))
     local made, result = built.gen(text, env, nil, "tl")
     assert(made ~= nil and #result.syntax_errors == 0,
       "the compiler could not parse its own source")

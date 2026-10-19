@@ -11,12 +11,6 @@ local stub = require("build.stub")
 local type compiler = require("build.compiler")
 
 local record splice
-  --- What the checker reads for a module: its text, then a close.
-  record Handle
-    text: string
-    read: function(Handle, what: string): string
-    close: function(Handle): boolean
-  end
 end
 
 --- `splices`, found in `from`, moved to the same lines and columns of
@@ -86,15 +80,6 @@ function splice.unspliced(splices: {shape_specs.Splice}, offset: integer): integ
     shift = shift + #one.text
   end
   return offset - shift
-end
-
---- What the checker reads for a module of the text `text`.
-function splice.handle_of(text: string): splice.Handle
-  return {
-    text = text,
-    read = function(self: splice.Handle, _what: string): string return self.text end,
-    close = function(_self: splice.Handle): boolean return true end,
-  }
 end
 
 --- `served`, the module `name`, as a build rewrites it ([`shape_specs.resolve`]),

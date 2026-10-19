@@ -85,9 +85,7 @@ local function setup(): compiler, Narrowing
     return value, narrowing_value
   end
   local compiled = assert(teal.load(true))
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local code, result = compiled.gen(assert(Fs.read("checker/narrowing.tl")), env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0, "checker/narrowing.tl does not compile")
   -- The compiler's environment: `os.getenv` is what the module reads its
@@ -532,9 +530,7 @@ end
 --- each type error, or the raise, as the compiler said.
 local function errors_in(source: string, skipped: integer): {string}
   local compiled = setup()
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local ok, raised = pcall(function(): {string}
     local result = compiled.check_string(source, env, "probe.tl", "tl")
     assert(#result.syntax_errors == 0, "does not parse: " .. source)
@@ -564,9 +560,7 @@ end
 --- The type errors of `source`.
 local function errors_of_source(source: string): {compiler.Error}
   local compiled = setup()
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   return compiled.check_string(source, env, "probe.tl", "tl").type_errors
 end
 
@@ -702,7 +696,7 @@ end
 local function test_a_refusal_of_a_use_the_test_of_a_field_or_a_global_did_not_narrow_carries_the_test()
   local function only_error(source: string): compiler.Error
     local compiled = setup()
-    local env = assert(compiled.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+    local env = assert(compiled.new_env({ defaults = teal.defaults() }))
     local result = compiled.check_string(source, env, "probe.tl", "tl")
     assert(#result.type_errors == 1, source)
     return result.type_errors[1]
@@ -1182,7 +1176,7 @@ local function test_a_read_in_a_function_body_is_told_the_function_hid_the_test(
   local function only_error(body: string): compiler.Error
     local compiled = setup()
     local source = prelude .. body .. after
-    local env = assert(compiled.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+    local env = assert(compiled.new_env({ defaults = teal.defaults() }))
     local result = compiled.check_string(source, env, "probe.tl", "tl")
     assert(#result.type_errors == 1, source)
     return result.type_errors[1]

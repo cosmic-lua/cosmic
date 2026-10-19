@@ -65,9 +65,7 @@ local function module(): Api
     return value
   end
   local compiled = assert(teal.load(true))
-  local env = assert(compiled.new_env({ defaults = {
-    feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-  } }))
+  local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local code, result = compiled.gen(assert(Fs.read("checker/facts.tl")), env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0, "checker/facts.tl does not compile")
   local chunk = assert(load(code, "@checker/facts.tl", "t"))

@@ -131,18 +131,13 @@ local function test_a_stub_keeps_the_keyword_and_types_the_same()
   assert(stubbed:find("readonly id: integer", 1, true) ~= nil, stubbed)
   local program = 'local R = require("ro")\nlocal r: R = { id = 1, n = 2 }\nr.id = 3\nr.n = 4\nreturn r\n'
   local function check(text: string): (string, compiler.Result)
-    built.search_module = function(name: string, _all: boolean): string | nil, any
+    built.search_module = function(name: string, _all: boolean): string | nil, compiler.Handle | nil
       if name ~= "ro" then
         return nil
       end
-      return "ro.tl", {
-        read = function(_self: any, _what: string): string return text end,
-        close = function(_self: any): boolean return true end,
-      }
+      return "ro.tl", teal.served(text)
     end
-    local env = assert(built.new_env({
-      defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-    }))
+    local env = assert(built.new_env({ defaults = teal.defaults() }))
     teal.strip(env)
     local result = built.check_string(program, env, "app.tl", "tl")
     local out: {string} = {}
