@@ -184,17 +184,6 @@ function teal.defaults(checks?: boolean): compiler.Defaults
   return { feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = checks }
 end
 
--- TODO: core/bridge.lua holds the last copies of [`teal.defaults`] and
--- [`teal.served`], in the environments of `searcher_for` and of
--- `bootstrap`'s stage one and in its `text_handle`; keep one copy. The
--- bridge is Lua run before the tree is compiled, so it cannot require
--- this module. The wrapper that joins the checker's parts is one copy
--- already ([`build/checker_wrapper.tl`], which the bridge loads as the
--- seed compiled it). Waits on the seed step of build.zig (`seedCompiler`)
--- compiling the closure of `cosmic compile` ([`build.compile`], which
--- requires this module) beside the checker, so that the bridge's second
--- stage runs through it.
-
 --- What the checker reads for the standard-library module `name`: what
 --- [`Store.source`] answers, a declaration's source or the module's, but
 --- for a module with no declaration whose stub ([`build.stub`]) the

@@ -1,8 +1,8 @@
 --- [`build.teal`]'s `defaults` and `served`, which every environment the
 --- tree makes for the checker and every module it hands the checker go
 --- through (build/compile.tl, build/standalone.tl, build/lsp/check.tl, the
---- checker's own tests), apart from build/teal_test.tl, which holds as
---- many locals as a chunk may.
+--- checker's own tests). Their tests live here because build/teal_test.tl
+--- holds as many locals as a chunk may.
 local teal = require("build.teal")
 
 --- The defaults every environment of the tree is made with: compat off,
