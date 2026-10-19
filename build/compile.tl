@@ -1,11 +1,11 @@
 --- `cosmic compile`: Lua source for `.tl` files, one text per file, written
 --- by this binary's own carried compiler ([`build.teal`]'s `load`) for the
 --- tree's Lua, with Teal's compat targets off (`gen_compat = "off"`,
---- `gen_target = "5.4"`, the defaults every compile of the tree uses). It
---- reads only the files it is given and the `cosmic.*` modules the binary
---- carries, never the tree around them, so a released binary runs it in
---- any directory: a release can compile the checker's source with it, to
---- seed a boot.
+--- `gen_target = "5.4"`: [`teal.defaults`], which every compile of the
+--- tree uses). It reads only the files it is given and the `cosmic.*`
+--- modules the binary carries, never the tree around them, so a released
+--- binary runs it in any directory: a release can compile the checker's
+--- source with it, to seed a boot.
 ---
 --- IT EMITS DESPITE TYPE ERRORS. The checker's own source does not obey
 --- the rules the checker holds a program to (build/compiler_test.tl pins
@@ -181,19 +181,12 @@ end
 local function serving(built: compiler, texts: {string:string}, paths: {string:string})
   teal.serve_standard(built)
   local standard = built.search_module
-  built.search_module = function(name: string, search_all: boolean): string | nil, any
+  built.search_module = function(name: string, search_all: boolean): string | nil, compiler.Handle | nil
     local text = texts[name]
     if text == nil then
       return standard(name, search_all)
     end
-    return paths[name], {
-      read = function(_self: any, _what: string): string
-        return text
-      end,
-      close = function(_self: any): boolean
-        return true
-      end,
-    }
+    return paths[name], teal.served(text)
   end
 end
 
@@ -211,21 +204,10 @@ local function problems(list: {compiler.Error}): {Grammar.Problem}
   return out
 end
 
--- TODO: this, core/bridge.lua's `bootstrap` and build/compiler_test.tl each
--- build the same compiler environment (the defaults of `new_env`) and
--- answer a `require` of a checker part with its text; keep one copy. The
--- wrapper that joins the parts is one copy already
--- ([`build/checker_wrapper.tl`], which the bridge loads as the seed
--- compiled it). Waits on the seed step of build.zig compiling the closure
--- of this verb beside the checker, so that the bridge's second stage runs
--- through it.
-
 --- Checks and generates `text`, the file `path`, in an environment of its
 --- own so no file sees another's declarations but through a `require`.
 local function compile_one(built: compiler, path: string, filename: string, text: string): Grammar.Compiled
-  local env, trouble = built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  })
+  local env, trouble = built.new_env({ defaults = teal.defaults() })
   if env == nil then
     return {
       path = path, declaration = false, code = nil, syntax_errors = {}, type_errors = {},
@@ -250,7 +232,7 @@ local function compile_one(built: compiler, path: string, filename: string, text
 end
 
 function verb.lua(built: compiler, name: string, text: string): string | nil, string
-  built.search_module = function(_name: string, _search_all: boolean): string | nil, any
+  built.search_module = function(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     return nil
   end
   local compiled = compile_one(built, name, name, text)

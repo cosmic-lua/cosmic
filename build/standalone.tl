@@ -54,9 +54,7 @@ end
 --- sources and nothing else: no path is searched.
 function standalone.environment(built: compiler): compiler.Env | nil, string
   teal.serve_standard(built)
-  local env, trouble = built.new_env({
-    defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
-  })
+  local env, trouble = built.new_env({ defaults = teal.defaults() })
   if env == nil then
     return nil, trouble
   end

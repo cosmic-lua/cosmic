@@ -61,7 +61,7 @@ end
 --- raises.
 local function check(source: string): string | nil, compiler.Result
   local c = compiler_of()
-  local env = assert(c.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+  local env = assert(c.new_env({ defaults = teal.defaults() }))
   return c.gen(source, env, nil, "tl")
 end
 

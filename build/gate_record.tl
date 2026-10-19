@@ -138,7 +138,7 @@ local function ask_fork(): {Forked}
   for _, dir in ipairs(CORPORA) do
     for _, path in ipairs(listed(dir)) do
       local input = assert(Fs.read(path))
-      local env = assert(real.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
+      local env = assert(real.new_env({ defaults = teal.defaults() }))
       local _, result = real.gen(input, env, nil, "tl")
       local row: Forked = { source = input, origins = { path }, syntax = 0, types = 0, codes = {} }
       row.syntax, row.types = #result.syntax_errors, #result.type_errors

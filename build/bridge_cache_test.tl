@@ -119,9 +119,7 @@ local held: {string:string} = {}
 local function wrapper(): string
   if held.wrapper == nil then
     local built = assert(teal.load(true))
-    local env = assert(built.new_env({ defaults = {
-      feat_lax = "off", gen_compat = "off", gen_target = "5.4",
-    } }))
+    local env = assert(built.new_env({ defaults = teal.defaults() }))
     local made, result = built.gen(assert(Fs.read("build/checker_wrapper.tl")), env, nil, "tl")
     assert(made ~= nil and #result.syntax_errors == 0, "the wrapper did not compile")
     held.wrapper = made
