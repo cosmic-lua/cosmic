@@ -453,7 +453,7 @@ local function note_failed(path)
   failed_reads[#failed_reads + 1] = path
 end
 
--- TODO: this and the defaults of the environments of `searcher_for` and
+-- TODO: this and the defaults of the environments of [`searcher_for`] and
 -- of `bootstrap`'s stage one are the last copies of build/teal.tl's
 -- `served` and `defaults`; keep one copy. The bridge is Lua run before
 -- the tree is compiled, so it cannot require that module. The wrapper
