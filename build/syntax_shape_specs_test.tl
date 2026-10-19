@@ -111,7 +111,7 @@ local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
     ["n"] = Shape.number,
     ["o"] = Shape.optional(Shape.string),
     ["omitted"] = Shape.optional(Shape.integer),
-    ["s"] = Shape.string }), function(): R return nil end)]])
+    ["s"] = Shape.string }), function(): R error("witness") end)]])
 end
 
 local function test_what_is_spliced_is_a_call_the_parser_reads()
@@ -158,7 +158,7 @@ local function test_a_module_the_calling_module_requires_names_its_record()
   })
   has(source, why, [[Shape.record_of("shapes.Line", Shape.record({
     ["from"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }),
-    ["to"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }) }), function(): Shapes.Line return nil end)]])
+    ["to"] = Shape.record({ ["x"] = Shape.number, ["y"] = Shape.number }) }), function(): Shapes.Line error("witness") end)]])
 end
 
 local function test_a_record_of_the_standard_library_is_read_too()
@@ -171,7 +171,7 @@ local function test_a_record_of_the_standard_library_is_read_too()
   }, "\n") })
   has(source, why, [[Shape.record_of("cosmic.json.DecodeOptions", Shape.record({]])
   has(source, why, [["max_depth"] = Shape.optional(Shape.integer)]])
-  has(source, why, "function(): Json.DecodeOptions return nil end")
+  has(source, why, "function(): Json.DecodeOptions error(\"witness\") end")
 end
 
 local function test_a_nested_own_record_is_named_by_its_path()
@@ -359,7 +359,7 @@ local function test_a_record_a_module_re_exports_under_an_alias_is_read_through_
     }, "\n"),
     ["main.tl"] = 'local Shape = require("cosmic.shape")\nlocal type Sb = require("sb")\nreturn Shape.record_of("sb.Policy")\n',
   })
-  has(source, why, [[Shape.record_of("sb.Policy", Shape.record({ ["n"] = Shape.integer }), function(): Sb.Policy return nil end)]])
+  has(source, why, [[Shape.record_of("sb.Policy", Shape.record({ ["n"] = Shape.integer }), function(): Sb.Policy error("witness") end)]])
 end
 
 local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()
@@ -383,7 +383,7 @@ local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line(
   -- Each goes right after its call's name.
   assert(source:sub(first.at - 2, first.at) == '"A"', source:sub(first.at - 2, first.at))
   assert(source:sub(last.at - 2, last.at) == '"B"', source:sub(last.at - 2, last.at))
-  assert(first.text:find("function(): A return nil end", 1, true) ~= nil, first.text)
+  assert(first.text:find("function(): A error(\"witness\") end", 1, true) ~= nil, first.text)
   local want = source:sub(1, first.at) .. first.text .. source:sub(first.at + 1, last.at) .. last.text ..
     source:sub(last.at + 1)
   assert(ShapeSpecs.spliced(source, found.splices) == want, ShapeSpecs.spliced(source, found.splices))

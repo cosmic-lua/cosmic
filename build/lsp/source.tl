@@ -30,8 +30,10 @@
 --- part.
 ---
 --- A module is served as its stub ([`build.stub`]) where it has one, as
---- cosmic serves its standard library: the stub types a `require` of it as
---- its source does, and the checker reads a fraction of it. The stub of a
+--- cosmic serves its standard library: the checker reads a fraction of
+--- it, and the stub types a `require` of it as its source does but where a
+--- body declares past itself ([`build.stub`]), which nothing here checks.
+--- The stub of a
 --- file is the one the stage derived of its source (the `stubs` row of its
 --- `source_hash`), while the database's rows are the running analyzer's:
 --- the one this session's own stage recorded deriving them (the `meta`
@@ -58,6 +60,11 @@
 --- tool or an older one, saying so, until a stage of this tool's code
 --- stages it again; which code staged it is read again at every
 --- refresh, as the analyzer is.
+
+-- TODO: serve a module whose body declares past itself as its source, or
+-- as a stub that keeps such bodies, once [`build.stub`]'s TODO is done:
+-- until then a dependent of a module whose body adds a function to an
+-- outer record is told the record has no such field.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")

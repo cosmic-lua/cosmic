@@ -35,7 +35,6 @@ local Store = require("cosmic.store")
 local check_memo = require("build.check_memo")
 local closure_store = require("build.closure_store")
 local compile = require("build.compile")
-local gen_syscalls = require("build.gen_syscalls")
 local Cover = require("lang.lexer_cover")
 local contracts = require("build.contracts")
 local declared_key = require("build.declared_key")
@@ -59,10 +58,12 @@ local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local PipelineCheck = require("build.pipeline_check")
 local Scopes = require("lang.scopes")
 local ScopesCover = require("lang.scopes_cover")
 local teal = require("build.teal")
 local Translate = require("lang.translate")
+local TreeProgram = require("build.tree_program")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
 local symbols = require("build.symbols")
@@ -107,7 +108,7 @@ allow({
   "build.coverage.syntax_lines.executable_cached", "build.syntax_analyzer.analyze", "build.syntax_analyzer.docs",
   "build.syntax_derivation.rows_of", "build.syntax_derivation.insert", "build.syntax_links.check",
   "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
-  "build.syntax_rewrite.rewrite", "build.syntax_shape_specs.resolve",
+  "build.syntax_rewrite.rewrite",
   "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
@@ -116,7 +117,7 @@ allow({
 -- (doc/plans/strict-teal.md, "the switch").
 allow({
   "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
-  "build.error_catalog.text", "build.error_render.queries", "build.error_render.line", "build.error_render.lines",
+  "build.error_catalog.text", "build.error_render.queries", "build.error_render.lines",
   "build.error_render.complain",
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the build's wiring calls in " ..
     "place of the fork's; tested directly until then")
@@ -126,8 +127,13 @@ allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
   "from the file hands its text here, and the tests read fixtures"
 
-allowed["build.driver.standard"] = "the provider of the `cosmic.*` modules, which the build's wiring gives the binary's own " ..
-  "database to read; tested directly over fixture text"
+allow({
+  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.carried", "build.pipeline.over", "build.pipeline.generate",
+}, "the build's compile with the new checker, which build.compilation calls once the tool chooses the grammar " ..
+    "(doc/plans/strict-teal.md, \"the switch\"); its tests are its callers until then")
+
+allow({ "build.grammar_mode.of" }, "tested directly: the mode a word names, which `mode` takes of the environment's " ..
+    "COSMIC_GRAMMAR")
 
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"
@@ -2349,12 +2355,21 @@ function tree_checks.translated(root: string, pinned?: {string: integer}, ceilin
   if files == nil then
     return { "reading the sources: " .. trouble }
   end
+  -- The sources the build writes from other files are held to the same pins; the methods their translation moves are not
+  -- the tree's to count.
+  local written, written_why = TreeProgram.derived_of(root)
+  if written == nil then
+    return { "reading the derived sources: " .. written_why }
+  end
+  local joined = TreeProgram.joined(files, written)
+  files = joined.files
+  local derived = joined.derived
   local out: {string} = {}
   local found: {string: integer} = {}
   local hazardous: {string} = {}
   local seen: {string: boolean} = {}
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/translate.tl",
-    "build/check_memo.tl", "build/tree_checks.tl" }, "translated 1")
+    "build/check_memo.tl", "build/tree_checks.tl" }, "translated 2")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "translated")
   end
@@ -2366,9 +2381,11 @@ function tree_checks.translated(root: string, pinned?: {string: integer}, ceilin
       local made = translate_outcome(file, source, memo, salt)
       outcomes[#outcomes + 1] = { file = file, made = made }
       for _, i in ipairs(made.interfaces) do
-        local held = declaring[i.name] or {}
-        held[#held + 1] = i
-        declaring[i.name] = held
+        if file ~= nil and derived[file] ~= true then
+          local held = declaring[i.name] or {}
+          held[#held + 1] = i
+          declaring[i.name] = held
+        end
       end
     end
   end
@@ -2420,7 +2437,11 @@ function tree_checks.translated(root: string, pinned?: {string: integer}, ceilin
       out[#out + 1] = file .. ": the translation has " .. String.counted(made.lines_after + 1, "line") ..
         " where the file has " .. made.lines_before + 1 .. "; only a method moving into a class changes the lines"
     end
-    for _, h in ipairs(made.hazards) do
+    local hazards = made.hazards
+    if derived[file] == true then
+      hazards = {}
+    end
+    for _, h in ipairs(hazards) do
       local key = file .. " " .. h.class .. ":" .. h.method
       -- A field given `mut` in a record that extends an interface of another
       -- file matters when that interface declares the field.
@@ -2522,41 +2543,6 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
   return outcome
 end
 
---- The globals a program may use, as the fork's environment has them: the declarations of the prelude in
---- [`checker/tl.tl`] and of [`checker/stdlib.d.tl`] (`stdlib`, the source the tree holds of it), less the names cosmic's
---- runtime withholds ([`teal.withheld`]), and `_G`, which the checker answers itself. The sources are those a build
---- ([`build.driver`]) lowers first, and the second answer is what it does to the globals they declare.
----
---- TODO: read the globals from the declaration files of the new checker, once it replaces
---- checker/tl.tl, whose prelude is a string that declares `interface userdata is userdata`
---- in a way the new parser reads as the declaration of `interface`.
-local function fork_globals(root: string, stdlib: Driver.Source | nil): {Driver.Source},
-    function(globals: {string: Scopes.Global})
-  local sources: {Driver.Source} = {}
-  local tl, _ = Fs.read(root .. "/checker/tl.tl")
-  local prelude = tl ~= nil and tl:match("%[=====%[\n(.-)%]=====%]") or nil
-  if prelude ~= nil then
-    sources[#sources + 1] = Driver.declarations("checker.prelude", "prelude.d.tl", prelude, false, false, {})
-  end
-  if stdlib ~= nil then
-    -- The corrections of [`lang.stdlib_corrections`] are made by the driver, which reports what it could not apply.
-    sources[#sources + 1] = Driver.declarations(stdlib.module, stdlib.filename, stdlib.text, true, true, stdlib.aliases)
-  end
-  local has_prelude = prelude ~= nil
-  return sources, function(globals: {string: Scopes.Global})
-    if has_prelude then
-      -- The prelude declares `interface userdata is userdata`, which the new parser reads as the declaration of
-      -- `interface`.
-      globals["interface"] = nil
-      globals["userdata"] = { space = "type", const = false }
-    end
-    for _, name in ipairs(teal.withheld) do
-      globals[name] = nil
-    end
-    globals["_G"] = { space = "value", const = false }
-  end
-end
-
 --- Every `.tl` file of the tree, scoped ([`lang.scopes`]) in the new checker's grammar, apart from
 --- [`checker/tl.tl`], which the new checker replaces: the names it resolves must agree with the tree
 --- ([`lang.scopes_cover`]), and its errors, which are the fork's `shadows`, `captured_assigned` and
@@ -2588,11 +2574,11 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
       stdlib = Driver.source("checker.stdlib", file, text, "decl")
     end
   end
-  local sources, adjust = fork_globals(root, stdlib)
-  local declared = Driver.globals(sources, adjust)
+  local given = TreeProgram.fork_globals(root, stdlib)
+  local declared = Driver.globals(given.sources, given.adjust)
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/scopes_cover.tl", "lang/translate.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl",
-    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl" },
+    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl" },
     "scoped 1")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "scoped")
@@ -2719,43 +2705,18 @@ local record Tree
   index: Driver.Index
 end
 
---- The declarations of the bindings of C ([`cosmic.sys`], the raw process and socket tables), written from the headers under
---- `root` as the build derives them ([`build.gen_syscalls`]), as the files they stand for; none where the tree has no header.
---
--- TODO: have build.gen_syscalls write a field that may be nil as `name?: T` and a table a binding fills in as `mut`, once
--- the build compiles with the new checker (doc/plans/strict-teal.md, "the switch"): it writes `name: T | nil` and no
--- `mut`, so a literal of such a record that leaves the field out (literal_missing) and a write to a stand-in's field
--- (field_fixed) are refused, and the [checked] ceilings of the files that use the bindings hold those counts.
-local function bindings_of(root: string): {{string}}
-  local out: {{string}} = {}
-  for _, derivation in ipairs(gen_syscalls.targets) do
-    local header, _ = Fs.read(root .. "/" .. derivation.target.header)
-    if header ~= nil then
-      local text, _ = gen_syscalls.declaration(header, derivation.target)
-      if text ~= nil then
-        out[#out + 1] = { (derivation.path:gsub("%.", "/")) .. ".d.tl", text }
-      end
-    end
-  end
-  return out
-end
-
 --- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
---- its source and the sources of every module it requires, however far.
-local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}): Tree
-  local files: {{string}} = {}
+--- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
+--- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from. With
+--- `steps` the files are mended as the pipeline mends them ([`TreeProgram.index`]).
+local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}}, steps?: boolean): Tree
+  local files = TreeProgram.joined(given, written or {}).files
   local derived: {string: boolean} = {}
-  for _, entry in ipairs(given) do
-    files[#files + 1] = entry
-  end
   for _, entry in ipairs(bindings or {}) do
     files[#files + 1] = entry
     derived[entry[1]] = true
   end
-  local index = Driver.index(files, true, function(file: string): boolean
-    -- A directory of testdata holds programs for other projects, whose modules are not in the tree.
-    return file == "checker/tl.tl" or file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
-  end)
+  local index = TreeProgram.index(files, steps == true, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
   local rows, by_module = tree.rows, tree.by_module
   local hashes: {string: string} = {}
@@ -2813,29 +2774,13 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}): 
 end
 
 --- A build ([`build.driver`]) over the tree at `root`: the fork's prelude and the standard library's declarations as its
---- globals, the files of `tree` as its modules.
+--- globals, the files of `tree` as its modules ([`build.tree_program`]).
 ---
 -- TODO: count a broken file's own declaration errors once its `translated` pins reach 0: until then nothing holds
 -- what its translation's parse errors hide (44 files when this landed, among them lang/ast.tl and lang/types.tl).
 local function tree_build(root: string, tree: Tree, types?: boolean, stubs?: {string: Driver.Source}): Driver.Build
-  local globals, adjust = fork_globals(root, tree.index.by_module["checker.stdlib"])
-  -- A binding of C is typed when the tree has the header its declaration is derived from, and is left untyped (`external`)
-  -- where it does not.
-  local external: {string} = {}
-  for _, derivation in ipairs(gen_syscalls.targets) do
-    if tree.index.by_module[derivation.path] == nil then
-      external[#external + 1] = derivation.path
-    end
-  end
-  local build = Driver.new({ globals = globals, adjust = adjust, external = external, types = types == true })
-  if stubs ~= nil then
-    -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
-    build:provide(function(module: string): Driver.Source | nil
-      return stubs[module]
-    end)
-  end
-  build:provide(Driver.files(tree.index))
-  return build
+  local globals = TreeProgram.fork_globals(root, tree.index.by_module["checker.stdlib"])
+  return TreeProgram.build(tree.index, globals, types, stubs)
 end
 
 --- The errors of `list` as a check lists them.
@@ -2909,8 +2854,13 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/stdlib_corrections.tl",
     "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl",
-    "build/tree_checks.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "declared 2")
-  local tree = tree_of(files, salt, bindings_of(root))
+    "build/tree_checks.tl", "build/tree_program.tl", "build/lang_proof.tl", "build/gen_syscalls.tl", "core/syscalls.h",
+    "core/process.h", "core/socket.h" }, "declared 3")
+  local written, written_why = TreeProgram.derived_of(root)
+  if written == nil then
+    return { "reading the derived sources: " .. written_why }
+  end
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
@@ -2975,9 +2925,14 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl",
-    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl",
-    "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h" }, "checked 2")
-  local tree = tree_of(files, salt, bindings_of(root))
+    "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
+    "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "core/socket.h" }, "checked 3")
+  local written, written_why = TreeProgram.derived_of(root)
+  if written == nil then
+    return { "reading the derived sources: " .. written_why }
+  end
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
@@ -2989,6 +2944,8 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     for _, row in ipairs(missed) do
       names[#names + 1] = row.module
     end
+    -- The calls of [`Shape.record_of`] are resolved as the pipeline resolves them, before anything is lowered for good.
+    local _ = TreeProgram.splice_all(build, names)
     build:lower(names)
     for _, row in ipairs(missed) do
       local result = build:result(row.module, true)
@@ -3016,6 +2973,33 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     table.insert(out, 1, problem)
   end
   return out
+end
+
+--- Whether the build's own pipeline ([`build.pipeline`]) holds each module of the tree as the checks of the tree do, and
+--- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the answer for
+--- a module under the key `checked` keeps its own.
+function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqlite.Handle):
+    {string}
+  local files, trouble = lexable(root)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local written, written_why = TreeProgram.derived_of(root)
+  if written == nil then
+    return { "reading the derived sources: " .. written_why }
+  end
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl",
+    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
+    "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
+    "build/ceilings.txt", "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/fact_wraps.tl",
+    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 2")
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
+  return PipelineCheck.compare(root, build_db, memo, #tree.rows, function(index: integer): PipelineCheck.Row
+    local row = assert(tree.rows[index])
+    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key }
+  end, tree_checks.declared(root, nil, memo), tree_checks.checked(root, nil, memo))
 end
 
 local function lines_of(text: string): {string}
@@ -3479,9 +3463,9 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
-    "build/contracts.tl", "build/tree_checks.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "typed 2")
-  local tree = tree_of(files, salt, bindings_of(root))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")
   end

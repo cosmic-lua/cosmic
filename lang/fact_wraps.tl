@@ -11,16 +11,12 @@
 ---   is a tail call, which leaves no frame to ask.
 ---
 --- The hook answers `v`, or raises where the conclusion is false of it ([`build.test_worker`]'s `install_checks` defines
---- one for a checked run; [`lang.check_programs`] defines another for the tests of the checker).
+--- one for a checked run; [`lang.check_programs`] defines another for the tests of the checker). A process a checked run's
+--- test starts defines one that answers `v` ([`cmd/cosmic/main.tl`]), so wrapped code runs there and is checked by no one.
 --
 -- TODO: check the arguments, return values and record fields written at run time as the fork's "p", "r" and "f" specs of
 -- `__cosmic_tc` do (build/test_worker.tl), which [`lang.codegen`] writes none of, once the tool wires `--check-types` to
 -- the new checker (doc/plans/strict-teal.md, "the switch"): they report and fail nothing until nil is out of every type.
---
--- TODO: define `__fact` wherever wrapped code can run, or compile the modules of a test's child process without the
--- wraps, once the tool wires `--check-types` to the new checker (doc/plans/strict-teal.md, "the switch"): only the test
--- worker's `install_checks` defines the global, so a wrapped chunk in a child process raises "attempt to call a nil value
--- (global '__fact')", where the fork's checked compile falls back to `select` and answers the value.
 --
 -- TODO: keep the name of the place in the error of a wrapped read, once the tool wires `--check-types` to the new
 -- checker (doc/plans/strict-teal.md, "the switch") shows whether a test matches one: `x + 1` of a wrapped `x` says

@@ -10,6 +10,7 @@ local Types = require("lang.types")
 local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
+local Translate = require("lang.translate")
 
 Test.policy{}
 
@@ -432,4 +433,122 @@ local function test_a_declaration_file_the_driver_corrects_is_held_by_the_tree_a
   build:provide(Driver.files(Driver.index({}, false, nothing)))
   local lib = assert(build:parsed("lib"))
   assert(#build:held(lib, pins({}, {}, {})) == 0)
+end
+
+local function test_a_source_written_from_another_file_is_the_module_it_says_and_is_pinned_under_the_name_it_gives()
+  local text = "local record Box\n  n: integer\nend\nlocal bad: integer = 3.5\nreturn Box\n"
+  local index = Driver.index({
+    { "doc/guides/x.md", text, "doc.guides.x" },
+    { "gen/sys.d.tl", "local record Sys\n  n: {number: integer}\nend\nreturn Sys\n", "cosmic.sys", "core/sys.h" },
+  }, false, nothing)
+  local guide = assert(index.by_module["doc.guides.x"])
+  assert(guide.filename == "doc/guides/x.md" and guide.pinned == "" and guide.dialect == "tl" and guide.checked)
+  assert(index.by_module["x"] == guide and index.by_module["doc.guides.x.md"] == nil)
+  local sys = assert(index.by_module["cosmic.sys"])
+  assert(sys.filename == "gen/sys.d.tl" and sys.pinned == "core/sys.h" and sys.dialect == "decl")
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  build:provide(Driver.files(index))
+  -- a guide is held under the file it comes from
+  local result = assert(build:result("doc.guides.x", true))
+  assert(#build:held(result, pins({}, {}, { ["doc/guides/x.md not_assignable"] = 1 })) == 0)
+  assert(#build:held(result, pins({}, {}, { ["x.md not_assignable"] = 1 })) == 2)
+  -- a declaration written from a header is held under the header
+  local declared = assert(build:result("cosmic.sys", false))
+  assert(codes_of(declared.declared) == "float_key", codes_of(declared.errors))
+  assert(#build:held(declared, pins({ ["core/sys.h float_key"] = 1 }, {}, {})) == 0)
+  local refused = build:held(declared, pins({ ["gen/sys.d.tl float_key"] = 1 }, {}, {}))
+  assert(#refused == 2, table.concat(refused, "\n"))
+  assert(assert(refused[2]):find("^core/sys.h: 1 error of float_key") ~= nil, table.concat(refused, "\n"))
+end
+
+local function test_a_translated_source_tells_the_generator_what_the_translator_knows_and_the_text_the_checker_read()
+  local text = "local n = 3\nlocal s = n > 2 and 1 or 2\nreturn s\n"
+  local translated = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  translated:provide(Driver.files(Driver.index({ { "m.tl", text } }, true, nothing)))
+  local one = assert(translated:parsed("m"))
+  assert(one.never_false == Translate.never_false and one.text == Translate.translate(text, "m.tl").text)
+  -- the new grammar is read as it is written, and the generator is told nothing
+  local written = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  written:provide(Driver.files(Driver.index({ { "m.tl", text } }, false, nothing)))
+  local two = assert(written:parsed("m"))
+  assert(two.never_false == nil and two.text == text)
+end
+
+local function test_the_steps_a_source_needs_are_made_to_its_text_after_the_translation_and_before_the_parse()
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  local function mend(text: string): string
+    return (text:gsub("WORD", "integer"))
+  end
+  build:provide(Driver.files(Driver.index({ { "m.tl", "local b: WORD = 1\nreturn b\n" } }, false, nothing,
+    function(_file: string, _text: string): Driver.Extra
+      return { tests = false, mend = mend }
+    end)))
+  local result = assert(build:result("m", true))
+  assert(result.text == "local b: integer = 1\nreturn b\n" and #result.errors == 0, codes_of(result.errors))
+  -- without them the same text is an error
+  local bare = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  bare:provide(Driver.files(Driver.index({ { "m.tl", "local b: WORD = 1\nreturn b\n" } }, false, nothing)))
+  assert(#assert(bare:result("m", true)).errors >= 1)
+end
+
+local function test_replacing_a_module_begins_a_new_program_in_which_everything_is_lowered_again()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nlocal s: string = string.upper(\"x\")\nreturn b\n" },
+    { "other.tl", "local record O\nend\nreturn O\n" },
+  })
+  local before = assert(build:result("use", true))
+  assert(#before.errors == 0, codes_of(before.errors))
+  local program = build.program
+  local replaced = assert(build:replace("box", "local record Box\n  n: string\nend\nreturn Box\n"))
+  assert(build.program ~= program, "a module cannot be lowered twice in one program")
+  assert(replaced.module == "box" and replaced.text:find("n: string", 1, true) ~= nil and replaced.lowered == nil)
+  build:lower({ "box" })
+  assert(assert(build:parsed("box")).lowered ~= nil, "lowered when asked for")
+  -- what requires it is checked again, against the new text, and the library's globals are still there
+  local after = assert(build:result("use", true))
+  assert(after ~= before and codes_of(after.errors) == "not_assignable", codes_of(after.errors))
+  assert(build:parsed("box") == replaced and #assert(build:result("other", true)).errors == 0)
+  -- the old text again, and the errors go; a module no provider has is not replaced
+  assert(build:replace("box", RECORD) ~= nil)
+  assert(#assert(build:result("use", true)).errors == 0)
+  assert(build:replace("nothing here", RECORD) == nil)
+end
+
+local function test_a_replacement_is_read_as_written_and_keeps_what_the_module_was()
+  local files = { { "m_test.tl", "local function test_x()\nend\n" }, { "d.tl", "return 1\n" } }
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  build:provide(Driver.files(Driver.index(files, true, nothing)))
+  local old = assert(build:parsed("m_test"))
+  assert(old.source.translate and old.source.tests)
+  -- the replacement is in the new grammar: a `where` clause is a syntax error, not a thing the translator reads
+  local replaced = assert(build:replace("m_test", "local record R\n  where self.a == 1\nend\nreturn R\n"))
+  assert(replaced.source.translate and replaced.source.tests and replaced.source.filename == "m_test.tl")
+  assert(replaced.broken)
+  local looked = assert(build:result("m_test", true))
+  local first = looked.errors[1]
+  assert(looked == replaced and first ~= nil and first.stage == "syntax")
+  assert(not assert(build:parsed("d")).broken)
+end
+
+local function test_a_standard_library_module_is_translated_when_asked_and_a_declaration_is_read_as_one()
+  local texts: {string: string} = {
+    ["cosmic.box"] = "local record Box\n  n: integer | nil\nend\nreturn Box\n",
+    ["cosmic.sys"] = "local record Sys\n  n: integer\nend\nreturn Sys\n",
+  }
+  local function read(module: string): string | nil
+    return texts[module]
+  end
+  local fork = Driver.standard(read, true)("cosmic.box")
+  assert(fork ~= nil and fork.translate and not fork.checked and fork.dialect == "tl" and fork.filename == "cosmic/box.tl")
+  local plain = Driver.standard(read)("cosmic.box")
+  assert(plain ~= nil and not plain.translate)
+  assert(Driver.standard(read, true)("cosmic.none") == nil)
+  -- one it is told is a declaration is a declaration file
+  local declared = Driver.standard(read, true, function(module: string): boolean
+    return module == "cosmic.sys"
+  end)
+  local sys, box = declared("cosmic.sys"), declared("cosmic.box")
+  assert(sys ~= nil and sys.dialect == "decl" and sys.filename == "cosmic/sys.d.tl" and not sys.checked)
+  assert(box ~= nil and box.dialect == "tl")
 end

@@ -534,6 +534,20 @@ sanitizers see. The tree moves back before the seed and the verdicts'
 save, whose path actions/cache names relative to the workspace
 (below).
 
+### the rehearsal job
+
+The whole suite with the new checker (`COSMIC_GRAMMAR=new`, `build/pipeline.tl`)
+runs in a job of its own, `rehearsal` (`linux-x86_64-new-grammar`), on the
+checked job's host. It is a rehearsal of the switch
+(doc/plans/strict-teal.md, "the switch") and is informational: it runs on a
+full run only, `continue-on-error` marks its failure on the run and no job
+waits on it, so the `ci` join does not require it. It boots (`platform
+boot`), restores linux-x86_64's zig build outputs and compiles and saves
+neither, and runs the suite (`platform rehearsal`) in the verdicts of a file
+of its own, `new-grammar.db`, under a cache name of its own: a verdict of
+one grammar stands for no run of the other. A branch push shows the job as
+skipped, one of the exceptions `build/workflows_test.tl` names.
+
 ### the Linux legs' container
 
 spawn's sandbox (`core/process.h`'s `Sandbox`) confines a test's child

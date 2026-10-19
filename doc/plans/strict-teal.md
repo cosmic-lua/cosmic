@@ -1224,15 +1224,27 @@ another class, and a tag outside a union's. the test worker defines the
 properties run under it. it does not yet check an integer against a
 float, a `thread`, the `==` narrowing of an enum or a string, or `true`
 against `false`, so a run misses a false conclusion of these. nor does it
-check the kinds of parameters, returns and field writes, and wrapped code
-in a test's child process has no `__fact` hook. all of these wait on the
-tool's wiring: `cosmic test --check-types` compiles with the fork until
+check the kinds of parameters, returns and field writes. a test's child
+process answers the value of a wrapped read and checks nothing. all of
+these wait on the tool's wiring: `cosmic test --check-types` compiles with the fork until
 the switch (the TODOs of [`lang/check_flow_fuzz_test.tl`], [`lang/check.tl`]
 and [`lang/fact_wraps.tl`]). the full
 sweep of the properties, many draws from several seeds, is
 [`bin/gate-sweep`], which writes its result to
 [`testdata/gate/sweep.txt`]; the nightly fuzz workflow draws them from a seed
 of its own.
+
+the switch is a hard cutover for a project outside the tree. from the
+change that makes the tool compile with the new checker, every project
+compiles with it, with no fork to fall back to, and a project's globals are
+the new checker's declarations of the standard library
+([`lang/stdlib_corrections.tl`] over [`checker/stdlib.d.tl`]), not the carried
+fork's. a project written in a form only the fork reads breaks, and the error
+it meets carries the new checker's fix ([`build/error_catalog.tl`],
+[`build/removed_fix.tl`]) that says how to write it. CI's rehearsal job
+(`COSMIC_GRAMMAR=new`, the whole suite on the new pipeline
+[`build/pipeline.tl`]) is to run a fixture project when the build's compile
+calls the pipeline, so that this path is exercised before the switch.
 
 then one change commits the translated tree and deletes `checker/`, the
 translator and the comparisons with the fork's readers. each rule's
@@ -1444,6 +1456,11 @@ since the seed's Lua runs on the tree's VM.
 [`build/islands.tl`]: ../../build/islands.tl
 [`ci/islands.txt`]: ../../ci/islands.txt
 [`build/lang_proof.tl`]: ../../build/lang_proof.tl
+[`build/pipeline.tl`]: ../../build/pipeline.tl
+[`build/error_catalog.tl`]: ../../build/error_catalog.tl
+[`build/removed_fix.tl`]: ../../build/removed_fix.tl
+[`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
+[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`build/paths.tl`]: ../../build/paths.tl
 [`build/perf.tl`]: ../../build/perf.tl
 [`build/vendor.tl`]: ../../build/vendor.tl
