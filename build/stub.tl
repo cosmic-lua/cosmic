@@ -35,10 +35,10 @@
 --- [`stub.difference`] compares what the checker made of a module from
 --- its source and from its stub, which cosmic's own build holds every
 --- stub to ([`build.compilation`]), so a stub that would type a project
---- differently fails the build that would carry it. `cosmic lsp` holds
---- the stubs it serves of a project's modules ([`build.lsp.source`]), and
---- the one it reads a document's [`Shape.record_of`] calls from
---- ([`build.lsp.splice`]), to nothing.
+--- differently fails the build that would carry it. `cosmic lsp` compares
+--- none of its stubs so: neither those it serves of a project's modules
+--- ([`build.lsp.source`]) nor the one it reads a document's
+--- [`Shape.record_of`] calls from ([`build.lsp.splice`]).
 
 -- TODO: keep each body that can declare past itself, or derive stubs with
 -- the new checker. tl lets a body change what the module declares, so a
@@ -53,9 +53,8 @@
 -- and a `local type G` (or `local G = <type>`) in a body, which
 -- `dismiss_unresolved` takes for the `G` an outer record's field still
 -- waits on. The first fix waits on nothing but is not done: the set is
--- open-ended (each review of a stub that kept such bodies found another
--- way out), and the last two kinds reach names no syntax bounds, so it
--- would keep most bodies and cost most of what a stub saves. The second
+-- not known to be closed, and the last two kinds reach names no syntax
+-- bounds, so it would keep most bodies and cost most of what a stub saves. The second
 -- waits on the build deriving stubs with the new checker
 -- ([`build.syntax_stub`]), which has none of these paths, at the switch
 -- (doc/plans/strict-teal.md).
