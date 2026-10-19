@@ -546,3 +546,26 @@ local function test_an_unchecked_lsp_stages_nothing_and_says_so_once()
   end
   assert(told == 1, table.concat(ran.sent, "\n"))
 end
+
+--- A session whose tool was not checked against the tree takes none of
+--- the database's stubs for its own: the analyzer the database records
+--- is not taken as one this session staged with.
+local function test_an_unchecked_lsp_trusts_no_analyzer_the_database_records()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local working = build_paths.resolve(root).working
+  local held = assert(Sqlite.open(working, { writable = true }))
+  assert(Sqlite.run(held, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', 'another analyzer')"))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local code = reboot.stale_exit({ [1] = "lsp" }, true, root)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(code == nil, tostring(code))
+  local src = source.new(root, function(_: string) end)
+  source.refresh(src, (assert(teal.load())))
+  assert(src.analyzer ~= "another analyzer", "took the database's analyzer for its own")
+  assert(not src.stubs, "trusted the database's stubs")
+end

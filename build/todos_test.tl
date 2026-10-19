@@ -541,3 +541,26 @@ local function test_todos_makes_a_free_database_of_another_schema_again(tmp: str
   assert(result.code == 0, result.stdout .. result.stderr)
   assert(result.stdout:find("a.tl:1: ", 1, true), result.stdout .. result.stderr)
 end
+
+--- `cosmic todos` in a tree whose working database is of another schema
+--- and held by another run refuses it, reading none of it: it may be
+--- another tool's rows, and what that run commits is not this tool's to
+--- read.
+local function test_todos_refuses_a_held_database_of_another_schema(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: never listed" })))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local result = invoke.run({ "todos" }, { cwd = root,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(result.code == 1, tostring(result.code) .. ": " .. result.stdout .. result.stderr)
+  assert(result.stderr:find("another tool's", 1, true), result.stderr)
+  assert(not result.stdout:find("a.tl", 1, true), result.stdout)
+end

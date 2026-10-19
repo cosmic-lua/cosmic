@@ -938,6 +938,13 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
     end
   end
   if not fresh then
+    -- TODO: a reader stages here with its own code before it knows
+    -- whether the tool is stale, so a stale reader writes stage rows,
+    -- the TODO index among them, while another run's `cosmic test`
+    -- holds the rebuild lock, before `serialize` finds it held. It waits
+    -- on the tree's fingerprint taken without a stage (from the files'
+    -- stats against the rows), so a reader that finds the tool stale and
+    -- the lock held goes on before it writes.
     local staged, stage_trouble = work.stage(handle, own_tree)
     if staged == nil then
       log:complain(closing(handle, stage_trouble))

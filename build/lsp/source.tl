@@ -358,8 +358,8 @@ end
 --- ([`rebuild.Where`]'s `unchecked`).
 local unchecked_line <const> = "this tool was not checked against the tree when it started, " ..
   "since another cosmic run held the tree's build or its database was another tool's, so its " ..
-  "code may be older than the tree's: it stages nothing and answers from the tree as last " ..
-  "staged until the editor starts it again"
+  "code may be older than the tree's: until the editor starts it again it stages nothing, " ..
+  "and answers from what the tree last staged, or finds no module where that is another tool's"
 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a

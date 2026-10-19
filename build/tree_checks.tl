@@ -121,6 +121,8 @@ allow({
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the build's wiring calls in " ..
     "place of the fork's; tested directly until then")
 
+allowed["build.todos.run"] = "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it as " ..
+  "that tree's own tool would; the verb's spec calls it with the command line alone"
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
   "from the file hands its text here, and the tests read fixtures"
 

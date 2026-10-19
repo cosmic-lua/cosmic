@@ -24,6 +24,7 @@ local build_paths = require("build.paths")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
 local identity = require("build.identity")
+local todos = require("build.todos")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
@@ -472,4 +473,97 @@ local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_an
     assert(built, trouble)
     assert(builds_of(root) == before + 1, "a fresh tool's lookup built nothing")
   end)
+end
+
+--- What `run` wrote to the descriptor `fd` (1 or 2), which is pointed at
+--- a file in `dir` while it runs, raising what it raised once `fd` is
+--- put back.
+local function captured(fd: integer, dir: string, run: function()): string
+  local path = dir .. "/captured." .. tostring(fd)
+  local file = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT | sys.O_TRUNC, 0x180))
+  local saved = assert(sys.dup(fd))
+  assert(sys.dup2(file, fd))
+  local ok, failure = pcall(function(): boolean
+    run()
+    return true
+  end)
+  assert(sys.dup2(saved, fd))
+  assert(sys.close(saved))
+  assert(sys.close(file))
+  if not ok then error(failure) end
+  return (assert(Fs.read(path)))
+end
+
+--- The check before a verb that only reads, finding the tool stale by the
+--- tree's Teal alone -- an edit while `cosmic test` holds the rebuild lock,
+--- the commonest case -- waits for none: it rebuilds nothing, says that
+--- this tool is older than the tree, and leaves the tree unchecked. It
+--- says once a process that it does not wait for the lock's holder,
+--- however many times it is asked ([`rebuild_lock.tell_not_waiting`]).
+--- The running binary's `image_hash` is the tree's and its `boot_hash` is
+--- not ([`reboot.Seen`]).
+local function test_a_reading_verbs_check_goes_on_with_a_tool_stale_by_its_teal(tmp: string)
+  local root = tmp .. "/tree"
+  local fingerprint = own_tree(root)
+  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {},
+    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's" } }
+  local said = captured(2, tmp, function()
+    held_elsewhere(root, function()
+      for _ = 1, 2 do
+        local started = Clock.monotonic_ns()
+        local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, seen)
+        local took = Clock.monotonic_ns() - started
+        assert(code == nil, tostring(code))
+        assert(took < Clock.seconds(10), tostring(took) .. " ns")
+      end
+    end)
+  end)
+  assert(reboot.unchecked(root), "the stale tool is not remembered")
+  assert(said:find("docs: this tool is older than the tree", 1, true), said)
+  local _, waiting = said:gsub("not waiting for it", "")
+  assert(waiting == 1, said)
+end
+
+--- What a run wrote to its standard error, kept apart from what it wrote
+--- to its standard output.
+local record Said
+  err: string
+end
+
+--- How many rows of blame the working database of `root` keeps.
+local function blames_of(root: string): integer
+  local db = assert(Sqlite.open(build_paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM blames"))
+  assert(db:close())
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
+--- `todos` in a tree its check left unchecked, the tool older than the
+--- tree while another run holds the rebuild lock, blames and prunes
+--- nothing though the working database is free: a row of blame from an
+--- earlier `HEAD`, which a listing that blames would drop, is kept. It
+--- lists the TODOs that are indexed, and says nothing of a write lock no
+--- run holds.
+local function test_todos_in_an_unchecked_tree_writes_nothing(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/kept.tl", "-- TODO: indexed by the last stage\n"))
+  own_tree(root)
+  local db = assert(Sqlite.open(build_paths.resolve(root).working, { writable = true }))
+  assert(Sqlite.run(db, "INSERT INTO blames (path, line, sha256, head, commit_id, author_time, " ..
+      "summary, boundary) VALUES ('kept.tl', 1, 'x', 'an earlier head', 'c', 0, 's', 0)"))
+  assert(db:close())
+  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {}, meta = {} }
+  local said: Said = { err = "" }
+  local out = captured(1, tmp, function()
+    said.err = captured(2, tmp, function()
+      held_elsewhere(root, function()
+        assert(todos.run({ [1] = "todos" }, root, seen) == 0)
+      end)
+    end)
+  end)
+  assert(reboot.unchecked(root), "the stale tool is not remembered")
+  assert(out:find("kept.tl:1:", 1, true), out .. said.err)
+  assert(blames_of(root) == 1, "blamed an unchecked tree")
+  assert(not said.err:find("holds the write lock", 1, true), said.err)
 end

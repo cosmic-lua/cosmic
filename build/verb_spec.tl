@@ -24,11 +24,12 @@ local record verb_spec
     --- True for a verb that only reads the tree's databases: it waits for
     --- no other run's lock, the working database's write lock or the
     --- checkout's rebuild lock ([`build.rebuild_lock`]), and answers from
-    --- what is there. It writes only where no other run holds the working
-    --- database: the stage its staleness check makes
-    --- ([`reboot.stale_exit`]) and, where that check held the tool to the
-    --- tree ([`reboot.unchecked`]), its lookup's build ([`rebuild.here`])
-    --- and, for `todos`, its stage and blame. It marks `sql` too, which opens a database
+    --- what is there. It writes only where no other run holds the lock it
+    --- writes under: its staleness check stages the tree, makes a working
+    --- database of another schema again ([`work.try_open_remaking`]) and
+    --- rebuilds a stale tool ([`reboot.stale_exit`]); and, where that check
+    --- held the tool to the tree ([`reboot.unchecked`]), its lookup builds
+    --- ([`rebuild.here`]) and `todos` stages and blames. It marks `sql` too, which opens a database
     --- read-only and checks no staleness, as the contract it keeps. A verb
     --- that writes waits, as its build would.
     reads: boolean | nil

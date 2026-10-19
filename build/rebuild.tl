@@ -132,7 +132,7 @@ end
 local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
-  if not start and unchecked(root) then
+  if unchecked(root) then
     -- Compiled by code that may be older than the tree's, the rows and
     -- the projection would be keyed and signed as no build of the tree
     -- would make them.
