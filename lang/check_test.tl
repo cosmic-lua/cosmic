@@ -289,7 +289,19 @@ local CASES <const>: {Case} = {
   },
   {
     code = "literal_repeated", source = RECORD .. "local r: R = { name = \"a\", n = 1, name = \"b\" }\n",
-    msg = "the field `name` is written twice", fix = "remove the second `name`",
+    msg = "the key `name` is written twice in this literal", fix = "remove the second `name`, or give the two different keys",
+  },
+  {
+    code = "literal_repeated", source = "local t = { a = 1, a = 2 }\nlocal _ = t\n",
+    msg = "the key `a` is written twice in this literal", fix = "remove the second `a`, or give the two different keys",
+  },
+  {
+    code = "literal_repeated", source = "local t: {string: integer} = { a = 1, [\"a\"] = 2 }\nlocal _ = t\n",
+    msg = "the key `a` is written twice in this literal", fix = "remove the second `a`, or give the two different keys",
+  },
+  {
+    code = "literal_repeated", source = "local t: {integer: string} = { [1] = \"x\", [1] = \"y\" }\nlocal _ = t\n",
+    msg = "the key 1 is written twice in this literal", fix = "remove the second 1, or give the two different keys",
   },
   {
     code = "literal_needs_type", source = "local t = {}\n", at = { 1, 11 },

@@ -474,6 +474,27 @@ local function test_a_type_import_is_a_require_unless_it_is_used_only_as_a_type(
     "return Fs.read, a")
 end
 
+local function test_a_build_that_serves_every_module_erases_an_import_it_never_reads_as_a_value()
+  local text = table.concat({
+    "local type Fs = require(\"cosmic.fs\")",
+    "local type Unused = require(\"cosmic.hash\")",
+    "local type _ = require(\"cosmic.child\")",
+    "local type Json = require(\"cosmic.json\")",
+    "local a: Json.Value = nil",
+    "return Fs.read, a",
+  }, "\n") .. "\n"
+  local parsed = Parser.parse(Lexer.lex(text, "t.tl"), "t.tl", "tl")
+  assert(#parsed.errors == 0)
+  local scoped = Scopes.build(parsed.chunk, "t.tl", {})
+  local alone = Codegen.generate(parsed.chunk, scoped).text
+  local served = Codegen.generate(parsed.chunk, scoped, nil, nil, nil, nil, nil, true).text
+  assert(alone:find('local Unused = require("cosmic.hash")', 1, true), alone)
+  assert(alone:find('local _ = require("cosmic.child")', 1, true), alone)
+  assert(not served:find("cosmic.hash", 1, true) and not served:find("cosmic.child", 1, true), served)
+  assert(served:find('local Fs = require("cosmic.fs")', 1, true), served)
+  assert(not served:find("cosmic.json", 1, true), served)
+end
+
 local function test_a_record_the_program_names_only_in_types_is_not_written()
   same(
     "local record Point",

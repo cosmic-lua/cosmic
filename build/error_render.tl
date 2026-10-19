@@ -16,15 +16,16 @@
 --- a call or a field the checker refused by the worked example that teaches the form (`-- see also: cosmic docs
 --- records_interfaces_methods`), when the databases the caller hands over hold them.
 ---
---- Not wired into the build yet: the build prints the fork's errors through [`build.importer`].
+--- The build prints the errors of a compile with the new checker through [`ErrorRender.line`] ([`build.pipeline`]); the fork's
+--- go through [`build.importer`]'s `complain`.
 --
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
 -- fork's hint says and the checker's fix does not), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
 --
--- TODO: print a module's problems through this, and delete `complain`, `with_hint` and [`teal.replacement`] of the fork, once
--- the build compiles with the new checker (doc/plans/strict-teal.md, "the switch"); [`build.tree_checks`] then reads the
--- queries of [`ErrorRender.queries`] in place of [`importer.diagnostic_queries`].
+-- TODO: print every module's problems through this, and delete `complain`, `with_hint` and [`teal.replacement`] of the fork,
+-- once the build compiles with the new checker alone (doc/plans/strict-teal.md, "the switch"); [`build.tree_checks`] then
+-- reads the queries of [`ErrorRender.queries`] in place of [`importer.diagnostic_queries`].
 local Driver = require("build.driver")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
@@ -47,6 +48,11 @@ local record ErrorRender
 
   --- The line for `problem` of the file `file`, its fix included: `file:line:column: message (code): fix`.
   line: function(file: string, problem: Driver.Problem): string
+
+  --- What `hints` points a reader of `problem` to, to append to its line: ` -- see also in docs: <names>` for a name the
+  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call or a field it
+  --- refused that a worked example teaches; "" for any other problem.
+  pointers: function(result: Driver.Outcome, problem: Driver.Problem, hints: Hints): string
 
   --- The lines for the errors and then the warnings of `result`, with the pointers `hints` finds when it is given.
   lines: function(result: Driver.Outcome, hints?: Hints): {string}
@@ -128,6 +134,10 @@ local function example_pointer(problem: Driver.Problem, hints: ErrorRender.Hints
   return " -- see also: cosmic docs " .. query
 end
 
+function ErrorRender.pointers(result: Driver.Outcome, problem: Driver.Problem, hints: ErrorRender.Hints): string
+  return docs_pointer(result, problem, hints) .. example_pointer(problem, hints)
+end
+
 function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {string}
   local file = result.source.filename
   local out: {string} = {}
@@ -138,7 +148,7 @@ function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {
     for _, problem in ipairs(group) do
       local pointers = ""
       if hints ~= nil then
-        pointers = docs_pointer(result, problem, hints) .. example_pointer(problem, hints)
+        pointers = ErrorRender.pointers(result, problem, hints)
       end
       local at = first[problem.fix]
       if at ~= nil then

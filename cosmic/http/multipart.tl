@@ -106,6 +106,23 @@ local TRUNCATED <const> = "multipart: the body ended before the closing boundary
 
 local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 
+--- The body of a part. What it asks of its parser (the generation it is on, its state and failure, the bytes of the part it
+--- hands out, and failing it) it asks through the functions the parser gave it: the parser is no type of this record, whose
+--- class stands above the parser's, which makes it.
+local record BodyReader is Stream.Reader
+  generation: integer
+  finished: boolean
+  parsed_generation: function(): integer
+  state: function(): string
+  failure: function(): string
+  take: function(max: integer): string | nil, string
+  fail: function(why: string): nil, string
+  read: function(BodyReader, max_bytes?: integer): string | nil, string
+  close: function(BodyReader): boolean, string
+end
+
+local body_mt: metatable<BodyReader> = { __index = BodyReader }
+
 --- What the parser is in: "start" (nothing read), "headers" (a delimiter is
 --- consumed up to its line end), "body" (inside a part), "delimited" (a
 --- part's end delimiter is at the head of the buffer), "done" (after the
@@ -130,16 +147,6 @@ local record Parser is Multipart.Reader
 end
 
 local parser_mt: metatable<Parser> = { __index = Parser }
-
-local record BodyReader is Stream.Reader
-  parser: Parser
-  generation: integer
-  finished: boolean
-  read: function(BodyReader, max_bytes?: integer): string | nil, string
-  close: function(BodyReader): boolean, string
-end
-
-local body_mt: metatable<BodyReader> = { __index = BodyReader }
 
 local function fail(p: Parser, why: string): nil, string
   p.state = "failed"
@@ -457,15 +464,15 @@ function BodyReader:read(max_bytes?: integer): string | nil, string
   if max_bytes ~= nil and max_bytes < 1 then
     error("multipart: a part body reads at least one byte", 2)
   end
-  local p = self.parser
   if self.finished then return nil, "" end
-  if p.generation ~= self.generation then
+  if self.parsed_generation() ~= self.generation then
     return nil, "multipart: the part was passed by next_part"
   end
-  if p.state == "failed" then return nil, p.failure end
-  if p.state == "done" then return nil, "multipart: the parser was closed" end
-  local chunk, why = take(p, max_bytes or CHUNK)
-  if chunk == nil then return fail(p, why) end
+  local state = self.state()
+  if state == "failed" then return nil, self.failure() end
+  if state == "done" then return nil, "multipart: the parser was closed" end
+  local chunk, why = self.take(max_bytes or CHUNK)
+  if chunk == nil then return self.fail(why) end
   if chunk == "" then
     self.finished = true
     return nil, ""
@@ -516,7 +523,14 @@ function Parser:next_part(): Multipart.Part | nil, string
   end
   self.count = self.count + 1
   if self.count > self.max_parts then return fail(self, "multipart: more than max_parts parts") end
-  local body: BodyReader = setmetatable({ parser = self, generation = self.generation + 1, finished = false }, body_mt)
+  local body: BodyReader = setmetatable({
+    generation = self.generation + 1, finished = false,
+    parsed_generation = function(): integer return self.generation end,
+    state = function(): string return self.state end,
+    failure = function(): string return self.failure end,
+    take = function(max: integer): string | nil, string return take(self, max) end,
+    fail = function(reason: string): nil, string return fail(self, reason) end,
+  }, body_mt)
   local part, bad = read_part_headers(self, body)
   if part == nil then return fail(self, bad) end
   self.state = "body"

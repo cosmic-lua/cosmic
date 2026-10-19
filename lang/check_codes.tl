@@ -120,7 +120,7 @@ local record Codes
     "literal_missing"
     -- a field the record lacks, written in a literal
     "literal_unknown"
-    -- a field written twice in a literal
+    -- a field or a key written twice in a literal, of any type
     "literal_repeated"
     -- a literal with no type to make it from
     "literal_needs_type"
@@ -511,8 +511,9 @@ Codes.catalog = {
   },
   {
     code = "literal_repeated", rule = "a record has the fields it declares",
-    why = "a field is given once",
-    fix = "remove the second <field>",
+    why = "a field or a key is given once: a second value for it would silently replace the first, and the program would " ..
+      "run with a value it never wrote",
+    fix = "remove the second <field>, or give the two different keys",
   },
   {
     code = "literal_needs_type", rule = "fields are fixed unless declared mutable",

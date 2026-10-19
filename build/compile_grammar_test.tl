@@ -96,6 +96,15 @@ local function test_the_count_alone_is_reported_without_errors(tmp: string)
   assert(not ran.err:find("typed.tl:1:", 1, true), ran.err)
 end
 
+--- A file compiled alone keeps the `require` of a type import it never reads as a value, as the fork writes it; only the build
+--- that serves every module drops it ([`lang.codegen`]'s `served`, `Pipeline.generate`).
+local function test_a_file_compiled_alone_keeps_the_require_of_an_import_it_never_reads(tmp: string)
+  local path = file(tmp, "alone.tl", "local type _fs = require(\"cosmic.fs\")\nreturn 7\n")
+  local ran = run({ path })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out:find('local _fs = require("cosmic.fs")', 1, true) ~= nil, ran.out)
+end
+
 --- The forms the grammar adds are written as the Lua they mean.
 local function test_the_forms_of_the_new_grammar_run_as_what_they_mean(tmp: string)
   local text = table.concat({

@@ -3,10 +3,7 @@
 --- the failure messages it catalogs, the symbols it documents, the members of other modules it refers to, the names it
 --- binds to a module, its worked examples, the links of its comments, where it declares a global, and its stub. It is
 --- the port of [`build.derivation`]'s `parse_fresh` for a source already parsed ([`build.syntax_analyzer`] and
---- [`build.syntax_link_text`] read it).
----
--- TODO: have [`build.derivation`]'s `parse_fresh` call this module in place of the fork's readers, once the build
--- reads its sources in the new grammar (doc/plans/strict-teal.md, "the switch").
+--- [`build.syntax_link_text`] read it), which [`build.pipeline`]'s `derive` calls in the mode `COSMIC_GRAMMAR=new` chooses.
 local Analyzer = require("build.syntax_analyzer")
 local Ast = require("lang.ast")
 local Globals = require("build.syntax_globals")
@@ -39,9 +36,10 @@ local record Derivation
   rows_of: function(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Rows | nil, string
 
   --- Writes the rows of the source `source_hash`, the tree of which is `chunk`, as [`build.derivation`] writes them.
-  --- `file` names the source in a failure.
+  --- `file` names the source in a failure. With `stub` a source that returns a value has that stub, and not the one the tree
+  --- gives.
   insert: function(db: Sqlite.Handle, source_hash: string, file: string, source: string, chunk: Ast.Chunk,
-                   mapped: boolean): boolean, string
+                   mapped: boolean, stub?: Stub.Made): boolean, string
 end
 
 local text = bind.text
@@ -137,7 +135,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
 end
 
 function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string, source: string, chunk: Ast.Chunk,
-                           mapped: boolean): boolean, string
+                           mapped: boolean, given?: Stub.Made): boolean, string
   local made, trouble = Derivation.rows_of(chunk, source, file, mapped)
   if made == nil then
     return false, file .. ": " .. trouble
@@ -238,6 +236,9 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     end
   end
   local stub = rows.stub
+  if stub ~= nil and given ~= nil then
+    stub = given
+  end
   if stub ~= nil then
     return put("INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
       { hash, text(stub.text), { integer = stub.pruned and 1 or 0 } })

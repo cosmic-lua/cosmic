@@ -399,17 +399,22 @@ local function ceilings(text: string): Ceilings.Table
   return (assert(Ceilings.parse(text)))
 end
 
-local HAZARD <const> = "local record R\n  n: integer\nend\nlocal helper = 1\nfunction R:f(): integer\n  return self.n + helper\nend\nreturn R\n"
+local HAZARD <const> = "local function one(): integer\n  return 1\nend\nlocal record R\n  n: integer\nend\nlocal helper = one()\nfunction R:f(): integer\n  return self.n + helper\nend\nreturn R\n"
 
 local function test_a_module_of_the_forks_teal_is_held_to_what_the_tree_counts_of_its_text_not_of_its_translation()
   local files = { { "hazard.tl", HAZARD }, { "broken.tl", "local t: {{string, integer}}\nreturn t\n" } }
   local index = Driver.index(files, true, nothing)
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   build:provide(Driver.files(index))
-  -- the translation moves the method above `helper`, a scope error of the translated text that `[hazards]` counts
+  -- the translation moves the method above `helper`, a scope error of the translated text that `[hazards]` counts: it is held
+  -- as the tree counts a scope error of the text the fork reads, which this module has none of, so the module is refused (its
+  -- Lua would read a global)
   local hazard = assert(build:result("hazard", true))
   assert(#hazard.scope_errors >= 1, "the translated method no longer sees `helper`")
-  assert(#build:held(hazard, ceilings("")) == 0, table.concat(build:held(hazard, ceilings("")), "\n"))
+  local told = build:held(hazard, ceilings(""))
+  assert(#told >= 2 and told[1]:find("(unknown_variable)", 1, true) ~= nil and
+      told[#told]:find("hazard.tl: 1 error of unknown_variable in its scopes, pinned 0;", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#build:held(hazard, ceilings("[scoped]\nhazard.tl unknown_variable 1\n")) == 0)
   -- a translation that does not parse is held to `[translated]`
   local broken = assert(build:result("broken", true))
   assert(broken.broken)

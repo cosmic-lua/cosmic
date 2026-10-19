@@ -33,10 +33,18 @@ stands on another checkout's pass.
 
 - `--all` (`COSMIC_TEST_ALL=1`) runs every test.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
-- `COSMIC_GRAMMAR=new` asks for the new checker ([`build.grammar_mode`]).
-  The compiles and verdicts of such a run are keyed apart from the fork's.
-  The build's compile does not call [`build.pipeline`] yet, so the run still
-  compiles with the fork.
+- `COSMIC_GRAMMAR=new` asks for the new checker ([`build.grammar_mode`]): the
+  tree is read, checked against its ceilings and written by [`build.pipeline`]
+  in place of the fork's compiler. It builds cosmic's own tree alone; a
+  project is told to unset the variable. The compiles, the parses and the
+  verdicts of such a run are keyed apart from the fork's, and by the code that
+  reads (the checker and its readers, as the binary carries them). A module the
+  new checker refuses, or cannot read, does not stop the run: it runs no tests,
+  nor does a module that requires it, and each is a failure of the run; a run
+  that names tests (`cosmic test one_test.tl`) fails for the refusals of the
+  files it names alone, and a named test module that requires a refused one is
+  refused itself. The build directory holds one mode's rows, so a run in the other mode reads the
+  tree again. A pool and `--check-types` are refused with it.
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
 `--bail` (`COSMIC_TEST_BAIL=1`) starts no test after the first failure.

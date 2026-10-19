@@ -106,21 +106,21 @@ end
 
 allow({
   "build.coverage.syntax_lines.executable_cached", "build.syntax_analyzer.analyze", "build.syntax_analyzer.docs",
-  "build.syntax_derivation.rows_of", "build.syntax_derivation.insert", "build.syntax_links.check",
+  "build.syntax_derivation.rows_of", "build.syntax_links.check",
   "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
   "build.syntax_rewrite.rewrite",
   "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
 
--- TODO: drop these allowances as the build prints its errors and writes the rule behind each code through them
--- (doc/plans/strict-teal.md, "the switch").
+-- TODO: drop these allowances as the build prints every error through the new checker's reporting and the fork's
+-- `complain`, `with_hint` and [`teal.replacement`] go (doc/plans/strict-teal.md, "the switch").
 allow({
   "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
-  "build.error_catalog.text", "build.error_render.queries", "build.error_render.lines",
+  "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.queries", "build.error_render.lines",
   "build.error_render.complain",
-}, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the build's wiring calls in " ..
-    "place of the fork's; tested directly until then")
+}, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
+    "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
 
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
@@ -128,9 +128,9 @@ allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` com
   "from the file hands its text here, and the tests read fixtures"
 
 allow({
-  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.carried", "build.pipeline.over", "build.pipeline.generate",
-}, "the build's compile with the new checker, which build.compilation calls once the tool chooses the grammar " ..
-    "(doc/plans/strict-teal.md, \"the switch\"); its tests are its callers until then")
+  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.carried", "build.pipeline.over",
+}, "the build's compile with the new checker: the mode and the tool string the harness chooses (`build.grammar_mode`), the " ..
+    "standard library of the binary and a build over given sources, which the pipeline's own tests are the callers of")
 
 allow({ "build.grammar_mode.of" }, "tested directly: the mode a word names, which `mode` takes of the environment's " ..
     "COSMIC_GRAMMAR")
@@ -3465,7 +3465,7 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
     "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "typed 2")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root))
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")
   end

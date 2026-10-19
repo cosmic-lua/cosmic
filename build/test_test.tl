@@ -8,6 +8,20 @@ local Sqlite = require("cosmic.sqlite")
 local test = require("build.test")
 local worker = require("build.test_worker")
 
+local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_files_it_names_alone()
+  local lines = {
+    "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it",
+    "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
+    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+  }
+  assert(#test.refusals_of(lines, {}) == 3, "a run that names nothing is failed by every refusal")
+  assert(#test.refusals_of(lines, { "build/other_test.tl" }) == 0)
+  assert(#test.refusals_of(lines, { "build/one_test.tl" }) == 1)
+  assert(#test.refusals_of(lines, { "build" }) == 2)
+  assert(test.refusals_of(lines, { "cosmic" })[1] == lines[1])
+  assert(#test.refusals_of(lines, { "build/one_test.tl:test_it" }) == 1, "a selector that names a test is its module's")
+end
+
 local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))
   assert(test.matches("build/test_test.tl", "build.test_test", "build/test_test.tl"))

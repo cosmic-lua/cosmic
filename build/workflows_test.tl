@@ -2422,6 +2422,40 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
       "${{ steps.verdicts-trim.outputs.digest }}\n", "the rehearsal saves " .. saved)
 end
 
+--- A job that gates nothing (`continue-on-error`) cannot block or cancel the queue: no job waits on it, and the job that cancels the
+--- run on a failed leg is told its name to pass over. The rehearsal's failure cancelled a queue run, and with it the legs `ci`
+--- waits on.
+local function test_a_job_that_gates_nothing_neither_blocks_nor_cancels_the_run()
+  local jobs = object_at(assert(decoded_workflows()[DIR .. "/ci.yml"]), { "jobs" })
+  local exempt = text_at(object_at(jobs, { "cancel", "steps", 2, "env" }), "EXEMPT")
+  local listed = "," .. exempt .. ","
+  local informational = 0
+  for id in pairs(jobs) do
+    local job = object_at(jobs, { id })
+    if Json.get(job, { "continue-on-error" }) == true then
+      informational = informational + 1
+      local name = text_at(job, "name")
+      assert(listed:find("," .. name .. ",", 1, true) ~= nil, id .. " (" .. name .. ") fails without gating, and the cancel job does not pass over it")
+      for other in pairs(jobs) do
+        local needs = Json.encode((Json.get(jobs, { other, "needs" }))) or ""
+        assert(needs:find('"' .. id .. '"', 1, true) == nil, other .. " waits on " .. id .. ", which gates nothing")
+      end
+    end
+  end
+  assert(informational >= 1, "no job gates nothing: the rehearsal is gone, or no longer continues on error")
+  for name in exempt:gmatch("[^,]+") do
+    local found = false
+    for id in pairs(jobs) do
+      found = found or text_at(object_at(jobs, { id }), "name") == name
+    end
+    assert(found, "the cancel job passes over " .. name .. ", which no job is called")
+  end
+  -- the script reads the list, and compares whole names (a leg called `linux-x86_64` is no part of `linux-x86_64-new-grammar`)
+  local script = assert(Fs.read(".github/scripts/cancel-on-failure.sh"))
+  assert(script:find('--arg exempt "${EXEMPT:-}"', 1, true) ~= nil and script:find("any(.[]; . == $n)", 1, true) ~= nil,
+    "cancel-on-failure.sh does not skip the exempt names exactly")
+end
+
 local function test_a_branch_push_starts_no_job_it_skips()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do

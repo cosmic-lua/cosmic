@@ -541,12 +541,21 @@ runs in a job of its own, `rehearsal` (`linux-x86_64-new-grammar`), on the
 checked job's host. It is a rehearsal of the switch
 (doc/plans/strict-teal.md, "the switch") and is informational: it runs on a
 full run only, `continue-on-error` marks its failure on the run and no job
-waits on it, so the `ci` join does not require it. It boots (`platform
+waits on it, so the `ci` join does not require it, and the job that cancels a queue run on a failed leg passes over it (ci.yml's
+`EXEMPT`; build/workflows_test.tl holds every `continue-on-error` job to both). It boots (`platform
 boot`), restores linux-x86_64's zig build outputs and compiles and saves
 neither, and runs the suite (`platform rehearsal`) in the verdicts of a file
 of its own, `new-grammar.db`, under a cache name of its own: a verdict of
 one grammar stands for no run of the other. A branch push shows the job as
-skipped, one of the exceptions `build/workflows_test.tl` names.
+skipped, one of the exceptions `build/workflows_test.tl` names. The suite runs without `--bail`, which a queue run adds: the failures
+are judged over every test.
+
+The run's failures are held to `testdata/gate/rehearsal.txt`, the failures the
+new checker is expected to have, one `<failure> -- <reason>` a line: a test
+(`<module> <test>`), a module the new checker refused (`<file> <code>`, the code of its first error) or a C function
+no test entered (`<file>:<function>`). The job fails for a failure the list lacks
+and for an entry whose failure did not happen, so the list only shrinks, and is
+empty at the switch (`ci/cosmic_ci/rehearsal.tl`).
 
 ### the Linux legs' container
 

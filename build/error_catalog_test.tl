@@ -204,7 +204,7 @@ local function written(): Sqlite.Handle, integer
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  local count, trouble = ErrorCatalog.insert(db)
+  local count, trouble = ErrorCatalog.insert(db, "")
   assert(count ~= nil, trouble)
   for _, statement in ipairs(schema.rebuild("")) do
     assert(db:exec(statement))

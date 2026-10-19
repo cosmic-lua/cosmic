@@ -1555,6 +1555,10 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.symbols"] = "names what the projection documents in a refusal's hint, " ..
       "which no compile keeps",
+    ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
+      "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
+    ["build.grammar_mode"] = "names the checker a run asks for, and no compile stores anything it decides: the new one's " ..
+      "keys carry the mode in the tool string",
   }
   assert(not covered["build.importer"], "cache coordination and diagnostics entered compiler identity")
   local used: {string:boolean} = {}
@@ -1633,20 +1637,39 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
+    ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
     ["build.patch"] = "parses a patch record only for the TODO rows build.todo_scan " ..
       "fills, which no projection carries",
   }
-  local reached: {string:boolean} = {}
-  local stack: {string} = { "build.writer" }
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if not reached[name] then
-      reached[name] = true
-      for _, required in ipairs((assert(Store.requires(name)))) do
-        stack[#stack + 1] = required
+  --- What [`build.writer`] reaches, without going on from the modules named in `stop`.
+  local function reach(stop: {string:boolean}): {string:boolean}
+    local seen: {string:boolean} = {}
+    local pending: {string} = { "build.writer" }
+    while #pending > 0 do
+      local name = table.remove(pending)
+      if seen[name] == nil then
+        seen[name] = true
+        if stop[name] == nil then
+          for _, required in ipairs((assert(Store.requires(name)))) do
+            pending[#pending + 1] = required
+          end
+        end
       end
+    end
+    return seen
+  end
+  local reached = reach({})
+  -- The new grammar's compile (`COSMIC_GRAMMAR=new`, build.pipeline and what it reads) runs only where the build is asked for
+  -- it, and its output is keyed apart from the compiler's by `Pipeline.coded` over those sources; no projection of the
+  -- default compile turns on them.
+  local through_pipeline = reach({ ["build.pipeline"] = true })
+  neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
+  local only_pipeline: {string:boolean} = {}
+  for name in pairs(reached) do
+    if through_pipeline[name] == nil then
+      only_pipeline[name] = true
     end
   end
   local unclassified: {string} = {}
@@ -1656,6 +1679,8 @@ local function test_the_writer_modules_are_closed_under_require()
       used[name] = true
       assert(not covered[name] and not compiler[name],
         name .. " is named as in neither identity, but is in one")
+    elseif only_pipeline[name] == true then
+      used[name] = true
     elseif not covered[name] and not compiler[name] then
       unclassified[#unclassified + 1] = name
     end

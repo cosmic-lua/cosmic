@@ -25,10 +25,8 @@
 --- for that alone.
 ---
 --- Its callers are [`build.tree_checks`], `cosmic compile --grammar new` ([`build.compile_grammar`]) and the pipeline of the
---- new checker ([`build.pipeline`]), which the build's own compile does not call yet.
---
--- TODO: have the build's own compile ([`build.compilation`]) call [`build.pipeline`], once the readers of the new syntax tree
--- and the type report are wired to it and the mode is chosen by the tool (doc/plans/strict-teal.md, "the switch").
+--- new checker ([`build.pipeline`]), which the build's own compile calls in the mode `COSMIC_GRAMMAR=new` chooses
+--- ([`build.importer`]).
 local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
@@ -241,6 +239,15 @@ local record Driver
   --- The globals the `sources` declare, `adjust`ed: what a scope builder is given for a module.
   globals: function(sources: {Source}, adjust: function(globals: {string: Scopes.Global}) | nil): {string: Scopes.Global}
 
+  --- A source as a build reads it, and no more: its text corrected, translated and mended where it says so, lexed and parsed.
+  --- The readers of the syntax tree ([`build.syntax_derivation`]) take their tree from this, with the text it was parsed from.
+  record Parsed
+    text: string
+    chunk: Ast.Chunk
+    --- The syntax errors, in source order: none for a tree that is whole.
+    syntax: {Problem}
+  end
+  parse: function(source: Source): Parsed
 end
 
 local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, translate: boolean,
@@ -312,6 +319,18 @@ local function read_source(source: Driver.Source, problems: {string}, written?: 
     truthy = Translate.never_false
   end
   return { source = source, text = made.text, never_false = truthy, chunk = parsed.chunk, errors = parsed.errors }
+end
+
+function Driver.parse(source: Driver.Source): Driver.Parsed
+  local read = read_source(source, {})
+  local syntax: {Driver.Problem} = {}
+  for _, e in ipairs(read.errors) do
+    syntax[#syntax + 1] = {
+      kind = "error", stage = "syntax", code = tostring(e.code), msg = e.msg, fix = e.fix, y = e.y, x = e.x, offset = e.offset,
+      removed = false,
+    }
+  end
+  return { text = read.text, chunk = read.chunk, syntax = syntax }
 end
 
 function Driver.globals(sources: {Driver.Source}, adjust: function(globals: {string: Scopes.Global}) | nil):
@@ -807,11 +826,15 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
       return out
     end
-    -- A translated module's scope errors are those of the translation (a method moved above a name it reads, which
-    -- `[hazards]` counts); the tree's `[scoped]` counts the scope errors of the source the fork reads.
-    if not source.translate then
-      stage(result.scope_errors, Scopes.codes, "scoped", "scopes")
-    end
+    -- A translated module's scope errors are those of its source, which `[scoped]` counts as the fork reads it (a name that is
+    -- none, a type that is none), and those of the translation (a method moved above a name it reads, which `[hazards]`
+    -- counts): the fork would have refused the first, and the Lua of the second reads a global.
+    -- A hazard of the translation that is no scope error (a shadow, a changed signature) is seen by the tree check `[hazards]`
+    -- alone, so a project outside the tree, which the new mode refuses today, would meet it silently.
+    --
+    -- TODO: count the shadow and signature hazards of a translation here, once the new mode builds a project outside cosmic's
+    -- tree ([`build.pipeline.options`] refuses one).
+    stage(result.scope_errors, Scopes.codes, "scoped", "scopes")
     stage(result.declared, Declarations.codes, "declared", "declarations")
     stage(result.bodies, Check.codes, "checked", "bodies")
     if source.checked and source.dialect == "tl" and result.checked == nil then

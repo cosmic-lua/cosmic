@@ -910,6 +910,31 @@ end
 
 local default_line_limit <const> = 1 << 20
 
+local rested <const> = "stream: these lines ended at `rest`; read the Reader it gave"
+
+-- What `rest` gives once the Reader has nothing more to read through:
+-- `why` on every read ("" for the end), and the Reader closed on close.
+local record SpentReader is Stream.Reader
+  source: Stream.Reader
+  why: string
+  closed: boolean
+  read: function(SpentReader, max_bytes?: integer): string | nil, string
+  close: function(SpentReader): boolean, string
+end
+
+local spent_reader_mt: metatable<SpentReader> = { __index = SpentReader }
+
+function SpentReader:read(_max_bytes?: integer): string | nil, string
+  if self.closed then return nil, closed_reader end
+  return nil, self.why
+end
+
+function SpentReader:close(): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  return self.source:close()
+end
+
 local record LineReader is Stream.Lines
   source: Stream.Reader
   limit: integer
@@ -943,8 +968,6 @@ local function fail(self: LineReader, why: string): nil, string
   self.chunk, self.at, self.parts, self.held = "", 1, {}, 0
   return nil, why
 end
-
-local rested <const> = "stream: these lines ended at `rest`; read the Reader it gave"
 
 function LineReader:read(): string | nil, string
   if self.rested then error(rested, 2) end
@@ -1001,29 +1024,6 @@ end
 
 function LineReader:failure(): string
   return self.failed
-end
-
--- What `rest` gives once the Reader has nothing more to read through:
--- `why` on every read ("" for the end), and the Reader closed on close.
-local record SpentReader is Stream.Reader
-  source: Stream.Reader
-  why: string
-  closed: boolean
-  read: function(SpentReader, max_bytes?: integer): string | nil, string
-  close: function(SpentReader): boolean, string
-end
-
-local spent_reader_mt: metatable<SpentReader> = { __index = SpentReader }
-
-function SpentReader:read(_max_bytes?: integer): string | nil, string
-  if self.closed then return nil, closed_reader end
-  return nil, self.why
-end
-
-function SpentReader:close(): boolean, string
-  if self.closed then return true, "" end
-  self.closed = true
-  return self.source:close()
 end
 
 function LineReader:rest(): Stream.Reader

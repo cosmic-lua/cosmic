@@ -303,6 +303,27 @@ function test.selects(selector: string, path: string, file: string, name: string
   return test.matches(selector, path, file) and (named == nil or named == name)
 end
 
+--- Of the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file), those a run fails
+--- for: all of them for a run that names no test, and for one that does the refusals of the files its selectors choose. A test
+--- module that requires a refused module is refused itself, which a selector that names it says, so a refusal elsewhere in the
+--- tree is no failure of that run.
+function test.refusals_of(lines: {string}, selectors: {string}): {string}
+  local out: {string} = {}
+  for _, line in ipairs(lines) do
+    local file = line:match("^([^:\n]+)") or line
+    local named = #selectors == 0
+    for _, selector in ipairs(selectors) do
+      if test.matches(selector, "", file) then
+        named = true
+      end
+    end
+    if named then
+      out[#out + 1] = line
+    end
+  end
+  return out
+end
+
 --- The share `text`, `--shard`'s value, names: `I/N`, whole numbers with
 --- 1 <= I <= N. Nil and why for anything else.
 function test.shard(text: string): test.Shard | nil, string
@@ -3252,6 +3273,9 @@ local record Run
   shard?: test.Shard
   sandbox_mode?: string
   selectors?: {string}
+  --- The compile's refusals this run fails for ([`importer.Result`]'s `refused`): all of them, or with selectors those of the
+  --- files they choose.
+  refusals?: {string}
   forced?: boolean
   consult?: boolean
   census?: boolean
@@ -3658,7 +3682,7 @@ end
 local function build_tree(ctx: Run): integer | nil
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
   local result, compile_trouble = importer.compile(handle, assert(ctx.built),
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), nil, ctx.checks)
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), nil, ctx.checks, ctx.grammar)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -3733,6 +3757,15 @@ local function select_tests(ctx: Run): integer | nil
     local _, _ = work.close(assert(ctx.handle))
     if #unmatched > 0 then
       log:complain("no test module matches: " .. table.concat(unmatched, ", "))
+      -- A module the compile refused (the new checker's) has no tests to match, which its refusal says.
+      for _, line in ipairs(result.refused) do
+        local head = line:match("^[^\n]*") or line
+        for _, selector in ipairs(unmatched) do
+          if head:find(selector, 1, true) ~= nil then
+            log:complain(head)
+          end
+        end
+      end
     end
     for _, selector in ipairs(unfound) do
       local m = module_of[selector]
@@ -4589,9 +4622,11 @@ local function settle(ctx: Run)
   -- other module still compiled and ran above, so this only turns the
   -- overall verdict to FAIL, one line per refusal, rather than aborting
   -- the whole run the way an unrelated compile error still does.
-  for _, line in ipairs(result.refused) do
+  local refusals = test.refusals_of(result.refused, assert(ctx.selectors))
+  for _, line in ipairs(refusals) do
     failures[#failures + 1] = line
   end
+  ctx.refusals = refusals
 
   ctx.cov_line = test_report.coverage(cov_hit, cov_total)
 end
@@ -4629,7 +4664,7 @@ local function report(ctx: Run): integer
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.result).refused,
+  local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
   return 1
 end

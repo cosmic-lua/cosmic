@@ -21,6 +21,7 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
+local Rehearsal = require("cosmic_ci.rehearsal")
 local String = require("cosmic.string")
 
 local record Orchestration
@@ -561,8 +562,8 @@ local checked_narrowing_test_timeout_s <const> = "120"
 --- The whole suite with the new checker ([`phase_rehearsal`]): bounded as the checked run is, which it is the size of
 --- plus the cold compile of the tree by the new pipeline.
 
--- TODO: lower these bounds once CI's own runs of the phase show its elapsed time; they are the checked run's, since the
--- build's compile does not call the new pipeline yet.
+-- TODO: lower these bounds once CI's own runs of the phase show its elapsed time; a local run of the whole suite in the new
+-- grammar took about 460 s on four cores, cold compile of the tree included, and the bound is the checked run's.
 local rehearsal_timeout_ns <const> = Clock.seconds(1800)
 local rehearsal_test_timeout_s <const> = "120"
 -- A boot the product drives from another path compiles no C again (it
@@ -1458,7 +1459,9 @@ end
 --- The whole suite with the new checker (`COSMIC_GRAMMAR=new`, build/pipeline.tl), on the linux-x86_64 target alone,
 --- in the verdicts of a file of its own (`new-grammar.db`, [`suite_verdicts`]): a compile and a verdict of one grammar
 --- stand for none of the other's. It is a rehearsal of the switch (doc/plans/strict-teal.md, "the switch") and the run is
---- informational: ci.yml's `rehearsal` job gates nothing. It fails where the suite does.
+--- informational: ci.yml's `rehearsal` job gates nothing. It fails where the suite's failures are not the ones
+--- testdata/gate/rehearsal.txt expects, each with its reason ([`Rehearsal`]): a failure the list lacks, and an entry whose
+--- failure did not happen, so that the list only shrinks.
 local function phase_rehearsal(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
@@ -1473,10 +1476,35 @@ local function phase_rehearsal(p: PlatformContext): integer
   release_promises(values)
   local argv: {string} = { cosmic }
   for _, word in ipairs(words) do
-    argv[#argv + 1] = word
+    -- A queue run bails on its first failure, which fails it whatever the rest says. The rehearsal judges every failure of the
+    -- whole suite against the list, so a test it never ran would read as one that did not fail.
+    if word ~= "--bail" then
+      argv[#argv + 1] = word
+    end
   end
-  return logged(c, "new grammar", argv, out, p.local_diagnostics .. "/rehearsal-test.err", rehearsal_timeout_ns, c.root,
-    values)
+  local status = logged(c, "new grammar", argv, out, p.local_diagnostics .. "/rehearsal-test.err", rehearsal_timeout_ns,
+    c.root, values)
+  -- 1 is the suite's own failure; anything else (a timeout, a signal) is not a run the list can judge.
+  if status ~= 0 and status ~= 1 then return status end
+  local listed = c.root .. "/" .. Rehearsal.path
+  if not exists(listed) then
+    Fs.put(Fs.stderr, "rehearsal: " .. Rehearsal.path .. " is missing\n")
+    return 1
+  end
+  local allowed, trouble = Rehearsal.parse(read(listed))
+  if allowed == nil then
+    Fs.put(Fs.stderr, "rehearsal: " .. trouble .. "\n")
+    return 1
+  end
+  local failed = Rehearsal.failures(exists(out) and read(out) or "")
+  local problems = Rehearsal.judge(allowed, failed)
+  if status == 1 and #failed == 0 then
+    problems[#problems + 1] = "the suite failed and its output names no failure"
+  end
+  for _, line in ipairs(problems) do
+    Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
+  end
+  return #problems == 0 and 0 or 1
 end
 
 --- The native suite, on the tree `boot` built: the `build` phase

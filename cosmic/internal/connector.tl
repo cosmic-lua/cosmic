@@ -72,23 +72,11 @@ local record Process
   metamethod __close: function(Process)
 end
 
-local end_connector: function(Process, boolean)
-
-local process_mt: metatable<Process> = {
-  __index = Process,
-  __close = function(self: Process)
-    local _ = self:close()
-  end,
-  __gc = function(self: Process)
-    end_connector(self, true)
-  end,
-}
-
 --- Ends `connector` and reaps it. A process this one adopted may already
 --- have been reaped (`collect` takes every child), and its pid may be
 --- another process's by now: it is signalled only while it is still this
 --- one's unreaped child.
-end_connector = function(connector: Process, collecting: boolean)
+local function end_connector(connector: Process, collecting: boolean)
   if not connector.open then return end
   connector.open = false
   if connector.borrowed then return end
@@ -106,6 +94,16 @@ end_connector = function(connector: Process, collecting: boolean)
   local _, _ = sys.kill(pid, sys.SIGKILL)
   local _, _ = process_raw.waitpid(pid, false)
 end
+
+local process_mt: metatable<Process> = {
+  __index = Process,
+  __close = function(self: Process)
+    local _ = self:close()
+  end,
+  __gc = function(self: Process)
+    end_connector(self, true)
+  end,
+}
 
 --- Ends the connector and reaps it, waking a task waiting on its stream.
 function Process:close(): boolean
@@ -493,6 +491,22 @@ end
 
 local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 
+-- How [`cosmic.net`] makes a connection of a socket and judges an address,
+-- which it hands over as it loads.
+local record Registered
+  make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn
+  address_trouble: function(address: any): string
+end
+
+local registered: Registered = {
+  make_conn = function(_socket: raw_socket.Socket, _timeout_ns: integer | nil): Connection.Conn
+    error("make_conn is called before cosmic.net registers it")
+  end,
+  address_trouble = function(_address: any): string
+    error("address_trouble is called before cosmic.net registers it")
+  end,
+}
+
 --- A connector over a [`Process`]'s control stream, which is what a
 --- [`Net.Connector`] is: it asks the process for the sockets it passes and
 --- answers them as connections.
@@ -535,22 +549,6 @@ local served_mt: metatable<Served> = {
   __index = Served,
   __close = function(self: Served)
     local _, _ = self:close()
-  end,
-}
-
--- How [`cosmic.net`] makes a connection of a socket and judges an address,
--- which it hands over as it loads.
-local record Registered
-  make_conn: function(socket: raw_socket.Socket, timeout_ns: integer | nil): Connection.Conn
-  address_trouble: function(address: any): string
-end
-
-local registered: Registered = {
-  make_conn = function(_socket: raw_socket.Socket, _timeout_ns: integer | nil): Connection.Conn
-    error("make_conn is called before cosmic.net registers it")
-  end,
-  address_trouble = function(_address: any): string
-    error("address_trouble is called before cosmic.net registers it")
   end,
 }
 
@@ -650,8 +648,8 @@ end
 --- @param public raw_process.ConnectorPublic|nil The lists of a public connector
 --- @return Process|nil The connector
 --- @return string Why not, when it is nil
-function Leaf.start(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
-                    public?: raw_process.ConnectorPublic): Process | nil, string
+local function start(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
+                     public?: raw_process.ConnectorPublic): Process | nil, string
   local pair, why = process_raw.connector_pair()
   if pair == nil then return nil, "child: " .. why end
   local called, pid, trouble, errno = pcall(process_raw.connector_start, endpoints, pair[2], timeout_ms, public)
@@ -679,6 +677,8 @@ function Leaf.start(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: inte
   return started, ""
 end
 
+Leaf.start = start
+
 --- The stream of `self`'s process, started where it has none or lost
 --- its last and the process is this one's to start: nil and why where
 --- it cannot be.
@@ -686,7 +686,7 @@ local function channel_of_served(self: Served): Channel | nil, string
   local channel = self.channel
   if channel ~= nil and channel.lost == nil then return channel, "" end
   if self.inherited then return nil, "net: the connector has ended" end
-  local started, why = Leaf.start(self.endpoints, self.timeout_ms, self.public)
+  local started, why = start(self.endpoints, self.timeout_ms, self.public)
   if started == nil then return nil, why end
   self.channel = channel_of(started)
   return self.channel, ""
@@ -701,7 +701,7 @@ function Leaf.connector(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: 
   local connector: Served = setmetatable({
     timeout_ms = timeout_ms, open = true, public = public, accepts_public = public ~= nil, endpoints = endpoints,
   }, served_mt)
-  local started, why = Leaf.start(endpoints, timeout_ms, public)
+  local started, why = start(endpoints, timeout_ms, public)
   if started == nil then return nil, why end
   connector.channel = channel_of(started)
   made[connector] = connector

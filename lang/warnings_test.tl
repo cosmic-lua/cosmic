@@ -5,6 +5,9 @@ local Ast = require("lang.ast")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
+-- The new grammar tests a type of the checker by its tag, which leaves this import unused once translated: it names the type the
+-- asserts below test for.
+local _fn_type: Types.Fn | nil = nil
 local Warnings = require("lang.warnings")
 
 Test.policy{}

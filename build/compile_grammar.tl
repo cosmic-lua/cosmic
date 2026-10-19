@@ -97,8 +97,13 @@ local record compile_grammar
   --- what [`lang.codegen`] writes of its syntax tree given what the checker concluded (the classes its table literals
   --- make, the values of the enums it tests, the kinds its type names resolved to, and with `facts` the wraps of the
   --- reads a test narrowed), and the tests it cannot write. The generator is told what the translator knew of the text
-  --- ([`Driver.Outcome.never_false`]).
-  emit: function(build: Driver.Build, result: Driver.Outcome, facts?: boolean): Emitted
+  --- ([`Driver.Outcome.never_false`]). With `counted` the test of a record, an interface or a userdata is written as the fork
+  --- writes it, the test for a table (for userdata): the tree's own, which the ceilings of `[checked]` count as the checker's
+  --- `is_on_record` and let no more of, so that the program is not refused for a test the fork wrote. Without it such a test
+  --- is refused, as it is of a program that has no ceiling for it. With `served` the Lua is that of a build that serves every
+  --- module ([`Codegen.generate`]'s `served`: a type import never read as a value is not loaded), as the build's compile writes
+  --- it; without it, that of a file compiled alone, as `cosmic compile` does.
+  emit: function(build: Driver.Build, result: Driver.Outcome, facts?: boolean, counted?: boolean, served?: boolean): Emitted
 
   --- Compiles `sources` together. The answer holds one entry for each, in order. After a syntax error in
   --- any file no file has Lua and the other stages did not run. With `facts` the Lua checks the conclusions of the
@@ -135,8 +140,8 @@ local function kind_of(t: Types.Type): string | nil
 end
 
 --- What the checker concluded of the type names of `result`, for the generator, and the tests of it the Lua cannot tell.
-local function type_facts(program: Declarations.Program, result: Driver.Outcome, lowered: Declarations.Lowered):
-    {integer: string}, {string}
+local function type_facts(program: Declarations.Program, result: Driver.Outcome, lowered: Declarations.Lowered,
+                          counted?: boolean): {integer: string}, {string}
   local kinds: {integer: string} = {}
   local refused: {string} = {}
   local library = program.globals["table"]
@@ -155,7 +160,13 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
       local t = lowered.types[node.type.id]
       local why: string | nil
       if t is Types.Named and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
-        if t.decl.kind ~= "class" then
+        local tested = node.type
+        if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
+            tested is Ast.TypeName then
+          -- The test of a record is the test for a table, as the fork writes it: the checker reports it (`is_on_record`) and
+          -- the ceilings of `[checked]` count it, so the tests the tree has are the ones this writes and no more.
+          kinds[tested.id] = t.decl.kind == "userdata" and "userdata" or "table"
+        elseif t.decl.kind ~= "class" then
           why = "a " .. t.decl.kind .. " has no run-time tag to test"
         elseif t.decl.module ~= result.module then
           why = "the class belongs to " .. t.decl.module .. ", whose table this module cannot reach"
@@ -174,7 +185,8 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
   return kinds, refused
 end
 
-function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts?: boolean): compile_grammar.Emitted
+function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts?: boolean, counted?: boolean, served?: boolean):
+    compile_grammar.Emitted
   local checked = result.checked
   local lowered = result.lowered
   if checked == nil or lowered == nil then
@@ -184,12 +196,12 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   for id, decl in pairs(checked.literals) do
     classes[id] = decl.name
   end
-  local kinds, refusals = type_facts(build.program, result, lowered)
+  local kinds, refusals = type_facts(build.program, result, lowered, counted)
   local wraps: {integer: string} | nil = nil
   if facts == true then
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename)
   end
-  local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds)
+  local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds, served == true)
   local lines: {string} = {}
   for _, e in ipairs(generated.errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix

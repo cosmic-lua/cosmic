@@ -434,6 +434,14 @@ local function project(handle: work.Handle,
       return false, failure
     end
   end
+  -- The rule behind each code of the checker that compiled, after the rows extracted from the sources: the new checker's.
+  local catalog = result.catalog
+  if catalog ~= nil then
+    local written, catalog_trouble = catalog(db, "out.")
+    if written == nil then
+      return false, catalog_trouble
+    end
+  end
   local linked, link_trouble = link_index.fill(db, pending, "out.")
   if not linked then
     return false, link_trouble

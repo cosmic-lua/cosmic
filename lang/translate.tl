@@ -959,18 +959,221 @@ end
 -- rewrite takes only a record with `function R:m` statements, and the guards that remain are the ceiling of
 -- `setmetatable_call`.
 
--- TODO: place the methods that move into a class after the local functions they call, or move those above the class:
--- the class stands where its record did, so a method that calls a local function declared further down reads a global
--- in the Lua the generator writes (cosmic/fs.tl calls `failing` at line 173 and declares it at line 222), and the scope
--- builder, finding no read of the function, warns `unused_function`. Eleven functions and a type of the tree are refused
--- so by the pipeline ([`build.pipeline.residue`]); it waits on the build's compile calling it (doc/plans/strict-teal.md,
--- "the switch").
+--- The first comment of a statement's doc, nil where it has none.
+local function leading_doc(doc: {Lexer.Comment} | nil): Lexer.Comment | nil
+  if doc ~= nil and #doc > 0 then
+    return doc[1]
+  end
+  return nil
+end
+
+--- Whether the node tree under `root` reads the name `text` as a value (a `Name` expression, which a type is not).
+local function reads_name(root: Ast.Node, text: string): boolean
+  local stack: {Ast.Node} = { root }
+  while #stack > 0 do
+    local node = table.remove(stack)
+    if node is Ast.Name and node.text == text then
+      return true
+    end
+    Ast.children(node, function(child: Ast.Node)
+      stack[#stack + 1] = child
+    end)
+  end
+  return false
+end
+
+--- Whether the expression `e` makes a value with no effect and reads nothing at the time: a literal, a function, or a table of
+--- those. The statement that declares such a value can stand earlier in the file than it does, as a function can.
+local function pure(e: Ast.Node): boolean
+  if e is Ast.Table then
+    for _, item in ipairs(e.items) do
+      if item is Ast.Positional then
+        if not pure(item.value) then
+          return false
+        end
+      elseif item is Ast.Named then
+        if not pure(item.value) then
+          return false
+        end
+      else
+        return false
+      end
+    end
+    return true
+  end
+  return e is Ast.FunctionLit or e is Ast.String or e is Ast.Integer or e is Ast.Float or e is Ast.Boolean or e is Ast.Nil
+end
+
+--- What moves: the name a statement declares, its doc comments, and what kind of declaration it is (`function`, `type` or
+--- `value`); nil for a statement that is none of these.
+local record Mover
+  name: string
+  doc: {Lexer.Comment} | nil
+  kind: string
+end
+
+--- Whether every member of a record or an interface is a field: one that declares a type of its own (`type Process = Process`)
+--- would name another where it stood than where it was written.
+local function fields_only(members: {Ast.Member}): boolean
+  for _, m in ipairs(members) do
+    if not (m is Ast.FieldDecl) then
+      return false
+    end
+  end
+  return true
+end
+
+local function mover_of(s: Ast.Stat, methods: {string: boolean}): Mover | nil
+  if s is Ast.LocalFunction then
+    return { name = s.name.name, doc = s.name.doc, kind = "function" }
+  elseif s is Ast.Record then
+    if methods[s.name.name] ~= true and s.array == nil and #s.supers == 0 and fields_only(s.members) then
+      return { name = s.name.name, doc = s.name.doc, kind = "type" }
+    end
+  elseif s is Ast.Interface then
+    if #s.supers == 0 and fields_only(s.members) then
+      return { name = s.name.name, doc = s.name.doc, kind = "type" }
+    end
+  elseif s is Ast.Enum then
+    return { name = s.name.name, doc = s.name.doc, kind = "type" }
+  elseif s is Ast.Local then
+    local only = s.values[1]
+    if #s.bindings == 1 and #s.values == 1 and only ~= nil and pure(only) then
+      return { name = s.bindings[1].name, doc = s.bindings[1].doc, kind = "value" }
+    end
+  end
+  return nil
+end
+
+--- The statements that stand between the record of `held` and its methods, that a method reads, to move above the record: the
+--- class stands where its record did, so a method that read a function, a type or a value declared after the record would read
+--- a global in the Lua the generator writes. A declaration moves with every one it reads that is declared between too (a
+--- type named in a signature is read freely, the new grammar letting a signature name a type declared later). It does not
+--- move when it reads a local that cannot move (one that is made by a call, say), or the record as a value (it would then be
+--- above the declaration it reads), when it shares its lines with other code, when its name is declared again, or when
+--- another record took it. A function or a table of functions and literals moves; a record with methods of its own does not.
+--- The methods that read what stays still read another name, and are hazards. In source order.
+--
+-- TODO: place a method after the local it reads that a call makes, and a function that reads the record as a value, instead of
+-- refusing the method as `unknown_variable`: the fork accepts the file. This waits on the switch (doc/plans/strict-teal.md, "the
+-- switch"), which deletes this translator and has the tree's files spell the class where the locals stand.
+local function hoists_of(tokens: {Lexer.Token}, stats: {Ast.Stat}, declared: {string: {integer}}, held: Owner,
+                         taken: {string: boolean}, methods: {string: boolean}): {Ast.Stat}
+  local rec = held.record
+  local _, rec_last = bounds(rec)
+  local record_name = rec.name.name
+  local movers: {string: Mover} = {}
+  local by_name: {string: Ast.Stat} = {}
+  local types: {string: boolean} = {}
+  for _, s in ipairs(stats) do
+    local first, last = bounds(s)
+    local mover = mover_of(s, methods)
+    if mover ~= nil and first > rec_last and taken[mover.name] ~= true and starts_line(tokens, first) and
+        ends_line(tokens, last) and #(declared[mover.name] or {}) == 1 then
+      movers[mover.name] = mover
+      by_name[mover.name] = s
+    end
+    if s is Ast.Record or s is Ast.Interface or s is Ast.Class or s is Ast.Enum or s is Ast.TypeAlias then
+      types[s.name.name] = true
+    end
+  end
+  --- The names the tree under `root` reads (a name, or the head of a type's path), that are declared between the record and the
+  --- token `at`. A type that is declared later is read freely before the token `signature_end`, the end of a signature, which
+  --- may name one declared later.
+  local function reads(root: Ast.Node, at: integer, params: {Ast.Param}, signature_end: integer): {string}
+    local own: {string: boolean} = {}
+    for _, p in ipairs(params) do
+      local pn = p.name
+      if pn ~= nil then
+        own[pn.name] = true
+      end
+    end
+    local out: {string} = {}
+    local seen: {string: boolean} = {}
+    local stack: {Ast.Node} = { root }
+    while #stack > 0 do
+      local node = table.remove(stack)
+      local name = ""
+      if node is Ast.Name then
+        name = node.text
+      elseif node is Ast.TypeName then
+        local head = node.path[1]
+        if head ~= nil and not (node.first < signature_end and types[head] == true) then
+          name = head
+        end
+      end
+      if name ~= "" and declared[name] ~= nil and own[name] ~= true and seen[name] ~= true and taken[name] ~= true and
+          declared_between(declared, name, rec_last, at) then
+        seen[name] = true
+        out[#out + 1] = name
+      end
+      Ast.children(node, function(child: Ast.Node)
+        stack[#stack + 1] = child
+      end)
+    end
+    return out
+  end
+  local deps: {string: {string}} = {}
+  local movable: {string: boolean} = {}
+  for name, mover in pairs(movers) do
+    local s = by_name[name]
+    local first = bounds(s)
+    if s is Ast.LocalFunction then
+      deps[name] = reads(s.fn, first, s.fn.params, (bounds(s.fn.body)))
+    elseif mover.kind == "type" then
+      -- A type names the types it is made of freely, and has no super to read where it stands.
+      deps[name] = {}
+    else
+      deps[name] = reads(s, first, {}, first)
+    end
+    movable[name] = mover.kind == "type" or not reads_name(s, record_name)
+  end
+  -- A declaration that reads a local that cannot move cannot either: until no more fall out.
+  local again = true
+  while again do
+    again = false
+    for name, list in pairs(deps) do
+      if movable[name] == true then
+        for _, d in ipairs(list) do
+          if movable[d] ~= true then
+            movable[name] = false
+            again = true
+          end
+        end
+      end
+    end
+  end
+  local wanted: {string: boolean} = {}
+  local function want(name: string)
+    if movable[name] == true and wanted[name] ~= true then
+      wanted[name] = true
+      for _, d in ipairs(deps[name]) do
+        want(d)
+      end
+    end
+  end
+  for _, m in ipairs(held.methods) do
+    local first = bounds(m)
+    for _, name in ipairs(reads(m.fn, first, m.fn.params, (bounds(m.fn.body)))) do
+      want(name)
+    end
+  end
+  local out: {Ast.Stat} = {}
+  for _, s in ipairs(stats) do
+    local mover = mover_of(s, methods)
+    if mover ~= nil and wanted[mover.name] == true and by_name[mover.name] == s then
+      out[#out + 1] = s
+    end
+  end
+  return out
+end
 
 --- The rewrite that moves the methods written for `held.record` into it.
 --- Nil where a method or the record is not written so that the lines can
 --- be cut: a statement that shares its line with other code.
 local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {string: {integer}}, held: Owner,
-                             strings: {{integer}}, hazards: {Translate.Hazard}): Rewrite | nil
+                             strings: {{integer}}, hazards: {Translate.Hazard}, hoisted: {Ast.Stat},
+                             taken: {string: boolean}, methods: {string: boolean}): Rewrite | nil
   local rec = held.record
   local rec_first, rec_last = bounds(rec)
   local word = rec.scope ~= nil and rec_first + 1 or rec_first
@@ -992,6 +1195,33 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
   edits[1] = replace_token(tokens, word, "class")
   local pieces: {string} = {}
   local found: {Translate.Hazard} = {}
+  -- The functions the methods read that stand between the record and them go above the record, with their docs.
+  local moved: {string: boolean} = {}
+  local lifted: {string} = {}
+  for _, s in ipairs(hoisted) do
+    local first, last = bounds(s)
+    local mover = mover_of(s, methods)
+    local s_first: Lexer.Comment | nil = nil
+    if mover ~= nil then
+      s_first = leading_doc(mover.doc)
+    end
+    local lo = line_start(source, s_first ~= nil and s_first.offset or tokens[first].offset)
+    local hi = after_line(source, tokens[last].offset)
+    lifted[#lifted + 1] = sub(source, lo, hi - 1) .. "\n"
+    local cut = hi
+    if lo > 1 and cut <= #source and blank_line(source, cut) and blank_line(source, line_start(source, lo - 1)) then
+      cut = after_line(source, cut)
+    end
+    edits[#edits + 1] = { lo = lo, hi = cut, text = "" }
+    if mover ~= nil then
+      moved[mover.name] = true
+    end
+  end
+  if #lifted > 0 then
+    local rec_doc_first = leading_doc(rec.name.doc)
+    local top = line_start(source, rec_doc_first ~= nil and rec_doc_first.offset or tokens[rec_first].offset)
+    edits[#edits + 1] = { lo = top, hi = top, text = concat(lifted) }
+  end
   for _, f in ipairs(held.methods) do
     local first, last = bounds(f)
     local open = bounds(f.fn)
@@ -1059,7 +1289,7 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
       local t = tokens[i]
       local prev = tokens[i - 1]
       if t.kind == "identifier" and declared[t.text] ~= nil and not own[t.text] and not reported[t.text] and
-          not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
+          moved[t.text] ~= true and taken[t.text] ~= true and not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
         local between, before = declared_between(declared, t.text, rec_last, first)
         if between then
           reported[t.text] = true
@@ -1110,7 +1340,7 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
         local t = tokens[i]
         local prev = tokens[i - 1]
         if t.kind == "identifier" and declared[t.text] ~= nil and not own[t.text] and not reported[t.text] and
-            not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
+            moved[t.text] ~= true and taken[t.text] ~= true and not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
           local between, before = declared_between(declared, t.text, rec_last, fl)
           if between then
             reported[t.text] = true
@@ -1188,10 +1418,28 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
   end
   local strings = multiline_tokens(tokens)
   local declared = declarations(stats)
+  -- The records in the order they stand: a function that moves above a record is above every record after it as well, and
+  -- one an earlier record took is not a name between a later record and its methods.
+  table.sort(order, function(a: Owner, b: Owner): boolean
+    return (bounds(a.record)) < (bounds(b.record))
+  end)
+  local taken: {string: boolean} = {}
+  -- The records that get methods, which are classes and stay where they are.
+  local with_methods: {string: boolean} = {}
   for _, held in ipairs(order) do
-    local made = class_rewrite(source, tokens, declared, held, strings, hazards)
+    with_methods[held.record.name.name] = true
+  end
+  for _, held in ipairs(order) do
+    local lifts = hoists_of(tokens, stats, declared, held, taken, with_methods)
+    local made = class_rewrite(source, tokens, declared, held, strings, hazards, lifts, taken, with_methods)
     if made ~= nil then
       out[#out + 1] = made
+      for _, lift in ipairs(lifts) do
+        local mover = mover_of(lift, with_methods)
+        if mover ~= nil then
+          taken[mover.name] = true
+        end
+      end
     end
   end
   return out
