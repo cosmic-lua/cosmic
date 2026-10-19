@@ -245,6 +245,14 @@ local function test_web_assets_fall_back_to_the_vendored_trees_for_an_older_bina
   assert(newer:close())
 end
 
+--- How many builds the working database of `root` records.
+local function builds_of(root: string): integer
+  local db = assert(Sqlite.open(paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM builds"))
+  assert(db:close())
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
 --- The check before a verb that only reads waits for no run that holds
 --- the working database of cosmic's own tree: that run checks the tool
 --- against the same tree, and the verb goes on at once.
@@ -262,6 +270,12 @@ local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(
   assert(held:close())
   assert(code == nil, tostring(code))
   assert(took < Clock.seconds(10), tostring(took) .. " ns")
+  -- Unchecked, the tool's code may be older than the tree's: a lookup
+  -- there builds nothing, though the lock is free now.
+  assert(reboot.unchecked(tmp), "the skipped check is not remembered")
+  local before = builds_of(tmp)
+  assert(rebuild.here("docs", false, tmp))
+  assert(builds_of(tmp) == before, "a lookup built with a tool the check skipped")
 end
 
 --- Where no run holds the working database, the check before a verb

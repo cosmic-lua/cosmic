@@ -21,6 +21,8 @@ local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local build_paths = require("build.paths")
+local reboot = require("build.reboot")
+local rebuild = require("build.rebuild")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
@@ -368,4 +370,50 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
   local after_text = (after.stdout or "") .. (after.stderr or "")
   assert(after.ok, after_text)
   assert((after.stdout or ""):find("Second words.", 1, true), after_text)
+end
+
+--- How many builds the working database of `root` records.
+local function builds_of(root: string): integer
+  local db = assert(Sqlite.open(build_paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM builds"))
+  assert(db:close())
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
+--- The check before a verb that only reads, finding the tree's own tool
+--- older than the tree while another run holds the checkout's rebuild
+--- lock, as a `cosmic test` run does for its whole run, waits for none:
+--- it rebuilds nothing, and the verb goes on. Its lookup then
+--- builds nothing and `cosmic lsp`'s stage stages nothing, which would
+--- compile or derive with that older code. The running tool is named, as
+--- the test runner's own is not the tree's ([`reboot.Seen`]).
+local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lock_is_held(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local layout = build_paths.resolve(root)
+  assert(Fs.mkdirs(layout.bin))
+  local before = builds_of(root)
+  -- Held as another process holds it: one this process holds through
+  -- build.rebuild_lock is one it takes as its own.
+  local lock = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local started = Clock.monotonic_ns()
+  local ok, failure = pcall(function()
+    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root,
+      { tool = layout.tool, environment = {} })
+    local took = Clock.monotonic_ns() - started
+    assert(code == nil, tostring(code))
+    assert(took < Clock.seconds(10), tostring(took) .. " ns")
+    assert(reboot.read_stale(root) and reboot.unchecked(root), "the stale tool is not remembered")
+    local built, trouble = rebuild.here("docs", false, root)
+    assert(built, trouble)
+    assert(builds_of(root) == before, "a lookup built with a stale tool")
+    local staged = assert(rebuild.stage(root, (assert(teal.load()))))
+    assert(staged.stale, "lsp's stage staged with a stale tool")
+  end)
+  assert(sys.close(lock))
+  if not ok then error(failure) end
 end

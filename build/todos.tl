@@ -712,12 +712,20 @@ local function run(argv: {integer:string}): integer
     log:complain(own_trouble)
     return 1
   end
-  local opening, open_trouble = work.try_open(root)
-  if opening == nil then
-    log:complain(open_trouble)
-    return 1
+  -- Made again where it is of another schema and no run holds it, as a
+  -- build makes it; where the check above went on without holding the
+  -- tool to the tree, this tool's code may be older than the tree's, so
+  -- it stages nothing and reads what is there.
+  local handle: work.Handle | nil = nil
+  local other: string | nil = nil
+  if not reboot.unchecked(root) then
+    local opening, open_trouble = work.try_open_remaking(root)
+    if opening == nil then
+      log:complain(open_trouble)
+      return 1
+    end
+    handle, other = opening.handle, opening.other_schema
   end
-  local handle = opening.handle
   local db: Sqlite.Handle
   if handle ~= nil then
     local staged, stage_trouble = work.stage(handle, own_tree)
@@ -729,19 +737,33 @@ local function run(argv: {integer:string}): integer
     db = handle.db
   else
     local working = build_paths.resolve(root).working
-    local other = opening.other_schema
-    if other ~= nil then
-      work.tell_other_schema("todos", working, other)
+    local readable: Sqlite.Handle | nil = nil
+    if other == nil then
+      if not reboot.unchecked(root) then work.tell_busy("todos", working) end
+      local opened, read_trouble = Sqlite.open(working)
+      if opened == nil then
+        log:complain("todos: " .. working .. ": " .. read_trouble)
+        return 1
+      end
+      local found, schema_trouble = work.other_schema(opened)
+      if found == nil and schema_trouble ~= "" then
+        local _, _ = opened:close()
+        log:complain("todos: " .. schema_trouble)
+        return 1
+      end
+      if found == nil then
+        readable = opened
+      else
+        local _, _ = opened:close()
+        other = found
+      end
+    end
+    if readable == nil then
+      work.tell_other_schema("todos", working, other or "")
       log:complain("todos: no TODOs listed, the working database being another tool's")
       return 1
     end
-    work.tell_busy("todos", working)
-    local opened, read_trouble = Sqlite.open(working)
-    if opened == nil then
-      log:complain("todos: " .. working .. ": " .. read_trouble)
-      return 1
-    end
-    db = opened
+    db = readable
   end
   -- Each step's trouble ends the run with `db` let go: a handle's, as a
   -- build abandons it; a read's, closed.

@@ -1,9 +1,11 @@
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
+local invoke = require("build.invoke")
 local narrow = require("build.narrow")
 local work = require("build.work")
 
@@ -521,4 +523,21 @@ local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
   end
   assert(#todos.arguments(root, { "" }).words == 1)
   assert(Fs.remove_tree(root))
+end
+
+--- `cosmic todos` in a tree whose working database is of another
+--- schema, which no run holds, makes it again as a build does and lists
+--- the tree's TODOs, rather than refusing it as one another run may be
+--- using.
+local function test_todos_makes_a_free_database_of_another_schema_again(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: listed all the same" })))
+  local made = assert(work.open(root))
+  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(work.close(made))
+  local result = invoke.run({ "todos" }, { cwd = root,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("a.tl:1: ", 1, true), result.stdout .. result.stderr)
 end

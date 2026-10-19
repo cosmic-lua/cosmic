@@ -394,8 +394,12 @@ function source.refresh(src: source.View, built: compiler)
     end
     return
   end
-  if staged ~= nil and staged.busy then
-    if not src.told_busy then
+  if staged ~= nil and (staged.busy or staged.stale) then
+    if not src.told_busy and staged.stale then
+      src.err("cosmic: lsp: this tool is older than the tree, and another cosmic run held the " ..
+          "rebuild lock when it started; not staging, answering from the tree as last staged " ..
+          "until the editor starts it again")
+    elseif not src.told_busy then
       src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
           tostring(src.working) .. "; not staging, answering from the tree as last committed")
       src.told_busy = true

@@ -36,6 +36,11 @@ local record rebuild
     --- it staged nothing, the file being of another schema than this
     --- tool's ([`work.try_open`]).
     other_schema: string | nil
+    --- Whether [`rebuild.stage`] staged nothing, the check before the
+    --- verb having found the tool older than the tree and gone on with it,
+    --- another run holding the rebuild lock ([`reboot.read_stale`]): what
+    --- this tool's code derived would be another's than the tree's.
+    stale: boolean
   end
 end
 
@@ -71,12 +76,12 @@ local function where(root: string): rebuild.Where | nil, string
   if directory == nil then
     if directory_trouble ~= "" and not own_tree then return nil, directory_trouble end
     return { project = own_tree, own_tree = own_tree, directory = nil, busy = false,
-      other_schema = nil }, ""
+      other_schema = nil, stale = false }, ""
   end
   local started, trouble = rebuild.started(directory)
   if started == nil then return nil, trouble end
   return { project = own_tree or started == true, own_tree = own_tree, directory = directory, busy = false,
-    other_schema = nil }, ""
+    other_schema = nil, stale = false }, ""
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -112,16 +117,17 @@ end
 --- what that run last committed. Nor does a lookup's wait for a run that
 --- holds the rebuild lock, a `cosmic test` run above all: it writes no
 --- projection under it, says so once ([`rebuild_lock.try_hold`]), and
---- the caller reads the projection that is there. Where the tool is
---- older than the tree and that run kept it from rebuilding
---- ([`reboot.read_stale`]), a lookup's builds nothing.
+--- the caller reads the projection that is there. Where the check before
+--- the verb went on without holding the tool to the tree
+--- ([`reboot.unchecked`]), the tool's code may be older than the tree's,
+--- so a lookup's builds nothing, and the caller reads what is there.
 local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
-  if not start and require("build.reboot").read_stale() then
-    -- The tool is older than the tree, and the run that holds the rebuild
-    -- lock builds the tree with the tree's own: this lookup reads what
-    -- is there, as it said ([`rebuild_lock.tell_not_waiting`]).
+  if not start and require("build.reboot").unchecked(root) then
+    -- Compiled by code that may be older than the tree's, the rows and
+    -- the projection would be keyed and signed as no build of the tree
+    -- would make them.
     return true, ""
   end
   if not found.project and not start then
@@ -180,19 +186,26 @@ end
 --- it was, stage and all. It waits for no other run: where one holds the
 --- database ([`work.try_open`]), nothing is staged, and what it answers
 --- is `busy`. Where the database is of another schema, nothing is staged
---- and none of it read, and what it answers names that schema. Answers
---- what the directory is, or nil and why it could not be staged.
+--- and none of it read, and what it answers names that schema. Where
+--- the check before the verb found the tool older than the tree and went
+--- on with it ([`reboot.read_stale`]), nothing is staged, and what it
+--- answers is `stale`. Answers what the directory is, or nil and why it
+--- could not be staged.
 function rebuild.stage(root: string, built: compiler): rebuild.Where | nil, string
   local found, found_trouble = where(root)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
+  if require("build.reboot").read_stale(root) then
+    return { project = true, own_tree = found.own_tree, directory = found.directory,
+      busy = false, other_schema = nil, stale = true }, ""
+  end
   local opening, open_trouble = work.try_open(root)
   if opening == nil then return nil, open_trouble end
   local handle = opening.handle
   if handle == nil then
     local other = opening.other_schema
     return { project = true, own_tree = found.own_tree, directory = found.directory,
-      busy = other == nil, other_schema = other }, ""
+      busy = other == nil, other_schema = other, stale = false }, ""
   end
   local staged, stage_trouble = work.stage(handle, found.own_tree)
   if staged == nil then

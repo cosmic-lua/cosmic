@@ -50,6 +50,15 @@ local record reboot
     "teal"
     "core"
   end
+
+  --- How a test has [`reboot.stale_exit`] see the running tool, where it
+  --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
+  --- `executable`), and the environment that says whether it boots
+  --- ([`reboot.auto_boot`]) and whether a reboot entered it (`marker`).
+  record Seen
+    tool: string
+    environment: {string:string}
+  end
 end
 
 --- Set in the environment of the process a reboot enters, so a tool
@@ -163,10 +172,19 @@ local function closing(handle: work.Handle, trouble: string): string
   return trouble
 end
 
+--- The `marker` this process runs under, as `seen` ([`reboot.Seen`]) has it
+--- where given: nil where no reboot entered it.
+local function entered_by(seen?: reboot.Seen): string | nil
+  if seen ~= nil then
+    return seen.environment[marker]
+  end
+  return sys.getenv(marker)
+end
+
 --- Why a rebuild (`into`, settling when `settle`) refuses in this
 --- process, which a reboot has entered: nil when it may go on.
-local function refusal(settle: boolean): string | nil
-  local entered = sys.getenv(marker)
+local function refusal(settle: boolean, seen?: reboot.Seen): string | nil
+  local entered = entered_by(seen)
   if entered == nil or (settle and entered == "1") then
     return nil
   end
@@ -391,21 +409,37 @@ end
 --- the verb goes on with its own code. No exit code is negative.
 local read_on <const> = -1
 
---- Whether this process's check of the tool ([`reboot.stale_exit`]) found
---- it stale and went on with its own code, another run holding the
---- rebuild lock ([`reboot.read_stale`]).
-local record WentOn
-  stale: boolean
-end
-local went_on: WentOn = { stale = false }
+--- What `guard` answers in place of `read_on` where the tool is the
+--- tree's, fresh but unsettled: the verb goes on with code as new as the
+--- tree's, so its lookup builds as any does.
+local read_on_fresh <const> = -2
 
---- Whether a verb that only reads went on with a tool older than the
---- tree, another run holding the rebuild lock ([`reboot.stale_exit`]): its
---- lookup then builds nothing ([`rebuild.here`]), since this tool's
---- compiler would compile the tree again under keys none of the tree's
---- own builds use, and reads what is there.
-function reboot.read_stale(): boolean
-  return went_on.stale
+--- The tree this process's check of the tool ([`reboot.stale_exit`]) went
+--- on in without holding the tool to it ([`reboot.unchecked`]), by its
+--- build directory, however its root is spelled, and the one it found
+--- the tool older than.
+local record WentOn
+  unchecked: string | nil
+  stale: string | nil
+end
+local went_on: WentOn = { unchecked = nil, stale = nil }
+
+--- Whether this process's check before a verb that only reads
+--- ([`reboot.stale_exit`]) went on in the tree at `root` without holding
+--- the tool to it: another run held its working database, so the check
+--- was skipped, or held the rebuild lock while the tool was older than
+--- the tree. A lookup there then builds nothing ([`rebuild.here`]), since
+--- this tool's code may be older than the tree's, and reads what is
+--- there.
+function reboot.unchecked(root: string): boolean
+  return went_on.unchecked ~= nil and went_on.unchecked == build_paths.resolve(root).directory
+end
+
+--- Whether that check found the tool older than the tree at `root` and
+--- went on with it, another run holding the rebuild lock: then `cosmic
+--- lsp` stages nothing either ([`rebuild.stage`]).
+function reboot.read_stale(root: string): boolean
+  return went_on.stale ~= nil and went_on.stale == build_paths.resolve(root).directory
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
@@ -662,10 +696,12 @@ end
 --- rebuild or boot that failed, and 1 when the check itself failed.
 --- With `reads`, for a verb that only reads, it waits for no run holding
 --- the rebuild lock: where one does, it closes `handle`, says so once,
---- and answers -1 (`read_on`), the verb going on with its own code.
+--- and answers -1 (`read_on`), or -2 (`read_on_fresh`) for a tool as new
+--- as the tree but unsettled, the verb going on with its own code.
+--- `seen` is [`reboot.Seen`].
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
-                      argv: {integer:string}, reads?: boolean): integer | nil
+                      argv: {integer:string}, reads?: boolean, seen?: reboot.Seen): integer | nil
   local state, state_trouble = state_of(handle)
   if state == nil then
     log:complain(closing(handle, state_trouble))
@@ -674,7 +710,9 @@ function reboot.guard(handle: work.Handle, root: string,
   if state == "fresh" and not unsettled() then
     return nil
   end
-  local own, own_tool_trouble = reboot.own_tool(root)
+  local tool: string | nil = nil
+  if seen ~= nil then tool = seen.tool end
+  local own, own_tool_trouble = reboot.own_tool(root, tool)
   if own == nil then
     log:complain(closing(handle, own_tool_trouble))
     return 1
@@ -683,12 +721,15 @@ function reboot.guard(handle: work.Handle, root: string,
     if not own then
       return nil
     end
-    local refused = refusal(true)
+    local refused = refusal(true, seen)
     if refused ~= nil then
       log:complain(closing(handle, refused))
       return 3
     end
     local waited = serialize(handle, root, argv, reads == true)
+    if waited == read_on then
+      return read_on_fresh
+    end
     if waited ~= nil then
       return waited
     end
@@ -702,11 +743,13 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   if state == "core" then
-    if not reboot.auto_boot() then
+    local environment: {string:string} | nil = nil
+    if seen ~= nil then environment = seen.environment end
+    if not reboot.auto_boot(environment) then
       log:complain(closing(handle, core_refusal))
       return 3
     end
-    if sys.getenv(marker) ~= nil then
+    if entered_by(seen) ~= nil then
       log:complain(closing(handle, "the tool is still stale after a reboot"))
       return 3
     end
@@ -732,8 +775,8 @@ function reboot.guard(handle: work.Handle, root: string,
   -- which is the tree's ([`carries_tree_code`]), takes of the tree, rather
   -- than refusing; `into` sets the marker to "2", so a tool stale after
   -- that refuses.
-  local settle = sys.getenv(marker) == "1" and unsettled()
-  local refused = refusal(settle)
+  local settle = entered_by(seen) == "1" and unsettled()
+  local refused = refusal(settle, seen)
   if refused ~= nil then
     log:complain(closing(handle, refused))
     return 3
@@ -791,22 +834,29 @@ end
 --- lock, a whole `cosmic test` run above all: where the tool is stale,
 --- it rebuilds nothing, says so once
 --- ([`rebuild_lock.tell_not_waiting`]), and goes on with this binary's
---- code as above. A verb that writes waits for either lock, as its build
---- would.
+--- code as above, saying once too that the code is older than the
+--- tree's. A tool as new as the tree but unsettled goes on so too. A verb
+--- that writes waits for either lock, as its build would. Where it went
+--- on without holding the tool to the tree, the verb's lookup builds
+--- nothing ([`reboot.unchecked`]).
 ---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tree is not cosmic's own
 --- or the tool is fresh, or an exit code to return at once, having said
 --- why.
 --- @param argv the command line, re-entered after a rebuild
--- TODO: a reader that skipped this check reads rows and a projection a
--- newer tool may have written with its own older code, and `cosmic lsp`,
--- which runs for good, reads them so at every stage and hover once a
--- boot or a rebuild has moved the tool on. Once the working database and
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+-- TODO: a reader that skipped this check, or that found the tool older
+-- than the tree and went on with it because another run held the
+-- rebuild lock (`read_on`), reads rows and a projection a newer tool may
+-- have written with its own older code, and `cosmic lsp`, which runs for
+-- good, reads them so at every stage and hover once a boot or a rebuild
+-- has moved the tool on. Once the working database and
 -- the projection record the code of the tool that wrote them, as `meta`'s
 -- `analyzer` records the stubs', a reader whose code is other than that
 -- says so and reads none of what its code may misread.
-function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string): integer | nil
+function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string,
+                           seen?: reboot.Seen): integer | nil
   local at = root
   if at == nil then
     local found, root_trouble = Fs.absolute(".")
@@ -840,6 +890,7 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
       else
         work.tell_busy(argv[1] or "cosmic", working)
       end
+      went_on.unchecked = build_paths.resolve(at).directory
       return nil
     end
     handle = held
@@ -868,7 +919,9 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
     -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
     if fresh and unsettled() then
-      local own, _ = reboot.own_tool(at)
+      local tool: string | nil = nil
+      if seen ~= nil then tool = seen.tool end
+      local own, _ = reboot.own_tool(at, tool)
       fresh = own == false
     end
   end
@@ -878,14 +931,25 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
       log:complain(closing(handle, stage_trouble))
       return 1
     end
-    local code = reboot.guard(handle, at, argv, reads)
+    local code = reboot.guard(handle, at, argv, reads, seen)
     if code == read_on then
-      went_on.stale = true
+      local directory = build_paths.resolve(at).directory
+      if went_on.stale ~= directory then
+        log:complain((argv[1] or "cosmic") .. ": this tool is older than the tree, so what it answers " ..
+            "comes from its own older code")
+      end
+      went_on.unchecked, went_on.stale = directory, directory
+      return nil
+    end
+    if code == read_on_fresh then
       return nil
     end
     if code ~= nil then
       return code
     end
+  end
+  if reboot.unchecked(at) then
+    went_on.unchecked, went_on.stale = nil, nil
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
