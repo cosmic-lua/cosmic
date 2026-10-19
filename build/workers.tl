@@ -367,8 +367,9 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
   return {
     ready = ready,
     parse = function(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
-                     tally: derivation.Parses, made: {derivation.Source}): boolean, string
-      return worker.parse(pool, db, built, fresh, tally, made)
+                     tally: derivation.Parses, made: {derivation.Source},
+                     broken?: {derivation.Broken}): boolean, string
+      return worker.parse(pool, db, built, fresh, tally, made, broken)
     end,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own_tree: boolean,

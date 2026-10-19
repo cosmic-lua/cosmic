@@ -156,7 +156,7 @@ local function test_a_checked_compile_takes_no_pool(tmp: string)
   local pool: importer.Workers = {
     ready = function(_: integer): boolean return false end,
     parse = function(_: Sqlite.Handle, _: Compiler, _: {derivation.Fresh}, _: derivation.Parses,
-                     _: {derivation.Source}): boolean, string
+                     _: {derivation.Source}, _?: {derivation.Broken}): boolean, string
       return true, ""
     end,
     compile = function(_: Sqlite.Handle, _: string, _: {importer.Module}, _: {string:boolean},
