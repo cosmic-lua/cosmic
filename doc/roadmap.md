@@ -203,10 +203,10 @@ promises lean on come first:
   [`cosmic.shape`] check. None casts it in a function that
   [`build/contracts.tl`]'s `casts` names; what is left:
   - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
-    `assert` per field (`release_ids`, `target`, `workflows_moved`,
-    `asset_names`, `flag`). `prerelease_test.tl` pins `release_ids`'
-    messages, and it asks for an `id` only of the releases that carry the tag,
-    which a record would ask of every one.
+    `assert` per field (`draft_ids`, `target`, `workflows_moved`,
+    `asset_names`, `flag`). `prerelease_test.tl` pins `draft_ids`'
+    messages, and it asks for an `id` only of the drafts that carry the tag,
+    which a record would ask of every release.
   - the workflow files, read as JSON5 and cast to maps in
     [`ci/cosmic_ci/queue_stage_test.tl`], [`build/workflows_test.tl`] and
     `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
