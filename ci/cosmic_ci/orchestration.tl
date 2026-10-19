@@ -536,8 +536,11 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 local fixed_point_test_timeout_ns <const> = Clock.seconds(600)
 local fixed_point_per_test_timeout_s <const> = "420"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
---- for what it takes.
-local checked_suite_timeout_ns <const> = Clock.seconds(1200)
+--- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
+--- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
+--- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). The job's 45 minutes hold the
+--- build before this step and the narrowing run after it.
+local checked_suite_timeout_ns <const> = Clock.seconds(1500)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -1070,12 +1073,14 @@ local function checked_suite(c: Context, target: string, work: string,
   mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
-  -- The bound is about twice what the suite takes when no verdict
-  -- stands: 271 s whole (248 to 285 over six main runs of September 2026)
-  -- for 1948 tests on a 4-core host, each worker sandboxed, the checked
-  -- core running each test about 2.9 times slower than the release core
-  -- does; 3709 tests took 395 s locally on four cores in October 2026,
-  -- and more than 600 s on CI's, in the merge queue.
+  -- The bound is a little over a third above what the suite takes when
+  -- no verdict stands: 271 s whole (248 to 285 over six main runs of
+  -- September 2026) for 1948 tests on a 4-core host, each worker
+  -- sandboxed, the checked core running each test about 2.9 times slower
+  -- than the release core does; 3709 tests took 395 s locally on four
+  -- cores in October 2026, and more than 600 s on CI's, in the merge
+  -- queue; 7800 tests took 800 to 1114 s there, and 1700 to 1900 s on
+  -- four cores here (see `checked_suite_timeout_ns`).
   -- Where its key holds, it stands on the last run's verdicts as the
   -- local suite does: a commit that moves neither the core nor the
   -- runner keys the checked core by the same digest, since its image
