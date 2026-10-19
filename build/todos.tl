@@ -721,7 +721,8 @@ function todos.run(argv: {integer:string}, at?: string, seen?: reboot.Seen): int
   -- Made again where it is of another schema and no run holds it, as a
   -- build makes it; where the check above went on without holding the
   -- tool to the tree, this tool's code may be older than the tree's, so
-  -- it stages nothing and reads what is there.
+  -- it stages nothing and reads what is there, where this tool's code
+  -- staged it ([`work.other_code`]).
   local handle: work.Handle | nil = nil
   local other: string | nil = nil
   if not reboot.unchecked(root) then
@@ -773,6 +774,19 @@ function todos.run(argv: {integer:string}, at?: string, seen?: reboot.Seen): int
     if readable == nil then
       work.tell_other_schema("todos", working, other or "")
       log:complain("todos: no TODOs listed, the working database being another tool's")
+      return 1
+    end
+    -- Rows this process did not stage: another code's it reads none of.
+    local staged_by, staged_by_trouble = work.other_code(readable)
+    if staged_by == nil and staged_by_trouble ~= "" then
+      local _, _ = readable:close()
+      log:complain("todos: " .. staged_by_trouble)
+      return 1
+    end
+    if staged_by ~= nil then
+      local _, _ = readable:close()
+      work.tell_other_code("todos", working, staged_by)
+      log:complain("todos: no TODOs listed, the working database being staged by another tool's code")
       return 1
     end
     db = readable

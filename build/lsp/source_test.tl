@@ -569,3 +569,34 @@ local function test_an_unchecked_lsp_trusts_no_analyzer_the_database_records()
   assert(src.analyzer ~= "another analyzer", "took the database's analyzer for its own")
   assert(not src.stubs, "trusted the database's stubs")
 end
+
+--- What a session has said, line by line.
+local record Said
+  said: string
+end
+
+--- A session finds no module in a database that another tool's code
+--- staged last, another run's ([`work.other_code`]), saying so once,
+--- and reads it again once a stage of its own code stages it.
+local function test_a_database_another_code_staged_is_read_none_of_until_staged_again()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local held: Said = { said = "" }
+  local src = source.new(root, function(line: string) held.said = held.said .. line .. "\n" end)
+  local built = assert(teal.load())
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") ~= nil, "the staged module is not found")
+  local other = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(other:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(other:close())
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") == nil, "a module another code staged is found")
+  source.refresh(src, built)
+  local _, told = held.said:gsub("was staged by the tool of boot hash another tool", "")
+  assert(told == 1, held.said)
+  source.stale(src)
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") ~= nil, "the module its own stage staged is not found")
+  source.close(src)
+end

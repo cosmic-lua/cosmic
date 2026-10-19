@@ -518,6 +518,63 @@ local function running(handle: work.Handle, identities: identity.Identities,
   return Store.meta("writer") or ("boot " .. boot_hash)
 end
 
+--- An identity a projection records, as what is said names it: its
+--- first twelve characters, or "none recorded" for "", none.
+local function named(recorded: string): string
+  if recorded == "" then return "none recorded" end
+  return recorded:sub(1, 12)
+end
+
+--- What the projection `db` records of the code that wrote it, where
+--- that is other than the code this process runs: its writer
+--- (`written_by`) and the compiler that compiled and parsed what it
+--- holds (`compiled_by`). This process names its writer as [`running`]
+--- does: one that carries no boot hash, as a boot does, or carries the
+--- one the projection records being made from (`boot_hash`), runs that
+--- tree's code, so its writer is that tree's, which the projection
+--- records beside it (`writer`); any other names the `writer` it
+--- carries, or its whole boot hash. Answers the one that differs, as
+--- what is said names it; nil where both are this process's own.
+---
+--- These name the code, not the whole tool's boot hash as the working
+--- database does ([`work.other_code`]): a projection is the database of
+--- the tool built from it, and holds the bytes a boot writes, which a
+--- rebuild by a stale tool lands on only while it records the writer
+--- and the compiler, never the tool, that wrote it. Nil and why where
+--- the read fails.
+--- @param compiler the compiler identity a build in this process
+--- compiles under ([`rebuild.compiler`])
+function writer.other_code(db: Sqlite.Handle, compiler: string): string | nil, string
+  -- "" for a row it lacks, a value no identity is.
+  local function value(key: string): string
+    return "coalesce((SELECT value FROM meta WHERE key = '" .. key .. "'), '')"
+  end
+  local rows, trouble = Sqlite.text_rows(db, "SELECT " .. value("written_by") .. ", " ..
+      value("compiled_by") .. ", " .. value("writer") .. ", " .. value("boot_hash"))
+  if rows == nil then
+    return nil, trouble
+  end
+  local row = rows[1]
+  if row == nil then
+    return nil, "the projection's meta answered no row"
+  end
+  local written_by, compiled_by = row:text(1), row:text(2)
+  local own_writer = row:text(3)
+  local boot_hash = Store.meta("boot_hash")
+  if boot_hash ~= nil and boot_hash ~= row:text(4) then
+    own_writer = Store.meta("writer") or ("boot " .. boot_hash)
+  end
+  if written_by == "" or written_by ~= own_writer then
+    return "a writer other than this tool's (" .. named(written_by) .. ", not " ..
+      named(own_writer) .. ")", ""
+  end
+  if compiled_by ~= compiler then
+    return "a compiler other than this tool's (" .. named(compiled_by) .. ", not " ..
+      named(compiler) .. ")", ""
+  end
+  return nil, ""
+end
+
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
 --- The attached in-memory projection is filled before the working transaction

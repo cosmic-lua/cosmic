@@ -15,6 +15,7 @@ local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
+local rebuild = require("build.rebuild")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -66,9 +67,11 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   written.value = written.value + 1
   local path = dir .. "/cosmic-" .. written.value .. ".db"
   -- A fixture's tree stands in for cosmic's own, whose links name its
-  -- own standard library and not the binary's.
+  -- own standard library and not the binary's. It is compiled under the
+  -- compiler a build in this process names ([`rebuild.compiler`]), so a
+  -- lookup takes the projection for its own code's ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = "", refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
+    modules = {}, tool = rebuild.compiler(), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
     worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
   }, nil, link_index.none))
   assert(db:close())

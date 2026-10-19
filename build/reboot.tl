@@ -855,21 +855,24 @@ end
 --- on without holding the tool to the tree, the verb's lookup builds
 --- nothing ([`reboot.unchecked`]).
 ---
+--- What such a reader reads, another run, of a newer tool or an older
+--- one, may have written with code other than its own. So the working
+--- database records the boot hash of the code that staged it
+--- ([`work.other_code`]), and the projection the writer and the compiler
+--- that wrote it ([`writer.other_code`]), and a reader whose code is
+--- other than that says so once and reads none of it: `todos` lists no
+--- TODO, `docs`, `uses` and `help` answer from the binary's own
+--- databases alone, and `cosmic lsp`, which runs for good and so reads
+--- them at every stage and hover once a boot or a rebuild has moved the
+--- tool on, finds no module in the one and no docs in the other. `sql`
+--- and `db` show the rows as stored, taking them to mean nothing.
+---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tree is not cosmic's own
 --- or the tool is fresh, or an exit code to return at once, having said
 --- why.
 --- @param argv the command line, re-entered after a rebuild
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
--- TODO: a reader that skipped this check, or that found the tool older
--- than the tree and went on with it because another run held the
--- rebuild lock (`read_on`), reads rows and a projection a newer tool may
--- have written with its own older code, and `cosmic lsp`, which runs for
--- good, reads them so at every stage and hover once a boot or a rebuild
--- has moved the tool on. Once the working database and
--- the projection record the code of the tool that wrote them, as `meta`'s
--- `analyzer` records the stubs', a reader whose code is other than that
--- says so and reads none of what its code may misread.
 function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string,
                            seen?: reboot.Seen): integer | nil
   local at = root

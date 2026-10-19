@@ -277,7 +277,8 @@ lsp.spec = {
   -- rebuilds it only before the verb runs. A session whose check went on
   -- without holding the tool to the tree, another run holding its
   -- database or rebuild lock ([`reboot.unchecked`]), serves the stubs last
-  -- staged until it is restarted, staging nothing, even once the locks
+  -- staged, or none where other code staged them ([`work.other_code`]),
+  -- until it is restarted, staging nothing, even once the locks
   -- are free. The fix: at each stage, once no run holds them, check the
   -- tool against the tree, and where it is stale re-enter the rebuilt
   -- tool in this process, as [`build.reboot`] does, keeping the editor's

@@ -92,6 +92,14 @@ local function unchecked(root: string): boolean
   return require("build.reboot").unchecked(root)
 end
 
+--- The compiler identity a build in this process compiles under: the
+--- one the build that made this binary recorded, or "" for one that
+--- carries none. A project's rows are keyed by it, and a projection
+--- records it as `compiled_by` ([`writer.other_code`]).
+function rebuild.compiler(): string
+  return Store.meta("compiler") or ""
+end
+
 --- Whether `root` looks like a project that has not been built: Teal at
 --- its top, or a `cmd/`.
 local function looks_unbuilt(root: string): boolean
@@ -166,7 +174,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     return false, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle, teal.lazy(),
-    Store.meta("compiler") or "", false, shared_compiles.for_build(),
+    rebuild.compiler(), false, shared_compiles.for_build(),
     workers.pool(workers.tool_spec()))
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")

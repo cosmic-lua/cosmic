@@ -1,7 +1,9 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local rebuild = require("build.rebuild")
 local sys = require("cosmic.sys")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
@@ -2485,4 +2487,42 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     assert(line == plain_public[index], line .. "\n--\n" .. plain_public[index])
     assert(indexed_private[index] == plain_private[index], indexed_private[index])
   end
+end
+
+--- A project's own projection is read only where the code that wrote
+--- it, its writer and its compiler ([`writer.other_code`]), is this
+--- tool's: one either of another tool's wrote is left out, as one that
+--- cannot be read is, and the store's databases answer alone.
+local function test_a_projection_other_code_wrote_is_left_out(dir: string)
+  local store = built(dir, fs_tree())
+  local directory = dir .. "/build"
+  assert(Fs.mkdirs(directory))
+  local projection = assert(Sqlite.open(directory .. "/cosmic.db", { writable = true }))
+  for _, statement in ipairs(schema.create("")) do
+    assert(projection:exec(statement))
+  end
+  -- What this process names its writer: the one it carries, or,
+  -- carrying no boot hash, the tree's, which the projection records.
+  local boot_hash = Store.meta("boot_hash")
+  local own_writer = "the tree's writer"
+  if boot_hash ~= nil then own_writer = Store.meta("writer") or ("boot " .. boot_hash) end
+  assert(Sqlite.run(projection,
+    "INSERT INTO meta (key, value) VALUES ('written_by', ?1), ('writer', ?1), ('compiled_by', ?2)",
+    { { text = own_writer }, { text = rebuild.compiler() } }))
+  local known: docs.Known = { directory = directory, own_tree = false }
+  local function read(): integer
+    local sources = docs.databases({ store }, dir, known)
+    for _, opened in ipairs(sources.opened) do assert(opened:close()) end
+    return #sources.handles
+  end
+  assert(read() == 2, "a projection this tool's code wrote is left out")
+  for _, key in ipairs({ "written_by", "compiled_by" }) do
+    assert(Sqlite.run(projection, "UPDATE meta SET value = 'another ' || value WHERE key = ?1",
+      { { text = key } }))
+    assert(read() == 1, "a projection whose " .. key .. " is another tool's is read")
+    assert(Sqlite.run(projection, "UPDATE meta SET value = substr(value, 9) WHERE key = ?1",
+      { { text = key } }))
+  end
+  assert(read() == 2, "a projection this tool's code wrote is left out")
+  assert(projection:close())
 end

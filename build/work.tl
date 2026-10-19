@@ -871,16 +871,22 @@ function work.try_open_remaking(root: string): work.Opening | nil, string
 end
 
 --- What the process has said of the working database at a path, by
---- what it said and the path ([`tell_once`]).
+--- what it said and the path ([`work.first_time`]).
 local told: {string:boolean} = {}
 
---- Says `line` on stderr, once a process for each `kind` of line said of
---- the working database at `path`.
-local function tell_once(kind: string, path: string, line: string)
+--- Whether this process is yet to say a `kind` of line of the database
+--- at `path`, which it is taken to say now: true once a process for each.
+function work.first_time(kind: string, path: string): boolean
   local key = kind .. "\0" .. path
-  if told[key] == true then return end
+  if told[key] == true then return false end
   told[key] = true
-  log:complain(line)
+  return true
+end
+
+--- Says `line` on stderr, once a process for each `kind` of line said of
+--- the database at `path` ([`work.first_time`]).
+local function tell_once(kind: string, path: string, line: string)
+  if work.first_time(kind, path) then log:complain(line) end
 end
 
 --- Says once a process, on stderr, that `verb` does not wait for the
@@ -1214,6 +1220,19 @@ local function static_refusal(root: string, real_root: string, file: string, siz
   return nil
 end
 
+--- The boot hash of the code this process runs: the running binary's,
+--- or, in a boot, which runs the tree's own code and carries no
+--- database, the one of the tool it writes, over the `tool` rows the
+--- stage wrote ([`identity.record_fingerprint`]'s `boot`). A stage
+--- records it as `staged_by` ([`work.other_code`]).
+local function running_tool(db: Sqlite.Handle): string | nil, string
+  local boot_hash = Store.meta("boot_hash")
+  if boot_hash ~= nil then
+    return boot_hash, ""
+  end
+  return identity.hash_over(db, "1")
+end
+
 --- Reads the links of the files of `linked` not yet read (see its
 --- definition, which needs [`identity.hash_over`]).
 local find_links: function(handle: work.Handle, texts: {string:string}): boolean, string
@@ -1512,7 +1531,66 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   if not pruned then
     return nil, prune_trouble
   end
+  local by, by_trouble = running_tool(db)
+  if by == nil then
+    return nil, by_trouble
+  end
+  local recorded, record_trouble = Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('staged_by', ?1)", { text(by) })
+  if not recorded then
+    return nil, record_trouble
+  end
   return staged
+end
+
+--- The code the working database `db` records staging it (`meta`'s
+--- `staged_by`, [`work.stage`]), where that is other than the code this
+--- process runs ([`running_tool`]): the boot hash it records, or "" where
+--- it records none, as one an older tool staged does. Nil where it is
+--- this process's own. A process that carries no boot hash runs the
+--- tree's own code, as a boot does, so it takes the tree's code as that
+--- database last staged it for its own.
+--- A reader that reads rows it did not stage itself -- another run
+--- holding the database, or the check before the verb having gone on
+--- without holding the tool to the tree ([`reboot.unchecked`]) -- reads
+--- none of a database another code staged: what that code wrote, and
+--- what its parses and compiles keyed, may mean other than this code
+--- takes it to. Nil and why where the read fails.
+function work.other_code(db: Sqlite.Handle): string | nil, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'staged_by'")
+  if rows == nil then
+    return nil, trouble
+  end
+  local row = rows[1]
+  if row == nil then
+    return "", ""
+  end
+  local recorded = row:text(1)
+  local own, own_trouble = running_tool(db)
+  if own == nil then
+    return nil, own_trouble
+  end
+  if recorded == own then
+    return nil, ""
+  end
+  return recorded, ""
+end
+
+--- How what is said names `code`, the boot hash a database records of
+--- the tool that wrote it ([`work.other_code`]), "" where it records none.
+function work.code_name(code: string): string
+  if code == "" then return "a tool that recorded no code of its own" end
+  return "the tool of boot hash " .. code:sub(1, 12)
+end
+
+--- Says once a process, on stderr, that `verb` reads none of the working
+--- database at `path`, which records being staged by `code`, other code
+--- than this tool's ([`work.other_code`]).
+function work.tell_other_code(verb: string, path: string, code: string)
+  tell_once("other_code " .. code, path, verb .. ": " .. path .. " was staged by " ..
+      work.code_name(code) .. ", not this tool's; reading none of it, which this tool's " ..
+      "code may misread: a run of this tool that stages it, as `cosmic test` does, makes it " ..
+      "this tool's")
 end
 
 --- The code finding links as this process runs it, and the boot hash
