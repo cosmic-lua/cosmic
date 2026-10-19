@@ -303,6 +303,11 @@ SyntaxCodes.catalog = {
     fix = "write `else <value>` before `end`; to run statements on a condition, write an `if` statement",
   },
   {
+    code = "close_repeated", stage = "parser", rule = GRAMMAR,
+    why = "a declaration of several locals holds at most one `<close>`, as Lua 5.4 reads it: the Lua written for two would not load",
+    fix = "declare each `<close>` local in a statement of its own",
+  },
+  {
     code = "match_needs_call", stage = "parser", rule = GRAMMAR,
     why = "a `match` selects among the lists of values a call may answer, so what it takes is a call",
     fix = "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on a " ..

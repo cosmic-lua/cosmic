@@ -267,6 +267,15 @@ local function test_digit_separators_and_hexadecimal_floats_are_written_plainly(
   translates("local a = 0x1p4 + 0x.8 + 0x1.8p1\n", "local a = 16.0 + 0.5 + 3.0\n")
 end
 
+local function test_a_separator_not_between_two_digits_is_left_to_be_refused()
+  -- the fork refuses these as malformed numbers, so the program is not made right by dropping the `_`
+  for _, source in ipairs({ "local a = 1__0\n", "local a = 1_\n", "local a = 0x_F\n", "local a = 0xF_\n",
+      "local a = 1_0__0\n", "local a = 1_000_\n" }) do
+    local result = Translate.translate(source, "t.tl")
+    assert(result.text == source, source .. " became " .. result.text)
+  end
+end
+
 -- declarations
 
 local function test_a_record_or_enum_declared_as_a_type_is_declared_with_its_word()

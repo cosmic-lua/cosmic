@@ -160,6 +160,10 @@ for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
 end
+for _, name in ipairs({ "tokens", "sites", "collect", "id", "fixed", "matches" }) do
+  allowed["build.fork_refusals." .. name] = "tested directly: a step of `read` and `best`, which the gate's tools take, each " ..
+    "tested over sources of its own in build/fork_refusals_test.tl; the module goes with the fork"
+end
 allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
   "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
   "call by the module's own name alone"

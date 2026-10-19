@@ -150,6 +150,10 @@ local record Codes
     "narrows_unproved"
     -- a local assigned twice by one statement
     "assign_repeated"
+    -- a generic `for` with a fourth expression after `in`, which Lua takes as the value to close
+    "iterator_extra"
+    -- a generic `for` that names more variables than its iterator answers values
+    "iterator_variables"
     -- not yet checked: a form a later piece of the checker types
     -- a binding of C, or a global the declarations lack
     "unchecked_binding"
@@ -207,7 +211,7 @@ Codes.codes = {
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
-  "assign_repeated",
+  "assign_repeated", "iterator_extra", "iterator_variables",
   "unchecked_binding",
 }
 
@@ -589,6 +593,17 @@ Codes.catalog = {
     why = "`x, x = a, b` leaves the order of the two assignments open in Lua, so the value of `x` after it, and the fact " ..
       "a test held of it, would depend on an order the program does not fix",
     fix = "assign <name> once, or in two statements in the order you mean",
+  },
+  {
+    code = "iterator_extra", rule = "calls take the arguments the function declares",
+    why = "a generic `for` calls its iterator with a state and a control value; a fourth expression after `in` is the " ..
+      "value Lua closes when the loop ends, and it raises when that value has no `__close`",
+    fix = "write at most three expressions after `in`",
+  },
+  {
+    code = "iterator_variables", rule = "calls take the arguments the function declares",
+    why = "a generic `for` binds the values its iterator answers, so a variable past them is always nil",
+    fix = "name no more variables than the iterator answers values",
   },
   { code = "unchecked_binding", rule = "declarations are the trust boundary", why = WAITING,
     fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files" },

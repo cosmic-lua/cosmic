@@ -89,6 +89,8 @@ local record Parser
     "if_needs_else" "match_needs_call"
     -- a method whose first parameter is not `self`, and a method named as if outside its class
     "method_needs_self" "method_path"
+    -- a second `<close>` local in one declaration
+    "close_repeated"
     -- a comma with nothing after it in a list of parameters or patterns
     "trailing_comma"
     -- two `match` arms on a line
@@ -1891,10 +1893,21 @@ local function parse_local(): Ast.Stat
     end
     return decl
   end
-  local bindings: {Ast.Binding} = { parse_local_binding("a local") }
+  local head_binding = parse_local_binding("a local")
+  local bindings: {Ast.Binding} = { head_binding }
+  local closing = head_binding.attr == "close"
   while S.text == "," do
     advance()
-    bindings[#bindings + 1] = parse_local_binding("a local")
+    local at = S.pos
+    local each = parse_local_binding("a local")
+    if each.attr == "close" then
+      if closing then
+        report("close_repeated", at, "`" .. each.name .. "` is a second `<close>` local of one declaration, which Lua 5.4 refuses",
+          "declare each `<close>` local in a statement of its own")
+      end
+      closing = true
+    end
+    bindings[#bindings + 1] = each
   end
   bindings[1].doc = doc_of(first)
   local types: {Ast.Type} = {}
@@ -2572,7 +2585,7 @@ Parser.codes = {
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
   "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
   "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
-  "method_path", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
+  "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
   "old_type_declaration", "narrowing_return", "too_deep",
 }

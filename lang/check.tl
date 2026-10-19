@@ -5029,6 +5029,20 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
   local vals = values_of(ctx, s.iterators, nil, nil)
   local iterator = vals.types[1] or vals.tail
   local types: {Type} = {}
+  local fourth = s.iterators[4]
+  if fourth ~= nil then
+    report(ctx, "iterator_extra", fourth, "a generic `for` takes an iterator, a state and a first control value, and " ..
+        subject(ctx, fourth) .. " is a fourth: Lua takes it as the value to close, and raises when it has no `__close`",
+      "write at most three expressions after `in`")
+  else
+    -- a call that answers a fourth value in the last place gives the same closing value
+    local closing = vals.types[4]
+    local last_expression = s.iterators[#s.iterators]
+    if closing ~= nil and closing ~= ctx.nil_type and last_expression ~= nil then
+      report(ctx, "iterator_extra", last_expression, subject(ctx, last_expression) .. " answers a fourth value, which Lua takes " ..
+          "as the value to close, and raises when it has no `__close`", "write at most three expressions after `in`")
+    end
+  end
   local several, last = vals.lists, vals.last
   if several ~= nil and last ~= nil then
     local _ = first_value(ctx, last, several)
@@ -5073,6 +5087,18 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
       if not (first ~= nil and first.tag == "nil") then
         alts[#alts + 1] = alt
       end
+    end
+    local produces, open = 0, false
+    for _, alt in ipairs(alts) do
+      produces = math.max(produces, #alt.items)
+      open = open or alt.tail ~= nil
+    end
+    local surplus = s.vars[produces + 1]
+    if surplus ~= nil and not open and #alts > 0 then
+      report(ctx, "iterator_variables", surplus, quoted(surplus.name) .. " is variable " .. tostring(produces + 1) ..
+          " of a `for`, and the iterator answers " .. tostring(produces) .. (produces == 1 and " value" or " values") ..
+          ", so it is always nil",
+        "name no more variables than the iterator answers values")
     end
     for i = 1, #s.vars do
       local t = column(ctx, alts, i)
