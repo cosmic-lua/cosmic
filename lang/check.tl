@@ -138,6 +138,11 @@ local record Check
     --- have none: the target of an assignment, the string of a `require`, the head name of a `function M.f()` statement, a `...`,
     --- a type name (see [`Declarations.Lowered.types`]) and a node the checker did not reach (a body it skipped).
     types: {integer: Type}
+    --- The function each call and method call took, by the id of the call node (empty where `typed` is false): the type of
+    --- the callee for a call of one function, the overload taken (instantiated, for a generic one) for a call of several.
+    --- A method call has no node for its callee, so this is the only place its function type is kept
+    --- ([`build.syntax_contracts`] reads whether a method answers a reason). A call whose callee is no function has none.
+    callees: {integer: Type}
     --- The warnings ([`lang.warnings`]), in source order: the unused and unread names, and the `hint` ones.
     warnings: {Warnings.Warning}
   end
@@ -283,6 +288,8 @@ local record Ctx
   narrowed: {integer: Check.Narrowed}
   --- The type of each expression typed, by the id of its node, and the warnings found.
   types: {integer: Type}
+  --- The function each call took, by the id of the call node ([`Check.Checked.callees`]).
+  callees: {integer: Type}
   --- Whether the type of each node is kept in `types`.
   typed: boolean
   --- The field read last in a chain and the type of the value it was read from, for the hint of a method called with `.`.
@@ -3926,6 +3933,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
           -- The callee is the overload taken (instantiated, for a generic one), not the first the name has.
           ctx.types[base_of(node.callee).id] = c
         end
+        if ctx.typed then
+          ctx.callees[base_of(node).id] = c
+        end
         return c.rets
       end
       reasons[#reasons + 1] = overload_line(ctx, declared, failure)
@@ -3980,6 +3990,9 @@ local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, ca
   end
   if #list == 1 then
     if first is Fn then
+      if ctx.typed then
+        ctx.callees[base_of(node).id] = first
+      end
       if #first.tparams > 0 then
         return Calls.generic(ctx, node, callee, first, args, recv, recv_node, expected)
       end
@@ -5469,7 +5482,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
     bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
     top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -5518,7 +5531,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   end)
   return {
     errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed, types = ctx.types,
-    warnings = warnings,
+    callees = ctx.callees, warnings = warnings,
   }
 end
 
