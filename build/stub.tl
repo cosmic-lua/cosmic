@@ -9,9 +9,12 @@
 --- dropped, since the checker reads neither; lexing them is a good part of
 --- what a module costs it.
 ---
---- Leaving a body out cannot change the module's type: tl takes a
---- function's types from its signature, or from the context of a function
---- literal, never from its body. A body is still checked
+--- Leaving a body out leaves each function's type as it is: tl takes it
+--- from the function's signature, or from the context of a function
+--- literal, never from its body. It can change other types: a body can
+--- add a function to an outer record, type an outer empty table by its
+--- use, or resolve a type an outer record's field still waits on, so a
+--- stub may type a module otherwise than its source. A body is still checked
 --- against those types in two ways. A function declared `: never` must
 --- not reach its end, so its stub body is `error()`. A
 --- function literal written with no return list must return what its
@@ -33,7 +36,29 @@
 --- [`stub.difference`] compares what the checker made of a module from
 --- its source and from its stub, which cosmic's own build holds every
 --- stub to ([`build.compilation`]), so a stub that would type a project
---- differently fails the build that would carry it.
+--- differently fails the build that would carry it. `cosmic lsp` compares
+--- none of its stubs so: neither those it serves of a project's modules
+--- ([`build.lsp.source`]) nor the one it reads a document's
+--- [`Shape.record_of`] calls from ([`build.lsp.splice`]).
+
+-- TODO: keep each body that can declare past itself, or derive stubs with
+-- the new checker. tl lets a body change what the module declares, so a
+-- stub that leaves it out types the module otherwise (checker/tl.tl):
+-- a function on a name (`function a.b`, `function a:b`), which
+-- `record_function` adds to the record the name's type is, wherever that
+-- is declared; a declaration whose type is an empty table (`local t =
+-- {}`, `({})`, `setmetatable({}, {})`, a call or an index that answers
+-- one), which tl marks (`assigned_to`) and `infer_emptytable` types by its
+-- first use, in every scope on the stack; and a `local type G` (or `local
+-- G = <type>`) in a body, which `dismiss_unresolved` takes for the `G` an
+-- outer record's field still waits on. (A global declared in a body
+-- escapes too, but cosmic refuses every global, [`build.globals`].) The
+-- first fix waits on nothing but is not done: the set is not known to be
+-- closed, and the last two kinds reach names no syntax bounds, so it
+-- would keep most bodies and cost most of what a stub saves. The second
+-- waits on the build deriving stubs with the new checker
+-- ([`build.syntax_stub`]), which has none of these paths, at the switch
+-- (doc/plans/strict-teal.md).
 
 local ast = require("build.ast")
 
