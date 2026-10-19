@@ -272,12 +272,19 @@ end
 
 --- Reads whether other code than this session's staged the database
 --- `db` ([`work.other_code`]), a read that fails counting as such, and
---- says so once a process for each code it finds ([`work.first_time`]).
+--- says so once a process for each code it finds, and for a read that
+--- fails ([`work.first_time`]).
 local function staged_by_other(src: source.View, db: Sqlite.Handle): boolean
   local other, trouble = work.other_code(db)
-  if other == nil and trouble ~= "" then other = "" end
-  if other == nil then return false end
   local working = tostring(src.working)
+  if other == nil and trouble ~= "" then
+    if work.first_time("lsp other_code unread", working) then
+      src.err("cosmic: lsp: " .. working .. ": reading which code staged it: " .. trouble ..
+          "; finding no module in it until it is read")
+    end
+    return true
+  end
+  if other == nil then return false end
   if work.first_time("lsp other_code " .. other, working) then
     src.err("cosmic: lsp: " .. working .. " was staged by " .. work.code_name(other) ..
         ", not this tool's; finding no module in it, which this tool's code may misread, " ..
@@ -406,19 +413,25 @@ function source.refresh(src: source.View, built: compiler)
   local again = reopened(src)
   if not src.pending and again ~= "other" then
     -- What another run staged meanwhile is read only where its code is
-    -- this session's: modules found are let go of where it is another's,
-    -- and none found are looked for again where it is this session's
-    -- (an empty tree's, or one another code staged before).
+    -- this session's. Where it is another's, the tree is staged again
+    -- here with this session's code, as a change on disk stages it, so
+    -- its modules are found again at once; a session that stages
+    -- nothing ([`source.unchecked`]) lets go of the modules it found.
+    -- Where it is this session's, none found are looked for again (an
+    -- empty tree's, or one another code staged before).
     local db = src.db
-    if again == "kept" and db ~= nil then
-      local found = next(src.modules) ~= nil
-      if staged_by_other(src, db) == found then
-        listed(src, false)
-      else
-        trusted(src, false)
-      end
+    if again ~= "kept" or db == nil then return end
+    local found = next(src.modules) ~= nil
+    local other = staged_by_other(src, db)
+    if other and not (where ~= nil and where.unchecked) then
+      -- Staged below, as a pending stage is.
+    elseif other == found then
+      listed(src, false)
+      return
+    else
+      trusted(src, false)
+      return
     end
-    return
   end
   local staged, trouble = rebuild.stage(src.root, built)
   if staged ~= nil then adopt(src, staged) end
@@ -581,6 +594,8 @@ function source.served(src: source.View, built: compiler, name: string,
   end
   local db, _ = database(src)
   if db == nil then return nil end
+  -- Another code's stage committed since the refresh is served none of.
+  if staged_by_other(src, db) then return nil end
   local key = source.key(src, name, open)
   if found.kind ~= "decl" and src.stubs then
     local stubbed = first(db, "SELECT text FROM stubs WHERE source_hash = ?1", found.source_hash)

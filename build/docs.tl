@@ -1015,7 +1015,15 @@ local function tell_other_code(path: string, other: string)
   if not work.first_time("projection other_code " .. other, path) then return end
   log:complain(path .. " was written by " .. other .. "; reading none of it, which this " ..
       "tool's code may misread, and answering from this tool's own databases: a build of " ..
-      "this tool, as `cosmic test` makes, writes it again")
+      "the project by this tool, as `cosmic test` or `cosmic build` makes, writes it again")
+end
+
+--- Says once a process, on stderr, that the projection at `path` is read
+--- none of, which code wrote it being unread for `trouble`.
+local function tell_unread_code(path: string, trouble: string)
+  if not work.first_time("projection other_code unread", path) then return end
+  log:complain(path .. ": reading which code wrote it: " .. trouble .. "; reading none of it, " ..
+      "and answering from this tool's own databases")
 end
 
 --- The databases a lookup reads, in order: the project's own
@@ -1070,6 +1078,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
       if readable ~= nil then
         local other, other_trouble = writer.other_code(own, rebuild.compiler())
         if other ~= nil then tell_other_code(own_path, other) end
+        if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
         if other ~= nil or other_trouble ~= "" then readable = nil end
       end
       if readable == nil then
