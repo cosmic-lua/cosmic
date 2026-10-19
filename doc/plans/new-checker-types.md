@@ -528,6 +528,12 @@ set when the first measurement exists.
   signature edit rechecks the modules whose trace read it, measured on the
   deep-chain workload against the whole-interface key before the trace is kept
   ("the database" in [strict-teal.md]).
+- **known cost: declaring a chain of interfaces is quadratic.**
+  [`Store.define`] walks a declaration's whole ancestry to refuse a cycle,
+  so a chain of n interfaces costs n squared to declare.
+  [`lang/relation_speed_test.tl`] found it, and times the relation of a
+  chain with the build left out of the work. keeping what each declaration
+  reaches makes the check a lookup.
 
 ## the order the pieces land in
 
@@ -590,6 +596,19 @@ the fork, and rows and incremental checking come after it.
   typed, by the id of the node. the tree checks run through it. the ceilings are
   data in [`build/ceilings.txt`], and the driver refuses a module over its
   ceiling with the same words as `fix --check .`.
+- **the bindings of C.** the driver reads the `.d.tl` declarations the build
+  derives for [`cosmic.sys`] and the raw C modules, so a call into C has a
+  callee, a result type and a contract. the fork enforces the contract
+  rules ([`build/contracts.tl`]) on about 740 such call sites, and a
+  checker that leaves them untyped does not see them. the piece lands
+  before the switch, with a `[typed]` ceiling for the calls that still have
+  no callee ([the switch]), and the `unchecked_binding` ceilings fall with
+  it.
+- **cheaper comparisons with the fork.** the `[read]` and `[typed]` checks
+  of [`build/tree_checks.tl`] add about four to five minutes to a cold
+  `cosmic fix --check .`. their cost is cut before another comparison is
+  added, by reading the fork's rows from the working database instead of
+  deriving them again. they go with the fork at the switch.
 - **the switch.** the gate, then one change that commits the translated tree
   and deletes `checker/` and the translator.
 - **rows, then incremental,** after the switch if checking the whole tree in
@@ -1063,6 +1082,7 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build/alias_members.tl`]: ../../build/alias_members.tl
 [`build/cache.tl`]: ../../build/cache.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
+[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
 [`build/error_render.tl`]: ../../build/error_render.tl
@@ -1092,6 +1112,7 @@ silent. *not adopted:* each reading's looser form, named here.
 [`lang/flow.tl`]: ../../lang/flow.tl
 [`lang/generics.tl`]: ../../lang/generics.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
+[`lang/relation_speed_test.tl`]: ../../lang/relation_speed_test.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl

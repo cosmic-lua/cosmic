@@ -231,7 +231,7 @@ stack can carry.
 - **the new checker replaces the fork once it is at least as sound.**
   the aim is lower cost, accepting harder transitions while keeping a
   high bar for soundness and correctness. the gate is not every ceiling
-  at zero but the three conditions of [the switch], and the rewrites that
+  at zero but the conditions of [the switch], and the rewrites that
   bring each ceiling to zero happen after it, in the new grammar.
 - **rows and incremental checking come after the switch,** if checking
   the whole tree in one process is fast enough for the test suite. that
@@ -242,8 +242,9 @@ stack can carry.
   ([narrowing declarations]) is taken on trust too, but a test run
   verifies it: checked narrowing covers a read narrowed by a declaration
   as it covers one narrowed by a test, so a declaration that lies fails a
-  run. the standard library's Lua declarations live in `.d.tl` files, so
-  auditing them changes no checker logic. a bare `any` in a `.d.tl` is
+  run, within what checked narrowing covers ([the switch]). the standard
+  library's Lua declarations live in `.d.tl` files, so auditing them
+  changes no checker logic. a bare `any` in a `.d.tl` is
   legal only on a declared untrusted-data entry point: `string.unpack`
   and the [`cosmic.sys`] bindings. a callback in a standard library
   declaration is typed with generics, not `any`, and `{string:any}` is
@@ -1193,7 +1194,22 @@ correctness. the gate:
   states, never to make the count agree;
 - every verdict it gives differently from the fork, file by file, is a
   row in the verdict tables tied to a named rule;
-- the fuzz soundness property and checked narrowing run against it.
+- the fuzz soundness property and checked narrowing run against it;
+- the C bindings are typed. the fork enforces the contract rules
+  ([`build/contracts.tl`]) on calls into [`cosmic.sys`] and the raw C
+  modules, about 740 call sites in the tree: an ignored [`sys.unlink`]
+  result, a [`sys.stat`] result used unchecked, `:find` on a sys error
+  reason, a bare-boolean wrapper. the new checker leaves a C binding
+  untyped, so its port of the contracts sees none of these, and one rule
+  exists only for them. "as sound as the fork" therefore needs the
+  bindings typed, from the `.d.tl` declarations the build already derives,
+  before the switch and not after it;
+- every call the contracts judge has a callee, or is named. in the files
+  the contracts judge, 3,654 of 40,874 calls have no callee the checker
+  recorded: C bindings, and receivers left `invalid` by a pinned error. a
+  breach on such a call goes unseen. each file's count is held under a
+  `[typed]` ceiling in [`build/ceilings.txt`], and the gate takes each to
+  zero or names the calls that stay.
 
 the evidence is in the tree: the verdict tables ([the verdict harness is
 tables]), the pins retired by a rule ([a pin the new rules retire is a row,
@@ -1201,20 +1217,37 @@ not a refusal]), the soundness property of narrowing and its corpus
 ([`lang/check_flow_fuzz_test.tl`]), the totality property
 ([`lang/check_total_fuzz_test.tl`]) and the oracle of definite assignment
 ([`lang/check_assigned_fuzz_test.tl`]), each against the new checker.
-checked narrowing in a real tool run (`cosmic test --check-types`) waits on
-the tool's wiring (the TODO of [`lang/check_flow_fuzz_test.tl`]). the full
+checked narrowing covers a fact in a read of a place a test narrowed: the
+kinds of value taken, a string outside an enum's members, a table of
+another class, and a tag outside a union's. the test worker defines the
+`__fact` hook and the code generator writes the call of it, so the fuzz
+properties run under it. it does not yet check an integer against a
+float, a `thread`, the `==` narrowing of an enum or a string, or `true`
+against `false`, so a run misses a false conclusion of these. nor does it
+check the kinds of parameters, returns and field writes, and wrapped code
+in a test's child process has no `__fact` hook. all of these wait on the
+tool's wiring: `cosmic test --check-types` compiles with the fork until
+the switch (the TODOs of [`lang/check_flow_fuzz_test.tl`], [`lang/check.tl`]
+and [`lang/fact_wraps.tl`]). the full
 sweep of the properties, many draws from several seeds, is
 [`bin/gate-sweep`], which writes its result to
 [`testdata/gate/sweep.txt`]; the nightly fuzz workflow draws them from a seed
 of its own.
 
-then one change commits the translated tree and deletes `checker/` and
-the translator. each rule's existing violations are pinned as ceilings
-per file and code, and a new violation is refused, so code written after
-the switch meets the full rules. the rewrites that bring each ceiling to
+then one change commits the translated tree and deletes `checker/`, the
+translator and the comparisons with the fork's readers. each rule's
+existing violations are pinned as ceilings per file and code, and a new
+violation is refused, so code written after the switch meets the full
+rules. the rewrites that bring each ceiling to
 zero happen after it, in the new grammar, so they are no longer
 constrained to Teal the fork also accepts.
 
+- the comparisons with the fork are temporary and costly. the `[read]`
+  and `[typed]` checks of [`build/tree_checks.tl`] compare the ports with
+  the fork's readers, and together add about four to five minutes to a
+  cold `cosmic fix --check .`. the switch deletes them with the fork.
+  until then their cost is cut before more are added: they read the
+  fork's rows from the working database instead of deriving them again.
 - the islands, which stay Teal until the pin moves past the switch, are
   `ci/` and the bootstrap scripts [`build/zig.tl`], [`build/vendor.tl`],
   [`build/verify_codesign.tl`], [`build/perf.tl`] and [`build/paths.tl`]
@@ -1362,6 +1395,10 @@ since the seed's Lua runs on the tree's VM.
   field guards, casts and metatables by regex, and two disagreed by a
   factor of three on metamethods; the checker's own rows answer exactly,
   hence [every count is a query](#what-the-language-builds-on).
+- **a rule sees only what is typed.** the contracts the fork enforces on C
+  bindings are invisible to a checker that leaves the bindings untyped,
+  and a call with no callee is judged by nothing. hence the bindings typed
+  and the calls without a callee counted in [the switch].
 
 [a count the tree cannot yet bring to zero is a ceiling]: #decisions
 [annotated parameters]: #annotated-parameters
@@ -1413,6 +1450,9 @@ since the seed's Lua runs on the tree's VM.
 [`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
 [`build/zig.tl`]: ../../build/zig.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
+[`build/contracts.tl`]: ../../build/contracts.tl
+[`lang/check.tl`]: ../../lang/check.tl
+[`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
 [`build/compiler_test.tl`]: ../../build/compiler_test.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
@@ -1449,4 +1489,6 @@ since the seed's Lua runs on the tree's VM.
 [`Child.Handle`]: ../../cosmic/child.tl
 [`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
+[`sys.stat`]: ../../core/syscalls.h
+[`sys.unlink`]: ../../core/syscalls.h
 [`testdata/gate/retired.json`]: ../../testdata/gate/retired.json
