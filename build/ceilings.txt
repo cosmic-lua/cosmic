@@ -782,7 +782,7 @@ build/positions.tl nil_not_allowed 1
 build/rand.tl nil_not_allowed 8
 build/rand_test.tl nil_not_allowed 9
 build/rand_tool_test.tl nil_not_allowed 1
-build/reboot.tl nil_not_allowed 5
+build/reboot.tl nil_not_allowed 4
 build/reboot_test.tl nil_not_allowed 4
 build/rebuild_lock.tl nil_not_allowed 1
 build/rebuild_lock_tool_test.tl nil_not_allowed 3

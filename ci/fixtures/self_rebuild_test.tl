@@ -544,14 +544,14 @@ local function test_self_rebuild_docs_verb(tmp: string)
     "docs: second invocation reported staleness though the tool is fresh")
 end
 
--- Marks `build/todos.tl`'s verb with an extra line, as the docs marker
--- does for `docs`: a `todos` the stale tool ran itself would not print it.
-local function apply_todos_marker_edit(tree: string)
-  local path = tree .. "/build/todos.tl"
+-- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
+-- does for `docs`: a `fix` the stale tool ran itself would not print it.
+local function apply_fix_marker_edit(tree: string)
+  local path = tree .. "/build/fix/init.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
     "local function run(argv: {integer:string}): integer",
-    { "  local _, _ = Fs.put(Fs.stdout, \"step8-todos-marker\\n\")" })
+    { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
@@ -562,10 +562,11 @@ end
 -- would write o/cosmic.db, o/carried.db and the tool under one another,
 -- and end in "disk I/O error" or "portable program database has no SQLite
 -- header" and a spurious "(the tool is stale)" failure. The runs are of
--- `todos`, which writes the working database and so waits for a run that
--- holds it. `docs` only reads, and waits for no run (build/reboot.tl's
--- `stale_exit`): one started while another holds the working database
--- says so and answers at once, from what that run last committed.
+-- `fix`, which writes the working database and so waits for a run that
+-- holds it. `docs` and `todos` only read, and wait for no run
+-- (build/reboot.tl's `stale_exit`): one started while another holds the
+-- working database says so and answers at once, from what that run last
+-- committed.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local case_root = tmp .. "/case-concurrent"
@@ -577,7 +578,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local program = place_runtime(fixture_dir, tree)
   local before_hash = Fixture.hash(program)
   apply_docs_marker_edit(tree)
-  apply_todos_marker_edit(tree)
+  apply_fix_marker_edit(tree)
 
   local seed = seeded_compiles(case_root)
   local since = Clock.now_ns()
@@ -587,7 +588,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   supervised(function(active: {Running})
     for n = 1, 3 do
       active[#active + 1] = start("concurrent-" .. tostring(n),
-        { program, "todos", "build/reboot.tl" }, tree, values, diagnostics)
+        { program, "fix", "--check", "build/clock.tl" }, tree, values, diagnostics)
     end
     local rebuilt = 0
     for _, child in ipairs(active) do
@@ -596,7 +597,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
       assert(result.ok, child.label .. ": exit status " ..
           tostring(result.code) .. ", want 0; it said:\n" .. err)
       said[#said + 1] = err
-      Fixture.contains(child.out, "step8-todos-marker")
+      Fixture.contains(child.out, "step8-fix-marker")
       -- Started together, before any rebuild could land, each run meets
       -- the tool stale: it rebuilds, waits for the run that does (or for
       -- one writing o/cosmic.db, which holds the same lock), or finds
@@ -673,17 +674,6 @@ local function test_a_rebooted_run_refuses_without_waiting(tmp: string)
   if not held_ok then error(failure) end
   assert(Fixture.hash(program) == before_hash,
     "rebooted: a refusing run changed the artifact")
-end
-
--- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
--- does for `docs`: a `fix` the stale tool ran itself would not print it.
-local function apply_fix_marker_edit(tree: string)
-  local path = tree .. "/build/fix/init.tl"
-  local lines = split_lines(Fixture.read(path))
-  lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer",
-    { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
-  Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
 -- `fix` in cosmic's own tree fixes with the tree's rules and layout, so a

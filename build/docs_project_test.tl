@@ -73,6 +73,19 @@ local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   assert(not result.stdout:find("Notes", 1, true), result.stdout)
 end
 
+--- `docs` in a directory that can have no build directory, the build
+--- home being beneath it, answers from the binary's own databases: it
+--- names no build directory to ask whether it is one a check left
+--- unchecked ([`reboot.unchecked`]).
+local function test_a_lookup_answers_where_the_build_home_is_beneath_the_directory(tmp: string)
+  local work = tmp .. "/work"
+  assert(Fs.mkdirs(work))
+  local result = invoke.run({ "docs", "Fs.read" }, { cwd = work,
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = work .. "/build" } })
+  assert(result.code == 0, result.stdout .. result.stderr)
+  assert(result.stdout:find("Fs.read", 1, true), result.stdout)
+end
+
 --- Every module `cosmic docs` lists answers `cosmic docs <module>`, one
 --- that returns a function (a command's `main`) with no record to hold
 --- its comment among them.
