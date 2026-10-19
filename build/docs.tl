@@ -27,6 +27,9 @@ local reboot = require("build.reboot")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
+local rebuild = require("build.rebuild")
+local work = require("build.work")
+local writer = require("build.writer")
 
 local logger = require("build.logger")
 local log = logger.log
@@ -1006,11 +1009,30 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   return out
 end
 
+--- Says once a process, on stderr, that the projection at `path`, which
+--- `other` wrote ([`writer.other_code`]), is read none of.
+local function tell_other_code(path: string, other: string)
+  if not work.first_time("projection other_code " .. other, path) then return end
+  log:complain(path .. " was written by " .. other .. "; reading none of it, which this " ..
+      "tool's code may misread, and answering from this tool's own databases: a build of " ..
+      "the project by this tool, as `cosmic test` or `cosmic build` makes, writes it again")
+end
+
+--- Says once a process, on stderr, that the projection at `path` is read
+--- none of, which code wrote it being unread for `trouble`.
+local function tell_unread_code(path: string, trouble: string)
+  if not work.first_time("projection other_code unread", path) then return end
+  log:complain(path .. ": reading which code wrote it: " .. trouble .. "; reading none of it, " ..
+      "and answering from this tool's own databases")
+end
+
 --- The databases a lookup reads, in order: the project's own
 --- `cosmic.db` when there is one, then every database the store
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
---- the binary answers for the standard library.
+--- the binary answers for the standard library. The project's own is
+--- left out where other code than this process's wrote it
+--- ([`writer.other_code`]), as where it cannot be read.
 --- @param store the store's databases, [`Store.databases()`] unless the
 --- caller hands it others, as a test of databases of its own does
 --- @param at the project's directory, the working directory when nil
@@ -1050,6 +1072,15 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
     local own, _ = Sqlite.open(own_path)
     if own ~= nil then
       local readable, _ = has_docs(own)
+      -- One written by other code than this process runs is left out
+      -- too, said once: what that code wrote may mean other than this
+      -- code takes it to.
+      if readable ~= nil then
+        local other, other_trouble = writer.other_code(own, rebuild.compiler())
+        if other ~= nil then tell_other_code(own_path, other) end
+        if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
+        if other ~= nil or other_trouble ~= "" then readable = nil end
+      end
       if readable == nil then
         local _, _ = own:close()
       else

@@ -569,3 +569,63 @@ local function test_an_unchecked_lsp_trusts_no_analyzer_the_database_records()
   assert(src.analyzer ~= "another analyzer", "took the database's analyzer for its own")
   assert(not src.stubs, "trusted the database's stubs")
 end
+
+--- What a session has said, line by line.
+local record Said
+  said: string
+end
+
+--- A session finds no module in a database that another tool's code
+--- staged last, another run's ([`work.other_code`]), while that run
+--- holds it, saying so once, and reads it again once its own stage,
+--- with the database free, stages it.
+local function test_a_database_another_code_staged_is_read_none_of_until_staged_again()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local held: Said = { said = "" }
+  local src = source.new(root, function(line: string) held.said = held.said .. line .. "\n" end)
+  local built = assert(teal.load())
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") ~= nil, "the staged module is not found")
+  -- Another run stages it with its code and holds it on, so the session
+  -- cannot stage it again.
+  local other = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(other:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(other:exec("BEGIN IMMEDIATE"))
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") == nil, "a module another code staged is found")
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") == nil, "a module another code staged is found")
+  local _, told = held.said:gsub("was staged by the tool of boot hash another tool", "")
+  assert(told == 1, held.said)
+  assert(other:exec("ROLLBACK"))
+  assert(other:close())
+  source.refresh(src, built)
+  assert(source.module(src, "lib/shapes.tl") ~= nil, "the module its own stage staged is not found")
+  source.close(src)
+end
+
+--- A session that finds the database staged by another tool's code,
+--- with no run holding it, stages the tree again with its own code at
+--- its next refresh, with no word from the editor, and finds its modules
+--- again: the stage of a `cosmic test` that rebuilt the tool does not
+--- leave every `require` unresolved until a file is saved.
+local function test_a_database_another_code_staged_is_staged_again_at_the_next_refresh()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/lib"))
+  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  local src = source.new(root, function(_: string) end)
+  local built = assert(teal.load())
+  source.refresh(src, built)
+  assert(src.tally.stages == 1, tostring(src.tally.stages))
+  local other = assert(Sqlite.open(assert(src.working), { writable = true }))
+  assert(other:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(other:close())
+  for _ = 1, 5 do
+    source.refresh(src, built)
+    assert(source.module(src, "lib/shapes.tl") ~= nil, "the module is not found again")
+  end
+  assert(src.tally.stages == 2, "staged " .. tostring(src.tally.stages) .. " times")
+  source.close(src)
+end

@@ -55,7 +55,11 @@
 --- another schema, another tool's, it neither stages nor reads, and
 --- finds no module in, saying so, until a run of this tool makes it
 --- again: found so by a stage, or when the file is made again under the
---- session.
+--- session. Nor does it find a module in a database that other code
+--- than its own staged last ([`work.other_code`]), a run of a newer
+--- tool or an older one, saying so, until a stage of this tool's code
+--- stages it again; which code staged it is read again at every
+--- refresh, as the analyzer is.
 
 -- TODO: serve a module whose body declares past itself as its source, or
 -- as a stub that keeps such bodies, once [`build.stub`]'s TODO is done:
@@ -273,14 +277,42 @@ local function trusted(src: source.View, staged: boolean)
   src.stubs = recorded ~= nil and recorded == (src.analyzer or analyzer_identity())
 end
 
+--- Reads whether other code than this session's staged the database
+--- `db` ([`work.other_code`]), a read that fails counting as such, and
+--- says so once a process for each code it finds, and for a read that
+--- fails ([`work.first_time`]).
+local function staged_by_other(src: source.View, db: Sqlite.Handle): boolean
+  local other, trouble = work.other_code(db)
+  local working = tostring(src.working)
+  if other == nil and trouble ~= "" then
+    if work.first_time("lsp other_code unread", working) then
+      src.err("cosmic: lsp: " .. working .. ": reading which code staged it: " .. trouble ..
+          "; finding no module in it until it is read")
+    end
+    return true
+  end
+  if other == nil then return false end
+  if work.first_time("lsp other_code " .. other, working) then
+    src.err("cosmic: lsp: " .. working .. " was staged by " .. work.code_name(other) ..
+        ", not this tool's; finding no module in it, which this tool's code may misread, " ..
+        "until a stage of this tool makes it this tool's")
+  end
+  return true
+end
+
 --- Reads the modules the database lists, what each requires, and
---- whether its stubs are the running analyzer's ([`trusted`]).
+--- whether its stubs are the running analyzer's ([`trusted`]); none of
+--- them where other code than this session's staged it
+--- ([`staged_by_other`]).
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
+  -- Other code's rows are read none of: each query answers none.
+  local own = 1
+  if staged_by_other(src, db) then own = 0 end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path, file, kind, source_hash FROM inputs " ..
-      "ORDER BY path, kind = 'decl' DESC, file")
+    "SELECT path, file, kind, source_hash FROM inputs WHERE ?1 = 1 " ..
+      "ORDER BY path, kind = 'decl' DESC, file", { { integer = own } })
   if rows == nil then
     src.err("cosmic: lsp: the staged tree: " .. trouble)
     return
@@ -295,7 +327,8 @@ local function listed(src: source.View, staged: boolean)
   end
   local requires: {string:{string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
-    "SELECT source_hash, name FROM requires ORDER BY source_hash, ordinal")
+    "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
+    { { integer = own } })
   if named_rows ~= nil then
     for _, row in ipairs(named_rows) do
       local hash = row:text(1)
@@ -366,7 +399,8 @@ end
 local unchecked_line <const> = "this tool was not checked against the tree when it started, " ..
   "since another cosmic run held the tree's build or its database was another tool's, so its " ..
   "code may be older than the tree's: until the editor starts it again it stages nothing, " ..
-  "and answers from what the tree last staged, or finds no module where that is another tool's"
+  "and answers from what the tree last staged, or finds no module where another tool's code " ..
+  "staged it"
 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
@@ -385,8 +419,26 @@ function source.refresh(src: source.View, built: compiler)
   -- the stage, which finds that schema and says so.
   local again = reopened(src)
   if not src.pending and again ~= "other" then
-    if again == "kept" then trusted(src, false) end
-    return
+    -- What another run staged meanwhile is read only where its code is
+    -- this session's. Where it is another's, the tree is staged again
+    -- here with this session's code, as a change on disk stages it, so
+    -- its modules are found again at once; a session that stages
+    -- nothing ([`source.unchecked`]) lets go of the modules it found.
+    -- Where it is this session's, none found are looked for again (an
+    -- empty tree's, or one another code staged before).
+    local db = src.db
+    if again ~= "kept" or db == nil then return end
+    local found = next(src.modules) ~= nil
+    local other = staged_by_other(src, db)
+    if other and not (where ~= nil and where.unchecked) then
+      -- Staged below, as a pending stage is.
+    elseif other == found then
+      listed(src, false)
+      return
+    else
+      trusted(src, false)
+      return
+    end
   end
   local staged, trouble = rebuild.stage(src.root, built)
   if staged ~= nil then adopt(src, staged) end
@@ -549,6 +601,8 @@ function source.served(src: source.View, built: compiler, name: string,
   end
   local db, _ = database(src)
   if db == nil then return nil end
+  -- Another code's stage committed since the refresh is served none of.
+  if staged_by_other(src, db) then return nil end
   local key = source.key(src, name, open)
   if found.kind ~= "decl" and src.stubs then
     local stubbed = first(db, "SELECT text FROM stubs WHERE source_hash = ?1", found.source_hash)

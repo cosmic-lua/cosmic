@@ -564,3 +564,34 @@ local function test_todos_refuses_a_held_database_of_another_schema(tmp: string)
   assert(result.stderr:find("another tool's", 1, true), result.stderr)
   assert(not result.stdout:find("a.tl", 1, true), result.stdout)
 end
+
+--- `cosmic todos` in a tree whose working database another run holds
+--- reads what that run last committed where this tool's code staged it,
+--- and lists none of it where another tool's code did
+--- ([`work.other_code`]), saying so: the lock is no reason not to read,
+--- the other code is.
+local function test_todos_reads_a_held_database_only_where_its_own_code_staged_it(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: listed while held" })))
+  local env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
+  local staged = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(staged.code == 0, staged.stdout .. staged.stderr)
+  local made = assert(work.open(root))
+  local path = made.dir .. "/build.db"
+  assert(work.close(made))
+  local held = assert(Sqlite.open(path, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local own = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(held:exec("ROLLBACK"))
+  assert(own.code == 0, tostring(own.code) .. ": " .. own.stdout .. own.stderr)
+  assert(own.stdout:find("a.tl:1: ", 1, true), own.stdout .. own.stderr)
+  assert(held:exec("UPDATE meta SET value = 'another tool' WHERE key = 'staged_by'"))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local other = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(other.code == 1, tostring(other.code) .. ": " .. other.stdout .. other.stderr)
+  assert(other.stderr:find("was staged by the tool of boot hash another tool", 1, true), other.stderr)
+  assert(not other.stdout:find("a.tl", 1, true), other.stdout)
+end

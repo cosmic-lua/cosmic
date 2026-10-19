@@ -896,3 +896,22 @@ local function test_identity_knows_a_static_asset_by_its_directory(_tmp: string)
   assert(identity.is_input("static/a.css", false) and identity.is_input("static/a.png", true))
   assert(not identity.is_tool("static/a.tl", true), "an asset is not part of the tool")
 end
+
+--- A stage records the code that staged it, which this code takes for
+--- its own; a database that records another code, or none, it takes for
+--- another's ([`work.other_code`]).
+local function test_a_stage_records_the_code_that_staged_it(tmp: string)
+  local handle = assert(work.open(tmp))
+  local before, before_trouble = work.other_code(handle.db)
+  assert(before == "", "a database no stage wrote is taken for this code's: " ..
+      tostring(before) .. before_trouble)
+  stage_settled(handle)
+  local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = 'staged_by'"))
+  assert(#rows == 1, "the stage recorded no code")
+  local own, own_trouble = work.other_code(handle.db)
+  assert(own == nil and own_trouble == "", "this code's stage is taken for another's: " .. tostring(own))
+  assert(Sqlite.run(handle.db, "UPDATE meta SET value = 'another' WHERE key = 'staged_by'"))
+  local other, _ = work.other_code(handle.db)
+  assert(other == "another", tostring(other))
+  assert(work.close(handle))
+end
