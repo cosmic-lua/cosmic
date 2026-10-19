@@ -1,9 +1,12 @@
 --- Tests of [`build.driver`]: the names a tree's files answer to, one program over a module graph through its
 --- providers, the corrections of the standard library made where the library is read (and their drift reported), each
 --- module's errors and warnings and type report, a test module's functions, and a module held to its ceilings.
+local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Driver = require("build.driver")
+local Node = require("build.syntax_node")
+local Types = require("lang.types")
 local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
@@ -193,6 +196,55 @@ local function test_a_module_without_the_bodies_asked_for_is_not_checked_and_ask
   local again = assert(build:result("m", true))
   assert(again == declared and again.checked ~= nil and codes_of(again.bodies) == "not_assignable")
   assert(#assert(build:result("m", true)).bodies == 1, "checked once")
+end
+
+--- A method call has no node for its callee, so the function each call took is kept by the id of the call: the one function
+--- of a plain call, a method and a chained call, and the overload taken of a call of several.
+local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
+  local source = table.concat({
+    "local record Box",
+    "  n: integer",
+    "  get: function(Box, integer): integer, string",
+    "end",
+    "local b: Box = { n = 1, get = function(_: Box, i: integer): integer, string return i, '' end }",
+    "local function make(): function(): boolean, string return function(): boolean, string return true, '' end end",
+    "local first = b:get(1)",
+    "local second = make()()",
+    "local third = Over.put('x')",
+    "local fourth = Over.put({ n = 1 })",
+    "local fifth = ipairs({ 1 })",
+    "More.run(function(a: string): string return a end)",
+    "return b",
+  }, "\n") .. "\n"
+  local build = build_of({ { "m.tl", source } })
+  local result = assert(build:result("m", true))
+  assert(#result.errors == 0, codes_of(result.errors))
+  local calls: {Ast.Node} = {}
+  Node.walk(result.chunk, function(n: Ast.Node)
+    if n is Ast.Call or n is Ast.MethodCall then
+      calls[#calls + 1] = n
+    end
+  end)
+  assert(#calls == 7, "calls: " .. #calls)
+  local function took(i: integer): Types.Fn
+    local t = result.callees[Node.base(calls[i]).id]
+    assert(t ~= nil and t is Types.Fn, "call " .. i .. " took no function")
+    return t
+  end
+  -- the method takes its record as the first parameter and answers two results
+  assert(#took(1).params == 2 and #took(1).rets[1].items == 2)
+  -- a chained call is judged by the function the inner call answered
+  assert(#took(2).params == 0 and #took(2).rets[1].items == 2 and #took(3).rets[1].items == 1)
+  -- the overload taken, not the first the name has
+  assert(took(4).params[1].type.tag == "string" and took(5).params[1].type.tag == "named")
+  -- a generic callee is the function with its type parameters, and a function literal argument is checked after the overload
+  -- is chosen: the callee is the overload that takes a function of one parameter
+  assert(#took(6).tparams == 1)
+  local literal = took(7).params[1].type
+  assert(literal is Types.Fn and #literal.params == 1)
+  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) }, adjust = nil, external = {}, types = false })
+  lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, false, nothing)))
+  assert(next(assert(lean:result("m", true)).callees) == nil)
 end
 
 local function test_the_type_report_is_by_the_id_of_each_node_when_asked_for_and_empty_when_not()

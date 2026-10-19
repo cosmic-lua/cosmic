@@ -870,6 +870,22 @@ returns as the production named, when a use appears.
   again are in [`build/docs.tl`]: they match a function-typed field (`name: function(`) at the `signature:match` and
   GLOB sites of the member listings and the parameter search, and a class method is now a `method` row whose signature
   is `function read(self, ...)`.
+- the readers that need the checker's types follow: [`build/syntax_receivers.tl`] (the record-field uses `typed_refs` holds),
+  [`build/syntax_contracts.tl`] (the eleven rules of [`build/contracts.tl`], whose exemption tables it shares) and the stub
+  check ([`build/syntax_stub.tl`]'s `difference`, the port of [`build/stub.tl`]'s), over the type of each node and the
+  function each call took ([`Check.Checked.callees`], which the report lacked: a method call has no node for its callee),
+  with [`build/syntax_report.tl`] for what they share. [`build/tree_checks.tl`]'s `typed` (run by `fix --check .` after
+  `[read]`) reads every file through them and sets the answer against what the fork's build wrote of the same tree, read
+  from the working database (the `typed_refs` rows, and the compile marked refused for a breach of the discipline or a stub
+  that types otherwise), in the dimensions of [`build/syntax_typed.tl`]; a dimension that compared no row, or a rule that
+  judged no place, fails it. Differences the new checker makes, each counted and tested in
+  [`build/syntax_typed_test.tl`]. The bindings of C ([`cosmic.sys`] and the raw process and socket tables) are typed
+  from the declarations the build derives of the core's headers, in the tree checks alone until the build's own compile
+  declares them; a call with no callee the checker recorded is counted per file in the `[untyped]` ceilings; a value
+  typed `invalid` hides the uses through it; a field written as a name (`hints: importer.Hints`) is a callback and no function the module defines; an
+  overloaded callee is judged by the overload taken, `assert` excepted; and `function R:m()` and a `function M.R.f()`
+  are refused forms. The uses the fork's position-keyed types lose or misattribute are counted, and pinned per file
+  in the `[typed]` ceilings of [`build/ceilings.txt`].
 
 [annotated parameters]: strict-teal.md#annotated-parameters
 [assigned before read]: strict-teal.md#assigned-before-read
@@ -914,17 +930,25 @@ returns as the production named, when a use appears.
 [`build/syntax_analyzer.tl`]: ../../build/syntax_analyzer.tl
 [`build/syntax_analyzer_test.tl`]: ../../build/syntax_analyzer_test.tl
 [`build/syntax_compared.tl`]: ../../build/syntax_compared.tl
+[`build/syntax_contracts.tl`]: ../../build/syntax_contracts.tl
 [`build/syntax_derivation.tl`]: ../../build/syntax_derivation.tl
 [`build/syntax_link_text.tl`]: ../../build/syntax_link_text.tl
 [`build/syntax_links.tl`]: ../../build/syntax_links.tl
 [`build/syntax_node.tl`]: ../../build/syntax_node.tl
+[`build/syntax_receivers.tl`]: ../../build/syntax_receivers.tl
+[`build/syntax_report.tl`]: ../../build/syntax_report.tl
+[`build/syntax_stub.tl`]: ../../build/syntax_stub.tl
+[`build/syntax_typed.tl`]: ../../build/syntax_typed.tl
+[`build/syntax_typed_test.tl`]: ../../build/syntax_typed_test.tl
 [`build/teal.tl`]: ../../build/teal.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
+[`Check.Checked.callees`]: ../../lang/check.tl
 [`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
 [`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
 [`compiler.Result`]: ../../build/compiler.d.tl
+[`cosmic.sys`]: ../../core/syscalls.h
 [`cosmic/channel.tl`]: ../../cosmic/channel.tl
 [`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
 [`cosmic/removed_example.tl`]: ../../cosmic/removed_example.tl

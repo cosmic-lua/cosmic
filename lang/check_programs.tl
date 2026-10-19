@@ -44,8 +44,9 @@ local record Programs
 
   --- The declarations of [`Programs.standard`] lowered once: a function that checks a source as the module `module`
   --- (`t` by default), after the `modules` it requires, against them. Each source is a module of its own, so name them
-  --- apart; a program that declares a global would show it to the next, and the translated programs do not.
-  session: function(prelude: string, stdlib: string): function(source: string, module?: string, modules?: {string: string}): Run
+  --- apart; a program that declares a global would show it to the next, and the translated programs do not. `external` names
+  --- the modules that are bindings of C whose types the program does not read ([`cosmic.sys`] by default).
+  session: function(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Run
 
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
@@ -178,7 +179,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {}, types = {}, warnings = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, narrowed = {}, types = {}, callees = {}, warnings = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end
@@ -211,9 +212,11 @@ function Programs.run(source: string, modules?: {string: string}): Programs.Run
   return Programs.runner()(source, "t", modules)
 end
 
-function Programs.session(prelude: string, stdlib: string): function(source: string, module?: string, modules?: {string: string}): Programs.Run
+function Programs.session(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Programs.Run
   local program = Declarations.new()
-  program.external["cosmic.sys"] = true
+  for _, name in ipairs(external or { "cosmic.sys" }) do
+    program.external[name] = true
+  end
   local globals: {string: Scopes.Global} = {}
   local function add(file: string, text: string)
     for name, g in pairs(Scopes.declared(Parser.parse(Lexer.lex(text, file), file, "decl").chunk)) do
