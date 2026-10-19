@@ -48,9 +48,10 @@ end
 -- TODO: find the calls in the whole text where a body may declare past
 -- itself, or in a stub that keeps every such body, once [`build.stub`]'s
 -- TODO is done: until then a function a body adds to the record a call
--- names is not seen (a build refuses the call, this splices it), and a
--- body's `local type` that resolves a type the record's field names is
--- not either (a build splices the body's type, this the top-level one).
+-- names is not seen (a build refuses the call, this splices it), and
+-- where a body's `local type` resolves a type the record's field names
+-- and a later top-level declaration of that name exists, a build splices
+-- the body's type and this the top-level one.
 function splice.found(built: compiler, env: compiler.Env, name: string, text: string,
                       path: string, tally: source.Tally): shape_specs.Found
   local _, wanted = text:gsub("record_of%(", "")
