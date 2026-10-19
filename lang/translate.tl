@@ -959,6 +959,13 @@ end
 -- rewrite takes only a record with `function R:m` statements, and the guards that remain are the ceiling of
 -- `setmetatable_call`.
 
+-- TODO: place the methods that move into a class after the local functions they call, or move those above the class:
+-- the class stands where its record did, so a method that calls a local function declared further down reads a global
+-- in the Lua the generator writes (cosmic/fs.tl calls `failing` at line 173 and declares it at line 222), and the scope
+-- builder, finding no read of the function, warns `unused_function`. Eleven functions and a type of the tree are refused
+-- so by the pipeline ([`build.pipeline.residue`]); it waits on the build's compile calling it (doc/plans/strict-teal.md,
+-- "the switch").
+
 --- The rewrite that moves the methods written for `held.record` into it.
 --- Nil where a method or the record is not written so that the lines can
 --- be cut: a statement that shares its line with other code.
@@ -1873,7 +1880,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         local list = node.lists[1]
         local head = list[1]
         local first, last = bounds(node)
-        if head is Ast.TypeUnion and (#list > 1 or node.variadic) and tokens[first].kind ~= "(" then
+        if head ~= nil and head is Ast.TypeUnion and (#list > 1 or node.variadic) and tokens[first].kind ~= "(" then
           local made = union_rewrite(source, tokens, head)
           if made ~= nil and made.opens then
             table.insert(made.edits, insert_before(tokens, first, "("))

@@ -3,8 +3,10 @@
 --- errors, as for Teal. The grammar is named, never guessed. build/compile_lang_test.tl compiles the checker's
 --- own source with it.
 
+local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local Translate = require("lang.translate")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
@@ -401,4 +403,42 @@ local function test_an_is_test_of_an_enum_of_another_file_tests_its_values(tmp: 
   local test = module_of_dir(tmp .. "/out", "user")
   assert(test is IsColor, "not a function")
   assert(test("red") == true and test("blue") == false)
+end
+
+--- A build over `text`, the module `m`, in the grammar `translate` says (the fork's Teal when it does).
+local function built(text: string, translate: boolean): Driver.Build
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  build:provide(Driver.files(Driver.index({ { "m.tl", text }, { "d.d.tl", "local record D\n  n: integer\nend\nreturn D\n" } },
+    translate, function(_file: string): boolean
+      return false
+    end)))
+  return build
+end
+
+local function test_emit_writes_the_lua_of_a_module_checked_with_its_bodies_and_a_declaration_has_none()
+  local build = built("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r\n", false)
+  local emitted = Grammar.emit(build, assert(build:result("m", true)))
+  local code = emitted.code
+  assert(code ~= nil and emitted.trouble == "" and type(value_of(code)) == "table")
+  -- with no narrowed read the wraps add nothing
+  assert(Grammar.emit(build, assert(build:result("m", true)), true).code == code)
+  local none = Grammar.emit(build, assert(build:result("d", true)))
+  assert(none.code == nil and none.trouble == "")
+  -- a module whose bodies were not checked has none either
+  local unchecked = built("return 1\n", false)
+  assert(Grammar.emit(unchecked, assert(unchecked:result("m", false))).code == nil)
+end
+
+-- The translator writes an `if` expression only for a middle value that is never false. The generator is told so, or it
+-- writes a function called on the spot where the fork writes `and` and `or`.
+local function test_emit_tells_the_generator_what_the_translator_knows_of_an_if_expression()
+  local fork = "local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n"
+  local translated = built(fork, true)
+  local told = assert(Grammar.emit(translated, assert(translated:result("m", true))).code)
+  assert(told:find("function", 1, true) == nil, told)
+  -- the same text, read as the new grammar, has no word of it
+  local plain = built(Translate.translate(fork, "m.tl").text, false)
+  local blind = assert(Grammar.emit(plain, assert(plain:result("m", true))).code)
+  assert(blind:find("function", 1, true) ~= nil and blind ~= told, blind)
+  assert(value_of(told) == "v" and value_of(blind) == "v")
 end

@@ -125,6 +125,7 @@ local clock = require("build.clock")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
@@ -3270,6 +3271,9 @@ local record Run
   -- The binary's identities ([`read_identities`]).
   tool?: string
   compiled_by?: string
+  --- The checker the run compiles with (COSMIC_GRAMMAR), which is part of every compile's key
+  --- ([`GrammarMode.tool`]) and so of every verdict's.
+  grammar?: GrammarMode.Mode
   identity?: string
   runtime?: string
   harness?: Harness
@@ -3494,6 +3498,13 @@ local function read_identities(ctx: Run): integer | nil
     compiled_by = tool
   end
   ctx.tool, ctx.compiled_by = tool, compiled_by
+  local grammar, grammar_trouble = GrammarMode.mode()
+  if grammar == nil then
+    local _, _ = work.close(handle)
+    log:complain(grammar_trouble)
+    return 1
+  end
+  ctx.grammar = grammar
   local identity = Store.meta("runtime") or ""
   if identity == "" then
     local _, _ = work.close(handle)
@@ -3646,8 +3657,8 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer | nil
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
-  local result, compile_trouble = importer.compile(handle, assert(ctx.built), assert(ctx.tool), false,
-    shared_compiles.for_build(), nil, ctx.checks)
+  local result, compile_trouble = importer.compile(handle, assert(ctx.built),
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), nil, ctx.checks)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -3987,7 +3998,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
   sweep_stores(rec)
   -- The compiler a checked run's modules were compiled by
   -- ([`importer.compile`]'s `checks`).
-  local compiled_with = assert(ctx.tool)
+  local compiled_with = GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar))
   if ctx.checks then compiled_with = importer.checked_tool(compiled_with) end
   rec.compiler = compiled_with .. " " .. assert(ctx.compiled_by)
   rec.host = declared_key.host_identity(digests_of(rec))

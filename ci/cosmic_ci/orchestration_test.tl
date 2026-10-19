@@ -1548,7 +1548,7 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s %s %s\\n' \"$*\" \"$COSMIC_TEST_TIMEOUT\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
-        summary .. "exit " .. case.status .. "\nEOF\n" ..
+        summary .. "exit " .. tostring(case.status) .. "\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
       COSMIC_WORKER = "linux-x86_64-checked",
@@ -1561,6 +1561,55 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
     end
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case.ran, case.name .. ": " .. tostring(ran))
+  end
+end
+
+--- The `rehearsal` phase runs the whole suite with the new checker (COSMIC_GRAMMAR=new) on the linux-x86_64 leg, in the
+--- verdicts of a file of its own, with the checked run's test timeout and without the promise of `checked`, which the
+--- release core lacks; it fails where the suite does, and does nothing on another target.
+local function test_the_rehearsal_phase_runs_the_whole_suite_with_the_new_grammar_on_linux_x86_64(tmp: string)
+  local base, project = command(tmp)
+  local record Case
+    name: string
+    target: string
+    status: integer
+    ok: boolean
+    ran: boolean
+  end
+  local cases: {Case} = {
+    { name = "linux", target = "x86_64-linux-musl", status = 0, ok = true, ran = true },
+    { name = "linux-failing", target = "x86_64-linux-musl", status = 1, ok = false, ran = true },
+    { name = "linux-aarch64", target = "aarch64-linux-musl", status = 0, ok = true, ran = false },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    -- bin/zig's boot leaves a cosmic that logs what it was asked and the variables the phase sets.
+    Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "if [ \"$1\" = test ]; then printf '%s|%s|%s|%s|%s\\n' \"$1\" \"$COSMIC_GRAMMAR\" \"$COSMIC_TEST_TIMEOUT\" " ..
+        "\"${COSMIC_VERDICT_CACHE##*/}\" \"$COSMIC_TEST_PROMISES\" >> \"$0.ran\"; fi\n" ..
+        "exit " .. tostring(case.status) .. "\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
+    local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+      COSMIC_WORKER = "linux-x86_64-new-grammar", COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
+      COSMIC_TEST_PROMISES = "sandbox,checked,proc",
+      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
+    for _, phase in ipairs({ "boot", "rehearsal" }) do
+      local outcome = Fixture.call("rehearsal-" .. case.name .. "-" .. phase,
+        append(base, { "platform", phase }), project, tmp .. "/logs", env)
+      local ok = phase == "boot" or case.ok
+      assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. Fixture.read(outcome.err))
+    end
+    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    if case.ran then
+      assert(ran == "test|new|120|new-grammar.db|sandbox,proc\n", case.name .. ": " .. tostring(ran))
+    else
+      assert(ran == nil, case.name .. ": " .. tostring(ran))
+    end
   end
 end
 

@@ -1440,6 +1440,16 @@ local function typed_findings(root: string, memo: Sqlite.Handle | nil): {string}
   return tree_checks.typed(root, nil, memo, fork)
 end
 
+--- Whether the build's own pipeline holds each module as the checks of the tree do, over the working database's inputs
+--- ([`tree_checks.pipeline`]).
+local function pipeline_findings(root: string, memo: Sqlite.Handle | nil): {string}
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
+  if build == nil then return { open_trouble } end
+  local lines = tree_checks.pipeline(root, build, memo)
+  local _, _ = build:close()
+  return lines
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1514,6 +1524,9 @@ local function run_tree_checks(ctx: Fix)
       end
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
+      end
+      for _, line in ipairs(pipeline_findings(root, memo)) do
+        findings[#findings + 1] = "pipeline: " .. line
       end
       if memo ~= nil then
         local _, _ = memo:close()

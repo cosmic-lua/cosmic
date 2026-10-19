@@ -20,10 +20,9 @@
 --- missing. Anything else (a function, a union of more than one type, a generic, an interface, a class, a record that
 --- holds itself) is refused where the call is, naming the field.
 --
--- TODO: splice a witness the new checker accepts: `return nil` in a function typed `T` is the nil it refuses. Once the
--- build compiles with the new checker, which waits on the wiring of [`build.compilation`] to [`build.driver`], write
--- the third argument of `record_of` as a function that does not return, and port the fork's test that `into` answers the
--- record's own type and refuses an annotation of another (build/shape_specs_test.tl), which compiles the module.
+-- TODO: port the fork's test that `into` answers the record's own type and refuses an annotation of another
+-- (build/shape_specs_test.tl), which compiles the module, once the build compiles with the new checker, which waits on the
+-- wiring of [`build.compilation`] to [`build.pipeline`].
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
@@ -372,7 +371,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
         refusal = ("%s(%q): %s"):format(where, literal.value, refusal) }
     end
     splices[#splices + 1] = {
-      at = token.offset + token.length - 1, text = (", %s, function(): %s return nil end"):format(spec, target.spelled),
+      at = token.offset + token.length - 1, text = (", %s, function(): %s error(\"witness\") end"):format(spec, target.spelled),
     }
   end
   table.sort(splices, function(a: Splice, b: Splice): boolean

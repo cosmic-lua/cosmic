@@ -5,10 +5,10 @@
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local String = require("cosmic.string")
 local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local contracts = require("build.contracts")
+local LuaTail = require("build.lua_tail")
 local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
 local stub = require("build.stub")
@@ -38,22 +38,6 @@ end
 
 local type Keys = compilation.Keys
 local text = bind.text
-
---- The bytecode header every target must agree on. One column of
---- bytecode serves all three because they are all little-endian and
---- 64-bit; this is what says so out loud, so a target whose sizes or
---- byte order differ fails the build rather than a launch.
----
---- The bytes are the signature, the version and format, the data check,
---- and the size and value of an int, an instruction, an integer and a
---- number. The format is 1: patch/lua/ adds the instructions of the class
---- form to the official format 0.
-local bytecode_header =
-  "\27LuaU\1\25\147\13\10\26\10" ..
-  "\4\136\169\255\255" ..
-  "\4\120\86\52\18" ..
-  "\8\136\169\255\255\255\255\255\255" ..
-  "\8\0\0\0\0\0\40\119\192"
 
 --- What `test_inputs` holds, by source hash: each [`Test.policy`]
 --- declaration, as the [`Test.Needs`] it stands for.
@@ -413,22 +397,6 @@ function compilation.ordered(modules: {Module}): {Module} | nil, string
   return out
 end
 
---- Appends a generated `return` to compiled Lua for a test module, so a
---- `local function test_*` -- otherwise unreachable from outside the
---- file it is declared in -- comes back on the table `require` gives
---- the runner. The Teal source the test's author wrote is never
---- touched; only the compiled Lua this module already owns is.
-local function with_test_tail(code: string, tests: {string}): string
-  if #tests == 0 then
-    return code
-  end
-  local fields: {string} = {}
-  for _, name in ipairs(tests) do
-    fields[#fields + 1] = name .. " = " .. name
-  end
-  return code .. "\nreturn { " .. table.concat(fields, ", ") .. " }\n"
-end
-
 --- A `local function test_*` at a test module's top level is only ever
 --- called by the runner, from outside the file, so the checker's
 --- "unused function" warning about it is a false positive: it is
@@ -473,7 +441,7 @@ local function discount_doctest_shadow_warnings(result: compiler.Result): compil
 end
 
 --- Whether `m`'s own source both defines tests of its own and returns
---- its own value at the top level. [`with_test_tail`] appends a generated
+--- its own value at the top level. [`LuaTail.with_test_tail`] appends a generated
 --- `return` after the module's compiled Lua, and Lua allows only one
 --- `return` as a block's last statement, so the two together are always
 --- a parse error. Both facts come from `collect`'s one parse of
@@ -491,40 +459,6 @@ end
 --- the runner indexes a table that `require` handed back as `true`.
 local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
-end
-
---- Lua's refusal of the chunk compiled from `file`, said at `file`'s
---- line rather than at the chunk's name. tl's generator writes each
---- statement on its source's line, adding lines only to reach one, so
---- the chunk's line is the line of the Teal.
-local function at_source_line(trouble: string, file: string): string
-  local line, said = trouble:match("^.-:(%d+): (.*)$")
-  if line == nil then
-    return file .. ": " .. trouble
-  end
-  return file .. ":" .. line .. ": " .. said
-end
-
---- Bytecode for compiled Lua, checked to be the shape every target
---- shares.
-local function bytecode_of(code: string, name: string,
-                           file: string): string | nil, string
-  local chunk, load_trouble = load(code, "@" .. name, "t")
-  if chunk == nil then
-    -- TODO: tl's checker passes what Lua 5.5 refuses only here:
-    -- `global`, which Lua reserves, as a local, parameter, field or
-    -- method name; a `goto` into a local's scope; and `function f()`
-    -- over a `<const>` local or a for loop's control variable. The
-    -- generator would write a key named `global` as `["global"]`, and
-    -- the checker refuse the rest, as it does an assignment.
-    return nil, at_source_line(tostring(load_trouble), file)
-  end
-  local bytecode = string.dump(chunk, false)
-  if not String.starts_with(bytecode, bytecode_header) then
-    return nil, file .. ": this host dumps bytecode the three " ..
-      "targets do not share"
-  end
-  return bytecode
 end
 
 --- Whether the stub ([`build.stub`]) of the module `m`, which `result`
@@ -698,9 +632,9 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
     references = receivers.references(typed, env, checked)
   end
   if m.kind == "test" then
-    code = with_test_tail(code, m.tests)
+    code = LuaTail.with_test_tail(code, m.tests)
   end
-  local bytecode, dump_trouble = bytecode_of(code, m.path, m.file)
+  local bytecode, dump_trouble = LuaTail.bytecode_of(code, m.path, m.file)
   if bytecode == nil then
     return nil, dump_trouble
   end
