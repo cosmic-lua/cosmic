@@ -985,6 +985,7 @@ sql.spec = {
   tests = { "build.sql_test", "build.sql_tool_test", "build.sql_store_test" },
   run = function(argv: {integer:string}): integer return sql.run(argv) end,
   bare = false,
+  reads = true,
   recheck_on_refusal = false,
   takes = "one statement",
 }

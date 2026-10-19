@@ -18,6 +18,12 @@
 --- fixed `.building` name ([`writer.write_result`], [`writer.carried`]),
 --- which the other removes and writes into under it.
 ---
+--- A verb that only reads ([`verb_spec.Spec`]'s `reads`: `docs`, `uses`,
+--- `db`, `todos`, `bom`, `help`, `cosmic lsp`) never waits for it. Where
+--- another run holds it, such a verb rebuilds no stale tool and writes
+--- no projection ([`rebuild_lock.try_hold`]): it says so once and goes on
+--- with its own code, reading what is there. `sql` never takes it.
+---
 --- It is a `flock` of `rebuild.lock` and, on Linux, an SQLite write
 --- lock on the same file as an empty database, a transaction nothing
 --- writes. A tool from before the flock takes only SQLite's, which is an
@@ -134,6 +140,9 @@ local record Hold
   --- The path of the lock, as [`build.paths`] names it, so two spellings
   --- of a root that resolve to one build directory hold one lock.
   path: string | nil
+  --- The lock whose holder this process has said it does not wait for
+  --- ([`rebuild_lock.tell_not_waiting`]).
+  told: string | nil
 end
 
 local held: Hold = {}
@@ -358,20 +367,12 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
   end
 end
 
---- Holds the rebuild lock of `root` as `role` before this run goes on,
---- for `what` (a verb, which names itself in what it says). Answers
---- true when this call took it -- the caller releases it
---- ([`rebuild_lock.release`]) when done, or leaves it to its exit -- and
---- false when this process held it already, or, for a write or a remake,
---- a parent that holds it handed it on (`handed_variable`). A run that finds
---- another holding it says so, naming that run and what it is doing,
---- and waits for it (`wait`): the other may be a whole `cosmic test`
---- run. Answers nil and why when it cannot take the lock.
----
---- It must be called holding nothing that run may wait for: the working
---- database's transaction above all ([`build.work`]).
-function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
-                           what: string): boolean | nil, string
+--- The lock of `root` taken as `role` without waiting, as
+--- [`rebuild_lock.hold`] answers: true when this call took it, false
+--- when this process held it already or a parent handed it on for a
+--- write or a remake; nil and "" where another run holds it, nil and why
+--- where it cannot be asked for.
+local function at_once(root: string, role: rebuild_lock.Role): boolean | nil, string
   if rebuild_lock.holds(root) then
     return false, ""
   end
@@ -389,12 +390,67 @@ function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
   if (role == "write" or role == "remake") and handed(root) then
     return false, ""
   end
+  return nil, ""
+end
+
+--- Holds the rebuild lock of `root` as `role` before this run goes on,
+--- for `what` (a verb, which names itself in what it says). Answers
+--- true when this call took it -- the caller releases it
+--- ([`rebuild_lock.release`]) when done, or leaves it to its exit -- and
+--- false when this process held it already, or, for a write or a remake,
+--- a parent that holds it handed it on (`handed_variable`). A run that finds
+--- another holding it says so, naming that run and what it is doing,
+--- and waits for it (`wait`): the other may be a whole `cosmic test`
+--- run. Answers nil and why when it cannot take the lock.
+---
+--- It must be called holding nothing that run may wait for: the working
+--- database's transaction above all ([`build.work`]).
+function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
+                           what: string): boolean | nil, string
+  local took, trouble = at_once(root, role)
+  if took ~= nil then
+    return took, ""
+  end
+  if trouble ~= "" then
+    return nil, trouble
+  end
   local waited, wait_trouble = rebuild_lock.wait(root, role, what .. ": " ..
       rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
   if not waited then
     return nil, wait_trouble
   end
   return true, ""
+end
+
+--- Says once a process, on stderr, that `verb`, one that only reads,
+--- does not wait for the run holding the rebuild lock of `root`, which
+--- may be a whole `cosmic test` run, and reads what is there: once for
+--- each lock, as [`work.tell_busy`] says once of a working database.
+function rebuild_lock.tell_not_waiting(verb: string, root: string)
+  local path = build_paths.resolve(root).lock
+  if held.told == path then return end
+  held.told = path
+  log:complain(verb .. ": " .. rebuild_lock.holder(root) ..
+      "; not waiting for it, reading what is there" .. rebuild_lock.suffix(root))
+end
+
+--- Holds the rebuild lock of `root` as `role` as [`rebuild_lock.hold`]
+--- does, but waits for no other run: what a verb that only reads
+--- ([`verb_spec.Spec`]'s `reads`) asks before a write its lookup would
+--- make under the lock, which it leaves unmade rather than wait. Answers
+--- as `hold` does where this process holds the lock, and nil and ""
+--- where another run holds it, having said so for `what`
+--- ([`rebuild_lock.tell_not_waiting`]).
+function rebuild_lock.try_hold(root: string, role: rebuild_lock.Role,
+                               what: string): boolean | nil, string
+  local took, trouble = at_once(root, role)
+  if took ~= nil then
+    return took, ""
+  end
+  if trouble == "" then
+    rebuild_lock.tell_not_waiting(what, root)
+  end
+  return nil, trouble
 end
 
 return rebuild_lock

@@ -1,6 +1,7 @@
 --- The rebuild lock between runs of this program in one checkout:
 --- `cosmic test`, and a write of the projection, hold it, one run per
---- checkout at a time, and let it go however they end. Another process
+--- checkout at a time, and let it go however they end; a verb that only
+--- reads waits for none of them. Another process
 --- holding or asking for it, or handed it, by a chunk is
 --- build/rebuild_lock_lua_test.tl's; the rest is in
 --- `rebuild_lock_test.tl`.
@@ -20,6 +21,10 @@ local Test = require("cosmic.test")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local build_paths = require("build.paths")
+local reboot = require("build.reboot")
+local rebuild = require("build.rebuild")
+local identity = require("build.identity")
+local todos = require("build.todos")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
@@ -294,4 +299,271 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       error(failure)
     end
   end
+end
+
+--- A run of this program in `root`, `args` after it, its output captured
+--- and bounded by `limit_ns`, so a run that waits fails rather than hangs.
+local function bounded(root: string, args: {string}, limit_ns: integer): Child.Result
+  local started = this_program.program(args, {
+    cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+    timeout_ns = limit_ns,
+  })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- A module whose doc comment says `word`, with a TODO beside it.
+local function thing(word: string): string
+  return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
+    "-- TODO: say more, once there is more to say.\n" ..
+    "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+end
+
+--- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while
+--- another run holds the checkout's rebuild lock, as `cosmic test` does
+--- for its whole run, and while that run holds the working database's
+--- write lock too, as its build does: it waits for neither, and reads
+--- what is there. Here this test is that run, and each verb a run of
+--- the program. `docs` after an edit writes no projection under the
+--- lock, so it answers from the last one, saying once why, and from the
+--- edit once the lock is free.
+local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp: string)
+  local root = tmp .. "/project"
+  assert(build_dir(root))
+  assert(Fs.write(root .. "/thing.tl", thing("First")))
+  local built = bounded(root, { "build" }, Clock.seconds(20))
+  assert(built.ok, (built.stdout or "") .. (built.stderr or ""))
+  assert(Fs.write(root .. "/thing.tl", thing("Second")))
+  local verbs: {{string}} = {
+    { "docs", "thing" }, { "uses", "cosmic.fs.read" }, { "todos" }, { "db" },
+    { "sql", "--build", "SELECT count(*) FROM files" },
+  }
+  -- Opened here, holding nothing until the second phase begins on it.
+  local writer_db = assert(Sqlite.open(build_paths.resolve(root).working, { writable = true }))
+  local ok, failure = pcall(function()
+    assert(rebuild_lock.take(root, 0, "test") == "held")
+    for _, phase in ipairs({ "rebuild lock", "both locks" }) do
+      if phase == "both locks" then
+        assert(writer_db:exec("BEGIN IMMEDIATE"))
+      end
+      for _, words in ipairs(verbs) do
+        local result = bounded(root, words, Clock.seconds(10))
+        local said = table.concat(words, " ") .. " with the " .. phase .. " held: " ..
+          (result.stdout or "") .. (result.stderr or "")
+        assert(not result.timed_out, "waited: " .. said)
+        assert(result.ok, said)
+        local out = result.stdout or ""
+        if words[1] == "docs" then
+          assert(out:find("First words.", 1, true), said)
+          if phase == "rebuild lock" then
+            assert((result.stderr or ""):find("docs: another cosmic run (pid " .. tostring(sys.getpid()) ..
+                ") in this checkout is running its tests; not waiting for it", 1, true), said)
+          end
+        elseif words[1] == "uses" or words[1] == "todos" then
+          assert(out:find("thing.tl:", 1, true), said)
+        end
+      end
+    end
+  end)
+  local _, _ = writer_db:exec("ROLLBACK")
+  local _, _ = writer_db:close()
+  rebuild_lock.release()
+  if not ok then error(failure) end
+  local after = bounded(root, { "docs", "thing" }, Clock.seconds(20))
+  local after_text = (after.stdout or "") .. (after.stderr or "")
+  assert(after.ok, after_text)
+  assert((after.stdout or ""):find("Second words.", 1, true), after_text)
+end
+
+--- How many builds the working database of `root` records.
+local function builds_of(root: string): integer
+  local db = assert(Sqlite.open(build_paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM builds"))
+  assert(db:close())
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
+--- The check before a verb that only reads, finding the tree's own tool
+--- older than the tree while another run holds the checkout's rebuild
+--- lock, as a `cosmic test` run does for its whole run, waits for none:
+--- it rebuilds nothing, and the verb goes on. Its lookup then
+--- builds nothing and `cosmic lsp`'s stage stages nothing, which would
+--- compile or derive with that older code. The running tool is named, as
+--- the test runner's own is not the tree's ([`reboot.Seen`]).
+local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lock_is_held(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(work.close((assert(work.open(root)))))
+  local layout = build_paths.resolve(root)
+  assert(Fs.mkdirs(layout.bin))
+  local before = builds_of(root)
+  -- Held as another process holds it: one this process holds through
+  -- build.rebuild_lock is one it takes as its own.
+  local lock = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local started = Clock.monotonic_ns()
+  local ok, failure = pcall(function()
+    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root,
+      { tool = layout.tool, environment = {}, meta = {} })
+    local took = Clock.monotonic_ns() - started
+    assert(code == nil, tostring(code))
+    assert(took < Clock.seconds(10), tostring(took) .. " ns")
+    assert(reboot.unchecked(root), "the stale tool is not remembered")
+    local built, trouble = rebuild.here("docs", false, root)
+    assert(built, trouble)
+    assert(builds_of(root) == before, "a lookup built with a stale tool")
+    local staged = assert(rebuild.stage(root, (assert(teal.load()))))
+    assert(staged.unchecked, "lsp's stage staged with a stale tool")
+  end)
+  assert(sys.close(lock))
+  if not ok then error(failure) end
+end
+
+--- A tree shaped as cosmic's own at `root`, its working database made
+--- and staged: the fingerprint the stage recorded of it.
+local function own_tree(root: string): identity.Fingerprint
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.mkdirs(build_paths.resolve(root).bin))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  assert(work.close(handle))
+  return fingerprint
+end
+
+--- Runs `body` while the rebuild lock of `root` is held as another process
+--- holds it, then lets it go, raising what `body` raised.
+local function held_elsewhere(root: string, body: function())
+  local lock = assert(sys.open(build_paths.resolve(root).lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(lock, "exclusive"))
+  local ok, failure = pcall(function(): boolean
+    body()
+    return true
+  end)
+  assert(sys.close(lock))
+  if not ok then error(failure) end
+end
+
+--- A tool as new as the tree but unsettled, its database written by
+--- other code than it carries, goes on as a stale one does while another
+--- run holds the rebuild lock, rebuilding nothing; but its code is the
+--- tree's, so the tree is not left unchecked and its lookup builds,
+--- publishing nothing under the lock ([`writer.write_result`]). Its
+--- running binary's `meta` is named ([`reboot.Seen`]), as the test
+--- runner's is not this tree's.
+local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_and_builds(tmp: string)
+  local root = tmp .. "/tree"
+  local fingerprint = own_tree(root)
+  local layout = build_paths.resolve(root)
+  held_elsewhere(root, function()
+    local started = Clock.monotonic_ns()
+    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, {
+      tool = layout.tool, environment = {},
+      meta = { boot_hash = fingerprint.boot, written_by = "an older writer", writer = "this writer" },
+    })
+    local took = Clock.monotonic_ns() - started
+    assert(code == nil, tostring(code))
+    assert(took < Clock.seconds(10), tostring(took) .. " ns")
+    assert(not reboot.unchecked(root), "a fresh tool's tree is left unchecked")
+    local before = builds_of(root)
+    local built, trouble = rebuild.here("docs", false, root)
+    assert(built, trouble)
+    assert(builds_of(root) == before + 1, "a fresh tool's lookup built nothing")
+  end)
+end
+
+--- What `run` wrote to the descriptor `fd` (1 or 2), which is pointed at
+--- a file in `dir` while it runs, raising what it raised once `fd` is
+--- put back.
+local function captured(fd: integer, dir: string, run: function()): string
+  local path = dir .. "/captured." .. tostring(fd)
+  local file = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT | sys.O_TRUNC, 0x180))
+  local saved = assert(sys.dup(fd))
+  assert(sys.dup2(file, fd))
+  local ok, failure = pcall(function(): boolean
+    run()
+    return true
+  end)
+  assert(sys.dup2(saved, fd))
+  assert(sys.close(saved))
+  assert(sys.close(file))
+  if not ok then error(failure) end
+  return (assert(Fs.read(path)))
+end
+
+--- The check before a verb that only reads, finding the tool stale by the
+--- tree's Teal alone -- an edit while `cosmic test` holds the rebuild lock,
+--- the commonest case -- waits for none: it rebuilds nothing, says that
+--- this tool is older than the tree, and leaves the tree unchecked. It
+--- says once a process that it does not wait for the lock's holder,
+--- however many times it is asked ([`rebuild_lock.tell_not_waiting`]).
+--- The running binary's `image_hash` is the tree's and its `boot_hash` is
+--- not ([`reboot.Seen`]).
+local function test_a_reading_verbs_check_goes_on_with_a_tool_stale_by_its_teal(tmp: string)
+  local root = tmp .. "/tree"
+  local fingerprint = own_tree(root)
+  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {},
+    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's" } }
+  local said = captured(2, tmp, function()
+    held_elsewhere(root, function()
+      for _ = 1, 2 do
+        local started = Clock.monotonic_ns()
+        local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, seen)
+        local took = Clock.monotonic_ns() - started
+        assert(code == nil, tostring(code))
+        assert(took < Clock.seconds(10), tostring(took) .. " ns")
+      end
+    end)
+  end)
+  assert(reboot.unchecked(root), "the stale tool is not remembered")
+  assert(said:find("docs: this tool is older than the tree", 1, true), said)
+  local _, waiting = said:gsub("not waiting for it", "")
+  assert(waiting == 1, said)
+end
+
+--- What a run wrote to its standard error, kept apart from what it wrote
+--- to its standard output.
+local record Said
+  err: string
+end
+
+--- How many rows of blame the working database of `root` keeps.
+local function blames_of(root: string): integer
+  local db = assert(Sqlite.open(build_paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM blames"))
+  assert(db:close())
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
+--- `todos` in a tree its check left unchecked, the tool older than the
+--- tree while another run holds the rebuild lock, blames and prunes
+--- nothing though the working database is free: a row of blame from an
+--- earlier `HEAD`, which a listing that blames would drop, is kept. It
+--- lists the TODOs that are indexed, and says nothing of a write lock no
+--- run holds.
+local function test_todos_in_an_unchecked_tree_writes_nothing(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/kept.tl", "-- TODO: indexed by the last stage\n"))
+  own_tree(root)
+  local db = assert(Sqlite.open(build_paths.resolve(root).working, { writable = true }))
+  assert(Sqlite.run(db, "INSERT INTO blames (path, line, sha256, head, commit_id, author_time, " ..
+      "summary, boundary) VALUES ('kept.tl', 1, 'x', 'an earlier head', 'c', 0, 's', 0)"))
+  assert(db:close())
+  local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {}, meta = {} }
+  local said: Said = { err = "" }
+  local out = captured(1, tmp, function()
+    said.err = captured(2, tmp, function()
+      held_elsewhere(root, function()
+        assert(todos.run({ [1] = "todos" }, root, seen) == 0)
+      end)
+    end)
+  end)
+  assert(reboot.unchecked(root), "the stale tool is not remembered")
+  assert(out:find("kept.tl:1:", 1, true), out .. said.err)
+  assert(blames_of(root) == 1, "blamed an unchecked tree")
+  assert(not said.err:find("holds the write lock", 1, true), said.err)
 end

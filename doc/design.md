@@ -673,7 +673,10 @@ same lock file. they take flock first, then SQLite's transaction where
 the two lock kinds are independent. the SQLite half excludes older tools
 that take only that lock, including a checkout visited during a bisect.
 a child boot proceeds under its parent's handed lock only when the handoff
-names the same device and inode.
+names the same device and inode. a verb that only reads (`reads` in
+[`build/verb_spec.tl`]) never waits on either lock: where another run
+holds one, it rebuilds no tool and writes no projection, and reads what
+is there.
 
 [`build/patch.tl`] and [`build/zig_fetch.tl`] each use a persistent gate
 while sweeping scratch directories and creating a new wrapper with its
@@ -1641,6 +1644,7 @@ in [roadmap.md](roadmap.md).
 [`build/test.tl`]: ../build/test.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
+[`build/verb_spec.tl`]: ../build/verb_spec.tl
 [`build/worker.tl`]: ../build/worker.tl
 [`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl

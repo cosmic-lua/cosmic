@@ -64,9 +64,11 @@ worktree's build directory when you delete the worktree.
 
 One `cosmic test` runs per checkout at a time, holding the build
 directory's `rebuild.lock` ([`build/rebuild_lock.tl`]), as do a rebuild
-and a boot. A run that finds it held says who holds it and waits, so
-`cosmic docs` or `uses` after an edit waits for a whole test run, and a
-`timeout` counts the wait.
+and a boot. A run that finds it held says who holds it and waits, and a
+`timeout` counts the wait. The verbs that only read (`docs`, `uses`,
+`db`, `sql`, `todos`, `bom`, `help`, `lsp`) never wait for it: where one
+would have waited, it says so once and answers from what is there, so
+`docs` after an edit shows the last build's text until that run ends.
 
 Look things up with the tool, not grep: `bin/cosmic docs <symbol or
 words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.

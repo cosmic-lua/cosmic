@@ -13,6 +13,12 @@
 --- when the fingerprint moves. Blame is kept in `blames`, and only this
 --- verb runs git. With no git, or outside a repository, TODOs are still
 --- listed, with no commit.
+---
+--- It only reads ([`verb_spec.Spec`]'s `reads`): it waits for no other
+--- run. Where one holds `build.db`'s write lock, or the check of the
+--- tool before it went on without holding the tool to the tree
+--- ([`reboot.unchecked`]), it stages and blames nothing and lists what
+--- is committed there (`read`).
 
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
@@ -23,6 +29,7 @@ local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local build_paths = require("build.paths")
 local clock = require("build.clock")
 local link_text = require("build.link_text")
 local narrow = require("build.narrow")
@@ -38,6 +45,7 @@ local verb_spec = require("build.verb_spec")
 local record todos
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+  run: function(argv: {integer:string}, at?: string, seen?: reboot.Seen): integer
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
@@ -538,6 +546,15 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
   return #order
 end
 
+--- `rows` as a listing, `blamed` files having been blamed for it.
+local function listing_of(rows: {Row}, blamed: integer): todos.Listing
+  local out: {todos.Todo} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = row.todo
+  end
+  return { todos = out, blamed = blamed }
+end
+
 --- Every TODO in the tree staged into `db`, blamed where git can,
 --- in file and line order, and how many files had to be blamed. `run_git`,
 --- where given, answers every git call in the system's place (a test's
@@ -558,11 +575,19 @@ function todos.list(db: Sqlite.Handle, root: string,
   if blamed == nil then
     return nil, blame_trouble
   end
-  local out: {todos.Todo} = {}
-  for _, row in ipairs(rows) do
-    out[#out + 1] = row.todo
+  return listing_of(rows, blamed), ""
+end
+
+--- Every TODO `db` holds, as [`todos.list`] answers, but writing
+--- nothing: a TODO not yet blamed for `HEAD` is listed with no commit,
+--- and none is blamed. What `todos` lists from a working database
+--- another run holds the write lock of.
+local function read(db: Sqlite.Handle, root: string): todos.Listing | nil, string
+  local rows, trouble = rows_of(db, head_of(root, nil))
+  if rows == nil then
+    return nil, trouble
   end
-  return { todos = out, blamed = blamed }, ""
+  return listing_of(rows, 0), ""
 end
 
 --- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`, or
@@ -653,22 +678,28 @@ end
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
 --- does, which indexes its TODOs, blames the ones not yet blamed, and
 --- lists them one per line, in file order or, with `--oldest`, oldest
---- commit first, then its summary on stderr.
+--- commit first, then its summary on stderr. Where another run holds
+--- the working database's write lock, or the check of the tool went on
+--- unchecked ([`reboot.unchecked`]), it lists what is committed there
+--- (`read`), staging nothing and waiting for none.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
-local function run(argv: {integer:string}): integer
+--- @param at the tree, the working directory by default
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function todos.run(argv: {integer:string}, at?: string, seen?: reboot.Seen): integer
   local started = Time.monotonic_ns()
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
+  local found_root, root_trouble = Fs.absolute(at or ".")
+  if found_root == nil then
     log:complain(root_trouble)
     return 1
   end
+  local root: string = found_root
   -- TODO: list TODOs when only the core is stale, since nothing here
   -- runs it: after a C edit build.reboot's guard boots before any verb
   -- goes on (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb
   -- could go on once the Teal side is fresh, which build.reboot's
   -- state_of would have to tell apart from both.
-  local code = reboot.stale_exit(argv)
+  local code = reboot.stale_exit(argv, true, root, seen)
   if code ~= nil then
     return code
   end
@@ -687,38 +718,102 @@ local function run(argv: {integer:string}): integer
     log:complain(own_trouble)
     return 1
   end
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    log:complain(open_trouble)
+  -- Made again where it is of another schema and no run holds it, as a
+  -- build makes it; where the check above went on without holding the
+  -- tool to the tree, this tool's code may be older than the tree's, so
+  -- it stages nothing and reads what is there.
+  local handle: work.Handle | nil = nil
+  local other: string | nil = nil
+  if not reboot.unchecked(root) then
+    local opening, open_trouble = work.try_open_remaking(root)
+    if opening == nil then
+      log:complain(open_trouble)
+      return 1
+    end
+    handle, other = opening.handle, opening.other_schema
+  end
+  local db: Sqlite.Handle
+  if handle ~= nil then
+    -- TODO: blame outside the write transaction. A free database is
+    -- staged and blamed, one git run per file, under its write lock, so
+    -- a `cosmic test` started meanwhile waits for this `todos`. It waits
+    -- on [`todos.list`] split in two: a read of the rows and their blame
+    -- by git with no transaction held, then one short write of what git
+    -- said, made again where the rows moved meanwhile.
+    local staged, stage_trouble = work.stage(handle, own_tree)
+    if staged == nil then
+      local _, _ = work.abort(handle)
+      log:complain(stage_trouble)
+      return 1
+    end
+    db = handle.db
+  else
+    local working = build_paths.resolve(root).working
+    local readable: Sqlite.Handle | nil = nil
+    if other == nil then
+      if not reboot.unchecked(root) then work.tell_busy("todos", working) end
+      local opened, read_trouble = Sqlite.open(working)
+      if opened == nil then
+        log:complain("todos: " .. working .. ": " .. read_trouble)
+        return 1
+      end
+      local found, schema_trouble = work.other_schema(opened)
+      if found == nil and schema_trouble ~= "" then
+        local _, _ = opened:close()
+        log:complain("todos: " .. schema_trouble)
+        return 1
+      end
+      if found == nil then
+        readable = opened
+      else
+        local _, _ = opened:close()
+        other = found
+      end
+    end
+    if readable == nil then
+      work.tell_other_schema("todos", working, other or "")
+      log:complain("todos: no TODOs listed, the working database being another tool's")
+      return 1
+    end
+    db = readable
+  end
+  -- Each step's trouble ends the run with `db` let go: a handle's, as a
+  -- build abandons it; a read's, closed.
+  local function failed(trouble: string): integer
+    if handle ~= nil then
+      local _, _ = work.abort(handle)
+    else
+      local _, _ = db:close()
+    end
+    log:complain(trouble)
     return 1
   end
-  local staged, stage_trouble = work.stage(handle, own_tree)
-  if staged == nil then
-    local _, _ = work.abort(handle)
-    log:complain(stage_trouble)
-    return 1
+  local listing, list_trouble: todos.Listing | nil, string
+  if handle ~= nil then
+    listing, list_trouble = todos.list(db, root)
+  else
+    listing, list_trouble = read(db, root)
   end
-  local listing, list_trouble = todos.list(handle.db, root)
   if listing == nil then
-    local _, _ = work.abort(handle)
-    log:complain(list_trouble)
-    return 1
+    return failed(list_trouble)
   end
   local all, blamed = listing.todos, listing.blamed
   local ranks: {integer:integer} | nil = nil
   if query ~= "" then
-    local found, search_trouble = todos.search(handle.db, query)
+    local found, search_trouble = todos.search(db, query)
     if found == nil then
-      local _, _ = work.abort(handle)
-      log:complain("todos: " .. search_trouble)
-      return 1
+      return failed("todos: " .. search_trouble)
     end
     ranks = found
   end
-  local closed, close_trouble = work.close(handle)
-  if not closed then
-    log:complain(close_trouble)
-    return 1
+  if handle ~= nil then
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      log:complain(close_trouble)
+      return 1
+    end
+  else
+    local _, _ = db:close()
   end
 
   local listed: {todos.Todo} = {}
@@ -779,8 +874,9 @@ todos.spec = {
   summarizes_failure = true,
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {integer:string}): integer return todos.run(argv) end,
   bare = false,
+  reads = true,
   recheck_on_refusal = false,
   takes = "the files or directories to act on",
 }
