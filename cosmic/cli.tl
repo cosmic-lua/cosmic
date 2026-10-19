@@ -589,21 +589,23 @@ local record Cli
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
   --- finds cosmic's own releases, the `next-<commit>` prereleases of
-  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Every page
-  --- of releases is read, since the API does not list them by time, and
-  --- they are sorted newest first by when they were published; a
+  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Releases
+  --- are found by their tags and main's history, newest commit first, as
+  --- the API's list of releases serves only 1000 and not by time; a
   --- `--commit` reads only the releases of the tags its prefix starts,
-  --- refusing a prefix that names more than 10. With no
-  --- criterion it picks the newest; `--commit` the one whose commit
-  --- starts with the hex (7 to 40 digits), `--until` the newest published
-  --- at or before an RFC 3339 time, or by the end of a date in UTC; both
-  --- may be given. A release is verified first: its SHA256SUMS names one
+  --- refusing a prefix that names more than 10. With no criterion it
+  --- picks the release of the latest commit on main that has one;
+  --- `--commit` the one whose commit starts with the hex (7 to 40
+  --- digits), `--until` the latest whose release was published at or
+  --- before an RFC 3339 time, or by the end of a date in UTC; both may be
+  --- given. A release is verified first: its SHA256SUMS names one
   --- digest for cosmic and its source.json the same commit and digest.
   --- With nothing more it prints the release as the three lines of
   --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
   --- object, downloading no binary. `--list` prints the matches instead,
-  --- newest first, up to `-n` (20): the time each was published and its
-  --- commit, or with `--json` an array, verifying none. `-o` writes the
+  --- latest commit first, up to `-n` (20, a request each): the time each
+  --- was published and its commit, or with `--json` an array, verifying
+  --- none. `-o` writes the
   --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
   --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
   --- printing that path; either renames it into place only once its
