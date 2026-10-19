@@ -109,10 +109,21 @@ end
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
 --- say so once ([`work.tell_busy`]), and answers true, the caller reading
---- what that run last committed.
+--- what that run last committed. Nor does a lookup's wait for a run that
+--- holds the rebuild lock, a `cosmic test` run above all: it writes no
+--- projection under it, says so once ([`rebuild_lock.try_hold`]), and
+--- the caller reads the projection that is there. Where the tool is
+--- older than the tree and that run kept it from rebuilding
+--- ([`reboot.read_stale`]), a lookup's builds nothing.
 local function project(root: string, verb: string, start: boolean): boolean, string
   local found, found_trouble = where(root)
   if found == nil then return false, found_trouble end
+  if not start and require("build.reboot").read_stale() then
+    -- The tool is older than the tree, and the run that holds the rebuild
+    -- lock builds the tree with the tree's own: this lookup reads what
+    -- is there, as it said ([`rebuild_lock.tell_not_waiting`]).
+    return true, ""
+  end
   if not found.project and not start then
     if looks_unbuilt(root) then
       log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
@@ -148,8 +159,12 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
+  -- A lookup's build leaves the projection as it is where another run
+  -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
+  local reader: string | nil = nil
+  if not start then reader = verb end
   local written, write_trouble = writer.write_recorded(handle,
-    build_paths.resolve(root).projection, result, started, staged)
+    build_paths.resolve(root).projection, result, started, staged, reader)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
   return true, ""

@@ -1,6 +1,7 @@
 --- The rebuild lock between runs of this program in one checkout:
 --- `cosmic test`, and a write of the projection, hold it, one run per
---- checkout at a time, and let it go however they end. Another process
+--- checkout at a time, and let it go however they end; a verb that only
+--- reads waits for none of them. Another process
 --- holding or asking for it, or handed it, by a chunk is
 --- build/rebuild_lock_lua_test.tl's; the rest is in
 --- `rebuild_lock_test.tl`.
@@ -294,4 +295,77 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       error(failure)
     end
   end
+end
+
+--- A run of this program in `root`, `args` after it, its output captured
+--- and bounded by `limit_ns`, so a run that waits fails rather than hangs.
+local function bounded(root: string, args: {string}, limit_ns: integer): Child.Result
+  local started = this_program.program(args, {
+    cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+    timeout_ns = limit_ns,
+  })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- A module whose doc comment says `word`, with a TODO beside it.
+local function thing(word: string): string
+  return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
+    "-- TODO: say more, once there is more to say.\n" ..
+    "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+end
+
+--- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while
+--- another run holds the checkout's rebuild lock, as `cosmic test` does
+--- for its whole run, and while that run holds the working database's
+--- write lock too, as its build does: it waits for neither, and reads
+--- what is there. Here this test is that run, and each verb a run of
+--- the program. `docs` after an edit writes no projection under the
+--- lock, so it answers from the last one, saying once why, and from the
+--- edit once the lock is free.
+local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp: string)
+  local root = tmp .. "/project"
+  assert(build_dir(root))
+  assert(Fs.write(root .. "/thing.tl", thing("First")))
+  local built = bounded(root, { "build" }, Clock.seconds(20))
+  assert(built.ok, (built.stdout or "") .. (built.stderr or ""))
+  assert(Fs.write(root .. "/thing.tl", thing("Second")))
+  local verbs: {{string}} = {
+    { "docs", "thing" }, { "uses", "cosmic.fs.read" }, { "todos" }, { "db" },
+    { "sql", "--build", "SELECT count(*) FROM files" },
+  }
+  -- Opened here, holding nothing until the second phase begins on it.
+  local writer_db = assert(Sqlite.open(build_paths.resolve(root).working, { writable = true }))
+  local ok, failure = pcall(function()
+    assert(rebuild_lock.take(root, 0, "test") == "held")
+    for _, phase in ipairs({ "rebuild lock", "both locks" }) do
+      if phase == "both locks" then
+        assert(writer_db:exec("BEGIN IMMEDIATE"))
+      end
+      for _, words in ipairs(verbs) do
+        local result = bounded(root, words, Clock.seconds(10))
+        local said = table.concat(words, " ") .. " with the " .. phase .. " held: " ..
+          (result.stdout or "") .. (result.stderr or "")
+        assert(not result.timed_out, "waited: " .. said)
+        assert(result.ok, said)
+        local out = result.stdout or ""
+        if words[1] == "docs" then
+          assert(out:find("First words.", 1, true), said)
+          if phase == "rebuild lock" then
+            assert((result.stderr or ""):find("docs: another cosmic run (pid " .. tostring(sys.getpid()) ..
+                ") in this checkout is running its tests; not waiting for it", 1, true), said)
+          end
+        elseif words[1] == "uses" or words[1] == "todos" then
+          assert(out:find("thing.tl:", 1, true), said)
+        end
+      end
+    end
+  end)
+  local _, _ = writer_db:exec("ROLLBACK")
+  local _, _ = writer_db:close()
+  rebuild_lock.release()
+  if not ok then error(failure) end
+  local after = bounded(root, { "docs", "thing" }, Clock.seconds(20))
+  local after_text = (after.stdout or "") .. (after.stderr or "")
+  assert(after.ok, after_text)
+  assert((after.stdout or ""):find("Second words.", 1, true), after_text)
 end

@@ -23,12 +23,16 @@ local record verb_spec
     fresh: boolean | nil
     --- True for a verb that only reads the tree's databases, and writes
     --- nothing of its working database but what a lookup's own build
-    --- writes ([`rebuild.here`]): no staleness check before it
-    --- ([`reboot.stale_exit`]) waits for another run that holds that
-    --- database's write lock -- a build, a lookup's build, `cosmic lsp`'s
-    --- stage or a boot -- and the verb goes on with its own code, reading
-    --- what that run last committed. A verb that writes waits, as its
-    --- build would.
+    --- writes ([`rebuild.here`]) and, for `todos`, the blame it keeps: no
+    --- staleness check before it ([`reboot.stale_exit`]) waits for another
+    --- run that holds that database's write lock -- a build, a lookup's
+    --- build, `cosmic lsp`'s stage or a boot -- or the checkout's rebuild
+    --- lock ([`build.rebuild_lock`]) -- a `cosmic test` run, a rebuild of
+    --- the tool or a write of the projection -- and the verb goes on with
+    --- its own code, reading what that run last committed. Nor does its
+    --- lookup's build wait to write the projection ([`writer.write_result`]).
+    --- `sql`, which opens a database read-only and checks no staleness,
+    --- waits for neither. A verb that writes waits, as its build would.
     reads: boolean | nil
     --- False when, after the verb refuses its command line (exit 2),
     --- [`build/dispatch.tl`] does not ask whether a tool older than the

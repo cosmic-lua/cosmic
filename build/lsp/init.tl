@@ -22,8 +22,8 @@
 --- Its `spec` (build/verb_spec.tl) is `bare`, since standard output is
 --- the protocol's, `fresh`: in cosmic's own tree a tool older than the
 --- tree rebuilds itself first, as `docs` does, and `reads`: where another
---- run holds the working database, it starts at once, and checks nothing
---- of the tool ([`reboot.stale_exit`]). Complaints go to standard
+--- run holds the working database or the rebuild lock, it starts at once,
+--- and rebuilds no tool ([`reboot.stale_exit`]). Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
 local Cli = require("cosmic.cli")

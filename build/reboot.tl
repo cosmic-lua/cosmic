@@ -386,6 +386,28 @@ local function into(handle: work.Handle, built: compiler,
   return exec_trouble, false
 end
 
+--- What `serialize` answers a verb that only reads, which found another
+--- run holding the rebuild lock: it has closed the working database, and
+--- the verb goes on with its own code. No exit code is negative.
+local read_on <const> = -1
+
+--- Whether this process's check of the tool ([`reboot.stale_exit`]) found
+--- it stale and went on with its own code, another run holding the
+--- rebuild lock ([`reboot.read_stale`]).
+local record WentOn
+  stale: boolean
+end
+local went_on: WentOn = { stale = false }
+
+--- Whether a verb that only reads went on with a tool older than the
+--- tree, another run holding the rebuild lock ([`reboot.stale_exit`]): its
+--- lookup then builds nothing ([`rebuild.here`]), since this tool's
+--- compiler would compile the tree again under keys none of the tree's
+--- own builds use, and reads what is there.
+function reboot.read_stale(): boolean
+  return went_on.stale
+end
+
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
 -- moment it finds it must rebuild or boot the tool until it re-enters
 -- the command on the tool it wrote, or exits. A `cosmic test` run holds
@@ -393,7 +415,7 @@ end
 -- it, since only the tree's own tool ([`reboot.own_tool`]) rebuilds. A run
 -- waits for its holder as long as it takes, as [`rebuild_lock.hold`]
 -- does: that may be a whole `cosmic test` run, and a holder that dies
--- lets it go.
+-- lets it go. A verb that only reads waits for none (`read_on`).
 
 --- The meta a tool's database carries that tells one written apart
 --- from another: a rebuild moves `boot_hash` (the tree's, which is why it
@@ -488,8 +510,13 @@ end
 --- runs never rebuild one after another for good. The caller makes the
 --- `marker` refusal (`refusal`) before it comes here, so a run that
 --- would refuse never waits.
+---
+--- A verb that only reads (`reads`) never waits: where another run holds
+--- the lock, it closes `handle`, says so once
+--- ([`rebuild_lock.tell_not_waiting`]) and answers `read_on`, going on
+--- with its own code.
 local function serialize(handle: work.Handle, root: string,
-                         argv: {integer:string}): integer | nil
+                         argv: {integer:string}, reads: boolean): integer | nil
   -- Tried at once, while this run holds the working database: a run
   -- holding the lock may be waiting for that database, so this run
   -- waits for the lock only once it has closed it.
@@ -517,6 +544,10 @@ local function serialize(handle: work.Handle, root: string,
   if not closed then
     log:complain(close_trouble)
     return 1
+  end
+  if reads then
+    rebuild_lock.tell_not_waiting(argv[1] or "cosmic", root)
+    return read_on
   end
   local waited, wait_trouble = rebuild_lock.wait(root, "rebuild",
     rebuild_lock.holder(root) .. "; waiting for it" .. rebuild_lock.suffix(root))
@@ -629,9 +660,12 @@ end
 --- Otherwise it has said why on stderr and closed `handle`, and answers
 --- the exit code the caller returns at once: 3 for a refusal, or a
 --- rebuild or boot that failed, and 1 when the check itself failed.
+--- With `reads`, for a verb that only reads, it waits for no run holding
+--- the rebuild lock: where one does, it closes `handle`, says so once,
+--- and answers -1 (`read_on`), the verb going on with its own code.
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
-                      argv: {integer:string}): integer | nil
+                      argv: {integer:string}, reads?: boolean): integer | nil
   local state, state_trouble = state_of(handle)
   if state == nil then
     log:complain(closing(handle, state_trouble))
@@ -654,7 +688,7 @@ function reboot.guard(handle: work.Handle, root: string,
       log:complain(closing(handle, refused))
       return 3
     end
-    local waited = serialize(handle, root, argv)
+    local waited = serialize(handle, root, argv, reads == true)
     if waited ~= nil then
       return waited
     end
@@ -676,7 +710,7 @@ function reboot.guard(handle: work.Handle, root: string,
       log:complain(closing(handle, "the tool is still stale after a reboot"))
       return 3
     end
-    local waited = serialize(handle, root, argv)
+    local waited = serialize(handle, root, argv, reads == true)
     if waited ~= nil then
       return waited
     end
@@ -704,7 +738,7 @@ function reboot.guard(handle: work.Handle, root: string,
     log:complain(closing(handle, refused))
     return 3
   end
-  local waited = serialize(handle, root, argv)
+  local waited = serialize(handle, root, argv, reads == true)
   if waited ~= nil then
     return waited
   end
@@ -752,8 +786,13 @@ end
 --- may be using, holding its write lock or the checkout's rebuild lock,
 --- is skipped so too, said as [`work.tell_other_schema`] says. Where the
 --- locks are free, the check is as for any verb, a database of another
---- schema made again as a build makes it ([`work.try_open_remaking`]). A verb that writes waits for the lock,
---- as its build would.
+--- schema made again as a build makes it ([`work.try_open_remaking`]).
+--- Nor does it wait for another run that holds the checkout's rebuild
+--- lock, a whole `cosmic test` run above all: where the tool is stale,
+--- it rebuilds nothing, says so once
+--- ([`rebuild_lock.tell_not_waiting`]), and goes on with this binary's
+--- code as above. A verb that writes waits for either lock, as its build
+--- would.
 ---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tree is not cosmic's own
@@ -839,7 +878,11 @@ function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: strin
       log:complain(closing(handle, stage_trouble))
       return 1
     end
-    local code = reboot.guard(handle, at, argv)
+    local code = reboot.guard(handle, at, argv, reads)
+    if code == read_on then
+      went_on.stale = true
+      return nil
+    end
     if code ~= nil then
       return code
     end
