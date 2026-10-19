@@ -1592,6 +1592,9 @@ local function test_the_rehearsal_phase_runs_the_whole_suite_with_the_new_gramma
       listed = "# none\n" },
     { name = "linux-stale", target = "x86_64-linux-musl", status = 0, ok = false, ran = true, output = "",
       listed = "a_test test_x -- the fork's hint\n" },
+    -- a run that built the tool again ran on another tool than the one the phase booted
+    { name = "linux-rebuilt", target = "x86_64-linux-musl", status = 0, ok = false, ran = true,
+      output = "cosmic: the tool is stale; rebuilding it from the tree\n", listed = "# none\n" },
     { name = "linux-aarch64", target = "aarch64-linux-musl", status = 0, ok = true, ran = false, output = "", listed = "" },
     { name = "linux-queue", target = "x86_64-linux-musl", status = 1, ok = true, ran = true, output = failure,
       listed = "a_test test_x -- the fork's hint\n", event = "merge_group" },
@@ -1629,6 +1632,101 @@ local function test_the_rehearsal_phase_runs_the_whole_suite_with_the_new_gramma
       assert(words ~= nil and words:find("--bail", 1, true) == nil, case.name .. ": " .. tostring(words))
     else
       assert(ran == nil, case.name .. ": " .. tostring(ran))
+    end
+  end
+end
+
+--- The phases that follow `rehearsal`'s boot run on the tool it booted again with COSMIC_GRAMMAR=new: `rehearsal-boot` boots it
+--- and holds it to what it must say of itself, `rehearsal-project` builds each project of testdata/rehearsal with the new
+--- checker and holds it to what it is for, and `rehearsal-seed` proves lang/ against the pinned seed; each does nothing on
+--- another target.
+local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_proves_the_seed(tmp: string)
+  local base, project = command(tmp)
+  local record Case
+    name: string
+    target: string
+    --- What `cosmic -e` prints, what the project and the fork-only project exit with, and what the proof exits with.
+    built_by: string
+    project_status: integer
+    fork_only_status: integer
+    proof_status: integer
+    --- The phases that fail.
+    fails: {string: boolean}
+    ran: boolean
+  end
+  local cases: {Case} = {
+    { name = "good", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0, fork_only_status = 1,
+      proof_status = 0, fails = {}, ran = true },
+    { name = "built-by-the-fork", target = "x86_64-linux-musl", built_by = "false\\ntrue\\n", project_status = 0,
+      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
+    { name = "no-declarations", target = "x86_64-linux-musl", built_by = "true\\nfalse\\n", project_status = 0,
+      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
+    { name = "project-refused", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 1,
+      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
+    { name = "fork-only-accepted", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0,
+      fork_only_status = 0, proof_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
+    { name = "proof-failing", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0,
+      fork_only_status = 1, proof_status = 1, fails = { ["rehearsal-seed"] = true }, ran = true },
+    { name = "aarch64", target = "aarch64-linux-musl", built_by = "false\\nfalse\\n", project_status = 1, fork_only_status = 0,
+      proof_status = 1, fails = {}, ran = false },
+  }
+  local project_says = "test: 3 tests passed in 2 modules; 3 ran, 0 stood, 576 ms; sandboxed, under a policy"
+  local fork_only_says = table.concat({
+    "test: FAIL  cache.tl:8:1: `function Kv.Lru.get` has more than one dot (function_path): assign the function to the field: " ..
+      "`Kv.Lru.get = function(...) ... end`",
+    "test: FAIL  lookup.tl: the compiler refused it",
+    "lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, or declare what " ..
+      "takes it `Entry?` (a parameter or field `name?: T`)",
+    "test: FAIL  lookup_test.tl: not compiled: it requires lookup, which the new checker refused",
+    "test: 4 of 4 tests failed, 0 infrastructure errors, 593 ms; sandboxed, under a policy",
+  }, "\\n")
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    for _, name in ipairs({ "project", "fork_only" }) do
+      assert(Fs.mkdirs(fake .. "/testdata/rehearsal/" .. name))
+      assert(Fs.write(fake .. "/testdata/rehearsal/" .. name .. "/a_test.tl", "return {}\n"))
+    end
+    -- The pinned bootstrap names itself, and bin/zig's boot leaves a cosmic that answers as the case says: what built it, what a
+    -- test in each project says (by the directory it runs in), and what the proof exits with. Each boot is logged with the mode.
+    Fixture.write(fake .. "/bin/cosmic-bootstrap", "#!/bin/sh\nprintf '/pinned/cosmic\\n'\n", 493)
+    Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nprintf '%s|%s\\n' \"$*\" \"$COSMIC_GRAMMAR\" >> o.boots\n" ..
+        "mkdir -p o/bin\nprintf db > o/build.db\n" ..
+        "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
+        "case \"$1\" in\n" ..
+        "  -e) printf '" .. case.built_by .. "' ;;\n" ..
+        "  test) case \"$PWD\" in\n" ..
+        "    *rehearsal-project) printf '%s\\n' '" .. project_says .. "'; printf '%s|%s\\n' \"$COSMIC_GRAMMAR\" \"$COSMIC_VERDICT_CACHE\" >> \"$0.projects\"; exit " ..
+        tostring(case.project_status) .. " ;;\n" ..
+        "    *rehearsal-fork_only) printf '%s\\n' '" .. fork_only_says .. "'; exit " .. tostring(case.fork_only_status) .. " ;;\n" ..
+        "  esac ;;\n" ..
+        "  build/lang_proof_main.tl) printf '%s|%s\\n' \"$COSMIC_GRAMMAR\" \"$*\" >> \"$0.proof\"; exit " .. tostring(case.proof_status) .. " ;;\n" ..
+        "esac\nEOF\n" ..
+        "chmod 755 o/bin/cosmic\n", 493)
+    local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
+      COSMIC_WORKER = "linux-x86_64-new-grammar", COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
+      COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
+    for _, phase in ipairs({ "boot", "rehearsal-boot", "rehearsal-project", "rehearsal-seed" }) do
+      local outcome = Fixture.call("rehearsal-phases-" .. case.name .. "-" .. phase,
+        append(base, { "platform", phase }), project, tmp .. "/logs", env)
+      local ok = case.fails[phase] ~= true
+      assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. Fixture.read(outcome.err))
+    end
+    local boots = Fs.read(fake .. "/o.boots")
+    if case.ran then
+      -- the second boot is the plain `boot` with the new checker asked for, the first the legs' with the mode unset
+      assert(boots ~= nil and boots:find("\nbuild boot|new\n", 1, true) ~= nil and boots:find("build cores boot|\n", 1, true) == 1,
+        case.name .. ": " .. tostring(boots))
+      local projects = Fs.read(fake .. "/o/bin/cosmic.projects")
+      assert(projects == "new|0\n", case.name .. ": " .. tostring(projects))
+      local proof = Fs.read(fake .. "/o/bin/cosmic.proof")
+      assert(proof ~= nil and proof:find("new|build/lang_proof_main.tl prove ", 1, true) == 1 and
+          proof:find(" --seed /pinned/cosmic", 1, true) ~= nil, case.name .. ": " .. tostring(proof))
+    else
+      assert(Fs.read(fake .. "/o/bin/cosmic.proof") == nil and Fs.read(fake .. "/o/bin/cosmic.projects") == nil, case.name)
     end
   end
 end

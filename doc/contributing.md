@@ -178,6 +178,12 @@ naming, one a line, each seed output file whose Lua differs (`tl.lua`,
 difference in a file not listed still fails the boot, as does a listed
 file that does not differ; the pin move that takes a release carrying
 the change empties the list and removes the file.
+the same holds for the new checker's own source, `lang/`, which the pinned release compiles (`compile --grammar new`) once the
+switch makes it the seed of the tool. Until then CI's rehearsal job compiles the translation of all of `lang/` with the
+tree's compile and with the pinned release, and holds the files whose Lua differs to `lang/SEED_DIFFERS`, one bare output
+name a line (`codegen.lua`), both ways: a change to what the new checker's code generator writes that the pin lacks lists its files there, a
+listed file that does not differ fails, and the pin move that takes a release carrying the change empties the list and
+removes the file (`bin/cosmic build/lang_proof_main.tl prove <dir> --seed $(bin/cosmic-bootstrap)` runs it).
 `COSMIC_BOOTSTRAP` names another cosmic for the seed too. with it pointing
 at the tree's own tool, the seed is always what the checker compiles itself
 to, so a standing entry fails the boot saying to remove it: boot with the

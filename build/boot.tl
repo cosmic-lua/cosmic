@@ -11,6 +11,7 @@ local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local compiler = require("build.compiler")
 local derivation = require("build.derivation")
+local GrammarMode = require("build.grammar_mode")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
@@ -113,6 +114,11 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
     log:complain("boot: " .. mkdir_trouble)
     return nil
   end
+  local grammar, grammar_trouble = GrammarMode.mode()
+  if grammar == nil then
+    log:complain("boot: " .. grammar_trouble)
+    return nil
+  end
   local handle, open_trouble = work.open(root, working.directory)
   if handle == nil then
     log:complain("boot: " .. open_trouble)
@@ -167,16 +173,38 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a
   -- fresh working database and keys exactly as a warm build does.
+  -- With COSMIC_GRAMMAR=new the new checker compiles it, in this process ([`importer.compile_tree`]): the tool this boot
+  -- leaves carries Lua the new generator wrote, and records the tool string that says so, so that a run that asks for the
+  -- fork's builds it again ([`build.reboot`]). Only the tree's own compile is the new checker's: the bridge that runs this
+  -- compiles `build.*` up to here with the fork's checker the seed carries, and `build.zig`'s `seedCompiler` and
+  -- checker/SEED_DIFFERS stay the fork's until the switch (doc/plans/strict-teal.md, "the switch").
+  local pool: importer.Workers | nil = nil
+  if grammar ~= "new" then
+    pool = workers.pool(workers.boot_spec(root, seed_dir))
+  else
+    local _, _ = Fs.put(Fs.stderr, "boot: compiling the tree with the new checker (COSMIC_GRAMMAR=new), in this process\n")
+  end
   local result, compile_trouble = importer.compile_tree(handle, compiler,
     function(recorded: identity.Identities): string, string
-      return recorded.compiler, ""
-    end, false, shared_compiles.for_build(),
-    workers.pool(workers.boot_spec(root, seed_dir)))
+      return GrammarMode.tool(recorded.compiler, grammar), ""
+    end, false, shared_compiles.for_build(), pool, grammar)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain("boot: " .. compile_trouble)
     return nil
+  end
+  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
+  if grammar == "new" then
+    local refused = require("build.pipeline").unexpected(result.refused)
+    if #refused > 0 then
+      local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+      local _, _ = work.close(handle)
+      log:complain(table.concat(refused, "\n"))
+      log:complain("boot: the new checker (COSMIC_GRAMMAR=new) refused " .. plural.count(#refused, "module") ..
+          " of the tree, so no tool is written from it")
+      return nil
+    end
   end
   local database_path = output.projection
   local written, write_trouble =

@@ -149,14 +149,6 @@ local function test_a_source_the_new_grammar_cannot_read_is_told_in_its_words_or
   assert(work.close(handle) and work.close(other))
 end
 
-local function test_a_project_outside_cosmics_tree_is_told_to_unset_the_grammar(tmp: string)
-  local handle = staged(tmp .. "/p", { ["things.tl"] = MODULE })
-  local result, why = importer.compile(handle, built, "tool", false, nil, nil, false, "new")
-  assert(result == nil and why:find("COSMIC_GRAMMAR=new does not build a project outside cosmic's tree: unset COSMIC_GRAMMAR", 1, true) ~=
-      nil, tostring(why))
-  assert(work.close(handle))
-end
-
 --- The files of a tree that is cosmic's own as far as the build asks: the directories and the importer, and ceilings of its own;
 --- and stand-ins for the standard library's declarations and the prelude of the fork it reads, which come late: the real ones
 --- take seconds to lower, and what these tests ask of the build does not read them.

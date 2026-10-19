@@ -203,7 +203,9 @@ end
 --- [`checker/flow.tl`], [`checker/narrowing.tl`], [`checker/captures.tl`] and [`checker/facts.tl`]) and of the standard
 --- library's declarations
 --- ([`checker/stdlib.d.tl`]),
---- which descend from tl, not tl's own source. They are listed with the
+--- which descend from tl, not tl's own source. The binary carries the text of the
+--- declarations too, as rows of `decls` ([`build.checker_declarations`]), for the
+--- projects the new checker types. They are listed with the
 --- tree's patches, as modified rather than patched.
 local descendants: {string:{string}} = {
   tl = { "checker/tl.tl", "checker/flow.tl", "checker/narrowing.tl", "checker/captures.tl", "checker/facts.tl", "checker/stdlib.d.tl" },

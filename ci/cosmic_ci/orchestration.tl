@@ -559,13 +559,24 @@ local checked_suite_test_timeout_s <const> = "120"
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
 local checked_narrowing_test_timeout_s <const> = "120"
 
---- The whole suite with the new checker ([`phase_rehearsal`]): bounded as the checked run is, which it is the size of
---- plus the cold compile of the tree by the new pipeline.
+--- The whole suite with the new checker ([`phase_rehearsal`]): the size of the checked run plus the cold compile of the tree by
+--- the new pipeline, bounded to fit with the phases around it inside the job.
 
 -- TODO: lower these bounds once CI's own runs of the phase show its elapsed time; a local run of the whole suite in the new
--- grammar took about 460 s on four cores, cold compile of the tree included, and the bound is the checked run's.
-local rehearsal_timeout_ns <const> = Clock.seconds(1800)
+-- grammar took about 460 s on four cores, cold compile of the tree included, and 670 s on the tool booted with it (whose first
+-- run reads the 1087 sources again, 90 s), and the bound is 1200 s.
+local rehearsal_timeout_ns <const> = Clock.seconds(1200)
 local rehearsal_test_timeout_s <const> = "120"
+-- The tool the rehearsal runs the suite on is booted again with the new checker, which compiles the tree in one process and
+-- takes no compile another run made (the keys hold the mode): a cold compile of the whole tree, 180 to 220 s of the 230 to 320
+-- a local boot took on four cores shared with two other builds, and 7.3 GB of memory at its peak. A project of the rehearsal
+-- builds in seconds, and the proof of lang/ and the seed's compile of it took 140 to 340 s.
+-- The bounds sum to 41 minutes (600 + 1200 + 2 x 120 + 420 s), inside the job's 60 with the first boot and the restores.
+-- TODO: lower these bounds once CI's own runs show their times, keeping their sum below the job's `timeout-minutes`; they are
+-- sized from local runs.
+local rehearsal_boot_timeout_ns <const> = Clock.seconds(600)
+local rehearsal_project_timeout_ns <const> = Clock.seconds(120)
+local rehearsal_seed_timeout_ns <const> = Clock.seconds(420)
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1498,6 +1509,11 @@ local function phase_rehearsal(p: PlatformContext): integer
   end
   local failed = Rehearsal.failures(exists(out) and read(out) or "")
   local problems = Rehearsal.judge(allowed, failed)
+  -- The suite ran on the tool the rehearsal booted with the new checker, not on one built again for the run.
+  local errors = p.local_diagnostics .. "/rehearsal-test.err"
+  for _, line in ipairs(Rehearsal.judge_tool(exists(out) and read(out) or "", exists(errors) and read(errors) or "")) do
+    problems[#problems + 1] = line
+  end
   if status == 1 and #failed == 0 then
     problems[#problems + 1] = "the suite failed and its output names no failure"
   end
@@ -1505,6 +1521,94 @@ local function phase_rehearsal(p: PlatformContext): integer
     Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
   end
   return #problems == 0 and 0 or 1
+end
+
+--- What the tool booted with the new checker says of itself: it was compiled by the tool string that mode records (the
+--- `compiled_by` it carries is not the compiler's identity, `reboot.settled_by` of build/reboot.tl), and it carries the declarations of the
+--- standard library that a project is typed against (`build/checker_declarations.tl`).
+local BUILT_BY <const> = "local S = require('cosmic.store'); print(S.meta('compiled_by') ~= S.meta('compiler')); " ..
+  "print(S.source('checker.stdlib') ~= nil and S.source('checker.prelude') ~= nil)"
+
+--- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot`) over the one `boot`
+--- made in the same build directory: the tree is compiled in one process by the new pipeline, and the tool carries the Lua
+--- the new generator wrote, under the tool string that says so, so that a run that asks for the fork's builds it again and one
+--- that asks for the new checker's does not. `rehearsal` runs the suite on it. On the linux-x86_64 target alone.
+local function phase_rehearsal_boot(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  mkdir(p.local_diagnostics)
+  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot" },
+    rehearsal_boot_timeout_ns, c.root, environment({ COSMIC_GRAMMAR = "new" }))
+  if booted ~= 0 then return booted end
+  local said = p.local_diagnostics .. "/rehearsal-built-by.out"
+  local asked = capture_small(c, "what built the tool", { BuildPaths.directory(p.root) .. "/bin/cosmic", "-e", BUILT_BY },
+    said, Clock.seconds(60))
+  if asked ~= 0 then return asked end
+  if read(said) ~= "true\ntrue\n" then
+    Fs.put(Fs.stderr, "rehearsal: the tool booted with COSMIC_GRAMMAR=new does not say it was built by the new checker " ..
+        "and carry the declarations of the standard library: " .. read(said) .. "\n")
+    return 1
+  end
+  return 0
+end
+
+--- The projects of testdata/rehearsal, each built and tested as a project outside the tree with the new checker, on the tool
+--- the rehearsal booted: the one of Teal both checkers read passes, and the one of forms only the fork reads is refused with the
+--- new checker's words and fix ([`Rehearsal.judge_project`]). A project has no ceilings and no fork to fall back to.
+local function phase_rehearsal_project(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  local cosmic = BuildPaths.directory(p.root) .. "/bin/cosmic"
+  mkdir(p.local_diagnostics)
+  local problems: {string} = {}
+  for _, name in ipairs(Rehearsal.projects()) do
+    local copy = p.work .. "/rehearsal-" .. name
+    local copied = step(c, "copy the project " .. name, function(): boolean, string
+      if exists(copy) then
+        local removed, trouble = Fs.remove_tree(copy)
+        if not removed then return false, trouble end
+      end
+      return Fs.copy_tree(c.root .. "/testdata/rehearsal/" .. name, copy)
+    end)
+    if copied ~= 0 then return copied end
+    local out = p.local_diagnostics .. "/rehearsal-project-" .. name .. ".out"
+    local values = environment({ COSMIC_GRAMMAR = "new", COSMIC_VERDICT_CACHE = "0" })
+    release_promises(values)
+    local status = logged(c, "project " .. name, { cosmic, "test" }, out, p.local_diagnostics .. "/rehearsal-project-" .. name .. ".err",
+      rehearsal_project_timeout_ns, copy, values)
+    -- 0 and 1 are the run's own verdicts; anything else (a timeout, a signal) is no run the project can be judged by.
+    if status ~= 0 and status ~= 1 then return status end
+    for _, line in ipairs(Rehearsal.judge_project(name, status, read(out))) do
+      problems[#problems + 1] = line
+    end
+  end
+  for _, line in ipairs(problems) do
+    Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
+  end
+  return #problems == 0 and 0 or 1
+end
+
+--- The proof that the pinned seed builds the new checker from its translated source (build/lang_proof.tl): all of lang/
+--- translated, compiled with `compile --grammar new`, and its tests run against the Lua; then the same translation compiled by
+--- the pinned release (`bin/cosmic-bootstrap`), whose Lua differs from the tree's compile only in the files lang/SEED_DIFFERS
+--- lists, both ways. On the tool the rehearsal booted, asked for the new checker's mode so that it is not built again for a
+--- default run.
+local function phase_rehearsal_seed(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  mkdir(p.local_diagnostics)
+  local pinned = p.local_diagnostics .. "/rehearsal-seed.path"
+  local found = capture_small(c, "the pinned seed", { p.root .. "/bin/cosmic-bootstrap" }, pinned, Clock.seconds(300))
+  if found ~= 0 then return found end
+  local seed = read(pinned):match("^%s*(.-)%s*$") or ""
+  if seed == "" then
+    Fs.put(Fs.stderr, "rehearsal: bin/cosmic-bootstrap named no cosmic\n")
+    return 1
+  end
+  local out = p.local_diagnostics .. "/rehearsal-seed.out"
+  return logged(c, "prove lang/ against the seed", { BuildPaths.directory(p.root) .. "/bin/cosmic", "build/lang_proof_main.tl", "prove",
+    p.work .. "/lang-proof", "--seed", seed }, out, p.local_diagnostics .. "/rehearsal-seed.err", rehearsal_seed_timeout_ns, c.root,
+    environment({ COSMIC_GRAMMAR = "new" }))
 end
 
 --- The native suite, on the tree `boot` built: the `build` phase
@@ -2073,8 +2177,14 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_declared_types(p)
   elseif phase == "checked-narrowing" then
     return phase_checked_narrowing(p)
+  elseif phase == "rehearsal-boot" then
+    return phase_rehearsal_boot(p)
   elseif phase == "rehearsal" then
     return phase_rehearsal(p)
+  elseif phase == "rehearsal-project" then
+    return phase_rehearsal_project(p)
+  elseif phase == "rehearsal-seed" then
+    return phase_rehearsal_seed(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then

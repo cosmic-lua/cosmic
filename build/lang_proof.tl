@@ -20,6 +20,15 @@
 ---   is given, so a source that still has one fails loudly.
 ---
 --- The declaration files of the standard library are not given: the Lua the seed writes does not depend on them.
+---
+--- With `--seed <cosmic>` (the pinned release, [`bin/cosmic-bootstrap`]) the same translation is compiled by that release
+--- too, into `<dir>/seed`, and the Lua of each file is compared with what the tree's compile wrote: the files that
+--- differ are the ones the emitter has moved ahead of the pin, and `lang/SEED_DIFFERS` lists them, one bare name a line
+--- (`codegen.lua`), as checker/SEED_DIFFERS lists the files of the fork's checker the seed writes otherwise
+--- (core/bridge.lua). The proof fails for a file that differs and is not listed, for a listed file that does not
+--- differ, for a name that is no file of lang/, and for an empty list that is there; the pin move that takes a release
+--- carrying the change empties the list. Until the switch (doc/plans/strict-teal.md, "the switch") the bridge, `build.zig`'s
+--- `seedCompiler` and checker/SEED_DIFFERS are the fork's: this is the rehearsal of the seed the switch adds.
 
 local Ast = require("lang.ast")
 local Fs = require("cosmic.fs")
@@ -81,7 +90,19 @@ local record LangProof
   --- Compiles what `prepare` wrote.
   build: function(out: string, files: {string}): Built
 
-  --- The command line of [`build/lang_proof_main.tl`]: `prove <dir> [stem...]` or `run <dir> <stem>`.
+  --- The names of the files of `files` (stems of lang/) whose Lua, `<stem>.lua`, differs between the directories `a` and
+  --- `b`, as bare names in the order of `files`; a file one directory lacks differs.
+  differing: function(files: {string}, a: string, b: string): {string}
+
+  --- The names a text of lang/SEED_DIFFERS lists, one bare file name a line, blanks around it taken off.
+  listed: function(text: string): {string}
+
+  --- What is wrong with `declared` (the names of lang/SEED_DIFFERS) against `differ` (the files the seed writes otherwise),
+  --- one line each: a file that differs and is not listed, a listed file that does not differ, a name that is none of `written`
+  --- (the files compiled), and a file `present` that lists nothing. None where the two agree.
+  judged: function(differ: {string}, declared: {string}, written: {string}, present: boolean): {string}
+
+  --- The command line of [`build/lang_proof_main.tl`]: `prove <dir> [--seed <cosmic>] [stem...]` or `run <dir> <stem>`.
   main: function(argv: {string}): integer
 end
 
@@ -391,11 +412,97 @@ function LangProof.build(out: string, files: {string}): LangProof.Built
   return { code = code, complaints = table.concat(complaints, "\n") }
 end
 
+function LangProof.differing(files: {string}, a: string, b: string): {string}
+  local out: {string} = {}
+  for _, stem in ipairs(files) do
+    local one, _ = Fs.read(a .. "/" .. stem .. ".lua")
+    local other, _ = Fs.read(b .. "/" .. stem .. ".lua")
+    if one == nil or other == nil or one ~= other then
+      out[#out + 1] = stem .. ".lua"
+    end
+  end
+  return out
+end
+
+function LangProof.listed(text: string): {string}
+  local out: {string} = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    local name = line:match("^%s*(.-)%s*$") or ""
+    if name ~= "" then
+      out[#out + 1] = name
+    end
+  end
+  return out
+end
+
+function LangProof.judged(differ: {string}, declared: {string}, written: {string}, present: boolean): {string}
+  local out: {string} = {}
+  local differs: {string: boolean} = {}
+  for _, name in ipairs(differ) do
+    differs[name] = true
+  end
+  local listed: {string: boolean} = {}
+  for _, name in ipairs(declared) do
+    listed[name] = true
+  end
+  local known: {string: boolean} = {}
+  for _, stem in ipairs(written) do
+    known[stem .. ".lua"] = true
+  end
+  for _, name in ipairs(declared) do
+    if known[name] ~= true then
+      out[#out + 1] = "lang/SEED_DIFFERS: " .. name .. " names no file lang/ compiles to: list bare output names, e.g. codegen.lua"
+    end
+  end
+  for _, name in ipairs(differ) do
+    if listed[name] ~= true then
+      out[#out + 1] = "the seed writes " .. name .. " otherwise than the tree's compile of the same translation, and lang/SEED_DIFFERS " ..
+        "does not list it: a seed that miscompiles, or a change to what the generator writes, which the file declares " ..
+        "(one file name a line) until ci/cosmic-driver.pin names a release that carries it"
+    end
+  end
+  for _, name in ipairs(declared) do
+    if known[name] == true and differs[name] ~= true then
+      out[#out + 1] = "lang/SEED_DIFFERS lists " .. name .. ", which the seed writes as the tree's compile does: remove it " ..
+        "from the file, and the file once it lists nothing"
+    end
+  end
+  if present and #declared == 0 then
+    out[#out + 1] = "lang/SEED_DIFFERS lists no file: remove it"
+  end
+  return out
+end
+
+--- Compiles what `prepare` wrote with the release `seed` (`<seed> compile --grammar new`), into `<out>/seed`.
+local function seeded(out: string, files: {string}, seed: string): LangProof.Built
+  assert(Fs.mkdirs(out .. "/seed"))
+  local argv: {string} = { seed, "compile", "--grammar", "new", "--errors", "--root", out .. "/src", "-o", out .. "/seed" }
+  for _, stem in ipairs(files) do
+    argv[#argv + 1] = out .. "/src/lang/" .. stem .. ".tl"
+  end
+  local result, trouble = Child.run(argv, { cwd = out, stdout = "capture", stderr = "capture" })
+  if result == nil then
+    return { code = 1, complaints = tostring(trouble) }
+  end
+  return { code = result.code or 1, complaints = (result.stderr or "") .. (result.stdout or "") }
+end
+
 --- What `run` found.
 local record Ran
   passed: integer
   failures: {string}
 end
+
+--- The test modules the proof does not run, each with why: they load a module that reads a record through
+--- `Shape.record_of("Name")`, which the build resolves in the source it compiles ([`build.syntax_shape_specs`]) and
+--- `cosmic compile` does not, so its Lua raises when it is loaded.
+--
+-- TODO: run these once the proof resolves [`Shape.record_of`] in the translation it compiles ([`build.tree_program`]'s
+-- `splice`), or once `cosmic compile` does: the seed step of the switch compiles lang/ with `compile` and would write a
+-- lang/check_verdicts.lua that raises when it is loaded.
+local UNRESOLVED <const>: {string: string} = {
+  check_verdicts_test = "lang/check_verdicts.tl reads its records through Shape.record_of, which `cosmic compile` leaves unresolved",
+}
 
 --- Runs the tests of the compiled module `stem` (a `_test` module of lang/), in this process, which must run
 --- no other module's tests: a module may declare its policy once.
@@ -457,10 +564,35 @@ local function run_in_process(out: string, stem: string): string, boolean
   return last, result.code == 0
 end
 
+--- Compiles `files` with the release `seed`, and holds the files that differ from the tree's compile to lang/SEED_DIFFERS.
+--- The number of problems it printed. With `whole` (all of lang/ was built) the list is held both ways; a part only says
+--- which of its files differ.
+local function compare_with_seed(out: string, files: {string}, seed: string, whole: boolean): integer
+  local built = seeded(out, files, seed)
+  assert(Fs.write(out .. "/seed.log", built.complaints .. "\n"))
+  print(seed .. " compile --grammar new: exit " .. tostring(built.code) .. " (" .. out .. "/seed.log)")
+  if built.code ~= 0 then
+    print("the seed cannot build the translation of lang/; the switch waits on a pin that can")
+    return 1
+  end
+  local differ = LangProof.differing(files, out .. "/lua", out .. "/seed")
+  print("the seed writes " .. String.counted(#differ, "file") .. " of " .. tostring(#files) ..
+      " otherwise than the tree's compile: " .. table.concat(differ, ", "))
+  if not whole then
+    return 0
+  end
+  local text, _ = Fs.read("lang/SEED_DIFFERS")
+  local problems = LangProof.judged(differ, LangProof.listed(text or ""), files, text ~= nil)
+  for _, problem in ipairs(problems) do
+    print(problem)
+  end
+  return #problems
+end
+
 function LangProof.main(argv: {string}): integer
   local command, out = argv[1], argv[2]
   if out == nil then
-    print("usage: bin/cosmic build/lang_proof_main.tl prove <dir> [stem...] | run <dir> <stem>")
+    print("usage: bin/cosmic build/lang_proof_main.tl prove <dir> [--seed <cosmic>] [stem...] | run <dir> <stem>")
     return 2
   end
   if command == "run" then
@@ -477,9 +609,19 @@ function LangProof.main(argv: {string}): integer
     return #ran.failures == 0 and 0 or 1
   end
   local only: {string} = {}
-  for index, word in ipairs(argv) do
-    if index >= 3 then
-      only[#only + 1] = word
+  local seed: string | nil = nil
+  local index = 3
+  while argv[index] ~= nil do
+    if argv[index] == "--seed" then
+      seed = argv[index + 1]
+      if seed == nil then
+        print("--seed needs the cosmic to compile with")
+        return 2
+      end
+      index = index + 2
+    else
+      only[#only + 1] = assert(argv[index])
+      index = index + 1
     end
   end
   local prepared = LangProof.prepare(".", out, only)
@@ -499,10 +641,18 @@ function LangProof.main(argv: {string}): integer
   local failed = 0
   for _, stem in ipairs(files) do
     if stem:match("_test$") ~= nil and (#only == 0 or named[stem] == true) then
-      local line, ok = run_in_process(out, stem)
-      print(line)
-      if not ok then failed = failed + 1 end
+      local unresolved = UNRESOLVED[stem]
+      if unresolved ~= nil then
+        print(stem .. ": not run: " .. unresolved)
+      else
+        local line, ok = run_in_process(out, stem)
+        print(line)
+        if not ok then failed = failed + 1 end
+      end
     end
+  end
+  if seed ~= nil then
+    failed = failed + compare_with_seed(out, files, seed, #only == 0)
   end
   return failed == 0 and 0 or 1
 end

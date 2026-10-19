@@ -267,8 +267,8 @@ end
 --- Runs the command line `argv`, `compile` at slot 1, and answers the
 --- exit code. `built` is the compiler to use, or this binary's own when
 --- nil: what a test stands in for.
-function verb.run(argv: {integer:string}, io?: verb.Io, built?: compiler): integer
-  local to = io or { out = bare.out, err = bare.err }
+function verb.run(argv: {integer:string}, streams?: verb.Io, built?: compiler): integer
+  local to = streams or { out = bare.out, err = bare.err }
   local complain = bare.complainer("compile", to.err)
   local request, trouble = arguments(argv)
   if request == nil then

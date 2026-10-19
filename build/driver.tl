@@ -800,7 +800,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       for _, p in ipairs(list) do
         findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
       end
-      local held = Ceilings.over(file, findings, codes, Ceilings.of(ceilings, name), what)
+      local held = Ceilings.over(file, findings, codes, Ceilings.of(ceilings, name), what, ceilings.none)
       for _, line in ipairs(held.lines) do
         out[#out + 1] = line
       end

@@ -668,7 +668,11 @@ local function parse_new(handle: work.Handle, built: compiler, tally: importer.P
   if grammar == "new" then
     -- The syntax tree of the new checker is read in this process, whose tree the readers take.
     local pipeline = require("build.pipeline")
-    return pipeline.derive(db, built, fresh, tally, made, broken)
+    local own, own_trouble = tree.is_own(handle.root)
+    if own == nil then
+      return false, own_trouble
+    end
+    return pipeline.derive(db, built, fresh, tally, made, broken, not own)
   end
   if pool ~= nil and #fresh > 1 then
     local bytes = 0
@@ -1682,6 +1686,18 @@ local function prepare_compile(handle: work.Handle, built: compiler, tool: strin
     local selected, select_trouble = choose(recorded)
     if selected == nil then return nil, select_trouble end
     tool = selected
+    if grammar == "new" then
+      -- What it is made by is the code that reads: the checker and the readers. A boot runs the tree's own, which the
+      -- tool it stands in for does not carry yet, so the tree says what it is; a rebuild runs the tool's.
+      local pipeline = require("build.pipeline")
+      if Store.meta("boot_hash") == nil then
+        local coded, coded_trouble = pipeline.coded_of(tool, handle.db)
+        if coded == nil then return nil, coded_trouble end
+        tool = coded
+      else
+        tool = pipeline.coded(tool)
+      end
+    end
   end
   return compile_derived(handle, built, tool, own_tree, parses, unjudged, shared, pool, checks,
     target, broken, grammar)
@@ -1823,12 +1839,23 @@ end
 --- Like [`importer.compile`], consumes `shared` and `pool`, finishing
 --- each exactly once on success or failure. The working database and its
 --- transaction remain the caller's, as does publishing the completed
---- projection.
+--- projection. With `grammar` `new` the tree is read, checked and written by the
+--- new checker ([`build.pipeline`]) in this process, so a `pool` is closed unused, and `choose` answers the tool string
+--- [`build.grammar_mode`] makes of the compiler's identity: the tool the build leaves is told apart from one the fork
+--- built ([`build.reboot`]).
 function importer.compile_tree(handle: work.Handle, built: compiler,
                                choose: function(identities.Identities): string | nil, string,
                                unjudged: boolean, shared?: importer.Shared,
-                               pool?: importer.Workers): importer.Result | nil, string
-  return consuming_compile(handle, built, "", unjudged, shared, pool, choose)
+                               pool?: importer.Workers, grammar?: GrammarMode.Mode): importer.Result | nil, string
+  if grammar == "new" then
+    -- As [`importer.compile`]: the new checker reads the tree in this process.
+    if pool ~= nil then pool.close() end
+  end
+  local pooled = pool
+  if grammar == "new" then
+    pooled = nil
+  end
+  return consuming_compile(handle, built, "", unjudged, shared, pooled, choose, false, nil, grammar)
 end
 
 return importer

@@ -443,7 +443,10 @@ input to the build, never to the runtime. one database holds:
   its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
-  what it requires.
+  what it requires. Two rows are no module: `checker.prelude` and
+  `checker.stdlib`, the text of [`checker/tl.tl`]'s prelude and of
+  [`checker/stdlib.d.tl`], which are the globals the new checker types a
+  project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal
   `return nil, ...` or `return false, ...` message under a top-level
   function, naming that function, plus hand-authored rows for the
@@ -1622,6 +1625,7 @@ in [roadmap.md](roadmap.md).
 [`build/bom.tl`]: ../build/bom.tl
 [`build/bom/tl.pin`]: ../build/bom/tl.pin
 [`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
+[`build/checker_declarations.tl`]: ../build/checker_declarations.tl
 [`build/checker_wrapper.tl`]: ../build/checker_wrapper.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
 [`build/compiler.d.tl`]: ../build/compiler.d.tl

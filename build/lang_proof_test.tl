@@ -80,3 +80,41 @@ local function test_a_part_of_lang_is_translated_and_compiled_with_the_new_gramm
     assert(Fs.exists(tmp .. "/lua/" .. stem .. ".lua") == true, stem .. " has no Lua")
   end
 end
+
+local function test_the_names_of_the_seed_differs_file_are_one_bare_name_a_line()
+  assert(#LangProof.listed("") == 0 and #LangProof.listed("\n  \n") == 0)
+  local names = LangProof.listed("codegen.lua\n  lexer.lua  \n\nparser.lua")
+  assert(#names == 3 and names[1] == "codegen.lua" and names[2] == "lexer.lua" and names[3] == "parser.lua")
+end
+
+local function test_files_whose_lua_differs_are_named_in_the_order_given_and_a_missing_one_differs(tmp: string)
+  for _, side in ipairs({ "a", "b" }) do
+    assert(Fs.mkdirs(tmp .. "/" .. side))
+  end
+  assert(Fs.write(tmp .. "/a/one.lua", "return 1\n") and Fs.write(tmp .. "/b/one.lua", "return 1\n"))
+  assert(Fs.write(tmp .. "/a/two.lua", "return 2\n") and Fs.write(tmp .. "/b/two.lua", "return 3\n"))
+  assert(Fs.write(tmp .. "/a/three.lua", "return 4\n"))
+  local differ = LangProof.differing({ "three", "one", "two", "four" }, tmp .. "/a", tmp .. "/b")
+  assert(table.concat(differ, ",") == "three.lua,two.lua,four.lua", table.concat(differ, ","))
+  assert(#LangProof.differing({}, tmp .. "/a", tmp .. "/b") == 0, "nothing built compares as equal")
+end
+
+local function test_the_seed_is_held_to_the_file_both_ways()
+  local written = { "codegen", "lexer" }
+  -- agreement, listed or not
+  assert(#LangProof.judged({}, {}, written, false) == 0)
+  assert(#LangProof.judged({ "codegen.lua" }, { "codegen.lua" }, written, true) == 0)
+  -- a file that differs and is not listed
+  local undeclared = LangProof.judged({ "codegen.lua", "lexer.lua" }, { "codegen.lua" }, written, true)
+  assert(#undeclared == 1 and table.concat(undeclared):find("writes lexer.lua otherwise", 1, true) ~= nil, table.concat(undeclared, "\n"))
+  -- a listed file that does not differ
+  local stale = LangProof.judged({}, { "lexer.lua" }, written, true)
+  assert(#stale == 1 and table.concat(stale):find("lists lexer.lua, which the seed writes as the tree's compile does", 1, true) ~= nil,
+    table.concat(stale, "\n"))
+  -- a name that is no file
+  local unknown = LangProof.judged({}, { "nothing.lua" }, written, true)
+  assert(#unknown == 1 and table.concat(unknown):find("nothing.lua names no file lang/ compiles to", 1, true) ~= nil, table.concat(unknown, "\n"))
+  -- a file that is there and lists nothing
+  local empty = LangProof.judged({}, {}, written, true)
+  assert(#empty == 1 and table.concat(empty):find("lists no file: remove it", 1, true) ~= nil, table.concat(empty, "\n"))
+end

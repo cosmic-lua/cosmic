@@ -1241,10 +1241,20 @@ the new checker's declarations of the standard library
 ([`lang/stdlib_corrections.tl`] over [`checker/stdlib.d.tl`]), not the carried
 fork's. a project written in a form only the fork reads breaks, and the error
 it meets carries the new checker's fix ([`build/error_catalog.tl`],
-[`build/removed_fix.tl`]) that says how to write it. CI's rehearsal job
-(`COSMIC_GRAMMAR=new`, the whole suite on the new pipeline
-[`build/pipeline.tl`]) is to run a fixture project when the build's compile
-calls the pipeline, so that this path is exercised before the switch.
+[`build/removed_fix.tl`]) that says how to write it. a project gets the
+full checker, the error-slot rules of [`build/contracts.tl`] included: the
+fork holds only cosmic's own tree to them, and the new pipeline holds every
+project to them, so a project that passes the fork can meet them at the
+switch. a project has no ceilings, so every error refuses, and a project
+that writes into an array it made meets `view_written`, whose fix (`mut`) the
+fork's tools cannot read: the switch makes coverage, `fix` and the other
+readers of a project's source read the syntax tree first, since a project
+written in the new grammar cannot run `cosmic test` before. CI's rehearsal job
+(`COSMIC_GRAMMAR=new`) boots a second tool with the new checker, runs the whole suite
+on it ([`build/pipeline.tl`]), builds a fixture project and one written in forms
+only the fork reads, and proves `lang/` against the pinned seed, so that
+this path is exercised before the switch. it is informational until the
+switch, where it becomes required.
 
 then one change commits the translated tree and deletes `checker/`, the
 translator and the comparisons with the fork's readers. each rule's

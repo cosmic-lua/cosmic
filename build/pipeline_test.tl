@@ -59,7 +59,7 @@ local function options(pins: string): Pipeline.Options
       sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
-    ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD),
+    ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD), project = nil,
   }
 end
 
@@ -334,8 +334,136 @@ local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_cei
   assert(#own.globals.sources == 2)
   assert((Ceilings.of(own.ceilings, "checked")["build/tree_checks.tl view_written"] or 0) > 0, "the tree's ceilings are not read")
   assert(next(own.ceilings.stages) ~= nil and own.types)
+  assert(own.project == nil and own.ceilings.none == nil)
+  -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the
+  -- options are the project's, or the tool is told to boot again.
   local project, why = Pipeline.options("/nonexistent-project-root")
-  assert(project == nil and why:find("carries no declaration of the standard library", 1, true) ~= nil, tostring(why))
+  if project == nil then
+    assert(why:find("this tool carries no declarations of the standard library", 1, true) ~= nil, tostring(why))
+  else
+    assert(project.project == true and #project.globals.sources == 2 and project.ceilings.none == true)
+  end
+end
+
+local function test_the_options_of_a_project_are_the_texts_it_is_given_and_no_ceiling()
+  local project = Pipeline.project({ prelude = "do\n   global interface any\n   end\nend\n", stdlib = "do\nend\n" })
+  assert(project.project == true and project.types and project.ceilings.none == true)
+  assert(next(project.ceilings.stages) == nil, "a project has no ceilings")
+  assert(#project.globals.sources == 2)
+  local stdlib = assert(project.globals.sources[2])
+  assert(stdlib.filename == "checker/stdlib.d.tl" and stdlib.module == "checker.stdlib")
+end
+
+--- A project's error is listed without the pin it has not got, and cosmic's own with it.
+local function test_a_project_is_told_its_errors_without_a_pin_to_raise()
+  local source = "local n: string = 1\nreturn n\n"
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}),
+    Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, project))
+  assert(made == nil)
+  assert(why:find("(not_assignable)", 1, true) ~= nil and
+      why:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, tostring(why))
+  assert(why:find("pinned", 1, true) == nil and why:find("ceilings.txt", 1, true) == nil, tostring(why))
+  local _, own_why = generated(source)
+  assert(own_why:find("1 error of not_assignable in its bodies, pinned 0; follow the fix above rather than " ..
+      "raise the pin", 1, true) ~= nil, tostring(own_why))
+end
+
+--- The error-slot rules bind a project in the new mode: the fork holds only cosmic's own tree to them, and the pipeline holds
+--- every module to them ([`Pipeline.generate`] does not ask whether the tree is cosmic's), as the owner decided: a project gets
+--- the full checker.
+local function test_a_project_is_held_to_the_error_slot_rules()
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local breach = table.concat({
+    "local record M",
+    "end",
+    "function M.of(s: string): string, string",
+    "  return s, \"\"",
+    "end",
+    "return M",
+    "",
+  }, "\n")
+  local made, why = Pipeline.generate(module_of("m", "m.tl", "module", breach, {}),
+    Pipeline.over({ { "m.tl", breach } }, { ["m.tl"] = "module" }, project))
+  assert(made == nil and why:find("M.of: an exported function answers one result", 1, true) ~= nil, tostring(why))
+  assert(why:find("pinned", 1, true) == nil, tostring(why))
+  -- the same function answering a value or a reason is held
+  local fine = table.concat({
+    "local record M",
+    "end",
+    "function M.of(s: string): string | nil, string",
+    "  if s == \"\" then",
+    "    return nil, \"empty\"",
+    "  end",
+    "  return s, \"\"",
+    "end",
+    "return M",
+    "",
+  }, "\n")
+  local held, held_why = Pipeline.generate(module_of("m", "m.tl", "module", fine, {}),
+    Pipeline.over({ { "m.tl", fine } }, { ["m.tl"] = "module" }, project))
+  assert(held ~= nil, tostring(held_why))
+end
+
+--- A boot names the code that reads from the tree it stages, since the release that runs it carries another: the modules the
+--- pipeline reaches, and no other, once the tree is parsed.
+local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: string)
+  local root = tmp .. "/named"
+  local function write(path: string, text: string)
+    assert(Fs.mkdirs(Fs.dirname(root .. "/" .. path)))
+    assert(Fs.write(root .. "/" .. path, text))
+  end
+  write("build/pipeline.tl", "local Reader = require(\"build.reader\")\nreturn Reader\n")
+  write("build/reader.tl", "local Check = require(\"lang.check\")\nreturn Check\n")
+  write("lang/check.tl", "return 1\n")
+  write("build/other.tl", "return 2\n")
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local unparsed, why = Pipeline.coded_of("tool", handle.db)
+  assert(unparsed == nil and why:find("is not parsed yet", 1, true) ~= nil, tostring(why))
+  assert(importer.derive(handle, false, built, nil, nil, nil, nil))
+  local first = assert(Pipeline.coded_of("tool", handle.db))
+  assert(#first == 64 and Pipeline.coded_of("another tool", handle.db) ~= first, "the tool is no part of the identity")
+  local function again(path: string, text: string): string
+    write(path, text)
+    assert(work.stage(handle, false))
+    assert(importer.derive(handle, false, built, nil, nil, nil, nil))
+    return (assert(Pipeline.coded_of("tool", handle.db)))
+  end
+  -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
+  assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
+  local reader = again("build/reader.tl", "local Check = require(\"lang.check\")\nreturn Check, 1\n")
+  assert(reader ~= first, "an edit to a module the pipeline requires did not move the identity")
+  assert(again("lang/check.tl", "return 4\n") ~= reader, "an edit to a module it reaches through another did not move the identity")
+  assert(work.close(handle))
+end
+
+--- A project's file of the fork's name is a module of it, and cosmic's own tree leaves the fork's checker out.
+local function test_a_build_over_a_project_keeps_the_file_of_the_forks_name_and_cosmics_tree_leaves_it_out()
+  local entries: {{string}} = { { "checker/tl.tl", "return 1\n" } }
+  local project = Pipeline.over(entries, {}, Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" }))
+  assert(project.build:parsed("checker.tl") ~= nil, "a project's checker/tl.tl is no module of it")
+  local own = Pipeline.over(entries, {}, options(""))
+  assert(own.build:parsed("checker.tl") == nil, "cosmic's tree holds the fork's checker as a module")
+end
+
+--- A tool is written from a tree the new checker refused in the files of the residue alone: any other refusal stops it.
+local function test_a_tool_is_not_written_from_a_tree_refused_beyond_the_residue()
+  local refused: {string} = {
+    "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it inside its class",
+    "build/a.tl: the compiler refused it\nbuild/a.tl:1:1: nil is given (nil_not_allowed): fix",
+    "doc/guides/project.md:713:3: `function Kv.Lru.get` has more than one dot (function_path): assign the function to the field",
+    "build/b.tl: not compiled: it requires a, which the new checker refused",
+  }
+  local rest = Pipeline.unexpected(refused)
+  assert(#rest == 2 and (rest[1] or ""):find("^build/a.tl: the compiler refused it") ~= nil and
+      (rest[2] or ""):find("^build/b.tl: not compiled") ~= nil, table.concat(rest, "|"))
+  assert(#Pipeline.unexpected({}) == 0)
+  -- the residue is the files [`Pipeline.residue`] names: a refusal of one of them is nothing else
+  local residue = Pipeline.residue()
+  assert(residue["cosmic/removed_example.tl"] ~= nil and residue["doc/guides/project.md"] ~= nil)
+  assert(#Pipeline.unexpected({ "cosmic/removed_example.tl:1:1: refused (some_code): fix",
+    "doc/guides/project.md:1:1: refused (some_code): fix" }) == 0)
 end
 
 local function test_the_standard_library_the_tree_does_not_hold_is_the_binarys_own()

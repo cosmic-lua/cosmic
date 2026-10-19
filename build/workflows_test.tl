@@ -2380,7 +2380,8 @@ local function text_at(map: {string: any}, key: string): string
   return ""
 end
 
---- The rehearsal runs the whole suite with the new checker in a job of its own, beside the legs and the checked job, on
+--- The rehearsal boots the tree a second time with the new checker and runs the whole suite on that tool, a project outside
+--- the tree and the proof of lang/ against the pinned seed, in a job of its own, beside the legs and the checked job, on
 --- linux-x86_64's host under a name of its own. It is informational: it is a full run's only, it fails nothing it
 --- belongs to, and no job that gates a merge or prunes a cache waits on it. Its verdicts are the one cache it saves.
 local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keeps_verdicts_of_its_own()
@@ -2416,7 +2417,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
       saved = saved .. text_at(with, "path") .. " " .. text_at(with, "key") .. "\n"
     end
   end
-  assert(phases == "boot rehearsal ", "the rehearsal runs the phases " .. phases)
+  assert(phases == "boot rehearsal-boot rehearsal rehearsal-project rehearsal-seed ", "the rehearsal runs the phases " .. phases)
   assert(named, "the rehearsal's verdicts are named by another host")
   assert(saved == "${{ runner.temp }}/verdicts ${{ steps.host-id.outputs.verdicts }}" ..
       "${{ steps.verdicts-trim.outputs.digest }}\n", "the rehearsal saves " .. saved)

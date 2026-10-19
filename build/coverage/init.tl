@@ -51,6 +51,13 @@ end
 --- previous run is not reparsed. A source that fails to parse, which
 --- should not happen since `m` holds only source that compiled earlier in
 --- the run, returns the parse failure rather than a made-up count.
+---
+--- TODO: read a module a project wrote in the new grammar (`Things?`, `mut {T}`) with [`coverage.syntax_executable`] in the
+--- switch PR (PR 13, doc/plans/strict-teal.md, "the switch"), which must make this and every other reader of a project's
+--- source through the fork's parser (`fix`, the checks) read the syntax tree in new mode first: the fork's tree here fails a
+--- run of `cosmic test` in that mode with "syntax error" at the first form it does not read, so a project that writes an
+--- array it made (`view_written`, fixed by `mut`) cannot pass until then, and the project the rehearsal builds
+--- (testdata/rehearsal/project) is written in the Teal both read.
 --- @param db Sqlite.Handle The working database ([`work.open`]'s `.db`)
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param m Module The module to compute lines for

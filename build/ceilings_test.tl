@@ -80,6 +80,18 @@ local function test_errors_over_their_ceiling_are_listed_with_the_count_and_what
   assert(held.found["build/a.tl nil_not_allowed"] == 2 and held.found["build/a.tl view_written"] == 1)
 end
 
+local function test_a_tree_without_ceilings_lists_its_errors_without_a_pin_to_raise()
+  local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }
+  local held = Ceilings.over("a.tl", errors, { "nil_not_allowed", "view_written" }, {}, "bodies", true)
+  assert(#held.lines == 5, table.concat(held.lines, "\n"))
+  assert(held.lines[3] == "a.tl: 2 errors of nil_not_allowed in its bodies; follow the fix above", held.lines[3])
+  assert(held.lines[5] == "a.tl: 1 error of view_written in its bodies; follow the fix above", held.lines[5])
+  -- the same errors under a table that has ceilings are told with them
+  local pinned = Ceilings.over("a.tl", errors, { "nil_not_allowed", "view_written" }, {}, "bodies", false)
+  assert(pinned.lines[3] == "a.tl: 2 errors of nil_not_allowed in its bodies, pinned 0; follow the fix above rather than raise the pin",
+    pinned.lines[3])
+end
+
 local function test_errors_at_or_under_their_ceiling_and_codes_nobody_asked_for_are_not_listed()
   local errors = { finding("nil_not_allowed", 4), finding("view_written", 2), finding("other_code", 1) }
   local held = Ceilings.over("build/a.tl", errors, { "nil_not_allowed", "view_written" },

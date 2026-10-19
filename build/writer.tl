@@ -15,6 +15,7 @@
 --- leaves every store's bytes alone moves no store's address.
 
 local build_paths = require("build.paths")
+local CheckerDeclarations = require("build.checker_declarations")
 local clock = require("build.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -377,6 +378,11 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
   return true, ""
 end
 
+--- Carries the text of a declaration of the new checker's under `module` in the `decls` of the projection being written.
+local function put_declaration(db: Sqlite.Handle, module: string, source: string): boolean, string
+  return Sqlite.run(db, "INSERT INTO out.decls (path, source) VALUES (?1, deflate(?2))", { text(module), text(source) })
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -414,6 +420,21 @@ local function project(handle: work.Handle,
     local ok, failure = db:exec(statement)
     if not ok then
       return false, failure
+    end
+  end
+  -- The declarations the new checker types a project against ([`build.checker_declarations`]), which only cosmic's own tree
+  -- holds: a tool carries them, a project's projection does not.
+  local declared, declared_trouble = CheckerDeclarations.staged(db, handle.root)
+  if declared == nil and declared_trouble ~= "" then
+    return false, declared_trouble
+  end
+  if declared ~= nil then
+    local put, put_trouble = put_declaration(db, CheckerDeclarations.prelude_module(), declared.prelude)
+    if put then
+      put, put_trouble = put_declaration(db, CheckerDeclarations.stdlib_module(), declared.stdlib)
+    end
+    if not put then
+      return false, put_trouble
     end
   end
   local stored, store_trouble = fill_payload(db)
