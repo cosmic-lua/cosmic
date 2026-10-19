@@ -571,7 +571,7 @@ build/artifact.tl nil_not_allowed 4
 build/artifact_fuzz_test.tl nil_not_allowed 1
 build/ast/match.tl nil_not_allowed 1
 build/ast/match_test.tl nil_not_allowed 24
-build/ast/node.tl nil_not_allowed 15
+build/ast/node.tl nil_not_allowed 8
 build/ast/node_test.tl nil_not_allowed 16
 build/ast/requires.tl nil_not_allowed 1
 build/ast/rewrite.tl nil_not_allowed 12
@@ -5152,7 +5152,7 @@ build/syntax_rewrite.tl and_ternary 2
 build/syntax_scopes.tl and_ternary 4
 build/syntax_shape_specs.tl and_ternary 6
 build/syntax_stub.tl and_ternary 2
-build/teal.tl and_ternary 51
+build/teal.tl and_ternary 50
 build/teal_test.tl and_ternary 2
 build/term_filter.tl and_ternary 3
 build/term_relay.tl and_ternary 8

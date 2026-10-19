@@ -179,5 +179,5 @@ local function test_a_named_vararg_is_told_it_takes_no_name()
       "write `...: string` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be " ..
       "among them", err)
   local _, plain_err = node_mod.parse(built, "local function f(a b) end\n", "plain.tl")
-  assert(plain_err ~= nil and plain_err:find(" -- ", 1, true) == nil, plain_err)
+  assert(plain_err ~= "" and plain_err:find(" -- ", 1, true) == nil, plain_err)
 end

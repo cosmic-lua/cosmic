@@ -338,10 +338,11 @@ end
 --- `)` that ends it outside any brackets; nil when none does on the line.
 local function type_text(rest: string): string | nil
   local depth = 0
-  local from = rest:match("^%s*:%s*()")
-  if from == nil then
+  local _, colon = rest:find("^%s*:%s*")
+  if colon == nil then
     return nil
   end
+  local from = colon + 1
   for i = from, #rest do
     local c = rest:sub(i, i)
     if c == "(" or c == "{" or c == "[" or c == "<" then
@@ -350,7 +351,10 @@ local function type_text(rest: string): string | nil
       depth = depth - 1
     elseif depth == 0 and (c == "," or c == ")") then
       local text = rest:sub(from, i - 1):gsub("%s+$", "")
-      return text ~= "" and text or nil
+      if text == "" then
+        return nil
+      end
+      return text
     end
   end
   return nil
@@ -402,9 +406,9 @@ end
 --- @return string Error message on failure, "" on success
 local function parse(built: compiler, source: string, name: string): Parsed | nil, string
   local tokens, lex_errs = built.lex(source, name)
-  if #lex_errs > 0 then
-    local e = lex_errs[1]
-    return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
+  local lexed = lex_errs[1]
+  if lexed ~= nil then
+    return nil, string.format("%s:%d:%d: %s", name, lexed.y, lexed.x, lexed.msg)
   end
   -- tl's parser rewrites a `>>` closing two type argument lists
   -- (`metatable<R<K>>`) to `>` in place, and reads that one token
@@ -421,8 +425,8 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   for _, t in ipairs(shifts) do
     t.tk = ">>"
   end
-  if #parse_errs > 0 then
-    local e = parse_errs[1]
+  local e = parse_errs[1]
+  if e ~= nil then
     local hint = dotted_declaration(source, e) or vararg_name_hint(source, e)
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg) ..
       (hint ~= nil and " -- " .. hint or "")
