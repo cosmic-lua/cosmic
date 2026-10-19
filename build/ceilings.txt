@@ -2001,8 +2001,8 @@ ci/cosmic_ci/islands.tl view_written 3
 ci/cosmic_ci/launcher_fixture.tl view_written 2
 ci/cosmic_ci/orchestration_test.tl view_written 15
 ci/cosmic_ci/place_tree_test.tl view_written 6
-ci/cosmic_ci/prerelease.tl view_written 6
-ci/cosmic_ci/prerelease_test.tl view_written 15
+ci/cosmic_ci/prerelease.tl view_written 10
+ci/cosmic_ci/prerelease_test.tl view_written 22
 ci/cosmic_ci/product_setup.tl view_written 1
 ci/cosmic_ci/queue_seed.tl view_written 4
 ci/cosmic_ci/queue_seed_test.tl view_written 6
@@ -3049,8 +3049,8 @@ ci/cosmic_ci/images_test.tl map_field 36
 ci/cosmic_ci/launcher_fixture.tl map_field 1
 ci/cosmic_ci/orchestration_test.tl map_field 117
 ci/cosmic_ci/place_tree.tl map_field 5
-ci/cosmic_ci/prerelease.tl map_field 12
-ci/cosmic_ci/prerelease_test.tl map_field 32
+ci/cosmic_ci/prerelease.tl map_field 16
+ci/cosmic_ci/prerelease_test.tl map_field 31
 ci/cosmic_ci/process.tl map_field 3
 ci/cosmic_ci/queue_seed.tl map_field 7
 ci/cosmic_ci/queue_seed_test.tl map_field 14
@@ -3567,7 +3567,7 @@ build/writer.tl return_arity 4
 build/writer_test.tl return_arity 1
 build/zig_test.tl return_arity 1
 ci/cosmic_ci/github_fake.tl return_arity 5
-ci/cosmic_ci/prerelease_test.tl return_arity 20
+ci/cosmic_ci/prerelease_test.tl return_arity 23
 ci/cosmic_ci/runner_test.tl return_arity 2
 cosmic/archive_test.tl return_arity 1
 cosmic/child_drain_test.tl return_arity 1
@@ -3659,7 +3659,7 @@ ci/cosmic_ci/fuzz.tl any_use 2
 ci/cosmic_ci/fuzz_test.tl any_use 1
 ci/cosmic_ci/github.tl any_use 1
 ci/cosmic_ci/prerelease.tl any_use 1
-ci/cosmic_ci/prerelease_test.tl any_use 22
+ci/cosmic_ci/prerelease_test.tl any_use 19
 ci/cosmic_ci/report_test.tl any_use 33
 ci/cosmic_ci/zig_prune.tl any_use 3
 ci/run_local.tl any_use 3
@@ -6429,7 +6429,7 @@ ci/cosmic_ci/github_api_test.tl arms_differ 1
 ci/cosmic_ci/host_id_test.tl arms_differ 5
 ci/cosmic_ci/orchestration_test.tl arms_differ 25
 ci/cosmic_ci/prerelease.tl arms_differ 1
-ci/cosmic_ci/prerelease_test.tl arms_differ 7
+ci/cosmic_ci/prerelease_test.tl arms_differ 8
 ci/cosmic_ci/report_test.tl arms_differ 6
 ci/cosmic_ci/runner_test.tl arms_differ 2
 ci/run_local.tl arms_differ 1

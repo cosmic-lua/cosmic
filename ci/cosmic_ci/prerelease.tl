@@ -155,7 +155,10 @@ end
 
 --- The ids of the drafts tagged `tag` on `page`, one decoded page of 100
 --- of the releases list, and whether the list's drafts end there: the
---- page holds a release that is no draft, or fewer than 100.
+--- page holds a release that is no draft, or fewer than 100. GitHub lists
+--- drafts before every other release, which nothing documents; a draft
+--- after one that is no draft raises, since a draft the scan would pass
+--- over unseen is one the publish would make again beside it.
 function Prerelease.draft_ids(page: any, tag: string): {integer}, boolean
   assert(page is {any} and Json.is_array(page), "a page of the releases list is no array")
   local ids: {integer} = {}
@@ -166,6 +169,9 @@ function Prerelease.draft_ids(page: any, tag: string): {integer}, boolean
     assert(draft is boolean, "release " .. tostring(release.tag_name) .. " has no draft flag")
     if not draft then
       published = true
+    elseif published then
+      error("the releases list holds draft " .. tostring(release.tag_name) ..
+          " after a published release, which the publish's search for its draft assumes it does not")
     elseif release.tag_name == tag then
       local id = release.id
       assert(id is integer, "release " .. tag .. " has no id")
@@ -281,34 +287,47 @@ local list_pages <const> = 10
 --- The list of releases serves only its first 1000, so it is not read
 --- whole: a published release is asked for by its tag, which answers
 --- none but a published one, and the list is read only while its
---- releases are drafts, which it lists before every other (as the 1000
---- newest bear out), so the first page that holds one that is no draft
---- ends it. A transport error or a status but 2xx and 404 raises.
+--- releases are drafts, which it lists before every other
+--- ([`Prerelease.draft_ids`] raises where it does not), so the first page
+--- that holds one that is no draft ends it. A draft made or deleted
+--- between two pages' requests shifts them, so an id is taken once. A
+--- transport error or a status but 2xx and 404 raises, so neither can
+--- lead to making anything.
 local function release_ids(p: Prerelease.Publish): {integer}
   local tag = tag_of(p)
   local ids: {integer} = {}
+  local taken: {integer:boolean} = {}
   local by_tag = "repos/" .. p.repository .. "/releases/tags/" .. tag
   local found, why = GithubApi.request(p.client, "GET", by_tag)
   assert(found ~= nil, why)
   if found.status ~= 404 then
     assert(found.status >= 200 and found.status <= 299,
-      "GET " .. by_tag .. " failed (HTTP status " .. found.status .. ")")
-    local published = assert(Json.decode_object(found.body))
+      "GET " .. by_tag .. " failed (HTTP status " .. tostring(found.status) .. ")")
+    local published, decode_trouble = Json.decode_object(found.body)
+    assert(published ~= nil, "GET " .. by_tag .. ": " .. decode_trouble)
     local id = published.id
     assert(id is integer, "release " .. tag .. " has no id")
     ids[1] = id
+    taken[id] = true
   end
   for page = 1, list_pages do
-    local path = "repos/" .. p.repository .. "/releases?per_page=100&page=" .. page
+    local path = "repos/" .. p.repository .. "/releases?per_page=100&page=" .. tostring(page)
     local reply, trouble = GithubApi.request(p.client, "GET", path)
     assert(reply ~= nil, trouble)
     assert(reply.status >= 200 and reply.status <= 299,
-      "GET " .. path .. " failed (HTTP status " .. reply.status .. ")")
-    local drafts, ends = Prerelease.draft_ids(Json.decode(reply.body), tag)
-    for _, id in ipairs(drafts) do ids[#ids + 1] = id end
+      "GET " .. path .. " failed (HTTP status " .. tostring(reply.status) .. ")")
+    local list, decode_trouble = Json.decode(reply.body)
+    assert(list ~= nil, "GET " .. path .. ": " .. decode_trouble)
+    local drafts, ends = Prerelease.draft_ids(list, tag)
+    for _, id in ipairs(drafts) do
+      if taken[id] == nil then
+        taken[id] = true
+        ids[#ids + 1] = id
+      end
+    end
     if ends then return ids end
   end
-  error("the releases list's first " .. list_pages * 100 .. " are all drafts")
+  error("the releases list's first " .. tostring(list_pages * 100) .. " are all drafts")
 end
 
 --- The git object `object` (a ref's or a tag's `object` field) names.

@@ -129,14 +129,19 @@ end
 
 local function test_draft_ids_reads_a_page_and_says_where_the_drafts_end()
   local full: {any} = {}
-  for i = 1, 98 do full[i] = release(10 + i, "next-x" .. i, true) end
+  for i = 1, 98 do full[i] = release(10 + i, "next-x" .. tostring(i), true) end
   full[99] = release(2, tag, true)
   full[100] = release(3, tag, true)
   local ids, ends = Prerelease.draft_ids(Json.array(full), tag)
   assert(#ids == 2 and ids[1] == 2 and ids[2] == 3 and not ends, "a full page of drafts goes on")
-  local mixed, mixed_ends = Prerelease.draft_ids(Json.array({ release(4, tag, true),
-    release(5, tag, false) }), tag)
-  assert(#mixed == 1 and mixed[1] == 4 and mixed_ends, "a published release, never counted, ends the drafts")
+  local drafts_then: {any} = {}
+  for i = 1, 99 do drafts_then[i] = release(10 + i, "next-x" .. tostring(i), true) end
+  drafts_then[100] = release(5, tag, false)
+  local mixed, mixed_ends = Prerelease.draft_ids(Json.array(drafts_then), tag)
+  assert(#mixed == 0 and mixed_ends, "a published release, never counted, ends the drafts on a full page")
+  refused("draft next-z after a published release", function()
+    Prerelease.draft_ids(Json.array({ release(5, tag, false), release(6, "next-z", true) }), tag)
+  end)
   local _, short = Prerelease.draft_ids(Json.array({ release(6, "next-y", true) }), tag)
   assert(short, "a page short of 100 ends the list")
   refused("no array", function() Prerelease.draft_ids({ id = 1 }, tag) end)
@@ -341,8 +346,10 @@ local function serve_page(r: Repo, rest: string): GithubApi.Reply
     if not rel.draft then ordered[#ordered + 1] = rel end
   end
   local list: {any} = {}
-  for i = (page - 1) * 100 + 1, math.min(page * 100, #ordered) do
-    local rel = ordered[i]
+  local last = page * 100
+  if last > #ordered then last = #ordered end
+  for i = (page - 1) * 100 + 1, last do
+    local rel = assert(ordered[math.tointeger(i) or 0])
     list[#list + 1] = { id = rel.id, tag_name = rel.tag, draft = rel.draft }
   end
   return reply(200, Json.array(list))
@@ -370,7 +377,8 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
   local rest = path:sub(#prefix + 1)
   if rest:match("^releases%?per_page=100") and method == "GET" then return serve_page(r, rest) end
   local by_tag = rest:match("^releases/tags/(.+)$")
-  if by_tag and method == "GET" then
+  if by_tag ~= nil and method == "GET" then
+    if r.fail["by-tag"] then return reply(500, { message = "Server Error" }) end
     -- The get-by-tag endpoint answers a published release alone.
     for _, rel in ipairs(r.releases) do
       if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)) end
@@ -557,13 +565,13 @@ end
 local function test_publish_finds_a_draft_past_a_page_of_drafts(tmp: string)
   local r = repo(tmp)
   for id = 1, 100 do
-    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = true,
-      prerelease = true, assets = {}, title = "", notes = "" }
+    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil }
   end
   seed(r, true, {})
   assert(publish(r) == "prerelease published and verified: " .. tag)
   assert(#r.releases == 101, "no second release was made")
-  assert(not r.releases[101].draft)
+  assert(not assert(r.releases[101]).draft)
   assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=2") == 1, logged(r))
 end
 
@@ -572,8 +580,8 @@ end
 local function test_publish_refuses_a_list_of_only_drafts(tmp: string)
   local r = repo(tmp)
   for id = 1, 1000 do
-    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = true,
-      prerelease = true, assets = {}, title = "", notes = "" }
+    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = true,
+      prerelease = true, assets = {}, title = "", notes = "", target = nil }
   end
   refused("first 1000 are all drafts", function() publish(r) end)
   assert(count(r, "GET repos/owner/repo/releases?per_page=100&page=11") == 0, logged(r))
@@ -642,10 +650,13 @@ end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
   -- ref-transport fails only the tag probe, with no answer at all: the
-  -- listing before it succeeds, so the probe itself refuses.
+  -- lookups by tag and of the list before it succeed, so the probe itself
+  -- refuses. by-tag fails the lookup by tag with a 500, which must not
+  -- read as no published release.
   local expected: {string:string} = { ref = "HTTP status 500",
-    ["ref-transport"] = "connection reset", transport = "connection refused" }
-  for _, failure in ipairs({ "ref", "ref-transport", "transport" }) do
+    ["ref-transport"] = "connection reset", transport = "connection refused",
+    ["by-tag"] = "releases/tags/" .. tag .. " failed (HTTP status 500)" }
+  for _, failure in ipairs({ "ref", "ref-transport", "transport", "by-tag" }) do
     local r = repo(tmp .. "/" .. failure)
     r.fail[failure] = ""
     refused(expected[failure], function() publish(r) end)
