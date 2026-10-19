@@ -168,3 +168,16 @@ local function test_a_dotted_type_declaration_is_told_to_nest()
   local _, plain_err = node_mod.parse(built, "local record\nend\n", "plain.tl")
   assert(plain_err ~= nil and plain_err:find(" -- ", 1, true) == nil, plain_err)
 end
+
+--- A vararg given a name is refused with the hint that it takes none,
+--- here where a file run and `fix` first parse it, not only where the
+--- checker's errors are rendered; another missing comma is told nothing.
+local function test_a_named_vararg_is_told_it_takes_no_name()
+  local _, err = node_mod.parse(built, "local function pick(t: {string:any}, ...names: string) end\n",
+    "pick.tl")
+  assert(err == "pick.tl:1:41: syntax error, expected one of: ')', ',' -- a vararg takes no name: " ..
+      "write `...: string` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be " ..
+      "among them", err)
+  local _, plain_err = node_mod.parse(built, "local function f(a b) end\n", "plain.tl")
+  assert(plain_err ~= "" and plain_err:find(" -- ", 1, true) == nil, plain_err)
+end

@@ -1774,79 +1774,6 @@ local function missing_key(e: compiler.Error): MissingKey | nil
   return { key = e_key, owner = owner }
 end
 
---- Whether `before`, the text of a line up to a `...`, ends inside a
---- function's parameter list: its nearest unmatched `(` follows `function`,
---- `function name`, `function a.b`, `function a:b`, with or without a
---- generic `<...>` after the name. A `(` of a call does not.
-local function in_parameters(before: string): boolean
-  local depth = 0
-  for i = #before, 1, -1 do
-    local c = before:sub(i, i)
-    if c == ")" then
-      depth = depth + 1
-    elseif c == "(" then
-      if depth == 0 then
-        local head = before:sub(1, i - 1):gsub("%s+$", "")
-        head = head:gsub("%b<>$", "")
-        return head:match("%f[%w_]function$") ~= nil or
-          head:match("%f[%w_]function%s+[%a_][%w_]*[%.:]?[%w_%.:]*$") ~= nil
-      end
-      depth = depth - 1
-    end
-  end
-  return false
-end
-
---- The type text of a parameter whose `:` starts `rest`, up to the `,` or
---- `)` that ends it outside any brackets; nil when none does on the line.
-local function type_text(rest: string): string | nil
-  local depth = 0
-  local from = rest:match("^%s*:%s*()")
-  if from == nil then
-    return nil
-  end
-  for i = from, #rest do
-    local c = rest:sub(i, i)
-    if c == "(" or c == "{" or c == "[" or c == "<" then
-      depth = depth + 1
-    elseif depth > 0 and (c == ")" or c == "}" or c == "]" or c == ">") then
-      depth = depth - 1
-    elseif depth == 0 and (c == "," or c == ")") then
-      local text = rest:sub(from, i - 1):gsub("%s+$", "")
-      return text ~= "" and text or nil
-    end
-  end
-  return nil
-end
-
---- What to write for a vararg given a name (`...names: string`), when the
---- syntax error at `y`:`x` is on that name: the text before it on the line
---- ends in `...` inside a function's parameter list ([`in_parameters`]) and
---- an identifier starts there, followed by `:`, `?`, `,` or `)`. The type
---- is the one the line spells ([`type_text`]), else `<type>`. nil for any
---- other `expected one of: ')', ','` error, including a `...` that is an
---- expression (`f(...x)`) and a list whose `...` and name are on different
---- lines.
-local function vararg_name_hint(source: string, y: integer, x: integer): string | nil
-  local line = line_at(source, y)
-  if line == nil or x < 1 then
-    return nil
-  end
-  local before = line:sub(1, x - 1):match("^(.-)%.%.%.%s*$")
-  if before == nil or not in_parameters(before) then
-    return nil
-  end
-  local rest = line:sub(x)
-  local name = rest:match("^[%a_][%w_]*")
-  if name == nil or rest:sub(#name + 1):match("^%s*[:?,)]") == nil then
-    return nil
-  end
-  local after = rest:sub(#name + 1):gsub("^%s*%?", "")
-  local typed = type_text(after) or "<type>"
-  return "a vararg takes no name: write `...: " .. typed ..
-    "` and read it as `{ ... }`, or `select(\"#\", ...)` where a nil may be among them"
-end
-
 --- What to write for an interface method declared with an unnamed
 --- receiver, when `e` is a record's `function Rec:m` refused against it
 --- (`Rec` for an `Iface` at argument 0): the unnamed `m: function(Iface,
@@ -2072,10 +1999,9 @@ local function replacement_of(e: compiler.Error, source: string, file?: string,
       e.got == "number" and expected == "integer" and integer_hint(source, y, x) or nil
     return inferred or integer_conversion
   end
-  local expected_tokens = e.expected_tokens
-  if code == "expected_one_of" and expected_tokens ~= nil and #expected_tokens == 2 and
-      expected_tokens[1] == ")" and expected_tokens[2] == "," then
-    return vararg_name_hint(source, y, x)
+  local vararg = ast.vararg_name_hint(source, e)
+  if vararg ~= nil then
+    return vararg
   end
   local e_names = e.names
   -- A type name the checker shows as written, with no type arguments or
@@ -2309,7 +2235,7 @@ end
 ---
 --- A vararg given a name (`local function f(...names: string)`, the
 --- parser's `syntax error, expected one of: ')', ','` at the name) is told
---- it takes none and to write `...: string` ([`vararg_name_hint`]); any other
+--- it takes none and to write `...: string` ([`ast.vararg_name_hint`]); any other
 --- such error is told nothing, nor is a name on a later line than its `...`.
 ---
 --- A record's `function Rec:m` refused against an interface method declared

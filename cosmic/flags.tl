@@ -92,7 +92,10 @@ end
 --- what follows "=" in the same word for a "--" option or a one-dash
 --- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
 --- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must.
+--- begins with "-", as a negative number must. A file run as `cosmic
+--- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
+--- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
+--- words. Write `cosmic f.tl --email x`.
 ---
 --- A word with one "-" that the spec does not name whole is a cluster of
 --- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
