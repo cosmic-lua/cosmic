@@ -22,8 +22,9 @@
 --- Its `spec` (build/verb_spec.tl) is `bare`, since standard output is
 --- the protocol's, `fresh`: in cosmic's own tree a tool older than the
 --- tree rebuilds itself first, as `docs` does, and `reads`: where another
---- run holds the working database or the rebuild lock, it starts at once,
---- and rebuilds no tool ([`reboot.stale_exit`]). Complaints go to standard
+--- run holds the working database or the rebuild lock, it starts at once
+--- and rebuilds no tool; where that left the tool unchecked against the
+--- tree, it stages nothing for the session ([`reboot.unchecked`]). Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
 local Cli = require("cosmic.cli")
@@ -273,15 +274,17 @@ lsp.spec = {
   bare = true,
   -- TODO: a tool the tree outdates while a session runs goes on checking
   -- with its own code until the editor starts it again, since `fresh`
-  -- rebuilds it only before the verb runs. So does one started stale
-  -- while another run held the rebuild lock ([`reboot.read_stale`]), which
-  -- went on without rebuilding: it stages nothing for good
-  -- ([`rebuild.stage`]'s `stale`) rather than derive stubs with its older
-  -- code, and serves the stubs last staged even once the lock is free.
-  -- The fix: at each stage, ask [`build.reboot`] whether the tool is
-  -- stale, and if so (once the rebuild lock is free) re-enter the rebuilt
-  -- tool in this process, as [`build.reboot`] does, keeping the editor's stream
-  -- and handing it the session's root, encoding and open documents.
+  -- rebuilds it only before the verb runs. A session whose check went on
+  -- without holding the tool to the tree, another run holding its
+  -- database or rebuild lock ([`reboot.unchecked`]), serves the stubs last
+  -- staged until it is restarted, staging nothing, even once the locks
+  -- are free. The fix: at each stage, once no run holds them, check the
+  -- tool against the tree, and where it is stale re-enter the rebuilt
+  -- tool in this process, as [`build.reboot`] does, keeping the editor's
+  -- stream and handing it the session's root, encoding and open
+  -- documents. It waits on a check of the tool that stages and rebuilds
+  -- without exec'ing ([`reboot.guard`] re-enters the command line), and
+  -- on a way to hand a session to the tool it re-enters.
   fresh = true,
   reads = true,
   recheck_on_refusal = nil,

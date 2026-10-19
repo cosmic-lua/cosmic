@@ -15,8 +15,9 @@
 --- changed, one at a time, while no other message waits
 --- ([`build.lsp.dependents`]). A root no build was started in has its
 --- documents checked against nothing: none is published, and the person
---- is shown, once, what to run there ([`source.outside`]); a tool older
---- than its tree that stages nothing says so once too ([`source.older`]).
+--- is shown, once, what to run there ([`source.outside`]); a tool not
+--- checked against its tree, which stages nothing, says so once too
+--- ([`source.unchecked`]).
 --- Where the editor
 --- takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
@@ -68,7 +69,7 @@ local record session
     --- The dependents yet to be checked again.
     queue: dependents.Queue
     --- Whether the person was shown that the root is no project, or that
-    --- the tool is older than the tree: one message a session.
+    --- the tool was not checked against the tree: one message a session.
     told_outside: boolean
   end
 end
@@ -351,14 +352,15 @@ local function answers(s: Session, body: string): {string}
   local ok, handled = pcall(handle, s, message)
   if ok then
     -- One message shown a session: a root outside any build has no stage
-    -- to find the tool older than the tree.
+    -- to leave unchecked.
     if not s.told_outside then
       local shown: string | nil = nil
       if source.outside(s.checker.source) then
         shown = s.root .. " is not built yet, so its modules " ..
           "are not found and nothing is checked: run `cosmic test` (or `cosmic build`) there"
       else
-        shown = source.older(s.checker.source)
+        shown = source.unchecked(s.checker.source)
+        if shown ~= nil then s.err("cosmic: lsp: " .. shown) end
       end
       if shown ~= nil then
         s.told_outside = true

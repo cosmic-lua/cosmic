@@ -408,12 +408,12 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
     assert(took < Clock.seconds(10), tostring(took) .. " ns")
-    assert(reboot.read_stale(root) and reboot.unchecked(root), "the stale tool is not remembered")
+    assert(reboot.unchecked(root), "the stale tool is not remembered")
     local built, trouble = rebuild.here("docs", false, root)
     assert(built, trouble)
     assert(builds_of(root) == before, "a lookup built with a stale tool")
     local staged = assert(rebuild.stage(root, (assert(teal.load()))))
-    assert(staged.stale, "lsp's stage staged with a stale tool")
+    assert(staged.unchecked, "lsp's stage staged with a stale tool")
   end)
   assert(sys.close(lock))
   if not ok then error(failure) end
@@ -449,7 +449,8 @@ end
 --- A tool as new as the tree but unsettled, its database written by
 --- other code than it carries, goes on as a stale one does while another
 --- run holds the rebuild lock, rebuilding nothing; but its code is the
---- tree's, so the tree is not left unchecked and its lookup builds. Its
+--- tree's, so the tree is not left unchecked and its lookup builds,
+--- publishing nothing under the lock ([`writer.write_result`]). Its
 --- running binary's `meta` is named ([`reboot.Seen`]), as the test
 --- runner's is not this tree's.
 local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_and_builds(tmp: string)
@@ -465,7 +466,10 @@ local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_an
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
     assert(took < Clock.seconds(10), tostring(took) .. " ns")
-    assert(not reboot.read_stale(root), "a fresh tool is taken for a stale one")
     assert(not reboot.unchecked(root), "a fresh tool's tree is left unchecked")
+    local before = builds_of(root)
+    local built, trouble = rebuild.here("docs", false, root)
+    assert(built, trouble)
+    assert(builds_of(root) == before + 1, "a fresh tool's lookup built nothing")
   end)
 end

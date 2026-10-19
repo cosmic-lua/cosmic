@@ -354,11 +354,12 @@ local function reopened(src: source.View): Reopening
   return "read"
 end
 
---- What a session says of a tool older than the tree it serves
---- ([`rebuild.Where`]'s `stale`).
-local older_line <const> = "this tool is older than the tree, and another cosmic run held the " ..
-  "rebuild lock when it started; not staging, answering from the tree as last staged, with " ..
-  "its older code, until the editor starts it again"
+--- What a session says of a tree its tool was not checked against
+--- ([`rebuild.Where`]'s `unchecked`).
+local unchecked_line <const> = "this tool was not checked against the tree when it started, " ..
+  "since another cosmic run held the tree's build or its database was another tool's, so its " ..
+  "code may be older than the tree's: it stages nothing and answers from the tree as last " ..
+  "staged until the editor starts it again"
 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
@@ -400,16 +401,17 @@ function source.refresh(src: source.View, built: compiler)
     end
     return
   end
-  if staged ~= nil and (staged.busy or staged.stale) then
-    -- Each said once a session ([`source.older`] for the editor), though
-    -- the stage is tried again at each check.
+  if staged ~= nil and staged.unchecked then
+    -- Its stubs stay as last staged for the session, which says why once
+    -- ([`source.unchecked`]); the stage it asks for at each check stages
+    -- nothing.
+    listed(src, false)
+    return
+  end
+  if staged ~= nil and staged.busy then
     if not src.told_busy then
-      if staged.stale then
-        src.err("cosmic: lsp: " .. older_line)
-      else
-        src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
-            tostring(src.working) .. "; not staging, answering from the tree as last committed")
-      end
+      src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
+          tostring(src.working) .. "; not staging, answering from the tree as last committed")
       src.told_busy = true
     end
     listed(src, false)
@@ -424,11 +426,12 @@ function source.refresh(src: source.View, built: compiler)
   listed(src, staged ~= nil)
 end
 
---- What to show the person, once, where the last stage found the tool
---- older than the tree ([`rebuild.Where`]'s `stale`), or nil.
-function source.older(src: source.View): string | nil
+--- What to say once, on stderr and to the person, where the session's
+--- tool was not checked against its tree, so the stage stages nothing
+--- ([`rebuild.Where`]'s `unchecked`), or nil.
+function source.unchecked(src: source.View): string | nil
   local where = src.where
-  if where ~= nil and where.stale then return older_line end
+  if where ~= nil and where.unchecked then return unchecked_line end
   return nil
 end
 

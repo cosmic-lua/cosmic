@@ -509,13 +509,13 @@ local function test_stubs_another_run_derived_are_trusted_no_more()
       tostring(ran.tally.made_stubs))
 end
 
---- `cosmic lsp` whose tool check went on unchecked, another run holding
---- the working database ([`reboot.stale_exit`]), checks the tool again
---- once the database is free ([`reboot.recheck`]). Older than the tree, as
---- the test runner's tool is than this one shaped as cosmic's own, it
---- stages nothing at any check, rather than derive stubs with its older
---- code, and says why once: on stderr, and to the person.
-local function test_a_stale_lsp_stages_nothing_and_says_so_once()
+--- `cosmic lsp` whose tool check went on without holding the tool to
+--- the tree, another run holding the working database
+--- ([`reboot.unchecked`]), stages nothing at any check, even once the
+--- database is free, rather than derive stubs with code that may be
+--- older than the tree's; it serves the stubs last staged and says why
+--- once: on stderr, and to the person.
+local function test_an_unchecked_lsp_stages_nothing_and_says_so_once()
   local root = project()
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
@@ -534,16 +534,15 @@ local function test_a_stale_lsp_stages_nothing_and_says_so_once()
   send({ initialize(root), open(root, "main.tl", main) })
   local ran = send({ change(root, "main.tl", main .. "\n"), save(root, "main.tl"),
     changed_on_disk(root, "main.tl"), change(root, "main.tl", main) })
-  assert(reboot.read_stale(root), "the tool was not checked again")
-  assert(ran.tally.stages == 0, "staged " .. tostring(ran.tally.stages) .. " times with a stale tool")
-  local _, said = ran.err:gsub("this tool is older than the tree", "")
+  assert(ran.tally.stages == 0, "staged " .. tostring(ran.tally.stages) .. " times unchecked")
+  local _, said = ran.err:gsub("was not checked against the tree", "")
   assert(said == 1, ran.err)
-  local older = 0
+  local told = 0
   for _, body in ipairs(ran.sent) do
     if session_fixture.sent(body).method == "window/showMessage" and
-        body:find("older than the tree", 1, true) ~= nil then
-      older = older + 1
+        body:find("was not checked against the tree", 1, true) ~= nil then
+      told = told + 1
     end
   end
-  assert(older == 1, table.concat(ran.sent, "\n"))
+  assert(told == 1, table.concat(ran.sent, "\n"))
 end

@@ -21,22 +21,16 @@ local record verb_spec
     --- runs, for a verb that does not check as it goes ([`build.reboot`]'s
     --- `stale_exit`): one whose rows, or whose own code, are the tree's.
     fresh: boolean | nil
-    --- True for a verb that only reads the tree's databases, and writes
-    --- nothing of its working database but the stage of the tree its
-    --- staleness check makes, as any verb's does ([`reboot.stale_exit`]),
-    --- what a lookup's own build writes ([`rebuild.here`]) and, for `todos`,
-    --- its own stage and the blame it keeps, each where no other run holds
-    --- the database. The flag says so of the verb whatever it changes: it
-    --- is the contract, which `sql` is marked by too though nothing reads
-    --- the flag for it. No staleness check before such a verb waits for another
-    --- run that holds that database's write lock -- a build, a lookup's
-    --- build, `cosmic lsp`'s stage or a boot -- or the checkout's rebuild
-    --- lock ([`build.rebuild_lock`]) -- a `cosmic test` run, a rebuild of
-    --- the tool or a write of the projection -- and the verb goes on with
-    --- its own code, reading what that run last committed. Nor does its
-    --- lookup's build wait to write the projection ([`writer.write_result`]).
-    --- `sql`, which opens a database read-only and checks no staleness,
-    --- waits for neither. A verb that writes waits, as its build would.
+    --- True for a verb that only reads the tree's databases: it waits for
+    --- no other run's lock, the working database's write lock or the
+    --- checkout's rebuild lock ([`build.rebuild_lock`]), and answers from
+    --- what is there. It writes only where no other run holds the working
+    --- database: the stage its staleness check makes
+    --- ([`reboot.stale_exit`]) and, where that check held the tool to the
+    --- tree ([`reboot.unchecked`]), its lookup's build ([`rebuild.here`])
+    --- and, for `todos`, its stage and blame. It marks `sql` too, which opens a database
+    --- read-only and checks no staleness, as the contract it keeps. A verb
+    --- that writes waits, as its build would.
     reads: boolean | nil
     --- False when, after the verb refuses its command line (exit 2),
     --- [`build/dispatch.tl`] does not ask whether a tool older than the
