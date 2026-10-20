@@ -13,8 +13,10 @@ local SyntaxStub = require("build.syntax_stub")
 local Typed = require("build.syntax_typed")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
+local GrammarMode = require("build.grammar_mode")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
+local rebuild = require("build.rebuild")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
 local ast = require("build.ast")
@@ -22,11 +24,13 @@ local stub = require("build.stub")
 local teal = require("build.teal")
 local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
+local writer = require("build.writer")
 
 Test.policy{
   grants = {
     { path = "build/ceilings.txt", letters = "r" }, { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
-    { path = "core/socket.h", letters = "r" },
+    { path = "core/socket.h", letters = "r" }, { path = "checker/stdlib.d.tl", letters = "r" },
+    { path = "checker/tl.tl", letters = "r" },
   },
 }
 
@@ -1878,4 +1882,29 @@ local function test_the_bindings_of_c_are_typed_where_the_tree_has_their_headers
   local found = table.concat(tree_checks.typed(root, {}, nil, fork, nil, {}), "\n")
   assert(found:find("build/uses_sys.tl: contracts: the fork holds it and the port finds 1: build/uses_sys.tl:2: sys.unlink: " ..
       "its failure is ignored", 1, true) ~= nil, found)
+end
+
+--- The projection the tree checks build is the one a lookup of the same mode reads ([`writer.other_code`]): in the new
+--- mode `cosmic docs` and the link check of `cosmic fix --check .` leave out one the fork's compiler wrote, and answer
+--- from the standard library alone, so every link to the tree's own modules would fail.
+local function test_the_projection_of_the_tree_checks_is_written_in_the_mode_asked(tmp: string)
+  local modes: {GrammarMode.Mode} = { "teal", "new" }
+  for _, mode in ipairs(modes) do
+    local root = tmp .. "/" .. mode
+    assert(Fs.mkdirs(root .. "/core"))
+    assert(Fs.write(root .. "/core/.keep", ""))
+    assert(Fs.mkdirs(root .. "/build"))
+    assert(Fs.write(root .. "/build/ceilings.txt", ""))
+    assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\n\nreturn importer\n"))
+    assert(Fs.mkdirs(root .. "/checker"))
+    assert(Fs.write(root .. "/checker/stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl")))))
+    assert(Fs.write(root .. "/checker/tl.tl", (assert(Fs.read("checker/tl.tl")))))
+    assert(Fs.write(root .. "/things.tl", "--- Opens.\nlocal function open(): integer\n  return 1\nend\n\nreturn open\n"))
+    local db = assert(tree_checks.projection(root, (assert(teal.load())), mode))
+    local own, trouble = writer.other_code(db, rebuild.compiled_by(mode))
+    assert(own == nil and trouble == "", mode .. ": " .. tostring(own) .. trouble)
+    local other: GrammarMode.Mode = mode == "new" and "teal" or "new"
+    assert(writer.other_code(db, rebuild.compiled_by(other)) ~= nil, mode .. ": read as " .. other)
+    assert(db:close())
+  end
 end

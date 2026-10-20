@@ -78,6 +78,7 @@ local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local docs = require("build.docs")
+local GrammarMode = require("build.grammar_mode")
 local docs_checks = require("build.docs_checks")
 local help_source = require("build.help_source")
 local ast = require("build.ast")
@@ -1465,6 +1466,26 @@ local function pipeline_findings(root: string, memo: Sqlite.Handle | nil): {stri
   return lines
 end
 
+-- TODO: run the tree checks over the new checker's projection, and write only it, once the switch deletes the fork's
+-- compiler: the pins of build/ceilings.txt's typed section and the examples count the fork's rows
+-- (doc/plans/strict-teal.md, "the switch").
+
+--- Closes `db`, the tree checks' projection, and leaves the tree's projection as the new checker writes it where
+--- `COSMIC_GRAMMAR=new` asks for it, saying why when it cannot. The tree checks read the fork's rows, whose counts the
+--- ceilings pin ([`build.ceilings`]). What reads the projection afterwards, the links and every lookup, reads one of its own
+--- mode only ([`writer.other_code`]) and would answer from the standard library alone from the fork's.
+local function finish_projection(db: Sqlite.Handle, root: string, built: compiler): string | nil
+  local closed, close_trouble = db:close()
+  if not closed then return close_trouble end
+  local grammar, grammar_trouble = GrammarMode.mode()
+  if grammar == nil then return grammar_trouble end
+  if grammar ~= "new" then return nil end
+  local written, trouble = tree_checks.projection(root, built, grammar)
+  if written == nil then return trouble end
+  local _, _ = written:close()
+  return nil
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1475,7 +1496,7 @@ local function run_tree_checks(ctx: Fix)
   local findings: {string} = {}
   ctx.findings = findings
   if picked.whole then
-    local db, projection_trouble = tree_checks.projection(root, built)
+    local db, projection_trouble = tree_checks.projection(root, built, "teal")
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
     else
@@ -1552,8 +1573,8 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(sealed_launch_findings(root, db)) do
         findings[#findings + 1] = line
       end
-      local closed, close_trouble = db:close()
-      if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
+      local finish_trouble = finish_projection(db, root, built)
+      if finish_trouble ~= nil then findings[#findings + 1] = "tree checks: " .. finish_trouble end
     end
   end
 end
