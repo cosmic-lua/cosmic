@@ -95,13 +95,13 @@ local function test_the_counts_of_the_table_are_the_gates()
   local list = rows()
   -- The programs the fork's tests pin and the corpora, by what each checker says. A change to the table or to the
   -- checker that moves these is meant, and moves them here.
-  assert(#list == 935, tostring(#list))
-  assert(count(list, "refused", "refused") == 650, "refused by both: " .. tostring(count(list, "refused", "refused")))
-  assert(count(list, "refused", "accepted") == 51, "retired or open: " .. tostring(count(list, "refused", "accepted")))
-  assert(count(list, "accepted", "refused") == 123,
+  assert(#list == 956, tostring(#list))
+  assert(count(list, "refused", "refused") == 692, "refused by both: " .. tostring(count(list, "refused", "refused")))
+  assert(count(list, "refused", "accepted") == 30, "retired or open: " .. tostring(count(list, "refused", "accepted")))
+  assert(count(list, "accepted", "refused") == 122,
     "refused only by the new checker: " .. tostring(count(list, "accepted", "refused")))
-  assert(count(list, "accepted", "accepted") == 111, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
-  assert(#retired() == 28)
+  assert(count(list, "accepted", "accepted") == 112, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
+  assert(#retired() == 30)
   -- what the fork refuses and the new checker takes is either explained by a rule or open, and nothing is both
   assert(#retired() + #open_programs() == count(list, "refused", "accepted"))
 end
@@ -652,78 +652,68 @@ local function test_a_row_that_names_a_template_the_list_lacks_or_names_none_is_
   assert(taken:find("the fork takes it and names templates", 1, true) ~= nil, taken)
 end
 
+local function test_a_union_of_enums_is_told_apart_by_is_at_run_time_and_is_below_none_of_its_members()
+  local head = "local enum E1\n  \"a\"\n  \"b\"\nend\nlocal enum E2\n  \"b\"\n  \"c\"\nend\n"
+  local printed, fault = run(head ..
+      "local function show(x: E1 | E2): string\n  if x is E1 then\n    return \"E1:\" .. x\n  else\n    return \"E2:\" .. x\n  end\nend\n" ..
+      "local v: E1 = \"a\"\nlocal w: E2 = \"c\"\nlocal z: E1 | E2 = \"b\"\nprint(show(v), show(w), show(z))\n")
+  assert(fault == nil and #printed == 1 and printed[1] == "E1:a\tE2:c\tE1:b", table.concat(printed, "|") .. tostring(fault))
+  -- the union is below neither enum, and a test of an enum it lacks is always false
+  assert(refusal(head .. "local function f(x: E1 | E2): E1\n  return x\nend\nprint(f)\n") == "not_assignable")
+  assert(refusal(head .. "local enum E3\n  \"d\"\nend\nlocal function f(x: E1 | E2)\n  if x is E3 then\n    print(x)\n  end\nend\nprint(f)\n") ==
+      "is_disjoint")
+end
+
+local function test_an_enum_index_reads_the_field_its_value_names_and_is_the_union_of_the_fields()
+  local head = "local enum E\n  \"a\"\n  \"b\"\nend\nlocal record R\n  mut a: integer\n  mut b: string\nend\n" ..
+    "local r: R = { a = 1, b = \"x\" }\n"
+  local printed, fault = run(head ..
+      "local function get(k: E): integer | string\n  return r[k]\nend\nprint(get(\"a\"), get(\"b\"))\n" ..
+      "local k: E = \"b\"\nlocal v = r[k]\nif v is string then\n  print(v:upper())\nend\n")
+  assert(fault == nil and #printed == 2 and printed[1] == "1\tx" and printed[2] == "X", table.concat(printed, "|") .. tostring(fault))
+  -- the read is below neither type, a write names no one field, and a value that names no field is refused
+  assert(refusal(head .. "local k: E = \"a\"\nlocal n: integer = r[k]\nprint(n)\n") == "not_assignable")
+  assert(refusal(head .. "local k: E = \"a\"\nr[k] = 3\n") == "record_index")
+  assert(refusal("local enum F\n  \"a\"\n  \"c\"\nend\nlocal record R\n  a: integer\n  b: string\nend\n" ..
+      "local r: R = { a = 1, b = \"x\" }\nlocal k: F = \"a\"\nprint(r[k])\n") == "field_unknown")
+end
+
 -- the open programs ----------------------------------------------------------------------------------------------------
 
 local function test_a_program_the_fork_refuses_and_the_new_checker_takes_is_retired_or_open_never_neither_or_both()
   local list, ruled, kept = rows(), rules(), retired()
-  local open = open_programs()
-  assert(#open > 0, "no program is open: the switch's gate is met, so delete open.json and this test's skip")
-  local head = first(open)
-  -- neither: the program is told as one with no rule
-  local rest_of: {Verdicts.Open} = {}
-  for i, entry in ipairs(open) do
-    if i > 1 then
-      rest_of[#rest_of + 1] = entry
-    end
-  end
-  local lost = Verdicts.problems(list, ruled, kept, nil, rest_of)
+  -- neither: a retired program with its entry gone, and no entry in open.json, is told as one with no rule
+  local lost = Verdicts.problems(list, ruled, rest(kept), nil, open_programs())
   assert(#lost == 1 and first(lost):find("no entry in open.json", 1, true) ~= nil, table.concat(lost, "\n"))
   -- both: a retired program that is open too is told
   local also: {Verdicts.Open} = { { id = first(kept).id, kind = "permissive", why = "x" } }
-  for _, entry in ipairs(open) do
-    also[#also + 1] = entry
-  end
   local both = Verdicts.problems(list, ruled, kept, nil, also)
   assert(#both == 1 and first(both):find("is open and retired", 1, true) ~= nil, table.concat(both, "\n"))
   -- an entry of no kind, no reason or no row is told
-  local odd: {Verdicts.Open} = { { id = head.id, kind = "x", why = "" }, { id = "ffffffffffffffff", kind = "permissive", why = "y" } }
-  for i, entry in ipairs(open) do
-    if i > 1 then
-      odd[#odd + 1] = entry
-    end
-  end
+  local odd: {Verdicts.Open} = { { id = first(kept).id, kind = "x", why = "" }, { id = "ffffffffffffffff", kind = "permissive", why = "y" } }
   local told = table.concat(Verdicts.problems(list, ruled, kept, nil, odd), "\n")
   assert(told:find("neither unchecked nor permissive", 1, true) ~= nil and told:find("with no reason", 1, true) ~= nil and
       told:find("is open and is in no row", 1, true) ~= nil, told)
 end
 
-local function test_an_open_program_the_new_checker_now_refuses_is_a_problem()
-  local open = open_programs()
-  local head = first(open)
-  local changed: {Verdicts.Row} = {}
-  for i, row in ipairs(rows()) do
-    if row.id == head.id then
-      changed[i] = Verdicts.with_new(row, { refused = true, stage = "check", codes = { "arity" }, silent = {} })
-    else
-      changed[i] = row
+local function test_an_open_program_the_new_checker_refuses_is_a_problem()
+  local refused: Verdicts.Row | nil = nil
+  for _, row in ipairs(rows()) do
+    if refused == nil and row.fork == "refused" and row.new == "refused" then
+      refused = row
     end
   end
-  local told = table.concat(Verdicts.problems(changed, rules(), retired(), nil, open), "\n")
+  assert(refused ~= nil)
+  local open: {Verdicts.Open} = { { id = refused.id, kind = "unchecked", why = "x" } }
+  local told = table.concat(Verdicts.problems(rows(), rules(), retired(), nil, open), "\n")
   assert(told:find("is open, and the fork does not refuse it or the new checker does", 1, true) ~= nil, told)
 end
 
-local function test_the_open_programs_are_the_unchecked_literals_and_the_permissive_forms_the_report_names()
-  local kinds: {string: integer} = {}
-  for _, entry in ipairs(open_programs()) do
-    kinds[entry.kind] = (kinds[entry.kind] or 0) + 1
-  end
-  -- 12 programs the fork refuses for a literal it reads (patterns, formats, the keys of a gsub table) that the new checker does
-  -- not, and 11 it takes that no rule of the plan admits (7 forms, 4 pragmas)
-  assert(kinds["unchecked"] == 12 and kinds["permissive"] == 11, tostring(kinds["unchecked"]) .. " " .. tostring(kinds["permissive"]))
-end
-
--- TODO: port the fork's reading of the literal pattern, format and pack arguments of the standard library (checker/tl.tl:14711,
--- 14787, 14827) into the new checker's string library checks, with a catalog row each, and delete the `unchecked` entries
--- of testdata/gate/open.json: until then a malformed pattern or format that Lua raises on is accepted.
---
--- TODO: decide each `permissive` entry of testdata/gate/open.json with the owner (a rule of the plan and a row of
--- testdata/gate/retired.json with its twin, or a refusal in the new checker), once doc/plans/strict-teal.md states which
--- of the fork's refusals the switch keeps; the switch waits on an empty open.json.
+--- The switch waits on an empty open.json: every program the fork refuses is refused by the new checker, or is taken
+--- by a rule of the plan, with a retired row and its twin.
 local function test_the_switch_gate_is_met_when_no_program_is_open()
   local open = open_programs()
-  if #open > 0 then
-    Test.skip(tostring(#open) .. " programs the fork refuses are taken by the new checker with no rule: testdata/gate/open.json")
-  end
+  assert(#open == 0, tostring(#open) .. " programs the fork refuses are taken by the new checker with no rule: testdata/gate/open.json")
   assert(#Verdicts.problems(rows(), rules(), retired(), nil, open) == 0)
 end
 
@@ -756,8 +746,8 @@ local function test_every_refusal_program_is_refused_for_the_rule_it_expects_or_
     end
     by[kind] = (by[kind] or 0) + 1
   end
-  assert(#made == 166, tostring(#made))
-  assert(by["code"] == 139 and by["retired"] == 3 and by["open"] == 24, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
+  assert(#made == 186, tostring(#made))
+  assert(by["code"] == 180 and by["retired"] == 6 and by["open"] == nil, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
       " " .. tostring(by["open"]))
 end
 

@@ -386,6 +386,38 @@ local CASES <const>: {Case} = {
     msg = "`c` is variable 3 of a `for`", fix = "name no more variables than the iterator answers",
   },
   {
+    code = "pattern_malformed", at = { 1, 24 }, source = "local x = (\"abc\"):find(\"a)\")\nprint(x)\n",
+    msg = "the pattern of `find` is malformed: `)` closes no capture (at character 2), and Lua raises \"invalid pattern capture\"",
+    fix = "escape it as `%)` to match the character, or open the capture with `(` before it",
+  },
+  {
+    code = "format_malformed", at = { 1, 25 }, source = "local x = string.format(\"%y\", 1)\nprint(x)\n",
+    msg = "the format of `string.format` is malformed: `%y` is no conversion of `string.format` (at character 1), and Lua raises " ..
+      "\"invalid conversion '%y' to 'format'\"",
+    fix = "write `%d` or `%i` for an integer, `%f`, `%e` or `%g` for a number, `%s` for text",
+  },
+  {
+    code = "pack_malformed", at = { 1, 23 }, source = "local x = string.pack(\"X\", 1)\nprint(x)\n",
+    msg = "the format of `string.pack` is malformed: `X` aligns to nothing (at character 1), and Lua raises \"invalid next option " ..
+      "for option 'X'\"",
+    fix = "follow `X` with an option of a size, such as `Xi4`",
+  },
+  {
+    code = "gsub_key", at = { 2, 30 }, source = "local repl: {integer: string} = {}\nlocal s = (\"abc\"):gsub(\"%w\", repl)\nprint(s)\n",
+    msg = "the table of `gsub` is looked up with the captured text, a `string` as the key, and its keys are `integer`",
+    fix = "declare the table `{string: string}`, or capture a position with `()` for integer keys",
+  },
+  {
+    code = "paren_is", at = { 2, 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
+    msg = "`(x) is ...` tests a value: the parentheses make `x` no place, so the test narrows nothing",
+    fix = "write `x is integer` without the parentheses, so that the test narrows it",
+  },
+  {
+    code = "type_name", at = { 2, 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
+    msg = "`type` never answers \"int\": it answers nil, boolean, number, string, table, function, thread or userdata, so the test is always false",
+    fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\"",
+  },
+  {
     code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { 2, 4 },
     msg = "`x` is assigned twice by one statement, and Lua leaves the order of the two open",
     fix = "assign `x` once, or in two statements in the order you mean",
@@ -1073,4 +1105,167 @@ local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_take
         "  return function(): (true, integer) return true, 1 end\nend\nfor a, b, c, d in more() do\n  print(a, b, c, d)\nend\n"),
   }
   assert(table.concat(said, " | ") == " |  | iterator_extra |  |  |  |  | iterator_variables", table.concat(said, " | "))
+end
+
+local function test_a_literal_of_the_string_library_is_read_only_where_the_call_is_the_librarys()
+  local said: {string} = {
+    -- a method of text, the function by its name, and the receiver of `format`
+    codes_of("local x = (\"abc\"):gsub(\"(\", \"x\")\nprint(x)\n"),
+    codes_of("local x = string.find(\"abc\", \"[\")\nprint(x)\n"),
+    codes_of("local x = (\"%y\"):format(1)\nprint(x)\n"),
+    -- the text the pattern is not taken as, the pattern that is right, and the values a format asks for
+    codes_of("local x = string.find(\"abc\", \")\", 1, true)\nprint(x)\n"),
+    codes_of("local x = (\"abc\"):gsub(\"(%w)\", \"%1%0\")\nprint(x)\n"),
+    codes_of("local function two(): (integer, integer)\n  return 1, 2\nend\nlocal x = string.format(\"%d %d\", two())\nprint(x)\n"),
+    codes_of("local x = string.format(\"%d %d\", 1)\nprint(x)\n"),
+    codes_of("local x = string.format(\"%d %%\", 1)\nprint(x)\n"),
+    -- a record with a method of the same name
+    codes_of("local record Finder\n  find: function(Finder, string): integer\nend\nlocal function use(f: Finder): integer\n" ..
+        "  return f:find(\"(\")\nend\nprint(use)\n"),
+    -- a table keyed as the pattern captures, and one keyed the other way
+    codes_of("local repl: {string: string} = {}\nlocal s = (\"abc\"):gsub(\"%w\", repl)\nprint(s)\n"),
+    codes_of("local repl: {integer: string} = {}\nlocal s = (\"abc\"):gsub(\"()\", repl)\nprint(s)\n"),
+    codes_of("local repl: {string: string} = {}\nlocal s = (\"abc\"):gsub(\"()\", repl)\nprint(s)\n"),
+    codes_of("local repl: {integer: string} = {}\nlocal p: string = \"%w\"\np = p .. \"\"\nlocal s = (\"abc\"):gsub(p, repl)\nprint(s)\n"),
+  }
+  assert(table.concat(said, " | ") == "pattern_malformed | pattern_malformed | format_malformed |  |  |  | arity |  |  |  |  | gsub_key | ",
+    table.concat(said, " | "))
+end
+
+local function test_type_is_compared_with_the_eight_names_it_answers_and_is_tests_a_place_not_a_value()
+  local said: {string} = {}
+  for _, name in ipairs({ "nil", "boolean", "number", "string", "table", "function", "thread", "userdata" }) do
+    said[#said + 1] = codes_of("local x: integer | string = 1\nlocal y = type(x) == \"" .. name .. "\"\nprint(y)\n")
+  end
+  assert(table.concat(said, "|") == "|||||||", table.concat(said, "|"))
+  local function refused(source: string): string
+    return codes_of(source)
+  end
+  -- the name on either side, either test, a name that is a type of the program, and a name held in a variable
+  assert(refused("local x = 1\nprint(\"int\" == type(x))\n") == "type_name")
+  assert(refused("local x = 1\nprint(type(x) ~= \"integer\")\n") == "type_name")
+  assert(refused("local x = 1\nprint((type(x)) == \"float\")\n") == "type_name")
+  assert(refused("local x = 1\nprint(type(x) == \"Number\")\n") == "type_name")
+  assert(refused("local x = 1\nlocal k = \"int\"\nprint(type(x) == k)\n") == "")
+  assert(refused("local x = 1\nlocal y = tostring(x)\nprint(y == \"int\")\n") == "")
+  -- `(x) is T` for a name or a field is refused; any other parenthesized value is a test of that value
+  local head = "local record R\n  v: integer | string\nend\nlocal r: R = { v = 1 }\nlocal x: integer | string = 1\n"
+  assert(refused(head .. "print((x) is integer)\n") == "paren_is")
+  assert(refused(head .. "print((r.v) is integer)\n") == "paren_is")
+  assert(refused(head .. "print(((x)) is integer)\n") == "paren_is")
+  assert(refused(head .. "print(x is integer)\n") == "")
+  assert(refused(head .. "print(r.v is integer)\n") == "")
+  assert(refused(head .. "print((x == 1) is boolean)\n") == "")
+  assert(refused(head .. "print((tostring(x)) is string)\n") == "")
+end
+
+local function test_the_arguments_of_a_library_call_are_read_where_they_are_written()
+  local function msg_of(source: string): string
+    local r = Programs.run(source)
+    local first = r.errors[1]
+    return first ~= nil and first.msg or ""
+  end
+  local said: {string} = {
+    -- the plain argument of a method call is the third argument, and `false` is no plain text
+    codes_of("local x = (\"abc\"):find(\"a)\", 1, true)\nprint(x)\n"),
+    codes_of("local x = (\"abc\"):find(\"a)\", 1, false)\nprint(x)\n"),
+    -- a literal in parentheses, and a call or `...` that may give several values in the last place
+    codes_of("local x = (\"abc\"):find((\"a)\"))\nprint(x)\n"),
+    codes_of("local function f(...: integer): string\n  return string.format(\"%d %d\", ...)\nend\nprint(f)\n"),
+    codes_of("local function two(): (string, string)\n  return \"a\", \"b\"\nend\nprint(string.format(\"%s %s\", two()))\n"),
+    codes_of("local function two(): (string, string)\n  return \"a\", \"b\"\nend\nprint(string.format(\"%s %s\", (two())))\n"),
+    -- a function of a record that is called `find`, a size that depends on the value, and `type` with two arguments
+    codes_of("local record Finder\n  find: function(string, string): integer\nend\nlocal finder: Finder = { find = function(a: string, b: string): integer return 1 end }\n" ..
+        "print(finder.find(\"a\", \"(\"))\n"),
+    codes_of("print(string.packsize(\"z\"), string.packsize(\"i4\"))\n"),
+    codes_of("local x = 1\nprint(type(x, 1) == \"int\")\n"),
+  }
+  assert(table.concat(said, " | ") == " | pattern_malformed | pattern_malformed | nil_not_allowed |  | arity |  | pack_malformed | arity",
+    table.concat(said, " | "))
+  -- the error stands on the literal: the receiver of a method call is the first argument
+  local r = Programs.run("local x = (\"%y\"):format(1)\nprint(x)\n")
+  local first = r.errors[1]
+  assert(first ~= nil and first.y == 1 and first.x == 11 and first.length == 6, tostring(first ~= nil and first.length))
+  -- and `~=` says the test is always true
+  assert(has(msg_of("local x = 1\nprint(type(x) ~= \"int\")\n"), "so the test is always true"))
+  assert(has(msg_of("local x = 1\nprint(type(x) == \"int\")\n"), "so the test is always false"))
+end
+
+local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_results_of_a_library_call()
+  local said: {string} = {
+    -- the argument each conversion and option takes
+    codes_of("print(string.format(\"%d\", \"x\"))\n"),
+    codes_of("print(string.format(\"%d\", 1.5))\n"),
+    codes_of("print(string.format(\"%c\", \"a\"))\n"),
+    codes_of("print(string.format(\"%f\", true))\n"),
+    codes_of("print(string.pack(\"i\", \"x\"))\n"),
+    codes_of("print(string.pack(\"z\", 1))\n"),
+    codes_of("print(string.format(\"%d %x %f %e %s %q\", 1, 2, 3, 4.5, \"t\", false))\n"),
+    codes_of("print(string.pack(\"i4 d z\", 1, 2.5, \"s\"))\n"),
+    -- a value too many is no value Lua uses, and a call that answers fewer than the format takes is told
+    codes_of("print(string.format(\"%d\", 1, 2))\n"),
+    codes_of("local function f(): integer\n  return 1\nend\nprint(string.format(\"%d %d\", f()))\n"),
+    codes_of("local function f(): (integer, integer)\n  return 1, 2\nend\nprint(string.format(\"%d %d\", f()))\n"),
+    -- the results of `unpack`, a position capture and the other captures
+    codes_of("local a, b = string.unpack(\"i4\", \"abcd\")\nlocal n: integer = a\nlocal m: integer = b\nprint(n, m)\n"),
+    codes_of("local a = string.unpack(\"z\", \"abcd\")\nlocal n: integer = a\nprint(n)\n"),
+    codes_of("for p in (\"abc\"):gmatch(\"()\") do\n  local s: string = p\n  print(s)\nend\n"),
+    codes_of("for p in (\"abc\"):gmatch(\"()\") do\n  local n: integer = p\n  print(n)\nend\n"),
+    codes_of("for k, v in (\"a=1\"):gmatch(\"(%w)=(%w)\") do\n  print(k:upper(), v:upper())\nend\n"),
+    codes_of("local _, _, p = (\"abc\"):find(\"()\")\nlocal s: string = p\nprint(s)\n"),
+    codes_of("local _, _, c = (\"abc\"):find(\"(b)\")\nif c ~= nil then\n  print(c:upper())\nend\n"),
+    -- a callback takes the captures: an integer for `()`, and no more parameters than the pattern has captures
+    codes_of("print((\"abc\"):gsub(\"()\", function(p: string): string return p:upper() end))\n"),
+    codes_of("print((\"abc\"):gsub(\"()\", function(p: integer): string return tostring(p) end))\n"),
+    codes_of("print((\"abc\"):gsub(\"%w\", function(c: string, d: string): string return c end))\n"),
+    -- a literal held in a local, and a library function held in a local, are read; a local that is assigned is not
+    codes_of("local P <const> = \"%b(\"\nprint((\"abc\"):find(P))\n"),
+    codes_of("local P = \"%b(\"\nprint((\"abc\"):find(P))\n"),
+    codes_of("local P = \"%b(\"\nP = P .. \"\"\nprint((\"abc\"):find(P))\n"),
+    codes_of("local find = string.find\nprint(find(\"abc\", \"%b(\"))\n"),
+    codes_of("local fmt = string.format\nprint(fmt(\"%d\", \"x\"))\n"),
+    codes_of("local fmt = string.format\nfmt = string.format\nprint(fmt(\"%d\", \"x\"))\n"),
+    -- the type of a format that is wrong is not told twice, a plain `find` has no captures, a pattern with none answers the match
+    codes_of("local a, b, c = string.unpack(\"i4 y\", \"x\")\nprint(a, b, c)\n"),
+    codes_of("local _, _, c = (\"abc\"):find(\"()\", 1, true)\nif c ~= nil then\n  local s: string = c\n  print(s)\nend\n"),
+    codes_of("local m = (\"abc\"):match(\"b\")\nif m ~= nil then\n  print(m:upper())\nend\n"),
+    codes_of("for w in (\"a b\"):gmatch(\"%a\") do\n  print(w:upper())\nend\n"),
+    codes_of("local P = (\"%b(\")\nprint((\"abc\"):find(P))\n"),
+    codes_of("print(string.format(\"%s %s\", 1, true))\n"),
+    -- a tail that may be empty fills no conversion, whatever the conversion takes: Lua raises on a missing value, nil or not
+    codes_of("local function g(...: string): string\n  return string.format(\"%s %s\", ...)\nend\nprint(g)\n"),
+    codes_of("local function g(a: string, ...: string): string\n  return string.format(\"%s %s %s\", a, ...)\nend\nprint(g)\n"),
+    codes_of("local function f(): string...\n  return\nend\nprint(string.format(\"%q\", f()))\n"),
+    codes_of("local t: {string} = {}\nprint(string.format(\"%s\", table.unpack(t)))\n"),
+    codes_of("local function g(...: any): string\n  return string.format(\"%s-%s\", select(2, ...))\nend\nprint(g)\n"),
+    codes_of("local function g(...: integer): string\n  return string.pack(\"i4 i4\", ...)\nend\nprint(g)\n"),
+    codes_of("local function g(...: any): string\n  return string.format(\"%s\", \"x\", ...)\nend\nprint(g)\n"),
+    -- the library function by what it is: the table in a local, a text, a string key, a local that holds another
+    codes_of("local str = string\nprint(str.format(\"%d\", \"x\"))\n"),
+    codes_of("local str = string\nprint(str.find(\"abc\", \"%b(\"))\n"),
+    codes_of("local fmt = string.format\nlocal fmt2 = fmt\nprint(fmt2(\"%d\", \"x\"))\n"),
+    codes_of("print((\"x\").format(\"%d\", \"x\"))\n"),
+    codes_of("local s = \"x\"\nprint(s.format(\"%d\", \"x\"))\n"),
+    codes_of("print(string[\"format\"](\"%d\", \"x\"))\n"),
+    codes_of("local record Finder\n  find: function(string, string): integer\nend\nlocal f: Finder = { find = function(a: string, b: string): integer return 1 end }\nprint(f.find(\"a\", \"(\"))\n"),
+    codes_of("print(Matcher.find(\"a\", \"(\"))\n"),
+  }
+  local want = {
+    "not_assignable", "not_assignable", "not_assignable", "not_assignable", "not_assignable", "not_assignable", "", "",
+    "arity", "arity", "",
+    "", "not_assignable", "not_assignable", "", "", "not_assignable", "",
+    "not_assignable", "", "overload_none",
+    "pattern_malformed", "pattern_malformed", "", "pattern_malformed", "not_assignable", "",
+    "pack_malformed", "", "", "", "pattern_malformed", "",
+    "nil_not_allowed", "nil_not_allowed", "nil_not_allowed", "nil_not_allowed", "nil_not_allowed", "nil_not_allowed", "",
+    "not_assignable", "pattern_malformed", "not_assignable", "not_assignable", "not_assignable", "not_assignable", "", "",
+  }
+  assert(#said == #want)
+  local wrong: {string} = {}
+  for i, each in ipairs(want) do
+    if said[i] ~= each then
+      wrong[#wrong + 1] = tostring(i) .. ": " .. said[i] .. " (wanted " .. each .. ")"
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "; "))
 end

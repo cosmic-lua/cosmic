@@ -202,6 +202,24 @@ local CASES <const>: {Case} = {
     fix = "make `pick` a field the literal always gives, or write the function type with its type arguments fixed",
   },
   {
+    code = "unused_type_parameter",
+    source = "local function pick<T, U>(x: T): T\n  return x\nend\n",
+    msg = "the type parameter `U` is named by no parameter and no result, so no call can fix it",
+    fix = "remove `U` from the type parameters, or use it in a parameter or a result",
+  },
+  {
+    code = "metamethod_unknown",
+    source = "local record R\n  __nope: function(R)\nend\n",
+    msg = "the field `__nope` of `R` begins with two underscores, which Lua reads as a metamethod, and Lua has no metamethod of that name",
+    fix = "rename `__nope` without the leading underscores, or write the name of the metamethod you mean",
+  },
+  {
+    code = "array_part_map",
+    source = "local record R is {string: integer}\nend\n",
+    msg = "`R` is declared `is {string: integer}`, which makes it a map, and the array part of a record is a `{T}`",
+    fix = "write `is {T}` for an array part, or declare the fields of `R` and a field of type `{string: integer}`",
+  },
+  {
     code = "thread_type",
     source = "local x: thread\n",
     msg = "`thread` is no type",
@@ -287,6 +305,74 @@ local function test_a_field_that_may_be_nil_is_never_a_metamethod_and_never_a_ge
   assert(#errors_of("local record Plain<X>\n  v: X\nend\nlocal p: Plain<" .. generic .. ">\n") == 0)
   -- an optional field of any other name and function type is a plain value
   assert(#errors_of("local record R\n  done?: function(code: integer)\n  index?: function(R, string): any\nend\n") == 0)
+end
+
+local function test_a_type_parameter_that_no_parameter_or_result_names_is_unused_in_every_spelling_of_a_function()
+  local function unused(source: string): string
+    local names: {string} = {}
+    for _, e in ipairs(errors_of(source)) do
+      names[#names + 1] = e.code
+    end
+    return table.concat(names, " ")
+  end
+  -- a function statement, a method-less static, a function type and a field of function type
+  assert(unused("local function f<T>(): integer\n  return 1\nend\n") == "unused_type_parameter")
+  assert(unused("local record R\nend\nfunction R.make<T>(): integer\n  return 1\nend\n") == "unused_type_parameter")
+  assert(unused("local type F = function<T>(): integer\n") == "unused_type_parameter")
+  assert(unused("local record R\n  make: function<T>(integer): integer\nend\n") == "unused_type_parameter")
+  assert(unused("local function f<T, U>(a: T): integer\n  return 1\nend\n") == "unused_type_parameter")
+  -- one named by a parameter, a result, a rest parameter, an array, a map, a generic record, a nested function type
+  assert(unused("local function f<T>(a: T) end\n") == "")
+  assert(unused("local function f<T>(): T\n  error('x')\nend\n") == "")
+  assert(unused("local function f<T>(...: T) end\n") == "")
+  assert(unused("local function f<T>(a: {T}) end\n") == "")
+  assert(unused("local function f<T>(a: {string: T}) end\n") == "")
+  assert(unused("local record Box<X>\n  v: X\nend\nlocal function f<T>(a: Box<T>) end\n") == "")
+  assert(unused("local function f<T>(g: function(T): integer) end\n") == "")
+  assert(unused("local function f<T>(g: function<U>(U, T): integer) end\n") == "")
+  assert(unused("local function f<T>(): function(T) end\n") == "")
+  assert(unused("local function f<T>(): T...\n  error('x')\nend\n") == "")
+  -- a variable of the function around is not the one the inner function declares
+  assert(unused("local function f<T>(g: function<U>(T): integer) end\n") == "unused_type_parameter")
+  -- a signature that is already refused for what it names is told once
+  assert(unused("local function f<T>(x: T<integer>)\nend\n") == "type_arguments")
+end
+
+local function test_a_field_named_with_two_underscores_is_the_name_of_a_lua_metamethod_or_refused()
+  local function codes(field: string, kind?: string): string
+    local names: {string} = {}
+    for _, e in ipairs(errors_of("local " .. (kind or "record") .. " R\n  " .. field .. "\nend\n")) do
+      names[#names + 1] = e.code
+    end
+    return table.concat(names, " ")
+  end
+  for _, name in ipairs({ "__add", "__sub", "__mul", "__div", "__mod", "__pow", "__unm", "__idiv", "__band", "__bor", "__bxor",
+      "__bnot", "__shl", "__shr", "__concat", "__len", "__eq", "__lt", "__le", "__index", "__newindex", "__call", "__close",
+      "__gc", "__mode", "__tostring", "__name", "__metatable", "__pairs" }) do
+    assert(codes(name .. ": function(R)") == "", name)
+  end
+  for _, name in ipairs({ "__nope", "__fact", "__is", "__", "__Index", "__ipairs" }) do
+    assert(codes(name .. ": function(R)") == "metamethod_unknown", name)
+    assert(codes("metamethod " .. name .. ": function(R)") == "metamethod_unknown", name)
+    assert(codes(name .. ": integer", "interface") == "metamethod_unknown", name)
+  end
+  -- one underscore, a name inside, and a class (which refuses every such name as its own mistake)
+  assert(codes("_nope: function(R)") == "" and codes("nope__: function(R)") == "")
+  assert(codes("__nope: integer", "class") == "class_metamethod")
+  -- an optional one is the mistake of being optional and of the name, each once
+  assert(codes("__nope?: function(R)") == "optional_metamethod metamethod_unknown")
+end
+
+local function test_the_array_part_of_a_record_is_a_sequence_and_not_a_map()
+  local function codes(head: string): string
+    local names: {string} = {}
+    for _, e in ipairs(errors_of("local record R is " .. head .. "\n  x: integer\nend\n")) do
+      names[#names + 1] = e.code
+    end
+    return table.concat(names, " ")
+  end
+  assert(codes("{string}") == "" and codes("{integer}") == "")
+  assert(codes("{string: integer}") == "array_part_map" and codes("{integer: string}") == "array_part_map")
 end
 
 -- agreement ------------------------------------------------------------------------------
@@ -598,7 +684,7 @@ end
 local function test_a_type_parameter_of_the_code_around_a_use_is_not_held_to_a_bound_until_it_is_instantiated()
   local head = "local interface Named\n  name: string\nend\nlocal record Box<T is Named>\n  value: T\nend\n"
   assert(#errors_of(head .. "local function f<U>(b: Box<U>)\nend\n") == 0)
-  local unmet = only(head .. "local record Plain\n  name: string\nend\nlocal function f<U>(b: Box<Plain>)\nend\n")
+  local unmet = only(head .. "local record Plain\n  name: string\nend\nlocal function f<U>(b: Box<Plain>, u: U)\nend\n")
   assert(unmet.code == "bound_not_met", unmet.code)
 end
 

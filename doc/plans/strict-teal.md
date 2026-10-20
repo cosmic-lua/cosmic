@@ -711,7 +711,49 @@ member leaves `never` in its final branch, so a function that must return
 can end there. `is` applies to primitive types, enums, `nil`, function and
 table kinds, and classes; `v is R` for a record `R` that is not a class is
 refused, since Lua erases the record, and the error names a tag field or
-a [`cosmic.shape`] validator.
+a [`cosmic.shape`] validator. `is` on a parenthesized name or field is
+`paren_is`: the parentheses make it a value, so the test narrows nothing; on
+any other expression it is a test of that value, which narrows nothing either.
+
+### unions of enums are told apart by is
+
+an extension. `E1 | E2`, a union of string enums, is a type: a value of it is
+a string that is a member of one of them, and `x is E1` tells the members
+apart at run time by the strings of `E1`, narrowing `x` to `E1` where it
+holds and to the other enums where it does not. an enum is a nominal type,
+so the union is not assignable to one of its members (`local e: E1 = x` is
+`not_assignable`), and a test of an enum the union lacks is `is_disjoint`.
+the fork refused the declaration, since it can tell the members of a union
+apart only by `type()`, which answers "string" for all of them; `is` on an
+enum tests the membership of the string, which does.
+
+### literals of the string library are read
+
+a restriction. the pattern of `find`, `match`, `gmatch` and `gsub`, the
+replacement string of `gsub`, the format of `string.format` and the format of
+`string.pack`, `unpack` and `packsize`, when written as string literals, are
+read as Lua reads them, and a literal Lua raises on is refused where it is
+written (`pattern_malformed`, `format_malformed`, `pack_malformed`): an
+unclosed capture or set, a `)` that closes none, a `%` that ends the pattern,
+`%b` or `%f` without what they need, a back reference to a capture that is
+not closed; a conversion `string.format` does not know, flags, a width or a
+precision it does not take, or no value for a conversion; a size or an
+option `string.pack` does not know, or a `packsize` of an option whose size
+depends on the value. a `find` given `true` as its plain argument takes its
+pattern as text and is not read. a literal is read where it is written, in a
+local that is given it and never assigned, and through a local that is given
+the library function and never assigned (`local find = string.find`). the
+literal also types the call: each argument of `format` and `pack` has the type
+its conversion or option takes (`%d` and `i4` an integer, `%f` and `d` a
+number, `%s` any, `s`, `z` and `c` a string), so a call that gives another
+type, too few values or too many is refused as any call is; the captures of
+`find`, `match` and `gmatch` are strings, and an integer for a position `()`;
+the results of `unpack` are those of its format and the position; and a
+`gsub` callback takes the captures, not more than the pattern has. the table a
+`gsub` looks matches up in is
+keyed by the first capture, a string for the whole match or a captured text
+and an integer for a position `()`, and a table keyed the other way is
+`gsub_key`. a literal that is not written in the call is not read.
 
 ### compiler-written classes
 
@@ -775,6 +817,20 @@ fields have types of their own. `{string:any}` is no type outside an entry
 declaration, so it is no way around the rule. a record type is not an
 index type: `r[k]` is legal only where `k`'s type is a literal, an enum or
 a union of them naming fields of the record.
+
+### an enum index reads the union of its fields
+
+an extension. `r[k]` on a record, where `k` is an enum, or a union of
+enums, each of whose values names a field of the record, reads the field the
+value names, and its type is the union of the types of those fields. the
+union is below neither field's type alone, so the read is compared or tested
+before it stands where one of them is wanted (`local n: integer = r[k]` is
+`not_assignable`), and a value of the enum that names no field of the record
+is `field_unknown`. a write through such an index is `record_index`, since
+it names no one field and a value of one field's type could land in another.
+the fork refused the index when the fields had different types; the union
+loses no information, since a read can only answer the field its value
+names.
 
 ### conditions are booleans or optionals
 

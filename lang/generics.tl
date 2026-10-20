@@ -98,6 +98,10 @@ local record Generics
 
   --- The own variables `t` names (depth 0 at the top; those of a generic function type inside it are its own).
   names: function(t: Type): {integer: boolean}
+
+  --- The type parameters of `f`, from 1, that none of its parameters or results names. A bound does not name one: a
+  --- parameter only another's bound mentions is fixed by no argument and by no result.
+  unused: function(f: Fn): {integer}
 end
 
 -- Variables ------------------------------------------------------------------------------------
@@ -124,6 +128,43 @@ function Generics.names(t: Type): {integer: boolean}
   walk(t, 0, function(index: integer)
     out[index] = true
   end)
+  return out
+end
+
+function Generics.unused(f: Fn): {integer}
+  local used: {integer: boolean} = {}
+  local written: {Type} = {}
+  for _, p in ipairs(f.params) do
+    written[#written + 1] = p.type
+  end
+  local rest = f.rest
+  if rest ~= nil then
+    written[#written + 1] = rest
+  end
+  for _, alt in ipairs(f.rets) do
+    for _, item in ipairs(alt.items) do
+      written[#written + 1] = item
+    end
+    local tail = alt.tail
+    if tail ~= nil then
+      written[#written + 1] = tail
+    end
+    local narrows = alt.narrows
+    if narrows ~= nil then
+      written[#written + 1] = narrows.to
+    end
+  end
+  for _, t in ipairs(written) do
+    walk(t, 0, function(index: integer)
+      used[index] = true
+    end)
+  end
+  local out: {integer} = {}
+  for i = 1, #f.tparams do
+    if not used[i] then
+      out[#out + 1] = i
+    end
+  end
   return out
 end
 
