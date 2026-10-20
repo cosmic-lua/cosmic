@@ -6,7 +6,7 @@
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 
 --- The raw socket module, cosmic.net's too: it arrives as the second
 --- argument `require` passes this chunk's loader.
@@ -77,7 +77,7 @@ local function nameserver_of(entry: string): resolv.Endpoint | nil
   end
   if host == nil or rest ~= "" then return nil end
   local number = math.tointeger(tonumber(port))
-  if number == nil or number < 1 or number > 65535 or Relay.Address.parse(host) == nil then
+  if number == nil or number < 1 or number > 65535 or Address.parse(host) == nil then
     return nil
   end
   return { host = host, port = number }

@@ -729,6 +729,35 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local g, w = show(ctx, got), named or show(ctx, want)
   local shown = { g, w }
   local code = r.code
+  local from, into = r.sub, r.super
+  if code ~= "declaration_value" then
+    -- A module held in what is given (the `Box<Queue>` of `Bx.of(Queues)`, the `Queue` of an argument beside a `{Queue}`)
+    -- where a value of its declaration is wanted, whatever the place around it (`Queue?`, a generic, an optional field).
+    -- The module in `t` where `decl` is nil, else the type of values of `decl`.
+    local function find(t: Type, decl: Decl | nil): Type | nil
+      if t is Named then
+        if decl == nil and t.value and (t.decl.kind == "record" or t.decl.kind == "class") then
+          return t
+        elseif decl ~= nil and not t.value and t.decl == decl then
+          return t
+        end
+      end
+      for _, part in ipairs(Types.parts(t)) do
+        local found = find(part, decl)
+        if found ~= nil then
+          return found
+        end
+      end
+      return nil
+    end
+    local held = find(got, nil)
+    if held ~= nil and held is Named then
+      local wanted = find(want, held.decl)
+      if wanted ~= nil then
+        code, from, into = "declaration_value", held, wanted
+      end
+    end
+  end
   local e = peel(node)
   if code == "nil" then
     if got.tag == "nil" then
@@ -763,21 +792,34 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         " is wanted" .. where .. "): a receiver could store another element type through a `mut` collection",
       "pass a view, or declare the receiver's type " .. quoted(g) .. " as the argument has it", shown)
   elseif code == "declaration_value" then
-    local sub, super = r.sub, r.super
-    local name = sub is Named and sub.decl.name or super is Named and super.decl.name or g
-    local kind = sub is Named and sub.decl.kind or super is Named and super.decl.kind or "record"
+    local decl: Decl | nil = from is Named and from.decl or into is Named and into.decl or nil
+    local name, kind = g, "record"
+    if decl ~= nil then
+      name, kind = decl.name, decl.kind
+    end
     if kind ~= "class" then
-      -- A module is a record used as a value, and a place that holds one (`Seatbelt: Seatbelt`, `local raw: hash =
-      -- require(...)`) is typed with the record, which the grammar cannot spell as the declaration.
+      -- A module is a record used as a value, and the places that hold one (a field `Seatbelt: Seatbelt`, an array
+      -- `{Child}`, `local raw: hash = require(...)`) are typed with the record, whose values are not the module.
+      -- The fix is the statement that requires it where it is used, unless the declaration is this module's own or
+      -- declared in a block of it.
+      local fix = "call a function on the module (" .. quoted(name .. ".f(...)") .. ") or pass the function itself, not the module"
+      if decl ~= nil and decl.module ~= ctx.input.module and not decl.module:find("@", 1, true) then
+        fix = "require the module where you use it (`local " .. decl.name .. " = require(\"" .. decl.module .. "\")`), " ..
+          "instead of passing it" .. where
+      end
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
-          ", where " .. quoted(w) .. " is wanted" .. where,
-        "no change of this program fixes it: the grammar has no type for " .. quoted(name) .. " used as a value yet" ..
-          "; call a function on the module (" .. quoted(name .. ".f(...)") .. ") or pass the function itself, not the module", shown)
-    elseif sub is Named and sub.value then
+          ", where " .. quoted(w) .. " is wanted" .. where, fix, shown)
+    elseif from is Named and from.value then
+      local fix = "make a value with a table literal typed as the type (`local v: " .. name .. " = { ... }`), or call a " ..
+        "function of " .. quoted(name) .. " that makes one (`" .. name .. ".new(...)`)"
+      if decl ~= nil and decl.module ~= ctx.input.module and not decl.module:find("@", 1, true) then
+        -- A class of another module, stored where its values belong: the module is required where it is used.
+        fix = "require the module where you use it (`local " .. decl.name .. " = require(\"" .. decl.module .. "\")`), " ..
+          "instead of passing it" .. where .. "; to make a value, call a function of " .. quoted(name) ..
+          " that makes one (`" .. name .. ".new(...)`)"
+      end
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
-          ", where a value of " .. quoted(w) .. " is wanted" .. where,
-        "make a value with a table literal typed as the type (`local v: " .. name .. " = { ... }`), or call a function " ..
-          "of " .. quoted(name) .. " that makes one (`" .. name .. ".new(...)`)", shown)
+          ", where a value of " .. quoted(w) .. " is wanted" .. where, fix, shown)
     else
       report(ctx, "declaration_value", node, s .. " is a value of " .. quoted(name) .. ", where the declaration " ..
           quoted(name) .. " itself is wanted" .. where,
@@ -865,16 +907,10 @@ end
 -- Names ------------------------------------------------------------------------------------
 
 --- A declaration used as a value: the table of its functions, a type of its own that is no instance of the
---- declaration ([`Types.Named`]'s `value`).
---
--- TODO: refuse a declaration used as a value in a place typed with its record, once the follow-up piece lands: the owner has
--- decided to forbid module re-exports, not to give them a type. A record that re-exports a module as a field (`Seatbelt:
--- Seatbelt` in [`cosmic.sandbox`], `Relay.Address = Address`) or an array of modules typed with their record (`{Child}`) types
--- it as the module's record, so assigning the module is [`declaration_value`] and a function of the module read through it is
--- [`field_unknown`], since an instance has none of the statics. The follow-up rewrites the sites to require the module
--- directly and refuses the form with a fix that says so; the places are the [`declaration_value`] and "used as a value"
--- [`field_unknown`] ceilings of build/ceilings.txt. A record's value still carries the fields its instances have, so the
--- table of a record with a field it never defines is typed as if it did.
+--- declaration ([`Types.Named`]'s `value`). A module stored in a place typed with its record (a field `Seatbelt: Seatbelt`,
+--- `Relay.Address = Address`, an array `{Child}`) is [`declaration_value`], and a program requires the module where it uses it
+--- instead. A record's value still carries the fields its instances have, so the table of a record with a field it never
+--- defines is typed as if it did.
 local function declaration_value(ctx: Ctx, decl: Decl): Type
   local args: {Type} = {}
   for i = 1, decl.arity or 0 do
@@ -1647,8 +1683,8 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     return
   end
   if t is Named and not t.value and (ctx.program.statics[t.decl] or {})[name] ~= nil then
-    -- A module re-exported as a field of a record is typed with its record, whose values have none of its functions.
-    local decl = t.decl
+    -- A module stored in a field typed with its record is typed as the record's value, which has none of its functions.
+    local decl: Decl = t.decl
     local owner = quoted(decl.name)
     local through_field = false
     if node is Ast.Field then
@@ -1656,18 +1692,16 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       through_field = object is Ast.Field
     end
     local call = "call it on the declaration: `" .. decl.name .. "." .. name .. "(...)`"
-    local module = "no change of this program fixes it where this value is a module typed with its record: the grammar " ..
-      "has no type for " .. owner .. " used as a value yet; call a function on the module (" ..
-      quoted(decl.name .. ".f(...)") .. ") or pass the function itself, not the module"
-    -- A class has no module among its values; a record read through a field is a module re-exported by a record.
-    local fix = call .. "; " .. module
+    local fix = call
     local held = members_index(ctx, decl, false)
     local selfish = held ~= nil and held.selfish[name] == true
-    if decl.kind == "class" then
-      fix = call
-    elseif through_field then
-      fix = module
-    elseif selfish then
+    -- A class has no module among its values, so its fix is the call alone.
+    if decl.kind ~= "class" and through_field and decl.module ~= ctx.input.module and
+        not decl.module:find("@", 1, true) then
+      -- A record read through a field holds a module stored there, which a program requires where it uses it.
+      fix = "require the module where you use it (`local " .. decl.name .. " = require(\"" .. decl.module .. "\")`) " ..
+        "instead of reading it through a field; " .. call
+    elseif decl.kind ~= "class" and selfish then
       -- It takes the record first, but the value is a table with the record's fields and no metatable to reach the function.
       fix = call .. "; `v:" .. name .. "(...)` finds no function in a value of a record, which has no metatable: declare " ..
         owner .. " as a class, or declare " .. quoted(name) .. " as a function field `" .. name .. ": function(" ..
@@ -4053,6 +4087,32 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       local literal = args[i]
       shown[i] = literal is Ast.String and "string" or literal is Ast.Boolean and "boolean" or
         literal is Ast.FunctionLit and "function" or "table"
+    end
+  end
+  -- A module given beside a collection of its values (`table.insert(list, Queues)`): the argument is what is wrong.
+  local function holds_values_of(t: Type, decl: Decl): boolean
+    if t is Named and not t.value and t.decl == decl then
+      return true
+    end
+    for _, part in ipairs(Types.parts(t)) do
+      if holds_values_of(part, decl) then
+        return true
+      end
+    end
+    return false
+  end
+  for i = 1, count do
+    local held = known[i]
+    local given = args[i]
+    if given ~= nil and held ~= nil and held is Named and held.value and (held.decl.kind == "record" or held.decl.kind == "class") then
+      for j = 1, count do
+        local other = known[j]
+        if j ~= i and other ~= nil and holds_values_of(other, held.decl) then
+          local why: Relation.Refusal = { code = "declaration_value", path = {}, sub = held, super = other }
+          refused(ctx, given, held, other, why, " as argument " .. tostring(i) .. " of " .. quoted(callee), held.decl.name)
+          return unknown_lists(ctx)
+        end
+      end
     end
   end
   local first = reasons[1]

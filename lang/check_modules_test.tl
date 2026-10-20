@@ -206,6 +206,99 @@ local function test_an_instance_method_on_the_table_of_the_declaration_is_refuse
   refused("local Queue = require(\"queue\")\nlocal n = Queue.size(Queue)\n", "declaration_value", nil, MODULES)
 end
 
+--- A module stored where a value of its record belongs: the module is no value of the record.
+local QUEUES <const> = "local Queues = require(\"queue\")\nlocal type Queue = require(\"queue\")\n" ..
+  "local record Holder\n  mut Queue: Queue\nend\n"
+local REQUIRE_QUEUE <const> = "require the module where you use it (`local Queue = require(\"queue\")`)"
+
+local function test_a_module_stored_in_a_field_typed_with_its_record_is_refused_with_the_require_to_write()
+  refused(QUEUES .. "Holder.Queue = Queues\n", "declaration_value", REQUIRE_QUEUE .. ", instead of passing it in the assignment to `Holder.Queue`", MODULES)
+  refused(QUEUES .. "local h: Holder = { Queue = Queues }\n", "declaration_value",
+    REQUIRE_QUEUE .. ", instead of passing it as the field `Queue` of", MODULES)
+end
+
+local function test_an_array_of_modules_and_a_module_passed_for_a_value_of_its_record_are_refused()
+  refused(QUEUES .. "local all: {Queue} = { Queues }\n", "declaration_value", REQUIRE_QUEUE .. ", instead of passing it as an element of", MODULES)
+  refused(QUEUES .. "local function take(q: Queue)\nend\ntake(Queues)\n", "declaration_value",
+    REQUIRE_QUEUE .. ", instead of passing it as argument 1 of `take`", MODULES)
+  refused(QUEUES .. "local one: Queue = Queues\n", "declaration_value", REQUIRE_QUEUE .. ", instead of passing it as the value of `one`", MODULES)
+end
+
+local function test_a_module_is_refused_by_the_return_value_the_map_and_a_require_into_a_typed_local()
+  refused(QUEUES .. "local function f(): Queue\n  return Queues\nend\n", "declaration_value",
+    REQUIRE_QUEUE .. ", instead of passing it as return value 1", MODULES)
+  refused(QUEUES .. "local m: {string: Queue} = { a = Queues }\n", "declaration_value",
+    REQUIRE_QUEUE .. ", instead of passing it as a value of", MODULES)
+  refused(QUEUES .. "local one: Queue = require(\"queue\")\n", "declaration_value",
+    REQUIRE_QUEUE .. ", instead of passing it as the value of `one`", MODULES)
+end
+
+--- The fix of a refusal of `source`, which must be `code` and say to require the module where it is used and never to
+--- write the module's own type.
+local function required(source: string, code: string): string
+  local r = Programs.run(source, MODULES)
+  assert(Programs.codes(r) == code, Programs.codes(r) .. " in\n" .. source)
+  local first = assert(r.errors[1])
+  local told = first.fix
+  assert(told:find(REQUIRE_QUEUE, 1, true) ~= nil, told)
+  assert(told:find("(declaration)", 1, true) == nil and told:find("change the declaration", 1, true) == nil, told)
+  return told
+end
+
+local function test_a_module_stored_where_a_value_of_its_record_is_optional_or_inside_a_generic_says_to_require_it()
+  local _ = required(QUEUES .. "local u: Queue | nil = Queues\n", "declaration_value")
+  _ = required(QUEUES .. "local u: Queue | string = Queues\n", "declaration_value")
+  _ = required(QUEUES .. "local function take(q?: Queue)\nend\ntake(Queues)\n", "declaration_value")
+  _ = required(QUEUES .. "local function f(): Queue?\n  return Queues\nend\n", "declaration_value")
+  -- an optional field, in a literal and assigned
+  local optional = "local Queues = require(\"queue\")\nlocal type Queue = require(\"queue\")\n" ..
+    "local record Opt\n  mut q?: Queue\nend\n"
+  _ = required(optional .. "local o: Opt = { q = Queues }\n", "declaration_value")
+  _ = required(optional .. "local o: Opt = {}\no.q = Queues\n", "declaration_value")
+  -- a generic that holds the module's values, and a collection it is added to
+  _ = required("local Bx = require(\"box\")\nlocal Queues = require(\"queue\")\nlocal type Queue = require(\"queue\")\n" ..
+      "local type Box = require(\"box\")\nlocal b: Box<Queue> = Bx.of(Queues)\n", "declaration_value")
+  _ = required(QUEUES .. "local a: mut {Queue} = {}\ntable.insert(a, Queues)\n", "declaration_value")
+end
+
+--- A class module stored where a value of the class belongs.
+local COUNTERS <const> = "local Cs = require(\"counter\")\nlocal type Counter = require(\"counter\")\n"
+local REQUIRE_COUNTER <const> = "require the module where you use it (`local Counter = require(\"counter\")`)"
+
+local function test_a_class_module_stored_where_its_values_belong_says_to_require_it_and_where_a_value_is_made()
+  local made = "to make a value, call a function of `Counter` that makes one (`Counter.new(...)`)"
+  refused(COUNTERS .. "local record H\n  c: Counter\nend\nlocal h: H = { c = Cs }\n", "declaration_value",
+    REQUIRE_COUNTER .. ", instead of passing it as the field `c` of", MODULES)
+  refused(COUNTERS .. "local all: {Counter} = { Cs }\n", "declaration_value", REQUIRE_COUNTER .. ", instead of passing it as an element of", MODULES)
+  refused(COUNTERS .. "local function take(c: Counter)\nend\ntake(Cs)\n", "declaration_value",
+    REQUIRE_COUNTER .. ", instead of passing it as argument 1 of `take`; " .. made, MODULES)
+  refused(COUNTERS .. "local record H\n  mut c: Counter\nend\nlocal h: H = { c = Counter.new() }\nh.c = Cs\n", "declaration_value",
+    REQUIRE_COUNTER .. ", instead of passing it in the assignment to `h.c`", MODULES)
+  refused(COUNTERS .. "local function f(): Counter\n  return Cs\nend\n", "declaration_value", REQUIRE_COUNTER, MODULES)
+  refused(COUNTERS .. "local m: {string: Counter} = { a = Cs }\n", "declaration_value", REQUIRE_COUNTER, MODULES)
+  refused(COUNTERS .. "local u: Counter? = Cs\n", "declaration_value", REQUIRE_COUNTER, MODULES)
+  -- a class of this module has no module to require
+  refused("local class K\n  n: integer\nend\nlocal k: K = K\n", "declaration_value", "make a value with a table literal")
+end
+
+local function test_a_record_declared_in_a_block_of_this_module_is_not_a_module_to_require()
+  local told = assert(Programs.run("do\n  local record Circle\n    radius: number\n  end\n  local c: Circle = Circle\nend\n").errors[1]).fix
+  assert(told:find("require", 1, true) == nil and told:find("call a function on the module (`Circle.f(...)`)", 1, true) ~= nil, told)
+end
+
+local function test_a_function_read_through_a_local_of_a_module_says_to_call_it_on_the_declaration()
+  refused("local Queues = require(\"queue\")\nlocal q = Queues.new()\nlocal m = q.make\n", "field_unknown",
+    "call it on the declaration: `Queue.make(...)`", MODULES)
+end
+
+local function test_a_module_required_where_it_is_used_is_called_for_its_functions()
+  accepted("local Queue = require(\"queue\")\nlocal q = Queue.new()\nlocal n: integer = Queue.size(q)\nlocal m: integer = Queue.make()\n",
+    MODULES)
+  -- a function read through a field that holds the module is the form that was refused where the module was stored
+  refused(QUEUES .. "local h: Holder = { Queue = Queue.new() }\nlocal m = h.Queue.make()\n", "field_unknown",
+    REQUIRE_QUEUE .. " instead of reading it through a field", MODULES)
+end
+
 local function test_a_function_that_takes_no_value_is_not_reached_through_one()
   refused(HEAD .. "local c = Counter.new()\nlocal z = c.zero()\n", "field_unknown", "is a function of the declaration `Counter` used as a value", MODULES)
   refused(HEAD .. "local c = Counter.new()\nlocal z = c:new()\n", "field_unknown", nil, MODULES)

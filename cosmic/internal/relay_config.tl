@@ -19,13 +19,11 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
+local Grant = require("cosmic.relay.grant")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
-
-local Address = Relay.Address
-local Grant = Relay.Grant
 
 local record relay_config
   --- One numeric endpoint of a connector's table: a numeric `host` and a

@@ -136,7 +136,7 @@ local record Net
   --- What a public connector refuses, as data its process holds: the
   --- native connector has no list of its own. `deny` is the refused
   --- prefixes as numeric "address/bits" text, at most 128
-  --- ([`cosmic.relay`]'s `Address.deny_cidrs` lists the relay's), and `own`
+  --- ([`cosmic.relay.address`]'s `deny_cidrs` lists the relay's), and `own`
   --- the host's own numeric addresses, at most 256, refused as their own.
   --- An IPv6 address outside 2000::/3 is refused besides, whatever is listed.
   record PublicOptions
@@ -896,7 +896,7 @@ end
 --- and port: public-only with no endpoints, mixed with some. The process
 --- judges the address itself, with the lists
 --- `public` carries -- `deny`, the numeric "address/bits" prefixes it
---- refuses (at most 128; [`cosmic.relay`]'s `Address.deny_cidrs` is the
+--- refuses (at most 128; [`cosmic.relay.address`]'s `deny_cidrs` is the
 --- relay's list), and `own`, the host's own addresses (at most 256) --
 --- and refuses every IPv6 address outside 2000::/3 whatever the lists
 --- say, so IPv4-mapped and NAT64 forms are never decoded. It is the

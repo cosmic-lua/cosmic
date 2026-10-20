@@ -1626,8 +1626,8 @@ Rules:
 
 ### Csp
 
-`Csp` is a record exported by [`cosmic.web.headers`] ([`Headers.Csp`], written
-`Csp` below).
+`Csp` is a record of its own module, [`cosmic.web.csp`], which [`cosmic.web.headers`]
+requires (written `Csp` below).
 
 ```teal
 local record Csp
@@ -1904,6 +1904,7 @@ declaration, everything else declares nothing.
 [`cosmic.url`]: ../../../cosmic/url.tl
 [`cosmic.web.cookies`]: ../../../cosmic/web/cookies.tl
 [`cosmic.web.cors`]: ../../../cosmic/web/cors.tl
+[`cosmic.web.csp`]: ../../../cosmic/web/csp.tl
 [`cosmic.web.csrf`]: ../../../cosmic/web/csrf.tl
 [`cosmic.web.headers`]: ../../../cosmic/web/headers.tl
 [`cosmic.web.session.cookie`]: ../../../cosmic/web/session/cookie.tl
@@ -1932,7 +1933,6 @@ declaration, everything else declares nothing.
 [`Handle:id()`]: ../../../cosmic/web/session/init.tl
 [`Hash.digest`]: ../../../cosmic/hash.tl
 [`Hash.equal`]: ../../../cosmic/hash.tl
-[`Headers.Csp`]: ../../../cosmic/web/headers.tl
 [`Headers.middleware`]: ../../../cosmic/web/headers.tl
 [`Headers.NONCE`]: ../../../cosmic/web/headers.tl
 [`Htmx.head`]: ../../../cosmic/web/htmx.tl

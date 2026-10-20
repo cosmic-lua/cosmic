@@ -38,7 +38,8 @@
 --- child's start runs ([`Child.start`]): in the child's own network on
 --- Linux, and on macOS on the host's loopback behind a token. On macOS a
 --- Seatbelt profile holds a child and the running process alike
---- ([`Seatbelt.compile`]).
+--- ([`Seatbelt.compile`]); the module that writes it, [`cosmic.sandbox.seatbelt`],
+--- is required by its own name.
 
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
@@ -84,13 +85,6 @@ local record Sandbox
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
   type Database = rules.Database
 
-  --- What holds a program by a policy on macOS: the package's
-  --- [`cosmic.sandbox.seatbelt`], whose `compile` makes a policy's Seatbelt
-  --- profile, `resolve` reads the host paths it names and `grants` lists
-  --- what it reaches, each documented there. [`Child.start`] holds a child
-  --- by it, and [`Sandbox.restrict`] the running process.
-  Seatbelt: Seatbelt
-
   --- What [`Sandbox.reach`] finds.
   record Reach
     --- Who gives the user its rights: "user" (its own bits, as owner or
@@ -109,8 +103,6 @@ local record Sandbox
     fds: {integer}
   end
 end
-
-Sandbox.Seatbelt = Seatbelt
 
 --- What a failure of this module answers: nil and `why` under its name.
 local function refuse(why: string): nil, string

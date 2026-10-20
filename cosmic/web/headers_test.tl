@@ -1,9 +1,8 @@
+local Csp = require("cosmic.web.csp")
 local Headers = require("cosmic.web.headers")
 local Html = require("cosmic.html")
 local Htmx = require("cosmic.web.htmx")
 local Web = require("cosmic.web")
-
-local Csp = Headers.Csp
 
 --- A response one route shares between requests.
 local shared: Web.Response = { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = "shared" }

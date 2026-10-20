@@ -115,5 +115,5 @@ local function test_a_module_used_as_a_value_is_refused_with_a_fix_that_names_no
   assert(Fs.write(root .. "/holder.tl", 'local u = require("u")\nlocal record Holder\n  helper: u\nend\n' ..
       "local h: Holder = { helper = u }\nreturn h\n"))
   local result, text = tested(root, tmp, "new")
-  refusal(result, text, { "holder.tl:5:", "(declaration_value)", "call a function on the module (`u.f(...)`)" })
+  refusal(result, text, { "holder.tl:5:", "(declaration_value)", "require the module where you use it (`local u = require(\"u\")`)" })
 end

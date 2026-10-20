@@ -43,9 +43,7 @@
 --- relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
-local Relay = require("cosmic.relay")
-
-local Grant = Relay.Grant
+local Grant = require("cosmic.relay.grant")
 
 local record relay_wire
   --- What a reader has decided so far.

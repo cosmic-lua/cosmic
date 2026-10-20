@@ -4,11 +4,11 @@
 --- connector's wait for each, what a policy's `connect` targets open, the
 --- table of the connector of the addresses they name literally and the
 --- upstream proxy's, and the one lookup of the upstream's host. It sits
---- here, not in cosmic.relay, because what it makes is the sandbox's: a
---- [`rules.Policy`] for the relay and the connectors cosmic.child starts.
---- cosmic.relay's entry holds what the relay and this starter share, and
---- requires nothing of cosmic.sandbox. `handover` and [`direct_handover`]
---- make the connectors and config the relay is handed, and [`hold_loopback`]
+--- here, not in cosmic.relay.address or cosmic.relay.grant, because what
+--- it makes is the sandbox's: a [`rules.Policy`] for the relay and the
+--- connectors cosmic.child starts. Those two hold what the relay and this
+--- starter share, and require nothing of cosmic.sandbox. `handover` and
+--- [`direct_handover`] make the connectors and config the relay is handed, and [`hold_loopback`]
 --- the listeners of a relay on the host's loopback.
 ---
 --- On macOS no connector runs: the relay is held by Seatbelt under
@@ -47,7 +47,8 @@
 local Clock = require("cosmic.clock")
 local Connector = require("cosmic.internal.connector")
 local Config = require("cosmic.internal.relay_config")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
+local Grant = require("cosmic.relay.grant")
 local Resolv = require("cosmic.internal.relay_resolv")
 local type rules = require("cosmic.sandbox")
 local String = require("cosmic.string")
@@ -65,8 +66,6 @@ if type(extra) == "table" then
 else
   raw = require("cosmic.internal.socket")
 end
-
-local Address = Relay.Address
 
 local record relay
   --- What a policy's `connect` targets open, as the relay reads them
@@ -344,7 +343,7 @@ function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, 
   for _, grant in ipairs(grants) do
     -- A target the relay cannot use was refused when the policy was
     -- checked; one that is not parsed here opens nothing.
-    local parsed, _ = Relay.Grant.parse(grant)
+    local parsed, _ = Grant.parse(grant)
     if parsed ~= nil then
       local bytes = parsed.bytes
       if bytes ~= nil then

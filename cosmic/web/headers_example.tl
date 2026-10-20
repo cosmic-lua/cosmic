@@ -28,11 +28,4 @@ function Example.middleware()
   assert(res.headers["content-security-policy"]:find("'nonce-", 1, true))
 end
 
---- The CSP of an htmx app, as the header value.
-function Example.htmx_default()
-  local value = Headers.Csp.format(Headers.Csp.htmx_default())
-  print(value)
-  assert(value:find("script-src 'self'; style-src 'self'", 1, true))
-end
-
 return Example
