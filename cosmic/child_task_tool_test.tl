@@ -20,19 +20,25 @@ Test.policy{
 }
 
 local type Searcher = function(string): any, any
-local type ChildModule = require("cosmic.child")
+
+--- The functions of cosmic.child these tests call, of one copy of the module. A copy loaded again is no value of the
+--- module's record, so a test reads the two functions it calls and not the module.
+local record Entry
+  run: function(argv: {string}, opts?: Child.Options): Child.Result | nil, string
+  start: function(argv: {string}, opts?: Child.Options): Child.Handle | nil, string
+end
 
 --- cosmic.child loaded again, over a copy of the raw table it is handed
 --- that `alter` changes: the copy keeps the core's own functions until
 --- `alter` replaces one.
-local function reloaded(alter: function({string: any})): ChildModule
+local function reloaded(alter: function({string: any})): Entry
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then
       local copy: {string: any} = {}
       for name, value in pairs(extra as {string: any}) do copy[name] = value end -- cast: to copy a table by name
       alter(copy)
-      local loaded = loader as function(string, any): ChildModule -- cast: the loader the store's searcher answers
+      local loaded = loader as function(string, any): Entry -- cast: the loader the store's searcher answers
       return loaded("cosmic.child", copy as raw_process) -- cast: the table core/process.h declares
     end
   end
@@ -42,7 +48,7 @@ end
 --- cosmic.child loaded again, over a raw table whose `exit_watch` gives
 --- no descriptor, as a platform without one does: its waits look for
 --- each exit every few milliseconds instead.
-local function without_exit_watch(): ChildModule
+local function without_exit_watch(): Entry
   return reloaded(function(copy: {string: any})
     copy.exit_watch = function(_pid: integer): integer | nil, string, integer
       return nil, "no exit watch here", sys.ENOSYS
@@ -54,8 +60,8 @@ end
 --- the other, never at once: each copy's `collect` reaps every child
 --- this process adopts, and would take a status the other's handle
 --- waits for from under it.
-local function both(): {ChildModule}
-  return { Child, without_exit_watch() }
+local function both(): {Entry}
+  return { { run = Child.run, start = Child.start }, without_exit_watch() }
 end
 
 --- This program again, past its launcher, running the Lua chunk `chunk`.

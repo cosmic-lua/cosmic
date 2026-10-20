@@ -13,9 +13,9 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
+local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local Seatbelt = Sandbox.Seatbelt
 local type raw_process = require("cosmic.internal.process")
 
 --- The system's own paths, which the child's program, its loader and its

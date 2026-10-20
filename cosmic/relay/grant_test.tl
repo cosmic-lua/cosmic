@@ -1,10 +1,9 @@
 local Grant = require("cosmic.relay.grant")
 local Sandbox = require("cosmic.sandbox")
 local RelayStart = require("cosmic.internal.relay_start")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 
 local Wire = require("cosmic.internal.relay_wire")
-local Address = Relay.Address
 
 --- The text of a target that parses, else a failed assert naming `text`.
 local function canonical(text: string): string

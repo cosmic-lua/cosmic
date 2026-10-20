@@ -192,10 +192,11 @@ promises lean on come first:
 
 - a public relay API. the relay's startup and wire machinery are internal
   (relay_start, relay_config and relay_wire in cosmic/internal), and
-  [`cosmic.relay`] carries only `Address` and `Grant`. add a thin public
-  `start` in the entry of cosmic/relay over [`cosmic.internal.relay_start`], taking a
+  the package's public modules are [`cosmic.relay.address`] and
+  [`cosmic.relay.grant`], and it has no entry. add a thin public
+  `start` in a new entry of cosmic/relay over [`cosmic.internal.relay_start`], taking a
   narrow input (connect grants, the upstream proxy, a log destination) rather
-  than a [`Sandbox.Policy`], so that [`cosmic.relay`] never loads [`cosmic.sandbox`]
+  than a [`Sandbox.Policy`], so that the entry never loads [`cosmic.sandbox`]
   and the import cycle of #2841 does not return. where it must name a sandbox
   type, it uses a type-only import (`local type`). no caller outside the tree
   needs it yet.
@@ -495,7 +496,8 @@ four-producer provenance join.
 [`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.net`]: ../cosmic/net.tl
-[`cosmic.relay`]: ../cosmic/relay/init.tl
+[`cosmic.relay.address`]: ../cosmic/relay/address.tl
+[`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl

@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
@@ -34,7 +34,7 @@ local function test_nameservers_lists_numeric_servers_at_port_53()
   local servers = assert(Net.nameservers())
   assert(#servers >= 1, "at least the resolver's default")
   for _, server in ipairs(servers) do
-    assert(Relay.Address.parse(server.host) ~= nil, server.host)
+    assert(Address.parse(server.host) ~= nil, server.host)
     assert(server.port == 53, server.host .. ":" .. server.port)
   end
 end

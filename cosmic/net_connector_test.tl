@@ -7,7 +7,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -772,7 +772,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
     for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } },
-        { deny = Relay.Address.deny_cidrs() } } as {Net.PublicOptions}) do
+        { deny = Address.deny_cidrs() } } as {Net.PublicOptions}) do
       local connector = assert(Net.connector({}, { public = public }))
       local conn, why = dial(connector, "127.0.0.1", port, Clock.seconds(5))
       assert(conn == nil and why == "net: 127.0.0.1 is refused by the connector's deny list", tostring(why))

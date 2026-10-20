@@ -513,6 +513,7 @@ what they do, and this app uses them as they come.
 --- The tasks app: the pages and the middleware they share.
 
 local Assets = require("cosmic.web.assets")
+local Csp = require("cosmic.web.csp")
 local Csrf = require("cosmic.web.csrf")
 local Dev = require("cosmic.web.dev")
 local Headers = require("cosmic.web.headers")
@@ -536,7 +537,7 @@ end
 
 --- The app. In development mode (`COSMIC_WEB_DEV=1`) it reloads pages.
 function Tasks.app(opts: Tasks.Options): Web.App
-  local csp = Headers.Csp.htmx_default()
+  local csp = Csp.htmx_default()
   csp.directives["script-src"] = { "'self'", "{nonce}" }
 
   local routes = Site.routes(Store.new())

@@ -120,11 +120,9 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Config = require("cosmic.internal.relay_config")
 local Wire = require("cosmic.internal.relay_wire")
-local Shared = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
+local Grant = require("cosmic.relay.grant")
 local String = require("cosmic.string")
-
-local Address = Shared.Address
-local Grant = Shared.Grant
 
 local record Relay
   --- Connects to the numeric `address` and `port` the relay has checked,

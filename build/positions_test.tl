@@ -83,6 +83,35 @@ local function test_position_opens_the_http_server_to_the_standard_library()
   assert(not ok and trouble:find("cosmic.http.wire is private to cosmic/http/", 1, true), trouble)
 end
 
+--- The relay's address and grant modules and the Seatbelt module are the closed members that cosmic's own tree requires by
+--- their own names, since the entries that stored them are gone; the other members of their directories stay private, and
+--- a project tree, which holds none of these, gets no exception.
+local function opened_to_the_own_tree(dir: string, name: string)
+  local file = name:gsub("%.", "/") .. ".tl"
+  local ok, trouble = positioned({
+    { "cosmic/sandbox/init.tl" }, { file }, { "cosmic/child.tl", name },
+  }, true)
+  assert(ok, trouble)
+  ok, trouble = positioned({
+    { "cosmic/sandbox/init.tl" }, { file }, { "cosmic/child.tl", name },
+  }, false)
+  assert(not ok and trouble:find(name .. " is private to " .. dir .. "/", 1, true) ~= nil, trouble)
+end
+
+local function test_position_opens_the_relay_and_seatbelt_modules_to_cosmics_own_tree()
+  opened_to_the_own_tree("cosmic/relay", "cosmic.relay.address")
+  opened_to_the_own_tree("cosmic/relay", "cosmic.relay.grant")
+  opened_to_the_own_tree("cosmic/sandbox", "cosmic.sandbox.seatbelt")
+  local ok, trouble = positioned({
+    { "cosmic/sandbox/init.tl" }, { "cosmic/sandbox/policy.tl" }, { "cosmic/child.tl", "cosmic.sandbox.policy" },
+  }, true)
+  assert(not ok and trouble:find("cosmic.sandbox.policy is private to cosmic/sandbox/", 1, true) ~= nil, trouble)
+  ok, trouble = positioned({
+    { "cosmic/relay/address.tl" }, { "cosmic/relay/wire.tl" }, { "cosmic/child.tl", "cosmic.relay.wire" },
+  }, true)
+  assert(not ok and trouble:find("cosmic.relay.wire is private to cosmic/relay/", 1, true) ~= nil, trouble)
+end
+
 --- A directory's own entry is a member of the directory around it: one
 --- nested in a closed directory is reachable only from inside that one.
 local function test_position_closes_an_entry_nested_in_a_closed_directory()

@@ -50,10 +50,16 @@ end
 --- [`cosmic.http.multipart`], a parser that `cosmic.web.input` reads
 --- uploads with and a program may use without the web package.
 --- [`cosmic.web.htmx`] is the app's htmx support, which a program requires
---- by its own name beside [`cosmic.web`].
+--- by its own name beside [`cosmic.web`]. [`cosmic.relay.address`] and
+--- [`cosmic.relay.grant`] are what the sandbox's relay, its starter and
+--- the connector tests read addresses and `connect` targets with, and
+--- [`cosmic.sandbox.seatbelt`] is what [`cosmic.child`] holds a child by
+--- on macOS: each is required by its own name, not through an entry that
+--- stores it.
 local OPEN_MEMBERS <const>: {string:boolean} = {
   ["cosmic.http.server"] = true, ["cosmic.http.multipart"] = true,
-  ["cosmic.web.htmx"] = true,
+  ["cosmic.web.htmx"] = true, ["cosmic.relay.address"] = true,
+  ["cosmic.relay.grant"] = true, ["cosmic.sandbox.seatbelt"] = true,
 }
 
 --- Whether a file may import `build.*`: one inside `build/` itself, the

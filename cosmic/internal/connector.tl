@@ -15,7 +15,7 @@
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local type Resolv = require("cosmic.internal.relay_resolv")
 local sys = require("cosmic.sys")
 
@@ -242,7 +242,7 @@ end
 --- each is spelled.
 local function same_host(a: string, b: string): boolean
   if a == b then return true end
-  local x, y = Relay.Address.parse(a), Relay.Address.parse(b)
+  local x, y = Address.parse(a), Address.parse(b)
   return x ~= nil and y ~= nil and table.concat(x, ",") == table.concat(y, ",")
 end
 
@@ -786,7 +786,7 @@ function Served:connect(address: Connection.Address, opts?: Connection.ConnectOp
     if not self.accepts_public then
       return nil, "net: " .. target .. ":" .. port .. " is not in the connector's table"
     end
-    local bytes = Relay.Address.parse(target)
+    local bytes = Address.parse(target)
     if bytes == nil then return nil, "net: " .. target .. " is not a numeric address" end
     if port < 1 or port > 65535 then return nil, "net: port must be from 1 to 65535" end
     -- The public index, 4294967295.

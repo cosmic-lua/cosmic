@@ -2,6 +2,7 @@
 --- tag in pages, the script, the event stream, the loopback-only rule. The
 --- supervisor is in cosmic/web/dev_supervise_test.tl.
 
+local Csp = require("cosmic.web.csp")
 local Dev = require("cosmic.web.dev")
 local Fs = require("cosmic.fs")
 local Headers = require("cosmic.web.headers")
@@ -95,7 +96,7 @@ local function test_a_page_gets_the_script_before_its_last_body_end()
 end
 
 local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
-  local policy = Headers.Csp.htmx_default()
+  local policy = Csp.htmx_default()
   policy.directives["script-src"] = { "'self'", "{nonce}" }
   local app = Dev.app({ routes = routes(), sink = quiet(),
     middleware = { Headers.middleware{ csp = policy, nonce = true } } }, { enabled = true })
