@@ -104,7 +104,7 @@ local record Sse
     --- server closed it unfinished: the client left, or the task was
     --- killed) or "failed: <why>" (the source failed). For a log line or
     --- a counter.
-    on_close: function(why: string)
+    on_close?: function(why: string)
   end
 
   --- A hub's subscription to some topics: an [`Sse.EventSource`] holding
@@ -175,7 +175,7 @@ local record Sse
   record SubscribeOptions
     --- The id of the last event the client saw: untrusted text, compared
     --- to ids by equality alone.
-    after: string
+    after?: string
   end
 
   --- Writes `ev` in the wire format.

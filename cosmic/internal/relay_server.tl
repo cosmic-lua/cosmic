@@ -226,7 +226,7 @@ local record Relay
     --- The caps.
     limits?: Limits
     --- Where decision lines go, one call each; nil for stderr.
-    log: function(line: string)
+    log?: function(line: string)
     --- The per-sandbox token every connection must present, 16 to 255 bytes
     --- with no control byte (255 is the most RFC 1929 carries), or nil to ask
     --- for none. A caller draws 128 bits or more from a secure source and
@@ -237,7 +237,7 @@ local record Relay
     --- connector that has ended: no name can be resolved again, as no
     --- connector is started anew. The relay's process ends then
     --- ([`cosmic.internal.relay_main`]). Nil to fail each such lookup alone.
-    lost: function(why: string)
+    lost?: function(why: string)
   end
 
   --- What a running relay has done.
@@ -798,10 +798,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       why = "the lookup ended without an answer"
     end
     local connector = opts.connector
-    if found == nil and connector ~= nil and connector:ended() and run.spec.lost ~= nil and
-        not run.told_lost then
+    local lost = run.spec.lost
+    if found == nil and connector ~= nil and connector:ended() and lost ~= nil and not run.told_lost then
       run.told_lost = true
-      run.spec.lost("relay: the name servers' connector has ended")
+      lost("relay: the name servers' connector has ended")
     end
     if found == nil then
       if why == Poll.TIMEOUT then
@@ -1426,8 +1426,9 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
       -- A line carries what the program chose (a refused version, a resolver's
       -- words), so it is cut to a length and its control bytes shown as "?".
       local clean = line:gsub("[%c\127-\255]", "?"):sub(1, MAX_LOG)
-      if spec.log ~= nil then
-        spec.log(clean)
+      local log = spec.log
+      if log ~= nil then
+        log(clean)
       else
         local _, _ = logger:complain(clean)
       end

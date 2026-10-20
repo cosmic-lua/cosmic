@@ -11,7 +11,8 @@ function Example.permitted()
     { address = "::ffff:10.0.0.1", family = "inet6" },
     { address = "93.184.216.34", family = "inet" },
   }, 443, {}, own))
-  print(#allowed, allowed[1].address) -- 1 93.184.216.34
+  local only = assert(allowed[1])
+  print(#allowed, only.address) -- 1 93.184.216.34
 
   local ok, why = relay_address.check("169.254.169.254", 80, {}, own)
   assert(not ok)

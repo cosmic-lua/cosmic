@@ -13,9 +13,9 @@ local record Middleware
     sink?: Types.Sink
     --- Makes the line from the request, the response and the time the
     --- handler took in nanoseconds, in place of the default.
-    format: function(Types.Request, Types.Response, integer): string
+    format?: function(Types.Request, Types.Response, integer): string
     --- Whether to leave a request out of the log.
-    skip: function(Types.Request): boolean
+    skip?: function(Types.Request): boolean
     --- Log the query string too (false): a token in a query would be
     --- written down.
     log_query?: boolean
@@ -76,14 +76,16 @@ function Middleware.access_log(opts?: Middleware.AccessLogOptions): Types.Middle
   opts = opts or {}
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
-      if opts.skip ~= nil and opts.skip(req) then return inner(req) end
+      local skip = opts.skip
+      if skip ~= nil and skip(req) then return inner(req) end
       local started = Clock.monotonic_ns()
       local res = inner(req)
       local elapsed = Clock.monotonic_ns() - started
       local sink = opts.sink or assert(req.app.spec.sink)
       local line: string
-      if opts.format ~= nil then
-        line = opts.format(req, res, elapsed)
+      local format = opts.format
+      if format ~= nil then
+        line = format(req, res, elapsed)
       else
         local path = req.path
         if opts.log_query and req.query_string ~= "" then

@@ -9,7 +9,7 @@ local Example = {}
 
 local record Release
   tag: string
-  draft: boolean
+  draft?: boolean
   assets: {string}
 end
 
@@ -56,7 +56,8 @@ function Example.record_of()
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
-  local _, why = RELEASE:into({ tag = "v2", assets = { 1 } })
+  local wrong = Json.decode('{"tag": "v2", "assets": [1]}')
+  local _, why = RELEASE:into(wrong)
   print(why)
   assert(why == "pointer \"/assets/0\": expected string, got integer", why)
 end
@@ -135,8 +136,8 @@ function Example.map()
   local weights, err: {string: number} | nil, string =
     Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
   assert(weights ~= nil, err)
-  print(weights.lua, weights.teal)
-  assert(weights.lua == 2 and weights.teal == 0.5)
+  print(weights["lua"], weights["teal"])
+  assert(weights["lua"] == 2 and weights["teal"] == 0.5)
 end
 
 --- A field that may be one string or a list of them: `any` takes the
@@ -157,7 +158,8 @@ function Example.any()
   assert(target ~= nil, err)
   local names, why: {string} | nil, string = Shape.into(target.names, NAMES)
   assert(names ~= nil and #names == 2, why)
-  local _, bad: {string} | nil, string = Shape.into({ "a", 3 }, NAMES)
+  local mixed = Json.decode('["a", 3]')
+  local _, bad: {string} | nil, string = Shape.into(mixed, NAMES)
   print(bad)
   assert(bad == "pointer \"/1\": expected string, got integer", bad)
 end

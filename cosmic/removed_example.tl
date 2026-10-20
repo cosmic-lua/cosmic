@@ -15,7 +15,8 @@ function Example.conversion()
   end
   assert(positive_id("42") == 42 and tonumber("ff", 16) == 255)
   for _, bad in ipairs({ "1junk", "1.5", "0", "-1" }) do
-    assert(not pcall(positive_id, bad))
+    local ok, trouble = pcall(positive_id, bad)
+    assert(not ok, tostring(trouble))
   end
   assert(type(42) == "number")
 end
@@ -32,10 +33,10 @@ function Example.protected_calls()
   local false_ok, false_value = pcall(function(): boolean return false end)
   local all_args = assert(load(
     "local value,label=assert(7,'seven'); return value==7 and label=='seven'"))
-  assert(all_args() and false_ok and false_value == false)
-  local good = xpcall(function() error("broken", 0) end,
+  assert(all_args() == true and false_ok and false_value == false)
+  local good, handled = xpcall(function() error("broken", 0) end,
     function(reason: any): string return "handled: " .. tostring(reason) end)
-  assert(not good)
+  assert(not good and handled == "handled: broken")
 end
 
 --- ipairs(array) stops at its first nil. pairs(table) and next(table, key)
@@ -47,9 +48,11 @@ function Example.iteration_select()
   for _, n in ipairs({ 2, 3, 5 }) do sum = sum + n end
   local seen: {string:boolean} = {}
   for key in pairs({ a = 1, b = 2 }) do seen[key] = true end
-  local function tail(...: string): string, integer return select(2, ...), select("#", ...) end
+  local function tail(...: string): string, integer
+    return assert(select(2, ...)), select("#", ...)
+  end
   local value, count = tail("a", "b", "c")
-  assert(sum == 10 and seen.a and seen.b and value == "b" and count == 3)
+  assert(sum == 10 and seen["a"] == true and seen["b"] == true and value == "b" and count == 3)
 end
 
 --- getmetatable and setmetatable query/install metatables; __metatable can
@@ -60,7 +63,7 @@ function Example.metatables_raw()
   local values: {string:integer} = { present = 2 }
   local mt: metatable<{string:integer}> = { __index = function(): integer return 9 end }
   setmetatable(values, mt)
-  assert(values.missing == 9 and rawget(values, "missing") == nil)
+  assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
   assert(rawequal(values, values) and rawlen({ 1, 2 }) == 2 and getmetatable(values) == mt)
 end
@@ -75,7 +78,7 @@ end
 --- _G is the environment; _VERSION identifies Lua. dofile/loadfile are
 --- removed: paths are not modules.
 function Example.load_chunk()
-  local environment: {any:any} = { answer = 40 }
+  local environment: {string: integer} = { answer = 40 }
   local chunk, trouble = load("return answer + 2", "example", "t", environment)
   assert(chunk ~= nil, trouble)
   assert(chunk() == 42)
@@ -108,7 +111,8 @@ function Example.table_operations()
   local xs = { "c", "a", "b" }
   local empty: {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
-  assert(not pcall(function() table.remove(xs, 0) end))
+  local removed, trouble = pcall(function() table.remove(xs, 0) end)
+  assert(not removed, tostring(trouble))
   table.insert(xs, "z")
   assert(table.remove(xs) == "z")
   table.insert(xs, 2, "x")
@@ -117,8 +121,7 @@ function Example.table_operations()
   assert(table.concat(xs, ":", 1, 3) == "a:b:c")
   table.move(xs, 1, 2, 2, xs)
   assert(table.concat(xs) == "aab")
-  local function hole(): any return nil end
-  local packed = table.pack("a", hole(), "c")
+  local packed = table.pack("a", nil, "c")
   assert(packed.n == 3)
   local a, b = table.unpack({ "a", "b" })
   assert(a == "a" and b == "b")
@@ -131,6 +134,7 @@ end
 --- C locale and are not Unicode case conversion.
 function Example.string_bytes()
   local a, b = string.byte("AB", 1, 2)
+  assert(a ~= nil and b ~= nil)
   assert(a == 65 and b == 66 and string.char(a, b) == "AB")
   assert(string.len("abc") == 3 and string.sub("cosmic", -3) == "mic")
   assert(string.rep("x", 3, ":") == "x:x:x" and string.reverse("ab") == "ba")
@@ -157,7 +161,8 @@ function Example.string_patterns()
   local changed, count = string.gsub("a1b2", "%d", "")
   assert(changed == "ab" and count == 2)
   local malformed = "(" .. ""
-  assert(not pcall(string.match, "x", malformed))
+  local matched, trouble = pcall(function() local _ = string.match("x", malformed) end)
+  assert(not matched, tostring(trouble))
 end
 
 --- string.format is printf-like. string.pack encodes binary values;
@@ -365,11 +370,15 @@ function Example.generics_functions_returns()
   local interface HasName
     name: string
   end
+  local record Person is HasName
+    name: string
+  end
   local function identity<T>(v: T): T return v end
   local function name_of<T is HasName>(v: T): string return v.name end
   local function quotient(a: integer, b: integer): integer, integer return a // b, a % b end
   local q, r = quotient(7, 3)
-  assert(identity("x") == "x" and name_of({ name = "Ada" }) == "Ada" and q == 2 and r == 1)
+  local ada: Person = { name = "Ada" }
+  assert(identity("x") == "x" and name_of(ada) == "Ada" and q == 2 and r == 1)
   local sizes = { 3, 1, 2 }
   table.sort(sizes, function(a, b) return a > b end)
   assert(sizes[1] == 3 and sizes[3] == 1)

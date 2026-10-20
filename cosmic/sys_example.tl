@@ -82,9 +82,9 @@ end
 --- [`sys.chmod`] sets a path's permission bits.
 function Example.chmod()
   local dir, path = scratch()
-  assert(sys.chmod(path, tonumber("600", 8) as integer))
+  assert(sys.chmod(path, assert(math.tointeger(tonumber("600", 8)))))
   local stat = assert(sys.stat(path))
-  local bits = string.format("%o", stat.mode & tonumber("777", 8) as integer)
+  local bits = string.format("%o", stat.mode & assert(math.tointeger(tonumber("777", 8))))
   print(bits)
   assert(bits == "600", bits)
   clean(dir, path)

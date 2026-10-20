@@ -90,12 +90,18 @@ local record Stream
     --- waits again if it was not), or false and why: [`Poll.TIMEOUT`]
     --- or [`Poll.CANCELLED`] end the call and leave the stream usable,
     --- any other why ends the stream for good.
-    wait: function(integer, integer, integer | nil): boolean, string
+    wait?: function(integer, integer, integer | nil): boolean, string
   end
 
   --- What [`Stream.to_fd`] answers: a Writer that counts what the
   --- descriptor took.
   interface FdWriter is Writer
+    --- As [`Stream.Writer.write`].
+    write: function(FdWriter, string): boolean, string
+    --- As [`Stream.Writer.close`].
+    close: function(FdWriter): boolean, string
+    --- As [`Stream.Writer.abort`].
+    abort: function(FdWriter): boolean, string
     --- How many bytes the descriptor has taken from this Writer in all,
     --- those of a write that then failed included: after a write that
     --- fails with [`Poll.TIMEOUT`], the difference from before it is
@@ -106,6 +112,16 @@ local record Stream
 
   --- An in-memory Writer that also hands back everything written to it.
   interface Collector is Writer
+    -- TODO: drop the three fields repeated here and in FdWriter once the new checker finds the members an interface takes from
+    -- the interfaces it lists: lang/check.tl's members_index reads an interface's own members only, so without them a value
+    -- typed Collector has no `write` for the new checker.
+
+    --- As [`Stream.Writer.write`].
+    write: function(Collector, string): boolean, string
+    --- As [`Stream.Writer.close`].
+    close: function(Collector): boolean, string
+    --- As [`Stream.Writer.abort`].
+    abort: function(Collector): boolean, string
     --- Everything written so far.
     result: function(Collector): string
   end
@@ -450,7 +466,8 @@ local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
                         deadline: integer | nil): boolean, string
   local left: integer | nil = nil
   if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
-  if opts.wait ~= nil then return opts.wait(fd, events, left) end
+  local wait = opts.wait
+  if wait ~= nil then return wait(fd, events, left) end
   return Poll.wait(fd, events, left)
 end
 

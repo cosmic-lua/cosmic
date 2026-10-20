@@ -39,8 +39,8 @@ function Example.every_error()
   local bad = assert(bound.invalid)
   assert(bad.status == 422)
   local messages = Input.errors_by_field(bad)
-  assert(messages.age == "must be a whole number")
-  assert(messages.news == "must be true or false")
+  assert(messages["age"] == "must be a whole number")
+  assert(messages["news"] == "must be true or false")
   assert(Input.value(bad, "age") == "old" and Input.value(bad, "password") == "")
   print(bad.message) -- age: must be a whole number (and 2 more)
 end
@@ -55,7 +55,7 @@ function Example.typed_route()
         return Web.text("welcome " .. form.email, { status = 201 })
       end, {
         on_invalid = function(_req: Web.Request, bad: Web.Invalid): Web.Response
-          return Web.text(Input.errors_by_field(bad).email or "", { status = bad.status })
+          return Web.text(Input.errors_by_field(bad)["email"] or "", { status = bad.status })
         end,
       }),
   } }
@@ -84,10 +84,15 @@ function Example.json_body()
   local client = Web.test_client(app)
   local reply = client:post("/notes", { json = { title = "t", tags = { "a", 2 } } })
   assert(reply.status == 422 and reply.headers["content-type"] == "application/problem+json")
-  local body = reply:json() as {string:any}
-  local first = (body.errors as {{string:any}})[1]
-  assert(first.pointer == "/tags/1" and first.field == "tags.1", tostring(first.pointer))
-  print(body.detail) -- tags.1: expected string, got integer
+  local record Problem
+    detail: string
+    errors: {{string: any}}
+  end
+  local problem, why = Shape.record_of("Problem"):into((reply:json()))
+  assert(problem ~= nil, why)
+  local first = assert(problem.errors[1])
+  assert(first["pointer"] == "/tags/1" and first["field"] == "tags.1", tostring(first["pointer"]))
+  print(problem.detail) -- tags.1: expected string, got integer
   local wrong = client:post("/notes", { body = '{"title":"t"}', content_type = "text/plain" })
   assert(wrong.status == 415, "a cross-site form cannot send application/json")
 end
@@ -95,9 +100,8 @@ end
 --- A spec text cannot carry is refused when the route is made, not on the
 --- first request.
 function Example.check_spec()
-  local ok, err = pcall(function(): any
+  local ok, err = pcall(function()
     Input.check_spec(Shape.record({ extra = Shape.map(Shape.string) }), "form")
-    return nil
   end)
   assert(not ok)
   print(err) -- input: field extra of a form is a map, which text cannot carry
@@ -122,7 +126,7 @@ function Example.plain_route()
       assert(rawequal(req:get(Input.FORM), read.value))
       if Url.query_last(assert(read.value), "email") == "taken@example.org" then
         local bad = Input.fail(req, "email", "is already registered", { secret = { "password" } })
-        return Web.text(Input.errors_by_field(bad).email, { status = bad.status })
+        return Web.text(assert(Input.errors_by_field(bad)["email"]), { status = bad.status })
       end
       return Web.empty()
     end),
@@ -164,10 +168,11 @@ function Example.upload()
   local app = Web.app{ routes = {
     Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
-        local avatar = assert(Input.multipart(req).value).files["avatar"][1]
+        local avatars = assert(assert(Input.multipart(req).value).files["avatar"])
+        local avatar = assert(avatars[1])
         assert(avatar.path:find(avatar.filename, 1, true) == nil, "the client's name is no part of the path")
         kept[1] = assert(Fs.read(avatar.path))
-        return Web.text(form.display_name .. ":" .. avatar.filename .. ":" .. avatar.size)
+        return Web.text(form.display_name .. ":" .. avatar.filename .. (":%d"):format(avatar.size))
       end, { input_options = { max_file_bytes = 1024 } }),
   } }
   local boundary = "xyz"

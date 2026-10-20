@@ -31,6 +31,18 @@ local record Tar
   --- A tar's entry: a [`Stream.ArchiveEntry`] that also says who owns it
   --- and which typeflag its header carries.
   record Entry is Stream.ArchiveEntry
+    --- As [`Stream.ArchiveEntry.path`].
+    path: string
+    --- As [`Stream.ArchiveEntry.kind`].
+    kind: Stream.EntryKind
+    --- As [`Stream.ArchiveEntry.mode`].
+    mode: integer
+    --- As [`Stream.ArchiveEntry.size`].
+    size: integer
+    --- As [`Stream.ArchiveEntry.mtime`].
+    mtime: integer
+    --- As [`Stream.ArchiveEntry.linkpath`].
+    linkpath: string
     --- The owner's numeric user id.
     uid: integer
     --- The owner's numeric group id.

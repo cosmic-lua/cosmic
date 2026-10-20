@@ -42,9 +42,11 @@ function Example.url_parts()
 ]], "link.tmpl"))
   assert(source:find("_part(v)", 1, true) and not source:find("_url(v)", 1, true))
   local java, scheme = Template.compile('{{type Page from site.page}}\n<a href="java{{.x}}">x</a>\n', "link.tmpl")
-  assert(java == nil and scheme:find("link.tmpl:2:", 1, true) and scheme:find("fixes where the URL goes", 1, true), scheme)
+  assert(java == nil)
+  assert(scheme:find("link.tmpl:2:", 1, true) and scheme:find("fixes where the URL goes", 1, true), scheme)
   local on, script = Template.compile('{{type Page from site.page}}\n<a hx-on:click="{{.x}}">x</a>\n', "link.tmpl")
-  assert(on == nil and script:find("would be script", 1, true), script)
+  assert(on == nil)
+  assert(script:find("would be script", 1, true), script)
 end
 
 --- `{{use htmx}}`, in the header beside `{{mode}}`, reads the attributes of
@@ -64,10 +66,12 @@ function Example.htmx()
   assert(source:find("local v: html.SafeJson = d.vals", 1, true))
   assert(source:find("_sel(v)", 1, true) and source:find("_part(v)", 1, true) and source:find("_lurl(v)", 1, true))
   local plain, why = Template.compile('{{type Row from site.row}}\n<b hx-vals=\'{{.vals}}\'>x</b>\n', "row.tmpl")
-  assert(plain == nil and why:find("{{use htmx}}", 1, true), why)
+  assert(plain == nil)
+  assert(why:find("{{use htmx}}", 1, true), why)
   local trigger, trigger_why = Template.compile(
     '{{type Row from site.row}}{{use htmx}}\n<b hx-trigger="click[{{.f}}]">x</b>\n', "row.tmpl")
-  assert(trigger == nil and trigger_why:find("'[filter]'", 1, true), trigger_why)
+  assert(trigger == nil)
+  assert(trigger_why:find("'[filter]'", 1, true), trigger_why)
 end
 
 --- A slot where no escaping is right is refused, with its line and column.

@@ -101,14 +101,14 @@ function Example.cancel()
   Poll.run(function()
     local sleeper = Poll.spawn(function()
       local _, why = Poll.delay(Clock.seconds(60))
-      waited.answer = why
+      waited["answer"] = why
     end)
     assert(Poll.delay(0))
     sleeper:cancel()
     assert(sleeper:join())
   end)
-  print(waited.answer)
-  assert(waited.answer == Poll.CANCELLED)
+  print(waited["answer"])
+  assert(waited["answer"] == Poll.CANCELLED)
 end
 
 --- A task that waits on whatever its waits answer outlasts `cancel`,
@@ -119,7 +119,7 @@ function Example.kill()
   local record Lease
     metamethod __close: function(Lease)
   end
-  local lease_mt: metatable<Lease> = { __close = function() lease.released = true end }
+  local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end }
   Poll.run(function()
     local stubborn = Poll.spawn(function()
       local _ <close> = setmetatable({} as Lease, lease_mt)
@@ -131,8 +131,8 @@ function Example.kill()
     assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
-    print(lease.released, ended, why)
-    assert(lease.released and not ended and why == Poll.CANCELLED)
+    print(lease["released"], ended, why)
+    assert(lease["released"] == true and not ended and why == Poll.CANCELLED)
   end)
 end
 
@@ -149,7 +149,7 @@ function Example.notifier()
         while #queue == 0 do
           if not notifier:wait(Clock.seconds(5)) then return end
         end
-        handled[#handled + 1] = table.remove(queue, 1)
+        handled[#handled + 1] = assert(table.remove(queue, 1))
       end
     end)
     for _, job in ipairs({ "a", "b", "c" }) do

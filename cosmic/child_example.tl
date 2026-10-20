@@ -84,7 +84,7 @@ function Example.supervisor()
     for _, h in ipairs(running) do
       if rawequal(h, done) then
         local result = assert(h:wait())
-        report[#report + 1] = names[h] .. (result.ok and " ok" or " failed")
+        report[#report + 1] = assert(names[h]) .. (result.ok and " ok" or " failed")
       else
         still[#still + 1] = h
       end
@@ -95,7 +95,7 @@ function Example.supervisor()
   end
   for _, h in ipairs(running) do
     assert(h:close())
-    report[#report + 1] = names[h] .. " interrupted"
+    report[#report + 1] = assert(names[h]) .. " interrupted"
   end
   local caught = assert(guard:release())
   for _, line in ipairs(report) do print(line) end

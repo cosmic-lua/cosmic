@@ -65,10 +65,11 @@ local function respond(req: Types.Request, status: integer, detail?: string,
   local res: Types.Response
   local error_pages = spec.error_pages
   local custom = error_pages ~= nil and error_pages[status] or nil
+  local error_view = spec.error_view
   if custom ~= nil then
     res = custom(req)
-  elseif spec.error_view ~= nil then
-    res = spec.error_view(req, status, detail or "")
+  elseif error_view ~= nil then
+    res = error_view(req, status, detail or "")
   else
     res = default_answer(req, status, detail, extra)
   end

@@ -50,30 +50,21 @@ function Example.guidance()
 end
 
 --- What to do about an error Lua itself raised, read from its message:
---- here a method called on a record's value made as a table literal,
---- which never gets the record's methods without a metatable, and the
---- same value made as the hint says. An error nothing caught prints
---- this beneath it, and a failed test under its failure line.
+--- here a method called on a value made as a table literal, which never
+--- gets the record's methods without a metatable. An error nothing
+--- caught prints this beneath it, and a failed test under its failure
+--- line.
 function Example.hint()
-  local record Counter
-    n: integer
-    bump: function(self: Counter)
-  end
-  function Counter.bump(self: Counter)
-    self.n = self.n + 1
-  end
-  local bare: Counter = { n = 0 }
-  local ok, err = pcall(function() bare:bump() end)
+  local chunk = assert(load("local bare = { n = 0 }\nbare:bump()"))
+  local ok, raised = pcall(function() chunk() end)
   assert(not ok)
-  local text = Errors.hint(tostring(err))
+  local err = tostring(raised)
+  local text = assert(Errors.hint(err))
   print(text)
   assert(text == "'bump' is nil on that value: either it was made as a table literal, " ..
       "which gets none of R's methods (make it with `setmetatable({ ... }, { __index = R })`), " ..
-      "or R declares 'bump' and nothing defines `function R:bump`", tostring(text))
-  assert(Errors.guidance(tostring(err)) == "cosmic: hint: " .. text .. "\n")
-  local made: Counter = setmetatable({ n = 0 }, { __index = Counter })
-  made:bump()
-  assert(made.n == 1)
+      "or R declares 'bump' and nothing defines `function R:bump`", text)
+  assert(Errors.guidance(err) == "cosmic: hint: " .. text .. "\n")
   assert(Errors.hint("nothing whatever like any message") == nil)
   assert(Errors.hint("wrapped: x.tl:3: attempt to call a nil value (method 'bump'): retried") == nil)
 end

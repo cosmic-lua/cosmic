@@ -577,6 +577,8 @@ local rehearsal_test_timeout_s <const> = "120"
 local rehearsal_boot_timeout_ns <const> = Clock.seconds(600)
 local rehearsal_project_timeout_ns <const> = Clock.seconds(120)
 local rehearsal_seed_timeout_ns <const> = Clock.seconds(420)
+-- The examples and guides of the tree, each compiled alone by the new checker: a few minutes on one core.
+local rehearsal_examples_timeout_ns <const> = Clock.seconds(900)
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -1593,6 +1595,20 @@ local function phase_rehearsal_project(p: PlatformContext): integer
   return #problems == 0 and 0 or 1
 end
 
+--- The examples and guides of the tree, which a user copies, compiled by the new checker as files alone and held to the findings
+--- `[examples]` of build/ceilings.txt pins (build/example_checks_main.tl): a finding over its pin, and a pin above its findings,
+--- fail the phase. On the tool `boot` built, before the rehearsal boots another: the check asks for the new checker itself, so a
+--- regression in an example is told here whether or not the tool booted with the new checker would still build.
+local function phase_rehearsal_examples(p: PlatformContext): integer
+  if p.target ~= "x86_64-linux-musl" then return 0 end
+  local c = p.operation
+  mkdir(p.local_diagnostics)
+  local out = p.local_diagnostics .. "/rehearsal-examples.out"
+  return logged(c, "the examples with the new checker", { BuildPaths.directory(p.root) .. "/bin/cosmic",
+    "build/example_checks_main.tl" }, out, p.local_diagnostics .. "/rehearsal-examples.err", rehearsal_examples_timeout_ns,
+    c.root, environment({}))
+end
+
 --- The proof that the pinned seed builds the new checker from its translated source (build/lang_proof.tl): all of lang/
 --- translated, compiled with `compile --grammar new`, and its tests run against the Lua; then the same translation compiled by
 --- the pinned release (`bin/cosmic-bootstrap`), whose Lua differs from the tree's compile only in the files lang/SEED_DIFFERS
@@ -2188,6 +2204,8 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_rehearsal(p)
   elseif phase == "rehearsal-project" then
     return phase_rehearsal_project(p)
+  elseif phase == "rehearsal-examples" then
+    return phase_rehearsal_examples(p)
   elseif phase == "rehearsal-seed" then
     return phase_rehearsal_seed(p)
   elseif phase == "darwin-suite" then

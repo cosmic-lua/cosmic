@@ -9,7 +9,7 @@
 --- ([`build.syntax_analyzer`]'s references).
 ---
 --- A field the record inherits is a use of the interface that declares it, when some module declares that interface
---- ([`Writer.write`], not `Collector.write`).
+--- ([`Writer.write`], not [`Collector.write`]).
 local Ast = require("lang.ast")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")

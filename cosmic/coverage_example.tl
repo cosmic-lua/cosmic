@@ -30,8 +30,8 @@ function Example.native_functions()
   local lines = Coverage.native_lines()
   local functions = Coverage.native_functions()
   for _, fn in ipairs(functions) do
-    local here = lines[fn.path]
-    assert(here ~= nil and here[fn.line], fn.path .. ":" .. fn.name)
+    local here = assert(lines[fn.path], fn.path .. ":" .. fn.name)
+    assert(here[fn.line] == true, fn.path .. ":" .. fn.name)
   end
   print(#functions)
 end

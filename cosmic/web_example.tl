@@ -21,7 +21,7 @@ function Example.api()
       return Web.json(Json.array(items))
     end, { name = "items" }),
     Web.get("/items/:id", function(req: Web.Request): Web.Response
-      local item = items[math.tointeger(tonumber(req.params.id)) or 0]
+      local item = items[math.tointeger(tonumber(req.params["id"])) or 0]
       if item == nil then return Web.abort(404, "no such item") end
       return Web.json(item)
     end, { name = "item" }),
@@ -40,7 +40,7 @@ function Example.api()
   assert(created.status == 201 and created.redirect_location == nil and created.headers["location"] == "/items/3")
   local missing = client:get("/items/9", { headers = { accept = "application/json" } })
   print(missing.status, missing.headers["content-type"]) -- 404  application/problem+json
-  assert(missing.status == 404 and assert(Json.decode_object(missing:text())).detail == "no such item")
+  assert(missing.status == 404 and assert(Json.decode_object(missing:text()))["detail"] == "no such item")
   local wrong = client:delete("/items")
   print(wrong.status, wrong.headers["allow"]) -- 405  GET, HEAD, OPTIONS, POST
   assert(wrong.status == 405)
@@ -56,11 +56,12 @@ end
 function Example.pages()
   local app = Web.app{ routes = {
     Web.get("/hello/:name", function(req: Web.Request): Web.Response
-      return Web.html(Html.concat({ Html.trust("<h1>Hello, "), Html.escape(req.params.name), Html.trust("</h1>") }))
+      return Web.html(Html.concat({ Html.trust("<h1>Hello, "), Html.escape(assert(req.params["name"])), Html.trust("</h1>") }))
     end),
     Web.post("/login", function(req: Web.Request): Web.Response
       local query = assert(req:query())
-      return Web.redirect(Web.safe_next(query.by_name.next and query.by_name.next[1], "/home"))
+      local next_urls = query.by_name["next"]
+      return Web.redirect(Web.safe_next(next_urls and next_urls[1], "/home"))
     end),
   } }
   local client = Web.test_client(app)
@@ -91,7 +92,7 @@ function Example.responses()
   print(Web.header(text, "X-Request-ID"), Web.header(text, "vary")) -- abc  Cookie, HX-Request
   assert(Web.header(text, "X-Request-ID") == "abc" and Web.header(text, "vary") == "Cookie, HX-Request")
   local cookies = assert(text.headers)["Set-Cookie"]
-  assert(cookies is {string} and #cookies == 2)
+  assert(type(cookies) == "table" and #cookies == 2)
   local empty = Web.empty()
   assert(empty.status == 204 and empty.body == nil)
   local problem = Web.problem(422, "qty must be a number", { field = "qty" })
@@ -127,8 +128,8 @@ function Example.routing()
   print(assert(router:match("GET", "/files/a/info").route).pattern) -- /files/:name/info
   local rest = router:match("GET", "/files/css/app.css")
   local rest_params = assert(rest.params)
-  print(assert(rest.route).pattern, rest_params.path) -- /files/*path  css/app.css
-  assert(rest_params.path == "css/app.css")
+  print(assert(rest.route).pattern, rest_params["path"]) -- /files/*path  css/app.css
+  assert(rest_params["path"] == "css/app.css")
   local twice = router:match("GET", "//files//readme")
   print(twice.kind, twice.location) -- redirect  /files/readme
   assert(twice.kind == "redirect" and twice.location == "/files/readme")
@@ -154,8 +155,9 @@ function Example.mounts()
     Web.mount_handler("/static", function(req: Web.Request): Web.Response
       return Web.text("static " .. table.concat(req.segments, "/", 2))
     end, { name = "static", reverse = function(prefix: string, params: {string:string}): string | nil, string
-      if params.path == nil then return nil, "static: a path is needed" end
-      return prefix .. "/" .. params.path .. "?v=1", ""
+      local path = params["path"]
+      if path == nil then return nil, "static: a path is needed" end
+      return prefix .. "/" .. path .. "?v=1", ""
     end }),
   } }
   local client = Web.test_client(app)
@@ -204,8 +206,8 @@ function Example.middleware()
   print(boom.status, boom.headers["x-seen-by"]) -- 500  app
   assert(boom.status == 500 and not boom.body:find("a bug", 1, true))
   print(lines[1]) -- GET / 200 0ms 4B client=127.0.0.1
-  assert(lines[1]:find("^GET / 200 %d+ms 4B client=127%.0%.0%.1$"))
-  assert(Web.stderr_sink("web").line ~= nil)
+  assert(assert(lines[1]):find("^GET / 200 %d+ms 4B client=127%.0%.0%.1$"))
+  assert(type(Web.stderr_sink("web").line) == "function")
 end
 
 --- Typed per-request state: a module exports the [`Web.key`] it owns, a

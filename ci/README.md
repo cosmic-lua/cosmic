@@ -544,23 +544,29 @@ holds every `continue-on-error` job to both). A branch push shows the job as ski
 `build/workflows_test.tl` names. The job restores linux-x86_64's zig build outputs and compiles and saves neither, and runs these phases in order:
 
 1. `boot`: the tree, with the fork's compiler, as every leg boots it.
-2. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot`. The new pipeline (`build/pipeline.tl`) compiles
+2. `rehearsal-examples`: the examples (`*_example.tl`) and the code blocks of `doc/guides`, which a user copies, each compiled alone
+   by the new checker (`build/example_checks_main.tl`, the example part of `COSMIC_GRAMMAR=new cosmic fix --check .`), on the tool
+   `boot` built: the check asks for the new checker itself. What they still write in a form only the new grammar reads, or a type
+   the new checker lacks, is pinned per file and code under `[examples]` in `build/ceilings.txt`: a finding over its pin and a pin
+   above its findings fail the phase, so the pins only fall. Every step after `boot` runs on `boot`'s outcome alone
+   (`if: always() && ...`), so a regression in an example fails this step and skips none of the rest.
+3. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot`. The new pipeline (`build/pipeline.tl`) compiles
    it in one process, taking no compile another run made, and the tool it leaves carries the Lua the new generator wrote and
    the declarations of the standard library a project is typed against (`build/checker_declarations.tl`). It records that it was
    built so (its `compiled_by` is not its `compiler`, `reboot.settled_by`), so that a run that asks for the fork's builds it
    again and one that asks for the new checker's does not. The phase fails for a tool that does not say so. A boot holds about
    7 GB of memory at its peak.
-3. `rehearsal`: the whole suite on that tool (`cosmic test` with `COSMIC_GRAMMAR=new`), in the verdicts of a file of its own,
+4. `rehearsal`: the whole suite on that tool (`cosmic test` with `COSMIC_GRAMMAR=new`), in the verdicts of a file of its own,
    `new-grammar.db`, under a cache name of its own: a verdict of one grammar stands for no run of the other. The suite runs
    without `--bail`, which a queue run adds: the failures are judged over every test. A run that built the tool again is no
    run on the tool the phase booted, and fails.
-4. `rehearsal-project`: the two projects of `testdata/rehearsal`, each built and tested outside the tree with the new checker,
+5. `rehearsal-project`: the two projects of `testdata/rehearsal`, each built and tested outside the tree with the new checker,
    which holds a project to the whole checker, the error-slot rules of `build/contracts.tl` included (the fork holds cosmic's
    own tree alone to them).
    `project` is written in the Teal both checkers read and passes; `fork_only` is written in forms only the fork reads (nil
    given for a type that does not hold it, a function assigned to a path of two dots) and is refused with the new checker's words
    and fix, and with no word of a pin or of `build/ceilings.txt`, which a project has none of. There is no fork to fall back to.
-5. `rehearsal-seed`: all of `lang/` translated, compiled with `compile --grammar new`, and its tests run against the Lua
+6. `rehearsal-seed`: all of `lang/` translated, compiled with `compile --grammar new`, and its tests run against the Lua
    (`build/lang_proof.tl`); then the same translation compiled by the pinned release (`bin/cosmic-bootstrap`), whose Lua differs
    from the tree's only in the files `lang/SEED_DIFFERS` lists, held both ways as the bridge holds `checker/SEED_DIFFERS`. The
    bridge, `build.zig`'s `seedCompiler` and `checker/SEED_DIFFERS` stay the fork's until the switch.

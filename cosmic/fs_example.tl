@@ -157,7 +157,7 @@ function Example.walk()
   local lines: {string} = {}
   for _, path in ipairs(paths) do
     local data = assert(Fs.read(root .. "/" .. path))
-    lines[#lines + 1] = path .. " " .. #data
+    lines[#lines + 1] = ("%s %d"):format(path, #data)
   end
   print(table.concat(lines, "\n"))
   assert(table.concat(lines, ",") == "css/main.css 7,index.html 9", table.concat(lines, ","))

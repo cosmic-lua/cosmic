@@ -59,7 +59,8 @@ function Example.json()
   print(Html.raw_json(vals)) -- {"id":7}
   assert(Html.raw_json(vals) == '{"id":7}')
   local missing, why = Html.json({ run = print })
-  assert(missing == nil and why:find("function", 1, true))
+  assert(missing == nil)
+  assert(why:find("function", 1, true))
   assert(Html.raw_json((assert(Html.json_text('[1, 2]')))) == "[1, 2]")
 end
 

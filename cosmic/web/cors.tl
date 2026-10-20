@@ -44,7 +44,7 @@ local record Cors
     --- A predicate in addition to the list, given an origin in lowercase
     --- ("https://a.example.com"); never called for "null". With credentials
     --- it is the app's job not to say yes to a stranger.
-    allow_origin: function(origin: string): boolean
+    allow_origin?: function(origin: string): boolean
     --- The methods a preflight may ask for; {"GET", "HEAD", "POST"} by
     --- default. Each is an uppercase method name: "*" raises.
     allow_methods?: {string}

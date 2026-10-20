@@ -29,7 +29,8 @@ end
 function Example.keys_from_env()
   local keys, why = Secret.keys_from_env("COSMIC_EXAMPLE_KEYS_NOT_SET")
   print(why)
-  assert(keys == nil and why:find("not set", 1, true))
+  assert(keys == nil)
+  assert(why:find("not set", 1, true))
 end
 
 return Example

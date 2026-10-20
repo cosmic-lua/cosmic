@@ -240,6 +240,39 @@ local function test_an_example_writing_a_view_is_refused_by_the_new_checker_alon
     table.concat(found, "\n"))
 end
 
+--- The new checker's findings in the examples are held to the `[examples]` ceilings of the tree: all of a code's findings in a
+--- file, or none.
+local function test_a_finding_within_its_pin_is_not_told_and_one_over_it_or_a_pin_above_it_is(dir: string)
+  local writes = source(
+    "local record Example end",
+    "--- Collects words.",
+    "function Example.collect()",
+    "  local words: {string} = {}",
+    '  words[#words + 1] = "a"',
+    "  print(#words)",
+    "end",
+    "return Example")
+  assert(Fs.mkdirs(dir .. "/build"))
+  local function pinned(count: integer): {string}
+    assert(Fs.write(dir .. "/build/ceilings.txt",
+      "[examples]\ncosmic/thing_example.tl view_written " .. tostring(count) .. "\n"))
+    return found_in(dir, writes, "new")
+  end
+  local within = pinned(1)
+  assert(#within == 0, table.concat(within, "\n"))
+  -- a pin of another file leaves this one's finding over its pin of 0, and is itself above what it finds
+  assert(Fs.write(dir .. "/build/ceilings.txt", "[examples]\ncosmic/other_example.tl view_written 1\n"))
+  local told = table.concat(found_in(dir, writes, "new"), "\n")
+  assert(told:find("(view_written)", 1, true) ~= nil and
+      told:find("cosmic/thing_example.tl view_written: 1 found, pinned 0;", 1, true) ~= nil, told)
+  assert(told:find("cosmic/other_example.tl view_written: pinned 1 but 0 found; lower the pin", 1, true) ~= nil, told)
+  local above = pinned(2)
+  assert(#above == 1 and assert(above[1]) == "cosmic/thing_example.tl view_written: pinned 2 but 1 found; lower the pin in " ..
+      "build/ceilings.txt's [examples]", table.concat(above, "\n"))
+  -- the fork's findings are held to none of it
+  assert(#found_in(dir, writes, "teal") == 0)
+end
+
 local function test_a_guide_example_must_compile_alone_in_the_new_checker(dir: string)
   local found = found_in_guide(dir, source(
     "# Fixture", "", "```teal", 'local Fs = require("cosmic.fs")', "print(Fs.is_dir(\".\"))", "```"), "new")

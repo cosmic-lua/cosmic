@@ -47,7 +47,7 @@ local record StaticFiles
     html?: boolean
     --- Answers a path no file has (default: a 404 through the app's error
     --- page). A stale fingerprint is never answered by it.
-    not_found: Types.Handler
+    not_found?: Types.Handler
     --- Added to every 200, 206, 304 and 416, replacing a header of the
     --- same name.
     headers?: {string:string}
@@ -189,7 +189,8 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
   local use_gzip = o.gzip ~= false
 
   local function missing(req: Types.Request): Types.Response
-    if o.not_found ~= nil then return o.not_found(req) end
+    local not_found = o.not_found
+    if not_found ~= nil then return not_found(req) end
     return Response.abort(404)
   end
 

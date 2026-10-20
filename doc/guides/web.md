@@ -53,9 +53,9 @@ do
   local tally = { refused = 0 }
   local header = "{{type Page from site.page}}{{use htmx}}\n"
   local function reason(markup: string, plain?: boolean): string
-    local source, why = Template.compile((plain and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
+    local source, why = Template.compile((plain == true and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
     assert(source == nil, markup)
-    tally.refused = tally.refused + 1
+    tally["refused"] = (tally["refused"] or 0) + 1
     return why
   end
   -- A link can load anything, so its href takes no slot: the layout is
@@ -73,7 +73,7 @@ do
   assert(reason("<b hx-vals='{{.vals}}'>x</b>", true):find("{{use htmx}}", 1, true))
   local ok = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
   assert(ok ~= nil)
-  print(tally.refused)
+  print(tally["refused"])
 end
 ```
 
@@ -363,11 +363,11 @@ do
     routes = {
       Web.get("/hello/:name", function(req: Web.Request): Web.Response
         if req:accepts({ "text/html", "application/json" }) == "application/json" then
-          return Web.json({ hello = req.params.name })
+          return Web.json({ hello = assert(req.params["name"]) })
         end
         local query = req:query()
         local loud = query ~= nil and #query.pairs > 0
-        return Web.text("hello " .. req.params.name .. (loud and "!" or ""))
+        return Web.text("hello " .. assert(req.params["name"]) .. (loud and "!" or ""))
       end, { name = "hello" }),
       Web.post("/jump", function(req: Web.Request): Web.Response
         return Web.redirect(Web.safe_next(req:header("referer"), "/"))
@@ -389,7 +389,8 @@ do
   -- (a referer, a ?next=) is taken only if it is a local path.
   local jumped = client:post("/jump", { headers = { Referer = "https://evil.example/" } })
   assert(jumped.status == 303 and jumped.redirect_location == "/")
-  assert(not pcall(Web.redirect, "javascript:alert(1)"))
+  local redirected, trouble = pcall(Web.redirect, "javascript:alert(1)")
+  assert(not redirected, tostring(trouble))
 end
 ```
 
@@ -469,7 +470,8 @@ do
   assert(Web.header(res, "HX-Push-Url") == "/tasks/7")
   assert(Web.header(res, "HX-Trigger") == '{"saved":{"id":7}}')
   local refused, why = Htmx.apply(Web.empty(200), { redirect = "https://evil.example/" })
-  assert(refused == nil and why:find("same-origin", 1, true))
+  assert(refused == nil)
+  assert(why:find("same-origin", 1, true))
   local app = Web.app{ routes = { Web.post("/login", function(req: Web.Request): Web.Response
     return (assert(Htmx.redirect_to(req, "/")))
   end) } }

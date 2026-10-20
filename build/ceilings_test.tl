@@ -51,7 +51,7 @@ end
 local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_checks_hold()
   local ceilings = assert(Ceilings.read("."))
   local counted = 0
-  local stages: {Ceilings.Stage} = { "lexed", "translated", "scoped", "declared", "hazards", "generated", "read", "typed", "untyped", "checked" }
+  local stages: {Ceilings.Stage} = { "lexed", "translated", "scoped", "declared", "hazards", "generated", "read", "typed", "untyped", "checked", "examples" }
   for _, stage in ipairs(stages) do
     local held = Ceilings.of(ceilings, stage)
     for key, n in pairs(held) do

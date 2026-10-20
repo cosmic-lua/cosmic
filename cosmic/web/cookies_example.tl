@@ -9,8 +9,8 @@ local Example = {}
 --- Reading a `Cookie` header: the first of a name wins.
 function Example.parse()
   local cookies = Cookies.parse("theme=dark; sid=abc; theme=light")
-  print(cookies.theme, cookies.sid)
-  assert(cookies.theme == "dark" and cookies.sid == "abc")
+  print(cookies["theme"], cookies["sid"])
+  assert(cookies["theme"] == "dark" and cookies["sid"] == "abc")
 end
 
 --- A `Set-Cookie` line with the safe defaults, and the refusals that stop a
@@ -21,7 +21,8 @@ function Example.format()
   assert(line == "theme=dark; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax")
   local refused, why = Cookies.format("__Host-sid", "abc")
   print(why)
-  assert(refused == nil and why:find("__Host-", 1, true))
+  assert(refused == nil)
+  assert(why:find("__Host-", 1, true))
 end
 
 --- Deleting a cookie: the attributes must be the ones it was set with.

@@ -14,7 +14,8 @@ function Example.embedded()
   local source = Assets.embedded()
   assert(#source:paths() == 0 and source:dynamic() == false)
   local asset, why = source:get("css/app.css")
-  assert(asset == nil and why:find("no such asset", 1, true))
+  assert(asset == nil)
+  assert(why:find("no such asset", 1, true))
   print(why)
 end
 
