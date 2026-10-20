@@ -507,6 +507,8 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
       -- project a test compiles, the checker of a project built with the fork's tool); the new grammar's is made of the tree where
       -- it is judged.
       local forked: Stub.Made | nil = nil
+      -- TODO: drop the fork's stub, and with it the load of the fork's compiler in a build or a lookup of cosmic's own tree, once
+      -- the switch deletes the fork and its readers (doc/plans/strict-teal.md, "the switch").
       if one.file:sub(1, 7) == "cosmic/" then
         local parsed, _ = ast.parse(built, one.source, one.file)
         if parsed ~= nil then
@@ -514,6 +516,10 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
           forked = { text = fork.text, pruned = fork.pruned }
         end
       end
+      -- TODO: number the rows of a Teal source by its own lines, once the switch writes the tree in the new grammar
+      -- (doc/plans/strict-teal.md, "the switch"): they are numbered in the translation's text, which moves the lines after a
+      -- class (`function R:m` moves into its record), so `cosmic docs` and `cosmic uses` of cosmic's own tree in this mode name
+      -- lines a few off in a file the translation made a class of. A source written in the new grammar is unaffected.
       local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped, forked)
       if not put then
         return false, why

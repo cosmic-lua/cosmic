@@ -39,6 +39,11 @@ local record Receivers
   known: function(subject: Report.Subject, wanted: {string: boolean}): {string}
 end
 
+-- TODO: attribute a call through a value of a class, or of the record a module returns, to the method it calls
+-- (`counter:add(word)` is a use of `Counter.add`), once [`Report.owner_of`] ([`build.syntax_report`]) names the owner of a
+-- declaration that is not nested under its module's record and [`build.tree_checks`]' `typed` comparison with
+-- [`build.receivers`] is dropped with the fork (doc/plans/strict-teal.md, "the switch"): the fork does not attribute them
+-- either, and a class is always top-level in the new grammar, so no call through a class value is found until then.
 function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local out: {Receivers.Reference} = {}
   local seen: {string: boolean} = {}

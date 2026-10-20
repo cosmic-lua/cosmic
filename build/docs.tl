@@ -20,6 +20,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local alias_members = require("build.alias_members")
 local clock = require("build.clock")
+local GrammarMode = require("build.grammar_mode")
 local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
@@ -1076,7 +1077,12 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
       -- too, said once: what that code wrote may mean other than this
       -- code takes it to.
       if readable ~= nil then
-        local other, other_trouble = writer.other_code(own, rebuild.compiler())
+        local grammar, grammar_trouble = GrammarMode.mode()
+        local other: string | nil = nil
+        local other_trouble = grammar_trouble
+        if grammar ~= nil then
+          other, other_trouble = writer.other_code(own, rebuild.compiled_by(grammar))
+        end
         if other ~= nil then tell_other_code(own_path, other) end
         if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
         if other ~= nil or other_trouble ~= "" then readable = nil end
@@ -2741,6 +2747,11 @@ local function run(argv: {integer:string}): integer
     log:complain("docs: " .. parse_trouble)
     return 2
   end
+  local chosen, mode_trouble = GrammarMode.mode()
+  if chosen == nil then
+    log:complain("docs: " .. mode_trouble)
+    return 1
+  end
   local exit = reboot.stale_exit(argv, true)
   if exit ~= nil then
     return exit
@@ -2789,6 +2800,11 @@ local function run_uses(argv: {integer:string}): integer
     log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read), " ..
         "or which file (doc/writing.md, doc/writing.md#heading)")
     return 2
+  end
+  local chosen, mode_trouble = GrammarMode.mode()
+  if chosen == nil then
+    log:complain("uses: " .. mode_trouble)
+    return 1
   end
   local exit = reboot.stale_exit(argv, true)
   if exit ~= nil then

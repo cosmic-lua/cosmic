@@ -572,7 +572,7 @@ end
 --- and the compiler, never the tool, that wrote it. Nil and why where
 --- the read fails.
 --- @param compiler the compiler identity a build in this process
---- compiles under ([`rebuild.compiler`])
+--- compiles under ([`rebuild.compiled_by`])
 function writer.other_code(db: Sqlite.Handle, compiler: string): string | nil, string
   -- "" for a row it lacks, a value no identity is.
   local function value(key: string): string
