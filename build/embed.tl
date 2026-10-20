@@ -26,6 +26,7 @@ local Store = require("cosmic.store")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
@@ -369,7 +370,18 @@ end
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
-function embed.tree(root: string, host?: boolean, under?: {string}): {string} | nil, string
+--- @param grammar the checker that compiles the project: the one
+---   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
+---   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
+---   project written in a form only the fork reads is refused with the new
+---   checker's words and fix.
+function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode): {string} | nil, string
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then return nil, chosen_trouble end
+    mode = chosen
+  end
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return nil, own_trouble end
   if own_tree then
@@ -391,18 +403,26 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     return nil, load_trouble
   end
   local project = build_paths.resolve(root).projection
-  -- TODO: compile the project with the checker `COSMIC_GRAMMAR` names ([`importer.compile`]'s `grammar`, `GrammarMode.tool`, no
-  -- pool), once the fixtures of the tests that build a project here (their `cmd/<name>/main.tl` return a function, which the
-  -- new checker refuses outside the tree's ceilings as `export_not_declared`) are written in a form it takes: `cosmic build`
-  -- compiles with the fork whatever the variable says, which is the one place of the one-file and project paths left on it. It
-  -- must be done before the switch (doc/plans/strict-teal.md, "the switch"), which deletes the fork pipeline this compiles with.
-  local result, compile_trouble =
-    importer.compile(handle, built, Store.meta("compiler") or "", false,
+  -- The new checker reads the project in this process, so no pool is started for it; its compile is keyed by the mode.
+  local result: importer.Result | nil = nil
+  local compile_trouble = ""
+  local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
+  if mode == "new" then
+    result, compile_trouble = importer.compile(handle, built, tool, false, shared_compiles.for_build(), nil, false, mode)
+  else
+    result, compile_trouble = importer.compile(handle, built, tool, false,
       shared_compiles.for_build(), workers.pool(workers.tool_spec()))
+  end
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     return nil, compile_trouble
+  end
+  -- A compile with the new checker goes on past a module it refuses, to name them all; a program is not made of a tree that has one.
+  if mode == "new" and #result.refused > 0 then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
+    local _, _ = work.close(handle)
+    return nil, table.concat(result.refused, "\n")
   end
   local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
   local _, _ = work.close(handle)

@@ -183,13 +183,18 @@ local function test_the_error_for_a_module_typed_with_its_record_says_the_gramma
   assert(Programs.codes(r) == "declaration_value", Programs.codes(r))
   assert(r.errors[1].fix:find("no change of this program fixes it: the grammar has no type for `Circle` used as a value yet", 1, true) ~= nil,
     r.errors[1].fix)
-  assert(r.errors[1].fix:find("build/ceilings.txt", 1, true) ~= nil)
+  -- a project has no ceilings file, and the checker's TODO is no advice to its author: the fix says what to write
+  local told = assert(r.errors[1]).fix
+  assert(told:find("ceilings", 1, true) == nil and told:find("TODO", 1, true) == nil, told)
+  assert(told:find("call a function on the module (`Circle.f(...)`) or pass the function itself", 1, true) ~= nil, told)
   local field = Programs.run(record .. "local record Holder\n  circle: Circle\nend\nlocal h: Holder = { circle = Circle.unit() }\n" ..
       "local f = h.circle.unit\n")
   assert(Programs.codes(field) == "field_unknown", Programs.codes(field))
   assert(field.errors[1].msg:find("`unit` is a function of the declaration `Circle` used as a value, and this is typed as a value of it", 1, true) ~= nil,
     field.errors[1].msg)
   assert(field.errors[1].fix:find("the grammar has no type for `Circle` used as a value yet", 1, true) ~= nil)
+  local field_told = assert(field.errors[1]).fix
+  assert(field_told:find("ceilings", 1, true) == nil and field_told:find("TODO", 1, true) == nil, field_told)
   -- a class says how to make a value instead
   local class = Programs.run("local class C\n  n: integer\nend\nlocal c: C = C\n")
   assert(class.errors[1].fix:find("make a value with a table literal", 1, true) ~= nil, class.errors[1].fix)

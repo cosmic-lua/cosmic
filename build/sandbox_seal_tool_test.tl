@@ -38,10 +38,14 @@ end
 --- root caller's child runs as must reach the database sealed beneath
 --- TMPDIR. Skips the test, where the host refused the sandbox the start
 --- asked for.
-local function cosmic(dir: string, words: {string}): Ran
+local function cosmic(dir: string, words: {string}, grammar?: string): Ran
   searchable.open(dir)
+  local env = this_program.environment()
+  if grammar ~= nil then
+    env["COSMIC_GRAMMAR"] = grammar
+  end
   local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
@@ -85,6 +89,34 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local again = cosmic(tmp, { "sandbox", "--closure", "--", program, "run.tl" })
   assert(again.code == 3 and again.out:find("main\tnil", 1, true), again.out .. again.err)
+end
+
+--- A script in the new grammar (`mut`) is compiled by the new checker under `COSMIC_GRAMMAR=new`, and the modules it requires
+--- are read from that checker's syntax tree: the closure is sealed from them. The fork's parse reads none of it.
+local NEW_SCRIPT <const> = [[
+local Json = require("cosmic.json")
+local words: mut {string} = {}
+words[#words + 1] = Json.encode({ a = 1 }) or "nil"
+print("json", words[1])
+match pcall(require, "cosmic.archive") do
+  | (true, _) then print("outside", true)
+  | (false, _) then print("outside", false)
+end
+return function(args: {string}): integer
+  print("main", args[1])
+  return 3
+end
+]]
+
+local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_from_the_new_checker(tmp: string)
+  assert(Fs.write(tmp .. "/new.tl", NEW_SCRIPT))
+  searchable.share(tmp .. "/new.tl")
+  local program = (assert(Proc.executable()))
+  local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "new")
+  assert(ran.code == 3 and ran.out == 'json\t{"a":1}\noutside\tfalse\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
+  assert(#left_over() == 0, table.concat(left_over(), " "))
+  local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
+  assert(forked.code == 125 and forked.err:find("new.tl:2:", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
 end
 
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require

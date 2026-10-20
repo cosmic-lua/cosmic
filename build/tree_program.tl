@@ -41,6 +41,10 @@ local record TreeProgram
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
 
+  --- Whether the file `file` of cosmic's own tree uses `where`, which its translation has blanked before it is read
+  --- ([`build.lang_proof`]'s `blank_where`).
+  blanked: function(file: string): boolean
+
   --- Resolves the calls of [`Shape.record_of`] of the module `module` (the file `file`) of `build` ([`build.syntax_shape_specs`]),
   --- and reads the module again with them. nil and why where a call cannot be resolved; true where the module was read
   --- again and false where it has no such call.
@@ -112,6 +116,10 @@ end
 local BLANKED <const>: {string: boolean} = {
   ["lang/ast.tl"] = true, ["lang/types.tl"] = true, ["cosmic/removed_example.tl"] = true,
 }
+
+function TreeProgram.blanked(file: string): boolean
+  return BLANKED[file] == true
+end
 
 --- What is done to the translation of the file `file`, whose text is `text`: its `where` clauses are blanked where it needs
 --- it, and each test of a record they told apart is written as the tag test they were. nil for a file that needs neither.

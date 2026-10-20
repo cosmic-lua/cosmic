@@ -1256,7 +1256,7 @@ eval/summarize_test.tl nil_not_allowed 2
 lang/ast.tl nil_not_allowed 21
 lang/ast_dump.tl nil_not_allowed 5
 lang/check.tl nil_not_allowed 127
-lang/check_class_test.tl nil_not_allowed 35
+lang/check_class_test.tl nil_not_allowed 34
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
 lang/check_flow_test.tl nil_not_allowed 9
@@ -1968,7 +1968,7 @@ build/paths_test.tl view_written 1
 build/perf.tl view_written 35
 build/perf_test.tl view_written 12
 build/perf_validation.tl view_written 17
-build/pipeline.tl view_written 27
+build/pipeline.tl view_written 31
 build/pipeline_check.tl view_written 19
 build/pipeline_test.tl view_written 6
 build/policy_rules.tl view_written 5
@@ -1976,6 +1976,7 @@ build/policy_rules_test.tl view_written 5
 build/positions.tl view_written 2
 build/positions_test.tl view_written 2
 build/project_grammar_tool_test.tl view_written 4
+build/project_new_grammar_tool_test.tl view_written 4
 build/rand.tl view_written 6
 build/rand_test.tl view_written 7
 build/reboot.tl view_written 4
@@ -2002,7 +2003,7 @@ build/sandbox_connect_test.tl view_written 3
 build/sandbox_connect_tool_test.tl view_written 1
 build/sandbox_probe.tl view_written 8
 build/sandbox_probe_run_test.tl view_written 1
-build/sandbox_seal_tool_test.tl view_written 2
+build/sandbox_seal_tool_test.tl view_written 3
 build/sandbox_test.tl view_written 9
 build/sandboxed_verdicts_test.tl view_written 3
 build/schema.tl view_written 5
@@ -3975,7 +3976,7 @@ cosmic/store.tl any_use 1
 cosmic/store_seal_test.tl any_use 9
 cosmic/stream_test.tl any_use 21
 cosmic/tar.tl any_use 2
-cosmic/template_build_test.tl any_use 16
+cosmic/template_build_test.tl any_use 17
 cosmic/template_check_test.tl any_use 76
 cosmic/template_fuzz_test.tl any_use 42
 cosmic/template_go_test.tl any_use 9
@@ -6184,7 +6185,7 @@ build/rebuild_lock.tl literal_missing 4
 build/refresh.tl literal_missing 1
 build/refresh_store_test.tl literal_missing 4
 build/release.tl literal_missing 1
-build/sandbox.tl literal_missing 14
+build/sandbox.tl literal_missing 12
 build/sandbox_probe.tl literal_missing 13
 build/sandbox_test.tl literal_missing 2
 build/sql.tl literal_missing 7

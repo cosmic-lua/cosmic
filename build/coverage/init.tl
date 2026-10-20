@@ -8,6 +8,7 @@ local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")
 local lines = require("build.coverage.lines")
 local syntax_lines = require("build.coverage.syntax_lines")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local type compiler = require("build.compiler")
 
@@ -52,22 +53,25 @@ end
 --- should not happen since `m` holds only source that compiled earlier in
 --- the run, returns the parse failure rather than a made-up count.
 ---
---- TODO: read a module a project wrote in the new grammar (`Things?`, `mut {T}`) with [`coverage.syntax_executable`] in the
---- switch PR (PR 13, doc/plans/strict-teal.md, "the switch"), which must make this and every other reader of a project's
---- source through the fork's parser (`fix`, the checks) read the syntax tree in new mode first: the fork's tree here fails a
---- run of `cosmic test` in that mode with "syntax error" at the first form it does not read, so a project that writes an
---- array it made (`view_written`, fixed by `mut`) cannot pass until then, and the project the rehearsal builds
---- (testdata/rehearsal/project) is written in the Teal both read.
+--- With `grammar` `new` the lines are those of the new checker's syntax tree over the text it read
+--- ([`coverage.syntax_executable`]): the source translated to the new grammar, which a module written in it (`mut`, a class,
+--- `T?`) is its own translation of. The fork's tree does not read such a module.
 --- @param db Sqlite.Handle The working database ([`work.open`]'s `.db`)
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param m Module The module to compute lines for
 --- @param hits Coverage.Hits Every line hit, by module import path
+--- @param grammar The checker that compiled `m`: the fork's where not given
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
 function coverage.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
-                           hits: Coverage.Hits): coverage.LineHits | nil, string
-  local executable, trouble =
-    lines.executable_cached(db, built, m.source_hash, m.source, m.file)
+                           hits: Coverage.Hits, grammar?: GrammarMode.Mode): coverage.LineHits | nil, string
+  local executable: {integer: boolean} | nil
+  local trouble: string
+  if grammar == "new" then
+    executable, trouble = syntax_lines.executable_cached(db, m.source_hash, m.source, m.file, true)
+  else
+    executable, trouble = lines.executable_cached(db, built, m.source_hash, m.source, m.file)
+  end
   if executable == nil then
     return nil, trouble
   end

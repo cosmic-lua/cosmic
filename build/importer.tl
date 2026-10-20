@@ -703,7 +703,7 @@ local function derive_new(handle: work.Handle, built: compiler, tally: importer.
   if not swept then
     return nil, sweep_trouble
   end
-  local derived, derived_trouble = derivation.inputs(db)
+  local derived, derived_trouble = derivation.inputs(db, grammar == "new")
   if not derived then return nil, derived_trouble end
   local taken = ""
   if shared ~= nil then

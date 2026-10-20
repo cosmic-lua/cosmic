@@ -16,6 +16,7 @@ local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
+local NewGrammarProject = require("build.new_grammar_project")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -27,7 +28,8 @@ local build_paths = require("build.paths")
 --- `store`: [`embed.database`] reads every `cosmic.*` module's rows.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
+    { path = "testdata/rehearsal", letters = "r" } },
 }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
@@ -506,4 +508,37 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. #css .. "\t1\n" ..
       "payload\tlogo.png\timage/png\t6\t0\n", 1, true), out)
   assert(out:find("false\t2\t" .. #css .. "\ttext/css; charset=utf-8\ttrue\t6\tnil\n", 1, true), out)
+end
+
+--- `cosmic build` with the new checker (`COSMIC_GRAMMAR=new`, `grammar` here) compiles the project with it: a project written in
+--- the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs. The fork does not read it.
+local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
+  local root = tmp .. "/new"
+  assert(NewGrammarProject.write(root))
+  local names, trouble = embed.tree(root, true, nil, "new")
+  assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
+  local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+  assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
+  -- the fork cannot read it
+  local forked = tmp .. "/forked"
+  assert(NewGrammarProject.write(forked))
+  local none, none_trouble = embed.tree(forked, true, nil, "teal")
+  assert(none == nil and none_trouble:find("syntax error", 1, true) ~= nil, tostring(none_trouble))
+end
+
+--- A project written in forms only the fork reads is refused in the new checker's words, and the words speak of no pin: a
+--- project has none to raise. The fork builds it.
+local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
+  local root = tmp .. "/fork_only"
+  assert(Fs.copy_tree("testdata/rehearsal/fork_only", root))
+  assert(Fs.mkdirs(root .. "/cmd/x"))
+  assert(Fs.write(root .. "/cmd/x/main.tl", "return function(): integer return 0 end\n"))
+  local names, trouble = embed.tree(root, true, nil, "new")
+  assert(names == nil, "built a project the new checker refuses")
+  assert(trouble:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
+      "or declare what takes it `Entry?`", 1, true) ~= nil, tostring(trouble))
+  assert(trouble:find("pinned", 1, true) == nil and trouble:find("ceilings.txt", 1, true) == nil, trouble)
+  local forked, forked_trouble = embed.tree(root, true, nil, "teal")
+  assert(forked ~= nil and forked[1] == "x", tostring(forked_trouble))
 end

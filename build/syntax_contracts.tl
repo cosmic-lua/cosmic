@@ -33,6 +33,11 @@
 -- no rule reads here as the fork could not write one, once the new grammar's convention for a failure is settled
 -- (doc/design.md, third principle): until then the usual `T?, string` pair is the only function the rules hold.
 --
+-- TODO: read the type of an exported member through an alias: the rule that an exported function answers one result reads the
+-- function type written in the field, so `local type F = function(s: string): string...` and `spread: F` in a record are not
+-- seen, and a module exports a function of several results (the template tests' spread stage builds and runs that way). It waits
+-- on the checker's type of the member ([`Report.of`]) being read here in place of the written type.
+--
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
 -- name's text and position, and drop the notes of rule 6's gaps in build/contracts.tl, once the fork's contracts are
 -- deleted at the switch (doc/plans/strict-teal.md, "the switch").

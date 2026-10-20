@@ -771,8 +771,8 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       -- require(...)`) is typed with the record, which the grammar cannot spell as the declaration.
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
           ", where " .. quoted(w) .. " is wanted" .. where,
-        "no change of this program fixes it: the grammar has no type for " .. quoted(name) .. " used as a value yet " ..
-          "(the TODO of `declaration_value` in lang/check.tl), and build/ceilings.txt holds the places that need one", shown)
+        "no change of this program fixes it: the grammar has no type for " .. quoted(name) .. " used as a value yet" ..
+          "; call a function on the module (" .. quoted(name .. ".f(...)") .. ") or pass the function itself, not the module", shown)
     elseif sub is Named and sub.value then
       report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the functions of " .. quoted(name) ..
           ", where a value of " .. quoted(w) .. " is wanted" .. where,
@@ -1657,8 +1657,8 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     end
     local call = "call it on the declaration: `" .. decl.name .. "." .. name .. "(...)`"
     local module = "no change of this program fixes it where this value is a module typed with its record: the grammar " ..
-      "has no type for " .. owner .. " used as a value yet (the TODO of `declaration_value` in lang/check.tl), and " ..
-      "build/ceilings.txt holds the places that need one"
+      "has no type for " .. owner .. " used as a value yet; call a function on the module (" ..
+      quoted(decl.name .. ".f(...)") .. ") or pass the function itself, not the module"
     -- A class has no module among its values; a record read through a field is a module re-exported by a record.
     local fix = call .. "; " .. module
     local held = members_index(ctx, decl, false)

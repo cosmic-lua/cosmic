@@ -129,6 +129,20 @@ local record Pipeline
   --- contracts, the test tail and the record-field uses are the tree's compile alone.
   lone: function(file: string, text: string, options: Options, tests?: boolean): string | nil, string
 
+  --- The modules the source `text`, the file `file`, requires by a literal name, in the order they stand (a type-only require
+  --- among them): the syntax tree of the new checker's parse of the text, translated as the build reads it. nil and the
+  --- refusal, in the checker's words, where the text does not parse.
+  requires: function(file: string, text: string): {string} | nil, string
+
+  --- What [`Pipeline.checked_alone`] made of a source: its Lua, or the lines that refuse it, one problem each.
+  record Alone
+    code: string | nil
+    lines: {string}
+  end
+
+  --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
+  checked_alone: function(file: string, text: string, options: Options, tests?: boolean): Alone
+
   --- The `cosmic.*` modules of the running binary, each its stub or its source, as the fork reads them
   --- ([`teal.standard_text`]), a declaration ([`cosmic.sys`]) as one.
   carried: function(): Driver.Provider
@@ -674,7 +688,27 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
 end
 
-function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string | nil, string
+function Pipeline.requires(file: string, text: string): {string} | nil, string
+  local index = Driver.index({ { file, text, "lone" } }, true, function(_: string): boolean
+    return false
+  end)
+  local source = index.sources[1]
+  if source == nil then
+    return nil, file .. ": the new checker read no source of it"
+  end
+  local read = Driver.parse(source)
+  local first = read.syntax[1]
+  if first ~= nil then
+    return nil, ErrorRender.line(file, first)
+  end
+  local out: {string} = {}
+  for _, required in ipairs(read.chunk.requires) do
+    out[#out + 1] = required.module
+  end
+  return out, ""
+end
+
+function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
   -- A module of its own, named for nothing a `require` can say.
   local module = "lone"
   local kind = tests == true and "test" or "main"
@@ -683,38 +717,46 @@ function Pipeline.lone(file: string, text: string, options: Pipeline.Options, te
   -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
   local spliced, spec_trouble = TreeProgram.splice(build, module, file)
   if spliced == nil then
-    return nil, spec_trouble
+    return { code = nil, lines = { spec_trouble } }
   end
   build:lower({ module })
   local result = build:result(module, true)
   if result == nil then
-    return nil, file .. ": the new checker's build has no module " .. module
+    return { code = nil, lines = { file .. ": the new checker's build has no module " .. module } }
   end
-  local told = ""
+  local told: {string} = {}
   if result.broken then
     for _, p in ipairs(result.syntax) do
-      told = told .. ErrorRender.line(file, p) .. "\n"
+      told[#told + 1] = ErrorRender.line(file, p)
     end
   else
     -- What the file returns is its entry point ([`build.standalone`]), which nothing requires and so no declaration needs
     -- to describe: the one error a lone file is allowed, whatever it returns.
     local entry: Ceilings.Table = { stages = { checked = { [file .. " export_not_declared"] = 1 } }, none = true }
     for _, line in ipairs(build:held(result, entry)) do
-      told = told .. line .. "\n"
+      told[#told + 1] = line
     end
     for _, w in ipairs(result.warnings) do
-      told = told .. ErrorRender.line(file, w) .. "\n"
+      told[#told + 1] = ErrorRender.line(file, w)
     end
   end
-  if told ~= "" then
-    return nil, told:sub(1, -2)
+  if #told > 0 then
+    return { code = nil, lines = told }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)
   if emitted.code == nil then
-    return nil, file .. ": the generator wrote no Lua: " .. emitted.trouble
+    return { code = nil, lines = { file .. ": the generator wrote no Lua: " .. emitted.trouble } }
   end
-  return emitted.code, ""
+  return { code = emitted.code, lines = {} }
+end
+
+function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string | nil, string
+  local made = Pipeline.checked_alone(file, text, options, tests)
+  if made.code == nil then
+    return nil, table.concat(made.lines, "\n")
+  end
+  return made.code, ""
 end
 
 return Pipeline

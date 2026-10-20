@@ -350,3 +350,24 @@ local function test_a_refusal_of_a_file_alone_speaks_of_no_pin(tmp: string)
   assert(trouble:find("pin", 1, true) == nil, trouble)
   assert(trouble:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, trouble)
 end
+
+--- The modules a file requires are read by the checker that compiles it ([`standalone.requires`], which `cosmic sandbox --closure`
+--- takes its closure from): the new checker's syntax tree for the new grammar, the fork's parse for the fork's.
+local function test_the_requires_of_a_file_are_read_by_the_checker_that_compiles_it()
+  local source = 'local Fs = require("cosmic.fs")\nlocal Hash = require("cosmic.hash")\n' ..
+    "local function f(x: string | nil): string | nil\n  return x\nend\nreturn function(): integer\n  return #(f(Hash.sha256) or \"\") + Fs.stdout\nend\n"
+  local new = assert(standalone.requires("x.tl", source, nil, "new"))
+  assert(#new == 2 and new[1] == "cosmic.fs" and new[2] == "cosmic.hash", table.concat(new, ","))
+  local fork = assert(standalone.requires("x.tl", source, (assert(teal.load(true))), "teal"))
+  assert(#fork == 2 and fork[1] == "cosmic.fs" and fork[2] == "cosmic.hash", table.concat(fork, ","))
+  -- a file in the new grammar is read by the new checker, and not by the fork's parse
+  local grammar = 'local Json = require("cosmic.json")\nlocal words: mut {string} = {}\n' ..
+    "return function(): integer\n  words[#words + 1] = Json.encode(1)\n  return #words\nend\n"
+  local read = assert(standalone.requires("n.tl", grammar, nil, "new"))
+  assert(#read == 1 and read[1] == "cosmic.json", table.concat(read, ","))
+  local none, trouble = standalone.requires("n.tl", grammar, (assert(teal.load(true))), "teal")
+  assert(none == nil and trouble:find("n.tl:2:", 1, true) ~= nil, tostring(trouble))
+  -- a file that does not parse is told in the checker's words
+  local broken, broken_trouble = standalone.requires("b.tl", "local x = (\n", nil, "new")
+  assert(broken == nil and broken_trouble:find("b.tl:", 1, true) == 1, tostring(broken_trouble))
+end
