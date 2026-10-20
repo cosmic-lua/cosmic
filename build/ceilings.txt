@@ -1255,7 +1255,7 @@ eval/summarize.tl nil_not_allowed 15
 eval/summarize_test.tl nil_not_allowed 2
 lang/ast.tl nil_not_allowed 21
 lang/ast_dump.tl nil_not_allowed 5
-lang/check.tl nil_not_allowed 125
+lang/check.tl nil_not_allowed 127
 lang/check_class_test.tl nil_not_allowed 35
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
@@ -1357,6 +1357,7 @@ lang/ast_dump.tl not_assigned 1
 lang/check.tl not_assigned 5
 lang/check_flow_fuzz_test.tl not_assigned 1
 lang/check_fuzz_test.tl not_assigned 2
+lang/check_programs.tl not_assigned 1
 lang/codegen.tl not_assigned 5
 lang/codegen_fuzz_test.tl not_assigned 3
 lang/declarations.tl not_assigned 4
@@ -1704,7 +1705,7 @@ lang/ast_dump.tl index_may_be_nil 3
 lang/check.tl index_may_be_nil 39
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 lang/check_fuzz_test.tl index_may_be_nil 3
-lang/check_programs.tl index_may_be_nil 2
+lang/check_programs.tl index_may_be_nil 1
 lang/check_test.tl index_may_be_nil 1
 lang/codegen.tl index_may_be_nil 16
 lang/codegen_fuzz_test.tl index_may_be_nil 2
@@ -2458,13 +2459,13 @@ eval/solve_test.tl view_written 2
 eval/summarize.tl view_written 37
 eval/summarize_test.tl view_written 1
 lang/ast.tl view_written 7
-lang/check.tl view_written 130
+lang/check.tl view_written 131
 lang/check_assigned_fuzz_test.tl view_written 4
 lang/check_class_test.tl view_written 2
 lang/check_flow_fuzz_test.tl view_written 4
 lang/check_fuzz_test.tl view_written 4
 lang/check_generics_test.tl view_written 1
-lang/check_programs.tl view_written 14
+lang/check_programs.tl view_written 16
 lang/check_speed_test.tl view_written 14
 lang/check_test.tl view_written 15
 lang/check_verdicts.tl view_written 57
@@ -2473,7 +2474,7 @@ lang/codegen.tl view_written 37
 lang/codegen_fuzz_test.tl view_written 15
 lang/codegen_speed_test.tl view_written 1
 lang/codegen_test.tl view_written 6
-lang/declarations.tl view_written 82
+lang/declarations.tl view_written 86
 lang/declarations_programs.tl view_written 1
 lang/declarations_speed_test.tl view_written 12
 lang/declarations_test.tl view_written 13
@@ -3059,14 +3060,14 @@ cosmic/zip_example.tl field_unknown 10
 cosmic/zip_fuzz_test.tl field_unknown 10
 cosmic/zip_test.tl field_unknown 43
 lang/ast.tl field_unknown 4
-lang/check.tl field_unknown 710
+lang/check.tl field_unknown 724
 lang/check_class_test.tl field_unknown 6
 lang/check_generics_test.tl field_unknown 1
 lang/check_programs.tl field_unknown 2
 lang/check_test.tl field_unknown 1
 lang/codegen.tl field_unknown 252
 lang/codegen_test.tl field_unknown 3
-lang/declarations.tl field_unknown 215
+lang/declarations.tl field_unknown 224
 lang/declarations_test.tl field_unknown 14
 lang/generics.tl field_unknown 84
 lang/parser.tl field_unknown 42
@@ -4032,7 +4033,7 @@ eval/result_test.tl any_use 18
 eval/round.tl any_use 1
 eval/summarize_test.tl any_use 52
 lang/ast.tl any_use 146
-lang/check_programs.tl any_use 13
+lang/check_programs.tl any_use 14
 lang/codegen_fuzz_test.tl any_use 3
 lang/codegen_test.tl any_use 12
 lang/relation_fuzz_test.tl any_use 2
@@ -4507,37 +4508,14 @@ doc/guides/quickstart.md close_not_closable 1
 eval/solve.tl close_not_closable 1
 test/sqlite_query_test.tl close_not_closable 1
 test/sqlite_row_test.tl close_not_closable 1
-# a declaration used as a value where a value of it is wanted (`local raw: raw = require("m")`), or the
-# reverse: the record a module is typed as is the type of its values, and the module is their declaration; these
-# wait for a type in the grammar for a declaration used as a value (the TODO of `declaration_value` in lang/check.tl)
-build/assertions.tl declaration_value 1
-build/boot.tl declaration_value 1
-build/confine.tl declaration_value 1
-build/coverage_hits.tl declaration_value 1
-build/digest.tl declaration_value 1
-build/test_worker.tl declaration_value 1
-cosmic/child.tl declaration_value 1
+# a module assigned to a place typed with its record (`Relay.Address = Address`, a `{Child}` of modules), where the record
+# is the type of the module's values and the module is their declaration; the owner has decided to forbid the form, and the
+# follow-up rewrites these sites to require the module directly (the TODO of `declaration_value` in lang/check.tl). A
+# declaration file's module and a module that returns a local declared with a record are values of the record, and are not here
 cosmic/child_task_tool_test.tl declaration_value 1
-cosmic/compress.tl declaration_value 1
-cosmic/coverage.tl declaration_value 1
-cosmic/hash.tl declaration_value 1
-cosmic/html.tl declaration_value 2
-cosmic/http/init.tl declaration_value 1
-cosmic/internal/connector.tl declaration_value 2
-cosmic/internal/relay_resolv.tl declaration_value 1
-cosmic/internal/relay_start.tl declaration_value 1
-cosmic/json.tl declaration_value 1
-cosmic/net.tl declaration_value 1
-cosmic/proc.tl declaration_value 1
 cosmic/relay/init.tl declaration_value 2
-cosmic/sandbox/init.tl declaration_value 2
-cosmic/signal.tl declaration_value 1
-cosmic/sqlite.tl declaration_value 1
-cosmic/store.tl declaration_value 1
-cosmic/tar.tl declaration_value 1
-cosmic/template/dialect/init.tl declaration_value 2
+cosmic/sandbox/init.tl declaration_value 1
 cosmic/web/headers.tl declaration_value 1
-cosmic/zip.tl declaration_value 1
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
 build/analyzer.tl condition_type 16
@@ -5552,7 +5530,7 @@ eval/round.tl and_ternary 9
 eval/round_test.tl and_ternary 1
 eval/summarize.tl and_ternary 13
 lang/ast_dump.tl and_ternary 1
-lang/check.tl and_ternary 69
+lang/check.tl and_ternary 71
 lang/check_class_test.tl and_ternary 2
 lang/check_expressions_test.tl and_ternary 2
 lang/check_fuzz_test.tl and_ternary 2
@@ -5560,7 +5538,7 @@ lang/check_refused_test.tl and_ternary 2
 lang/check_test.tl and_ternary 2
 lang/codegen.tl and_ternary 11
 lang/codegen_test.tl and_ternary 5
-lang/declarations.tl and_ternary 26
+lang/declarations.tl and_ternary 28
 lang/declarations_test.tl and_ternary 1
 lang/flow.tl and_ternary 3
 lang/lexer_cover.tl and_ternary 1
@@ -6596,7 +6574,7 @@ eval/result_test.tl literal_needs_type 3
 eval/round.tl literal_needs_type 1
 eval/summarize.tl literal_needs_type 1
 lang/check.tl literal_needs_type 1
-lang/declarations.tl literal_needs_type 1
+lang/declarations.tl literal_needs_type 2
 lang/stdlib_corrections_test.tl literal_needs_type 2
 lang/translate.tl literal_needs_type 1
 test/sqlite_parameter_test.tl literal_needs_type 11
@@ -6916,7 +6894,6 @@ test/profile_page.tmpl export_not_declared 1
 # a value whose type is not below the one wanted: a union read as one of its members without a test, a
 # callback with fewer parameters than the type wanted, a `number` for an `integer`
 build/ast/walk.tl not_assignable 2
-build/boot.tl not_assignable 1
 build/cache.tl not_assignable 5
 build/child_policy_database_fixture.tl not_assignable 1
 build/compilation.tl not_assignable 1
@@ -7004,7 +6981,7 @@ eval/check/grade.tl not_assignable 1
 eval/declared_types_test.tl not_assignable 1
 eval/result.tl not_assignable 1
 eval/round_test.tl not_assignable 2
-lang/check.tl not_assignable 72
+lang/check.tl not_assignable 71
 lang/codegen.tl not_assignable 21
 lang/declarations.tl not_assignable 14
 lang/generics.tl not_assignable 3

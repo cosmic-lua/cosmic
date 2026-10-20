@@ -180,6 +180,9 @@ end
 
 --- A declaration's members by name, and its array part.
 local record Members
+  --- The functions of the declaration used as a value that take a value of the declaration first, by name: the shape of a
+  --- method, whether or not a value of the declaration can reach it.
+  selfish: {string: boolean}
   by_name: {string: {Member}}
   array: Type | nil
 end
@@ -244,6 +247,8 @@ local record Ctx
   members: {Decl: Members}
   --- The same for a declaration used as a value, which also has its statics.
   value_members: {Decl: Members}
+  --- The `function R.m(...)` statements at the top of the module that the walk has not passed, by declaration and name.
+  pending: {Decl: {string: boolean}}
   --- The class each table literal of a class is a literal of, by the id of its node.
   literals: {integer: Decl}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
@@ -586,6 +591,16 @@ local expr: function(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
 
 -- Members --------------------------------------------------------------------------------
 
+--- Whether the function type `ft` takes a value of the declaration `decl` first: the shape of a method of it.
+local function takes_receiver(decl: Decl, ft: Type): boolean
+  if not (ft is Fn) then
+    return false
+  end
+  local first = ft.params[1]
+  local receiver = first ~= nil and first.type or nil
+  return receiver ~= nil and receiver is Named and receiver.decl == decl
+end
+
 --- The members of `decl` by name, or nil where it has no body to read. Where `value` they are those of the
 --- declaration used as a value: the statics its `function R.m(...)` statements gave it besides, and no array part. The
 --- table of a class holds its methods and statics and none of the fields of its values, so a class's value has no
@@ -601,9 +616,11 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
   if body == nil then
     return nil
   end
-  local index: Members = { by_name = {}, array = not value and body.array or nil }
+  local index: Members = { by_name = {}, array = not value and body.array or nil, selfish = {} }
+  local absent = ctx.program.absent[decl] or {}
   for _, f in ipairs(body.fields) do
-    if not (value and decl.kind == "class") then
+    -- A function field that every value holds and no statement gives the table of the functions is not in that table.
+    if not (value and (decl.kind == "class" or absent[f.name] == true)) then
       local list = index.by_name[f.name] or {}
       list[#list + 1] = { type = f.type, mut = f.mut or false, method = false }
       index.by_name[f.name] = list
@@ -619,6 +636,28 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
       local list = index.by_name[name] or {}
       list[#list + 1] = { type = f.type, mut = false, method = false }
       index.by_name[name] = list
+    end
+  else
+    -- A function that takes a value of the declaration first (`function R.m(self: R, ...)`) has the shape of a method. The
+    -- table of a class is the metatable of its values, so `v:m(...)` reaches it at run time, as it reaches the methods
+    -- inside the class. A record's value has no metatable and holds no such function: the name is listed in `selfish` for
+    -- [`field_unknown`] to say so. The name cannot be one of the declaration's own: a class holds its members in one
+    -- namespace, and a record's function statement for a field it declares is not a static.
+    --
+    -- TODO: make the function of a generic class that takes a value of it first (`function Box.size<T>(self: Box<T>)`)
+    -- a method of its values, once a call can bind the function's own type parameters to the arguments of the value it is
+    -- called on: it is left out today, since `Box<T>` there is not the class's `T`.
+    --
+    -- TODO: make the function of a record that takes a value of it first a method of its values, once the code generator
+    -- reads the checker's types and writes `v:m(...)` of such a function as the call `R.m(v, ...)`: a record's value holds
+    -- only its fields, so the method call finds no function at run time, and today it is refused.
+    for name, f in pairs(ctx.program.statics[decl] or {}) do
+      if takes_receiver(decl, f.type) then
+        index.selfish[name] = true
+        if decl.kind == "class" and (decl.arity or 0) == 0 then
+          index.by_name[name] = { { type = f.type, mut = false, method = true } }
+        end
+      end
     end
   end
   cache[decl] = index
@@ -832,11 +871,14 @@ end
 --- A declaration used as a value: the table of its functions, a type of its own that is no instance of the
 --- declaration ([`Types.Named`]'s `value`).
 --
--- TODO: let a field be typed as a declaration used as a value, once the grammar has a type for one: a record that
--- re-exports a module as a field (`Seatbelt: Seatbelt` in [`cosmic.sandbox`]) types it as the module's record, and a
--- function of the module read through it is [`field_unknown`], since an instance has none of the statics. A record's
--- value still carries the fields its instances have, so the table of a record with a field it never defines is typed
--- as if it did.
+-- TODO: refuse a declaration used as a value in a place typed with its record, once the follow-up piece lands: the owner has
+-- decided to forbid module re-exports, not to give them a type. A record that re-exports a module as a field (`Seatbelt:
+-- Seatbelt` in [`cosmic.sandbox`], `Relay.Address = Address`) or an array of modules typed with their record (`{Child}`) types
+-- it as the module's record, so assigning the module is [`declaration_value`] and a function of the module read through it is
+-- [`field_unknown`], since an instance has none of the statics. The follow-up rewrites the sites to require the module
+-- directly and refuses the form with a fix that says so; the places are the [`declaration_value`] and "used as a value"
+-- [`field_unknown`] ceilings of build/ceilings.txt. A record's value still carries the fields its instances have, so the
+-- table of a record with a field it never defines is typed as if it did.
 local function declaration_value(ctx: Ctx, decl: Decl): Type
   local args: {Type} = {}
   for i = 1, decl.arity or 0 do
@@ -872,7 +914,20 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     return ctx.invalid
   end
   local decl = export.decl
-  if decl ~= nil then
+  if decl ~= nil and export.instance == true then
+    -- The module returns a value of the declaration (`local x: T = ... return x`; a declaration file's record is the
+    -- table with its fields), which has none of the functions the declaration's statements gave its table.
+    if (decl.arity or 0) == 0 then
+      return ctx.store:named(decl, {})
+    end
+    local value = info.value
+    if value ~= nil then
+      return value
+    end
+    unchecked(ctx, "unchecked_binding", node, "the module " .. quoted(name) .. " returns a value of the generic " ..
+        quoted(decl.name) .. " whose type arguments the checker has not read")
+    return ctx.invalid
+  elseif decl ~= nil then
     return declaration_value(ctx, decl)
   end
   local alias = export.alias
@@ -1586,24 +1641,41 @@ local function member_types(ctx: Ctx, t: Named, name: string): {Member} | nil
 end
 
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
+  if t is Named and t.value and (ctx.program.absent[t.decl] or {})[name] == true then
+    -- The function is a field every value holds, filled where the value is made: the table of the functions has none.
+    local owner = quoted(t.decl.name)
+    report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) .. " in the table of its functions: " ..
+        quoted(name) .. " is a function field of the values of " .. owner .. ", which no statement of its module gives " ..
+        "that table",
+      "call it on a value of " .. owner .. ": `v:" .. name .. "(...)`", { show(ctx, t) })
+    return
+  end
   if t is Named and not t.value and (ctx.program.statics[t.decl] or {})[name] ~= nil then
     -- A module re-exported as a field of a record is typed with its record, whose values have none of its functions.
-    local owner = quoted(t.decl.name)
+    local decl = t.decl
+    local owner = quoted(decl.name)
     local through_field = false
     if node is Ast.Field then
       local object = node.object
       through_field = object is Ast.Field
     end
-    local call = "call it on the declaration: `" .. t.decl.name .. "." .. name .. "(...)`"
+    local call = "call it on the declaration: `" .. decl.name .. "." .. name .. "(...)`"
     local module = "no change of this program fixes it where this value is a module typed with its record: the grammar " ..
       "has no type for " .. owner .. " used as a value yet (the TODO of `declaration_value` in lang/check.tl), and " ..
       "build/ceilings.txt holds the places that need one"
     -- A class has no module among its values; a record read through a field is a module re-exported by a record.
     local fix = call .. "; " .. module
-    if t.decl.kind == "class" then
+    local held = members_index(ctx, decl, false)
+    local selfish = held ~= nil and held.selfish[name] == true
+    if decl.kind == "class" then
       fix = call
     elseif through_field then
       fix = module
+    elseif selfish then
+      -- It takes the record first, but the value is a table with the record's fields and no metatable to reach the function.
+      fix = call .. "; `v:" .. name .. "(...)` finds no function in a value of a record, which has no metatable: declare " ..
+        owner .. " as a class, or declare " .. quoted(name) .. " as a function field `" .. name .. ": function(" ..
+        decl.name .. ", ...)` that every value holds"
     end
     report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) .. ": " .. quoted(name) ..
         " is a function of the declaration " .. owner .. " used as a value, and this is typed as a value of it",
@@ -1622,29 +1694,30 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       "declare " .. quoted(name) .. " in " .. owner, { show(ctx, t) })
 end
 
---- Whether the field type `ft` of the interface `t` is a method of it: a function whose first parameter is the
---- interface itself.
-local function interface_method(t: Named, ft: Type): boolean
-  if not (ft is Fn) then
-    return false
-  end
-  local first = ft.params[1]
-  local receiver = first ~= nil and first.type or nil
-  return receiver ~= nil and receiver is Named and receiver.decl == t.decl
-end
-
 --- The type of the field or method `name` of the value of type `t`, reported where it has none. `node` is the
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
   if t is Named then
+    local waiting = ctx.pending[t.decl]
+    if waiting ~= nil and waiting[name] == true and ctx.frames[#ctx.frames].chunk and (t.value or t.decl.kind == "class") then
+      -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
+      --
+      -- TODO: follow a call of a local function made as the module loads into its body, once the checker keeps which
+      -- functions run at load: a use of `R.m` in a function called above the statement of `R.m` finds nil as well, and only a
+      -- use written at the top of the module is refused today.
+      report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
+          quoted(t.decl.name .. "." .. name) .. " before the statement that defines it has run",
+        "move the statement `function " .. t.decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
+          "that runs after the module has loaded", { show(ctx, t) })
+    end
     local list = member_types(ctx, t, name)
     if list == nil then
       field_unknown(ctx, node, t, name)
       return ctx.invalid
     end
     if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not list[1].method and
-        interface_method(t, list[1].type) then
+        takes_receiver(t.decl, list[1].type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
       local receiver = node is Ast.Field and text_of(ctx, node.object) or "v"
@@ -5199,6 +5272,10 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     return
   end
   local owner = name_value(ctx, head)
+  local waiting = owner is Named and ctx.pending[owner.decl] or nil
+  if waiting ~= nil and #s.path == 2 then
+    waiting[s.path[2].text] = nil
+  end
   local text = head.text
   for i = 2, #s.path do
     text = text .. "." .. s.path[i].text
@@ -5533,7 +5610,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
+    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
     top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
@@ -5550,6 +5627,18 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return subsume(ctx, store:union({ a, b }))
   end
   captures_by_function(ctx)
+  for _, top in ipairs(input.chunk.body.stats) do
+    if top is Ast.Function and #top.path == 2 then
+      local binding = top.path[1].binding
+      local entry = binding ~= nil and lowered.entries[binding] or nil
+      local decl = entry ~= nil and entry.decl or nil
+      if decl ~= nil then
+        local names = ctx.pending[decl] or {}
+        names[top.path[2].text] = true
+        ctx.pending[decl] = names
+      end
+    end
+  end
   ctx.frames[1] = {
     alts = {}, rest = store.string, chunk = true, declared = false, narrows = nil, narrowed_id = 0, narrowed_name = "",
     narrowed_type = nil,

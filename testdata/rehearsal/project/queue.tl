@@ -2,36 +2,38 @@
 local record Queue
   --- The words waiting, first in line first.
   items: {string}
+  --- Puts `word` at the end of the line.
+  push: function(self: Queue, word: string)
+  --- Takes the word at the front, nil when none waits.
+  pop: function(self: Queue): string | nil
+  --- Puts the words waiting in order, the smallest first.
+  sort: function(self: Queue)
+  --- The words waiting, joined by commas.
+  line: function(self: Queue): string
 end
 
---- A queue with nothing in it.
-function Queue.new(): Queue
-  return { items = {} }
-end
-
---- Puts `word` at the end of the line.
-function Queue.push(self: Queue, word: string)
+local function push(self: Queue, word: string)
   table.insert(self.items, word)
 end
 
---- Takes the word at the front, nil when none waits.
-function Queue.pop(self: Queue): string | nil
+local function pop(self: Queue): string | nil
   return table.remove(self.items, 1)
 end
 
---- Puts the words waiting in order, the smallest first.
-function Queue.sort(self: Queue)
+local function sort(self: Queue)
   table.sort(self.items, function(a: string, b: string): boolean
     return a < b
   end)
 end
 
---- The words waiting, joined by commas.
-function Queue.line(self: Queue): string
+local function line(self: Queue): string
   return table.concat(self.items, ",")
 end
 
--- TODO: call these as methods (`queue:push(word)`) in the tests and the report, once the new checker types a value of a record
--- that another module declares (the TODO of `declaration_value` in lang/check.tl): a call of a method on such a value is
--- refused today (`field_unknown`) with no change of the program that fixes it.
+--- A queue with nothing in it. Each function is a field of the queue, so that `queue:push(word)` finds it in the value
+--- (a record's value has no metatable, and a function the module alone holds is not reached through the value).
+function Queue.new(): Queue
+  return { items = {}, push = push, pop = pop, sort = sort, line = line }
+end
+
 return Queue

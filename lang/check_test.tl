@@ -255,6 +255,13 @@ local CASES <const>: {Case} = {
     fix = "call it as `s:size(...)`",
   },
   {
+    code = "static_before_definition",
+    source = "local class C\n  n: integer\nend\nlocal x: C = { n = 1 }\nlocal k = C.twice(x)\n" ..
+      "function C.twice(self: C): integer\n  return 1\nend\n",
+    at = { 5, 11 }, msg = "`C.twice` reads the function `C.twice` before the statement that defines it has run",
+    fix = "move the statement `function C.twice(...)` above this use",
+  },
+  {
     code = "declaration_value", source = "local class C\n  n: integer\nend\nlocal c: C = C\n",
     msg = "`C` is `C (declaration)`, the table of the functions of `C`, where a value of `C` is wanted as the value of `c`",
     fix = "make a value with a table literal typed as the type (`local v: C = { ... }`)",
