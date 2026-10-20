@@ -12,7 +12,7 @@ end
 
 --- The JSON text that says how many words wait and which.
 function Report.of(queue: Queue): string | nil, string
-  local summary: Report.Summary = { count = #queue.items, words = Queue.line(queue) }
+  local summary: Report.Summary = { count = #queue.items, words = queue:line() }
   local text, why = Json.encode(summary)
   if text == nil then
     return nil, why

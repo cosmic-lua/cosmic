@@ -53,6 +53,8 @@ local record Codes
     "overload_value"
     -- a method of an interface read as a value, or called as a field
     "interface_method_value"
+    -- a function of a declaration read as the module loads, before the statement that defines it has run
+    "static_before_definition"
     -- calls and returns
     -- too few or too many arguments
     "arity"
@@ -202,7 +204,7 @@ end
 Codes.codes = {
   "not_assignable", "nil_not_allowed", "index_may_be_nil", "view_as_mut", "invariant_mut", "record_as_map",
   "declaration_value", "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
-  "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "arity", "overload_none", "cannot_infer", "infer_conflict",
+  "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "static_before_definition", "arity", "overload_none", "cannot_infer", "infer_conflict",
   "bound_unmet", "return_arity",
   "return_unexpected", "no_value", "alternatives_as_value", "match_missing", "match_redundant", "match_pattern", "value_count", "vararg_outside", "local_untyped",
   "param_untyped",
@@ -333,6 +335,12 @@ Codes.catalog = {
       "the interface is the one function of the value's own class, and calling that with another implementer would run " ..
       "one class's code on another's fields: a method of an interface is called on its receiver, `v:m(...)`",
     fix = "call it as `<value>:<method>(...)`",
+  },
+  {
+    code = "static_before_definition", rule = "compiler-written classes",
+    why = "a `function R.m(...)` statement gives the table of R its function when it runs, in the order of the module, so a " ..
+      "read of `R.m` or a call `v:m(...)` of a class that runs while the module loads, above that statement, finds nil",
+    fix = "move the statement above the use, or use the function in a function that runs after the module has loaded",
   },
   {
     code = "arity", rule = "calls take the arguments the function declares",

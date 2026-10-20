@@ -24,18 +24,21 @@ local record Programs
     lowered: Declarations.Lowered
     --- The codes of the errors of the parser, the scope builder and the lowering, which came first.
     before: {string}
+    --- What checking each module it required gave, by name: those [`Programs.runner`] was given as `modules`.
+    required?: {string: Run}
   end
 
   --- The declarations the standard library is: the globals a program may use, as a declaration file.
   library: string
 
   --- Checks `source` as the module `t`, after lowering the library and the `modules` it requires (by name, in the
-  --- order of their names).
-  run: function(source: string, modules?: {string: string}): Run
+  --- order of their names). `declared` are modules written as declaration files (`.d.tl`), lowered first.
+  run: function(source: string, modules?: {string: string}, declared?: {string: string}): Run
 
   --- The library of [`Programs.run`] lowered once: a function that checks a source as the module `module` (`t` by
-  --- default), after the `modules` it requires. Each source is a module of its own, so name them apart.
-  runner: function(): function(source: string, module?: string, modules?: {string: string}): Run
+  --- default), after the `modules` it requires and the `declared` ones, which are declaration files. Each source is a module
+  --- of its own, so name them apart.
+  runner: function(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Run
 
   --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of the
   --- fork's prelude (between the `[=====[` marks of checker/tl.tl), and `stdlib`, the text of checker/stdlib.d.tl, which
@@ -69,7 +72,8 @@ local record Programs
     fault: string | nil
   end
 
-  --- Checks `source` and, where the checker takes it, writes it as Lua and runs it with `print` collected. With `facts`
+  --- Checks `source` and, where the checker takes it, writes it as Lua and runs it with `print` collected; a `require` of one
+  --- of `modules` runs that module's Lua, written the same way, once. With `facts`
   --- every read of a place whose type a test narrowed ([`Check.Checked.narrowed`]) is wrapped in a check of what the
   --- checker concluded: that the value is none of the kinds taken out, a member of the enum, of a class, or of the
   --- members a tag tells apart, which raises `fact violated: <place> is ...`. `kind_only` writes `v is E` of an enum as the
@@ -161,7 +165,7 @@ end
 
 --- Lowers `source` as the module `module` of `program`.
 local function lower(program: Declarations.Program, module: string, source: string, dialect: Ast.Dialect,
-                     globals: {string: Scopes.Global}): Programs.Run
+                     globals: {string: Scopes.Global}, required?: {string: Programs.Run}): Programs.Run
   local name = module .. (dialect == "decl" and ".d.tl" or ".tl")
   local parsed = Parser.parse(Lexer.lex(source, name), name, dialect)
   local scoped = Scopes.build(parsed.chunk, name, globals)
@@ -185,31 +189,42 @@ local function lower(program: Declarations.Program, module: string, source: stri
   end
   return {
     program = program, errors = result.errors, result = result, chunk = parsed.chunk, scoped = scoped,
-    lowered = lowered, before = before,
+    lowered = lowered, before = before, required = required,
   }
 end
 
-function Programs.runner(): function(source: string, module?: string, modules?: {string: string}): Programs.Run
+--- The names of `named`, in order.
+local function sorted_names(named: {string: string}): {string}
+  local names: {string} = {}
+  for name in pairs(named) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return names
+end
+
+function Programs.runner(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
   local program = Declarations.new()
   program.external["cosmic.sys"] = true
   local library = Parser.parse(Lexer.lex(Programs.library, "std.d.tl"), "std.d.tl", "decl")
   local globals = Scopes.declared(library.chunk)
   local _ = lower(program, "std", Programs.library, "decl", {})
-  return function(source: string, module?: string, modules?: {string: string}): Programs.Run
-    local names: {string} = {}
-    for name in pairs(modules or {}) do
-      names[#names + 1] = name
+  return function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
+    local files = declared or {}
+    for _, name in ipairs(sorted_names(files)) do
+      local _ = lower(program, name, assert(files[name]), "decl", globals)
     end
-    table.sort(names)
-    for _, name in ipairs(names) do
-      local _ = lower(program, name, (modules or {})[name], "tl", globals)
+    local sources = modules or {}
+    local required: {string: Programs.Run} = {}
+    for _, name in ipairs(sorted_names(sources)) do
+      required[name] = lower(program, name, assert(sources[name]), "tl", globals)
     end
-    return lower(program, module or "t", source, "tl", globals)
+    return lower(program, module or "t", source, "tl", globals, required)
   end
 end
 
-function Programs.run(source: string, modules?: {string: string}): Programs.Run
-  return Programs.runner()(source, "t", modules)
+function Programs.run(source: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
+  return Programs.runner()(source, "t", modules, declared)
 end
 
 function Programs.session(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Programs.Run
@@ -363,6 +378,15 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
   return v
 end
 
+--- The Lua of a checked program: the code generator's text, with the classes its literals make and the enums it tests.
+local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean | nil): string
+  local classes: {integer: string} = {}
+  for id, decl in pairs(run.result.literals) do
+    classes[id] = decl.name
+  end
+  return Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+end
+
 function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean,
                           hook?: Programs.FactHook): Programs.Execution
   local run = Programs.run(source, modules)
@@ -374,15 +398,15 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   if facts then
     wraps = FactWraps.of(run.result.narrowed, source, "t")
   end
-  local classes: {integer: string} = {}
-  for id, decl in pairs(run.result.literals) do
-    classes[id] = decl.name
-  end
-  done.lua = Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+  done.lua = generated(run, wraps, kind_only)
+  local loader: function(name: string): any
   local env: {string: any} = {
     assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall,
     string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable,
     coroutine = typed_coroutines(),
+    require = function(name: string): any
+      return loader(name)
+    end,
   }
   env.print = function(...: any)
     local parts: {string} = {}
@@ -392,6 +416,24 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     done.printed[#done.printed + 1] = table.concat(parts, "\t")
   end
   env.__fact = hook or own_fact
+  local loaded: {string: any} = {}
+  loader = function(name: string): any
+    local held = loaded[name]
+    if held ~= nil then
+      return held
+    end
+    local module = (run.required or {})[name]
+    if module == nil or not taken(module) then
+      error("module '" .. name .. "' not found, or not taken by the checker", 2)
+    end
+    local module_chunk, module_why = load(generated(module, {}, kind_only), "=" .. name, "t", env)
+    if module_chunk == nil then
+      error("the Lua of " .. name .. " does not load: " .. tostring(module_why), 2)
+    end
+    local value = module_chunk()
+    loaded[name] = value
+    return value
+  end
   local chunk, why = load(done.lua, "=t", "t", env)
   if chunk == nil then
     done.fault = "the Lua does not load: " .. tostring(why)

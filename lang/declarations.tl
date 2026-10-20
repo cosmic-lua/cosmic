@@ -170,6 +170,11 @@ local record Declarations
     --- The module the declaration is in, and the names it is nested under, then its own.
     module: string
     names: {string}
+    --- On a module's export only: that the module returns a value of the declaration and not the table of its functions. It
+    --- is a local declared with the type (`local x: T = ... return x`), or the record of a declaration file, whose table has
+    --- exactly the fields the record declares. A declaration file must not name its module record as the type of an
+    --- instance (a field `update: function(hy, string)` of `record hy`), which the module's table would then be taken to have.
+    instance?: boolean
   end
 
   --- An alias `type K<T> = ...`.
@@ -286,6 +291,10 @@ local record Declarations
     -- TODO: write the statics into the row of the declaration, once the rows of the new checker are written: a
     -- module that imports it reads them from the program until then.
     statics: {Decl: {string: Types.Field}}
+    --- The function fields of a record of a module in the new grammar that take a value of the record first, by name, which
+    --- no statement of the module gives the table of its functions (`function R.m(...)` or `R.m = ...` at the top level): a
+    --- field every value holds, such as `m: function(self: R, ...)` that the constructor fills, and absent from the module.
+    absent: {Decl: {string: boolean}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -1534,6 +1543,12 @@ local function find_export(ctx: Ctx): Entry | nil
   end
   local held = ctx.by_binding[value.binding]
   if held ~= nil then
+    -- A declaration file's record is the module's table, which has the fields it declares and no function a statement gave
+    -- it: a value of the record, when the record takes no type argument.
+    local decl = held.decl
+    if ctx.decl_file and decl ~= nil and decl.kind == "record" and (decl.arity or 0) == 0 then
+      return { decl = decl, module = held.module, names = held.names, instance = true }
+    end
     return held
   end
   for _, stat in ipairs(stats) do
@@ -1556,7 +1571,11 @@ local function find_export(ctx: Ctx): Entry | nil
           for i = 2, #annotation.path do
             names[#names + 1] = annotation.path[i]
           end
-          return ctx.program.entries[entry_key(base.module, names)]
+          local entry = ctx.program.entries[entry_key(base.module, names)]
+          if entry == nil or entry.decl == nil then
+            return entry
+          end
+          return { decl = entry.decl, module = entry.module, names = entry.names, instance = true }
         end
       end
     end
@@ -1827,6 +1846,47 @@ local function collect_statics(ctx: Ctx)
         local list = ctx.statics[decl] or {}
         list[#list + 1] = stat
         ctx.statics[decl] = list
+      end
+    end
+  end
+end
+
+--- Notes the method-shaped function fields of the records of the module that no top-level statement gives the table of the
+--- record ([`Declarations.Program.absent`]).
+local function note_absent(ctx: Ctx)
+  local given: {Decl: {string: boolean}} = {}
+  local function note(head: Ast.Exp, field: string)
+    local binding = head is Ast.Name and head.binding or nil
+    local entry = binding ~= nil and ctx.by_binding[binding] or nil
+    local decl = entry ~= nil and entry.decl or nil
+    if decl ~= nil then
+      local names = given[decl] or {}
+      names[field] = true
+      given[decl] = names
+    end
+  end
+  for _, stat in ipairs(ctx.input.chunk.body.stats) do
+    if stat is Ast.Function and #stat.path == 2 then
+      note(stat.path[1], stat.path[2].text)
+    elseif stat is Ast.Assign and #stat.targets == 1 then
+      local target = stat.targets[1]
+      if target is Ast.Field then
+        note(target.object, target.name)
+      end
+    end
+  end
+  for _, entry in pairs(ctx.by_binding) do
+    local decl = entry.module == ctx.module and entry.decl or nil
+    local body = decl ~= nil and decl.kind == "record" and decl.body or nil
+    for _, f in ipairs(body ~= nil and body.fields or {}) do
+      local ft = f.type
+      local first = ft is Types.Fn and ft.params[1] or nil
+      local receiver = first ~= nil and first.type or nil
+      if decl ~= nil and receiver ~= nil and receiver is Named and receiver.decl == decl and
+          (given[decl] or {})[f.name] ~= true then
+        local names = ctx.program.absent[decl] or {}
+        names[f.name] = true
+        ctx.program.absent[decl] = names
       end
     end
   end
@@ -2638,7 +2698,7 @@ local program_mt: metatable<Program> = { __index = Declarations.Program }
 function Declarations.new(store?: Store): Program
   local s = store or Types.new()
   local program: Program = setmetatable({
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, values = {}, statics = {},
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, values = {}, statics = {}, absent = {},
   }, program_mt)
   return program
 end
@@ -2714,7 +2774,11 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
   ctx.info.export = find_export(ctx)
   collect_statics(ctx)
   walk(ctx)
-  if ctx.info.export == nil then
+  if not ctx.decl_file then
+    note_absent(ctx)
+  end
+  local export = ctx.info.export
+  if export == nil or export.instance == true then
     ctx.info.value = find_value(ctx)
   end
   for _, site in ipairs(ctx.unions) do
