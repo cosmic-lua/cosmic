@@ -13,13 +13,16 @@ local Example = {}
 function Example.decode()
   local policy = assert(PolicyJson.decode('{"env":["HOME"],"grants":[{"path":"data","letters":"rx"}],"tmp":true}'))
   local env, grants = assert(policy.env), assert(policy.grants)
-  print(env[1], grants[1].letters, policy.tmp) -- HOME  rx  true
-  assert(env[1] == "HOME" and grants[1].letters == "rx" and policy.tmp)
+  local grant = assert(grants[1])
+  print(env[1], grant.letters, policy.tmp) -- HOME  rx  true
+  assert(env[1] == "HOME" and grant.letters == "rx" and policy.tmp == true)
   local bad, why = PolicyJson.decode('{"grants":[{"path":"data","letters":"xr"}]}')
   print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
-  assert(bad == nil and why:find("/grants/0/letters", 1, true), why)
+  assert(bad == nil)
+  assert(why:find("/grants/0/letters", 1, true), why)
   local unknown, trouble = PolicyJson.decode('{"network":true}')
-  assert(unknown == nil and trouble:find("/network", 1, true), trouble)
+  assert(unknown == nil)
+  assert(trouble:find("/network", 1, true), trouble)
 end
 
 --- A merged policy as canonical text, the same for the same policy, for

@@ -1759,8 +1759,8 @@
 
     # The rehearsal of the switch (doc/plans/strict-teal.md, "the switch"), in a job of its own on linux-x86_64's host,
     # beside the legs and the checked job and run after neither: the tree booted a second time with the new checker
-    # (COSMIC_GRAMMAR=new, build/pipeline.tl), the whole suite on that tool, a project outside the tree built with it and
-    # lang/ proved against the pinned seed. A full run only, on its own verdicts (cache name `linux-x86_64-new-grammar`, so
+    # (COSMIC_GRAMMAR=new, build/pipeline.tl), the whole suite on that tool, a project outside the tree built with it,
+    # the examples held to their pins and lang/ proved against the pinned seed. A full run only, on its own verdicts (cache name `linux-x86_64-new-grammar`, so
     # no verdict of either grammar stands for the other), and informational: it is not among the jobs `ci` waits on, so a red
     # rehearsal marks the run and blocks no merge. Where `platform` runs, it runs.
     #
@@ -1881,24 +1881,35 @@
           id: "boot",
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
         },
+        # The examples are held on the tool `boot` built, before the tool is booted again, and the steps after it run whatever it
+        # said: a regression in an example is reported by this step and does not skip the rehearsal.
+        {
+          name: "hold the examples to their pins with the new checker",
+          id: "rehearsal-examples",
+          run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-examples",
+        },
         {
           name: "boot again with the new checker",
           id: "rehearsal-boot",
+          if: "always() && steps.boot.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-boot",
         },
         {
           name: "run the whole suite with the new checker",
           id: "rehearsal-suite",
+          if: "always() && steps.rehearsal-boot.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal",
         },
         {
           name: "build a project outside the tree with the new checker",
           id: "rehearsal-project",
+          if: "always() && steps.rehearsal-boot.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-project",
         },
         {
           name: "prove lang/ against the pinned seed",
           id: "rehearsal-seed",
+          if: "always() && steps.rehearsal-boot.outcome == 'success'",
           run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-seed",
         },
         {

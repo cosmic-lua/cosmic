@@ -2402,6 +2402,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
     assert(needs:find('"rehearsal"', 1, true) == nil, other .. " waits on the rehearsal")
   end
   local phases = ""
+  local conditions = ""
   local named = false
   local saved = ""
   for index = 1, length_at(rehearsal, { "steps" }) do
@@ -2410,6 +2411,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
     local phase = run:match("driver%.tl platform ([%w-]+)$")
     if phase ~= nil then
       phases = phases .. phase .. " "
+      conditions = conditions .. phase .. ": " .. text_at(step, "if") .. "\n"
     end
     named = named or run:find('leg-host-id "linux-x86_64-new-grammar" ', 1, true) ~= nil
     if text_at(step, "uses"):find("actions/cache/save@", 1, true) ~= nil then
@@ -2417,7 +2419,14 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
       saved = saved .. text_at(with, "path") .. " " .. text_at(with, "key") .. "\n"
     end
   end
-  assert(phases == "boot rehearsal-boot rehearsal rehearsal-project rehearsal-seed ", "the rehearsal runs the phases " .. phases)
+  assert(phases == "boot rehearsal-examples rehearsal-boot rehearsal rehearsal-project rehearsal-seed ", "the rehearsal runs the phases " .. phases)
+  -- an example that regresses fails its own step and skips none of the rehearsal's: every step after the boot runs on the boot
+  assert(conditions == "boot: \n" ..
+      "rehearsal-examples: \n" ..
+      "rehearsal-boot: always() && steps.boot.outcome == 'success'\n" ..
+      "rehearsal: always() && steps.rehearsal-boot.outcome == 'success'\n" ..
+      "rehearsal-project: always() && steps.rehearsal-boot.outcome == 'success'\n" ..
+      "rehearsal-seed: always() && steps.rehearsal-boot.outcome == 'success'\n", "the rehearsal's steps run on " .. conditions)
   assert(named, "the rehearsal's verdicts are named by another host")
   assert(saved == "${{ runner.temp }}/verdicts ${{ steps.host-id.outputs.verdicts }}" ..
       "${{ steps.verdicts-trim.outputs.digest }}\n", "the rehearsal saves " .. saved)

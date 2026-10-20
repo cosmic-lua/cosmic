@@ -17,6 +17,12 @@ local function same_moment(got: Time.CivilFields, want: Time.CivilFields)
   assert(text(got) == text(want), ("got %s, want %s"):format(text(got), text(want)))
 end
 
+local function test_a_wall_literal_is_read_by_from_civil_as_a_civil_is()
+  local wall: Time.Wall = { year = 2000, month = 2, day = 29, hour = 0, minute = 0, second = 0, ns = 0 }
+  assert(Time.from_civil(wall) == 951782400 * NS)
+  assert(Time.from_civil(Time.civil(951782400 * NS)) == 951782400 * NS)
+end
+
 local function test_civil_names_known_moments()
   same_moment(Time.civil(0), civil(1970, 1, 1))
   same_moment(Time.civil(951782400 * NS), civil(2000, 2, 29))

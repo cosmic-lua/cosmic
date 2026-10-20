@@ -74,10 +74,10 @@ local record Assets
     dev?: boolean
     --- The directory read from disk ("static", against the working
     --- directory).
-    root: string
+    root?: string
     --- Receives the one line saying a directory is read in place of an
     --- embedded source (standard error by default).
-    log: function(text: string)
+    log?: function(text: string)
   end
 end
 

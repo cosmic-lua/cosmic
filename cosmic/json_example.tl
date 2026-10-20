@@ -12,8 +12,8 @@ local Example = {}
 function Example.decode_object()
   local config, err = Json.decode_object('{"name": "cosmic", "retries": 3}')
   assert(config ~= nil, err)
-  local name = config.name
-  local retries = config.retries
+  local name = config["name"]
+  local retries = config["retries"]
   assert(name is string and name == "cosmic")
   assert(retries is integer and retries == 3)
 end
@@ -70,7 +70,7 @@ function Example.encode_ascii()
   print(text)
   assert(text == '{"greeting":"caf\\u00e9 \\ud83d\\ude00"}')
   local back = assert(Json.decode_object(text))
-  assert(back.greeting == "caf\xc3\xa9 \xf0\x9f\x98\x80")
+  assert(back["greeting"] == "caf\xc3\xa9 \xf0\x9f\x98\x80")
 end
 
 --- Keep a document's nulls and empty arrays through a round trip.
@@ -79,26 +79,27 @@ function Example.null_value()
   local value = Json.decode(text, { null_value = Json.null })
   assert(Json.encode(value) == text:gsub(" ", ""))
   local plain = Json.decode_object(text)
-  assert(plain ~= nil and plain.note == nil)
+  assert(plain ~= nil and plain["note"] == nil)
   assert(Json.encode(plain) == '{"tags":[]}')
 end
 
 --- An empty table encodes as an object unless it is marked an array.
 function Example.array()
-  assert(Json.encode({}) == "{}")
+  local empty: {string: string} = {}
+  assert(Json.encode(empty) == "{}")
   assert(Json.encode(Json.array()) == "[]")
 end
 
 --- Explore a document whose shape is not known: [`decode_object`] checks
---- the outermost value, and `is` narrows what a key holds before a
---- loop reads it, so `pairs` and `ipairs` need no cast.
+--- the outermost value, and a [`cosmic.shape`] spec checks what a key
+--- holds before a loop reads it, so `pairs` and `ipairs` need no cast.
 function Example.explore()
   local doc = assert(Json.decode_object('{"rows": [{"id": "a", "n": 1}, {"id": "b"}], "ok": true}'))
-  local rows = doc.rows
-  assert(rows is {any} and Json.is_array(rows))
+  assert(Json.is_array(doc["rows"]))
+  local rows, why: {{string: any}} | nil, string = Shape.into(doc["rows"], Shape.list(Shape.map(Shape.any)))
+  assert(rows ~= nil, why)
   assert(rows[3] == nil)
   for _, row in ipairs(rows) do
-    assert(row is {string:any})
     for key in pairs(row) do print(key) end
   end
 end
@@ -123,7 +124,7 @@ function Example.lines()
   for line in lines:each() do
     if line:find("%S") then
       local record = assert(Json.decode_object(line))
-      if record.level == "warn" then assert(out:write(assert(Json.encode(record)) .. "\n")) end
+      if record["level"] == "warn" then assert(out:write(assert(Json.encode(record)) .. "\n")) end
     end
   end
   assert(lines:failure() == "", lines:failure())
@@ -186,9 +187,11 @@ function Example.yaml_flow_style()
 ]]
   local ci, err = Json.decode_object(workflow, { json5 = true, hash_comments = true })
   assert(ci ~= nil, err)
-  local jobs = ci.jobs as {string: {string: any}}
-  print(ci.name, jobs.test["runs-on"])
-  assert(ci.name == "ci" and jobs.test["runs-on"] == "ubuntu-24.04")
+  local jobs, why: {string: {string: any}} | nil, string = Shape.into(ci["jobs"], Shape.map(Shape.map(Shape.any)))
+  assert(jobs ~= nil, why)
+  local test = assert(jobs["test"])
+  print(ci["name"], test["runs-on"])
+  assert(ci["name"] == "ci" and test["runs-on"] == "ubuntu-24.04")
 end
 
 --- How a table encodes: a marked or consecutive-keyed table is an array,
@@ -241,10 +244,13 @@ function Example.reader()
   assert(key.kind == "key" and key.value == "rows")
   assert(assert(r:next()).kind == "array")
   local ids: {integer} = {}
+  local ROW <const> = Shape.map(Shape.any)
   while r:peek() == "object" do
-    local row, err = r:value()
+    local value, err = r:value()
     assert(err == "", err)
-    local id = (row as {string: any}).id
+    local row, why: {string: any} | nil, string = Shape.into(value, ROW)
+    assert(row ~= nil, why)
+    local id = row["id"]
     assert(id is integer)
     ids[#ids + 1] = id
   end

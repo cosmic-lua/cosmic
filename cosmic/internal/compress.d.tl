@@ -16,6 +16,8 @@ local record compress
     finish: function(Transform): string | nil, string
     -- Present only on a Transform that can hold output back: whether
     -- `update("")` has more to give.
+    -- TODO: declare it `pending?` once the fork is gone (doc/plans/strict-teal.md, "the switch"): the fork refuses a record that
+    -- lists this interface and repeats an omittable field, so a record that lists it declares `pending` and answers false.
     pending: function(Transform): boolean
   end
 

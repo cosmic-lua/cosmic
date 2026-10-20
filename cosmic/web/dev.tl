@@ -82,7 +82,7 @@ local record Dev
     --- Starts the program given its whole environment, in place of
     --- [`Child.start`] on `command` with that environment; for a program that
     --- needs more than an argument list. Nil and why where it cannot start.
-    start: function(env: {string:string}): Child.Handle | nil, string
+    start?: function(env: {string:string}): Child.Handle | nil, string
     --- Directories whose files are watched (the working directory by
     --- default). A change to one's size or time, or an added or removed
     --- file, restarts the program.
@@ -107,13 +107,13 @@ local record Dev
     --- short.
     grace_ns?: integer
     --- Where the supervisor's lines go (standard error by default).
-    log: function(text: string)
+    log?: function(text: string)
     --- Called after each start with the boot's number, from 1, and the
     --- program's process id; for a test.
-    on_boot: function(boot: integer, pid: integer)
+    on_boot?: function(boot: integer, pid: integer)
     --- Asked after each look at the files: true ends the supervisor, as a
     --- Ctrl-C does. For a test.
-    stop: function(): boolean
+    stop?: function(): boolean
   end
 end
 
@@ -604,8 +604,11 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     ignore[#ignore + 1] = "/" .. (given.static or "static")
   end
   local ignored = ignorer(ignore)
-  local start = given.start
-  if start == nil then
+  local start: function(env: {string:string}): Child.Handle | nil, string
+  local given_start = given.start
+  if given_start ~= nil then
+    start = given_start
+  else
     local command: {string}
     local given_command = given.command
     if given_command ~= nil then
@@ -643,7 +646,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       return
     end
     program.handle = started
-    if given.on_boot ~= nil then given.on_boot(program.boot, started.pid) end
+    local on_boot = given.on_boot
+    if on_boot ~= nil then on_boot(program.boot, started.pid) end
   end
 
   local function halt()
@@ -698,7 +702,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
         launch()
       end
     end
-    if given.stop ~= nil and given.stop() then break end
+    local stop = given.stop
+    if stop ~= nil and stop() then break end
   end
   halt()
   assert(guard:release())

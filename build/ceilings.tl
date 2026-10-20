@@ -8,6 +8,8 @@
 --- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module (`scoped`
 --- for a module in the new grammar, `translated` for one that is the fork's Teal, translated): the tree's check of a file and
 --- the build's refuse the same count, with the same words.
+--- `examples` is the check of the examples a reader copies ([`build.example_checks`]), held in the new mode alone: a key is an
+--- example file or a guide and a code of any stage, and a count is the findings of that code in all of its examples.
 ---
 --- A ceiling is read at the start of a run, from the file or from a database the file filled; a caller that has neither
 --- passes a table of its own.
@@ -32,6 +34,7 @@ local record Ceilings
     "typed"
     "untyped"
     "checked"
+    "examples"
   end
 
   --- An error of a file, as a check lists it.
@@ -108,6 +111,13 @@ end
 
 --- Why `key`, a ceiling of `stage`, can never be met, or "" where it can.
 local function unmeetable(stage: string, key: string): string
+  if stage == "examples" then
+    -- A finding of an example is of any stage's code, so the shape is all that can be held.
+    if key:match("^%S+ %S+$") == nil then
+      return "a ceiling of [examples] is a file and a code, not `" .. key .. "`"
+    end
+    return ""
+  end
   local codes = codes_of(stage)
   if codes == nil then
     if key:find("%s") ~= nil then
@@ -129,7 +139,7 @@ end
 
 local STAGES <const>: {string: boolean} = {
   lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, read = true,
-  typed = true, untyped = true, checked = true,
+  typed = true, untyped = true, checked = true, examples = true,
 }
 
 function Ceilings.parse(text: string): Ceilings.Table | nil, string

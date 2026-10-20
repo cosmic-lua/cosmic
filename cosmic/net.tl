@@ -225,12 +225,12 @@ local record Net
     --- [`Net.serve`] waits for too. What it raises goes to
     --- [`Net.ServeSpec.on_error`], with its stack, and the server stops all
     --- the same.
-    on_stop: function(server: Server)
+    on_stop?: function(server: Server)
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
     --- What it raises, [`Net.serve`] raises, having closed every listener
     --- and connection, as an error in [`Poll.run`] ends it.
-    on_error: function(trouble: string)
+    on_error?: function(trouble: string)
   end
 
   --- A server [`Net.serve`] runs, handed to its [`Net.ServeSpec.on_ready`]
@@ -1044,8 +1044,9 @@ local ACCEPT_PAUSE_NS <const> = Clock.ms(100)
 
 --- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
-  if s.spec.on_error ~= nil then
-    s.spec.on_error(trouble)
+  local on_error = s.spec.on_error
+  if on_error ~= nil then
+    on_error(trouble)
     return
   end
   local _, _ = Fs.put(Fs.stderr, "net: " .. trouble .. "\n")

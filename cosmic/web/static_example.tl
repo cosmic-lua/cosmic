@@ -21,7 +21,7 @@ function Example.mount()
   local reply = client:get(url)
   assert(reply.status == 200 and reply.body == "body { margin: 0 }")
   assert(reply.headers["cache-control"] == "public, max-age=31536000, immutable")
-  local again = client:get("/static/app.css", { headers = { ["If-None-Match"] = reply.headers["etag"] } })
+  local again = client:get("/static/app.css", { headers = { ["If-None-Match"] = assert(reply.headers["etag"]) } })
   assert(again.status == 304 and again.body == "")
 end
 
@@ -44,7 +44,8 @@ function Example.url()
   print(url)
   assert(url:find("^/static/css/app%.%x+%.css$"))
   local missing, why = StaticFiles.url(source, "/static", "nope.css")
-  assert(missing == nil and why:find("no such asset", 1, true))
+  assert(missing == nil)
+  assert(why:find("no such asset", 1, true))
 end
 
 return Example

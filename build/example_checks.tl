@@ -21,7 +21,9 @@
 ---
 --- With the new checker (`COSMIC_GRAMMAR=new`, [`build.grammar_mode`]) an example is compiled by it as a file alone
 --- ([`build.pipeline`]'s `lone`): the standard library is the declarations the tool carries, and a finding is the checker's,
---- in the layout of the old ones.
+--- in the layout of the old ones. What the examples still write in a form only the new grammar reads is pinned per file and
+--- code under `[examples]` in [`build/ceilings.txt`], so that it can only fall.
+local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local GrammarMode = require("build.grammar_mode")
 local Sqlite = require("cosmic.sqlite")
@@ -215,11 +217,97 @@ local function guide(text: string, file: string, built: compiler,
   return out
 end
 
+--- The code a finding names: `(code): fix` ends the words of its message.
+local function code_of(line: string): string | nil
+  return line:match("%(([%a][%w_]*)%): ")
+end
+
+--- Where a finding is told: the example file or guide and the code it names.
+local record Told
+  file: string
+  code: string
+  --- Whether the line counts a code's errors in an example ("2 errors of nil_not_allowed in its bodies; follow the fix above"),
+  --- which counts for none.
+  summary: boolean
+end
+
+--- The file and code a line is of, nil where it names no code (a helper too long to carry, a missing require of the text).
+local function told(line: string): Told | nil
+  local file = line:match("^([^:%s]+):%d+: example")
+  if file == nil then
+    return nil
+  end
+  local counted = line:match(": %d+ errors? of ([%a][%w_]*) in its %a+; follow the fix above$")
+  if counted ~= nil then
+    return { file = file, code = counted, summary = true }
+  end
+  local code = code_of(line)
+  if code == nil then
+    return nil
+  end
+  return { file = file, code = code, summary = false }
+end
+
+--- `lines`, the findings of the new checker over all of the examples, less what `pins` (the `examples` ceilings of the tree,
+--- [`build.ceilings`]) allows: the findings of a code in an example file or a guide, all of them or none. A code over its pin
+--- is told whole with the count and the pin; a pin above the count is told to fall.
+local function held(lines: {string}, pins: {string: integer}): {string}
+  local found: {string: integer} = {}
+  for _, line in ipairs(lines) do
+    local at = told(line)
+    if at ~= nil and not at.summary then
+      local key = at.file .. " " .. at.code
+      found[key] = (found[key] or 0) + 1
+    end
+  end
+  local out: {string} = {}
+  local over: {string: boolean} = {}
+  -- In the order the findings came, which is the order of the files.
+  local keys: {string} = {}
+  for _, line in ipairs(lines) do
+    local at = told(line)
+    if at == nil then
+      out[#out + 1] = line
+    else
+      local key = at.file .. " " .. at.code
+      if (found[key] or 0) > (pins[key] or 0) then
+        out[#out + 1] = line
+        if over[key] ~= true then
+          over[key] = true
+          keys[#keys + 1] = key
+        end
+      end
+    end
+  end
+  for _, key in ipairs(keys) do
+    out[#out + 1] = key .. ": " .. tostring(found[key]) .. " found, pinned " .. tostring(pins[key] or 0) ..
+      "; follow the fix above rather than raise the pin in build/ceilings.txt's [examples]"
+  end
+  for _, line in ipairs(Ceilings.fallen(found, pins, "build/ceilings.txt's [examples]")) do
+    out[#out + 1] = line
+  end
+  return out
+end
+
+--- The `examples` ceilings of the tree at `root`: none where it has no ceilings file, which a fixture's tree does not.
+local function pins_of(root: string): {string: integer} | nil, string
+  local there, _ = Fs.exists(root .. "/" .. Ceilings.path)
+  if there ~= true then
+    return {}, ""
+  end
+  local read, why = Ceilings.read(root)
+  if read == nil then
+    return nil, why
+  end
+  return Ceilings.of(read, "examples"), ""
+end
+
 --- Both of the above over the tree at `root`: the projection `db`'s
 --- examples and each of `guides` (default [`symbols.guides`], read from
 --- `doc/guides/<name>.md`).
 --- @param built a compiler, its own: the check points it at this binary's sources
---- @param grammar the checker that compiles the examples: the one `COSMIC_GRAMMAR` names where not given
+--- @param grammar the checker that compiles the examples: the one `COSMIC_GRAMMAR` names where not given. The new one's
+---   findings are those over the tree's `[examples]` ceilings, and the ceilings above the findings.
 function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,
                             guides?: {string}, grammar?: GrammarMode.Mode): {string}
   local mode = grammar
@@ -254,7 +342,15 @@ function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,
       end
     end
   end
-  return out
+  if mode ~= "new" then
+    return out
+  end
+  local pins, pins_trouble = pins_of(root)
+  if pins == nil then
+    out[#out + 1] = pins_trouble
+    return out
+  end
+  return held(out, pins)
 end
 
 return example_checks

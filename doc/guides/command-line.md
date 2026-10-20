@@ -78,7 +78,7 @@ local verbs = 0
 for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
 end
-print(verbs .. " verb")
+print(("%d verb"):format(verbs))
 print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 verb, ") ~= nil)
 ```
 

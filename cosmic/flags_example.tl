@@ -11,7 +11,7 @@ function Example.parse()
   local argv = { "fix", "--check", "--jobs=2", "a.tl" }
   local got = assert(Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true }))
   print(got.set["--check"], got.values["--jobs"], got.words[1])
-  assert(got.set["--check"] and got.values["--jobs"] == "2" and got.words[1] == "a.tl")
+  assert(got.set["--check"] == true and got.values["--jobs"] == "2" and got.words[1] == "a.tl")
   local _, why = Flags.parse({ "fix", "--chek" }, 2, { ["--check"] = false })
   print(why)
   assert(why == "no such option: --chek")
@@ -29,9 +29,9 @@ function Example.dispatch()
       end,
     },
   }
-  local ran, why = Flags.dispatch({ [0] = "prog", "build", "-vj2", "all" }, 1, commands)
+  local ran, why = Flags.dispatch({ "build", "-vj2", "all" }, 1, commands, "prog")
   assert(ran ~= nil and ran.code == 0 and ran.help == "", why)
-  ran, why = Flags.dispatch({ [0] = "prog", "biuld" }, 1, commands)
+  ran, why = Flags.dispatch({ "biuld" }, 1, commands, "prog")
   print(why)
   assert(ran == nil and why == "no such command: biuld")
 end
@@ -55,7 +55,7 @@ function Example.subcommands()
           asked[#asked + 1] = "report needs one file"
           return 2
         end
-        asked[#asked + 1] = got.words[1] .. " " .. (got.values["--month"] or "every month")
+        asked[#asked + 1] = assert(got.words[1]) .. " " .. (got.values["--month"] or "every month")
         return 0
       end,
     },
@@ -126,7 +126,7 @@ function Example.help()
     "  -v          say more",
   }, "\n"))
   local got = assert(Flags.parse({ "--jobs", "4", "-v" }, 1, spec))
-  assert(got.values["--jobs"] == "4" and got.set["-v"])
+  assert(got.values["--jobs"] == "4" and got.set["-v"] == true)
 end
 
 return Example

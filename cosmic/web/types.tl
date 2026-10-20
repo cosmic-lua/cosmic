@@ -274,7 +274,7 @@ local record Types
     --- full URL, given the mount's full prefix (outer mounts included)
     --- and the params as strings. Nil and why for params it cannot
     --- resolve.
-    reverse: function(prefix: string, params: {string:string}): string | nil, string
+    reverse?: function(prefix: string, params: {string:string}): string | nil, string
   end
 
   --- What [`Web.router`] takes.
@@ -511,7 +511,7 @@ local record Types
     --- must not wait on [`cosmic.poll`]); returns the function that
     --- cleans up after the server stops, or nil for none. Nil and why
     --- stops [`Web.serve`] before it listens.
-    lifespan: function(app: App): Shutdown | nil, string
+    lifespan?: function(app: App): Shutdown | nil, string
     --- Answers a fault with a page holding its message and stack
     --- (false by default, never taken from the environment): it
     --- exposes source paths and values.
@@ -532,7 +532,7 @@ local record Types
     error_pages?: {integer: Handler}
     --- Makes the page of an error that has no entry in `error_pages`: the
     --- request, the status and the detail.
-    error_view: function(Request, integer, string): Response
+    error_view?: function(Request, integer, string): Response
     --- Where the app's lines go; [`Web.stderr_sink`] by default.
     sink?: Sink
     --- Serve htmx and its SSE extension under `/_web/` (true by default),
@@ -645,7 +645,7 @@ local record Types
     --- An urlencoded form body.
     form?: {string: string | {string}}
     --- A JSON body, with its Content-Type.
-    json: any
+    json?: any
     --- A body as it is, with `content_type`.
     body?: string | Stream.Reader
     --- The Content-Type of `body`.

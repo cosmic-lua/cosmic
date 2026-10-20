@@ -93,7 +93,7 @@ local record Csrf
     --- Answers a refused request, given why ("origin", "cross-site",
     --- "referer" or "token"); the default is a 403 through the app's error
     --- page.
-    on_failure: function(Types.Request, string): Types.Response
+    on_failure?: function(Types.Request, string): Types.Response
   end
 
   --- The form field the token is read from.

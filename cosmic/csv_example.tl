@@ -11,7 +11,8 @@ local Example = {}
 function Example.parse()
   local records, err = Csv.parse('id,name\n1,"Smith, Ann"\n2,"say ""hi"""\n')
   assert(records ~= nil, err)
-  assert(#records == 3 and records[2][2] == "Smith, Ann" and records[3][2] == 'say "hi"')
+  local smith, say = assert(records[2]), assert(records[3])
+  assert(#records == 3 and smith[2] == "Smith, Ann" and say[2] == 'say "hi"')
 end
 
 --- `table` names the columns from the header, keys each record by them,
@@ -20,7 +21,8 @@ function Example.table()
   local made, err = Csv.table("id,name\r\n1,Ann\r\n2,Bob\r\n")
   assert(made ~= nil, err)
   assert(table.concat(made.columns, ",") == "id,name")
-  assert(made.rows[2].name == "Bob")
+  local bob = assert(made.rows[2])
+  assert(bob["name"] == "Bob")
   local none, why = Csv.table("id,name\n1\n")
   assert(none == nil)
   print(why) -- csv: line 2, column 1: the record has 1 field, the header 2
@@ -31,10 +33,11 @@ end
 --- line.
 function Example.lines()
   local made = assert(Csv.table('id,note\n1,"two\nlines"\n\n2,x\n'))
-  assert(made.rows[2].id == "2" and made.lines[1] == 2 and made.lines[2] == 5)
+  local second = assert(made.rows[2])
+  assert(second["id"] == "2" and made.lines[1] == 2 and made.lines[2] == 5)
   for index, row in ipairs(made.rows) do
-    if row.note == "x" then
-      print("line " .. made.lines[index] .. ": a note too short") -- line 5: a note too short
+    if row["note"] == "x" then
+      print("line " .. tostring(made.lines[index]) .. ": a note too short") -- line 5: a note too short
     end
   end
 end
@@ -46,16 +49,18 @@ function Example.records()
   local rows = assert(Csv.records('id,name\n1\n\n2,"Bo\nb"\n'))
   for _, row in ipairs(rows) do
     if #row.fields ~= 2 then
-      print("line " .. row.line .. ": skipped") -- line 2: skipped
+      print(("line %d: skipped"):format(row.line)) -- line 2: skipped
     end
   end
-  assert(#rows == 3 and rows[3].line == 4 and rows[3].fields[2] == "Bo\nb")
+  local last = assert(rows[3])
+  assert(#rows == 3 and last.line == 4 and last.fields[2] == "Bo\nb")
 end
 
 --- A tab-separated file is the same reader with another delimiter.
 function Example.tsv()
   local records = assert(Csv.parse("a\tb,c\n1\t\n", { delimiter = "\t" }))
-  assert(records[1][2] == "b,c" and records[2][2] == "")
+  local header, data = assert(records[1]), assert(records[2])
+  assert(header[2] == "b,c" and data[2] == "")
 end
 
 --- Header fields that are empty or differ only in case are renamed, so
@@ -73,7 +78,8 @@ function Example.load()
   local loaded = assert(Csv.load(db, "sales", { text = "city,amount\nParis,120\nLagos,95.5\n" }))
   assert(loaded.count == 2)
   local rows = assert(Sqlite.text_rows(db, "SELECT city FROM sales WHERE amount > 100"))
-  assert(#rows == 1 and rows[1]:text(1) == "Paris")
+  local paris = assert(rows[1])
+  assert(#rows == 1 and paris:text(1) == "Paris")
   assert(db:close())
 end
 

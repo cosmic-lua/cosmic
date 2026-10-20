@@ -25,7 +25,7 @@ function Example.middleware()
   local res = Web.test_client(app):get("/")
   print(res.headers["x-frame-options"], res.headers["content-security-policy"] ~= nil)
   assert(res.headers["x-frame-options"] == "DENY")
-  assert(res.headers["content-security-policy"]:find("'nonce-", 1, true))
+  assert(assert(res.headers["content-security-policy"]):find("'nonce-", 1, true))
 end
 
 return Example

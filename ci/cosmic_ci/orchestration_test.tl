@@ -1641,8 +1641,8 @@ end
 
 --- The phases that follow `rehearsal`'s boot run on the tool it booted again with COSMIC_GRAMMAR=new: `rehearsal-boot` boots it
 --- and holds it to what it must say of itself, `rehearsal-project` builds each project of testdata/rehearsal with the new
---- checker and holds it to what it is for, and `rehearsal-seed` proves lang/ against the pinned seed; each does nothing on
---- another target.
+--- checker and holds it to what it is for, `rehearsal-examples` holds the examples to their pins on the tool the first boot built (before the tool is booted again),
+--- and `rehearsal-seed` proves lang/ against the pinned seed; each does nothing on another target.
 local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_proves_the_seed(tmp: string)
   local base, project = command(tmp)
   local record Case
@@ -1653,25 +1653,29 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
     project_status: integer
     fork_only_status: integer
     proof_status: integer
+    --- What the check of the examples exits with.
+    examples_status: integer
     --- The phases that fail.
     fails: {string: boolean}
     ran: boolean
   end
   local cases: {Case} = {
     { name = "good", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0, fork_only_status = 1,
-      proof_status = 0, fails = {}, ran = true },
+      proof_status = 0, examples_status = 0, fails = {}, ran = true },
     { name = "built-by-the-fork", target = "x86_64-linux-musl", built_by = "false\\ntrue\\n", project_status = 0,
-      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
+      fork_only_status = 1, proof_status = 0, examples_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
     { name = "no-declarations", target = "x86_64-linux-musl", built_by = "true\\nfalse\\n", project_status = 0,
-      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
+      fork_only_status = 1, proof_status = 0, examples_status = 0, fails = { ["rehearsal-boot"] = true }, ran = true },
     { name = "project-refused", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 1,
-      fork_only_status = 1, proof_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
+      fork_only_status = 1, proof_status = 0, examples_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
     { name = "fork-only-accepted", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0,
-      fork_only_status = 0, proof_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
+      fork_only_status = 0, proof_status = 0, examples_status = 0, fails = { ["rehearsal-project"] = true }, ran = true },
+    { name = "examples-over-their-pins", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0,
+      fork_only_status = 1, proof_status = 0, examples_status = 1, fails = { ["rehearsal-examples"] = true }, ran = true },
     { name = "proof-failing", target = "x86_64-linux-musl", built_by = "true\\ntrue\\n", project_status = 0,
-      fork_only_status = 1, proof_status = 1, fails = { ["rehearsal-seed"] = true }, ran = true },
+      fork_only_status = 1, proof_status = 1, examples_status = 0, fails = { ["rehearsal-seed"] = true }, ran = true },
     { name = "aarch64", target = "aarch64-linux-musl", built_by = "false\\nfalse\\n", project_status = 1, fork_only_status = 0,
-      proof_status = 1, fails = {}, ran = false },
+      proof_status = 1, examples_status = 1, fails = {}, ran = false },
   }
   local project_says = "test: 3 tests passed in 2 modules; 3 ran, 0 stood, 576 ms; sandboxed, under a policy"
   local fork_only_says = table.concat({
@@ -1706,13 +1710,14 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
         tostring(case.project_status) .. " ;;\n" ..
         "    *rehearsal-fork_only) printf '%s\\n' '" .. fork_only_says .. "'; exit " .. tostring(case.fork_only_status) .. " ;;\n" ..
         "  esac ;;\n" ..
+        "  build/example_checks_main.tl) printf '%s|%s\\n' \"$COSMIC_GRAMMAR\" \"$*\" >> \"$0.examples\"; exit " .. tostring(case.examples_status) .. " ;;\n" ..
         "  build/lang_proof_main.tl) printf '%s|%s\\n' \"$COSMIC_GRAMMAR\" \"$*\" >> \"$0.proof\"; exit " .. tostring(case.proof_status) .. " ;;\n" ..
         "esac\nEOF\n" ..
         "chmod 755 o/bin/cosmic\n", 493)
     local env = context(fake, runner_temp, { TARGET = case.target, TMPDIR = tmp,
       COSMIC_WORKER = "linux-x86_64-new-grammar", COSMIC_VERDICT_CACHE = runner_temp .. "/verdicts/verdicts.db",
       COSMIC_CI_EVENT = "push", COSMIC_CI_HARNESS_MOVED = "0" })
-    for _, phase in ipairs({ "boot", "rehearsal-boot", "rehearsal-project", "rehearsal-seed" }) do
+    for _, phase in ipairs({ "boot", "rehearsal-examples", "rehearsal-boot", "rehearsal-project", "rehearsal-seed" }) do
       local outcome = Fixture.call("rehearsal-phases-" .. case.name .. "-" .. phase,
         append(base, { "platform", phase }), project, tmp .. "/logs", env)
       local ok = case.fails[phase] ~= true
@@ -1725,11 +1730,14 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
         case.name .. ": " .. tostring(boots))
       local projects = Fs.read(fake .. "/o/bin/cosmic.projects")
       assert(projects == "new|0\n", case.name .. ": " .. tostring(projects))
+      local examples = Fs.read(fake .. "/o/bin/cosmic.examples")
+      assert(examples == "|build/example_checks_main.tl\n", case.name .. ": " .. tostring(examples))
       local proof = Fs.read(fake .. "/o/bin/cosmic.proof")
       assert(proof ~= nil and proof:find("new|build/lang_proof_main.tl prove ", 1, true) == 1 and
           proof:find(" --seed /pinned/cosmic", 1, true) ~= nil, case.name .. ": " .. tostring(proof))
     else
-      assert(Fs.read(fake .. "/o/bin/cosmic.proof") == nil and Fs.read(fake .. "/o/bin/cosmic.projects") == nil, case.name)
+      assert(Fs.read(fake .. "/o/bin/cosmic.proof") == nil and Fs.read(fake .. "/o/bin/cosmic.projects") == nil and
+          Fs.read(fake .. "/o/bin/cosmic.examples") == nil, case.name)
     end
   end
 end

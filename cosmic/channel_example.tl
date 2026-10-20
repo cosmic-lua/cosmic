@@ -16,7 +16,7 @@ function Example.new()
   Poll.run(function()
     local queue: Channel.Queue<string> = Channel.new({ capacity = 2 })
     Poll.spawn(function()
-      for i = 1, 5 do assert(queue:send("job " .. i)) end
+      for i = 1, 5 do assert(queue:send(("job %d"):format(i))) end
       queue:close()
     end)
     while true do

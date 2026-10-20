@@ -38,7 +38,7 @@ local sys = require("cosmic.sys")
 
 local record Time
   --- The fields [`from_civil`] reads of a moment on a calendar, which a
-  --- caller writes without the rest. [`Civil`] has them all.
+  --- caller writes without the rest ([`Wall`]). [`Civil`] has them all.
   interface CivilFields
     --- 1677 through 2262.
     year: integer
@@ -59,9 +59,44 @@ local record Time
     offset?: integer
   end
 
+  --- A moment as a person writes it, with the fields [`from_civil`] reads
+  --- and no others: a table literal of this makes one.
+  record Wall is CivilFields
+    --- As [`Time.CivilFields.year`].
+    year: integer
+    --- As [`Time.CivilFields.month`].
+    month: integer
+    --- As [`Time.CivilFields.day`].
+    day: integer
+    --- As [`Time.CivilFields.hour`].
+    hour: integer
+    --- As [`Time.CivilFields.minute`].
+    minute: integer
+    --- As [`Time.CivilFields.second`].
+    second: integer
+    --- As [`Time.CivilFields.ns`].
+    ns: integer
+    --- As [`Time.CivilFields.offset`].
+    offset?: integer
+  end
+
   --- A moment as a calendar names it: UTC's, or a zone's local time, as
   --- [`civil`] answers it, with the fields [`from_civil`] ignores.
   record Civil is CivilFields
+    --- As [`Time.CivilFields.year`].
+    year: integer
+    --- As [`Time.CivilFields.month`].
+    month: integer
+    --- As [`Time.CivilFields.day`].
+    day: integer
+    --- As [`Time.CivilFields.hour`].
+    hour: integer
+    --- As [`Time.CivilFields.minute`].
+    minute: integer
+    --- As [`Time.CivilFields.second`].
+    second: integer
+    --- As [`Time.CivilFields.ns`].
+    ns: integer
     --- Seconds east of UTC the local time is: 0 on the UTC calendar.
     offset: integer
     --- ISO 8601's: 1 (Monday) through 7 (Sunday).

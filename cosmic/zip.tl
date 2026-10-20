@@ -38,6 +38,18 @@ local record Zip
   --- external attributes of an entry made by a Unix zip tool; and its
   --- `mtime` is read from the DOS date and time as UTC, to two seconds.
   record Entry is Stream.ArchiveEntry
+    --- As [`Stream.ArchiveEntry.path`].
+    path: string
+    --- As [`Stream.ArchiveEntry.kind`].
+    kind: Stream.EntryKind
+    --- As [`Stream.ArchiveEntry.mode`].
+    mode: integer
+    --- As [`Stream.ArchiveEntry.size`].
+    size: integer
+    --- As [`Stream.ArchiveEntry.mtime`].
+    mtime: integer
+    --- As [`Stream.ArchiveEntry.linkpath`].
+    linkpath: string
     --- The size of the body as stored, compressed.
     compressed_size: integer
     -- TODO: EntryOptions.method is a Zip.Method name and this is zip's

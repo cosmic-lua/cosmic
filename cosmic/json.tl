@@ -172,7 +172,7 @@ local record Json
   record DecodeOptions
     --- What to put where the text says `null`, so a Lua table can hold
     --- it. [`Json.null`] is the usual choice: it encodes back as `null`.
-    null_value: any
+    null_value?: any
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64).
     max_depth?: integer

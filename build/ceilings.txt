@@ -186,10 +186,10 @@ cosmic/net.tl interface_disagrees 2
 cosmic/signal.tl interface_disagrees 3
 cosmic/stream.tl interface_disagrees 5
 cosmic/stream_test.tl interface_disagrees 9
-cosmic/tar.tl interface_disagrees 10
-cosmic/time.tl interface_disagrees 8
+cosmic/tar.tl interface_disagrees 4
+cosmic/time.tl interface_disagrees 1
 cosmic/web/sse.tl interface_disagrees 2
-cosmic/zip.tl interface_disagrees 10
+cosmic/zip.tl interface_disagrees 4
 lang/ast.tl interface_disagrees 288
 lang/types.tl interface_disagrees 63
 # an array of optional elements: a map `{integer: T}` for sparse data
@@ -336,10 +336,8 @@ cosmic/url_test.tl 3
 cosmic/web/assets_example.tl 2
 cosmic/web/assets_test.tl 8
 cosmic/web/cookies_test.tl 2
-cosmic/web/cors_test.tl 2
 cosmic/web/csrf.tl 2
 cosmic/web/csrf_test.tl 1
-cosmic/web/htmx_test.tl 2
 cosmic/web/input.tl 1
 cosmic/web/input_multipart_test.tl 1
 cosmic/web/request.tl 1
@@ -348,7 +346,7 @@ cosmic/web/serve_test.tl 1
 cosmic/web/session/cookie_test.tl 1
 cosmic/web/session/session_test.tl 2
 cosmic/web/session/sqlite_test.tl 1
-cosmic/web/static_test.tl 7
+cosmic/web/static_test.tl 6
 cosmic/web/testing.tl 3
 eval/arena_test.tl 1
 lang/declarations.tl 3
@@ -463,7 +461,7 @@ build/udp_fixture.tl 2
 build/unix_socket.tl 2
 build/verbs_fixture.tl 3
 build/work.tl 4
-build/worker.tl 3
+build/worker.tl 1
 build/zig.tl 3
 build/zig_fetch.tl 7
 cmd/cosmic/main.tl 1
@@ -495,8 +493,7 @@ cosmic/time.tl 9
 cosmic/web/app.tl 2
 cosmic/web/assets.tl 1
 cosmic/web/csp.tl 1
-cosmic/web/csrf.tl 1
-cosmic/web/dev.tl 7
+cosmic/web/dev.tl 3
 cosmic/web/errors.tl 1
 cosmic/web/input.tl 7
 cosmic/web/request.tl 1
@@ -591,7 +588,6 @@ core/syscalls_test.tl setmetatable_call 1
 cosmic/channel_test.tl setmetatable_call 1
 cosmic/child.tl setmetatable_call 4
 cosmic/compress_test.tl setmetatable_call 1
-cosmic/errors_example.tl setmetatable_call 1
 cosmic/fs.tl setmetatable_call 4
 cosmic/hash_test.tl setmetatable_call 2
 cosmic/http/init.tl setmetatable_call 1
@@ -1022,13 +1018,11 @@ core/syscalls_test.tl nil_not_allowed 21
 core/syscalls_tool_test.tl nil_not_allowed 3
 core/syscalls_tool_unsandboxed_test.tl nil_not_allowed 1
 cosmic/archive.tl nil_not_allowed 12
-cosmic/archive_example.tl nil_not_allowed 4
 cosmic/archive_fuzz_test.tl nil_not_allowed 4
 cosmic/archive_test.tl nil_not_allowed 31
 cosmic/channel.tl nil_not_allowed 1
 cosmic/child.tl nil_not_allowed 57
 cosmic/child_drain_test.tl nil_not_allowed 1
-cosmic/child_example.tl nil_not_allowed 2
 cosmic/child_policy_cosmic_test.tl nil_not_allowed 1
 cosmic/child_policy_database_sandboxed_test.tl nil_not_allowed 1
 cosmic/child_policy_isolate_test.tl nil_not_allowed 6
@@ -1047,15 +1041,12 @@ cosmic/codec.tl nil_not_allowed 29
 cosmic/codec_test.tl nil_not_allowed 5
 cosmic/compress_test.tl nil_not_allowed 12
 cosmic/csv.tl nil_not_allowed 14
-cosmic/csv_example.tl nil_not_allowed 10
 cosmic/csv_fuzz_test.tl nil_not_allowed 25
 cosmic/csv_test.tl nil_not_allowed 28
 cosmic/declared_types_test.tl nil_not_allowed 4
 cosmic/errno_test.tl nil_not_allowed 7
 cosmic/errors.tl nil_not_allowed 6
-cosmic/errors_example.tl nil_not_allowed 1
 cosmic/flags.tl nil_not_allowed 28
-cosmic/flags_example.tl nil_not_allowed 1
 cosmic/flags_test.tl nil_not_allowed 10
 cosmic/fs.tl nil_not_allowed 2
 cosmic/fs_append_tool_test.tl nil_not_allowed 1
@@ -1067,7 +1058,7 @@ cosmic/http/init.tl nil_not_allowed 1
 cosmic/http/multipart.tl nil_not_allowed 11
 cosmic/http/multipart_fuzz_test.tl nil_not_allowed 23
 cosmic/http/multipart_test.tl nil_not_allowed 14
-cosmic/http/server.tl nil_not_allowed 4
+cosmic/http/server.tl nil_not_allowed 3
 cosmic/http/server_range_fuzz_test.tl nil_not_allowed 16
 cosmic/http/server_range_test.tl nil_not_allowed 2
 cosmic/http/server_test.tl nil_not_allowed 20
@@ -1113,14 +1104,11 @@ cosmic/net_resolve_tool_test.tl nil_not_allowed 1
 cosmic/net_serve_test.tl nil_not_allowed 8
 cosmic/net_test.tl nil_not_allowed 2
 cosmic/policy.tl nil_not_allowed 1
-cosmic/policy_example.tl nil_not_allowed 2
 cosmic/policy_test.tl nil_not_allowed 3
 cosmic/poll.tl nil_not_allowed 34
-cosmic/poll_example.tl nil_not_allowed 1
 cosmic/poll_test.tl nil_not_allowed 18
 cosmic/rand_test.tl nil_not_allowed 2
 cosmic/relay/address.tl nil_not_allowed 6
-cosmic/relay/address_example.tl nil_not_allowed 1
 cosmic/relay/address_fuzz_test.tl nil_not_allowed 16
 cosmic/relay/address_test.tl nil_not_allowed 8
 cosmic/relay/grant.tl nil_not_allowed 5
@@ -1129,7 +1117,6 @@ cosmic/sandbox/init.tl nil_not_allowed 5
 cosmic/sandbox/policy.tl nil_not_allowed 3
 cosmic/sandbox/seatbelt.tl nil_not_allowed 1
 cosmic/sandbox/seatbelt_test.tl nil_not_allowed 4
-cosmic/sandbox_example.tl nil_not_allowed 6
 cosmic/sandbox_restrict_seatbelt_test.tl nil_not_allowed 1
 cosmic/sandbox_restrict_test.tl nil_not_allowed 2
 cosmic/sandbox_test.tl nil_not_allowed 35
@@ -1140,9 +1127,7 @@ cosmic/shape_record_test.tl nil_not_allowed 3
 cosmic/shape_test.tl nil_not_allowed 1
 cosmic/signal.tl nil_not_allowed 1
 cosmic/sqlite.tl nil_not_allowed 7
-cosmic/sqlite_example.tl nil_not_allowed 25
 cosmic/store.tl nil_not_allowed 7
-cosmic/store_example.tl nil_not_allowed 1
 cosmic/store_handles_test.tl nil_not_allowed 5
 cosmic/store_seal_test.tl nil_not_allowed 15
 cosmic/stream.tl nil_not_allowed 10
@@ -1192,11 +1177,9 @@ cosmic/web/dev.tl nil_not_allowed 2
 cosmic/web/dev_test.tl nil_not_allowed 3
 cosmic/web/errors.tl nil_not_allowed 2
 cosmic/web/headers.tl nil_not_allowed 3
-cosmic/web/headers_example.tl nil_not_allowed 1
 cosmic/web/headers_test.tl nil_not_allowed 3
 cosmic/web/htmx_test.tl nil_not_allowed 2
 cosmic/web/input.tl nil_not_allowed 20
-cosmic/web/input_example.tl nil_not_allowed 6
 cosmic/web/input_fuzz_test.tl nil_not_allowed 7
 cosmic/web/input_multipart_fuzz_test.tl nil_not_allowed 3
 cosmic/web/input_multipart_test.tl nil_not_allowed 31
@@ -1219,22 +1202,18 @@ cosmic/web/session/init.tl nil_not_allowed 2
 cosmic/web/session/session_test.tl nil_not_allowed 8
 cosmic/web/session/sqlite.tl nil_not_allowed 1
 cosmic/web/session/sqlite_test.tl nil_not_allowed 5
-cosmic/web/sse.tl nil_not_allowed 8
-cosmic/web/sse_example.tl nil_not_allowed 1
+cosmic/web/sse.tl nil_not_allowed 9
 cosmic/web/sse_fuzz_test.tl nil_not_allowed 4
-cosmic/web/sse_test.tl nil_not_allowed 11
-cosmic/web/static.tl nil_not_allowed 16
+cosmic/web/sse_test.tl nil_not_allowed 10
+cosmic/web/static.tl nil_not_allowed 15
 cosmic/web/static_test.tl nil_not_allowed 1
 cosmic/web/testing.tl nil_not_allowed 13
 cosmic/web/testing_test.tl nil_not_allowed 1
 cosmic/web/typed.tl nil_not_allowed 5
 cosmic/web/typed_test.tl nil_not_allowed 3
-cosmic/web_example.tl nil_not_allowed 1
 cosmic/zip.tl nil_not_allowed 3
-cosmic/zip_example.tl nil_not_allowed 3
 cosmic/zip_fuzz_test.tl nil_not_allowed 14
 cosmic/zip_test.tl nil_not_allowed 16
-doc/guides/sql.md nil_not_allowed 2
 eval/arena.tl nil_not_allowed 10
 eval/arena_test.tl nil_not_allowed 2
 eval/check/grade.tl nil_not_allowed 66
@@ -1615,7 +1594,6 @@ cosmic/http/multipart.tl index_may_be_nil 1
 cosmic/http/multipart_fuzz_test.tl index_may_be_nil 5
 cosmic/http/multipart_test.tl index_may_be_nil 1
 cosmic/http/server_declared_types_test.tl index_may_be_nil 1
-cosmic/http/server_example.tl index_may_be_nil 1
 cosmic/http/server_test.tl index_may_be_nil 3
 cosmic/http/wire.tl index_may_be_nil 5
 cosmic/http/wire_fuzz_test.tl index_may_be_nil 1
@@ -1634,7 +1612,6 @@ cosmic/json_path_test.tl index_may_be_nil 2
 cosmic/json_reader_test.tl index_may_be_nil 2
 cosmic/json_test.tl index_may_be_nil 1
 cosmic/net_connector_test.tl index_may_be_nil 4
-cosmic/net_example.tl index_may_be_nil 1
 cosmic/net_resolve_test.tl index_may_be_nil 1
 cosmic/net_serve_test.tl index_may_be_nil 31
 cosmic/net_test.tl index_may_be_nil 1
@@ -1689,7 +1666,6 @@ cosmic/web/session/cookie.tl index_may_be_nil 1
 cosmic/web/session/session_test.tl index_may_be_nil 8
 cosmic/web/sse.tl index_may_be_nil 1
 cosmic/web/sse_test.tl index_may_be_nil 1
-cosmic/web/static_example.tl index_may_be_nil 1
 cosmic/web/static_test.tl index_may_be_nil 2
 cosmic/web/testing.tl index_may_be_nil 1
 cosmic/zip_fuzz_test.tl index_may_be_nil 3
@@ -1865,7 +1841,7 @@ build/entrypoint_test.tl view_written 1
 build/error_catalog.tl view_written 16
 build/error_catalog_test.tl view_written 7
 build/error_render.tl view_written 6
-build/example_checks.tl view_written 11
+build/example_checks.tl view_written 19
 build/example_checks_test.tl view_written 5
 build/exports_test.tl view_written 3
 build/fact_hook_test.tl view_written 2
@@ -2850,7 +2826,7 @@ cosmic/archive_fuzz_test.tl field_fixed 4
 cosmic/archive_test.tl field_fixed 6
 cosmic/channel.tl field_fixed 2
 cosmic/child.tl field_fixed 32
-cosmic/child_drain_test.tl field_fixed 7
+cosmic/child_drain_test.tl field_fixed 15
 cosmic/child_lua_test.tl field_fixed 2
 cosmic/child_policy_anywhere_test.tl field_fixed 4
 cosmic/child_policy_database_sandboxed_test.tl field_fixed 5
@@ -2893,7 +2869,6 @@ cosmic/shape.tl field_fixed 5
 cosmic/shape_fuzz_test.tl field_fixed 1
 cosmic/signal.tl field_fixed 5
 cosmic/sqlite.tl field_fixed 13
-cosmic/stream_example.tl field_fixed 2
 cosmic/stream_test.tl field_fixed 21
 cosmic/tar_test.tl field_fixed 7
 cosmic/template/codegen.tl field_fixed 1
@@ -2904,7 +2879,7 @@ cosmic/template/parse.tl field_fixed 5
 cosmic/template_html5lib_tree_test.tl field_fixed 1
 cosmic/test.tl field_fixed 35
 cosmic/test_policy_test.tl field_fixed 2
-cosmic/time.tl field_fixed 30
+cosmic/time.tl field_fixed 36
 cosmic/time_test.tl field_fixed 3
 cosmic/time_zone_test.tl field_fixed 2
 cosmic/url.tl field_fixed 5
@@ -2940,7 +2915,7 @@ cosmic/web/static_test.tl field_fixed 1
 cosmic/web/testing.tl field_fixed 11
 cosmic/web/testing_test.tl field_fixed 1
 cosmic/web/typed.tl field_fixed 3
-cosmic/zip.tl field_fixed 1
+cosmic/zip.tl field_fixed 3
 cosmic/zip_test.tl field_fixed 13
 eval/check/grade.tl field_fixed 2
 eval/result.tl field_fixed 7
@@ -2974,7 +2949,7 @@ test/terminal/relay.tl field_fixed 2
 # rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
 # declarations lack
 build/archive.tl field_unknown 2
-build/archive_test.tl field_unknown 3
+build/archive_test.tl field_unknown 2
 build/codec.tl field_unknown 5
 build/codec_fuzz_test.tl field_unknown 2
 build/codec_test.tl field_unknown 14
@@ -3001,46 +2976,27 @@ build/syntax_rewrite.tl field_unknown 1
 build/syntax_scopes.tl field_unknown 11
 build/syntax_shape_specs.tl field_unknown 32
 build/syntax_stub.tl field_unknown 53
-build/time.tl field_unknown 7
 build/tree_checks.tl field_unknown 1
-build/worker.tl field_unknown 2
 ci/cosmic_ci/github_api.tl field_unknown 1
-ci/cosmic_ci/report.tl field_unknown 2
 core/allocation_test.tl field_unknown 2
 core/fault_test.tl field_unknown 3
 core/surface_test.tl field_unknown 2
 cosmic/archive.tl field_unknown 5
-cosmic/child_drain_test.tl field_unknown 14
 cosmic/errors_test.tl field_unknown 1
 cosmic/http/init.tl field_unknown 7
 cosmic/http/server.tl field_unknown 12
 cosmic/http/wire.tl field_unknown 12
 cosmic/http_test.tl field_unknown 25
-cosmic/json_example.tl field_unknown 1
 cosmic/net.tl field_unknown 1
 cosmic/poll.tl field_unknown 4
 cosmic/poll_test.tl field_unknown 1
 cosmic/stream.tl field_unknown 2
-cosmic/stream_example.tl field_unknown 3
-cosmic/stream_fd_test.tl field_unknown 11
-cosmic/stream_test.tl field_unknown 55
-cosmic/tar_example.tl field_unknown 3
-cosmic/tar_fuzz_test.tl field_unknown 19
-cosmic/tar_test.tl field_unknown 43
-cosmic/time.tl field_unknown 21
-cosmic/time_example.tl field_unknown 13
-cosmic/time_fuzz_test.tl field_unknown 12
-cosmic/time_test.tl field_unknown 1
-cosmic/time_zone_test.tl field_unknown 1
+cosmic/stream_test.tl field_unknown 44
 cosmic/web/dev.tl field_unknown 2
 cosmic/web/input.tl field_unknown 4
 cosmic/web/sse.tl field_unknown 3
 cosmic/web/sse_example.tl field_unknown 4
 cosmic/web/sse_test.tl field_unknown 29
-cosmic/zip.tl field_unknown 16
-cosmic/zip_example.tl field_unknown 10
-cosmic/zip_fuzz_test.tl field_unknown 10
-cosmic/zip_test.tl field_unknown 43
 lang/ast.tl field_unknown 4
 lang/check.tl field_unknown 795
 lang/check_class_test.tl field_unknown 6
@@ -3306,7 +3262,6 @@ cosmic/child_task_tool_test.tl map_field 86
 cosmic/child_terminal_test.tl map_field 2
 cosmic/compress_test.tl map_field 2
 cosmic/csv.tl map_field 3
-cosmic/csv_example.tl map_field 3
 cosmic/csv_fuzz_test.tl map_field 1
 cosmic/csv_test.tl map_field 25
 cosmic/flags.tl map_field 8
@@ -3334,7 +3289,6 @@ cosmic/internal/relay_server_test.tl map_field 6
 cosmic/internal/relay_start.tl map_field 4
 cosmic/internal/relay_token_fuzz_test.tl map_field 8
 cosmic/internal/relay_wire_test.tl map_field 11
-cosmic/json_example.tl map_field 9
 cosmic/json_path_test.tl map_field 2
 cosmic/json_reader_test.tl map_field 3
 cosmic/json_test.tl map_field 4
@@ -3348,7 +3302,6 @@ cosmic/net_tool_test.tl map_field 3
 cosmic/policy.tl map_field 6
 cosmic/policy_fuzz_test.tl map_field 12
 cosmic/policy_test.tl map_field 4
-cosmic/poll_example.tl map_field 6
 cosmic/poll_test.tl map_field 139
 cosmic/proc_find_tool_test.tl map_field 1
 cosmic/proc_tool_test.tl map_field 1
@@ -3357,13 +3310,11 @@ cosmic/rand_test.tl map_field 5
 cosmic/removed_test.tl map_field 2
 cosmic/sandbox/init.tl map_field 2
 cosmic/sandbox/seatbelt.tl map_field 3
-cosmic/sandbox/seatbelt_example.tl map_field 1
 cosmic/sandbox/seatbelt_test.tl map_field 29
 cosmic/sandbox_restrict_seatbelt_test.tl map_field 32
 cosmic/sandbox_restrict_test.tl map_field 63
 cosmic/sandbox_test.tl map_field 3
 cosmic/seatbelt_network_probe_test.tl map_field 5
-cosmic/shape_example.tl map_field 4
 cosmic/shape_test.tl map_field 10
 cosmic/signal.tl map_field 4
 cosmic/signal_ignored_test.tl map_field 2
@@ -3385,7 +3336,6 @@ cosmic/test_test.tl map_field 3
 cosmic/time_tzif_fuzz_test.tl map_field 3
 cosmic/web/app_test.tl map_field 9
 cosmic/web/assets.tl map_field 1
-cosmic/web/cookies_example.tl map_field 4
 cosmic/web/cookies_test.tl map_field 17
 cosmic/web/cors_test.tl map_field 8
 cosmic/web/csrf_test.tl map_field 18
@@ -3395,7 +3345,6 @@ cosmic/web/headers_test.tl map_field 2
 cosmic/web/htmx.tl map_field 2
 cosmic/web/htmx_test.tl map_field 21
 cosmic/web/input.tl map_field 5
-cosmic/web/input_example.tl map_field 4
 cosmic/web/input_fuzz_test.tl map_field 3
 cosmic/web/input_multipart_fuzz_test.tl map_field 5
 cosmic/web/input_multipart_test.tl map_field 43
@@ -3417,11 +3366,9 @@ cosmic/web/sse_test.tl map_field 15
 cosmic/web/static.tl map_field 1
 cosmic/web/testing_test.tl map_field 32
 cosmic/web/typed_test.tl map_field 25
-cosmic/web_example.tl map_field 9
 cosmic/zip.tl map_field 5
 cosmic/zip_fuzz_test.tl map_field 9
 cosmic/zip_test.tl map_field 18
-doc/guides/web.md map_field 5
 eval/check/grade.tl map_field 16
 eval/check/grade_test.tl map_field 15
 eval/result_test.tl map_field 37
@@ -3484,6 +3431,7 @@ cosmic/tar_test.tl interface_method_value 1
 cosmic/web/app.tl interface_method_value 1
 cosmic/zip_test.tl interface_method_value 1
 test/sqlite_row_test.tl interface_method_value 1
+cosmic/child_drain_test.tl interface_method_value 4
 # a call no overload of a declaration takes: `table.sort` of a view, or of elements `<` does not order, with no
 # comparator; `table.insert` of a view or an optional collection; `pcall` of a function that answers `T...`, may be nil
 # or passes on more than the overloads take
@@ -3859,7 +3807,7 @@ build/syntax_match.tl any_use 75
 build/teal.tl any_use 19
 build/test.tl any_use 3
 build/test_worker.tl any_use 3
-build/time.tl any_use 8
+build/time.tl any_use 15
 build/verb_list_test.tl any_use 3
 build/work_test.tl any_use 1
 build/workflows_test.tl any_use 19
@@ -3967,7 +3915,7 @@ cosmic/web/htmx.tl any_use 8
 cosmic/web/htmx_example.tl any_use 1
 cosmic/web/htmx_test.tl any_use 4
 cosmic/web/input.tl any_use 20
-cosmic/web/input_example.tl any_use 3
+cosmic/web/input_example.tl any_use 2
 cosmic/web/input_fuzz_test.tl any_use 7
 cosmic/web/input_multipart_fuzz_test.tl any_use 2
 cosmic/web/input_test.tl any_use 3
@@ -4224,7 +4172,6 @@ cosmic/internal/relay_wire_client_test.tl cast_refused 1
 cosmic/internal/relay_wire_fuzz_test.tl cast_refused 1
 cosmic/internal/relay_wire_test.tl cast_refused 11
 cosmic/json.tl cast_refused 1
-cosmic/json_example.tl cast_refused 2
 cosmic/json_fuzz_test.tl cast_refused 4
 cosmic/json_path_fuzz_test.tl cast_refused 9
 cosmic/json_path_test.tl cast_refused 5
@@ -4258,12 +4205,10 @@ cosmic/shape_record_test.tl cast_refused 2
 cosmic/shape_test.tl cast_refused 14
 cosmic/signal.tl cast_refused 1
 cosmic/sqlite.tl cast_refused 5
-cosmic/sqlite_example.tl cast_refused 1
 cosmic/store.tl cast_refused 1
 cosmic/store_seal_test.tl cast_refused 3
 cosmic/stream_fd_test.tl cast_refused 2
 cosmic/stream_test.tl cast_refused 12
-cosmic/sys_example.tl cast_refused 2
 cosmic/tar.tl cast_refused 1
 cosmic/tar_test.tl cast_refused 3
 cosmic/template/markup_test.tl cast_refused 3
@@ -4277,7 +4222,6 @@ cosmic/test_policy_test.tl cast_refused 3
 cosmic/test_test.tl cast_refused 3
 cosmic/time.tl cast_refused 1
 cosmic/time_duration_fuzz_test.tl cast_refused 1
-cosmic/time_example.tl cast_refused 1
 cosmic/time_fuzz_test.tl cast_refused 1
 cosmic/time_test.tl cast_refused 8
 cosmic/time_tzif_fuzz_test.tl cast_refused 1
@@ -4292,7 +4236,6 @@ cosmic/web/dev_supervise_test.tl cast_refused 1
 cosmic/web/dev_test.tl cast_refused 4
 cosmic/web/headers_test.tl cast_refused 1
 cosmic/web/htmx_test.tl cast_refused 5
-cosmic/web/input_example.tl cast_refused 2
 cosmic/web/input_fuzz_test.tl cast_refused 2
 cosmic/web/input_multipart_fuzz_test.tl cast_refused 2
 cosmic/web/input_multipart_test.tl cast_refused 14
@@ -4369,7 +4312,6 @@ cosmic/web/session/sqlite.tl is_on_record 1
 cosmic/web/sse.tl is_on_record 1
 cosmic/web/testing_test.tl is_on_record 7
 cosmic/web/typed.tl is_on_record 3
-cosmic/web_example.tl is_on_record 1
 eval/check/grade.tl is_on_record 3
 eval/result.tl is_on_record 6
 eval/round.tl is_on_record 2
@@ -4716,7 +4658,6 @@ cosmic/child_seatbelt_test.tl condition_type 2
 cosmic/child_task_tool_test.tl condition_type 5
 cosmic/csv.tl condition_type 2
 cosmic/errors.tl condition_type 3
-cosmic/flags_example.tl condition_type 1
 cosmic/flags_test.tl condition_type 11
 cosmic/html_fuzz_test.tl condition_type 1
 cosmic/html_test.tl condition_type 2
@@ -4769,8 +4710,8 @@ cosmic/time_zone_test.tl condition_type 2
 cosmic/web/app.tl condition_type 6
 cosmic/web/cookies.tl condition_type 3
 cosmic/web/cors.tl condition_type 3
-cosmic/web/csrf.tl condition_type 4
-cosmic/web/dev.tl condition_type 2
+cosmic/web/csrf.tl condition_type 3
+cosmic/web/dev.tl condition_type 1
 cosmic/web/dev_test.tl condition_type 5
 cosmic/web/errors.tl condition_type 2
 cosmic/web/headers.tl condition_type 6
@@ -4794,7 +4735,6 @@ cosmic/web/static.tl condition_type 2
 cosmic/web/testing.tl condition_type 3
 cosmic/web/typed.tl condition_type 3
 cosmic/zip.tl condition_type 3
-doc/guides/web.md condition_type 1
 eval/arena_test.tl condition_type 3
 eval/check/grade.tl condition_type 4
 eval/check/grade_test.tl condition_type 9
@@ -5054,15 +4994,12 @@ cosmic/child_test.tl or_mix 4
 cosmic/clock_test.tl or_mix 6
 cosmic/compress_checked_test.tl or_mix 1
 cosmic/compress_test.tl or_mix 6
-cosmic/coverage_example.tl or_mix 1
 cosmic/csv_fuzz_test.tl or_mix 1
 cosmic/csv_test.tl or_mix 3
 cosmic/declared_types_test.tl or_mix 1
 cosmic/flags.tl or_mix 1
-cosmic/flags_example.tl or_mix 1
 cosmic/fs_test.tl or_mix 11
 cosmic/hash_test.tl or_mix 2
-cosmic/html_example.tl or_mix 1
 cosmic/html_test.tl or_mix 11
 cosmic/http/init.tl or_mix 1
 cosmic/http/multipart_test.tl or_mix 5
@@ -5092,7 +5029,6 @@ cosmic/json_reader_test.tl or_mix 2
 cosmic/net.tl or_mix 1
 cosmic/net_serve_test.tl or_mix 1
 cosmic/net_test.tl or_mix 1
-cosmic/policy_example.tl or_mix 3
 cosmic/policy_test.tl or_mix 13
 cosmic/poll.tl or_mix 3
 cosmic/poll_test.tl or_mix 1
@@ -5105,14 +5041,12 @@ cosmic/removed_test.tl or_mix 15
 cosmic/sandbox/policy.tl or_mix 4
 cosmic/sandbox/seatbelt.tl or_mix 3
 cosmic/sandbox/seatbelt_test.tl or_mix 11
-cosmic/sandbox_example.tl or_mix 1
 cosmic/sandbox_test.tl or_mix 32
 cosmic/seatbelt_network_probe_test.tl or_mix 4
 cosmic/shape_fuzz_test.tl or_mix 1
 cosmic/shape_test.tl or_mix 2
 cosmic/signal_test.tl or_mix 1
 cosmic/stream.tl or_mix 1
-cosmic/stream_example.tl or_mix 1
 cosmic/stream_test.tl or_mix 4
 cosmic/string_test.tl or_mix 1
 cosmic/tar_test.tl or_mix 2
@@ -5121,7 +5055,6 @@ cosmic/template/markup.tl or_mix 2
 cosmic/template/parse.tl or_mix 1
 cosmic/template_build_test.tl or_mix 3
 cosmic/template_check_test.tl or_mix 1
-cosmic/template_example.tl or_mix 4
 cosmic/template_fuzz_test.tl or_mix 6
 cosmic/template_html5lib_tokenizer_test.tl or_mix 3
 cosmic/template_html5lib_tree_test.tl or_mix 1
@@ -5138,9 +5071,7 @@ cosmic/url_test.tl or_mix 3
 cosmic/web/app.tl or_mix 2
 cosmic/web/app_test.tl or_mix 10
 cosmic/web/assets.tl or_mix 1
-cosmic/web/assets_example.tl or_mix 1
 cosmic/web/assets_test.tl or_mix 4
-cosmic/web/cookies_example.tl or_mix 1
 cosmic/web/cookies_fuzz_test.tl or_mix 1
 cosmic/web/cookies_test.tl or_mix 12
 cosmic/web/cors.tl or_mix 1
@@ -5153,7 +5084,6 @@ cosmic/web/dev_test.tl or_mix 4
 cosmic/web/errors.tl or_mix 1
 cosmic/web/headers.tl or_mix 1
 cosmic/web/htmx.tl or_mix 2
-cosmic/web/htmx_example.tl or_mix 1
 cosmic/web/htmx_test.tl or_mix 8
 cosmic/web/input.tl or_mix 2
 cosmic/web/input_multipart_test.tl or_mix 2
@@ -5164,7 +5094,6 @@ cosmic/web/request_test.tl or_mix 4
 cosmic/web/router.tl or_mix 1
 cosmic/web/router_fuzz_test.tl or_mix 3
 cosmic/web/router_test.tl or_mix 1
-cosmic/web/secret_example.tl or_mix 1
 cosmic/web/secret_test.tl or_mix 6
 cosmic/web/serve_test.tl or_mix 6
 cosmic/web/session/cookie_test.tl or_mix 4
@@ -5173,12 +5102,10 @@ cosmic/web/session/session_test.tl or_mix 8
 cosmic/web/session/sqlite_test.tl or_mix 3
 cosmic/web/sse.tl or_mix 1
 cosmic/web/static.tl or_mix 1
-cosmic/web/static_example.tl or_mix 1
 cosmic/web/static_test.tl or_mix 1
 cosmic/web/testing_test.tl or_mix 1
 cosmic/web/typed_test.tl or_mix 2
 cosmic/zip_test.tl or_mix 4
-doc/guides/web.md or_mix 1
 eval/arena_test.tl or_mix 4
 eval/check/grade.tl or_mix 2
 eval/check/grade_test.tl or_mix 2
@@ -5763,7 +5690,6 @@ core/syscalls_tool_test.tl concat_type 1
 core/syscalls_tool_unsandboxed_test.tl concat_type 2
 cosmic/archive_fuzz_test.tl concat_type 8
 cosmic/archive_test.tl concat_type 7
-cosmic/channel_example.tl concat_type 1
 cosmic/channel_test.tl concat_type 3
 cosmic/child.tl concat_type 29
 cosmic/child_declared_types_test.tl concat_type 1
@@ -5781,14 +5707,12 @@ cosmic/child_seatbelt_test.tl concat_type 1
 cosmic/child_task_tool_test.tl concat_type 7
 cosmic/compress_test.tl concat_type 14
 cosmic/csv.tl concat_type 10
-cosmic/csv_example.tl concat_type 1
 cosmic/csv_fuzz_test.tl concat_type 26
 cosmic/csv_load_test.tl concat_type 2
 cosmic/csv_test.tl concat_type 7
 cosmic/declared_types_test.tl concat_type 1
 cosmic/flags_test.tl concat_type 2
 cosmic/fs_append_test.tl concat_type 2
-cosmic/fs_example.tl concat_type 1
 cosmic/fs_test.tl concat_type 19
 cosmic/hash_test.tl concat_type 12
 cosmic/html_test.tl concat_type 4
@@ -5849,7 +5773,7 @@ cosmic/store_seal_test.tl concat_type 2
 cosmic/stream_fd_test.tl concat_type 3
 cosmic/stream_test.tl concat_type 2
 cosmic/string.tl concat_type 1
-cosmic/tar_fuzz_test.tl concat_type 3
+cosmic/tar_fuzz_test.tl concat_type 4
 cosmic/template/codegen.tl concat_type 2
 cosmic/template/context.tl concat_type 2
 cosmic/template/dialect_vendored_test.tl concat_type 1
@@ -5878,7 +5802,6 @@ cosmic/web/headers.tl concat_type 1
 cosmic/web/headers_test.tl concat_type 1
 cosmic/web/htmx_test.tl concat_type 1
 cosmic/web/input.tl concat_type 1
-cosmic/web/input_example.tl concat_type 1
 cosmic/web/input_fuzz_test.tl concat_type 1
 cosmic/web/input_multipart_test.tl concat_type 5
 cosmic/web/input_test.tl concat_type 4
@@ -5894,7 +5817,6 @@ cosmic/web/sse_fuzz_test.tl concat_type 1
 cosmic/web/sse_test.tl concat_type 9
 cosmic/web/static_test.tl concat_type 4
 cosmic/web/testing.tl concat_type 1
-doc/guides/command-line.md concat_type 1
 eval/check/grade.tl concat_type 55
 eval/check/grade_test.tl concat_type 5
 eval/check/testdata_test.tl concat_type 1
@@ -6038,18 +5960,18 @@ cosmic/child_seatbelt_test.tl compare_disjoint 1
 cosmic/compress_test.tl compare_disjoint 2
 cosmic/http/init.tl compare_disjoint 1
 cosmic/http/multipart_test.tl compare_disjoint 1
-cosmic/http/server.tl compare_disjoint 5
+cosmic/http/server.tl compare_disjoint 4
 cosmic/http/server_test.tl compare_disjoint 1
 cosmic/http/wire.tl compare_disjoint 1
 cosmic/http_timeout_test.tl compare_disjoint 3
 cosmic/internal/connector.tl compare_disjoint 1
 cosmic/internal/relay_config.tl compare_disjoint 1
 cosmic/internal/relay_resolv.tl compare_disjoint 4
-cosmic/internal/relay_server.tl compare_disjoint 7
+cosmic/internal/relay_server.tl compare_disjoint 4
 cosmic/internal/relay_server_test.tl compare_disjoint 1
 cosmic/json.tl compare_disjoint 5
 cosmic/json_test.tl compare_disjoint 1
-cosmic/net.tl compare_disjoint 3
+cosmic/net.tl compare_disjoint 1
 cosmic/net_resolve_tool_test.tl compare_disjoint 1
 cosmic/net_serve_test.tl compare_disjoint 3
 cosmic/net_test.tl compare_disjoint 1
@@ -6058,10 +5980,8 @@ cosmic/removed_test.tl compare_disjoint 2
 cosmic/sandbox/policy.tl compare_disjoint 2
 cosmic/sandbox/seatbelt_test.tl compare_disjoint 1
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
-cosmic/shape_example.tl compare_disjoint 1
 cosmic/shape_test.tl compare_disjoint 4
 cosmic/sqlite.tl compare_disjoint 4
-cosmic/stream.tl compare_disjoint 2
 cosmic/tar_fuzz_test.tl compare_disjoint 1
 cosmic/template/codegen.tl compare_disjoint 1
 cosmic/template/context.tl compare_disjoint 1
@@ -6069,19 +5989,14 @@ cosmic/template/parse.tl compare_disjoint 1
 cosmic/test.tl compare_disjoint 5
 cosmic/time.tl compare_disjoint 2
 cosmic/url.tl compare_disjoint 1
-cosmic/web/app.tl compare_disjoint 3
-cosmic/web/cors.tl compare_disjoint 1
-cosmic/web/dev.tl compare_disjoint 3
-cosmic/web/errors.tl compare_disjoint 1
-cosmic/web/middleware.tl compare_disjoint 2
+cosmic/web/app.tl compare_disjoint 2
 cosmic/web/request.tl compare_disjoint 1
 cosmic/web/request_test.tl compare_disjoint 1
 cosmic/web/router.tl compare_disjoint 3
 cosmic/web/session/init.tl compare_disjoint 3
 cosmic/web/sse.tl compare_disjoint 3
-cosmic/web/static.tl compare_disjoint 3
-cosmic/web/testing.tl compare_disjoint 2
-cosmic/web_example.tl compare_disjoint 1
+cosmic/web/static.tl compare_disjoint 2
+cosmic/web/testing.tl compare_disjoint 1
 cosmic/zip_fuzz_test.tl compare_disjoint 1
 eval/check/grade.tl compare_disjoint 7
 lang/parser.tl compare_disjoint 3
@@ -6125,8 +6040,7 @@ build/fix/fix_test.tl literal_missing 5
 build/fix/init.tl literal_missing 7
 build/fix/stmt.tl literal_missing 2
 build/fix/typescan_test.tl literal_missing 2
-build/flow.tl literal_missing 3
-build/flow_test.tl literal_missing 1
+build/flow.tl literal_missing 2
 build/fuzz/init.tl literal_missing 3
 build/hash.tl literal_missing 2
 build/help_source.tl literal_missing 1
@@ -6140,7 +6054,7 @@ build/link_files.tl literal_missing 2
 build/link_resolve.tl literal_missing 1
 build/link_text.tl literal_missing 2
 build/links.tl literal_missing 1
-build/lsp/init.tl literal_missing 2
+build/lsp/init.tl literal_missing 1
 build/rand.tl literal_missing 3
 build/rand_test.tl literal_missing 28
 build/rebuild_lock.tl literal_missing 4
@@ -6177,7 +6091,6 @@ build/version_store_test.tl literal_missing 1
 build/version_test.tl literal_missing 1
 build/version_tool_test.tl literal_missing 1
 build/workers.tl literal_missing 1
-build/workflows_test.tl literal_missing 1
 build/zig.tl literal_missing 3
 build/zig_fetch_test.tl literal_missing 5
 build/zig_test.tl literal_missing 1
@@ -6190,15 +6103,15 @@ ci/cosmic_ci/github_api.tl literal_missing 3
 ci/cosmic_ci/github_api_test.tl literal_missing 11
 ci/cosmic_ci/github_fake.tl literal_missing 1
 ci/cosmic_ci/host_id_test.tl literal_missing 1
-ci/cosmic_ci/orchestration_test.tl literal_missing 4
+ci/cosmic_ci/orchestration_test.tl literal_missing 1
 ci/cosmic_ci/prerelease_test.tl literal_missing 3
-ci/cosmic_ci/queue_stage_test.tl literal_missing 2
+ci/cosmic_ci/queue_stage_test.tl literal_missing 1
 ci/cosmic_ci/report_test.tl literal_missing 1
 ci/cosmic_ci/runner.tl literal_missing 11
 ci/cosmic_ci/runner_test.tl literal_missing 14
 ci/cosmic_ci/verdicts.tl literal_missing 1
 ci/run_local.tl literal_missing 2
-core/allocation_test.tl literal_missing 4
+core/allocation_test.tl literal_missing 3
 core/artifact_fd_tool_test.tl literal_missing 1
 core/connector_public_test.tl literal_missing 1
 core/connector_test.tl literal_missing 17
@@ -6230,15 +6143,11 @@ cosmic/child_relay_test.tl literal_missing 2
 cosmic/child_seatbelt_database_test.tl literal_missing 2
 cosmic/child_seatbelt_test.tl literal_missing 4
 cosmic/coverage.tl literal_missing 1
-cosmic/declared_types_test.tl literal_missing 6
-cosmic/errors_example.tl literal_missing 1
+cosmic/declared_types_test.tl literal_missing 4
 cosmic/fs.tl literal_missing 6
 cosmic/http/init.tl literal_missing 10
 cosmic/http/server.tl literal_missing 1
-cosmic/http/server_declared_types_test.tl literal_missing 1
-cosmic/http/server_example.tl literal_missing 1
-cosmic/http/server_test.tl literal_missing 13
-cosmic/http/server_tool_test.tl literal_missing 2
+cosmic/http/server_test.tl literal_missing 12
 cosmic/http/wire_test.tl literal_missing 1
 cosmic/http_test.tl literal_missing 1
 cosmic/internal/connector.tl literal_missing 4
@@ -6247,23 +6156,14 @@ cosmic/internal/relay_handed_lost_test.tl literal_missing 2
 cosmic/internal/relay_handed_test.tl literal_missing 4
 cosmic/internal/relay_main.tl literal_missing 2
 cosmic/internal/relay_server.tl literal_missing 1
-cosmic/internal/relay_server_native_test.tl literal_missing 1
-cosmic/internal/relay_server_test.tl literal_missing 72
+cosmic/internal/relay_server_test.tl literal_missing 52
 cosmic/internal/relay_start.tl literal_missing 4
-cosmic/internal/relay_token_fuzz_test.tl literal_missing 1
 cosmic/internal/relay_wire.tl literal_missing 3
-cosmic/json.tl literal_missing 3
-cosmic/json_example.tl literal_missing 2
-cosmic/json_fuzz_test.tl literal_missing 5
-cosmic/json_reader_fuzz_test.tl literal_missing 3
-cosmic/json_reader_test.tl literal_missing 22
-cosmic/json_test.tl literal_missing 34
+cosmic/json.tl literal_missing 1
+cosmic/json_reader_test.tl literal_missing 12
 cosmic/net.tl literal_missing 7
-cosmic/net_example.tl literal_missing 1
-cosmic/net_serve_test.tl literal_missing 25
-cosmic/net_tcp_test.tl literal_missing 2
+cosmic/net_serve_test.tl literal_missing 4
 cosmic/net_test.tl literal_missing 2
-cosmic/net_tool_test.tl literal_missing 1
 cosmic/policy_test.tl literal_missing 2
 cosmic/poll.tl literal_missing 4
 cosmic/poll_example.tl literal_missing 1
@@ -6275,72 +6175,35 @@ cosmic/sandbox/init.tl literal_missing 1
 cosmic/sandbox/seatbelt_test.tl literal_missing 2
 cosmic/sandbox_test.tl literal_missing 14
 cosmic/seatbelt_network_probe_test.tl literal_missing 1
-cosmic/shape_fuzz_test.tl literal_missing 1
-cosmic/shape_test.tl literal_missing 4
 cosmic/signal.tl literal_missing 1
 cosmic/sqlite.tl literal_missing 2
-cosmic/stream.tl literal_missing 8
-cosmic/stream_example.tl literal_missing 2
-cosmic/stream_fd_test.tl literal_missing 8
+cosmic/stream.tl literal_missing 6
 cosmic/stream_test.tl literal_missing 6
 cosmic/tar.tl literal_missing 4
-cosmic/template_html5lib_tokenizer_test.tl literal_missing 1
 cosmic/test.tl literal_missing 1
 cosmic/time.tl literal_missing 4
 cosmic/web/app.tl literal_missing 3
-cosmic/web/app_test.tl literal_missing 49
 cosmic/web/assets.tl literal_missing 4
-cosmic/web/builtin.tl literal_missing 1
-cosmic/web/cors_example.tl literal_missing 5
-cosmic/web/cors_test.tl literal_missing 40
-cosmic/web/csrf.tl literal_missing 1
-cosmic/web/csrf_test.tl literal_missing 86
-cosmic/web/dev.tl literal_missing 3
-cosmic/web/dev_example.tl literal_missing 2
-cosmic/web/dev_supervise_test.tl literal_missing 2
-cosmic/web/dev_test.tl literal_missing 32
-cosmic/web/headers_example.tl literal_missing 1
-cosmic/web/headers_test.tl literal_missing 4
-cosmic/web/htmx_example.tl literal_missing 7
-cosmic/web/htmx_test.tl literal_missing 24
+cosmic/web/csrf_test.tl literal_missing 1
+cosmic/web/dev_test.tl literal_missing 3
+cosmic/web/htmx_test.tl literal_missing 7
 cosmic/web/input.tl literal_missing 2
-cosmic/web/input_example.tl literal_missing 13
-cosmic/web/input_fuzz_test.tl literal_missing 1
-cosmic/web/input_multipart_fuzz_test.tl literal_missing 1
-cosmic/web/input_multipart_test.tl literal_missing 11
-cosmic/web/input_test.tl literal_missing 19
-cosmic/web/middleware.tl literal_missing 1
-cosmic/web/origin_test.tl literal_missing 4
 cosmic/web/request.tl literal_missing 2
-cosmic/web/request_test.tl literal_missing 33
 cosmic/web/route.tl literal_missing 2
 cosmic/web/router.tl literal_missing 5
-cosmic/web/router_fuzz_test.tl literal_missing 2
-cosmic/web/router_test.tl literal_missing 9
-cosmic/web/serve_test.tl literal_missing 26
-cosmic/web/session/cookie.tl literal_missing 2
-cosmic/web/session/csrf_example.tl literal_missing 15
-cosmic/web/session/session_example.tl literal_missing 9
-cosmic/web/session/session_test.tl literal_missing 25
-cosmic/web/session/sqlite.tl literal_missing 1
-cosmic/web/sse.tl literal_missing 9
-cosmic/web/sse_example.tl literal_missing 7
+cosmic/web/serve_test.tl literal_missing 6
+cosmic/web/session/cookie.tl literal_missing 1
+cosmic/web/session/csrf_example.tl literal_missing 4
+cosmic/web/session/session_example.tl literal_missing 4
+cosmic/web/session/session_test.tl literal_missing 1
+cosmic/web/sse.tl literal_missing 8
+cosmic/web/sse_example.tl literal_missing 1
 cosmic/web/sse_fuzz_test.tl literal_missing 1
-cosmic/web/sse_test.tl literal_missing 65
-cosmic/web/static.tl literal_missing 1
-cosmic/web/static_example.tl literal_missing 5
-cosmic/web/static_test.tl literal_missing 41
-cosmic/web/testing.tl literal_missing 8
-cosmic/web/testing_test.tl literal_missing 27
-cosmic/web/typed_test.tl literal_missing 19
-cosmic/web_example.tl literal_missing 17
-cosmic/web_serve_example.tl literal_missing 2
+cosmic/web/sse_test.tl literal_missing 47
+cosmic/web/testing.tl literal_missing 5
 cosmic/zip.tl literal_missing 5
-doc/guides/web.md literal_missing 5
-eval/check/grade.tl literal_missing 3
-eval/result.tl literal_missing 1
+eval/check/grade.tl literal_missing 1
 eval/solve_test.tl literal_missing 3
-eval/summarize.tl literal_missing 1
 lang/check.tl literal_missing 8
 lang/declarations.tl literal_missing 5
 lang/lexer.tl literal_missing 8
@@ -6349,14 +6212,11 @@ lang/relation.tl literal_missing 1
 lang/scopes.tl literal_missing 1
 lang/translate.tl literal_missing 4
 lang/types.tl literal_missing 2
-test/sqlite_json_test.tl literal_missing 1
 # a field a literal names that its record lacks: the fields an interface gives
 cosmic/http/init.tl literal_unknown 3
 cosmic/http/wire.tl literal_unknown 3
 cosmic/net.tl literal_unknown 1
-cosmic/time.tl literal_unknown 7
 cosmic/web/sse.tl literal_unknown 1
-cosmic/zip.tl literal_unknown 6
 lang/codegen.tl literal_unknown 4
 lang/parser.tl literal_unknown 112
 lang/scopes.tl literal_unknown 4
@@ -6466,7 +6326,7 @@ cosmic/http/server_test.tl literal_needs_type 1
 cosmic/http_example.tl literal_needs_type 1
 cosmic/http_test.tl literal_needs_type 1
 cosmic/internal/relay_handed_lost_test.tl literal_needs_type 1
-cosmic/json_example.tl literal_needs_type 2
+cosmic/json_example.tl literal_needs_type 1
 cosmic/json_fuzz_test.tl literal_needs_type 1
 cosmic/json_path_test.tl literal_needs_type 3
 cosmic/json_test.tl literal_needs_type 6
@@ -6583,13 +6443,11 @@ cosmic/json_path_test.tl literal_shape 2
 cosmic/json_reader_test.tl literal_shape 1
 cosmic/json_test.tl literal_shape 2
 cosmic/shape_test.tl literal_shape 7
-cosmic/stream_example.tl literal_shape 1
 cosmic/stream_test.tl literal_shape 10
 cosmic/tar_test.tl literal_shape 3
 cosmic/template_check_test.tl literal_shape 1
 cosmic/template_fuzz_test.tl literal_shape 1
 cosmic/time.tl literal_shape 4
-cosmic/time_example.tl literal_shape 3
 cosmic/time_posix_fuzz_test.tl literal_shape 1
 cosmic/time_test.tl literal_shape 1
 cosmic/time_zone_test.tl literal_shape 1
@@ -6693,7 +6551,6 @@ cosmic/net_resolve_through_test.tl arms_differ 4
 cosmic/net_serve_test.tl arms_differ 17
 cosmic/net_tcp_test.tl arms_differ 3
 cosmic/net_test.tl arms_differ 3
-cosmic/shape_example.tl arms_differ 2
 cosmic/shape_test.tl arms_differ 11
 cosmic/signal.tl arms_differ 1
 cosmic/stream_test.tl arms_differ 2
@@ -7030,7 +6887,6 @@ cosmic/web/csrf_test.tl alternatives_as_value 1
 cosmic/web/headers_test.tl alternatives_as_value 3
 cosmic/web/session/cookie_test.tl alternatives_as_value 1
 cosmic/web/session/session_test.tl alternatives_as_value 3
-doc/guides/web.md alternatives_as_value 1
 lang/declarations.tl alternatives_as_value 2
 lang/literals_test.tl alternatives_as_value 2
 lang/relation_test.tl alternatives_as_value 2
@@ -7044,3 +6900,96 @@ cosmic/shape_test.tl cannot_infer 26
 cosmic/web/input_fuzz_test.tl cannot_infer 1
 # a call that answers nothing, used where a value is wanted
 cosmic/declared_types_test.tl no_value 1
+
+[examples]
+# The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which
+# [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
+# are the examples that only the new grammar, or a type the new checker does not yet have, can write cleanly; the fork
+# passes them as they stand, so the default mode shows none. A pin only falls.
+# TODO: write `mut` on the array or map each of these examples fills (`local taken: mut {string} = {}`) and on the one it
+# hands to `table.remove` or `rawset`, once the switch makes the new grammar the one the tool reads
+# (doc/plans/strict-teal.md, "the switch"): the fork has no word for it, so an example cannot show it and pass the default
+# mode.
+cosmic/channel_example.tl view_written 1
+cosmic/child_example.tl view_written 7
+cosmic/flags_example.tl view_written 4
+cosmic/fs_example.tl view_written 1
+cosmic/html_example.tl view_written 1
+cosmic/http/server_example.tl view_written 1
+cosmic/json_example.tl view_written 1
+cosmic/poll_example.tl view_as_mut 1
+cosmic/poll_example.tl view_written 5
+cosmic/removed_example.tl view_as_mut 2
+cosmic/removed_example.tl view_written 1
+cosmic/string_example.tl view_written 1
+cosmic/tar_example.tl view_written 1
+cosmic/web/input_example.tl view_written 1
+cosmic/web/sse_example.tl view_written 1
+cosmic/web_example.tl view_written 1
+# TODO: have `Env.all` answer `mut {string:string}` (a table the caller owns: `sys.environ` builds a new one on each call), once
+# the switch makes the new grammar the one the tool reads (doc/plans/strict-teal.md, "the switch"): the guides write the
+# child's entries into it, which the new checker refuses for a view.
+doc/guides/command-line.md view_written 3
+doc/guides/project.md view_written 2
+doc/guides/quickstart.md view_written 2
+doc/guides/web.md view_written 2
+doc/guides/web-api.md view_written 2
+doc/guides/web-deploy.md view_written 2
+doc/guides/web-forms.md view_written 2
+doc/guides/web-live.md view_written 2
+doc/guides/web-security.md view_written 2
+doc/guides/web-sessions.md view_written 2
+# TODO: declare the handles these examples close with `<close>` (a child, a connection, a listener, a query, a scratch
+# directory, a response, the signal guard) as classes, and write the metatable of the two examples that build one by hand
+# as a class, once the switch makes the new grammar the one the tool reads (doc/plans/strict-teal.md, "the switch"): only
+# that grammar has `class`, and the new checker refuses `<close>` on a record and a call of `setmetatable`.
+cosmic/child_example.tl close_not_closable 5
+cosmic/fs_example.tl close_not_closable 1
+cosmic/http/server_example.tl close_not_closable 1
+cosmic/http_example.tl close_not_closable 1
+cosmic/net_example.tl close_not_closable 12
+cosmic/poll_example.tl cast_refused 1
+cosmic/poll_example.tl literal_missing 1
+cosmic/poll_example.tl not_assignable 1
+cosmic/poll_example.tl setmetatable_call 1
+cosmic/removed_example.tl literal_missing 1
+cosmic/removed_example.tl setmetatable_call 1
+cosmic/sqlite_example.tl close_not_closable 1
+doc/guides/quickstart.md close_not_closable 1
+# TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
+# values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
+# `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. The switch
+# (doc/plans/strict-teal.md, "the switch") needs a JSON value type, or a decision that a document is a record, first.
+cosmic/json_example.tl arms_differ 3
+cosmic/removed_example.tl any_use 1
+cosmic/web/htmx_example.tl any_use 1
+cosmic/web/input_example.tl any_use 2
+cosmic/web/input_example.tl arms_differ 1
+cosmic/web_example.tl any_use 1
+cosmic/web_example.tl arms_differ 3
+doc/guides/web.md any_use 1
+# TODO: call `Sse.Event.html`, `Sse.Event.json` and `Sse.Event.text` as the functions they are once the switch
+# (doc/plans/strict-teal.md, "the switch") gives the functions of a nested record a place: `Sse.Event` is a type, so the
+# new checker finds no field `Event` in `Sse`, and a literal of the record `Event` must give the three functions its
+# declaration lists among its fields.
+cosmic/web/sse_example.tl field_unknown 4
+cosmic/web/sse_example.tl literal_missing 1
+# TODO: type the command line of `Flags.parse`, `Flags.asks_help` and `Flags.dispatch` as `{string}`, once the tree's own verbs
+# declare theirs so: every verb and entry point holds its argv as `{integer: string}` for the slot 0 that carries the program's
+# name (about 45 declarations and the `{ [0] = ... }` literals that build them), which the new checker takes no array literal
+# for. The switch (doc/plans/strict-teal.md, "the switch") decides where the program's name lives.
+cosmic/flags_example.tl literal_shape 4
+cosmic/flags_example.tl not_assignable 2
+# TODO: write the coroutine example of the reference with the typed coroutines of the switch (doc/plans/strict-teal.md,
+# "the switch"): the new checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.
+cosmic/removed_example.tl alternatives_as_value 1
+cosmic/removed_example.tl field_unknown 2
+cosmic/removed_example.tl overload_none 1
+# TODO: rewrite or retire these examples of forms the new grammar cuts (a `where` clause, a tuple type, a method written in
+# a block, a function of a generic record two dots deep) once the switch (doc/plans/strict-teal.md, "the switch") removes
+# the forms they teach; the [translated] stage pins the same forms.
+cosmic/removed_example.tl expected_name 2
+cosmic/removed_example.tl expected_token 2
+cosmic/removed_example.tl method_in_record 1
+cosmic/removed_example.tl tuple_type 1
+doc/guides/project.md function_path 1

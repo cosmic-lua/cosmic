@@ -173,7 +173,7 @@ local record Server
     --- is where a long-lived reply, a stream, is told to end. What it
     --- raises goes to [`Server.ServeSpec.on_error`] and the server stops
     --- all the same.
-    on_stop: function(server: Net.Server)
+    on_stop?: function(server: Net.Server)
     --- Given what a handler raised, with its stack, or why its reply
     --- could not be sent; nil to write each to stderr. See
     --- [`Net.ServeSpec.on_error`].
@@ -699,7 +699,8 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
       local idle: {Net.Conn} = {}
       for conn in pairs(s.idle) do idle[#idle + 1] = conn end
       for _, conn in ipairs(idle) do local _, _ = conn:close() end
-      if spec.on_stop ~= nil then spec.on_stop(server) end
+      local on_stop = spec.on_stop
+      if on_stop ~= nil then on_stop(server) end
     end,
     on_error = spec.on_error,
   }

@@ -98,7 +98,7 @@ function Example.serve()
       for line in lines:each() do assert(conn:write(line .. "\n")) end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local client <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
+      local client <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
       assert(client:write("hello\n"))
       local answer = assert(Stream.lines(client):read())
       print(answer)
