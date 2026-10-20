@@ -43,6 +43,8 @@ stands on another checkout's pass.
   boots a tool that carries the Lua the new generator wrote, and records that
   in its `compiled_by`: a run without the variable, or with the other mode,
   finds it unsettled and builds it again ([`build.reboot`]'s `settled_by`).
+  A lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too; a lone file of
+  [`ci/islands.txt`] stays on the fork, which the release that runs it reads.
   The compiles, the parses and the
   verdicts of such a run are keyed apart from the fork's, and by the code that
   reads (the checker and its readers, as the binary carries them). A module the
@@ -51,7 +53,8 @@ stands on another checkout's pass.
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the
   files it names alone, and a named test module that requires a refused one is
   refused itself. The build directory holds one mode's rows, so a run in the other mode reads the
-  tree again. A pool and `--check-types` are refused with it.
+  tree again. A pool is refused with it, and `--check-types` checks the facts
+  alone (below).
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
 `--bail` (`COSMIC_TEST_BAIL=1`) starts no test after the first failure.
@@ -311,6 +314,12 @@ Not checked: a `return f(x)`, a tail call, which a check would end; a
 vararg parameter or return; and a write to a field a record inherits or a
 generic record declares.
 
+With `COSMIC_GRAMMAR=new` the run compiles with the new checker, which
+writes the checks of narrowing alone (below): no parameter, return value or
+field write is checked, so the run reports rows of kind `fact` and no other.
+It is keyed apart from the fork's checked compile and from an unchecked one
+([`importer.checked_tool`]).
+
 The run ends with the count, the distinct violations and the commonest
 ten, each with the line that sent the value: the caller for a parameter,
 the `return` or the write for the others. `cosmic sql --build 'SELECT *
@@ -359,10 +368,12 @@ checker takes to run without one. Those properties run it with the hook the tool
 ([`build.test_worker`]'s `install_checks`), the `__fact` that [`lang.fact_wraps`] gives each read the place, the kinds, the
 enum strings, the classes and the tag of: a false conclusion raises as above and is also kept as a row of
 `type_violations` of kind `fact` (the read as `<file>:<line>:<column>`, the place as written, what the checker proved,
-what the value was), which survives a test that catches the error. A `cosmic` that such a test starts defines a `__fact`
-that answers its value and checks nothing ([`cmd/cosmic/main.tl`]). [`build.compile_grammar`]'s `compile`
-writes the wraps given `facts` (no flag of `cosmic compile` asks for them); the build compiles with the fork until the tool
-is wired to the new checker.
+what the value was), which survives a test that catches the error. A chunk with wraps begins by defining a `__fact` that
+answers its value where there is none ([`lang.codegen`]), so a wrapped read in a `cosmic` that such a test starts, in a relay
+or in a library the worker loads before it installs its hook answers its value, as the fork's `(__cosmic_tc or select)` does. [`build.compile_grammar`]'s `compile`
+writes the wraps given `facts` (no flag of `cosmic compile` asks for them), and `COSMIC_GRAMMAR=new cosmic test
+--check-types` has the build write them for the tree ([`build.pipeline`]'s `generate`), so a read the checker narrowed
+wrongly is a failing test and a row of `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants one).
 
 CI runs the whole suite so in the `checked` job of a full run
 (`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
@@ -500,18 +511,20 @@ Other rules:
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
+[`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
+[`ci/islands.txt`]: ../ci/islands.txt
 [`ci/README.md`]: ../ci/README.md
-[`cmd/cosmic/main.tl`]: ../cmd/cosmic/main.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
+[`importer.checked_tool`]: ../build/importer.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl

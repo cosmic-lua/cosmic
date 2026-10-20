@@ -116,7 +116,7 @@ harness_epoch.acknowledged = {
 
   ["build.shared_verdicts"] = "8ebd1caf3241a119bed76eb61f3992b681453bfef5e3cb19f12cee99b2b8ba31",
 
-  ["build.test"] = "abdb0372ab54db3595c7ea573393483cde9c74259f987b3a7dfc9eb59a1cdd27",
+  ["build.test"] = "6ae77456be6edcfb97d0821fc07dba5a3ee0d9d066e8b6204a8cc364fe5e1c19",
 
   ["build.test_inputs"] = "c4df041918cc0a05acae546709cdfd912b4b1e8cdb26b51d8e515abf7e58713c",
 
@@ -130,7 +130,7 @@ harness_epoch.acknowledged = {
 
   ["build.zig_caches"] = "ab1f618e4f1897e2afbe87026d1979e2a4cfaec1f736042aa3e73e9f1fe5f0fe",
 
-  ["cmd.cosmic.main"] = "70a258a49091eeaf6efe578d69ad1d489bde2b942f5d1e54557be4e1f94c5205",
+  ["cmd.cosmic.main"] = "2d26957d2b15907fee48c1fc319df0413b348cfd6115522c5a8fe52aecbc2afc",
 
   ["cosmic.child"] = "25ad068a62c7f9923c288b5e79c68f9d5f8a69b1ad4b712df1946de153017098",
 

@@ -402,29 +402,37 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
   end
 
   if needs_capture then
-    out[#out + 1] =
-      "--- A fresh `print` and a way to read back everything it caught, one"
-    out[#out + 1] =
-      "--- pair per running example. `core/surface.c`'s `surface_print` is a"
-    out[#out + 1] =
-      "--- plain global -- tab-separating its arguments and ending every call"
-    out[#out + 1] = "--- in one newline -- and this mirrors that exactly."
-    out[#out + 1] =
-      "local function __doctest_capture(): function(any...), function(): string"
-    out[#out + 1] = "  local lines: {string} = {}"
-    out[#out + 1] = "  local into = function(...: any): ()"
-    out[#out + 1] = "    local parts: {string} = {}"
-    out[#out + 1] = '    local n = select("#", ...)'
-    out[#out + 1] = "    for i = 1, n do"
-    out[#out + 1] = "      parts[i] = tostring((select(i, ...)))"
-    out[#out + 1] = "    end"
-    out[#out + 1] = '    lines[#lines + 1] = table.concat(parts, "\\t") .. "\\n"'
-    out[#out + 1] = "  end"
-    out[#out + 1] = "  local get = function(): string"
-    out[#out + 1] = "    return table.concat(lines)"
-    out[#out + 1] = "  end"
-    out[#out + 1] = "  return into, get"
-    out[#out + 1] = "end"
+    -- What it caught is a field of a record, which a closure may write and the new checker takes (an array written, or a
+    -- local a closure assigns, it refuses), as a guide's example is a project's code and no ceiling holds it. One text,
+    -- since each line written to `out` is a write the checker counts.
+    out[#out + 1] = [==[
+local record __doctest_caught
+  text: string
+end
+
+--- A fresh `print` and a way to read back everything it caught, one
+--- pair per running example. `core/surface.c`'s `surface_print` is a
+--- plain global -- tab-separating its arguments and ending every call
+--- in one newline -- and this mirrors that exactly.
+local function __doctest_capture(): function(any...), function(): string
+  local caught: __doctest_caught = { text = "" }
+  local into = function(...: any): ()
+    local line = ""
+    local n = select("#", ...)
+    for i = 1, n do
+      if i > 1 then
+        line = line .. "\t"
+      end
+      line = line .. tostring((select(i, ...)))
+    end
+    caught.text = caught.text .. line .. "\n"
+  end
+  local get = function(): string
+    return caught.text
+  end
+  return into, get
+end
+]==]
     out[#out + 1] = ""
   end
 

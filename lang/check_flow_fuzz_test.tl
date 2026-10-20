@@ -15,8 +15,8 @@
 --- The wraps are run with the `__fact` hook of the tool's worker ([`build.test_worker`]'s `fact`, which `install_checks`
 --- defines), which a violation also records as a row of `type_violations` in a checked run.
 ---
---- TODO: run checked narrowing in a real `cosmic test --check-types` run, the Lua compiled by the tool and not by
---- [`Programs.execute`], once the tool wires `--check-types` to the new checker (doc/plans/strict-teal.md, "the switch").
+--- The programs of the corpus the checker takes also run in a real `cosmic test --check-types` run, their Lua written by
+--- the tool and not by [`Programs.execute`] ([`build.fact_hook_tool_test`]).
 local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")

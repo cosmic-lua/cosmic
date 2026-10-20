@@ -391,6 +391,11 @@ function embed.tree(root: string, host?: boolean, under?: {string}): {string} | 
     return nil, load_trouble
   end
   local project = build_paths.resolve(root).projection
+  -- TODO: compile the project with the checker `COSMIC_GRAMMAR` names ([`importer.compile`]'s `grammar`, `GrammarMode.tool`, no
+  -- pool), once the fixtures of the tests that build a project here (their `cmd/<name>/main.tl` return a function, which the
+  -- new checker refuses outside the tree's ceilings as `export_not_declared`) are written in a form it takes: `cosmic build`
+  -- compiles with the fork whatever the variable says, which is the one place of the one-file and project paths left on it. It
+  -- must be done before the switch (doc/plans/strict-teal.md, "the switch"), which deletes the fork pipeline this compiles with.
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "", false,
       shared_compiles.for_build(), workers.pool(workers.tool_spec()))

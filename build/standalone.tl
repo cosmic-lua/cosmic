@@ -40,10 +40,13 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
+local GrammarMode = require("build.grammar_mode")
+local Islands = require("build.islands")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
 local log = require("build.logger").log
 local type compiler = require("build.compiler")
+local type Pipeline = require("build.pipeline")
 
 local record standalone
   --- A loaded chunk, or the entry point one returns.
@@ -64,13 +67,14 @@ end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
 --- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
---- no cache.
-local function cached_path(source: string, variables?: {string:string}): string | nil
+--- no cache. `grammar` names the checker that compiled it, so that the Lua of
+--- one is never taken for the other's.
+local function cached_path(source: string, variables?: {string:string}, grammar?: string): string | nil
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
   end
-  local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0" .. source)
+  local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0" .. (grammar or "") .. "\0" .. source)
   return dir .. "/" .. key .. ".lua"
 end
 
@@ -81,6 +85,13 @@ local function loaded(file: string, code: string): standalone.Main | nil, string
     return nil, file .. ": " .. tostring(chunk_trouble)
   end
   return chunk, ""
+end
+
+--- `file`'s Teal, checked and compiled to Lua by the new checker ([`build.pipeline`]): nil and every complaint it has when
+--- the file is not clean. The standard library's declarations are the new checker's, the ones the tool carries
+--- ([`build.checker_declarations`]).
+local function generate_new(file: string, source: string, options: Pipeline.Options): string | nil, string
+  return require("build.pipeline").lone(file, source, options)
 end
 
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
@@ -128,9 +139,37 @@ end
 --- `built`, when given, must be loaded by this binary's [`teal.load`],
 --- optionally stripped: the cache assumes this binary's compiler. Every
 --- check creates its own environment; previous declarations are not shared.
+--- `grammar` is the checker to compile with: the one `COSMIC_GRAMMAR` names
+--- where not given ([`build.grammar_mode`]). The new checker ([`build.pipeline`])
+--- holds the file to no ceiling, takes `cosmic.*` from this binary, and is not
+--- used for a file of [`ci/islands.txt`]: those stay on the fork, as the
+--- release that runs them reads Teal alone.
 function standalone.code(file: string, source: string,
-                         variables?: {string:string}, built?: compiler): string | nil, string
-  local cached = cached_path(source, variables)
+                         variables?: {string:string}, built?: compiler, grammar?: GrammarMode.Mode): string | nil, string
+  -- The checker that reads the file: the one COSMIC_GRAMMAR names, and the fork's for an island, a file the pinned
+  -- release reads and so must stay in the Teal that release reads.
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then
+      return nil, chosen_trouble
+    end
+    mode = chosen
+  end
+  if mode == "new" and Islands.holds(file) then
+    mode = "teal"
+  end
+  -- What the new checker reads besides the file is the declarations of the standard library, which the tool carries (so
+  -- they are part of the binary the cache name holds).
+  local options: Pipeline.Options | nil = nil
+  if mode == "new" then
+    local made, trouble = require("build.pipeline").alone()
+    if made == nil then
+      return nil, file .. ": " .. trouble
+    end
+    options = made
+  end
+  local cached = cached_path(source, variables, mode == "new" and "grammar-new" or nil)
   local code: string | nil
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
@@ -138,7 +177,13 @@ function standalone.code(file: string, source: string,
     code = read
   end
   if code == nil then
-    local generated, trouble = generate(file, source, built)
+    local generated: string | nil = nil
+    local trouble = ""
+    if options ~= nil then
+      generated, trouble = generate_new(file, source, options)
+    else
+      generated, trouble = generate(file, source, built)
+    end
     if generated == nil then
       return nil, trouble
     end
@@ -153,8 +198,9 @@ end
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
 --- loaded as `file`'s).
 function standalone.compile(file: string, source: string,
-                            variables?: {string:string}, built?: compiler): standalone.Main | nil, string
-  local code, trouble = standalone.code(file, source, variables, built)
+                            variables?: {string:string}, built?: compiler,
+                            grammar?: GrammarMode.Mode): standalone.Main | nil, string
+  local code, trouble = standalone.code(file, source, variables, built, grammar)
   if code == nil then
     return nil, trouble
   end

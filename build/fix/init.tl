@@ -886,6 +886,16 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
   return { broken = out, notes = notes, would = would, redefined = redefined, rewritten = rewritten }
 end
 
+local type LinkSource = fix.LinkSource
+
+--- Leaves why the build made to resolve a link failed in `unbuilt` of `target`. A write through a parameter typed with the
+--- record's own name, which the translation to the new grammar follows to the field and marks it `mut` ([`lang.translate`]):
+--- written as `assert(source, ...).unbuilt = why` it was not, the field stayed fixed, and a read a test narrowed before the
+--- build was believed after it (a checked run of the new checker found it, `COSMIC_GRAMMAR=new cosmic test --check-types`).
+local function leave_why(target: LinkSource, why: string)
+  target.unbuilt = why
+end
+
 --- Where `fix` reads what links name, over the project at `root`: its
 --- databases (`databases`, as [`docs.databases`] answers), opened when
 --- a link first names a symbol. A run over part of the tree builds the
@@ -906,7 +916,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
       local rebuilt, rebuild_trouble = rebuild_here("fix")
       if not rebuilt then
         -- Opened only once the context below is made and holds this source.
-        assert(source, "the link context opened before it was made").unbuilt = rebuild_trouble
+        leave_why(assert(source, "the link context opened before it was made"), rebuild_trouble)
       end
     end
     local found = databases()

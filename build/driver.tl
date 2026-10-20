@@ -830,10 +830,12 @@ function Driver.new(options: Driver.Options): Driver.Build
     -- none, a type that is none), and those of the translation (a method moved above a name it reads, which `[hazards]`
     -- counts): the fork would have refused the first, and the Lua of the second reads a global.
     -- A hazard of the translation that is no scope error (a shadow, a changed signature) is seen by the tree check `[hazards]`
-    -- alone, so a project outside the tree, which the new mode refuses today, would meet it silently.
+    -- alone, so a project or a lone file outside the tree, which the new mode builds from the declarations the tool carries
+    -- ([`build.checker_declarations`]), would meet it silently.
     --
-    -- TODO: count the shadow and signature hazards of a translation here, once the new mode builds a project outside cosmic's
-    -- tree ([`build.pipeline.options`] refuses one).
+    -- TODO: count the shadow and signature hazards of a translation here, if a project is to be built in the fork's Teal by
+    -- the new mode for longer than the rehearsal: the switch deletes the translator and with it the hazards
+    -- (doc/plans/strict-teal.md, "the switch"), so it is left until then.
     stage(result.scope_errors, Scopes.codes, "scoped", "scopes")
     stage(result.declared, Declarations.codes, "declared", "declarations")
     stage(result.bodies, Check.codes, "checked", "bodies")

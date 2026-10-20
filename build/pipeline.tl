@@ -119,6 +119,16 @@ local record Pipeline
   --- the ones the tool carries): no ceilings, so every error of the checker refuses.
   project: function(texts: CheckerDeclarations.Texts): Options
 
+  --- The options for a source that is no tree's (a lone file, a generated source): the declarations the tool carries
+  --- ([`build.checker_declarations`]) and no ceilings. nil and why where the tool carries none.
+  alone: function(): Options | nil, string
+
+  --- The Lua of the source `text`, which is the file `file`, checked as a module of its own that requires only what the
+  --- binary carries ([`Pipeline.carried`]) and written for `options`: nil and every line the checker refuses it for. A
+  --- warning is a refusal. Nothing is pinned but that a lone file returns its entry point, which no declaration describes: the
+  --- contracts, the test tail and the record-field uses are the tree's compile alone.
+  lone: function(file: string, text: string, options: Options, tests?: boolean): string | nil, string
+
   --- The `cosmic.*` modules of the running binary, each its stub or its source, as the fork reads them
   --- ([`teal.standard_text`]), a declaration ([`cosmic.sys`]) as one.
   carried: function(): Driver.Provider
@@ -219,6 +229,15 @@ function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
   }
 end
 
+function Pipeline.alone(): Pipeline.Options | nil, string
+  local carried, why = CheckerDeclarations.carried()
+  if carried == nil then
+    return nil, "COSMIC_GRAMMAR=new: this tool carries no declarations of the standard library (" .. why ..
+      "): boot the tree it was built from again (bin/zig build boot)"
+  end
+  return Pipeline.project(carried), ""
+end
+
 function Pipeline.unexpected(refused: {string}): {string}
   local out: {string} = {}
   for _, line in ipairs(refused) do
@@ -236,14 +255,7 @@ function Pipeline.options(root: string): Pipeline.Options | nil, string
     return nil, own_why
   end
   if not own then
-    -- The tool's own declarations of the standard library, as its projection carries those of the bindings of C: a project
-    -- has no checker of its own to read them from.
-    local carried, carried_why = CheckerDeclarations.carried()
-    if carried == nil then
-      return nil, "COSMIC_GRAMMAR=new: this tool carries no declarations of the standard library (" .. carried_why ..
-        "): boot the tree it was built from again (bin/zig build boot)"
-    end
-    return Pipeline.project(carried), ""
+    return Pipeline.alone()
   end
   local stdlib, stdlib_why = Fs.read(root .. "/checker/stdlib.d.tl")
   if stdlib == nil then
@@ -660,6 +672,49 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     return nil, dump_trouble
   end
   return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
+end
+
+function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string | nil, string
+  -- A module of its own, named for nothing a `require` can say.
+  local module = "lone"
+  local kind = tests == true and "test" or "main"
+  local built = Pipeline.over({ { file, text, module } }, { [file] = kind }, options)
+  local build = built.build
+  -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
+  local spliced, spec_trouble = TreeProgram.splice(build, module, file)
+  if spliced == nil then
+    return nil, spec_trouble
+  end
+  build:lower({ module })
+  local result = build:result(module, true)
+  if result == nil then
+    return nil, file .. ": the new checker's build has no module " .. module
+  end
+  local told = ""
+  if result.broken then
+    for _, p in ipairs(result.syntax) do
+      told = told .. ErrorRender.line(file, p) .. "\n"
+    end
+  else
+    -- What the file returns is its entry point ([`build.standalone`]), which nothing requires and so no declaration needs
+    -- to describe: the one error a lone file is allowed, whatever it returns.
+    local entry: Ceilings.Table = { stages = { checked = { [file .. " export_not_declared"] = 1 } }, none = true }
+    for _, line in ipairs(build:held(result, entry)) do
+      told = told .. line .. "\n"
+    end
+    for _, w in ipairs(result.warnings) do
+      told = told .. ErrorRender.line(file, w) .. "\n"
+    end
+  end
+  if told ~= "" then
+    return nil, told:sub(1, -2)
+  end
+  -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
+  local emitted = CompileGrammar.emit(build, result, false, true, false)
+  if emitted.code == nil then
+    return nil, file .. ": the generator wrote no Lua: " .. emitted.trouble
+  end
+  return emitted.code, ""
 end
 
 return Pipeline

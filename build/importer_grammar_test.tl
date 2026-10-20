@@ -8,6 +8,7 @@ local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
 local derivation = require("build.derivation")
 local importer = require("build.importer")
+local Pipeline = require("build.pipeline")
 local teal = require("build.teal")
 local work = require("build.work")
 
@@ -149,6 +150,15 @@ local function test_a_source_the_new_grammar_cannot_read_is_told_in_its_words_or
   assert(work.close(handle) and work.close(other))
 end
 
+local function lua_of(result: importer.Result, path: string): string
+  for _, m in ipairs(result.modules) do
+    if m.path == path then
+      return m.lua or ""
+    end
+  end
+  return ""
+end
+
 --- The files of a tree that is cosmic's own as far as the build asks: the directories and the importer, and ceilings of its own;
 --- and stand-ins for the standard library's declarations and the prelude of the fork it reads, which come late: the real ones
 --- take seconds to lower, and what these tests ask of the build does not read them.
@@ -194,6 +204,40 @@ local function test_a_refused_module_is_told_with_the_checkers_words_and_the_run
   assert(said:find("after.tl: not compiled: it requires bad, which the new checker refused", 1, true) ~= nil, said)
   assert(said:find("tuple.tl:1:", 1, true) ~= nil and said:find("(tuple_type)", 1, true) ~= nil, said)
   assert(result.catalog ~= nil, "the rows of the checker's codes are not offered")
+  assert(work.close(handle))
+end
+
+--- A function that reads a parameter after a test took nil out of it: the new checker narrows it, and a checked run asks the
+--- read to be checked.
+local NARROWED <const> = table.concat({
+  "local function name_of(x: string | nil): string",
+  "  if x == nil then",
+  "    return \"none\"",
+  "  end",
+  "  return x",
+  "end",
+  "return name_of",
+  "",
+}, "\n")
+
+local function test_a_checked_compile_wraps_the_reads_a_test_narrowed_and_is_keyed_apart(tmp: string)
+  local handle = staged(tmp .. "/own", own_tree({ ["narrowed.tl"] = NARROWED }, "[checked]\nnarrowed.tl export_not_declared 1\n"),
+    late_files())
+  local plain = assert(importer.compile(handle, built, "tool", false, nil, nil, false, "new"))
+  local checked = assert(importer.compile(handle, built, "tool", false, nil, nil, true, "new"))
+  local plain_lua, checked_lua = lua_of(plain, "narrowed"), lua_of(checked, "narrowed")
+  assert(plain_lua ~= "" and not plain_lua:find("__fact", 1, true), plain_lua)
+  local _, wraps = checked_lua:gsub("__fact%(", "")
+  assert(wraps == 1, tostring(wraps) .. " wraps in\n" .. checked_lua)
+  -- the place read is named as the checker found it
+  assert(checked_lua:find("\"x\"", 1, true) ~= nil and checked_lua:find("narrowed.tl:5:10", 1, true) ~= nil, checked_lua)
+  -- each is a compile of its own, under a key of its own, and neither is the fork's checks
+  assert(checked.compiled == 1 and plain.tool ~= checked.tool)
+  assert(checked.tool == importer.checked_tool(Pipeline.coded("tool"), true))
+  assert(checked.tool ~= importer.checked_tool(Pipeline.coded("tool")))
+  -- the compile before it stands for neither
+  local again = assert(importer.compile(handle, built, "tool", false, nil, nil, true, "new"))
+  assert(again.compiled == 0 and again.cached == 1)
   assert(work.close(handle))
 end
 

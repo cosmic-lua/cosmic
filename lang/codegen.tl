@@ -115,7 +115,10 @@ local record Codegen
   --- is then a test of membership, `({["a"] = true, ...})[v] == true`, where the fork's is for the kind (`type(v) ==
   --- "string"`): a string is no member of an enum for being a string, and a program that is told otherwise is wrong.
   --- `wraps` names, by the id of an expression, the arguments after its value of a call of `__fact` that wraps it:
-  --- `__fact(v, <arguments>)`, which a run that checks what [`lang.check`] concluded of a read defines.
+  --- `__fact(v, <arguments>)`, which a run that checks what [`lang.check`] concluded of a read defines. A chunk with any begins
+  --- with a definition of it that answers `v`, where none is (a process that installed no hook, a module loaded before the
+  --- worker installs its own), as the fork's `(__cosmic_tc or select)` answers it; a call that begins a line is no call of the
+  --- line above.
   --- `kinds` says what [`lang.check`] resolved a type name to, by the id of the name: `integer`, `number`, `string`,
   --- `boolean`, `function`, `true`, `false` or `nil`. A test `v is T` of a name of another module, whose declaration
   --- this generator cannot see, is then a test for that, where without it the name is a table.
@@ -1689,6 +1692,11 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local whole = new(1)
   add_child(whole, out)
   local written = (flatten(whole):gsub(" *\n", "\n"))
+  if next(G.wraps) ~= nil then
+    -- On the first line, which moves none. A chunk with wraps defines the global the wraps call where it has none, so that
+    -- it runs in a process where nothing else did.
+    written = "if not __fact then __fact = function(v) return v end end " .. written
+  end
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes = {}, {}, {}, {}, nil, nil, {}
   G.enums, G.wraps, G.kinds, G.served = {}, {}, {}, false

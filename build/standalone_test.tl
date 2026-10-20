@@ -3,8 +3,14 @@
 --- compile here is in-process; the runs of this program itself are in
 --- `standalone_tool_test.tl`.
 
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local standalone = require("build.standalone")
 local teal = require("build.teal")
+-- The new checker types a file against the declarations the tool carries, which only a worker that holds the tool's database
+-- ("cosmic") has.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
 -- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
 -- [`cosmic.archive`], which a standalone compile types from the store:
 -- required here, each is in this test's closure, so the store the
@@ -24,9 +30,15 @@ local _ = require("cosmic.removed")
 --- this user's: a read of that one is no input a verdict can hold.
 local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
   -- Vendor Lua lines contribute no tree coverage; checker diagnostics
-  -- carry the source's own positions independently of those lines.
+  -- carry the source's own positions independently of those lines. The
+  -- fork's words are what these tests hold, whatever the suite's mode.
   return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" },
-    (assert(teal.load(true))))
+    (assert(teal.load(true))), "teal")
+end
+
+--- [`standalone.compile`] with the new checker ([`build.pipeline`]), its cache in the test's own directory too.
+local function compile_new(tmp: string, file: string, source: string): standalone.Main | nil, string
+  return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" }, nil, "new")
 end
 
 --- Stripping vendor Lua lines changes neither emitted code nor checker
@@ -39,12 +51,12 @@ local function test_stripped_compiles_match_and_keep_environments_separate()
       "local x: integer = \"bad\"\nreturn x\n",
       'io.stderr:write("x")\n',
   }) do
-    local first, first_trouble = standalone.code("x.tl", source, {}, complete)
-    local second, second_trouble = standalone.code("x.tl", source, {}, stripped)
+    local first, first_trouble = standalone.code("x.tl", source, {}, complete, "teal")
+    local second, second_trouble = standalone.code("x.tl", source, {}, stripped, "teal")
     assert(first == second and first_trouble == second_trouble, second_trouble)
   end
-  assert(standalone.code("first.tl", "global leaked: integer = 1\nreturn leaked\n", {}, stripped))
-  local code, trouble = standalone.code("second.tl", "return leaked\n", {}, stripped)
+  assert(standalone.code("first.tl", "global leaked: integer = 1\nreturn leaked\n", {}, stripped, "teal"))
+  local code, trouble = standalone.code("second.tl", "return leaked\n", {}, stripped, "teal")
   assert(code == nil and trouble:find("unknown variable: leaked", 1, true) ~= nil, trouble)
 end
 
@@ -243,4 +255,98 @@ local function test_a_record_with_main_is_an_entry_point()
   assert(standalone.entry(main) == main)
   assert(standalone.entry({ other = main }) == nil)
   assert(standalone.entry(42) == nil)
+end
+
+local function test_a_file_compiles_with_the_new_checker_against_the_standard_library_and_runs(tmp: string)
+  local chunk = assert(compile_new(tmp, "x.tl", [[
+local Fs = require("cosmic.fs")
+return function(argv: {string}): integer
+  return #argv + Fs.stdout
+end
+]]))
+  local main = assert(standalone.entry(chunk()))
+  assert(main({ "a", "b" }) == 3)
+  -- a record with `main` is an entry point as well, and a `Script.main = ...` is the fork's form of its method
+  local record_chunk = assert(compile_new(tmp, "record.tl", [[
+local record Script
+  main: function({string}): integer
+end
+function Script.main(argv: {string}): integer
+  return #argv
+end
+return Script
+]]))
+  local entry = assert(standalone.entry(record_chunk()))
+  assert(entry({ "a" }) == 1)
+end
+
+--- The refusals of the fork that [`test_a_type_error_is_reported_with_its_place`] and the tests after it hold, in the new
+--- checker's words: the place, the code and what to write instead.
+local function test_the_new_checker_refuses_what_the_fork_refuses_with_a_place_a_code_and_the_replacement(tmp: string)
+  local chunk, trouble = compile_new(tmp, "bad.tl", "local x: integer = \"no\"\nreturn x\n")
+  assert(chunk == nil and trouble:find("bad.tl:1:", 1, true) == 1 and trouble:find("(not_assignable)", 1, true) ~= nil, trouble)
+  -- only the standard library can be required
+  chunk, trouble = compile_new(tmp, "work.tl", 'local w = require("build.work")\nreturn w\n')
+  assert(chunk == nil and trouble:find("work.tl:1:11: the project has no module `build.work` (require_unknown)", 1, true) ~= nil,
+    trouble)
+  -- a removed library is told what to write instead, for the field and the member used
+  chunk, trouble = compile_new(tmp, "old.tl", 'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
+  assert(chunk == nil and trouble:find("old.tl:2:3: `io` is not declared (unknown_variable): io.stderr is not available: " ..
+      "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
+  chunk, trouble = compile_new(tmp, "hex.tl", 'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
+  assert(chunk == nil and trouble:find("hex.tl:2:8: `Hash` has no field `hex` (field_unknown): Digest.hex was removed: " ..
+      "use Codec.hex(digest)", 1, true) ~= nil, trouble)
+  chunk, trouble = compile_new(tmp, "cli.tl", 'local Cli = require("cosmic.cli")\nreturn Cli.options.test\n')
+  assert(chunk == nil and trouble:find("Cli.options was removed: use Cli.verbs[verb].spec", 1, true) ~= nil, trouble)
+  chunk, trouble = compile_new(tmp, "bool.tl", 'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.open("x.db", true)\n')
+  assert(chunk == nil and trouble:find("bool.tl:2:28: `true` is `boolean`, where `Sqlite.OpenOptions?` is wanted as argument 2 " ..
+      "of `Sqlite.open` (not_assignable): Sqlite.OpenOptions replaced a boolean argument", 1, true) ~= nil, trouble)
+  -- a float into an integer accumulator is told how to hold it
+  chunk, trouble = compile_new(tmp, "acc.tl", "local peak = 0\npeak = peak + 1.5\nreturn peak\n")
+  assert(chunk == nil and trouble:find("acc.tl:2:8: `peak + 1.5` is `number`, where `integer` is wanted in the assignment to " ..
+      "`peak` (not_assignable)", 1, true) ~= nil, trouble)
+  -- a field a record lacks
+  chunk, trouble = compile_new(tmp, "stat.tl",
+    'local Fs = require("cosmic.fs")\nlocal st = assert(Fs.stat("."))\nreturn st.type\n')
+  assert(chunk == nil and trouble:find("stat.tl:3:8: ", 1, true) ~= nil and trouble:find("(field_unknown)", 1, true) ~= nil,
+    trouble)
+end
+
+--- The Lua of one checker is never the other's: the compile each keeps is under a name of its own.
+local function test_the_compile_of_each_checker_is_kept_apart(tmp: string)
+  local variables = { XDG_CACHE_HOME = tmp .. "/cache" }
+  local source = "local n: integer = 4\nreturn function(): integer\n  return n\nend\n"
+  local fork = assert(standalone.code("x.tl", source, variables, nil, "teal"))
+  local new = assert(standalone.code("x.tl", source, variables, nil, "new"))
+  assert(fork ~= "" and new ~= "")
+  local kept = assert(Fs.list(tmp .. "/cache/cosmic/standalone"))
+  assert(#kept == 2, tostring(#kept))
+  -- each stands for the next ask of its own
+  assert(standalone.code("x.tl", source, variables, nil, "new") == new)
+  assert(standalone.code("x.tl", source, variables, nil, "teal") == fork)
+  assert(#assert(Fs.list(tmp .. "/cache/cosmic/standalone")) == 2)
+end
+
+--- The files of ci/islands.txt stay on the fork: the pinned release reads them in Teal alone, and the new checker refuses a
+--- write to a view that the fork lets by.
+local function test_a_file_of_the_islands_stays_on_the_fork(tmp: string)
+  local source = "local lines: {string} = {}\nlines[#lines + 1] = \"x\"\nreturn function(): integer\n  return #lines\nend\n"
+  assert(Fs.mkdirs(tmp .. "/checkout/ci") and Fs.mkdirs(tmp .. "/checkout/build"))
+  assert(Fs.write(tmp .. "/checkout/ci/islands.txt", "# the islands\nbuild/zig.tl\nci/\n"))
+  assert(Fs.write(tmp .. "/checkout/build/zig.tl", source) and Fs.write(tmp .. "/checkout/build/other.tl", source))
+  local variables = { XDG_CACHE_HOME = tmp .. "/cache" }
+  -- the island is the fork's, and compiles
+  assert(standalone.code(tmp .. "/checkout/build/zig.tl", source, variables, nil, "new"))
+  -- another file of the checkout is the new checker's, and is refused
+  local code, trouble = standalone.code(tmp .. "/checkout/build/other.tl", source, variables, nil, "new")
+  assert(code == nil and trouble:find("(view_written)", 1, true) ~= nil, tostring(trouble))
+end
+
+--- A file run alone has no ceilings to raise, so its refusal never speaks of a pin.
+local function test_a_refusal_of_a_file_alone_speaks_of_no_pin(tmp: string)
+  local variables = { XDG_CACHE_HOME = tmp .. "/cache" }
+  local code, trouble = standalone.code("bad.tl", "local n: integer = \"no\"\nreturn n\n", variables, nil, "new")
+  assert(code == nil and trouble:find("(not_assignable)", 1, true) ~= nil, tostring(trouble))
+  assert(trouble:find("pin", 1, true) == nil, trouble)
+  assert(trouble:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, trouble)
 end

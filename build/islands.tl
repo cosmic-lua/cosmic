@@ -12,7 +12,15 @@
 --- [`build/perf_validation.tl`]. After the switch the tool reads every module in the new grammar, so these are
 --- written, as far as the two grammars have a common spelling, in the subset both parsers read: `blocked`
 --- counts what has none, by file, and a test holds each file to it.
+local Fs = require("cosmic.fs")
+
 local record Islands
+  --- Whether the file `file` is an island of the checkout it lies in: the nearest directory above it that holds
+  --- [`ci/islands.txt`] lists it, by its path below that directory, or a directory above it ("ci/"). A file outside any
+  --- such checkout is none. The tool reads a source it runs standalone in the new grammar unless it is one
+  --- ([`build.standalone`]).
+  holds: function(file: string): boolean
+
   --- For each file of `build/` in [`ci/islands.txt`], the forms the new grammar refuses that the pinned release
   --- needs, with how many of each (a lexer or parser code). A file with none is written in the common subset. A
   --- count only falls.
@@ -23,7 +31,39 @@ local record Islands
   blocked: {string: {string: integer}}
 end
 
+--- Whether the list `text` ([`ci/islands.txt`]: one path a line, what a `#` starts and blank lines left out) names `relative`,
+--- itself or a directory above it.
+local function listed(text: string, relative: string): boolean
+  for line in text:gmatch("[^\n]+") do
+    local path = line:gsub("#.*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if path == relative or (path:sub(-1) == "/" and relative:sub(1, #path) == path) then
+      return true
+    end
+  end
+  return false
+end
+
+local function holds(file: string): boolean
+  local absolute, _ = Fs.absolute(file)
+  if absolute == nil then
+    return false
+  end
+  local directory = Fs.dirname(absolute)
+  while true do
+    local text, _ = Fs.read(directory .. "/ci/islands.txt")
+    if text ~= nil then
+      return listed(text, absolute:sub(#directory + 2))
+    end
+    local parent = Fs.dirname(directory)
+    if parent == directory or parent == "" then
+      return false
+    end
+    directory = parent
+  end
+end
+
 local islands: Islands = {
+  holds = holds,
   blocked = {
     ["build/paths.tl"] = { nil_union = 4 },
     ["build/perf.tl"] = { nil_union = 9 },
