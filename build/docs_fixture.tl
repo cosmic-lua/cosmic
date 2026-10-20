@@ -13,6 +13,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
 local rebuild = require("build.rebuild")
@@ -34,7 +35,7 @@ local written = { value = 0 }
 --- path and kind as it does in a tree. Nothing is compiled, so a source
 --- need not type-check, and every module the tree holds is planned; the
 --- projection names as its compiler (`compiled_by`) the one a build in
---- this process compiles under ([`rebuild.compiler`]), as a build's does.
+--- this process compiles under ([`rebuild.compiled_by`]), as a build's does.
 function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(work.schema) do
@@ -51,7 +52,9 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   end
   local handle: work.Handle = { db = db, root = dir, dir = build_paths.required(dir), run = 1, inside = false }
   local built = assert(teal.load())
-  assert(importer.derive(handle, true, built))
+  -- Read as the build in this process reads, by the fork or, with `COSMIC_GRAMMAR=new`, by the new checker's syntax tree.
+  local grammar = assert(GrammarMode.mode())
+  assert(importer.derive(handle, true, built, nil, nil, nil, grammar))
   -- [`build.importer.compile`] plans each module under its key, beside
   -- its compile; this stands in for both, planning every module with
   -- nothing compiled, which no table the fixture is for reads.
@@ -74,7 +77,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- so a lookup takes the projection for its own code's
   -- ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = rebuild.compiler(), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
+    modules = {}, tool = rebuild.compiled_by(grammar), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
     worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
   }, nil, link_index.none))
   assert(db:close())

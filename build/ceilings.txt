@@ -1939,6 +1939,7 @@ build/link_text.tl view_written 50
 build/link_text_fuzz_test.tl view_written 3
 build/links.tl view_written 38
 build/links_test.tl view_written 5
+build/lookups_new_grammar_tool_test.tl view_written 4
 build/lsp/check.tl view_written 10
 build/lsp/check_test.tl view_written 1
 build/lsp/dependents.tl view_written 2

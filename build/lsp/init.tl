@@ -27,6 +27,10 @@
 --- tree, it stages nothing for the session ([`reboot.unchecked`]). Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
+-- TODO: once the switch deletes the fork (doc/plans/strict-teal.md, "the switch"), check a document, and read the project's
+-- modules, with the new checker (COSMIC_GRAMMAR=new): a session parses and splices with the fork's parser
+-- ([`build.lsp.source`], [`build.lsp.plan`], [`build.lsp.splice`]) and checks with the fork's `check_string`
+-- ([`build.lsp.check`]), so a document in the new grammar is refused with a syntax error whatever the mode.
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")

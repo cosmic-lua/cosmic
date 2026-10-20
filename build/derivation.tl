@@ -414,6 +414,10 @@ local function put_parse_rows(db: Sqlite.Handle, built: compiler, one: derivatio
   return true, ""
 end
 
+-- TODO: once the switch deletes the fork's analyzer (doc/plans/strict-teal.md, "the switch"), drop this fork reader of a
+-- parse: under COSMIC_GRAMMAR=new a build, a lookup and a test derive their rows with [`build.pipeline`]'s `derive` (the
+-- syntax tree), and only `cosmic fix` and `cosmic lsp` still reach this one.
+
 --- One parse of each of `fresh`, in the order given, each counted in
 --- `tally` and listed in `made`: what it requires, in order, the tests
 --- it defines, and whether it returns its own value. The rows go into

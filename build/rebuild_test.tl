@@ -7,6 +7,8 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local build_paths = require("build.paths")
+local GrammarMode = require("build.grammar_mode")
+local Pipeline = require("build.pipeline")
 local rebuild = require("build.rebuild")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -73,4 +75,44 @@ local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
   assert(db:close())
   assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
+end
+
+--- The compiler a projection records is the compiler's own in the fork's mode, as every default run records it, and in the
+--- new checker's another, told apart from it and from the fork's by the mode and by the code that reads, so that a lookup
+--- reads a projection only of the mode and the code that wrote it ([`writer.other_code`]).
+local function test_a_projection_names_the_new_checkers_code_as_its_compiler()
+  local compiler = rebuild.compiled_by("teal")
+  local new = rebuild.compiled_by("new")
+  assert(new ~= compiler and #new == 64, new)
+  assert(new == Pipeline.coded(GrammarMode.tool(compiler, "new")))
+  assert(rebuild.compiled_by("new") == new)
+end
+
+--- A stage reads the sources with the checker it is asked for: the new checker's syntax tree reads what only the new grammar
+--- spells (`mut`, `name?: T`) and the rows of its docs are staged, where the fork's parser refuses the file, naming it.
+local function test_a_stage_reads_the_sources_with_the_checker_it_is_asked_for(tmp: string)
+  local source = "--- A box.\nlocal record Box\n  --- How wide.\n  mut width: integer\n  --- A label.\n  label?: string\nend\nreturn Box\n"
+  local function staged(name: string, grammar: GrammarMode.Mode): string | nil, string
+    local root = tmp .. "/" .. name
+    assert(Fs.mkdirs(root))
+    assert(work.close((assert(work.open(root)))))
+    assert(Fs.write(root .. "/a.tl", source))
+    local where, trouble = rebuild.stage(root, (assert(teal.load())), grammar)
+    if where == nil then return nil, trouble end
+    assert(where.project and not where.busy)
+    local db = assert(Sqlite.open(build_paths.required(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT d.symbol FROM docs d JOIN inputs i ON i.source_hash = d.source_hash WHERE i.file = 'a.tl' ORDER BY d.line"))
+    assert(db:close())
+    local symbols = ""
+    for slot, row in ipairs(rows) do
+      symbols = symbols .. (slot > 1 and "," or "") .. row:text(1)
+    end
+    return symbols, ""
+  end
+  local new, new_trouble = staged("new", "new")
+  assert(new == ",Box,width,label", tostring(new) .. " " .. new_trouble)
+  local forked, forked_trouble = staged("forked", "teal")
+  assert(forked == nil and forked_trouble:find("a.tl", 1, true) ~= nil and forked_trouble:find("syntax error", 1, true) ~= nil,
+    tostring(forked) .. " " .. forked_trouble)
 end

@@ -397,6 +397,9 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
+  -- TODO: once the switch deletes the fork's compiler (doc/plans/strict-teal.md, "the switch"), stop loading it here: a build
+  -- with the new checker (COSMIC_GRAMMAR=new) hands `built` to a compile that parses and checks with the syntax tree, so the
+  -- load is spent on a compiler nothing asks.
   local built, load_trouble = teal.load()
   if built == nil then
     local _, _ = work.close(handle)

@@ -61,6 +61,11 @@
 --- that would link to one thing is made a link ([`build.links`]'s
 --- `rewrite`), and `--check` fails on one it would link.
 
+-- TODO: once the switch makes `cosmic fix` read the syntax tree first (doc/plans/strict-teal.md, "the switch"), read, check
+-- and rewrite a project's sources with the new syntax tree (build/syntax_*.tl) and compile them with the new checker
+-- (COSMIC_GRAMMAR=new): `cosmic fix` parses every file with the fork's parser (build.ast), derives rows with
+-- [`build.derivation`]'s `parse_fresh`, lays out and rewrites the fork's tree (build/fix/*.tl, [`build.links`]) and checks
+-- through the fork ([`build.fix.spill`]), so a file in the new grammar is refused with a syntax error and the mode is ignored.
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")

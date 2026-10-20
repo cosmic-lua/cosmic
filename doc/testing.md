@@ -49,7 +49,15 @@ stands on another checkout's pass.
   to is written in the new grammar then ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are
   compiled by it as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its
   syntax tree; and the coverage of a project counts the lines of the text it read, so a project written in the new
-  grammar (`mut`, a class, `T?`) runs `cosmic test` with coverage.
+  grammar (`mut`, a class, `T?`) runs `cosmic test` with coverage. `cosmic docs` and `cosmic uses` build the project
+  with it before they answer ([`build.rebuild`]), so a symbol declared with `mut` or `name?: T` is found, and a call
+  through a value of a record nested in its module is a use of the method it calls; `cosmic db` and `cosmic sql` read the
+  rows that build wrote. A call through a value of a class is no use yet, as with the fork. A module it refuses leaves the
+  last build as it was, and the lookup says why, as a build the fork stops does. A mistyped value is refused by `docs` and
+  `uses` as by `test`. In the tree's own Teal the rows are numbered in the text the translation wrote, which moves the
+  lines after a class, so the line `uses` and `docs` name there is a few off until the switch writes the tree in the new
+  grammar (doc/plans/strict-teal.md, "the switch"); a signature shows the translation's spelling (`mut {string}`,
+  `string?`).
   The compiles, the parses and the
   verdicts of such a run are keyed apart from the fork's, and by the code that
   reads (the checker and its readers, as the binary carries them). A module the
@@ -57,8 +65,8 @@ stands on another checkout's pass.
   nor does a module that requires it, and each is a failure of the run; a run
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the
   files it names alone, and a named test module that requires a refused one is
-  refused itself. The build directory holds one mode's rows, so a run in the other mode reads the
-  tree again. A pool is refused with it, and `--check-types` checks the facts
+  refused itself. The build directory holds one mode's rows, so a run or a lookup in the other mode reads the
+  tree again, and a projection the other mode wrote is left out by the lookups until a build of this mode writes it. A pool is refused with it, and `--check-types` checks the facts
   alone (below).
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
 
@@ -511,6 +519,7 @@ Other rules:
 [`build.paths`]: ../build/paths.tl
 [`build.pipeline`]: ../build/pipeline.tl
 [`build.reboot`]: ../build/reboot.tl
+[`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
