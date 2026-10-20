@@ -35,8 +35,15 @@ stands on another checkout's pass.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
 - `COSMIC_GRAMMAR=new` asks for the new checker ([`build.grammar_mode`]): the
   tree is read, checked against its ceilings and written by [`build.pipeline`]
-  in place of the fork's compiler. It builds cosmic's own tree alone; a
-  project is told to unset the variable. The compiles, the parses and the
+  in place of the fork's compiler. It builds any tree. A project outside
+  cosmic's own has no ceilings and no fork to fall back to: its globals are
+  the declarations of the standard library the tool carries
+  ([`build.checker_declarations`]), and a form only the fork reads is refused
+  with the new checker's words and fix. `bin/zig build boot` with the variable
+  boots a tool that carries the Lua the new generator wrote, and records that
+  in its `compiled_by`: a run without the variable, or with the other mode,
+  finds it unsettled and builds it again ([`build.reboot`]'s `settled_by`).
+  The compiles, the parses and the
   verdicts of such a run are keyed apart from the fork's, and by the code that
   reads (the checker and its readers, as the binary carries them). A module the
   new checker refuses, or cannot read, does not stop the run: it runs no tests,
@@ -475,6 +482,7 @@ Other rules:
   deep, those tests call [`Test.skip`].
 
 [`bin/cosmic`]: ../bin/cosmic
+[`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.checker_verdicts`]: ../build/checker_verdicts.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
@@ -485,6 +493,7 @@ Other rules:
 [`build.host_names`]: ../build/host_names.tl
 [`build.paths`]: ../build/paths.tl
 [`build.pipeline`]: ../build/pipeline.tl
+[`build.reboot`]: ../build/reboot.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl

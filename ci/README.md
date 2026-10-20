@@ -536,26 +536,39 @@ save, whose path actions/cache names relative to the workspace
 
 ### the rehearsal job
 
-The whole suite with the new checker (`COSMIC_GRAMMAR=new`, `build/pipeline.tl`)
-runs in a job of its own, `rehearsal` (`linux-x86_64-new-grammar`), on the
-checked job's host. It is a rehearsal of the switch
-(doc/plans/strict-teal.md, "the switch") and is informational: it runs on a
-full run only, `continue-on-error` marks its failure on the run and no job
-waits on it, so the `ci` join does not require it, and the job that cancels a queue run on a failed leg passes over it (ci.yml's
-`EXEMPT`; build/workflows_test.tl holds every `continue-on-error` job to both). It boots (`platform
-boot`), restores linux-x86_64's zig build outputs and compiles and saves
-neither, and runs the suite (`platform rehearsal`) in the verdicts of a file
-of its own, `new-grammar.db`, under a cache name of its own: a verdict of
-one grammar stands for no run of the other. A branch push shows the job as
-skipped, one of the exceptions `build/workflows_test.tl` names. The suite runs without `--bail`, which a queue run adds: the failures
-are judged over every test.
+The rehearsal of the switch (doc/plans/strict-teal.md, "the switch") runs in a job of its own, `rehearsal`
+(`linux-x86_64-new-grammar`), on the checked job's host. It is informational until the switch, where it becomes required: it
+runs on a full run only, `continue-on-error` marks its failure on the run and no job waits on it, so the `ci` join does not
+require it, and the job that cancels a queue run on a failed leg passes over it (ci.yml's `EXEMPT`; build/workflows_test.tl
+holds every `continue-on-error` job to both). A branch push shows the job as skipped, one of the exceptions
+`build/workflows_test.tl` names. The job restores linux-x86_64's zig build outputs and compiles and saves neither, and runs these phases in order:
 
-The run's failures are held to `testdata/gate/rehearsal.txt`, the failures the
-new checker is expected to have, one `<failure> -- <reason>` a line: a test
-(`<module> <test>`), a module the new checker refused (`<file> <code>`, the code of its first error) or a C function
-no test entered (`<file>:<function>`). The job fails for a failure the list lacks
-and for an entry whose failure did not happen, so the list only shrinks, and is
-empty at the switch (`ci/cosmic_ci/rehearsal.tl`).
+1. `boot`: the tree, with the fork's compiler, as every leg boots it.
+2. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot`. The new pipeline (`build/pipeline.tl`) compiles
+   it in one process, taking no compile another run made, and the tool it leaves carries the Lua the new generator wrote and
+   the declarations of the standard library a project is typed against (`build/checker_declarations.tl`). It records that it was
+   built so (its `compiled_by` is not its `compiler`, `reboot.settled_by`), so that a run that asks for the fork's builds it
+   again and one that asks for the new checker's does not. The phase fails for a tool that does not say so. A boot holds about
+   7 GB of memory at its peak.
+3. `rehearsal`: the whole suite on that tool (`cosmic test` with `COSMIC_GRAMMAR=new`), in the verdicts of a file of its own,
+   `new-grammar.db`, under a cache name of its own: a verdict of one grammar stands for no run of the other. The suite runs
+   without `--bail`, which a queue run adds: the failures are judged over every test. A run that built the tool again is no
+   run on the tool the phase booted, and fails.
+4. `rehearsal-project`: the two projects of `testdata/rehearsal`, each built and tested outside the tree with the new checker,
+   which holds a project to the whole checker, the error-slot rules of `build/contracts.tl` included (the fork holds cosmic's
+   own tree alone to them).
+   `project` is written in the Teal both checkers read and passes; `fork_only` is written in forms only the fork reads (nil
+   given for a type that does not hold it, a function assigned to a path of two dots) and is refused with the new checker's words
+   and fix, and with no word of a pin or of `build/ceilings.txt`, which a project has none of. There is no fork to fall back to.
+5. `rehearsal-seed`: all of `lang/` translated, compiled with `compile --grammar new`, and its tests run against the Lua
+   (`build/lang_proof.tl`); then the same translation compiled by the pinned release (`bin/cosmic-bootstrap`), whose Lua differs
+   from the tree's only in the files `lang/SEED_DIFFERS` lists, held both ways as the bridge holds `checker/SEED_DIFFERS`. The
+   bridge, `build.zig`'s `seedCompiler` and `checker/SEED_DIFFERS` stay the fork's until the switch.
+
+The run's failures are held to `testdata/gate/rehearsal.txt`, the failures the new checker is expected to have, one
+`<failure> -- <reason>` a line: a test (`<module> <test>`), a module the new checker refused (`<file> <code>`, the code of its
+first error) or a C function no test entered (`<file>:<function>`). The job fails for a failure the list lacks and for an
+entry whose failure did not happen, so the list only shrinks, and is empty at the switch (`ci/cosmic_ci/rehearsal.tl`).
 
 ### the Linux legs' container
 

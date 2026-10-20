@@ -41,7 +41,7 @@ end
 
 --- The ceilings of a few stages: `declared`, `scoped` and `checked` each a table of `<file> <code>` to the count.
 local function pins(declared: {string: integer}, scoped: {string: integer}, checked: {string: integer}): Ceilings.Table
-  return { stages = { declared = declared, scoped = scoped, checked = checked } }
+  return { stages = { declared = declared, scoped = scoped, checked = checked }, none = nil }
 end
 
 local RECORD <const> = "local record Box\n  n: integer\nend\nreturn Box\n"

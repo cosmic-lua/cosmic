@@ -12,6 +12,7 @@
 --- [`lang.stdlib_corrections`] where the driver reads it) and the prelude of the fork ([`checker/tl.tl`]'s `prelude`), less
 --- the names cosmic's runtime withholds ([`teal.withheld`]). A source is the fork's Teal, translated when read
 --- ([`lang.translate`]).
+local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local LangProof = require("build.lang_proof")
@@ -32,7 +33,8 @@ local record TreeProgram
 
   --- The sources of `entries`: pairs of a path below the root and its text, or with the module and the name the
   --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the fork's
-  --- Teal, less what `skip` leaves out. With `steps` the files that cannot be read in the new grammar once translated
+  --- Teal, less the programs of a `testdata/` directory. With `steps`, which cosmic's own tree takes and a project does
+  --- not, [`checker/tl.tl`] is left out too and the files that cannot be read in the new grammar once translated
   --- (lang/ast.tl and lang/types.tl, which use `where`, and cosmic/removed_example.tl) have their `where` clauses blanked, and
   --- each test of a record those clauses told apart is written as the test of its tag, wherever it is written
   --- ([`build.lang_proof`]'s steps): the program the pipeline checks. `kinds` says of a file what the working database says
@@ -63,6 +65,11 @@ local record TreeProgram
   --- away, and `_G` is answered by the checker itself.
   fork_globals: function(root: string, stdlib: Driver.Source | nil): Globals
 
+  --- The same globals from the texts themselves: the prelude (nil for none) and `stdlib`, as [`TreeProgram.fork_globals`]
+  --- reads them from the tree. A project outside cosmic's tree has them of the tool that builds it
+  --- ([`build.checker_declarations`]).
+  globals: function(prelude: string | nil, stdlib: Driver.Source | nil): Globals
+
   --- The declarations of the bindings of C ([`cosmic.sys`], the raw process and socket tables), written from the headers under
   --- `root` as the build derives them ([`build.gen_syscalls`]), as the entries [`TreeProgram.index`] takes: the file they stand
   --- for, the module, and the header the ceilings are kept under; none where the tree has no header.
@@ -82,7 +89,12 @@ local record TreeProgram
 end
 
 local function skipped(file: string): boolean
-  return file == "checker/tl.tl" or file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
+  return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
+end
+
+--- What cosmic's own tree leaves out as well: the fork's checker, which is no module of the tree it compiles.
+local function skipped_in_own_tree(file: string): boolean
+  return file == "checker/tl.tl" or skipped(file)
 end
 
 --- The text of the file `file` among `entries`.
@@ -132,7 +144,11 @@ function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: 
     tags = LangProof.tags(ast_text, types_text)
   end
   local mending = steps and ast_text ~= nil and types_text ~= nil
-  return Driver.index(entries, true, skipped, function(file: string, text: string): Driver.Extra
+  local skip = skipped
+  if steps then
+    skip = skipped_in_own_tree
+  end
+  return Driver.index(entries, true, skip, function(file: string, text: string): Driver.Extra
     local mend: Driver.Mend | nil = nil
     if mending then
       mend = mended(file, text, tags)
@@ -189,7 +205,7 @@ end
 
 --- The text between the `[=====[` marks of `tl`, the text of [`checker/tl.tl`]: the prelude of the fork, nil where it has none.
 local function prelude_of(tl: string): string | nil
-  return tl:match("%[=====%[\n(.-)%]=====%]")
+  return CheckerDeclarations.prelude_of(tl)
 end
 
 --
@@ -218,9 +234,17 @@ local function globals_of(prelude: string | nil, stdlib: Driver.Source | nil): T
   end }
 end
 
+function TreeProgram.globals(prelude: string | nil, stdlib: Driver.Source | nil): TreeProgram.Globals
+  return globals_of(prelude, stdlib)
+end
+
 function TreeProgram.fork_globals(root: string, stdlib: Driver.Source | nil): TreeProgram.Globals
   local tl, _ = Fs.read(root .. "/checker/tl.tl")
-  return globals_of(tl ~= nil and prelude_of(tl) or nil, stdlib)
+  local prelude: string | nil = nil
+  if tl ~= nil then
+    prelude = prelude_of(tl)
+  end
+  return globals_of(prelude, stdlib)
 end
 
 --

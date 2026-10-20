@@ -4,6 +4,8 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local type Log = require("cosmic.log")
 local paths = require("build.paths")
+local GrammarMode = require("build.grammar_mode")
+local Pipeline = require("build.pipeline")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
@@ -104,6 +106,19 @@ local function test_compiler_moved_compares_identities()
   assert(not reboot.compiler_moved(nil, "new"))
   assert(not reboot.compiler_moved("old", nil))
   assert(not reboot.compiler_moved(nil, nil))
+end
+
+--- A tool is settled by its compiler's identity for the fork and by the code that reads for the new checker, so that a run in
+--- the other mode finds it unsettled and builds it again.
+local function test_a_tool_is_settled_by_the_mode_the_run_asks_for()
+  for _, word in ipairs({ "", "teal", "bogus" }) do
+    assert(reboot.settled_by("abc", word) == "abc", word)
+  end
+  assert(reboot.settled_by("abc", nil) == "abc")
+  local new = reboot.settled_by("abc", "new")
+  assert(new ~= "abc" and #new == 64 and new == Pipeline.coded(GrammarMode.tool("abc", "new")), new)
+  -- another compiler is another tool, in either mode
+  assert(reboot.settled_by("abd", "new") ~= new and reboot.settled_by("abd", nil) == "abd")
 end
 
 -- TODO: `into`'s second answer, its nil fallback for the tree's compiler

@@ -17,21 +17,36 @@ Test.policy{ grants = {
 
 local built = assert(teal.load())
 
+--- The files of the sources of `index`, in order, as one line.
+local function files_of(index: Driver.Index): string
+  local files: {string} = {}
+  for _, source in ipairs(index.sources) do
+    files[#files + 1] = source.filename
+  end
+  return table.concat(files, " ")
+end
+
 local function test_the_fork_checker_and_the_programs_of_testdata_are_left_out_of_the_program()
   local index = TreeProgram.index({
     { "checker/tl.tl", "return 1\n" }, { "testdata/t.tl", "return 2\n" }, { "ci/testdata/b/c.tl", "return 3\n" },
     { "x/testdata/y.tl", "return 4\n" }, { "checker/flow.tl", "return 5\n" }, { "mytestdata/a.tl", "return 6\n" },
     { "lang/a.tl", "local x = 1\nreturn x\n" },
     { "doc/guides/g.md", "return 7\n", "doc.guides.g" }, { "gen/s.d.tl", "return 8\n", "cosmic.s", "core/s.h" },
-  }, false, {})
-  local kept: {string} = {}
-  for _, source in ipairs(index.sources) do
-    kept[#kept + 1] = source.filename
-  end
-  assert(table.concat(kept, " ") == "checker/flow.tl mytestdata/a.tl lang/a.tl doc/guides/g.md gen/s.d.tl", table.concat(kept, " "))
+  }, true, {})
+  local kept = files_of(index)
+  assert(kept == "checker/flow.tl mytestdata/a.tl lang/a.tl doc/guides/g.md gen/s.d.tl", kept)
   assert(assert(index.by_module["lang.a"]).translate)
   assert(assert(index.by_module["doc.guides.g"]).filename == "doc/guides/g.md")
   assert(assert(index.by_module["cosmic.s"]).pinned == "core/s.h")
+end
+
+--- A project's `checker/` is its own, so its file of the fork's name is a module of it; only cosmic's own tree leaves it out.
+local function test_a_project_keeps_a_file_of_the_forks_name()
+  local entries = { { "checker/tl.tl", "return 1\n" }, { "testdata/t.tl", "return 2\n" }, { "m.tl", "return 3\n" } }
+  local kept = files_of(TreeProgram.index(entries, false, {}))
+  assert(kept == "checker/tl.tl m.tl", kept)
+  local own = files_of(TreeProgram.index(entries, true, {}))
+  assert(own == "m.tl", own)
 end
 
 local function test_the_globals_are_the_prelude_and_the_library_less_what_the_runtime_withholds()

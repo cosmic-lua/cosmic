@@ -8,14 +8,15 @@
 --- read ([`lang.translate`]), set up as the pins are measured ([`build.tree_program`]); the `cosmic.*` modules the tree does
 --- not hold (a project's `require` of the standard library) are the binary's own, each its stub or its source, and the
 --- bindings of C are typed from the declarations the build writes of the headers ([`cosmic.sys`], the raw process and socket
---- tables), the tree's or the binary's. The globals of every module are the declarations of the Lua standard library.
+--- tables), the tree's or the binary's. The globals of every module are the declarations of the Lua standard library: in
+--- cosmic's tree the files of its `checker/`, in a project the ones the tool carries ([`build.checker_declarations`]).
 ---
---- THERE IS NO FALLBACK TO THE FORK. The mode is meant for any project: one written in a form only the fork reads is to be
---- refused with the new checker's words and fix ([`build.error_catalog`], [`build.error_render`]), and so it will be once the
---- new checker replaces the fork. Until the tool carries the declarations of the standard library ([`Pipeline.options`]) the
---- mode builds cosmic's own tree alone. The three modules of the tree that do not read in the new grammar once translated
+--- THERE IS NO FALLBACK TO THE FORK. The mode is for any project, and one written in a form only the fork reads is refused
+--- with the new checker's words and fix ([`build.error_catalog`], [`build.error_render`]), as it will be once the new checker
+--- replaces the fork. The three modules of the tree that do not read in the new grammar once translated
 --- ([`lang/ast.tl`] and [`lang/types.tl`], which use `where`, and [`cosmic/removed_example.tl`]) go through the mechanical
---- steps that [`build.lang_proof`] makes, so that the checker's own tests run on the Lua the new generator writes.
+--- steps that [`build.lang_proof`] makes, so that the checker's own tests run on the Lua the new generator writes; a
+--- project's modules have none of them.
 ---
 --- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a translation
 --- that does not parse (a pin lets it be counted, not compiled) and for a construct the generator does not write. The
@@ -30,6 +31,7 @@
 -- ceilings and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
 -- which the lines of a warning and of a translation that does not parse do not.
 local Ceilings = require("build.ceilings")
+local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
 local Contracts = require("build.contracts")
@@ -81,6 +83,9 @@ local record Pipeline
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
     standard: Driver.Provider | nil
+    --- Whether the tree is a project outside cosmic's own: it has none of the mends cosmic's own tree needs
+    --- ([`TreeProgram.index`]'s `steps`), and its checker is its own. Absent for cosmic's tree.
+    project: boolean | nil
   end
 
   --- A build over the tree and its ceilings.
@@ -104,15 +109,15 @@ local record Pipeline
     stubbed: Driver.Build | nil
   end
 
-  --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds. nil and why for any
-  --- other tree, a project's, whose globals the tool does not carry yet.
-  --
-  -- TODO: have the tool carry the declarations of the standard library, as the `decls` of its projection do the bindings of
-  -- C, so that a project's globals are the new checker's and not the carried fork's: once the staged tree takes
-  -- [`checker/stdlib.d.tl`] as a declaration (build/identity.tl's `is_input`). That moves the identity of the tool, so it
-  -- belongs with the change of the switch that boots, reboots and identifies the compiler (doc/plans/strict-teal.md, "the
-  -- switch"), and the project fixture of the rehearsal waits on it.
+  --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds; in any other
+  --- tree, a project's, the declarations of the standard library the tool carries ([`build.checker_declarations`]) and no
+  --- ceiling, so that every error of the checker refuses. nil and why where the tree cannot be told, or the tool carries
+  --- none of the declarations (a tool older than this one: boot it again).
   options: function(root: string): Options | nil, string
+
+  --- The options for a project outside cosmic's tree, whose globals are the declarations `texts` ([`Pipeline.options`] gives
+  --- the ones the tool carries): no ceilings, so every error of the checker refuses.
+  project: function(texts: CheckerDeclarations.Texts): Options
 
   --- The `cosmic.*` modules of the running binary, each its stub or its source, as the fork reads them
   --- ([`teal.standard_text`]), a declaration ([`cosmic.sys`]) as one.
@@ -140,6 +145,10 @@ local record Pipeline
   --- newly refused is named here with its reason, as the ceilings name a count.
   residue: function(): {string: string}
 
+  --- The refusals `refused` (a compile's, [`build.importer`]'s `Result.refused`) that [`Pipeline.residue`] does not name, in
+  --- order: those of a file it lists are expected, and a tool is written from a tree that has no others.
+  unexpected: function(refused: {string}): {string}
+
   --- The Lua and the bytecode of the module `m`, checked and written by the new checker, as [`build.compilation`]'s
   --- `generate` answers them: nil and why where the module is refused. A module is refused for a count over its ceiling
   --- ([`Driver.Build.held`]), a warning, a call no rule of the discipline judged beyond its `[untyped]` ceiling, and the
@@ -165,6 +174,11 @@ local record Pipeline
   --- ([`build.identity`]) holds none of it, so a default run is not read again for it.
   coded: function(tool: string): string
 
+  --- [`Pipeline.coded`] over the code the working database `db` stages, parsed, in place of the code the running binary
+  --- carries: the identity of a boot, which runs the tree's own code under a bootstrap release that carries another. nil and
+  --- why where the tree is not parsed.
+  coded_of: function(tool: string, db: Sqlite.Handle): string | nil, string
+
   --- The digest of the ceilings that hold each file, by file, every stage together: the compile of a module is keyed by the
   --- one of its file, so that a pin that falls judges the module again. A file with no ceiling has none. A module written
   --- from another file (a guide, a template) is the file it is written from, which its ceilings are kept under.
@@ -175,7 +189,7 @@ local record Pipeline
   --- the three files that need them ([`build.tree_program`]). A source that does not parse is listed in `broken` when given
   --- and stops the derive otherwise, told in the words of the new checker ([`build.error_render`]).
   derive: function(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                   made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
+                   made: {Derivation.Source}, broken?: {Derivation.Broken}, project?: boolean): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
   --- default), as [`ErrorCatalog.insert`] does.
@@ -197,14 +211,39 @@ function Pipeline.residue(): {string: string}
   return RESIDUE
 end
 
+function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
+  return {
+    globals = TreeProgram.globals(texts.prelude, Driver.source(CheckerDeclarations.stdlib_module(), "checker/stdlib.d.tl",
+      texts.stdlib, "decl")),
+    ceilings = { stages = {}, none = true }, types = true, standard = nil, project = true,
+  }
+end
+
+function Pipeline.unexpected(refused: {string}): {string}
+  local out: {string} = {}
+  for _, line in ipairs(refused) do
+    local file = line:match("^([^:\n]+):")
+    if file == nil or RESIDUE[file] == nil then
+      out[#out + 1] = line
+    end
+  end
+  return out
+end
+
 function Pipeline.options(root: string): Pipeline.Options | nil, string
   local own, own_why = tree.is_own(root)
   if own == nil then
     return nil, own_why
   end
   if not own then
-    return nil, "the tool carries no declaration of the standard library for the new checker yet, so " ..
-      "COSMIC_GRAMMAR=new does not build a project outside cosmic's tree: unset COSMIC_GRAMMAR (or set it to teal) to build it"
+    -- The tool's own declarations of the standard library, as its projection carries those of the bindings of C: a project
+    -- has no checker of its own to read them from.
+    local carried, carried_why = CheckerDeclarations.carried()
+    if carried == nil then
+      return nil, "COSMIC_GRAMMAR=new: this tool carries no declarations of the standard library (" .. carried_why ..
+        "): boot the tree it was built from again (bin/zig build boot)"
+    end
+    return Pipeline.project(carried), ""
   end
   local stdlib, stdlib_why = Fs.read(root .. "/checker/stdlib.d.tl")
   if stdlib == nil then
@@ -216,8 +255,8 @@ function Pipeline.options(root: string): Pipeline.Options | nil, string
   end
   return {
     globals = TreeProgram.fork_globals(root, Driver.source("checker.stdlib", "checker/stdlib.d.tl", stdlib, "decl")),
-    ceilings = ceilings, types = true, standard = nil,
-  }
+    ceilings = ceilings, types = true, standard = nil, project = nil,
+  }, ""
 end
 
 --- Whether the binary holds the module `name` as a declaration.
@@ -239,7 +278,7 @@ end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
-  local index = TreeProgram.index(entries, true, kinds)
+  local index = TreeProgram.index(entries, options.project ~= true, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
@@ -283,8 +322,14 @@ function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.
   return Pipeline.over(entries, kinds, options), ""
 end
 
---- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]).
-local function identity(): string
+--- Where the identity of the code finds a module's source and what it requires.
+local record Reader
+  source: function(name: string): string | nil
+  requires: function(name: string): {string}
+end
+
+--- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
+local function identity(reader: Reader): string
   local parts: {string} = {}
   local seen: {string: boolean} = {}
   local stack: {string} = { "build.pipeline" }
@@ -292,18 +337,57 @@ local function identity(): string
     local name = assert(table.remove(stack))
     if not seen[name] and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
       seen[name] = true
-      local source, _ = Store.source(name)
+      local source = reader.source(name)
       if source ~= nil then
         parts[#parts + 1] = name .. "\n" .. source
       end
-      local required, _ = Store.requires(name)
-      for _, next_name in ipairs(required or {}) do
+      for _, next_name in ipairs(reader.requires(name)) do
         stack[#stack + 1] = next_name
       end
     end
   end
   table.sort(parts)
   return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
+end
+
+--- The code as the running binary carries it.
+local carried_code: Reader = {
+  source = function(name: string): string | nil
+    local source, _ = Store.source(name)
+    return source
+  end,
+  requires = function(name: string): {string}
+    local required, _ = Store.requires(name)
+    return required or {}
+  end,
+}
+
+--- The code as the working database `db` stages it: a boot runs the tree's own, which the bootstrap release that runs it does
+--- not carry. A declaration is no code, and the binary answers no source for one.
+local function staged_code(db: Sqlite.Handle): Reader
+  return {
+    source = function(name: string): string | nil
+      local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND kind <> 'decl' LIMIT 1", { { text = name } })
+      if rows == nil then
+        return nil
+      end
+      local row = rows[1]
+      if row == nil then
+        return nil
+      end
+      return row:text(1)
+    end,
+    requires = function(name: string): {string}
+      local rows, _ = Sqlite.text_rows(db,
+        "SELECT DISTINCT r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
+          "WHERE i.path = ?1 AND i.kind <> 'decl' ORDER BY r.name", { { text = name } })
+      local out: {string} = {}
+      for _, row in ipairs(rows or {}) do
+        out[#out + 1] = row:text(1)
+      end
+      return out
+    end,
+  }
 end
 
 function Pipeline.discounted(result: Driver.Outcome)
@@ -317,7 +401,22 @@ function Pipeline.discounted(result: Driver.Outcome)
 end
 
 function Pipeline.coded(tool: string): string
-  return Hash.hex_sha256(tool .. "\0" .. identity())
+  return Hash.hex_sha256(tool .. "\0" .. identity(carried_code))
+end
+
+function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string | nil, string
+  -- The requires of a source are rows the parse of it made, so a tree not parsed yet has none: the identity would be the
+  -- pipeline's own source alone, and an edit to the checker would read as none.
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM inputs i JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = 'build.pipeline'")
+  if rows == nil then
+    return nil, trouble
+  end
+  local count = rows[1]
+  if count == nil or count:text(1) == "0" then
+    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
+  end
+  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db)))
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
@@ -343,12 +442,12 @@ function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer | nil, str
 end
 
 function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                         made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
+                         made: {Derivation.Source}, broken?: {Derivation.Broken}, project?: boolean): boolean, string
   local entries, kinds, trouble = entries_of(db)
   if entries == nil then
     return false, trouble
   end
-  local index = TreeProgram.index(entries, true, kinds)
+  local index = TreeProgram.index(entries, project ~= true, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: {string: Driver.Source} = {}
   for _, source in ipairs(index.sources) do
@@ -533,9 +632,14 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
     if read.untyped > allowed then
-      problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
-        "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
-        "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
+      if built.ceilings.none == true then
+        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+          "which no rule of the discipline judged: type what it calls through"
+      else
+        problems[#problems + 1] = m.file .. ": " .. String.counted(read.untyped, "call") .. " the checker gave no function, " ..
+          "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
+          "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
+      end
     end
     if #problems > 0 and judged ~= false then
       return nil, table.concat(problems, "\n")

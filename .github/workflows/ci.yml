@@ -1757,11 +1757,16 @@
       ],
     },
 
-    # The whole suite with the new checker (COSMIC_GRAMMAR=new, build/pipeline.tl), in a job of its own on linux-x86_64's
-    # host: a rehearsal of the switch (doc/plans/strict-teal.md, "the switch"), beside the legs and the checked job and
-    # run after neither. A full run only, on its own verdicts (cache name `linux-x86_64-new-grammar`, so no verdict of
-    # either grammar stands for the other), and informational: it is not among the jobs `ci` waits on, so a red
+    # The rehearsal of the switch (doc/plans/strict-teal.md, "the switch"), in a job of its own on linux-x86_64's host,
+    # beside the legs and the checked job and run after neither: the tree booted a second time with the new checker
+    # (COSMIC_GRAMMAR=new, build/pipeline.tl), the whole suite on that tool, a project outside the tree built with it and
+    # lang/ proved against the pinned seed. A full run only, on its own verdicts (cache name `linux-x86_64-new-grammar`, so
+    # no verdict of either grammar stands for the other), and informational: it is not among the jobs `ci` waits on, so a red
     # rehearsal marks the run and blocks no merge. Where `platform` runs, it runs.
+    #
+    # TODO: make this job required (drop `continue-on-error`, add it to `ci`'s needs and its gate, drop its name from the
+    # cancel job's EXEMPT) in the switch PR, where the new checker replaces the fork and testdata/gate/rehearsal.txt empties
+    # (doc/plans/strict-teal.md, "the switch").
     rehearsal: {
       needs: "reuse",
       if: "!cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'push' || github.ref == 'refs/heads/main')",
@@ -1877,9 +1882,24 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
         },
         {
+          name: "boot again with the new checker",
+          id: "rehearsal-boot",
+          run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-boot",
+        },
+        {
           name: "run the whole suite with the new checker",
           id: "rehearsal-suite",
           run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal",
+        },
+        {
+          name: "build a project outside the tree with the new checker",
+          id: "rehearsal-project",
+          run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-project",
+        },
+        {
+          name: "prove lang/ against the pinned seed",
+          id: "rehearsal-seed",
+          run: "cosmic-driver cosmic_ci/driver.tl platform rehearsal-seed",
         },
         {
           name: "keep only this run's test verdicts",

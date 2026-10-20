@@ -46,6 +46,9 @@ local record Ceilings
   --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated`, `read`, `typed` and `untyped`) to its count.
   record Table
     stages: {string: {string: integer}}
+    --- Whether the tree has no ceilings to be held to and none to raise: a project's. An error over a ceiling of 0 is then
+    --- listed without the pin that is not there.
+    none: boolean | nil
   end
 
   --- The path of the data file below the root of the tree.
@@ -77,8 +80,9 @@ local record Ceilings
 
   --- The errors of the file `file` over its ceilings in `pinned`, listed: each error of a code over its ceiling with its
   --- place, message and fix, then a line that says how many there are and what the ceiling is (`pinned N`). `what` says
-  --- where they are (`bodies`).
-  over: function(file: string, errors: {Finding}, codes: {string}, pinned: {string: integer}, what: string): Held
+  --- where they are (`bodies`). With `unpinned` (a tree without ceilings, [`Table.none`]) that line says the count alone.
+  over: function(file: string, errors: {Finding}, codes: {string}, pinned: {string: integer}, what: string,
+                 unpinned?: boolean): Held
 
   --- The ceilings of `pinned` that are above the counts in `found` (by key), one line each, with where to lower it.
   fallen: function(found: {string: integer}, pinned: {string: integer}, where: string): {string}
@@ -129,7 +133,7 @@ local STAGES <const>: {string: boolean} = {
 }
 
 function Ceilings.parse(text: string): Ceilings.Table | nil, string
-  local out: Ceilings.Table = { stages = {} }
+  local out: Ceilings.Table = { stages = {}, none = nil }
   local held: {string: integer} | nil = nil
   local stage = ""
   local number = 0
@@ -199,7 +203,7 @@ function Ceilings.of(ceilings: Ceilings.Table, stage: Ceilings.Stage): {string: 
 end
 
 function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}, pinned: {string: integer},
-                       what: string): Ceilings.Held
+                       what: string, unpinned?: boolean): Ceilings.Held
   local out: {string} = {}
   local found: {string: integer} = {}
   local by_code: {string: {Ceilings.Finding}} = {}
@@ -219,8 +223,11 @@ function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}
           out[#out + 1] = file .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. code .. "): " ..
             e.fix
         end
-        out[#out + 1] = file .. ": " .. String.counted(#list, "error") .. " of " .. code .. " in its " .. what ..
-          ", pinned " .. tostring(limit) .. "; follow the fix above rather than raise the pin"
+        local tail = "; follow the fix above"
+        if unpinned ~= true then
+          tail = ", pinned " .. tostring(limit) .. tail .. " rather than raise the pin"
+        end
+        out[#out + 1] = file .. ": " .. String.counted(#list, "error") .. " of " .. code .. " in its " .. what .. tail
       end
     end
   end

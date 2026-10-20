@@ -132,8 +132,9 @@ allow({
 }, "the build's compile with the new checker: the mode and the tool string the harness chooses (`build.grammar_mode`), the " ..
     "standard library of the binary and a build over given sources, which the pipeline's own tests are the callers of")
 
-allow({ "build.grammar_mode.of" }, "tested directly: the mode a word names, which `mode` takes of the environment's " ..
-    "COSMIC_GRAMMAR")
+allow({ "build.pipeline.project", "build.reboot.settled_by" }, "tested directly: the options of a project given the texts " ..
+    "of the declarations (a worker's store holds none of the tool's), and the `compiled_by` a tool settled for a mode, which " ..
+    "`options` and `unsettled` compose with what the tool carries and what the environment says")
 
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"

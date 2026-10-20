@@ -53,6 +53,7 @@ cosmic/removed_example.tl method_in_record 1
 # a method of a generic record written `function Kv.Lru.get<K, V>(...)` in an example of the guide `doc/guides/project.md`, whose Teal
 # the build writes (a guide is held under its own name, as the template is)
 doc/guides/project.md function_path 1
+testdata/rehearsal/fork_only/cache.tl function_path 1
 
 [scoped]
 # The errors of the new checker's scope builder ([`lang.scopes`]) that files of the
@@ -584,7 +585,7 @@ ci/cosmic_ci/rehearsal.tl condition_type 2
 ci/cosmic_ci/rehearsal.tl field_fixed 1
 ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
 ci/cosmic_ci/rehearsal.tl overload_none 1
-ci/cosmic_ci/rehearsal.tl view_written 8
+ci/cosmic_ci/rehearsal.tl view_written 13
 ci/cosmic_ci/rehearsal_test.tl nil_not_allowed 4
 ci/cosmic_ci/rehearsal_test.tl view_written 1
 ci/run_local.tl setmetatable_call 5
@@ -1927,7 +1928,7 @@ build/json_query_test.tl view_written 3
 build/json_test.tl view_written 4
 build/key_parts.tl view_written 3
 build/key_parts_test.tl view_written 3
-build/lang_proof.tl view_written 28
+build/lang_proof.tl view_written 38
 build/launcher.tl view_written 1
 build/link_files.tl view_written 19
 build/link_index.tl view_written 16
@@ -1966,13 +1967,14 @@ build/paths_test.tl view_written 1
 build/perf.tl view_written 35
 build/perf_test.tl view_written 12
 build/perf_validation.tl view_written 17
-build/pipeline.tl view_written 24
+build/pipeline.tl view_written 27
 build/pipeline_check.tl view_written 19
 build/pipeline_test.tl view_written 6
 build/policy_rules.tl view_written 5
 build/policy_rules_test.tl view_written 5
 build/positions.tl view_written 2
 build/positions_test.tl view_written 2
+build/project_grammar_tool_test.tl view_written 4
 build/rand.tl view_written 6
 build/rand_test.tl view_written 7
 build/reboot.tl view_written 4
@@ -5401,7 +5403,6 @@ build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
 build/tree_checks.tl and_ternary 20
-build/tree_program.tl and_ternary 1
 build/tree_program_test.tl and_ternary 1
 build/vendor.tl and_ternary 2
 build/vendor_test.tl and_ternary 1
