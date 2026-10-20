@@ -61,7 +61,7 @@ local function survey(chunk: Ast.Chunk): Found
           found.members[name.id] = true
         end
       end
-      if #path == 2 and chunk.tokens[path[2].first - 1].text == ":" then
+      if #path == 2 and chunk.tokens.text[path[2].first - 1] == ":" then
         found.colons[#found.colons + 1] = node
       end
     elseif kind == "Fn" or kind == "Method" then
@@ -102,7 +102,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     if vars[v.id] ~= v then
       return false, "the variable `" .. v.name .. "` is not under its id"
     end
-    if v.from > v.to or v.declared < 1 or v.declared > #tokens or v.depth < 1 or not found.functions[v.owner] then
+    if v.from > v.to or v.declared < 1 or v.declared > #tokens.kind or v.depth < 1 or not found.functions[v.owner] then
       return false, "the variable `" .. v.name .. "` has a range or an owner that does not exist"
     end
     if v.assigned ~= (#v.writes > 0) then
@@ -147,7 +147,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
         end
       end
       local id = scoped.resolved[n.id]
-      local place = "the name `" .. n.text .. "` at " .. tokens[at].y .. ":" .. tokens[at].x
+      local place = "the name `" .. n.text .. "` at " .. tokens.y[at] .. ":" .. Lexer.x(tokens, at)
       if best ~= nil then
         if n.binding ~= best.id or id ~= best.id then
           return false, place .. " is not bound to the variable declared at token " .. best.declared
@@ -197,15 +197,15 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   end
   local at = 0
   local errors = scoped.errors
-  local by_offset: {integer: Lexer.Token} = {}
+  local by_offset: {integer: integer} = {}
   if #errors > 0 then
-    for _, token in ipairs(tokens) do
-      by_offset[token.offset] = token
+    for i, offset in ipairs(tokens.offset) do
+      by_offset[offset] = i
     end
   end
   for _, e in ipairs(errors) do
     local t = by_offset[e.offset]
-    if t == nil or e.msg == "" or e.fix == "" or t.y ~= e.y or t.x ~= e.x or e.offset < at then
+    if t == nil or e.msg == "" or e.fix == "" or tokens.y[t] ~= e.y or Lexer.x(tokens, t) ~= e.x or e.offset < at then
       return false, e.code .. " error at " .. e.y .. ":" .. e.x .. " has no message or fix, or is out of place or order"
     end
     at = e.offset

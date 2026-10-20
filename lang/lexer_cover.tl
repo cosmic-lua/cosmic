@@ -7,7 +7,8 @@
 --- source at the `offset` and `length` they give, with `text` equal to
 --- those bytes and `y`, `x`, `yend` and `xend` naming the places of the
 --- first and last byte, each a place on a line that exists and within it
---- (the last byte of a token may be one of a line break).
+--- (the last byte of a token may be one of a line break). The line table
+--- holds the offset of each line of the source.
 --- Between two of them lies whitespace and nothing else. The `$EOF$` token
 --- is empty and at the end. An error lies within the source and carries its
 --- code, its message and its fix.
@@ -83,8 +84,19 @@ end
 function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
   local lines = lines_of(source)
   local cursor = 1
-  for _, token in ipairs(lexed.tokens) do
-    local comments = token.comments
+  local tokens = lexed.tokens
+  local count = #tokens.kind
+  if #tokens.line ~= #lines.starts then
+    return false, "the line table holds " .. tostring(#tokens.line) .. " lines, the source has " .. tostring(#lines.starts)
+  end
+  for n, start in ipairs(lines.starts) do
+    if tokens.line[n] ~= start then
+      return false, "line " .. tostring(n) .. " begins at offset " .. tostring(tokens.line[n]) ..
+        " in the line table, at " .. tostring(start) .. " in the source"
+    end
+  end
+  for i = 1, count do
+    local comments = tokens.comments[i]
     if comments then
       for _, comment in ipairs(comments) do
         if comment.offset < cursor or not blank(source, cursor, comment.offset - 1) then
@@ -99,29 +111,28 @@ function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
         cursor = comment.offset + comment.length
       end
     end
-    local offset, length = token.offset, token.length
+    local offset, text, y, x = Lexer.offset(tokens, i), Lexer.text(tokens, i), Lexer.y(tokens, i), Lexer.x(tokens, i)
+    local length = #text
     if offset < cursor or not blank(source, cursor, offset - 1) then
-      return false, "token at " .. token.y .. ":" .. token.x .. " leaves bytes uncovered or overlaps"
+      return false, "token at " .. y .. ":" .. x .. " leaves bytes uncovered or overlaps"
     end
-    local text = token.text
-    if length ~= #text or (length > 0 and find(source, text, offset, true) ~= offset) then
-      return false, "token at " .. token.y .. ":" .. token.x .. " is not the bytes it names"
+    if length > 0 and find(source, text, offset, true) ~= offset then
+      return false, "token at " .. y .. ":" .. x .. " is not the bytes it names"
     end
-    local start = lines.starts[token.y]
-    if start == nil or token.x < 1 or token.x > lines.columns[token.y] or start + token.x - 1 ~= offset then
-      return false, "token at offset " .. offset .. " is placed at " .. token.y .. ":" .. token.x
+    local start = lines.starts[y]
+    if start == nil or x < 1 or x > lines.columns[y] or start + x - 1 ~= offset then
+      return false, "token at offset " .. offset .. " is placed at " .. y .. ":" .. x
     end
     if length > 0 then
-      local right = token.yend == token.y and offset + length - 1 == start + token.xend - 1 and
-        token.xend <= lines.wide[token.y]
-      if not right and placed(lines, token.yend, token.xend, true) ~= offset + length - 1 then
-        return false, "token at " .. token.y .. ":" .. token.x .. " ends at " .. token.yend .. ":" .. token.xend
+      local yend, xend = Lexer.yend(tokens, i), Lexer.xend(tokens, i)
+      local right = yend == y and offset + length - 1 == start + xend - 1 and xend <= lines.wide[y]
+      if not right and placed(lines, yend, xend, true) ~= offset + length - 1 then
+        return false, "token at " .. y .. ":" .. x .. " ends at " .. yend .. ":" .. xend
       end
     end
     cursor = offset + length
   end
-  local last = lexed.tokens[#lexed.tokens]
-  if last == nil or last.kind ~= "$EOF$" or last.length ~= 0 or last.offset ~= #source + 1 then
+  if count == 0 or tokens.kind[count] ~= "$EOF$" or Lexer.length(tokens, count) ~= 0 or tokens.offset[count] ~= #source + 1 then
     return false, "the tokens do not end in an empty $EOF$ at the end of the source"
   end
   for _, e in ipairs(lexed.errors) do

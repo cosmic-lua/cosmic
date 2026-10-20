@@ -170,12 +170,12 @@ end
 
 function Node.range(chunk: Ast.Chunk, node: Ast.Node): Node.Range
   local base = Node.base(node)
-  local first = chunk.tokens[base.first]
+  local tokens = chunk.tokens
+  local first = tokens.offset[base.first]
   if base.last < base.first then
-    return { first = first.offset, last = first.offset - 1 }
+    return { first = first, last = first - 1 }
   end
-  local last = chunk.tokens[base.last]
-  return { first = first.offset, last = last.offset + last.length - 1 }
+  return { first = first, last = Lexer.stop(tokens, base.last) - 1 }
 end
 
 function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
@@ -204,9 +204,8 @@ function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
       local base = nodes[r.node]
       if base ~= nil then
         for k = base.first, base.last do
-          local token = chunk.tokens[k]
-          if token ~= nil and token.kind == "string" then
-            y, x = token.y, token.x
+          if chunk.tokens.kind[k] == "string" then
+            y, x = Lexer.y(chunk.tokens, k), Lexer.x(chunk.tokens, k)
             break
           end
         end

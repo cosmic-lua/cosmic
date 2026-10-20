@@ -231,7 +231,7 @@ local record Ctx
   input: Declarations.Input
   lowered: Declarations.Lowered
   scoped: Scopes.Scoped
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
   filename: string
   errors: {Codes.Error}
   vars: {integer: Type}
@@ -333,14 +333,11 @@ local function text_of(ctx: Ctx, node: Ast.Node): string
   local tokens = ctx.tokens
   local last = math.min(b.last, b.first + 24)
   local parts: {string} = {}
-  local previous: Lexer.Token | nil = nil
   for i = b.first, last do
-    local t = tokens[i]
-    if previous ~= nil and t.offset > previous.offset + previous.length then
+    if i > b.first and Lexer.offset(tokens, i) > Lexer.stop(tokens, i - 1) then
       parts[#parts + 1] = " "
     end
-    parts[#parts + 1] = t.text
-    previous = t
+    parts[#parts + 1] = Lexer.text(tokens, i)
   end
   local text = table.concat(parts)
   if last < b.last or #text > 60 then
@@ -407,8 +404,7 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
   end
   local b = base_of(node)
   local tokens = ctx.tokens
-  local a = tokens[b.first]
-  local z = tokens[math.max(b.first, b.last)]
+  local first, last = b.first, math.max(b.first, b.last)
   local why = code == "nil_not_allowed" and dropped_by(ctx, node) or nil
   if why ~= nil then
     code = "narrowing_dropped"
@@ -421,8 +417,9 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
       name .. "`) and test that"
   end
   ctx.errors[#ctx.errors + 1] = {
-    filename = ctx.filename, code = code, msg = msg, fix = fix, y = a.y, x = a.x, offset = a.offset,
-    length = math.max(0, z.offset + z.length - a.offset), other = other, types = shown or {},
+    filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
+    offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, last) - Lexer.offset(tokens, first)),
+    other = other, types = shown or {},
   }
 end
 
@@ -1007,7 +1004,7 @@ local function global_value(ctx: Ctx, node: Ast.Name): Type
   if decl ~= nil then
     return declaration_value(ctx, decl)
   end
-  if unknown_offsets(ctx)[ctx.tokens[base_of(node).first].offset] then
+  if unknown_offsets(ctx)[Lexer.offset(ctx.tokens, base_of(node).first)] then
     return ctx.invalid
   end
   unchecked(ctx, "unchecked_binding", node, "the global " .. quoted(node.text) .. " has no declaration the checker can read")
@@ -2484,10 +2481,11 @@ local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed:
     return
   end
   local b = base_of(node)
-  local a = ctx.tokens[b.first]
-  local z = ctx.tokens[math.max(b.first, b.last)]
-  ctx.narrowed[a.offset] = {
-    id = b.id, offset = a.offset, length = math.max(0, z.offset + z.length - a.offset), text = text_of(ctx, node),
+  local tokens = ctx.tokens
+  local first, last = b.first, math.max(b.first, b.last)
+  local start = Lexer.offset(tokens, first)
+  ctx.narrowed[start] = {
+    id = b.id, offset = start, length = math.max(0, Lexer.stop(tokens, last) - start), text = text_of(ctx, node),
     taken = taken, strings = strings, classes = classes, tag = tag, tags = tags,
   }
 end
@@ -3251,14 +3249,16 @@ local function read_at_creation(ctx: Ctx, fn_id: integer, whole: Ast.Node)
   if list == nil or ctx.flow.unsets == 0 then
     return
   end
+  local tokens = ctx.tokens
   for _, v in ipairs(list) do
     if ctx.flow.unset[v.id] then
-      local at = ctx.tokens[v.declared]
       local t = ctx.vars[v.id]
       report(ctx, "not_assigned", whole, "this function names " .. quoted(v.name) .. ", which no path has assigned yet, and " ..
           "making a function reads what it names",
         t ~= nil and assign_fix(ctx, v.name, t, ctx.assigning[v.id] == true) or "assign " .. quoted(v.name) .. " before this function is made",
-        { t ~= nil and show(ctx, t) or "" }, { y = at.y, x = at.x, offset = at.offset, length = at.length })
+        { t ~= nil and show(ctx, t) or "" },
+        { y = Lexer.y(tokens, v.declared), x = Lexer.x(tokens, v.declared), offset = Lexer.offset(tokens, v.declared),
+          length = Lexer.length(tokens, v.declared) })
       ctx.flow = Flow.assigned(ctx.flow, v.id)
     end
   end
@@ -4630,11 +4630,13 @@ local function read_name(ctx: Ctx, e: Ast.Name): Type
   end
   if ctx.flow.unsets > 0 and ctx.flow.unset[id] then
     local v = ctx.scoped.vars[id]
+    local tokens = ctx.tokens
     local name = quoted(e.text)
-    local at = v ~= nil and ctx.tokens[v.declared] or nil
     report(ctx, "not_assigned", e, name .. " is read before every path assigns it: `local " .. e.text .. "` was given no value",
       assign_fix(ctx, e.text, t, false), { show(ctx, t) },
-      at ~= nil and { y = at.y, x = at.x, offset = at.offset, length = at.length } or nil)
+      v ~= nil and
+        { y = Lexer.y(tokens, v.declared), x = Lexer.x(tokens, v.declared), offset = Lexer.offset(tokens, v.declared),
+          length = Lexer.length(tokens, v.declared) } or nil)
     ctx.flow = Flow.assigned(ctx.flow, id)
   end
   if next(ctx.flow.facts) ~= nil then
@@ -5224,11 +5226,13 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
   for i, target in ipairs(s.targets) do
     local id = target is Ast.Name and target.binding or nil
     if id ~= nil then
-      local at = ctx.tokens[base_of(target).first]
       -- The drop is told to a later use only where it took away a test that showed the value was not nil.
       local fact = ctx.flow.facts[id_key(ctx, id)]
       local told = (fact ~= nil and not nilable(fact.type)) or ctx.flow.paths > 0
-      ctx.flow = Flow.assign(ctx.flow, id, told and { y = at.y, x = at.x, offset = at.offset, length = at.length } or nil)
+      local tokens, at = ctx.tokens, base_of(target).first
+      ctx.flow = Flow.assign(ctx.flow, id, told and
+          { y = Lexer.y(tokens, at), x = Lexer.x(tokens, at), offset = Lexer.offset(tokens, at),
+            length = Lexer.length(tokens, at) } or nil)
       local v = ctx.scoped.vars[id]
       local declared = ctx.vars[id]
       local t = vals ~= nil and value_at(ctx, vals, i) or nil

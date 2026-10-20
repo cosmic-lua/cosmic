@@ -277,7 +277,7 @@ local record Pending
 end
 
 local record State
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
   filename: string
   declared: {string: Scopes.Global}
   --- For each name, its bindings in scope, the innermost last.
@@ -331,8 +331,10 @@ end
 -- The most nearest-name searches a run makes: a run of many unknown names does not cost a scan of the scope for each.
 local GUESSES <const> = 50
 
+local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
+
 local S: State = {
-  tokens = {}, filename = "", declared = {}, visible = {}, names = {}, marks = {}, ends = {}, frames = {},
+  tokens = NO_TOKENS, filename = "", declared = {}, visible = {}, names = {}, marks = {}, ends = {}, frames = {},
   loop_parent = {}, loop_level = {}, vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {},
   errors = {}, unknown = {}, guessed = 0, assign_end = 0, write_end = {}, write_loop = {}, captured = {},
   made = {}, entry_of = {}, spine = {}, top = 0, defer = false, pending = {}, own = nil, floor = math.maxinteger,
@@ -342,7 +344,7 @@ local function base_of(node: Ast.Node): Ast.Base
   return node
 end
 
-local function reset(tokens: {Lexer.Token}, name: string, declared: {string: Scopes.Global})
+local function reset(tokens: Lexer.Tokens, name: string, declared: {string: Scopes.Global})
   S.tokens, S.filename, S.declared = tokens, name, declared
   S.visible, S.names, S.marks, S.ends, S.frames = {}, {}, {}, {}, {}
   S.loop_parent, S.loop_level = {}, {}
@@ -358,20 +360,22 @@ local function quoted(name: string): string
 end
 
 local function place_of(token: integer): Scopes.Place
-  local t = S.tokens[token]
-  return { y = t.y, x = t.x, offset = t.offset, length = t.length }
+  local tokens = S.tokens
+  return {
+    y = Lexer.y(tokens, token), x = Lexer.x(tokens, token), offset = Lexer.offset(tokens, token),
+    length = Lexer.length(tokens, token),
+  }
 end
 
 local function shown(token: integer): string
-  local t = S.tokens[token]
-  return t.y .. ":" .. t.x
+  return Lexer.y(S.tokens, token) .. ":" .. Lexer.x(S.tokens, token)
 end
 
 local function report(code: Scopes.Code, token: integer, msg: string, fix: string, other?: Scopes.Place)
-  local t = S.tokens[token]
+  local tokens = S.tokens
   S.errors[#S.errors + 1] = {
-    filename = S.filename, code = code, msg = msg, fix = fix, y = t.y, x = t.x, offset = t.offset, length = t.length,
-    other = other,
+    filename = S.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, token), x = Lexer.x(tokens, token),
+    offset = Lexer.offset(tokens, token), length = Lexer.length(tokens, token), other = other,
   }
 end
 
@@ -1273,7 +1277,7 @@ local function stat_function(s: Ast.Function)
   local colon = false
   if #path == 2 then
     use_name(first, false)
-    colon = S.tokens[path[2].first - 1].text == ":"
+    colon = S.tokens.text[path[2].first - 1] == ":"
   end
   walk_fn(s.fn, s.typeparams, colon and s or nil)
 end
@@ -1486,7 +1490,7 @@ local function unknown_errors()
       msg = quoted(name) .. " is used before the " .. KIND_WORDS[later.kind] .. " " .. quoted(name) ..
         " that is declared at " .. shown(later.declared)
       fix = "Lua sees only what is declared above a use: move the declaration of " .. quoted(name) ..
-        " (line " .. S.tokens[later.declared].y .. ") above this line, or declare `local " .. name ..
+        " (line " .. S.tokens.y[later.declared] .. ") above this line, or declare `local " .. name ..
         ": <its type>` here and assign it where it is declared now"
       other = place_of(later.declared)
     elseif u.what == "assigned" then
@@ -1530,7 +1534,7 @@ function Scopes.build(chunk: Ast.Chunk, name: string, declared: {string: Scopes.
     vars = S.vars, list = S.list, resolved = S.resolved, globals = S.globals, global_writes = S.global_writes,
     errors = errors,
   }
-  reset({}, "", {})
+  reset(NO_TOKENS, "", {})
   return answer
 end
 

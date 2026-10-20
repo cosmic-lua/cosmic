@@ -249,16 +249,15 @@ local function test_edit(text: string, chunk: Ast.Chunk, node: Ast.IsTest, tags:
   if table_of ~= nil then
     tests = table_of[member.name]
   end
-  local first = chunk.tokens[node.value.first]
-  local last = chunk.tokens[node.value.last]
-  local whole_first = chunk.tokens[node.first]
-  local whole_last = chunk.tokens[node.last]
-  if tests == nil or first == nil or last == nil or whole_first == nil or whole_last == nil then
+  local tokens = chunk.tokens
+  local first, last, whole_first, whole_last = node.value.first, node.value.last, node.first, node.last
+  local count = Lexer.count(tokens)
+  if tests == nil or first < 1 or last > count or whole_first < 1 or whole_last > count then
     return nil
   end
-  local operand = text:sub(first.offset, last.offset + last.length - 1)
+  local operand = text:sub(Lexer.offset(tokens, first), Lexer.stop(tokens, last) - 1)
   return {
-    first = whole_first.offset, last = whole_last.offset + whole_last.length - 1,
+    first = Lexer.offset(tokens, whole_first), last = Lexer.stop(tokens, whole_last) - 1,
     text = tag_test(operand, operand:match("^[%w_%.]+$") ~= nil, tests),
   }
 end

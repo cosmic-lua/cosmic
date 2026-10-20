@@ -100,7 +100,7 @@ local record Ast
   record Chunk is Base
     where self.kind == "Chunk"
     body: Block
-    tokens: {Lexer.Token}
+    tokens: Lexer.Tokens
     requires: {Require}
   end
 
@@ -697,12 +697,13 @@ end
 
 function Ast.span(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
   local base: Ast.Base = node
-  local first = chunk.tokens[base.first]
-  if base.last < base.first then
-    return { y = first.y, x = first.x, yend = first.y, xend = first.x - 1 }
+  local tokens = chunk.tokens
+  local first = base.first
+  if base.last < first then
+    return { y = Lexer.y(tokens, first), x = Lexer.x(tokens, first), yend = Lexer.y(tokens, first), xend = Lexer.x(tokens, first) - 1 }
   end
-  local last = chunk.tokens[base.last]
-  return { y = first.y, x = first.x, yend = last.yend, xend = last.xend }
+  local last = base.last
+  return { y = Lexer.y(tokens, first), x = Lexer.x(tokens, first), yend = Lexer.yend(tokens, last), xend = Lexer.xend(tokens, last) }
 end
 
 return Ast

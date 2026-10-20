@@ -21,6 +21,7 @@
 --- holds itself) is refused where the call is, naming the field.
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
+local Lexer = require("lang.lexer")
 local Driver = require("build.driver")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
@@ -340,9 +341,10 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a string literal, which the build reads" }
     end
-    local token = chunk.tokens[named.first]
-    local quote = token.text:sub(1, 1)
-    if literal.long or (quote ~= '"' and quote ~= "'") or token.text:find("\\", 1, true) ~= nil then
+    local name_token = named.first
+    local written = Lexer.text(chunk.tokens, name_token)
+    local quote = written:sub(1, 1)
+    if literal.long or (quote ~= '"' and quote ~= "'") or written:find("\\", 1, true) ~= nil then
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a plain quoted string with no escape in it" }
     end
@@ -367,7 +369,8 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
         refusal = ("%s(%q): %s"):format(where, literal.value, refusal) }
     end
     splices[#splices + 1] = {
-      at = token.offset + token.length - 1, text = (", %s, function(): %s error(\"witness\") end"):format(spec, target.spelled),
+      at = Lexer.stop(chunk.tokens, name_token) - 1,
+      text = (", %s, function(): %s error(\"witness\") end"):format(spec, target.spelled),
     }
   end
   table.sort(splices, function(a: Splice, b: Splice): boolean

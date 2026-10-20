@@ -246,11 +246,13 @@ local OWN <const>: {string: boolean} = {
 --- sequence a respelling must not change.
 local function spelled(text: string): string
   local out: {string} = {}
-  for _, t in ipairs(Lexer.lex(text, "f.tl").tokens) do
-    if t.kind == "identifier" and not OWN[t.text] and not t.text:find("^arg%d+_*$") then
-      out[#out + 1] = t.text
-    elseif t.kind == "string" then
-      out[#out + 1] = t.text
+  local tokens = Lexer.lex(text, "f.tl").tokens
+  for i, kind in ipairs(tokens.kind) do
+    local word = Lexer.text(tokens, i)
+    if kind == "identifier" and not OWN[word] and not word:find("^arg%d+_*$") then
+      out[#out + 1] = word
+    elseif kind == "string" then
+      out[#out + 1] = word
     end
   end
   return table.concat(out, " ")

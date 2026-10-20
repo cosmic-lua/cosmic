@@ -6,6 +6,7 @@
 --- `function f()` that assigns no local, so a source that parses declares none unless it is a declaration file. The
 --- fork read both as declarations and the build refused them here.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 
 local record Globals
@@ -21,8 +22,9 @@ end
 
 --- Whether the tokens hold the word `global`. A source without one has none to find, and its tree is not walked.
 local function has_candidate(chunk: Ast.Chunk): boolean
-  for _, t in ipairs(chunk.tokens) do
-    if t.text == "global" and t.kind == "keyword" then
+  local tokens = chunk.tokens
+  for i, text in ipairs(tokens.text) do
+    if text == "global" and tokens.kind[i] == "keyword" then
       return true
     end
   end
@@ -43,8 +45,8 @@ function Globals.found(chunk: Ast.Chunk): {Globals.Place}
       scope = declared.scope
     end
     if scope == "global" then
-      local first = chunk.tokens[Node.base(node).first]
-      found[#found + 1] = { line = first.y, column = first.x }
+      local first = Node.base(node).first
+      found[#found + 1] = { line = Lexer.y(chunk.tokens, first), column = Lexer.x(chunk.tokens, first) }
     end
   end)
   table.sort(found, function(a: Globals.Place, b: Globals.Place): boolean

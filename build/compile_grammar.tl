@@ -172,9 +172,10 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
           why = "the class belongs to " .. t.decl.module .. ", whose table this module cannot reach"
         end
       end
-      local first = result.chunk.tokens[node.first]
-      if why ~= nil and first ~= nil then
-        refused[#refused + 1] = tostring(first.y) .. ":" .. tostring(first.x) .. ": a test the Lua cannot tell: " .. why ..
+      local tokens, at = result.chunk.tokens, node.first
+      if why ~= nil and tokens.y[at] ~= nil then
+        refused[#refused + 1] = tostring(Lexer.y(tokens, at)) .. ":" .. tostring(Lexer.x(tokens, at)) ..
+          ": a test the Lua cannot tell: " .. why ..
           " (is_on_record): test a tag (`x.kind == \"...\"`), declare a class, or validate the data"
       end
     end

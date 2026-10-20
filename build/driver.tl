@@ -484,13 +484,13 @@ local function in_order(list: {Driver.Problem}): {Driver.Problem}
 end
 
 --- The top-level `local function test_*` of a module: the offsets of their names, which a test module's runner calls.
-local function test_functions(scoped: Scopes.Scoped, tokens: {Lexer.Token}): {integer: boolean}
+local function test_functions(scoped: Scopes.Scoped, tokens: Lexer.Tokens): {integer: boolean}
   local out: {integer: boolean} = {}
   for _, v in ipairs(scoped.list) do
     if v.kind == "function" and v.top and v.name:sub(1, 5) == "test_" then
-      local token = tokens[v.declared]
-      if token ~= nil then
-        out[token.offset] = true
+      local offset = tokens.offset[v.declared]
+      if offset ~= nil then
+        out[offset] = true
       end
     end
   end

@@ -19,6 +19,7 @@
 -- grammar and nothing is translated on read (doc/plans/strict-teal.md, "the switch").
 local Analysis = require("build.syntax_compared_analysis")
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Globals = require("build.syntax_globals")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
@@ -313,8 +314,8 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
       old_first[#old_first + 1] = { t.y, t.x }
     end
     local new_first: {{integer}} = {}
-    for _, t in ipairs(chunk.tokens) do
-      new_first[#new_first + 1] = { t.y, t.x }
+    for i, y in ipairs(chunk.tokens.y) do
+      new_first[#new_first + 1] = { y, Lexer.x(chunk.tokens, i) }
     end
     local old_at, new_at = firsts(old_first), firsts(new_first)
     local probes: {integer} = {}
