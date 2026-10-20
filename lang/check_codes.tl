@@ -276,9 +276,11 @@ Codes.catalog = {
     code = "declaration_value", rule = "compiler-written classes",
     why = "a declaration used as a value is the table of its functions, and a record or class value is made by a " ..
       "table literal typed as it or by a function that makes one: the table of a class is its metatable, so no " ..
-      "program passes it for a value of the class. A module typed with its record (`Seatbelt: Seatbelt`) is the " ..
-      "same mistake the grammar cannot yet spell otherwise",
-    fix = "make a value with a literal typed as <type>, or call a function of <type> that makes one",
+      "program passes it for a value of the class. A module is no value of its record, so a place typed with the " ..
+      "record (a field `Seatbelt: Seatbelt`, an array `{Child}`, an assignment `Headers.Csp = Csp`) does not hold the " ..
+      "module: a program requires the module where it uses it",
+    fix = "make a value with a literal typed as <type>, or call a function of <type> that makes one; for a module, " ..
+      "require it where it is used",
   },
   {
     code = "any_use", rule = "what any may do",

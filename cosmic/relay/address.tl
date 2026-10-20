@@ -1,5 +1,5 @@
 --- Which destination addresses the sandbox's network relay
---- ([`cosmic.relay`]) may connect to: the pure half of its address checks.
+--- may connect to: the pure half of its address checks.
 --- A granted name is resolved once; [`relay_address.permitted`] classifies
 --- every answer and keeps the allowed ones in order, so a name
 --- whose answers mix allowed and forbidden addresses is connected to at an

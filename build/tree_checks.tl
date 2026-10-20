@@ -144,18 +144,6 @@ allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS ser
 
 allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
--- TODO: drop these allowances and the next once build.analyzer and build.receivers attribute a
--- call made through a value taken from a module's field (cosmic.child's
--- `local Seatbelt = Rules.Seatbelt`, the relay's starter's [`Relay.Address`])
--- to the module it names: today neither this check nor `cosmic uses` follows
--- one, so `uses Seatbelt.compile` lists none of cosmic.child's calls.
-for member, names in pairs({ address = { "deny_cidrs", "granted" }, grant = { "ipv6_text", "name", "port" } }) do
-  for _, name in ipairs(names) do
-    allowed["cosmic.relay." .. member .. "." .. name] = "called through cosmic.relay's `Address` and " ..
-      "`Grant`, the package's one path to them from outside, which the relay's starter, wire and " ..
-      "server take; the check reads a call by the module's own name alone"
-  end
-end
 for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
     "loopback_listeners" }) do
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
@@ -165,11 +153,6 @@ for _, name in ipairs({ "tokens", "sites", "collect", "id", "fixed", "matches" }
   allowed["build.fork_refusals." .. name] = "tested directly: a step of `read` and `best`, which the gate's tools take, each " ..
     "tested over sources of its own in build/fork_refusals_test.tl; the module goes with the fork"
 end
-allowed["cosmic.sandbox.seatbelt.grants"] = "called through cosmic.sandbox's `Seatbelt`, " ..
-  "the package's one path to it from outside, which cosmic.child takes; the check reads a " ..
-  "call by the module's own name alone"
-allowed["cosmic.sandbox.seatbelt.credentials_unmet"] = "called through cosmic.sandbox's `Seatbelt`, " ..
-  "as `grants` is"
 for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fact" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
     "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..

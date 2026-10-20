@@ -142,9 +142,9 @@ off. A header the handler already set stays. It also holds the two that an
 app chooses:
 
 - **`csp`**, a Content-Security-Policy, which is off until asked for.
-  `Headers.Csp.htmx_default()` lets an htmx app load its own scripts, styles,
-  images and connections and nothing else. Try a new policy with
-  `csp_report_only = true` first.
+  [`Csp.htmx_default()`] of [`cosmic.web.csp`] lets an htmx app load its own
+  scripts, styles, images and connections and nothing else. Try a new policy
+  with `csp_report_only = true` first.
 - **`hsts`**, `Strict-Transport-Security`, sent on https requests only. A
   browser keeps it for the whole `max_age`, so an app turns it on once the
   site is https for good and not before: the app below takes it as an
@@ -167,6 +167,7 @@ and `trusted_proxy` are the app's own words about where it runs, below.
 ```teal file=guestbook.tl
 --- The guestbook app: the pages behind sessions, CSRF and security headers.
 
+local Csp = require("cosmic.web.csp")
 local Csrf = require("cosmic.web.csrf")
 local Headers = require("cosmic.web.headers")
 local Session = require("cosmic.web.session")
@@ -190,7 +191,7 @@ end
 
 --- The app.
 function Guestbook.app(opts: Guestbook.Options): Web.App
-  local csp = Headers.Csp.htmx_default()
+  local csp = Csp.htmx_default()
   csp.directives["script-src"] = { "'self'", "{nonce}" }
   local headers: Headers.Options = { csp = csp, nonce = true }
   if opts.hsts then headers.hsts = { max_age = 31536000 } end
@@ -358,7 +359,9 @@ test: 6 tests passed
 ```
 
 [`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.web.csp`]: ../../cosmic/web/csp.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
+[`Csp.htmx_default()`]: ../../cosmic/web/csp.tl
 [`Csrf.field`]: ../../cosmic/web/csrf.tl
 [`Csrf.meta`]: ../../cosmic/web/csrf.tl
 [`Csrf.middleware`]: ../../cosmic/web/csrf.tl

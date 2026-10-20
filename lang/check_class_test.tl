@@ -177,12 +177,10 @@ local function test_the_table_of_a_class_has_its_methods_and_functions_and_none_
   accepted(head .. "local k: K = K.make()\nk.n = 3\nlocal s: string? = k.s\n")
 end
 
-local function test_the_error_for_a_module_typed_with_its_record_says_the_grammar_has_no_spelling_for_it_yet()
+local function test_the_error_for_a_module_typed_with_its_record_says_what_to_write_instead()
   local record = "local record Circle\n  radius: number\nend\nfunction Circle.unit(): Circle\n  return { radius = 1.0 }\nend\n"
   local r = Programs.run(record .. "local c: Circle = Circle\n")
   assert(Programs.codes(r) == "declaration_value", Programs.codes(r))
-  assert(r.errors[1].fix:find("no change of this program fixes it: the grammar has no type for `Circle` used as a value yet", 1, true) ~= nil,
-    r.errors[1].fix)
   -- a project has no ceilings file, and the checker's TODO is no advice to its author: the fix says what to write
   local told = assert(r.errors[1]).fix
   assert(told:find("ceilings", 1, true) == nil and told:find("TODO", 1, true) == nil, told)
@@ -192,8 +190,8 @@ local function test_the_error_for_a_module_typed_with_its_record_says_the_gramma
   assert(Programs.codes(field) == "field_unknown", Programs.codes(field))
   assert(field.errors[1].msg:find("`unit` is a function of the declaration `Circle` used as a value, and this is typed as a value of it", 1, true) ~= nil,
     field.errors[1].msg)
-  assert(field.errors[1].fix:find("the grammar has no type for `Circle` used as a value yet", 1, true) ~= nil)
   local field_told = assert(field.errors[1]).fix
+  assert(field_told:find("call it on the declaration: `Circle.unit(...)`", 1, true) ~= nil, field_told)
   assert(field_told:find("ceilings", 1, true) == nil and field_told:find("TODO", 1, true) == nil, field_told)
   -- a class says how to make a value instead
   local class = Programs.run("local class C\n  n: integer\nend\nlocal c: C = C\n")
@@ -229,16 +227,13 @@ local function test_calling_a_function_of_a_declaration_through_a_value_says_how
   assert(Programs.codes(r) == "field_unknown" and r.errors[1].fix == "call it on the declaration: `K.make(...)`", r.errors[1].fix)
   local colon = Programs.run(class .. "local m = k:make()\n")
   assert(colon.errors[1].fix == "call it on the declaration: `K.make(...)`", colon.errors[1].fix)
-  -- a record read through a local may be a module typed with its record, and one read through a field is
+  -- a record of this module read through a local or through a field has the function on its declaration
   local record = "local record Circle\n  radius: number\nend\nfunction Circle.unit(): Circle\n  return { radius = 1.0 }\nend\n" ..
     "local record Holder\n  circle: Circle\nend\nlocal c: Circle = Circle.unit()\nlocal h: Holder = { circle = c }\n"
   local local_read = Programs.run(record .. "local f = c.unit\n")
-  assert(local_read.errors[1].fix:find("call it on the declaration: `Circle.unit(...)`; no change of this program fixes it where " ..
-      "this value is a module typed with its record", 1, true) ~= nil, local_read.errors[1].fix)
+  assert(local_read.errors[1].fix == "call it on the declaration: `Circle.unit(...)`", local_read.errors[1].fix)
   local field_read = Programs.run(record .. "local f = h.circle.unit\n")
-  assert(field_read.errors[1].fix:find("^no change of this program fixes it where this value is a module typed with its record") ~= nil,
-    field_read.errors[1].fix)
-  assert(field_read.errors[1].fix:find("call it on the declaration", 1, true) == nil)
+  assert(field_read.errors[1].fix == "call it on the declaration: `Circle.unit(...)`", field_read.errors[1].fix)
 end
 
 -- distinct names ----------------------------------------------------------------------------------------------

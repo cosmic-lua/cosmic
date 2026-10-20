@@ -8,7 +8,7 @@ local type raw_process = require("cosmic.internal.process")
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
 local Test = require("cosmic.test")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
@@ -52,7 +52,7 @@ end
 --- `decide` reads for an address.
 local function start(): {integer}, integer
   local pair = assert(process.connector_pair())
-  local child, why = process.connector_start({}, pair[2], 500, { deny = Relay.Address.deny_cidrs(), own = OWN })
+  local child, why = process.connector_start({}, pair[2], 500, { deny = Address.deny_cidrs(), own = OWN })
   assert(sys.close(pair[2]))
   assert(child, why)
   greeted(pair[1])
@@ -60,7 +60,7 @@ local function start(): {integer}, integer
 end
 
 local function decide(fd: integer, address: string): boolean
-  local bytes = assert(Relay.Address.parse(address))
+  local bytes = assert(Address.parse(address))
   assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, #bytes == 4 and 4 or 6) ..
       string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
@@ -146,8 +146,8 @@ local EDGES <const>: {Edge} = {
 local function expect(fd: integer, address: string, allowed: boolean, what: string)
   assert(decide(fd, address) == allowed, what .. " " .. address .. ": the connector should " ..
       (allowed and "allow" or "refuse") .. " it")
-  local own = Relay.Address.own_addresses(OWN)
-  local ok = Relay.Address.check(address, 443, {}, own)
+  local own = Address.own_addresses(OWN)
+  local ok = Address.check(address, 443, {}, own)
   assert(ok == allowed, what .. " " .. address .. ": the relay's check disagrees")
 end
 
@@ -163,7 +163,7 @@ local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbo
     if row.above ~= nil then expect(pair[1], row.above, row.above_ok, row.cidr .. " above") end
   end
   -- A prefix added to the list is a prefix added here.
-  for _, cidr in ipairs(Relay.Address.deny_cidrs()) do
+  for _, cidr in ipairs(Address.deny_cidrs()) do
     assert(named[cidr], cidr .. " has no boundary vectors")
   end
   assert(sys.close(pair[1]))
@@ -210,7 +210,7 @@ end
 local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_share_its_bits()
   require_native_connector()
   for _, base in ipairs({ "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946" }) do
-    local bytes = assert(Relay.Address.parse(base))
+    local bytes = assert(Address.parse(base))
     local width = #bytes * 8
     for bits = 0, width do
       local pair = assert(process.connector_pair())

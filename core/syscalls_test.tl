@@ -12,7 +12,7 @@
 
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Relay = require("cosmic.relay")
+local Address = require("cosmic.relay.address")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -776,7 +776,7 @@ local function test_getifaddrs_lists_the_loopback_on_darwin_and_fails_enosys_els
   for _, entry in ipairs(listed) do
     local shown = entry.name .. " " .. entry.address .. "/" .. entry.prefix
     assert(#entry.name > 0 and (entry.family == "ipv4" or entry.family == "ipv6"), shown)
-    local bytes = Relay.Address.parse(entry.address)
+    local bytes = Address.parse(entry.address)
     assert(bytes ~= nil and #bytes == (entry.family == "ipv4" and 4 or 16), shown)
     assert(entry.prefix >= 0 and entry.prefix <= #bytes * 8, shown)
     if #bytes == 16 and bytes[1] == 0xfe and bytes[2] & 0xc0 == 0x80 then

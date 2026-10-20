@@ -72,9 +72,6 @@ lang/types.tl unknown_type 7
 ci/cosmic_ci/orchestration_test.tl unknown_type 2
 # a local that names a type of a module (`local Seatbelt = Rules.Seatbelt`), used as the head of a type:
 # write `local type Seatbelt = Rules.Seatbelt` (the TODO of `scoped` in build/tree_checks.tl)
-cosmic/child.tl not_a_type 1
-cosmic/internal/relay_server.tl not_a_type 1
-cosmic/web/headers_test.tl not_a_type 1
 checker/captures.tl shadows 1
 
 [declared]
@@ -471,23 +468,20 @@ build/zig.tl 3
 build/zig_fetch.tl 7
 cmd/cosmic/main.tl 1
 cosmic/archive.tl 5
-cosmic/child.tl 20
+cosmic/child.tl 15
 cosmic/csv.tl 1
 cosmic/flags.tl 3
 cosmic/fs.tl 6
 cosmic/http/init.tl 8
 cosmic/http/wire.tl 3
-cosmic/internal/connector.tl 9
-cosmic/internal/relay_config.tl 16
-cosmic/internal/relay_resolv.tl 1
-cosmic/internal/relay_server.tl 9
-cosmic/internal/relay_start.tl 6
-cosmic/internal/relay_wire.tl 7
+cosmic/internal/connector.tl 6
+cosmic/internal/relay_config.tl 13
+cosmic/internal/relay_server.tl 3
 cosmic/json.tl 2
 cosmic/net.tl 2
 cosmic/poll.tl 6
 cosmic/relay/grant.tl 1
-cosmic/sandbox/policy.tl 4
+cosmic/sandbox/policy.tl 3
 cosmic/shape.tl 1
 cosmic/signal.tl 1
 cosmic/sqlite.tl 2
@@ -500,10 +494,10 @@ cosmic/test.tl 4
 cosmic/time.tl 9
 cosmic/web/app.tl 2
 cosmic/web/assets.tl 1
+cosmic/web/csp.tl 1
 cosmic/web/csrf.tl 1
 cosmic/web/dev.tl 7
 cosmic/web/errors.tl 1
-cosmic/web/headers.tl 1
 cosmic/web/input.tl 7
 cosmic/web/request.tl 1
 cosmic/web/router.tl 3
@@ -1004,7 +998,7 @@ core/allocation_test.tl nil_not_allowed 4
 core/artifact_fd_test.tl nil_not_allowed 2
 core/artifact_fd_tool_test.tl nil_not_allowed 4
 core/connector_filter_test.tl nil_not_allowed 1
-core/connector_public_fuzz_test.tl nil_not_allowed 10
+core/connector_public_fuzz_test.tl nil_not_allowed 13
 core/connector_public_test.tl nil_not_allowed 5
 core/connector_request_fuzz_test.tl nil_not_allowed 5
 core/database_start_test.tl nil_not_allowed 2
@@ -1024,7 +1018,7 @@ core/startup_test.tl nil_not_allowed 8
 core/surface_test.tl nil_not_allowed 2
 core/syscalls_pledge_test.tl nil_not_allowed 2
 core/syscalls_relay_test.tl nil_not_allowed 3
-core/syscalls_test.tl nil_not_allowed 20
+core/syscalls_test.tl nil_not_allowed 21
 core/syscalls_tool_test.tl nil_not_allowed 3
 core/syscalls_tool_unsandboxed_test.tl nil_not_allowed 1
 cosmic/archive.tl nil_not_allowed 12
@@ -1255,7 +1249,7 @@ eval/summarize_test.tl nil_not_allowed 2
 lang/ast.tl nil_not_allowed 20
 lang/ast_dump.tl nil_not_allowed 5
 lang/check.tl nil_not_allowed 129
-lang/check_class_test.tl nil_not_allowed 34
+lang/check_class_test.tl nil_not_allowed 30
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
 lang/check_flow_test.tl nil_not_allowed 9
@@ -1678,9 +1672,10 @@ cosmic/time_tzif_fuzz_test.tl index_may_be_nil 4
 cosmic/time_zone_test.tl index_may_be_nil 5
 cosmic/url_fuzz_test.tl index_may_be_nil 3
 cosmic/web/builtin.tl index_may_be_nil 1
+cosmic/web/csp.tl index_may_be_nil 1
 cosmic/web/dev.tl index_may_be_nil 1
 cosmic/web/dev_supervise_test.tl index_may_be_nil 2
-cosmic/web/headers.tl index_may_be_nil 4
+cosmic/web/headers.tl index_may_be_nil 3
 cosmic/web/htmx.tl index_may_be_nil 7
 cosmic/web/input.tl index_may_be_nil 2
 cosmic/web/input_fuzz_test.tl index_may_be_nil 1
@@ -2110,7 +2105,7 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 315
+build/tree_checks.tl view_written 312
 build/tree_checks_test.tl view_written 25
 build/tree_program.tl view_written 11
 build/tree_program_test.tl view_written 3
@@ -2200,7 +2195,7 @@ core/allocation_tool_test.tl view_written 2
 core/artifact_fd_test.tl view_written 4
 core/artifact_fd_tool_test.tl view_written 8
 core/connector_filter_test.tl view_written 2
-core/connector_public_fuzz_test.tl view_written 10
+core/connector_public_fuzz_test.tl view_written 11
 core/connector_public_test.tl view_written 3
 core/connector_request_fuzz_test.tl view_written 6
 core/connector_test.tl view_written 7
@@ -2394,13 +2389,14 @@ cosmic/web/cookies_fuzz_test.tl view_written 2
 cosmic/web/cookies_test.tl view_written 1
 cosmic/web/cors.tl view_written 8
 cosmic/web/cors_test.tl view_written 5
+cosmic/web/csp.tl view_written 3
 cosmic/web/csrf.tl view_written 2
 cosmic/web/csrf_test.tl view_written 9
 cosmic/web/dev.tl view_written 11
 cosmic/web/dev_supervise_test.tl view_written 4
-cosmic/web/dev_test.tl view_written 1
+cosmic/web/dev_test.tl view_written 2
 cosmic/web/errors.tl view_written 7
-cosmic/web/headers.tl view_written 16
+cosmic/web/headers.tl view_written 13
 cosmic/web/headers_test.tl view_written 1
 cosmic/web/htmx.tl view_written 4
 cosmic/web/htmx_test.tl view_written 1
@@ -2852,7 +2848,7 @@ cosmic/archive.tl field_fixed 1
 cosmic/archive_fuzz_test.tl field_fixed 4
 cosmic/archive_test.tl field_fixed 6
 cosmic/channel.tl field_fixed 2
-cosmic/child.tl field_fixed 29
+cosmic/child.tl field_fixed 32
 cosmic/child_drain_test.tl field_fixed 7
 cosmic/child_lua_test.tl field_fixed 2
 cosmic/child_policy_anywhere_test.tl field_fixed 4
@@ -2890,8 +2886,6 @@ cosmic/net_serve_test.tl field_fixed 1
 cosmic/poll.tl field_fixed 19
 cosmic/proc_user_test.tl field_fixed 1
 cosmic/rand.tl field_fixed 3
-cosmic/relay/init.tl field_fixed 2
-cosmic/sandbox/init.tl field_fixed 1
 cosmic/sandbox/policy.tl field_fixed 4
 cosmic/sandbox_test.tl field_fixed 8
 cosmic/shape.tl field_fixed 5
@@ -2922,7 +2916,7 @@ cosmic/web/csrf.tl field_fixed 4
 cosmic/web/csrf_test.tl field_fixed 4
 cosmic/web/dev.tl field_fixed 3
 cosmic/web/dev_test.tl field_fixed 2
-cosmic/web/headers.tl field_fixed 2
+cosmic/web/headers.tl field_fixed 1
 cosmic/web/headers_test.tl field_fixed 6
 cosmic/web/htmx.tl field_fixed 2
 cosmic/web/init.tl field_fixed 41
@@ -2976,10 +2970,8 @@ test/portable/tool.tl field_fixed 1
 test/terminal/pty.tl field_fixed 6
 test/terminal/relay.tl field_fixed 2
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
-# rewrite), a field of a member of a union read without a test, a method of the fork's standard library the
-# declarations lack, and a function of a module that a record re-exports as a field typed with the module's record
-# (`Sandbox.Seatbelt: Seatbelt`), which is a function of the declaration and of no value of it: these wait for the
-# same type in the grammar
+# rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
+# declarations lack
 build/archive.tl field_unknown 2
 build/archive_test.tl field_unknown 3
 build/codec.tl field_unknown 5
@@ -3014,36 +3006,19 @@ build/worker.tl field_unknown 2
 ci/cosmic_ci/github_api.tl field_unknown 1
 ci/cosmic_ci/report.tl field_unknown 2
 core/allocation_test.tl field_unknown 2
-core/connector_public_fuzz_test.tl field_unknown 5
-core/connector_public_test.tl field_unknown 6
-core/connector_test.tl field_unknown 2
 core/fault_test.tl field_unknown 3
 core/surface_test.tl field_unknown 2
-core/syscalls_test.tl field_unknown 1
 cosmic/archive.tl field_unknown 5
-cosmic/child.tl field_unknown 5
 cosmic/child_drain_test.tl field_unknown 14
-cosmic/child_seatbelt_test.tl field_unknown 3
-cosmic/child_task_tool_test.tl field_unknown 13
 cosmic/errors_test.tl field_unknown 1
 cosmic/http/init.tl field_unknown 7
 cosmic/http/server.tl field_unknown 12
 cosmic/http/wire.tl field_unknown 12
 cosmic/http_test.tl field_unknown 25
-cosmic/internal/connector.tl field_unknown 3
-cosmic/internal/relay_config.tl field_unknown 3
-cosmic/internal/relay_resolv.tl field_unknown 1
-cosmic/internal/relay_server.tl field_unknown 6
-cosmic/internal/relay_start.tl field_unknown 6
-cosmic/internal/relay_wire.tl field_unknown 5
 cosmic/json_example.tl field_unknown 1
 cosmic/net.tl field_unknown 1
-cosmic/net_connector_test.tl field_unknown 1
-cosmic/net_resolve_test.tl field_unknown 1
 cosmic/poll.tl field_unknown 4
 cosmic/poll_test.tl field_unknown 1
-cosmic/relay/grant_test.tl field_unknown 4
-cosmic/sandbox/policy.tl field_unknown 1
 cosmic/stream.tl field_unknown 2
 cosmic/stream_example.tl field_unknown 3
 cosmic/stream_fd_test.tl field_unknown 11
@@ -3057,9 +3032,6 @@ cosmic/time_fuzz_test.tl field_unknown 12
 cosmic/time_test.tl field_unknown 1
 cosmic/time_zone_test.tl field_unknown 1
 cosmic/web/dev.tl field_unknown 2
-cosmic/web/dev_test.tl field_unknown 1
-cosmic/web/headers_example.tl field_unknown 2
-cosmic/web/headers_test.tl field_unknown 9
 cosmic/web/input.tl field_unknown 4
 cosmic/web/sse.tl field_unknown 3
 cosmic/web/sse_example.tl field_unknown 4
@@ -3069,7 +3041,7 @@ cosmic/zip_example.tl field_unknown 10
 cosmic/zip_fuzz_test.tl field_unknown 10
 cosmic/zip_test.tl field_unknown 43
 lang/ast.tl field_unknown 4
-lang/check.tl field_unknown 782
+lang/check.tl field_unknown 795
 lang/check_class_test.tl field_unknown 6
 lang/check_generics_test.tl field_unknown 1
 lang/check_programs.tl field_unknown 2
@@ -3719,8 +3691,8 @@ cosmic/time.tl overload_none 5
 cosmic/time_posix_fuzz_test.tl overload_none 2
 cosmic/time_tzif_fuzz_test.tl overload_none 3
 cosmic/web/assets.tl overload_none 1
+cosmic/web/csp.tl overload_none 1
 cosmic/web/dev.tl overload_none 1
-cosmic/web/headers.tl overload_none 1
 cosmic/web/input.tl overload_none 2
 cosmic/web/input_multipart_test.tl overload_none 2
 cosmic/web/input_test.tl overload_none 2
@@ -4458,7 +4430,7 @@ cosmic/child_drain_test.tl close_not_closable 28
 cosmic/child_example.tl close_not_closable 5
 cosmic/child_lua_test.tl close_not_closable 19
 cosmic/child_stream_failure_test.tl close_not_closable 6
-cosmic/child_task_tool_test.tl close_not_closable 7
+cosmic/child_task_tool_test.tl close_not_closable 13
 cosmic/compress_test.tl close_not_closable 3
 cosmic/declared_types_test.tl close_not_closable 1
 cosmic/fs.tl close_not_closable 1
@@ -4499,14 +4471,6 @@ doc/guides/quickstart.md close_not_closable 1
 eval/solve.tl close_not_closable 1
 test/sqlite_query_test.tl close_not_closable 1
 test/sqlite_row_test.tl close_not_closable 1
-# a module assigned to a place typed with its record (`Relay.Address = Address`, a `{Child}` of modules), where the record
-# is the type of the module's values and the module is their declaration; the owner has decided to forbid the form, and the
-# follow-up rewrites these sites to require the module directly (the TODO of `declaration_value` in lang/check.tl). A
-# declaration file's module and a module that returns a local declared with a record are values of the record, and are not here
-cosmic/child_task_tool_test.tl declaration_value 1
-cosmic/relay/init.tl declaration_value 2
-cosmic/sandbox/init.tl declaration_value 1
-cosmic/web/headers.tl declaration_value 1
 # a condition that is a string, a number, a table or a `boolean?`: the rewrite writes the test (`s ~= ""`, `x ==
 # true`)
 build/analyzer.tl condition_type 16
@@ -5179,13 +5143,14 @@ cosmic/web/cookies_example.tl or_mix 1
 cosmic/web/cookies_fuzz_test.tl or_mix 1
 cosmic/web/cookies_test.tl or_mix 12
 cosmic/web/cors.tl or_mix 1
+cosmic/web/csp.tl or_mix 1
 cosmic/web/csrf.tl or_mix 1
 cosmic/web/csrf_test.tl or_mix 3
 cosmic/web/dev.tl or_mix 1
 cosmic/web/dev_supervise_test.tl or_mix 1
 cosmic/web/dev_test.tl or_mix 4
 cosmic/web/errors.tl or_mix 1
-cosmic/web/headers.tl or_mix 2
+cosmic/web/headers.tl or_mix 1
 cosmic/web/htmx.tl or_mix 2
 cosmic/web/htmx_example.tl or_mix 1
 cosmic/web/htmx_test.tl or_mix 8
@@ -5447,7 +5412,7 @@ cosmic/internal/relay_server.tl and_ternary 6
 cosmic/internal/relay_start.tl and_ternary 2
 cosmic/internal/relay_start_test.tl and_ternary 1
 cosmic/internal/relay_token_fuzz_test.tl and_ternary 1
-cosmic/internal/relay_wire.tl and_ternary 1
+cosmic/internal/relay_wire.tl and_ternary 2
 cosmic/internal/relay_wire_client_fuzz_test.tl and_ternary 10
 cosmic/internal/relay_wire_fuzz_test.tl and_ternary 18
 cosmic/internal/relay_wire_test.tl and_ternary 2
@@ -5774,7 +5739,7 @@ core/artifact_fd_tool_test.tl concat_type 1
 core/class_form_test.tl concat_type 1
 core/connector_filter_test.tl concat_type 2
 core/connector_public_fuzz_test.tl concat_type 2
-core/connector_public_test.tl concat_type 5
+core/connector_public_test.tl concat_type 6
 core/connector_request_fuzz_test.tl concat_type 3
 core/connector_test.tl concat_type 16
 core/database_start_test.tl concat_type 1
@@ -6543,6 +6508,7 @@ cosmic/web/app_test.tl literal_needs_type 2
 cosmic/web/assets_example.tl literal_needs_type 1
 cosmic/web/cookies_example.tl literal_needs_type 1
 cosmic/web/cors_example.tl literal_needs_type 1
+cosmic/web/csp_example.tl literal_needs_type 1
 cosmic/web/csrf_test.tl literal_needs_type 2
 cosmic/web/dev_supervise_test.tl literal_needs_type 1
 cosmic/web/headers_example.tl literal_needs_type 1
@@ -6721,7 +6687,7 @@ cosmic/json_path_test.tl arms_differ 6
 cosmic/json_reader_test.tl arms_differ 3
 cosmic/json_test.tl arms_differ 2
 cosmic/net.tl arms_differ 2
-cosmic/net_connector_test.tl arms_differ 9
+cosmic/net_connector_test.tl arms_differ 10
 cosmic/net_resolve_through_test.tl arms_differ 4
 cosmic/net_serve_test.tl arms_differ 17
 cosmic/net_tcp_test.tl arms_differ 3
@@ -6876,6 +6842,7 @@ cosmic/url_example.tl export_not_declared 1
 cosmic/web/assets_example.tl export_not_declared 1
 cosmic/web/cookies_example.tl export_not_declared 1
 cosmic/web/cors_example.tl export_not_declared 1
+cosmic/web/csp_example.tl export_not_declared 1
 cosmic/web/headers_example.tl export_not_declared 1
 cosmic/web/htmx_example.tl export_not_declared 1
 cosmic/web/input_example.tl export_not_declared 1
