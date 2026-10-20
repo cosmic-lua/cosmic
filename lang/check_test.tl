@@ -368,6 +368,17 @@ local CASES <const>: {Case} = {
     fix = "return a test that decides `string` (`return v is T`",
   },
   {
+    code = "iterator_extra", at = { 5, 23 },
+    source = "local function it(): function(): integer\n  return function(): integer return 1 end\nend\nlocal f = it()\n" ..
+      "for x in f, nil, nil, 3 do\n  print(x)\nend\n",
+    msg = "a generic `for` takes an iterator, a state and a first control value", fix = "write at most three expressions",
+  },
+  {
+    code = "iterator_variables", at = { 5, 11 },
+    source = "local m: {string: integer} = {}\nlocal function pairs_of(): function(): (string, integer)\n  return function(): (string, integer) return \"a\", 1 end\nend\nfor a, b, c in pairs_of() do\nend\n",
+    msg = "`c` is variable 3 of a `for`", fix = "name no more variables than the iterator answers",
+  },
+  {
     code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { 2, 4 },
     msg = "`x` is assigned twice by one statement, and Lua leaves the order of the two open",
     fix = "assign `x` once, or in two statements in the order you mean",
@@ -1025,4 +1036,34 @@ end
 local function test_every_variable_of_type_invalid_comes_with_an_error_in_the_standing_programs()
   local problems = silent_invalids(1, 0, true)
   assert(#problems == 0, table.concat(problems, "\n"))
+end
+
+-- TODO: close the generic `for` whose last expression is a call of unknown arity (`for x in f, g()` where `g` answers several
+-- lists): the fourth value is known only when the call answers one list, which `iterator_extra` reads.
+local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_takes_three_expressions()
+  local head = "local function it(): function(): integer\n  return function(): integer return 1 end\nend\nlocal f = it()\n"
+  local step = "local type Step = function(): integer\n"
+  local function four(last: string): string
+    return step .. "local function four(): (Step, nil, nil, " .. last .. ")\n  return function(): integer return 1 end, nil, nil, " ..
+      (last == "nil" and "nil" or "3") .. "\nend\nfor x in four() do\n  print(x)\nend\n"
+  end
+  local said: {string} = {
+    -- three expressions are an iterator, a state and a control value
+    codes_of(head .. "for x in f, nil, nil do\n  print(x)\nend\n"),
+    codes_of(head .. "for x in f, nil, 1 do\n  print(x)\nend\n"),
+    -- a call that answers four values: the fourth is the value to close, unless it is nil
+    codes_of(four("integer")),
+    codes_of(four("nil")),
+    -- an iterator that answers a `...` tail, or nil alone, takes any number of names
+    codes_of("local function tail(): function(): integer...\n  return function(): integer... return 1, 2 end\nend\n" ..
+        "for a, b, c, d in tail() do\n  print(a, b, c, d)\nend\n"),
+    codes_of("local function none(): function(): nil\n  return function(): nil return nil end\nend\n" ..
+        "for a, b in none() do\n  print(a, b)\nend\n"),
+    -- the most of the lists an iterator answers sets the names it may take
+    codes_of("local function more(): function(): (true, integer) | (false, string, boolean)\n" ..
+        "  return function(): (true, integer) return true, 1 end\nend\nfor a, b, c in more() do\n  print(a, b, c)\nend\n"),
+    codes_of("local function more(): function(): (true, integer) | (false, string, boolean)\n" ..
+        "  return function(): (true, integer) return true, 1 end\nend\nfor a, b, c, d in more() do\n  print(a, b, c, d)\nend\n"),
+  }
+  assert(table.concat(said, " | ") == " |  | iterator_extra |  |  |  |  | iterator_variables", table.concat(said, " | "))
 end

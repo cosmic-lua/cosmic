@@ -1894,11 +1894,14 @@ build/fix/typescan.tl view_written 1
 build/flow.tl view_written 37
 build/flow_fuzz_test.tl view_written 5
 build/flow_test.tl view_written 4
+build/fork_refusals.tl view_written 22
+build/fork_refusals_test.tl view_written 9
 build/fuzz/fuzz_test.tl view_written 5
 build/fuzz/init.tl view_written 12
 build/fuzz/shrink.tl view_written 10
 build/fuzz/shrink_test.tl view_written 5
-build/gate_record.tl view_written 18
+build/gate_record.tl view_written 24
+build/gate_refusals.tl view_written 2
 build/gen_syscalls.tl view_written 45
 build/gen_syscalls_test.tl view_written 4
 build/globals.tl view_written 2
@@ -2059,6 +2062,7 @@ build/syntax_typed_test.tl view_written 2
 build/teal.tl view_written 39
 build/teal_catalog_test.tl view_written 1
 build/teal_dropped_test.tl view_written 3
+build/teal_refusals_test.tl view_written 3
 build/teal_test.tl view_written 13
 build/term_filter.tl view_written 8
 build/term_filter_fuzz_test.tl view_written 10
@@ -2096,7 +2100,7 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 314
+build/tree_checks.tl view_written 315
 build/tree_checks_test.tl view_written 25
 build/tree_program.tl view_written 11
 build/tree_program_test.tl view_written 3
@@ -2461,8 +2465,8 @@ lang/check_generics_test.tl view_written 1
 lang/check_programs.tl view_written 14
 lang/check_speed_test.tl view_written 14
 lang/check_test.tl view_written 15
-lang/check_verdicts.tl view_written 25
-lang/check_verdicts_test.tl view_written 14
+lang/check_verdicts.tl view_written 57
+lang/check_verdicts_test.tl view_written 42
 lang/codegen.tl view_written 37
 lang/codegen_fuzz_test.tl view_written 15
 lang/codegen_speed_test.tl view_written 1

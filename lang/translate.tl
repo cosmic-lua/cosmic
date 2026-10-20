@@ -385,6 +385,23 @@ local function decimal_of(value: number): string | nil
   return text
 end
 
+--- Whether every `_` of the number `text` sits between two digits (hexadecimal for `0x`), the one place the fork's lexer
+--- takes it; `1__0` and `1_` are malformed there, so they are left for the new lexer to refuse.
+local function separators_between_digits(text: string): boolean
+  local digit = "^%d$"
+  if find(text, "^0[xX]") ~= nil then
+    digit = "^%x$"
+  end
+  local at = find(text, "_", 1, true)
+  while at ~= nil do
+    if find(text:sub(at - 1, at - 1), digit) == nil or find(text:sub(at + 1, at + 1), digit) == nil then
+      return false
+    end
+    at = find(text, "_", at + 1, true)
+  end
+  return true
+end
+
 --- A cut number: `1_000` without its `_`, a hexadecimal float in decimal.
 local function number_rewrite(tokens: {Lexer.Token}, i: integer): Rewrite | nil
   local t = tokens[i]
@@ -392,7 +409,7 @@ local function number_rewrite(tokens: {Lexer.Token}, i: integer): Rewrite | nil
   if kind ~= "integer" and kind ~= "number" then
     return nil
   end
-  if find(text, "_", 1, true) then
+  if find(text, "_", 1, true) ~= nil and separators_between_digits(text) then
     return { row = "digit_separator", edits = { replace_token(tokens, i, (text:gsub("_", ""))) } }
   end
   local value = t.number
