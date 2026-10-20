@@ -42,6 +42,7 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local GrammarMode = require("build.grammar_mode")
 local Islands = require("build.islands")
+local ast = require("build.ast")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
 local log = require("build.logger").log
@@ -131,6 +132,23 @@ local function generate(file: string, source: string, built?: compiler): string 
   return code, ""
 end
 
+--- The checker that reads `file`: `grammar` where given, else the one COSMIC_GRAMMAR names, and the fork's for an island, a
+--- file the pinned release reads and so must stay in the Teal that release reads.
+local function checker_of(file: string, grammar?: GrammarMode.Mode): GrammarMode.Mode | nil, string
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then
+      return nil, chosen_trouble
+    end
+    mode = chosen
+  end
+  if mode == "new" and Islands.holds(file) then
+    mode = "teal"
+  end
+  return mode, ""
+end
+
 --- `file`'s Teal, checked and compiled to Lua -- from the cache when this
 --- binary compiled these exact bytes cleanly before, and kept there when
 --- not. The cache is found through `variables` when given (as
@@ -146,18 +164,9 @@ end
 --- release that runs them reads Teal alone.
 function standalone.code(file: string, source: string,
                          variables?: {string:string}, built?: compiler, grammar?: GrammarMode.Mode): string | nil, string
-  -- The checker that reads the file: the one COSMIC_GRAMMAR names, and the fork's for an island, a file the pinned
-  -- release reads and so must stay in the Teal that release reads.
-  local mode = grammar
+  local mode, mode_trouble = checker_of(file, grammar)
   if mode == nil then
-    local chosen, chosen_trouble = GrammarMode.mode()
-    if chosen == nil then
-      return nil, chosen_trouble
-    end
-    mode = chosen
-  end
-  if mode == "new" and Islands.holds(file) then
-    mode = "teal"
+    return nil, mode_trouble
   end
   -- What the new checker reads besides the file is the declarations of the standard library, which the tool carries (so
   -- they are part of the binary the cache name holds).
@@ -193,6 +202,33 @@ function standalone.code(file: string, source: string,
     end
   end
   return code, ""
+end
+
+--- The modules `source`, which is `file`'s Teal, requires by a literal name, in the order they stand: read by the syntax tree
+--- of the checker that compiles the file ([`standalone.code`]), which for the new one is its own parse and for the fork's the
+--- fork's. nil and why where the file does not parse. `built`, when given, is the fork's compiler.
+function standalone.requires(file: string, source: string, built?: compiler, grammar?: GrammarMode.Mode):
+    {string} | nil, string
+  local mode, mode_trouble = checker_of(file, grammar)
+  if mode == nil then
+    return nil, mode_trouble
+  end
+  if mode == "new" then
+    return require("build.pipeline").requires(file, source)
+  end
+  local forked = built
+  if forked == nil then
+    local load_trouble = ""
+    forked, load_trouble = teal.load()
+    if forked == nil then
+      return nil, load_trouble
+    end
+  end
+  local parsed, parse_trouble = ast.parse(forked, source, file)
+  if parsed == nil then
+    return nil, parse_trouble
+  end
+  return ast.all_requires(forked, parsed)
 end
 
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],

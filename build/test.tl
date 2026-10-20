@@ -674,11 +674,14 @@ end
 --- `by_test`, since its row from the run that produced the verdict
 --- still stands for it.
 ---
+--- `grammar` is the checker that compiled the modules: the lines each has to
+--- hit are those of the text it read ([`coverage.lines_of`]).
+---
 --- `native_lines` are the core's own C lines ([`Coverage.native_lines`]),
 --- or none when the tree is not the one that C belongs to. Returns the
 --- overall hit and executable-line counts, over every module written
 --- for this run, for the run's own summary, and a trouble message.
-local function write_coverage(handle: Sqlite.Handle, built: compiler,
+local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: GrammarMode.Mode,
                               modules: {importer.Module},
                               native_lines: Coverage.Hits,
                               hits: Coverage.Hits,
@@ -739,7 +742,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
       local per_line: coverage_report.LineHits
       if m ~= nil then
         local lines_trouble: string
-        per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
+        per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits, grammar)
         if per_line == nil then
           return false, m.file .. ": " .. lines_trouble
         end
@@ -4566,7 +4569,7 @@ local function settle(ctx: Run)
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, assert(ctx.built), result.modules, assert(ctx.native_lines), hits,
+    write_coverage(records, assert(ctx.built), assert(ctx.grammar), result.modules, assert(ctx.native_lines), hits,
       assert(ctx.by_test), ctx.run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble

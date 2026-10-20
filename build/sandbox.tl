@@ -74,12 +74,10 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
-local ast = require("build.ast")
 local bare = require("build.bare")
 local connect_client = require("build.sandbox_connect")
 local plural = require("build.plural")
 local standalone = require("build.standalone")
-local teal = require("build.teal")
 local TermRelay = require("build.term_relay")
 local verb_spec = require("build.verb_spec")
 
@@ -458,14 +456,9 @@ local function seal_script(file: string, cwd: string | nil, held: {string}): Sea
   if source == nil then return { why = read_trouble, refused = false } end
   local code, trouble = standalone.code(file, source)
   if code == nil then return { why = trouble, refused = false } end
-  -- TODO: take the requires from the syntax tree of the new checker ([`build.driver`]'s `parse`) where the file was compiled
-  -- by it (`COSMIC_GRAMMAR=new`), once the sources are in the new grammar (doc/plans/strict-teal.md, "the switch"): the fork
-  -- parses what the new mode reads today, the fork's Teal, so it finds the same requires.
-  local built, load_trouble = teal.load()
-  if built == nil then return { why = load_trouble, refused = false } end
-  local parsed, parse_trouble = ast.parse(built, source, file)
-  if parsed == nil then return { why = parse_trouble, refused = false } end
-  local found, roots_trouble = ast.all_requires(built, parsed)
+  -- The requires are read by the checker that compiled the file: the new one's syntax tree under COSMIC_GRAMMAR=new, the fork's
+  -- otherwise ([`standalone.requires`]).
+  local found, roots_trouble = standalone.requires(file, source)
   if found == nil then return { why = roots_trouble, refused = false } end
   -- What the generated Lua names is what the program loads.
   local roots: {string} = {}

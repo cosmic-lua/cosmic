@@ -170,8 +170,12 @@ local record Template
   --- What `compile` may be given beyond the template.
   record Options
     --- The dialects `{{use name}}` may name, in place of the built-in ones
-    --- (`htmx`): each is the data [`dialect/htmx.tl`] holds.
-    dialects: {string: Template.Dialect}
+    --- (`htmx`): each is the data [`dialect/htmx.tl`] holds. The built-in ones where absent.
+    dialects: {string: Template.Dialect} | nil
+    --- Whether the module is written in the new checker's grammar, which a project is held to with no ceiling to excuse a
+    --- local array that is written or a module that returns a table literal: the output list is a `mut {string}` and the
+    --- module returns a local of a record type that declares `render`. The fork's Teal where absent.
+    new_grammar: boolean | nil
   end
 end
 
@@ -180,11 +184,12 @@ end
 --- module (for its types alone, unless a stage reads it), and each stage's.
 --- @param src string The template source
 --- @param name string The template's name (its file), which heads each reason
---- @param options? Template.Options Dialects other than the built-in ones
+--- @param options? Template.Options Dialects other than the built-in ones, and the grammar the module is written in
 --- @return string|nil The module source, with line N the template's line N
 --- @return string The reason, as `name:line:col: ...`, when the template is refused
 function Template.compile(src: string, name: string, options?: Template.Options): string | nil, string
   local registry = options ~= nil and options.dialects or dialect.registry
+  local new_grammar = options ~= nil and options.new_grammar == true
   local template, why = parse.parse(src, name, registry)
   if template == nil then
     return nil, why
@@ -199,7 +204,7 @@ function Template.compile(src: string, name: string, options?: Template.Options)
   if not placed then
     return nil, reason
   end
-  return codegen.generate(template), ""
+  return codegen.generate(template, new_grammar), ""
 end
 
 return Template

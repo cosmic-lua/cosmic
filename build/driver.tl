@@ -445,11 +445,25 @@ end
 
 --- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic removed
 --- ([`build.removed_fix`]), else the fix the checker wrote.
+local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or " ..
+  "drop the `{{if}}`"
+
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
                         offset: integer, length: integer, types: {string}): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length, types)
+  -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
+  -- author to write a test of that local. What a template can say is whether a value is there.
+  local file = result.source.filename
+  if result.source.pinned ~= "" then
+    file = result.source.pinned
+  end
+  local told = instead or fix
+  if instead == nil and code == "condition_type" and file:match("%.tmpl$") ~= nil and
+      msg:find("no boolean or optional", 1, true) ~= nil then
+    told = TEMPLATE_CONDITION
+  end
   return {
-    kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
+    kind = "error", stage = stage, code = code, msg = msg, fix = told, y = y, x = x, offset = offset,
     removed = instead ~= nil,
   }
 end

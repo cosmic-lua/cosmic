@@ -267,7 +267,7 @@ Codes.catalog = {
     why = "a declaration used as a value is the table of its functions, and a record or class value is made by a " ..
       "table literal typed as it or by a function that makes one: the table of a class is its metatable, so no " ..
       "program passes it for a value of the class. A module typed with its record (`Seatbelt: Seatbelt`) is the " ..
-      "same mistake the grammar cannot yet spell otherwise, and a ceiling holds it",
+      "same mistake the grammar cannot yet spell otherwise",
     fix = "make a value with a literal typed as <type>, or call a function of <type> that makes one",
   },
   {

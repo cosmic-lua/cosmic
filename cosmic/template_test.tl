@@ -746,7 +746,7 @@ local function test_a_project_dialect_replaces_the_registry()
     families = { "x-" },
     plain = {},
   }
-  local options: Template.Options = { dialects = { alpine = alpine } }
+  local options: Template.Options = { dialects = { alpine = alpine }, new_grammar = nil }
   local function compile(src: string): string | nil, string
     return Template.compile("{{type T from m.t}}{{use alpine}}\n" .. src, "t.tmpl", options)
   end
@@ -771,7 +771,7 @@ local function test_a_project_dialect_replaces_the_registry()
     plain = {},
   }
   local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
-    { dialects = { alpine = alpine, other = other } })
+    { dialects = { alpine = alpine, other = other }, new_grammar = nil })
   assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true),
     tostring(clash_why))
 end
@@ -1580,4 +1580,21 @@ local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_st
     end
   end
   assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+--- The module a template compiles to is written in the new checker's grammar when asked: its output list is `mut`, and the
+--- module returns a local of a record type that declares `render`, which a project is held to with no ceiling. The default is
+--- the fork's Teal, which the checks of cosmic's own tree measure.
+local function test_a_template_is_written_in_the_new_grammar_when_asked()
+  local fork = assert(Template.compile("{{type T from m.t}}{{mode text}}\nhi {{.x}}", "t.tmpl"))
+  assert(fork:find("local parts: {string} = {}", 1, true) ~= nil and fork:find(" return {render = render}", 1, true) ~= nil and
+      fork:find("mut", 1, true) == nil, fork)
+  local new = assert(Template.compile("{{type T from m.t}}{{mode text}}\nhi {{.x}}", "t.tmpl", { dialects = nil, new_grammar = true }))
+  assert(new:find("local parts: mut {string} = {}", 1, true) ~= nil, new)
+  assert(new:find("end local record _Module render: function(d: t.T): string end local _module: _Module = {render = render} " ..
+      "return _module", 1, true) ~= nil, new)
+  -- line N of the template is line N of the module in either grammar
+  local _, fork_lines = fork:gsub("\n", "")
+  local _, new_lines = new:gsub("\n", "")
+  assert(fork_lines == new_lines, tostring(fork_lines) .. " ~= " .. tostring(new_lines))
 end

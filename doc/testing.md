@@ -45,6 +45,11 @@ stands on another checkout's pass.
   finds it unsettled and builds it again ([`build.reboot`]'s `settled_by`).
   A lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too; a lone file of
   [`ci/islands.txt`] stays on the fork, which the release that runs it reads.
+  `cosmic build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles
+  to is written in the new grammar then ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are
+  compiled by it as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its
+  syntax tree; and the coverage of a project counts the lines of the text it read, so a project written in the new
+  grammar (`mut`, a class, `T?`) runs `cosmic test` with coverage.
   The compiles, the parses and the
   verdicts of such a run are keyed apart from the fork's, and by the code that
   reads (the checker and its readers, as the binary carries them). A module the
@@ -497,6 +502,7 @@ Other rules:
 [`build.checker_verdicts`]: ../build/checker_verdicts.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
+[`build.example_checks`]: ../build/example_checks.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
 [`build.grammar_mode`]: ../build/grammar_mode.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
@@ -520,6 +526,7 @@ Other rules:
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`doc/performance.md`]: performance.md
 [`Fuzz.label`]: ../build/fuzz/init.tl

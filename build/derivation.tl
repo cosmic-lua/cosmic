@@ -125,8 +125,10 @@ end
 --- module it is ([`cosmic.template`]). One it refuses fails the build
 --- with its own `file:line:col` reason. What the compiler last did to a
 --- template stands while the analyzer does ([`build.importer`]'s
---- `forget_stale_analysis`): [`cosmic.template`] is in its closure.
-local function derive_templates(db: Sqlite.Handle): boolean, string
+--- `forget_stale_analysis`): [`cosmic.template`] is in its closure. With `new_grammar` the module is written in the new
+--- checker's grammar ([`cosmic.template`]'s `Options`): the analyzer of the new mode is another, so no row of the other form
+--- stands.
+local function derive_templates(db: Sqlite.Handle, new_grammar: boolean): boolean, string
   local templates, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
       "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
@@ -136,7 +138,7 @@ local function derive_templates(db: Sqlite.Handle): boolean, string
   end
   for _, row in ipairs(templates) do
     local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
-    local source, compile_trouble = Template.compile(template_source, file)
+    local source, compile_trouble = Template.compile(template_source, file, { dialects = nil, new_grammar = new_grammar })
     if source == nil then
       return false, compile_trouble
     end
@@ -649,13 +651,16 @@ function derivation.unparsed(db: Sqlite.Handle): {Source} | nil, string
 end
 
 --- Produces generated inputs and rejects ambiguous import paths before
---- any cached parse or compile can stand for them.
-function derivation.inputs(db: Sqlite.Handle): boolean, string
-  for _, step in ipairs({ derive_doc_guides, derive_syscalls, derive_templates, duplicate_import_paths }) do
+--- any cached parse or compile can stand for them. With `new_grammar` the templates are written in the new checker's
+--- grammar ([`derive_templates`]).
+function derivation.inputs(db: Sqlite.Handle, new_grammar?: boolean): boolean, string
+  for _, step in ipairs({ derive_doc_guides, derive_syscalls }) do
     local ok, trouble = step(db)
     if not ok then return false, trouble end
   end
-  return true, ""
+  local made, made_trouble = derive_templates(db, new_grammar == true)
+  if not made then return false, made_trouble end
+  return duplicate_import_paths(db)
 end
 
 return derivation

@@ -5,9 +5,15 @@
 -- The fixtures require cosmic.fs too. In the closure, it is read past the
 -- worker's hold by the checker's [`Store.source`] ([`teal.serve_standard`]).
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+local GrammarMode = require("build.grammar_mode")
 local example_checks = require("build.example_checks")
 local fixture = require("build.docs_fixture")
 local teal = require("build.teal")
+
+-- The new checker types an example against the declarations the tool carries, which only a worker that holds the tool's
+-- database ("cosmic") has.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local built = teal.lazy()
 
@@ -16,7 +22,7 @@ local function source(...: string): string
 end
 
 --- What the check says of one example file paired with `cosmic.thing`.
-local function found_in(dir: string, example: string): {string}
+local function found_in(dir: string, example: string, grammar?: GrammarMode.Mode): {string}
   -- The check reads the example file from the tree, as `fix --check` does.
   assert(Fs.mkdirs(dir .. "/cosmic"))
   assert(Fs.write(dir .. "/cosmic/thing_example.tl", example))
@@ -24,7 +30,7 @@ local function found_in(dir: string, example: string): {string}
     ["cosmic/thing.tl"] = source("local record thing", "end", "return thing"),
     ["cosmic/thing_example.tl"] = example,
   })
-  return example_checks.run(db, dir, built, {})
+  return example_checks.run(db, dir, built, {}, grammar or "teal")
 end
 
 local good = source(
@@ -62,11 +68,11 @@ local function test_an_example_reading_a_harness_variable_is_refused(dir: string
 end
 
 --- Runs the check over one guide, written under `dir`.
-local function found_in_guide(dir: string, text: string): {string}
+local function found_in_guide(dir: string, text: string, grammar?: GrammarMode.Mode): {string}
   assert(Fs.mkdirs(dir .. "/doc/guides"))
   assert(Fs.write(dir .. "/doc/guides/fixture.md", text))
   local db = fixture.database(dir, {})
-  return example_checks.run(db, dir, built, { "fixture" })
+  return example_checks.run(db, dir, built, { "fixture" }, grammar or "teal")
 end
 
 local function test_a_guide_example_must_compile_alone(dir: string)
@@ -177,5 +183,69 @@ local function test_only_declarations_count_as_helpers(dir: string)
     "end",
     "return Example"))
   assert(#found == 1 and found[1]:find("uses helper b, too long to carry: inline it", 1, true),
+    table.concat(found, "\n"))
+end
+
+--- The new checker compiles an example as a file alone, with the table of the examples a record of that name (it refuses a
+--- literal with no type to make it from), and says what it finds in its own words and fixes.
+local good_new = source(
+  'local Fs = require("cosmic.fs")',
+  "local record Example end",
+  "",
+  "--- Reads a file.",
+  "function Example.read()",
+  '  local data = Fs.read("/nonexistent")',
+  "  print(data)",
+  "end",
+  "return Example")
+
+local function test_an_example_that_runs_as_shown_passes_the_new_checker(dir: string)
+  local found = found_in(dir, good_new, "new")
+  assert(#found == 0, table.concat(found, "\n"))
+  -- the text shown holds the function and the requires it needs, not the file's table: the file may declare it either way
+  found = found_in(dir, good, "new")
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+local function test_an_example_missing_a_require_is_refused_in_the_new_checkers_words(dir: string)
+  local found = found_in(dir, (good_new:gsub('local Fs = require%("cosmic.fs"%)\n', "")), "new")
+  assert(#found >= 1 and assert(found[1]):find("^cosmic/thing_example%.tl:4: example read:%d+:%d+: `Fs` is not declared " ..
+      "%(unknown_variable%)") ~= nil and assert(found[1]):find("unknown variable", 1, true) == nil, table.concat(found, "\n"))
+  -- a name only the harness defines
+  found = found_in(dir, source(
+    "local record Example end",
+    "--- Uses the test's directory.",
+    "function Example.where()",
+    "  print(tmp)",
+    "end",
+    "return Example"), "new")
+  assert(#found >= 1 and assert(found[1]):find("`tmp` is not declared (unknown_variable)", 1, true) ~= nil, table.concat(found, "\n"))
+end
+
+--- An array an example writes is a view until it is declared `mut`, which the fork has no word for: the example is refused
+--- with the fix, and passes the fork.
+local function test_an_example_writing_a_view_is_refused_by_the_new_checker_alone(dir: string)
+  local writes = source(
+    "local record Example end",
+    "--- Collects words.",
+    "function Example.collect()",
+    "  local words: {string} = {}",
+    '  words[#words + 1] = "a"',
+    "  print(#words)",
+    "end",
+    "return Example")
+  assert(#found_in(dir, writes, "teal") == 0)
+  local found = found_in(dir, writes, "new")
+  assert(#found >= 1 and assert(found[1]):find("(view_written): declare `words` `mut {string}` where it is made or received", 1, true) ~= nil,
+    table.concat(found, "\n"))
+end
+
+local function test_a_guide_example_must_compile_alone_in_the_new_checker(dir: string)
+  local found = found_in_guide(dir, source(
+    "# Fixture", "", "```teal", 'local Fs = require("cosmic.fs")', "print(Fs.is_dir(\".\"))", "```"), "new")
+  assert(#found == 0, table.concat(found, "\n"))
+  found = found_in_guide(dir, source(
+    "# Fixture", "", "```teal", "print(Fs.is_dir(\".\"))", "```"), "new")
+  assert(#found >= 1 and assert(found[1]):find("^doc/guides/fixture%.md:3: example:%d+:%d+: `Fs` is not declared") ~= nil,
     table.concat(found, "\n"))
 end
