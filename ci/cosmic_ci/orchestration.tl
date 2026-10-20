@@ -1473,6 +1473,11 @@ end
 --- informational: ci.yml's `rehearsal` job gates nothing. It fails where the suite's failures are not the ones
 --- testdata/gate/rehearsal.txt expects, each with its reason ([`Rehearsal`]): a failure the list lacks, and an entry whose
 --- failure did not happen, so that the list only shrinks.
+--
+-- TODO: run the suite a second time here, checked (`cosmic test --check-types` with COSMIC_GRAMMAR=new, a verdict file of its own),
+-- and judge the failures of both runs together against the list: a checked run of the new mode takes 520 s on four cores, and
+-- the bounds of the phases (about 41 minutes) leave the job's 60 no room for it until CI's own runs show their times. It has
+-- found a real unsoundness (build/fix/init.tl) and a wrapped chunk run before the worker's hook, which no other test reaches.
 local function phase_rehearsal(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation

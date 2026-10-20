@@ -18,6 +18,10 @@
 --- file's text a second time, in code, beside the block that shows it;
 --- doctest has no notion of a companion written into the current
 --- directory instead.
+--
+-- TODO: compile the examples with the new checker ([`build.pipeline`]'s `lone`) in the mode `COSMIC_GRAMMAR=new` asks for,
+-- once `cosmic fix` reads the tree through it: `fix` forces the fork in every mode (build/fix/spill.tl reads the fork's
+-- message about `assert(...)`), and [`unknown_name`] below reads the fork's words (doc/plans/strict-teal.md, "the switch").
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local doctest = require("build.doctest")

@@ -8,11 +8,18 @@
 --- modules of its closure. The tree's own guides, built with it, hold
 --- `cosmic.*` examples, file= blocks included.
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 
 local type Module = importer.Module
+
+-- The new checker, where the suite asks for it (`COSMIC_GRAMMAR=new`, which a sandboxed worker sees only if its policy
+-- passes it through), types a project against the declarations the tool carries, which only a worker that holds the tool's
+-- database ("cosmic") has.
+Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local built = assert(teal.load())
 
@@ -88,7 +95,7 @@ local function write_fixture(case: string, content: string): string | nil, strin
   return root, ""
 end
 
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string, given?: GrammarMode.Mode): importer.Result | nil, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -98,10 +105,16 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built, "doctest-test")
+  local grammar = given or assert(GrammarMode.mode())
+  local result, compile_trouble = importer.compile(handle, built, GrammarMode.tool("doctest-test", grammar), false, nil, nil, false,
+    grammar)
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
+  end
+  -- The new checker goes on past a module it refuses and says so in the result.
+  if #result.refused > 0 then
+    return nil, table.concat(result.refused, "\n")
   end
   return result
 end
@@ -143,6 +156,18 @@ local function test_an_output_matching_example_actually_passes()
   local fn = mod.test_1 as function(any...): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
+end
+
+--- The test the generator writes for an example with output (its capture of `print` among it) is code the new checker takes
+--- with no ceiling to hold it, whatever the mode of the suite. (The run of what it writes is the test above, in the suite's.)
+local function test_an_output_matching_example_builds_with_the_new_checker_and_passes()
+  local root, write_trouble = write_fixture("match-new", matching_doc)
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root, "new")
+  assert(result ~= nil, "compile failed: " .. tostring(trouble))
+  local m = find_module(result, "doc.guides.fixture")
+  assert(m ~= nil and #m.tests == 1, "doc.guides.fixture was not compiled with its test")
+  assert(assert(m.lua):find("__doctest_capture", 1, true) ~= nil, "the capture is not in the module")
 end
 
 local function test_a_tilde_fenced_example_actually_passes()
@@ -232,6 +257,7 @@ local function test_an_example_that_redeclares_print_is_refused()
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "an example that redeclares print was accepted")
-  assert(trouble:find("shadows previous declaration of 'print' (originally declared at", 1, true) ~= nil,
-    trouble)
+  -- in the words of the checker that refused it
+  assert(trouble:find("shadows previous declaration of 'print' (originally declared at", 1, true) ~= nil or
+      trouble:find("variable `print` shadows the variable `print` declared at", 1, true) ~= nil, trouble)
 end

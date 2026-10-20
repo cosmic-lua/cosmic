@@ -69,6 +69,7 @@ local function tree_of(tmp: string, name: string, files: {string:string}): strin
   local root = tmp .. "/" .. name
   assert(Fs.mkdirs(root))
   for file, source in pairs(files) do
+    assert(Fs.mkdirs(Fs.dirname(root .. "/" .. file)))
     assert(Fs.write(root .. "/" .. file, source))
   end
   return root
@@ -148,4 +149,42 @@ local function test_each_broken_file_of_one_source_is_told(tmp: string)
       stderr:find("warning: bad.tl is left out of this run, which does not require it: bad.tl:1:21:", 1, true) ~= nil and
       stderr:find("warning: copy.tl is left out of this run, which does not require it: copy.tl:1:21:", 1, true) ~= nil,
     tostring(result.stdout) .. stderr)
+end
+
+--- Runs `file` in `root` as this program with the new checker (`COSMIC_GRAMMAR=new`), whatever the mode of the suite.
+local function run_new_in(root: string, file: string): Child.Result
+  local env = this_program.environment()
+  env["COSMIC_BUILD_CACHE"] = "0"
+  env["COSMIC_GRAMMAR"] = "new"
+  local started = this_program.program({ file }, { cwd = root, env = env,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- The file run with the new checker: a broken sibling it does not reach is left out in the checker's words, one it reaches
+--- stops the run with them, and a file that is whole runs.
+local function test_a_file_run_with_the_new_checker_is_told_a_refusal_in_its_words(tmp: string)
+  local root = tree_of(tmp, "new", { ["good.tl"] = 'print("ok")\n', ["bad.tl"] = TYPE_ERROR,
+    ["other.tl"] = 'local b = require("bad")\nprint(b)\n' })
+  local result = run_new_in(root, "good.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  assert(result.code == 0 and result.stdout == "ok\n", said)
+  assert((result.stderr or ""):find("warning: bad.tl is left out of this run, which does not require it: bad.tl:1:", 1, true) ~= nil and
+      (result.stderr or ""):find("(not_assignable)", 1, true) ~= nil, said)
+  local needing = tree_of(tmp, "new-needed", { ["good.tl"] = 'local b = require("bad")\nprint(b)\n', ["bad.tl"] = TYPE_ERROR })
+  local stopped = run_new_in(needing, "good.tl")
+  local stopped_said = tostring(stopped.stdout) .. tostring(stopped.stderr)
+  assert(stopped.code == 1 and stopped.stdout == "" and (stopped.stderr or ""):find("bad.tl: the compiler refused it", 1, true) ~= nil and
+      (stopped.stderr or ""):find("(not_assignable)", 1, true) ~= nil, stopped_said)
+end
+
+--- A file of ci/islands.txt stays on the fork in a file run as in `--standalone`: the write to a view that the new checker
+--- refuses is let by, and another file of the same checkout is refused.
+local function test_a_file_run_with_the_new_checker_keeps_an_island_on_the_fork(tmp: string)
+  local source = 'local lines: {string} = {}\nlines[#lines + 1] = "x"\nprint(#lines)\n'
+  local root = tree_of(tmp, "island", { ["ci/islands.txt"] = "island.tl\n", ["island.tl"] = source, ["other.tl"] = source })
+  local island = run_new_in(root, "island.tl")
+  assert(island.code == 0 and island.stdout == "1\n", tostring(island.stdout) .. tostring(island.stderr))
+  local other = run_new_in(root, "other.tl")
+  assert(other.code ~= 0 and (other.stderr or ""):find("(view_written)", 1, true) ~= nil, tostring(other.stdout) .. tostring(other.stderr))
 end

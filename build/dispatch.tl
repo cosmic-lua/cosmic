@@ -373,6 +373,7 @@ local function run(file: string, argv: {integer:string}): integer
   local Store = require("cosmic.store")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
+  local GrammarMode = require("build.grammar_mode")
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
@@ -425,12 +426,30 @@ local function run(file: string, argv: {integer:string}): integer
   -- The compiler this binary is, as the build that made it recorded.
   -- A project's rows are keyed by it, so a different compiler
   -- recompiles them.
-  local tool = Store.meta("compiler") or ""
+  local asked, grammar_trouble = GrammarMode.mode()
+  if asked == nil then
+    local _, _ = work.close(handle)
+    log:complain(grammar_trouble)
+    return 1
+  end
+  -- A file of ci/islands.txt stays on the fork, as it does for `--standalone` ([`build.standalone`]).
+  local grammar = asked
+  if asked == "new" and require("build.islands").holds(file) then
+    grammar = "teal"
+  end
+  local tool = GrammarMode.tool(Store.meta("compiler") or "", grammar)
 
   local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile_for(handle, built, tool, name,
-    shared_compiles.for_build(), workers.pool(workers.tool_spec()))
+  -- The new checker reads the tree in this process, so no pool is started for it.
+  local result: importer.Result | nil = nil
+  local compile_trouble = ""
+  if grammar == "new" then
+    result, compile_trouble = importer.compile_for(handle, built, tool, name, shared_compiles.for_build(), nil, grammar)
+  else
+    result, compile_trouble = importer.compile_for(handle, built, tool, name,
+      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
+  end
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

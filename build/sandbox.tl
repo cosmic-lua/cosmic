@@ -458,6 +458,9 @@ local function seal_script(file: string, cwd: string | nil, held: {string}): Sea
   if source == nil then return { why = read_trouble, refused = false } end
   local code, trouble = standalone.code(file, source)
   if code == nil then return { why = trouble, refused = false } end
+  -- TODO: take the requires from the syntax tree of the new checker ([`build.driver`]'s `parse`) where the file was compiled
+  -- by it (`COSMIC_GRAMMAR=new`), once the sources are in the new grammar (doc/plans/strict-teal.md, "the switch"): the fork
+  -- parses what the new mode reads today, the fork's Teal, so it finds the same requires.
   local built, load_trouble = teal.load()
   if built == nil then return { why = load_trouble, refused = false } end
   local parsed, parse_trouble = ast.parse(built, source, file)

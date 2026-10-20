@@ -88,15 +88,11 @@ local record Check
   type Error = Codes.Error
 
   --
-  -- TODO: have the build's compile for `cosmic test --check-types` ask [`lang.codegen`] to wrap each [`Check.Narrowed`]
-  -- read with [`lang.fact_wraps`], as [`build.compile_grammar`]'s `facts` does for the files it is given, once the switch
-  -- makes the new checker's Lua the one the tests run (doc/plans/strict-teal.md, "the switch").
-  --
   -- TODO: record in [`Narrowed`] the facts it leaves out, and have [`lang.fact_wraps`] pass them: a number that a test took
   -- to be an integer or a float ([`Tests.lua_kind`] maps both to `"number"`), a `thread` (`LUA_KINDS` has none), an enum or
   -- a string that an `==` test narrowed (no read is wrapped), and `true` against `false` of a boolean. A run misses a
-  -- false conclusion of these and refuses nothing valid. Once `--check-types` runs the new checker (doc/plans/strict-teal.md,
-  -- "the switch"), so that the first real run shows which are worth the cost of a call per read.
+  -- false conclusion of these and refuses nothing valid. Once a full `COSMIC_GRAMMAR=new cosmic test --check-types` run
+  -- (the rehearsal's) has a time to compare, so that the cost of a call per read of each decides which are worth it.
   --- A read of a local, or of a path of fixed fields from one, whose type a test narrowed. The checker took the value
   --- to have none of the kinds of Lua value in `taken`, and the values of the enums, classes and tags the other fields
   --- name, which a run can check at the read.

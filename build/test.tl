@@ -3762,7 +3762,7 @@ local function select_tests(ctx: Run): integer | nil
         local head = line:match("^[^\n]*") or line
         for _, selector in ipairs(unmatched) do
           if head:find(selector, 1, true) ~= nil then
-            log:complain(head)
+            log:complain(line)
           end
         end
       end
@@ -4032,7 +4032,7 @@ local function gather_key_inputs(ctx: Run): integer | nil
   -- The compiler a checked run's modules were compiled by
   -- ([`importer.compile`]'s `checks`).
   local compiled_with = GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar))
-  if ctx.checks then compiled_with = importer.checked_tool(compiled_with) end
+  if ctx.checks then compiled_with = importer.checked_tool(compiled_with, ctx.grammar == "new") end
   rec.compiler = compiled_with .. " " .. assert(ctx.compiled_by)
   rec.host = declared_key.host_identity(digests_of(rec))
   -- What the system's paths hold is walked only for a run that holds

@@ -8,6 +8,11 @@
 --- [`cosmic.html`]. Its types are checked, and what it renders is made by
 --- the core's own escapers and `href`.
 
+-- TODO: build the templates with the new checker too ([`importer.compile`]'s `grammar`, in the mode `COSMIC_GRAMMAR` names), once
+-- [`cosmic.template`] writes the new grammar (doc/plans/strict-teal.md, "the switch"): a project has no ceilings, and the Teal it
+-- writes for a template is refused by the new checker for a local array it writes (view_written), a condition on a string or
+-- a record (condition_type) and a module that returns a literal (export_not_declared), which the tree pins for its own
+-- templates (build/ceilings.txt). The XSS guarantee these tests hold is the fork's checker's until then.
 local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
 local importer = require("build.importer")

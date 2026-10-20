@@ -354,6 +354,48 @@ local function test_the_options_of_a_project_are_the_texts_it_is_given_and_no_ce
   assert(stdlib.filename == "checker/stdlib.d.tl" and stdlib.module == "checker.stdlib")
 end
 
+local function test_a_lone_file_takes_the_declarations_the_tool_carries_and_no_ceiling()
+  local lone, why = Pipeline.alone()
+  if lone == nil then
+    assert(why:find("this tool carries no declarations of the standard library", 1, true) ~= nil, tostring(why))
+  else
+    assert(lone.project == true and #lone.globals.sources == 2 and lone.ceilings.none == true)
+  end
+end
+
+local function test_a_lone_file_is_checked_with_no_ceiling_and_written_as_lua_that_runs()
+  local made = assert(Pipeline.lone("script.tl", "local function twice(n: integer): integer\n  return n * 2\nend\nreturn twice(21)\n", options("")))
+  assert(value_of(made) == 42, made)
+  -- what it returns is its entry point, which no declaration describes
+  local entry = assert(Pipeline.lone("entry.tl", "return function(): integer\n  return 7\nend\n", options("")))
+  assert(entry:find("return function", 1, true) ~= nil, entry)
+end
+
+local function test_a_lone_file_is_refused_for_an_error_a_warning_and_a_syntax_error_in_the_checkers_words()
+  local code, why = Pipeline.lone("bad.tl", "local n: string = 1\nreturn n\n", options(""))
+  assert(code == nil and why:find("^bad.tl:1:") ~= nil and why:find("(not_assignable)", 1, true) ~= nil, tostring(why))
+  -- a file alone has no ceilings to raise: its refusal never speaks of a pin
+  assert(why:find("bad.tl: 1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, why)
+  assert(why:find("pin", 1, true) == nil, why)
+  -- a warning refuses as an error does
+  local warned, warning = Pipeline.lone("warn.tl", "local unused = 1\nreturn 2\n", options(""))
+  assert(warned == nil and warning:find("^warn.tl:1:7: ") ~= nil and warning:find("(unused_variable)", 1, true) ~= nil, tostring(warning))
+  -- the entry point is the one error allowed: another beside it is told
+  local both, told = Pipeline.lone("both.tl", "local n: string = 1\nreturn function(): integer\n  return n\nend\n", options(""))
+  assert(both == nil and told:find("(not_assignable)", 1, true) ~= nil and told:find("(export_not_declared)", 1, true) == nil, tostring(told))
+  -- a text that does not parse is told in the words of the translation
+  local broken, syntax = Pipeline.lone("tuple.tl", "local t: {{string, integer}}\nreturn t\n", options(""))
+  assert(broken == nil and syntax:find("^tuple.tl:1:") ~= nil and syntax:find("(tuple_type)", 1, true) ~= nil, tostring(syntax))
+end
+
+local function test_a_lone_file_keeps_an_import_it_never_reads_and_a_module_of_the_tree_does_not()
+  local text = "local type _shape = require(\"cosmic.shape\")\nreturn 7\n"
+  local kept = assert(Pipeline.lone("script.tl", text, options("")))
+  assert(kept:find("require(\"cosmic.shape\")", 1, true) ~= nil, kept)
+  local served = assert(generated(text, EXPORT))
+  assert(served.lua:find("require", 1, true) == nil, served.lua)
+end
+
 --- A project's error is listed without the pin it has not got, and cosmic's own with it.
 local function test_a_project_is_told_its_errors_without_a_pin_to_raise()
   local source = "local n: string = 1\nreturn n\n"

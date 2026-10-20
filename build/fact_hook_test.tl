@@ -166,6 +166,8 @@ local function test_a_compile_with_facts_writes_the_wraps_and_without_none()
   assert(not without:find("__fact", 1, true), without)
   assert(count_of(with, "__fact%(") == 1, with)
   assert(with:find("__fact(x, \"nil\", \"x\", nil, nil, nil, nil, \"sound.tl:5:10\")", 1, true) ~= nil, with)
+  -- the one definition it brings along is on the first line
+  assert(with:find("^if not __fact then __fact = function%(v%) return v end end ") ~= nil, with)
   assert(count_of(with, "\n") == count_of(without, "\n"), "the wraps moved a line")
 end
 
@@ -199,6 +201,17 @@ local function loaded(code: string, name: string, lax: boolean): any
 end
 
 local function nothing() end
+
+--- A chunk with wraps brings the definition of the hook it calls, for a process with none (one a test starts, a library
+--- the worker loads before it installs its own): the call answers its value, as the fork's `(__cosmic_tc or select)` does.
+local function test_a_wrapped_chunk_defines_the_hook_it_calls_where_none_is_defined()
+  local code = programs.compiled("sound.tl", programs.sound, true)
+  local definition = code:match("^(if not __fact then __fact = function%(v%) return v end end )")
+  assert(definition ~= nil, code)
+  -- run alone, in a table of its own, where nothing else defines the global
+  local answered = assert(load(definition .. "return __fact(41)", "=definition", "t", {}))()
+  assert(answered == 41)
+end
 
 --- A correct program: the narrowed reads are checked, and nothing is recorded.
 local function test_a_sound_program_runs_checked_and_records_nothing()

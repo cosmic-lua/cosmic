@@ -95,3 +95,22 @@ local function test_each_island_of_build_has_only_the_forms_blocked_names_that_t
     assert(listed, path .. " is blocked but no island")
   end
 end
+
+--- The tool asks the list which files stay on the fork: the files and directories of the checkout's own list, by their path
+--- below the nearest directory above them that holds one, and no file outside such a checkout.
+local function test_the_tool_finds_the_islands_of_the_checkout_a_file_lies_in(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/co/ci") and Fs.mkdirs(tmp .. "/co/build") and Fs.mkdirs(tmp .. "/co/lang") and Fs.mkdirs(tmp .. "/free"))
+  assert(Fs.write(tmp .. "/co/ci/islands.txt", "# the islands\n\nbuild/zig.tl  # a script\nci/\n"))
+  for _, path in ipairs({ "co/build/zig.tl", "co/build/zig.tl.bak", "co/build/other.tl", "co/lang/zig.tl", "co/ci/driver.tl",
+      "free/zig.tl" }) do
+    assert(Fs.write(tmp .. "/" .. path, "return 1\n"))
+  end
+  assert(islands.holds(tmp .. "/co/build/zig.tl"))
+  assert(islands.holds(tmp .. "/co/ci/driver.tl"), "a file of an island directory")
+  assert(not islands.holds(tmp .. "/co/build/other.tl") and not islands.holds(tmp .. "/co/lang/zig.tl"))
+  assert(not islands.holds(tmp .. "/co/build/zig.tl.bak"), "a name that only starts like an island")
+  assert(not islands.holds(tmp .. "/free/zig.tl"), "a file outside a checkout")
+  assert(not islands.holds(tmp .. "/nowhere/zig.tl"), "a file that is not there")
+  -- this checkout's own list names the bootstrap scripts
+  assert(islands.holds("build/zig.tl") and islands.holds("ci/cosmic_ci/driver.tl") and not islands.holds("build/importer.tl"))
+end

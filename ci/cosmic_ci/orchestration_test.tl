@@ -42,9 +42,12 @@ local function command(tmp: string): {string}, string
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
---- Synthetic candidates keep their selected physical output layout.
+--- Synthetic candidates keep their selected physical output layout. The resolver is an island (ci/islands.txt), as it is in
+--- the tree: a tool that reads COSMIC_GRAMMAR (the rehearsal's boot sets it) runs it on the fork, not on the new checker.
 local function build_resolver(root: string)
   assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/ci"))
+  assert(Fs.write(root .. "/ci/islands.txt", "build/paths.tl\n"))
   assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
 end
 

@@ -1555,7 +1555,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
                 end
                 reading.built = made_built
               end
-              made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), false, judged, hints)
+              made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), checks, judged, hints)
             else
               if progress.env == nil then
                 local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
@@ -1778,7 +1778,10 @@ end
 ---   and reports a mismatch to the hook `__cosmic_tc` ([`build.test_worker`]
 ---   installs one). It keys every compile by [`importer.checked_tool`], so no
 ---   cache shares an entry between the two. A pool is refused: the environment
----   that writes the checks is this process's.
+---   that writes the checks is this process's. With the new checker (`grammar`)
+---   the checks are the facts alone: each read of a place a test narrowed is
+---   wrapped in a call of `__fact` ([`lang.fact_wraps`]), and the declared
+---   parameters, returns and field writes are checked by none.
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean,
                           shared?: importer.Shared,
@@ -1786,12 +1789,11 @@ function importer.compile(handle: work.Handle, built: compiler,
                           checks?: boolean,
                           grammar?: GrammarMode.Mode): importer.Result | nil, string
   if grammar == "new" then
-    -- The new checker reads the tree in this process, and its run-time checks are not wired yet.
-    if pool ~= nil or checks == true then
-      if pool ~= nil then pool.close() end
+    -- The new checker reads the tree in this process.
+    if pool ~= nil then
+      pool.close()
       if shared ~= nil then shared.finish() end
-      return nil, "a compile with the new checker (COSMIC_GRAMMAR=new) is made in this process, without run-time checks: " ..
-        "it takes no pool and no --check-types yet"
+      return nil, "a compile with the new checker (COSMIC_GRAMMAR=new) is made in this process: it takes no pool"
     end
     -- What it is made by is the code that reads: the checker and the readers.
     local pipeline = require("build.pipeline")
@@ -1805,10 +1807,9 @@ function importer.compile(handle: work.Handle, built: compiler,
       if shared ~= nil then shared.finish() end
       return nil, "a compile with run-time checks is made in this process: it takes no pool"
     end
-    -- TODO: key a checked compile by `importer.checked_tool(tool, true)` here and in build.test's `compiled_with`,
-    -- once the tool wires `--check-types` to the new checker (doc/plans/strict-teal.md, "the switch"), whose code
-    -- generator writes the checks as the calls of `__fact` ([`build.compile_grammar`]'s `facts`).
-    tool = importer.checked_tool(tool)
+    -- The new checker's checks are the calls of `__fact` at the reads a test narrowed, the fork's the calls of
+    -- `__cosmic_tc`: each is another program, keyed apart from the other and from none.
+    tool = importer.checked_tool(tool, grammar == "new")
   end
   return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks, nil, grammar)
 end
@@ -1820,7 +1821,8 @@ end
 --- with a line in the result's `left_out`, and so is each module that
 --- requires it, so a broken file beside the one run does not stop it.
 --- Where `target` reaches one, it fails as [`importer.compile`] does, with
---- the same message. Consumes `shared` and `pool` as that does.
+--- the same message. Consumes `shared` and `pool` as that does, and compiles
+--- with the checker `grammar` names as it does.
 --
 -- TODO: leave out a module outside `target`'s reach that a tree-wide check
 -- refuses too -- a misplaced [`Test.policy`], a cycle of imports, a global, an
@@ -1829,8 +1831,18 @@ end
 -- stops a file run whatever the file reaches.
 function importer.compile_for(handle: work.Handle, built: compiler, tool: string,
                               target: string, shared?: importer.Shared,
-                              pool?: importer.Workers): importer.Result | nil, string
-  return consuming_compile(handle, built, tool, false, shared, pool, nil, false, target)
+                              pool?: importer.Workers,
+                              grammar?: GrammarMode.Mode): importer.Result | nil, string
+  if grammar == "new" then
+    -- As [`importer.compile`] makes it: in this process, keyed by the code that reads.
+    if pool ~= nil then
+      pool.close()
+      if shared ~= nil then shared.finish() end
+      return nil, "a compile with the new checker (COSMIC_GRAMMAR=new) is made in this process: it takes no pool"
+    end
+    tool = require("build.pipeline").coded(tool)
+  end
+  return consuming_compile(handle, built, tool, false, shared, pool, nil, false, target, grammar)
 end
 
 --- Compiles a self-build after deriving its sources and recording its
