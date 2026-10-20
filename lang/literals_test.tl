@@ -41,6 +41,21 @@ local function drawer(seed: integer): function(n: integer): integer
   end
 end
 
+--- The pack format with each `!` that names no alignment naming 16, the widest a build of cosmic has: the check reads a bare
+--- `!` as that build's (a program runs on every build), and this host's own may be narrower (8 on macOS on arm64, whose
+--- `long double` is a `double`), so its Lua answers for the widest build only when told the alignment.
+local function at_widest(format: string): string
+  local wide = ""
+  for i = 1, #format do
+    local c = format:sub(i, i)
+    wide = wide .. c
+    if c == "!" and format:sub(i + 1, i + 1):match("%d") == nil then
+      wide = wide .. "16"
+    end
+  end
+  return wide
+end
+
 --- What a problem says, or "".
 local function message(problem: Literals.Problem | nil): string
   return problem ~= nil and problem.msg or ""
@@ -214,7 +229,7 @@ local function test_a_pack_format_the_walk_takes_is_the_one_lua_takes_and_the_ot
     end
     local format = table.concat(pieces)
     local read = Literals.pack(format)
-    local ok, why = pcall(string.packsize, format)
+    local ok, why = pcall(string.packsize, at_widest(format))
     assert((read.problem ~= nil) == not ok, format .. ": " .. tostring(why))
     if read.problem ~= nil then
       refused = refused + 1
@@ -290,10 +305,10 @@ local function test_each_conversion_with_each_flag_width_and_precision_is_read_a
 end
 
 local function test_the_default_alignment_of_a_bang_is_the_widest_of_the_build()
-  -- `!` with no number is the alignment of the widest type, which is 16 here: a size that is no power of 2 under it raises,
-  -- and a host with a narrower one clamps it, so the format is refused for both
+  -- `!` with no number is the alignment of the widest type of the widest build, 16: a size that is no power of 2 under it
+  -- raises there, and a build with a narrower one clamps it, so the format is refused for every build
   for _, format in ipairs({ "!i12", "!i9", "!s13h", "!bi16", "!i16", "!i8", "!i3", "!s12", "!i4i12" }) do
-    local ok, why = pcall(string.packsize, format)
+    local ok, why = pcall(string.packsize, at_widest(format))
     local variable = format:find("s", 1, true) ~= nil
     local read = Literals.pack(format)
     assert((read.problem ~= nil) == (not ok and not has(tostring(why), "variable-length")), format .. ": " .. tostring(why))
