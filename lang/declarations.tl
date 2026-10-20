@@ -66,6 +66,7 @@
 --- declaration they read is defined, so that a module whose imports cycle is checked once the last of
 --- them is lowered.
 local Ast = require("lang.ast")
+local Generics = require("lang.generics")
 local Lexer = require("lang.lexer")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
@@ -127,6 +128,12 @@ local record Declarations
     "optional_generic"
     -- `thread`
     "thread_type"
+    -- a type parameter that no parameter and no result of its function names
+    "unused_type_parameter"
+    -- a field named with two underscores that is the name of no metamethod
+    "metamethod_unknown"
+    -- `is {K: V}` on a record, which declares a map where the array part is a `{T}`
+    "array_part_map"
     -- a refusal of the store that no rule above foresaw
     "store_refused"
   end
@@ -329,7 +336,7 @@ Declarations.codes = {
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "optional_generic", "thread_type",
-  "store_refused",
+  "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
 Declarations.catalog = {
@@ -482,6 +489,27 @@ Declarations.catalog = {
     code = "thread_type", rule = "coroutines are typed",
     why = "a raw coroutine has no type of its own once `Coroutine<Y, R, S>` types what it yields and returns",
     fix = "write a `Coroutine<Y, R, S>`",
+  },
+  {
+    code = "unused_type_parameter", rule = "generic inference is local to the call",
+    why = "a type parameter is fixed by the arguments of a call or by the type the call is expected to answer, so one that no " ..
+      "parameter and no result names can never be fixed: every call of the function is `cannot_infer`",
+    fix = "remove <name> from the type parameters, or use it in a parameter or a result (`x: <name>`)",
+  },
+  {
+    code = "metamethod_unknown", rule = "dispatch only through declared types",
+    why = "a name that begins with two underscores is read by Lua as a metamethod of the table that holds it, and the field " ..
+      "of a record or interface with such a name stands for one (the fork wrote `metamethod __x:`), so a name that is " ..
+      "no metamethod's is a mistake that no call finds: Lua never reads it",
+    fix = "rename <field> without the leading underscores, or write the name of the metamethod you mean: __add, __sub, " ..
+      "__mul, __div, __mod, __pow, __unm, __idiv, __band, __bor, __bxor, __bnot, __shl, __shr, __concat, __len, __eq, " ..
+      "__lt, __le, __index, __newindex, __call, __close, __gc, __mode, __tostring, __name, __metatable, __pairs",
+  },
+  {
+    code = "array_part_map", rule = "records are not maps",
+    why = "the array part of a record is a `{T}` read by position, and `is {K: V}` would make the record a map, which a record " ..
+      "is not: its fields have types of their own and `r[k]` is legal only where `k` names them",
+    fix = "write `is {T}` for an array part, or declare the record's fields and a field `{K: V}` for the keyed data",
   },
   {
     code = "store_refused", rule = "the store's own checks",
@@ -1209,8 +1237,26 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
   return alts
 end
 
+--- Reports the type parameters of `typeparams` that the function type `made` does not use.
+--- A signature that drew an error since `before` errors (it names a type that is none) is left to that error.
+local function unused_parameters(ctx: Ctx, typeparams: {Ast.TypeParam}, made: Type, before: integer)
+  if #typeparams == 0 or not (made is Types.Fn) or #ctx.errors > before then
+    return
+  end
+  for _, index in ipairs(Generics.unused(made)) do
+    local p = typeparams[index]
+    if p ~= nil then
+      local name = p.name.name
+      report_at(ctx, "unused_type_parameter", p.name, "the type parameter " .. quoted(name) .. " is named by no parameter " ..
+          "and no result, so no call can fix it",
+        "remove " .. quoted(name) .. " from the type parameters, or use it in a parameter or a result (`x: " .. name .. "`)")
+    end
+  end
+end
+
 --- A function type written `function<T>(a: A, ...: R): X`.
 local function lower_function(ctx: Ctx, t: Ast.TypeFunction): Type
+  local before = #ctx.errors
   push_frame(ctx, false, t.typeparams)
   local tparams: {Types.TParam} = {}
   for i, p in ipairs(t.typeparams) do
@@ -1240,9 +1286,11 @@ local function lower_function(ctx: Ctx, t: Ast.TypeFunction): Type
     return ctx.store.invalid
   end
   local store = ctx.store
-  return attempt(ctx, t, function(): Type
+  local made = attempt(ctx, t, function(): Type
     return store:fn({ tparams = tparams, params = params, rest = rest, rets = alts })
   end)
+  unused_parameters(ctx, t.typeparams, made, before)
+  return made
 end
 
 --- A collection `{T}` or `{K: V}`, `mut` where `mutable`: refused where the elements are optional or the key
@@ -1611,7 +1659,8 @@ end
 -- Declarations' bodies ----------------------------------------------------------------------
 
 --- Lowers the types of a function's parameters and returns, and records its type when every parameter has one.
-local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam})
+local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam}, typeparams: {Ast.TypeParam})
+  local before = #ctx.errors
   local store = ctx.store
   local params: {Types.Param} = {}
   local names: {string} = {}
@@ -1642,9 +1691,11 @@ local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam})
     end
   end
   if typed then
-    ctx.types[fn.id] = attempt(ctx, fn, function(): Type
+    local made = attempt(ctx, fn, function(): Type
       return store:fn({ tparams = tparams, params = params, rest = rest, rets = alts })
     end)
+    ctx.types[fn.id] = made
+    unused_parameters(ctx, typeparams, made, before)
   end
 end
 
@@ -1674,6 +1725,14 @@ end
 local function metamethod_name(name: string): boolean
   return name:sub(1, 2) == "__"
 end
+
+--- The names Lua reads as metamethods.
+local METAMETHODS <const>: {string: boolean} = {
+  __add = true, __sub = true, __mul = true, __div = true, __mod = true, __pow = true, __unm = true, __idiv = true,
+  __band = true, __bor = true, __bxor = true, __bnot = true, __shl = true, __shr = true, __concat = true, __len = true,
+  __eq = true, __lt = true, __le = true, __index = true, __newindex = true, __call = true, __close = true, __gc = true,
+  __mode = true, __tostring = true, __name = true, __metatable = true, __pairs = true,
+}
 
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
 --- takes the value alone) or `__tostring` (it also answers a `string`), and refuses a name of any other metamethod.
@@ -1796,6 +1855,12 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
           "type arguments fixed")
     end
   end
+  if build.decl.kind ~= "class" and metamethod_name(m.name.name) and not METAMETHODS[m.name.name] then
+    report_at(ctx, "metamethod_unknown", m.name, "the field " .. quoted(m.name.name) .. " of " .. quoted(build.decl.name) ..
+        " begins with two underscores, which Lua reads as a metamethod, and Lua has no metamethod of that name",
+      "rename " .. quoted(m.name.name) .. " without the leading underscores, or write the name of the metamethod you mean " ..
+        "(`__index`, `__call`, `__close`, `__tostring`, ...)")
+  end
   -- A value reads the table of its class for a field it lacks, and that table holds the metamethods.
   if build.decl.kind == "class" and metamethod_name(m.name.name) then
     report_at(ctx, "class_metamethod", m.name, "the field " .. quoted(m.name.name) .. " of " .. quoted(build.decl.name) ..
@@ -1828,7 +1893,7 @@ local function lower_static(ctx: Ctx, f: Ast.Function): Type
   for i, p in ipairs(f.typeparams) do
     tparams[i] = { bound = lower_bound(ctx, p) }
   end
-  lower_fn(ctx, f.fn, tparams)
+  lower_fn(ctx, f.fn, tparams, f.typeparams)
   ctx.frames = saved
   ctx.static_done[f.id] = true
   return ctx.types[f.fn.id] or ctx.store.invalid
@@ -1979,6 +2044,11 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       local part = lower_type(ctx, array)
       if part is Types.Array then
         build.array = part.element
+      elseif part is Types.Map then
+        report_at(ctx, "array_part_map", array, quoted(build.decl.name) .. " is declared `is " .. Types.display(part) ..
+            "`, which makes it a map, and the array part of a record is a `{T}`",
+          "write `is {T}` for an array part, or declare the fields of " .. quoted(build.decl.name) .. " and a field of type " ..
+            quoted(Types.display(part)) .. " for the keyed data")
       end
     end
   end
@@ -2626,11 +2696,11 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node} | nil, boolean
       for i, p in ipairs(params) do
         tparams[i] = { bound = lower_bound(ctx, p) }
       end
-      lower_fn(ctx, node.fn, tparams)
+      lower_fn(ctx, node.fn, tparams, params)
     end
     return { node.fn.body }, true
   elseif kind == "FunctionLit" and node is Ast.FunctionLit then
-    lower_fn(ctx, node.fn, {})
+    lower_fn(ctx, node.fn, {}, {})
     return { node.fn.body }, false
   elseif kind == "Record" or kind == "Interface" or kind == "Class" then
     return enter_declaration(ctx, node), true

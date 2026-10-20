@@ -156,6 +156,15 @@ local record Codes
     "iterator_extra"
     -- a generic `for` that names more variables than its iterator answers values
     "iterator_variables"
+    -- a literal pattern, replacement, format or key table of the string library that Lua raises on
+    "pattern_malformed"
+    "format_malformed"
+    "pack_malformed"
+    "gsub_key"
+    -- `is` on a parenthesized place, which narrows nothing
+    "paren_is"
+    -- `type(x)` compared with a name it never answers
+    "type_name"
     -- not yet checked: a form a later piece of the checker types
     -- a binding of C, or a global the declarations lack
     "unchecked_binding"
@@ -213,7 +222,8 @@ Codes.codes = {
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
-  "assign_repeated", "iterator_extra", "iterator_variables",
+  "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
+  "gsub_key", "paren_is", "type_name",
   "unchecked_binding",
 }
 
@@ -614,6 +624,43 @@ Codes.catalog = {
     code = "iterator_variables", rule = "calls take the arguments the function declares",
     why = "a generic `for` binds the values its iterator answers, so a variable past them is always nil",
     fix = "name no more variables than the iterator answers values",
+  },
+  {
+    code = "pattern_malformed", rule = "literals of the string library are read",
+    why = "Lua reads a pattern, a replacement string and a format while it runs and raises where the literal is wrong, " ..
+      "so a literal that no subject or value can make right is found where it is written",
+    fix = "write the pattern, replacement or format Lua reads: <what>",
+  },
+  {
+    code = "format_malformed", rule = "literals of the string library are read",
+    why = "`string.format` raises on a conversion it does not know, on flags, a width or a precision the conversion does " ..
+      "not take, and on a conversion with no value to format, so the literal is held to what Lua accepts",
+    fix = "write a conversion Lua reads (`%d`, `%5.2f`, `%s`, `%q`, `%x`, `%c`, `%%`), and a value for each",
+  },
+  {
+    code = "pack_malformed", rule = "literals of the string library are read",
+    why = "`string.pack`, `unpack` and `packsize` raise on an option or a size they do not know, on an alignment that is " ..
+      "not a power of 2 and on a missing value, and `packsize` on an option whose size depends on the value",
+    fix = "write the options Lua reads (`b B h H i<n> I<n> l L j J T f d n s<n> z c<n> x X < > = !`), and a value for each " ..
+      "that takes one",
+  },
+  {
+    code = "gsub_key", rule = "literals of the string library are read",
+    why = "`gsub` looks a match up in its table by the first capture, which is a string (the whole match, or the text of " ..
+      "`( ... )`) or an integer (the position of `()`), so a table keyed by the other type finds nothing",
+    fix = "declare the table with the key type the pattern captures: `{string: ...}` for text, `{integer: ...}` for `()`",
+  },
+  {
+    code = "paren_is", rule = "narrowing declarations",
+    why = "`is` narrows the place it is written on, and a parenthesized name is a value, so `(x) is T` tests and narrows " ..
+      "nothing: the branch that relies on it sees `x` as wide as before",
+    fix = "write the test without the parentheses: `<place> is <type>`",
+  },
+  {
+    code = "type_name", rule = "narrowing only what nothing else can change",
+    why = "`type` answers one of eight names, so a test against another is always false (or true for `~=`) and the branch " ..
+      "it guards never runs: `type(x) == \"int\"` is the usual slip, since `type` answers \"number\" for an integer",
+    fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\", and `x is T` tests a type",
   },
   { code = "unchecked_binding", rule = "declarations are the trust boundary", why = WAITING,
     fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files" },

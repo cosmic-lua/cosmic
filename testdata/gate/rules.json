@@ -26,6 +26,7 @@
   {"code":"not_a_statement","rule":"the syntactic grammar","why":"an expression that is no call is no statement, and an assignment to what is no place assigns nothing"},
   {"code":"not_a_type","rule":"one namespace, a space per binding","why":"a parameter, a loop variable, a function or a local that holds no module names no type"},
   {"code":"not_a_value","rule":"one namespace, a space per binding","why":"a type used as a value is the table of its functions, which the program cannot use as a value of the type"},
+  {"code":"pragma","rule":"what the grammar leaves out","why":"a `--#pragma` comment changes what the fork checks from inside a comment, so the text of a program would say one thing and its checking another; the grammar has no pragma, and what one switched (the arity of a call) is always checked"},
   {"code":"primitive_type_name","rule":"one namespace, a space per binding","why":"a primitive type name is never a binding, so a type declared with one would be unreachable"},
   {"code":"shadows","rule":"a name is declared once where it is visible","why":"a declaration whose name is visible hides the earlier one, and a reader takes the first for the second"},
   {"code":"statement_after_return","rule":"the syntactic grammar","why":"a statement after `return` never runs, and a `return` that has no statement to end is a mistake of the program"},

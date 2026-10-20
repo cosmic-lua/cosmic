@@ -92,9 +92,19 @@ do
     upper: function(string): string
     sub: function(string, integer, p3?: integer): string
     format: function(string, ...: any): string
-    find: function(string, string, p3?: integer, p4?: boolean): integer?, integer?
+    find: function(string, string, p3?: integer, p4?: boolean): integer?, integer?, string...
     gsub: function(string, string, string, p4?: integer): string, integer
     gsub: function(string, string, function(string): string, p4?: integer): string, integer
+    gsub: function(string, string, {string: string}, p4?: integer): string, integer
+    gsub: function(string, string, {integer: string}, p4?: integer): string, integer
+    match: function(string, string, p3?: integer): string...
+    gmatch: function(string, string, p3?: integer): function(): string...
+    pack: function(string, ...: any): string
+    unpack: function(string, string, p3?: integer): any...
+    packsize: function(string): integer
+  end
+  global record Matcher
+    find: function(string, string): integer
   end
   global record Opts
     n: integer
@@ -122,6 +132,7 @@ do
     insert: function<A>(mut {A}, integer, A)
     insert: function<A>(mut {A}, A)
     concat: function({string}, p2?: string): string
+    unpack: function<A>({A}): A...
     remove: function<A>(mut {A}, p2?: integer): A?
     sort: function(mut {integer}, ? function(integer, integer): boolean)
     sort: function(mut {number}, ? function(number, number): boolean)
@@ -135,6 +146,7 @@ do
   local record Lib
     print: function(...: any)
     tostring: function(any): string
+    select: function(integer, ...: any): any...
     tonumber: function(any): number?
     tonumber: function(any, integer): integer?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
@@ -150,6 +162,7 @@ do
   end
   global print <const> = Lib.print
   global tostring <const> = Lib.tostring
+  global select <const> = Lib.select
   global tonumber <const> = Lib.tonumber
   global ipairs <const> = Lib.ipairs
   global pairs <const> = Lib.pairs

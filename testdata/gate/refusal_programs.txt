@@ -93,7 +93,7 @@ end
 local record R {integer}
   is {string}
 end
-=== expected an array declaration => open
+=== expected an array declaration => array_part_map
 local record R is {string: integer}
 end
 === duplicated 'userdata' declaration => userdata_in_program
@@ -123,7 +123,7 @@ end
 local record R
   [1]: integer
 end
-=== not a valid metamethod: %s => open
+=== not a valid metamethod: %s => metamethod_unknown
 local record R
   metamethod __nope: function(R)
 end
@@ -198,7 +198,7 @@ local record B
   b: integer
 end
 local x: A | B
-=== cannot discriminate a union between multiple string/enum types: %s => open
+=== cannot discriminate a union between multiple string/enum types: %s => retired
 local enum E1
   "a"
 end
@@ -338,11 +338,11 @@ global g: integer
 === global was previously declared as not <%s>: %s => global_in_program
 global g: integer = 1
 global g <const>: integer = 2
-=== type argument '%s' is not used in function signature => open
+=== type argument '%s' is not used in function signature => unused_type_parameter
 local function f<T>(): integer
   return 1
 end
-===  (types of fields '%s' and '%s' do not match) => open
+===  (types of fields '%s' and '%s' do not match) => retired
 local enum E
   "a"
   "b"
@@ -382,7 +382,7 @@ end
 local r: R = { a = 1 }
 local k: E = "b"
 local x = r[k]
-=== cannot index, not all enum values map to record fields of the same type => open
+=== cannot index, not all enum values map to record fields of the same type => retired
 local enum E
   "a"
   "b"
@@ -416,25 +416,25 @@ repeat
   local x = 1
   ::continue::
 until x == 1
-=== malformed pattern: missing '[' after %f => open
+=== malformed pattern: missing '[' after %f => pattern_malformed
 local x = ("abc"):find("%f")
-=== malformed pattern: need balanced characters => open
+=== malformed pattern: need balanced characters => pattern_malformed
 local x = ("abc"):find("%b")
-=== malformed pattern: expected class => open
+=== malformed pattern: expected class => pattern_malformed
 local x = ("abc"):find("%")
-=== malformed pattern: missing ']' => open
+=== malformed pattern: missing ']' => pattern_malformed
 local x = ("abc"):find("[a")
-=== malformed pattern: unexpected ')' => open
+=== malformed pattern: unexpected ')' => pattern_malformed
 local x = ("abc"):find("a)")
-=== malformed pattern: %s capture%s not closed => open
+=== malformed pattern: %s capture%s not closed => pattern_malformed
 local x = ("abc"):find("(a")
-=== missing pattern specifier at end => open
+=== missing pattern specifier at end => format_malformed
 local x = string.format("%", 1)
-=== invalid pattern specifier: '%s' => open
+=== invalid pattern specifier: '%s' => format_malformed
 local x = string.format("%y", 1)
-=== expected argument for 'X' => open
+=== expected argument for 'X' => pack_malformed
 local x = string.pack("X", 1)
-=== invalid format option: '%s' => open
+=== invalid format option: '%s' => pack_malformed
 local x = string.pack("y", 1)
 === pairs requires an argument => cannot_infer
 local k = pairs()
@@ -540,7 +540,7 @@ local f: function(): integer = function() end
 local record R
 end
 local x = R is R
-=== can only use 'is' on variables => open
+=== can only use 'is' on variables => paren_is
 local x: integer | string = 1
 local y = (x) is integer
 === tuples are not the same size => tuple_type
@@ -549,7 +549,7 @@ local b: {integer, string, boolean} = {1, "a", true}
 local c = a == b
 === types are not comparable for equality: %s and %s => compare_disjoint
 local b = 1 == "a"
-=== type() never answers "%s": it answers nil, boolean, number, string, table, function, thread or userdata, and math.type tells "integer" from "float" => open
+=== type() never answers "%s": it answers nil, boolean, number, string, table, function, thread or userdata, and math.type tells "integer" from "float" => type_name
 local x = 1
 if type(x) == "int" then end
 === using the '#' operator on this map will always return 0 => operand_type
@@ -599,16 +599,16 @@ local record R
 end
 local z = {id = 1}
 local w: R = z
-=== expected pragma name => open
+=== expected pragma name => pragma
 --#pragma
 local x = 1
-=== expected pragma value => open
+=== expected pragma value => pragma
 --#pragma arity
 local x = 1
-=== invalid pragma: %s => open
+=== invalid pragma: %s => pragma
 --#pragma foo bar
 local x = 1
-=== invalid value for pragma 'arity': %s => open
+=== invalid value for pragma 'arity': %s => pragma
 --#pragma arity maybe
 local x = 1
 === macroexp type does not match declaration => expected_name
@@ -646,9 +646,79 @@ repeat
   ::continue::
   ::continue::
 until x == 1
-=== in map key: %s => open
+=== in map key: %s => gsub_key
 local repl: {string: string} = {}
 local s = ("abc"):gsub("()", repl)
-=== in map key: %s => open
+=== in map key: %s => gsub_key
 local repl: {integer: string} = {}
 local s = ("abc"):gsub("%w", repl)
+
+# The programs the fork refuses by the types its literal gives (`parse_format_string`, `parse_pack_string`, `parse_pattern_string` answer
+# the type of each argument and capture), which one generic template of the fork covers: they are held by program.
+=== got %s, expected %s => not_assignable
+print(string.format("%d", "x"))
+=== got %s, expected %s => not_assignable
+print(string.format("%d", 1.5))
+=== got %s, expected %s => not_assignable
+print(string.format("%c", "a"))
+=== got %s, expected %s => not_assignable
+print(string.pack("i", "x"))
+=== wrong number of arguments (given %s, expects %s) => arity
+local function f(): integer
+  return 1
+end
+print(string.format("%d %d", f()))
+=== got %s, expected %s => not_assignable
+for p in ("abc"):gmatch("()") do
+  local s: string = p
+  print(s:upper())
+end
+=== got %s, expected %s => not_assignable
+local _, _, p = ("abc"):find("()")
+local s: string = p
+print(s)
+=== malformed pattern: need balanced characters => pattern_malformed
+local P <const> = "%b("
+print(("abc"):find(P))
+=== malformed pattern: need balanced characters => pattern_malformed
+local find = string.find
+print(find("abc", "%b("))
+=== invalid pattern specifier: '%s' => format_malformed
+local fmt = string.format
+print(fmt("%y", 1))
+# An open tail may be no value, which a conversion needs, and the library function by what it is.
+=== wrong number of arguments (given %s, expects %s) => nil_not_allowed
+local function g(...: string): string
+  return string.format("%s %s", ...)
+end
+print(g("a"))
+=== wrong number of arguments (given %s, expects %s) => nil_not_allowed
+local function g(a: string, ...: string): string
+  return string.format("%s %s %s", a, ...)
+end
+print(g("a", "b"))
+=== wrong number of arguments (given %s, expects %s) => nil_not_allowed
+local t: {string} = {}
+print(string.format("%s", table.unpack(t)))
+=== wrong number of arguments (given %s, expects %s) => nil_not_allowed
+local function g(...: any): string
+  return string.format("%s-%s", select(2, ...))
+end
+print(g(1))
+=== got %s, expected %s => not_assignable
+local str = string
+print(str.format("%d", "x"))
+=== malformed pattern: need balanced characters => pattern_malformed
+local str = string
+print(str.find("abc", "%b("))
+=== got %s, expected %s => not_assignable
+local fmt = string.format
+local fmt2 = fmt
+print(fmt2("%d", "x"))
+=== got %s, expected %s => not_assignable
+print(("x").format("%d", "x"))
+=== got %s, expected %s => not_assignable
+local s = "x"
+print(s.format("%d", "x"))
+=== got %s, expected %s => not_assignable
+print(string["format"]("%d", "x"))

@@ -279,8 +279,9 @@ do
 
       char: function(integer...): string
       dump: function(function(any...): (any), ? boolean): string
-      -- TODO: type the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from the pattern,
-      -- once the new checker reads a pattern: a position capture `()` is an integer, and every capture is declared a string.
+      -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
+      -- pattern (lang/check.tl, `Calls.refine`): a position capture `()` is an integer, and these declarations are the
+      -- answer for a pattern that is no literal, where every capture is a string.
       find: function(string, string, ? integer, ? boolean): integer, integer, string... --[[special_function]]
       format: function(string, any...): string --[[special_function]]
       gmatch: function(string, string, ? integer): (function(): string...) --[[special_function]]

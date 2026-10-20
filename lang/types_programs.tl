@@ -7,6 +7,7 @@ local Ast = require("lang.ast")
 local _alias_node: Ast.TypeAlias | nil = nil
 local Declarations = require("lang.declarations")
 local DeclPrograms = require("lang.declarations_programs")
+local Generics = require("lang.generics")
 local Types = require("lang.types")
 
 local record Programs
@@ -269,6 +270,14 @@ a_function = function(c: Cursor, depth: integer): Types.Type
   end
   if #tparams > 0 then
     c.binders[#c.binders] = nil
+    -- A type parameter that nothing names is refused where a function is declared (`unused_type_parameter`), so each
+    -- one that the draws left unused is given a parameter of its own.
+    local draft = store:fn({ tparams = tparams, params = params, rest = rest, rets = rets })
+    if draft is Types.Fn then
+      for _, index in ipairs(Generics.unused(draft)) do
+        params[#params + 1] = { type = store:var(0, index - 1) }
+      end
+    end
   end
   return store:fn({ tparams = tparams, params = params, rest = rest, rets = rets })
 end
