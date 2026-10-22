@@ -139,10 +139,14 @@ static struct script *live_scripts;
   "--binary <this program> -o <copy>` writes a copy with newer ones " \
   "(`--cacert <pem>` reads them from a file)"
 
-/* The same advice for a request that chose its own roots, which the
- * binary's may well include. */
+/* The same advice for a request that trusts fewer roots than the binary
+ * carries, as one does by default (cosmic/http/init.tl's
+ * [`Http.default_roots`]). */
 #define CHOSEN_ROOTS \
-  "the CA roots this request trusts (opts.roots, opts.ca) do not include this peer's"
+  "the CA roots this request trusts do not include this peer's: by default it trusts " \
+  "only the minimal roots, and COSMIC_CA_ROOTS=mozilla, `cosmic build --roots mozilla` " \
+  "or opts.roots = \"mozilla\" trusts every root this binary carries; opts.ca or " \
+  "$SSL_CERT_FILE trusts one more"
 
 /* The trust store: every CA root the binary's own database carries
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus

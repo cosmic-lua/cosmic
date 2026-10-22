@@ -48,12 +48,16 @@ local function test_an_https_peer_is_verified_against_the_carried_roots()
   assert(not trusted:find("not correctly signed", 1, true),
     "a carried root is not trusted: " .. trusted)
   local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1)
-  local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
+  local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) }, roots = "mozilla" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
-  -- The carried roots may be what is stale: the failure says how to get
-  -- newer ones.
+  -- Trusting every root the binary carries, the carried roots may be what
+  -- is stale: the failure says how to get newer ones.
   assert(refused:find("`cosmic refresh cacert --binary <this program> -o <copy>`", 1, true), refused)
   assert(not trusted:find("cosmic refresh", 1, true), trusted)
+  -- Trusting the minimal roots, as a request does by default, it says
+  -- how to trust them all.
+  local _, fewer = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
+  assert(fewer:find("COSMIC_CA_ROOTS=mozilla", 1, true), fewer)
 end
 
 --- Every root this binary carries reads as a certificate; a DER
@@ -100,19 +104,21 @@ end
 --- A root the binary carries that `minimal` leaves out.
 local OUTSIDE <const> = "Telia RSA TLS Root CA v3"
 
---- `roots = "minimal"` trusts the roots of [`Http.minimal_roots`] and not
---- the rest the binary carries, which the default, and "mozilla",
---- still trust; a refusal names the request's own choice of roots, not
---- the binary's staleness.
+--- `roots = "minimal"`, as the default is, trusts the roots of
+--- [`Http.minimal_roots`] and not the rest the binary carries, which
+--- "mozilla" trusts; a refusal says how to trust them all, not that the
+--- binary's roots may be stale.
 local function test_minimal_roots_trust_only_their_own()
   local listed = carried_root("ISRG Root X1")
   local outside = carried_root(OUTSIDE)
   assert(verdict(listed, { roots = "minimal" }) == "trusted")
   local refused = verdict(outside, { roots = "minimal" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
-  assert(refused:find("opts.roots", 1, true), refused)
+  assert(refused:find('opts.roots = "mozilla"', 1, true), refused)
   assert(not refused:find("cosmic refresh", 1, true), refused)
-  assert(verdict(outside, {}) == "trusted")
+  assert(verdict(listed, {}) == "trusted")
+  local default = verdict(outside, {})
+  assert(default:find("not correctly signed by the trusted CA", 1, true) ~= nil, default)
   assert(verdict(outside, { roots = "mozilla" }) == "trusted")
 end
 
@@ -214,4 +220,12 @@ local function test_minimal_roots_are_carried()
   local mine = Http.minimal_roots()
   mine[1] = "changed"
   assert(Http.minimal_roots()[1] ~= "changed", "the list is a copy")
+end
+
+--- With no COSMIC_CA_ROOTS (a test sees none) and no `cosmic build
+--- --roots` behind it, a request that names no roots trusts the minimal
+--- ones.
+local function test_the_default_roots_are_the_minimal_ones()
+  local roots, why = Http.default_roots()
+  assert(roots == "minimal" and why == "", tostring(roots) .. " " .. why)
 end

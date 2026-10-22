@@ -72,7 +72,7 @@
 ---
 --- Certificates are always verified; there is no option that turns that
 --- off, and none will be added. What they are verified against is
---- [`Http.Options`]'s to choose: `--roots` names the CA roots (`minimal`,
+--- [`Http.Options`]'s to choose: `--roots` names the CA roots (`minimal`, the default, `mozilla`,
 --- `none`, or root digests joined by commas), `--cacert` trusts a file's
 --- certificates besides them, and `--pin` holds the server's key to a
 --- public key pin, once for each pin it may match. A value of the wrong

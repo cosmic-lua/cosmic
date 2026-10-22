@@ -542,3 +542,75 @@ local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   local forked, forked_trouble = embed.tree(root, true, nil, "teal")
   assert(forked ~= nil and forked[1] == "x", tostring(forked_trouble))
 end
+
+--- A program that says which roots its requests trust by default
+--- ([`Http.default_roots`], or why it cannot tell), then whether a server
+--- presenting a root the binary carries but the minimal roots leave out is
+--- trusted, as far as a canned first flight takes a handshake.
+local roots_source <const> = [[
+local Http = require("cosmic.http")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+
+local function message(kind: integer, body: string): string
+  return string.char(kind) .. string.pack(">I3", #body) .. body
+end
+
+return function(): integer
+  local databases = Store.databases()
+  local found = assert(Sqlite.rows(assert(databases[#databases]),
+    "SELECT der FROM ca_roots WHERE label = 'Telia RSA TLS Root CA v3'"))
+  local der = assert(found[1]):blob(1)
+  local hello = message(2, "\3\3" .. string.rep("B", 32) .. "\0" .. "\192\47" .. "\0")
+  local certificate = message(11, string.pack(">I3", #der + 3) .. string.pack(">I3", #der) .. der)
+  local records = hello .. certificate
+  local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
+  local roots, why = Http.default_roots()
+  print(roots or why)
+  local _, refused = Http.open("https://cosmic.test/", { script = { flight } })
+  if refused:find("Common Name", 1, true) ~= nil and refused:find("not correctly signed", 1, true) == nil then
+    print("trusted")
+  else
+    print("refused")
+  end
+  return 0
+end
+]]
+
+--- What the program at `path` printed, run with `env`.
+local function run_with(path: string, env: {string:string}): string
+  local r = assert(Child.run({ path }, { env = env,
+    stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
+  assert(r.ok, tostring(r.stderr))
+  return assert(r.stdout)
+end
+
+--- An executable carries every root and trusts the minimal ones by
+--- default; COSMIC_CA_ROOTS=mozilla trusts them all, and `cosmic build
+--- --roots mozilla` makes that its default, which COSMIC_CA_ROOTS still
+--- overrides. A value that names neither fails its requests, saying so.
+local function test_an_executable_trusts_the_minimal_roots_unless_told(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/roots"))
+  assert(Fs.write(tmp .. "/cmd/roots/main.tl", roots_source))
+  assert(embed.tree(tmp, true))
+  local out = build_dir(tmp) .. "/bin/roots"
+  assert(run_with(out, {}) == "minimal\nrefused\n")
+  assert(run_with(out, { COSMIC_CA_ROOTS = "mozilla" }) == "mozilla\ntrusted\n")
+  local bad = run_with(out, { COSMIC_CA_ROOTS = "everything" })
+  assert(bad:find('COSMIC_CA_ROOTS names "everything", not minimal or mozilla', 1, true) ~= nil, bad)
+  assert(bad:find("refused", 1, true) ~= nil, bad)
+
+  assert(embed.tree(tmp, true, nil, nil, "mozilla"))
+  assert(run_with(out, {}) == "mozilla\ntrusted\n")
+  assert(run_with(out, { COSMIC_CA_ROOTS = "minimal" }) == "minimal\nrefused\n")
+end
+
+--- `cosmic build --roots` takes minimal or mozilla, and refuses anything
+--- else before it builds.
+local function test_build_refuses_roots_it_does_not_know(tmp: string)
+  write_project(tmp)
+  local built = invoke.run({ "build", "--host", "--roots", "everything" }, { cwd = tmp,
+    env = { COSMIC_BUILD_CACHE = "0" } })
+  assert(built.code == 2 and built.stderr:find("--roots takes minimal or mozilla", 1, true) ~= nil,
+    built.stdout .. built.stderr)
+end

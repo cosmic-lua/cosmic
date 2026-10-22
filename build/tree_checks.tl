@@ -104,6 +104,9 @@ allowed["build.dataset.load"] = "the loader load_text composes and falls back on
 allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
   "server's key to; cosmic's own fetches choose roots, not pins"
 
+allowed["cosmic.http.default_roots"] = "public API: the roots a request naming none trusts, for a " ..
+  "program to say which it runs with"
+
 allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
   "program to read or start a list of its own from"
 
