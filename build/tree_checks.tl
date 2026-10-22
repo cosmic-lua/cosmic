@@ -2038,18 +2038,21 @@ end
 --- A `goto` is a keyword to the lexer; one that follows `.` or `:`, or is a
 --- table key or a member name, is a field name. [`lang.parser`] refuses the
 --- statement itself.
-local function gotos(tokens: {Lexer.Token}, file: string): {Lexer.Error}
+local function gotos(tokens: Lexer.Tokens, file: string): {Lexer.Error}
   local out: {Lexer.Error} = {}
-  for i, t in ipairs(tokens) do
-    if t.kind == "keyword" and t.text == "goto" then
-      local before, after, then_ = tokens[i - 1], tokens[i + 1], tokens[i + 2]
-      local field = (before ~= nil and (before.kind == "." or before.kind == ":")) or
-        (after ~= nil and (after.text == "=" or after.text == ":" or (after.text == "?" and then_ ~= nil and then_.text == ":")))
+  local kinds, texts, ys = tokens.kind, tokens.text, tokens.y
+  for i, kind in ipairs(kinds) do
+    if kind == "keyword" and texts[i] == "goto" then
+      local before, after_kind, after_text = kinds[i - 1], kinds[i + 1], texts[i + 1]
+      local field = before == "." or before == ":" or
+        (after_kind ~= nil and (after_text == "=" or after_text == ":" or (after_text == "?" and texts[i + 2] == ":")))
       if not field then
-        local label = after ~= nil and after.y == t.y and (after.kind == "identifier" or after.kind == "keyword") and after.text or nil
+        local label = after_kind ~= nil and ys[i + 1] == ys[i] and (after_kind == "identifier" or after_kind == "keyword") and
+          after_text or nil
         out[#out + 1] = {
-          filename = file, code = "label_or_goto", y = t.y, x = t.x, offset = t.offset,
-          length = label and after.offset + after.length - t.offset or t.length,
+          filename = file, code = "label_or_goto", y = Lexer.y(tokens, i), x = Lexer.x(tokens, i),
+          offset = Lexer.offset(tokens, i),
+          length = label and Lexer.stop(tokens, i + 1) - Lexer.offset(tokens, i) or Lexer.length(tokens, i),
           msg = "`goto" .. (label and " " .. label or "") .. "` is not in the grammar",
           fix = label == "continue" and "write `continue`" or
             "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an" ..

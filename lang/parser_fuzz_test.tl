@@ -405,11 +405,11 @@ local function test_a_program_of_the_grammar_parses_with_no_error_and_the_same_t
       local tokens = first.chunk.tokens
       for _, stat in ipairs(first.chunk.body.stats) do
         local base: Ast.Base = stat
-        local from, to = tokens[base.first], tokens[base.last]
-        local alone = parse(input:sub(from.offset, to.offset + to.length - 1), "tl")
+        local from, to = base.first, base.last
+        local alone = parse(input:sub(Lexer.offset(tokens, from), Lexer.stop(tokens, to) - 1), "tl")
         local one = alone.chunk.body.stats[1]
         if #alone.errors > 0 or #alone.chunk.body.stats ~= 1 or one == nil or Dump.dump(one) ~= Dump.dump(stat) then
-          return false, "the statement at " .. from.y .. ":" .. from.x .. " differs when parsed alone"
+          return false, "the statement at " .. tokens.y[from] .. ":" .. Lexer.x(tokens, from) .. " differs when parsed alone"
         end
       end
       local second = parse("local z = 1", "tl")
@@ -470,8 +470,8 @@ local function test_a_source_cut_at_any_token_still_parses_to_a_tree_over_its_to
   local source = "local class C is D\n  mut n: integer\n  function m(self, a: {T}?): (true, T) | (false, E)\n" ..
     "    match f(a) do\n      | (true, v) then return if v then 1 else 2 end\n    end\n  end\nend\nlocal t = { 1, [k] = f{ 2 } }"
   local tokens = Lexer.lex(source, "f.tl").tokens
-  for cut = 1, #tokens do
-    local piece = source:sub(1, tokens[cut].offset - 1 + tokens[cut].length)
+  for cut = 1, Lexer.count(tokens) do
+    local piece = source:sub(1, Lexer.stop(tokens, cut) - 1)
     local ok, why = holds(piece, "tl")
     assert(ok, "cut at token " .. cut .. ": " .. why)
   end

@@ -161,7 +161,7 @@ function Codegen.without_classes(text: string, chunk: Ast.Chunk): string
   local dropped: {integer: boolean} = {}
   for _, s in ipairs(chunk.body.stats) do
     if s is Ast.Class then
-      for y = tokens[s.first].y, tokens[s.last].yend do
+      for y = tokens.y[s.first], Lexer.yend(tokens, s.last) do
         dropped[y] = true
       end
     end
@@ -307,7 +307,7 @@ end
 --- What one generation keeps. A function assigns a field of it, not a local of the module, so that every function
 --- reads the one `G`.
 local record State
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
   scoped: Scopes.Scoped
   --- The indent the node being written is at, and the indents saved by the nodes written on one line.
   indent: integer
@@ -338,8 +338,10 @@ local record State
   served: boolean
 end
 
+local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
+
 local G: State = {
-  tokens = {}, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
+  tokens = NO_TOKENS, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
   truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
 }
@@ -463,12 +465,11 @@ end
 -- Places ------------------------------------------------------------------------------------------------------------
 
 local function line_of(token: integer): integer
-  return G.tokens[token].y
+  return Lexer.y(G.tokens, token)
 end
 
 local function refuse(code: Codegen.Code, token: integer, msg: string, fix: string)
-  local t = G.tokens[token]
-  G.errors[#G.errors + 1] = { code = code, msg = msg, fix = fix, y = t.y, x = t.x }
+  G.errors[#G.errors + 1] = { code = code, msg = msg, fix = fix, y = Lexer.y(G.tokens, token), x = Lexer.x(G.tokens, token) }
 end
 
 --- The words Lua 5.5 reserves that the grammar lets name a field, a key or a function of a record.
@@ -752,8 +753,8 @@ local function exps(values: {Ast.Exp}, y: integer): Output
 end
 
 --- The number's text, as the fork writes it.
-local function number_text(token: Lexer.Token): string
-  return (token.text:gsub("_", ""))
+local function number_text(token: integer): string
+  return (G.tokens.text[token]:gsub("_", ""))
 end
 
 --- The parameters of a function, as the `(`...`)` at token `open` has them.
@@ -1117,9 +1118,9 @@ local function leaf(e: Ast.Exp): Output
   if kind == "Name" and e is Ast.Name then
     return text(y, e.text)
   elseif kind == "String" then
-    return text(y, G.tokens[first].text)
+    return text(y, Lexer.text(G.tokens, first))
   elseif kind == "Integer" or kind == "Float" then
-    return text(y, number_text(G.tokens[first]))
+    return text(y, number_text(first))
   elseif kind == "Nil" then
     return text(y, "nil")
   elseif kind == "Boolean" and e is Ast.Boolean then
@@ -1258,8 +1259,8 @@ block = function(b: Ast.Block): Output
     -- The fork's parser ends a statement with a `;` where the next begins a line with `(`, which would continue it.
     local s = stats[i]
     local following = stats[i + 1]
-    local ends = following ~= nil and ends_in_expression(s) and G.tokens[base_of(following).first].text == "(" and
-      line_of(base_of(following).first) > G.tokens[base_of(s).last].yend
+    local ends = following ~= nil and ends_in_expression(s) and G.tokens.text[base_of(following).first] == "(" and
+      line_of(base_of(following).first) > Lexer.yend(G.tokens, base_of(s).last)
     if ends then
       put(out, ";")
       space = " "
@@ -1342,7 +1343,7 @@ local function import_statement(node: Ast.Import): Output
   local call = new(line_of(open))
   add_child(call, text(line_of(at), "require"), "", G.indent)
   put(call, "(")
-  add_child(call, list(line_of(open), { text(line_of(open + 1), G.tokens[open + 1].text) }), "", G.indent)
+  add_child(call, list(line_of(open), { text(line_of(open + 1), Lexer.text(G.tokens, open + 1)) }), "", G.indent)
   put(call, ")")
   add_child(out, call, " ")
   return out
@@ -1698,7 +1699,8 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
     written = "if not __fact then __fact = function(v) return v end end " .. written
   end
   local errors = G.errors
-  G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes = {}, {}, {}, {}, nil, nil, {}
+  G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes =
+    NO_TOKENS, {}, {}, {}, nil, nil, {}
   G.enums, G.wraps, G.kinds, G.served = {}, {}, {}, false
   return { text = written, errors = errors }
 end

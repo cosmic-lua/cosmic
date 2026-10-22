@@ -6,6 +6,7 @@
 --- for, so the one place that decides is the scope builder. It requires nothing of the analyzer's own, so what reaches
 --- link_text (the writer's identity, [`build.work`]) does not reach the analyzer.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 local Resolved = require("lang.scopes")
 
@@ -70,7 +71,7 @@ local function declared_by(chunk: Ast.Chunk): {integer: Declared}
   local out: {integer: Declared} = {}
   Node.walk(chunk, function(node: Ast.Node)
     local function head_of(): integer
-      return Lexical.position(chunk.tokens[Node.base(node).first].y, 0)
+      return Lexical.position(Lexer.y(chunk.tokens, Node.base(node).first), 0)
     end
     if node is Ast.Local then
       for i, b in ipairs(node.bindings) do
@@ -95,17 +96,17 @@ function Lexical.bindings_of(chunk: Ast.Chunk, scoped: Resolved.Scoped): {Lexica
   for _, v in ipairs(scoped.list) do
     if counted(v) then
       -- A loop's variable is in scope from its own name, as a parameter is: the header's iterators see it.
-      local from = tokens[v.kind == "loop" and v.declared or v.from]
-      local to = tokens[v.to]
+      local from = v.kind == "loop" and v.declared or v.from
       local here = declared[v.id]
       local limit = math.maxinteger
       if not v.top then
-        limit = Lexical.position(to.yend, to.xend)
+        limit = Lexical.position(Lexer.yend(tokens, v.to), Lexer.xend(tokens, v.to))
       end
-      local start = Lexical.position(from.y, from.x)
-      if v.kind == "local" and (v.from == v.to or from.kind == "$EOF$") then
+      local start = Lexical.position(Lexer.y(tokens, from), Lexer.x(tokens, from))
+      if v.kind == "local" and (v.from == v.to or tokens.kind[from] == "$EOF$") then
         -- The last local of a block is in scope from the end of the word that closes it, and the chunk's last from nowhere.
-        start = from.kind == "$EOF$" and math.maxinteger or Lexical.position(from.yend, from.xend)
+        start = tokens.kind[from] == "$EOF$" and math.maxinteger or
+          Lexical.position(Lexer.yend(tokens, from), Lexer.xend(tokens, from))
       end
       out[#out + 1] = {
         name = v.name, module = v.module, from = start, to = limit,
@@ -152,7 +153,7 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
       end
     elseif node is Ast.Field and not written[Node.base(node).id] then
       local object = node.object
-      local line = chunk.tokens[Node.base(object).first].y
+      local line = chunk.tokens.y[Node.base(object).first]
       if object is Ast.Name then
         local v = object.binding ~= nil and scoped.vars[object.binding] or nil
         if v ~= nil and v.module ~= "" then

@@ -92,11 +92,11 @@ local record Warnings
   --- order. `types` gives the type of each local, parameter and loop variable by [`Scopes.Var.id`]
   --- ([`Check.Checked.vars`](lang.check)), which tells a function-valued local from a variable, and `display` writes a
   --- type.
-  usage: function(filename: string, tokens: {Lexer.Token}, scoped: Scopes.Scoped, types: {integer: Types.Type},
+  usage: function(filename: string, tokens: Lexer.Tokens, scoped: Scopes.Scoped, types: {integer: Types.Type},
                   display: function(t: Types.Type): string): {Warning}
 
   --- Adds the warning `code` at the tokens `first` to `last` to `list`.
-  add: function(list: {Warning}, filename: string, tokens: {Lexer.Token}, code: Code, first: integer, last: integer,
+  add: function(list: {Warning}, filename: string, tokens: Lexer.Tokens, code: Code, first: integer, last: integer,
                 msg: string, fix: string)
 end
 
@@ -158,16 +158,16 @@ function Warnings.kind_of(code: Warnings.Code): Warnings.Kind
   return KINDS[tostring(code)] or "hint"
 end
 
-function Warnings.add(list: {Warnings.Warning}, filename: string, tokens: {Lexer.Token}, code: Warnings.Code,
+function Warnings.add(list: {Warnings.Warning}, filename: string, tokens: Lexer.Tokens, code: Warnings.Code,
                       first: integer, last: integer, msg: string, fix: string)
-  local a = tokens[first]
-  local z = tokens[math.max(first, last)]
-  if a == nil or z == nil then
+  local to = math.max(first, last)
+  if tokens.text[first] == nil or tokens.text[to] == nil then
     return
   end
   list[#list + 1] = {
-    filename = filename, code = code, kind = Warnings.kind_of(code), msg = msg, fix = fix, y = a.y, x = a.x,
-    offset = a.offset, length = math.max(0, z.offset + z.length - a.offset),
+    filename = filename, code = code, kind = Warnings.kind_of(code), msg = msg, fix = fix, y = Lexer.y(tokens, first),
+    x = Lexer.x(tokens, first), offset = Lexer.offset(tokens, first),
+    length = math.max(0, Lexer.stop(tokens, to) - Lexer.offset(tokens, first)),
   }
 end
 
@@ -204,7 +204,7 @@ local function outside_reads(v: Scopes.Var): integer
   return reads
 end
 
-function Warnings.usage(filename: string, tokens: {Lexer.Token}, scoped: Scopes.Scoped, types: {integer: Types.Type},
+function Warnings.usage(filename: string, tokens: Lexer.Tokens, scoped: Scopes.Scoped, types: {integer: Types.Type},
                         display: function(t: Types.Type): string): {Warnings.Warning}
   local out: {Warnings.Warning} = {}
   for _, v in ipairs(scoped.list) do

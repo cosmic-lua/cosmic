@@ -25,7 +25,7 @@ local GLOBALS <const>: {string: Scopes.Global} = {
 local record Case
   parsed: Parser.Parsed
   scoped: Scopes.Scoped
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
 end
 
 local function scope(source: string, dialect?: Ast.Dialect): Case
@@ -37,8 +37,7 @@ local function scope(source: string, dialect?: Ast.Dialect): Case
 end
 
 local function at(case: Case, token: integer): string
-  local t = case.tokens[token]
-  return t.y .. ":" .. t.x
+  return case.tokens.y[token] .. ":" .. Lexer.x(case.tokens, token)
 end
 
 --- Each name of the source that is used, in order, as `name y:x -> y:x` of where its variable is
@@ -452,8 +451,8 @@ local function test_in_scope_answers_the_innermost_binding_at_a_token()
   local source = "local x = 1\nlocal function f(x, y)\n  return x\nend\nlocal z = 2"
   local case = scope(source)
   local function token_at(y: integer, x: integer): integer
-    for i, t in ipairs(case.tokens) do
-      if t.y == y and t.x == x then
+    for i, ty in ipairs(case.tokens.y) do
+      if ty == y and Lexer.x(case.tokens, i) == x then
         return i
       end
     end
@@ -464,7 +463,7 @@ local function test_in_scope_answers_the_innermost_binding_at_a_token()
   assert(inside.z == nil)
   local outside = Scopes.in_scope(case.scoped, token_at(5, 7))
   assert(outside.x == var(case, "x", 1) and outside.y == nil and outside.z == nil)
-  assert(Scopes.in_scope(case.scoped, #case.tokens).z == var(case, "z"))
+  assert(Scopes.in_scope(case.scoped, #case.tokens.kind).z == var(case, "z"))
 end
 
 local function test_building_twice_gives_the_same_bindings()

@@ -628,7 +628,7 @@ local record Ctx
   input: Declarations.Input
   module: string
   filename: string
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
   scoped: Scopes.Scoped
   decl_file: boolean
   info: Module
@@ -664,11 +664,11 @@ local lower_type: function(ctx: Ctx, t: Ast.Type): Type
 local function report(ctx: Ctx, code: Declarations.Code, first: integer, last: integer, msg: string, fix: string,
                       shown?: {string}, other?: Scopes.Place)
   local tokens = ctx.tokens
-  local a = tokens[first]
-  local b = tokens[math.max(first, last)]
+  local to = math.max(first, last)
   ctx.errors[#ctx.errors + 1] = {
-    filename = ctx.filename, code = code, msg = msg, fix = fix, y = a.y, x = a.x, offset = a.offset,
-    length = math.max(0, b.offset + b.length - a.offset), other = other, types = shown or {},
+    filename = ctx.filename, code = code, msg = msg, fix = fix, y = Lexer.y(tokens, first), x = Lexer.x(tokens, first),
+    offset = Lexer.offset(tokens, first), length = math.max(0, Lexer.stop(tokens, to) - Lexer.offset(tokens, first)),
+    other = other, types = shown or {},
   }
 end
 
@@ -679,8 +679,11 @@ local function report_at(ctx: Ctx, code: Declarations.Code, node: Ast.Node, msg:
 end
 
 local function place_of(ctx: Ctx, node: Ast.Node): Scopes.Place
-  local t = ctx.tokens[base_of(node).first]
-  return { y = t.y, x = t.x, offset = t.offset, length = t.length }
+  local tokens, first = ctx.tokens, base_of(node).first
+  return {
+    y = Lexer.y(tokens, first), x = Lexer.x(tokens, first), offset = Lexer.offset(tokens, first),
+    length = Lexer.length(tokens, first),
+  }
 end
 
 -- Binders -------------------------------------------------------------------------------

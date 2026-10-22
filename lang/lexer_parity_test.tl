@@ -35,10 +35,11 @@ local function difference(source: string, path: string): string
     return ""
   end
   local theirs = built.lex(source, path)
-  if #mine.tokens ~= #theirs then
-    return path .. ": " .. #mine.tokens .. " tokens, the fork's " .. #theirs
+  if Lexer.count(mine.tokens) ~= #theirs then
+    return path .. ": " .. Lexer.count(mine.tokens) .. " tokens, the fork's " .. #theirs
   end
-  for i, token in ipairs(mine.tokens) do
+  for i = 1, Lexer.count(mine.tokens) do
+    local token = Lexer.token(mine.tokens, i)
     local other = theirs[i]
     if token.kind ~= "$EOF$" and token.text ~= other.tk then
       return path .. ": token " .. i .. " is `" .. token.text .. "`, the fork's `" .. other.tk .. "`"

@@ -42,6 +42,7 @@
 -- name's text and position, and drop the notes of rule 6's gaps in build/contracts.tl, once the fork's contracts are
 -- deleted at the switch (doc/plans/strict-teal.md, "the switch").
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Contracts = require("build.contracts")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")
@@ -264,7 +265,7 @@ local function index_of(subject: Subject): Index
   for i = #order, 1, -1 do
     local n = order[i]
     local id = Node.base(n).id
-    local last = tokens[Node.base(n).first].offset
+    local last = tokens.offset[Node.base(n).first]
     for _, child in ipairs(kids[id]) do
       local later = last_start[Node.base(child).id]
       if later > last then
@@ -384,7 +385,7 @@ end
 
 --- The line of the token with index `token`.
 local function line_at(subject: Subject, token: integer): integer
-  return subject.chunk.tokens[token].y
+  return Lexer.y(subject.chunk.tokens, token)
 end
 
 --- The line the fork gives a node: the open parenthesis of a call, the operator of a binary or cast operation, the
@@ -847,11 +848,11 @@ end
 
 --- A block's end, as one offset: the end of the source for the module's own block.
 local function block_end(subject: Subject, block: Ast.Block): integer
-  local close = subject.chunk.tokens[block.close]
-  if close.kind == "$EOF$" then
+  local tokens = subject.chunk.tokens
+  if tokens.kind[block.close] == "$EOF$" then
     return math.maxinteger
   end
-  return close.offset
+  return Lexer.offset(tokens, block.close)
 end
 
 --- The index of the value a statement binds to a fallible call's reason: 2 in `local v, err = f()`; nil when the
@@ -914,17 +915,17 @@ local function check_inspections(run: Run)
       end
     elseif n is Ast.ForIn then
       for _, v in ipairs(n.vars) do
-        bind(v.name, tokens[Node.base(v).first].offset, block_end(subject, n.body), true, false)
+        bind(v.name, Lexer.offset(tokens, Node.base(v).first), block_end(subject, n.body), true, false)
       end
     elseif n is Ast.ForNum then
-      bind(n.var.name, tokens[Node.base(n.var).first].offset, block_end(subject, n.body), true, false)
+      bind(n.var.name, Lexer.offset(tokens, Node.base(n.var).first), block_end(subject, n.body), true, false)
     else
       local parts = parts_of(n)
       if parts ~= nil then
         for _, param in ipairs(parts.params) do
           local pname = param.name
           if pname ~= nil then
-            bind(pname.name, tokens[Node.base(pname).first].offset, block_end(subject, parts.body), true, false)
+            bind(pname.name, Lexer.offset(tokens, Node.base(pname).first), block_end(subject, parts.body), true, false)
           end
         end
       end
@@ -981,7 +982,7 @@ local function check_inspections(run: Run)
           if alias == nil then
             return false
           end
-          local from = tokens[Node.base(alias).first].offset
+          local from = tokens.offset[Node.base(alias).first]
           return from < b.at and holds_reason(alias.text, from)
         end
       end
@@ -992,7 +993,7 @@ local function check_inspections(run: Run)
   for _, pair in ipairs(reads) do
     local read, via = pair[1], pair[2]
     judged(run, "readings")
-    if read is Ast.Name and not flagged[Node.base(via).id] and holds_reason(read.text, tokens[Node.base(read).first].offset) then
+    if read is Ast.Name and not flagged[Node.base(via).id] and holds_reason(read.text, Lexer.offset(tokens, Node.base(read).first)) then
       flagged[Node.base(via).id] = true
       report(run, line_of(subject, via), string.format("%s: a failure's reason is read for what it says; a failure with " ..
           "meaning answers it in a shape of its own (a value, a field, a record), not a message to parse", read.text))

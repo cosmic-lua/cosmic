@@ -26,12 +26,12 @@ local Scopes = require("lang.scopes")
 local record RemovedFix
   --- What the fix reads of a module: its tokens and its scopes.
   record Source
-    tokens: {Lexer.Token}
+    tokens: Lexer.Tokens
     scoped: Scopes.Scoped
   end
 
   --- The index of the token that begins at `offset` in `tokens`, or nil.
-  token_at: function(tokens: {Lexer.Token}, offset: integer): integer | nil
+  token_at: function(tokens: Lexer.Tokens, offset: integer): integer | nil
 
   --- The words to write instead for the error `code` at `offset` (`length` bytes) of the module `source`, whose types are
   --- `types`; nil where the error is not about a removed name, and where [`cosmic.removed`] cannot be loaded.
@@ -66,16 +66,17 @@ local function catalog(): Catalog | nil
   return nil
 end
 
-function RemovedFix.token_at(tokens: {Lexer.Token}, offset: integer): integer | nil
-  local low, high = 1, #tokens
+function RemovedFix.token_at(tokens: Lexer.Tokens, offset: integer): integer | nil
+  local offsets = tokens.offset
+  local low, high = 1, #offsets
   while low <= high do
     local middle = (low + high) // 2
-    local t = tokens[middle]
-    if t == nil then
+    local at = offsets[middle]
+    if at == nil then
       return nil
-    elseif t.offset == offset then
+    elseif at == offset then
       return middle
-    elseif t.offset < offset then
+    elseif at < offset then
       low = middle + 1
     else
       high = middle - 1
@@ -85,26 +86,18 @@ function RemovedFix.token_at(tokens: {Lexer.Token}, offset: integer): integer | 
 end
 
 --- The text of the token at `at`, or "" where there is none.
-local function text_at(tokens: {Lexer.Token}, at: integer): string
-  local t = tokens[at]
-  if t == nil then
-    return ""
-  end
-  return t.text
+local function text_at(tokens: Lexer.Tokens, at: integer): string
+  return tokens.text[at] or ""
 end
 
 --- The kind of the token at `at`, or "" where there is none.
-local function kind_at(tokens: {Lexer.Token}, at: integer): string
-  local t = tokens[at]
-  if t == nil then
-    return ""
-  end
-  return t.kind
+local function kind_at(tokens: Lexer.Tokens, at: integer): string
+  return tokens.kind[at] or ""
 end
 
 --- The name a field or a member may have at the token `at`: an identifier, or a word the grammar reserves that a field may
 --- be called (`t.type`). nil where the token is neither.
-local function name_at(tokens: {Lexer.Token}, at: integer): string | nil
+local function name_at(tokens: Lexer.Tokens, at: integer): string | nil
   local kind = kind_at(tokens, at)
   if kind == "identifier" or kind == "keyword" then
     return text_at(tokens, at)
@@ -133,7 +126,7 @@ local function type_name(types: {string}): string | nil
 end
 
 --- `os.getenv`, an `os` the program does not declare, with the field read through it.
-local function removed_global(removed: Catalog, tokens: {Lexer.Token}, at: integer): string | nil
+local function removed_global(removed: Catalog, tokens: Lexer.Tokens, at: integer): string | nil
   local name = text_at(tokens, at)
   if removed.names[name] == nil then
     return nil
@@ -146,15 +139,11 @@ local function removed_global(removed: Catalog, tokens: {Lexer.Token}, at: integ
 end
 
 --- `require("io")`.
-local function removed_module(removed: Catalog, tokens: {Lexer.Token}, at: integer): string | nil
+local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: integer): string | nil
   if text_at(tokens, at) ~= "require" or kind_at(tokens, at + 1) ~= "(" or kind_at(tokens, at + 2) ~= "string" then
     return nil
   end
-  local literal = tokens[at + 2]
-  if literal == nil then
-    return nil
-  end
-  local name = literal.value
+  local name = tokens.value[at + 2]
   if name == nil or removed.names[name] == nil then
     return nil
   end
@@ -219,39 +208,41 @@ local record Access
 end
 
 --- The read at `at`, or nil where the tokens are not one of the four forms.
-local function access_at(tokens: {Lexer.Token}, at: integer): Access | nil
-  local first = tokens[at]
-  if first == nil then
+local function access_at(tokens: Lexer.Tokens, at: integer): Access | nil
+  local first_text = text_at(tokens, at)
+  local first_kind = kind_at(tokens, at)
+  if first_kind == "" then
     return nil
   end
   local sep = text_at(tokens, at + 1)
-  if first.kind == "identifier" and (sep == "." or sep == ":") then
+  if first_kind == "identifier" and (sep == "." or sep == ":") then
     local key = name_at(tokens, at + 2)
-    local last = tokens[at + 2]
-    if key == nil or last == nil then
+    if key == nil then
       return nil
     end
-    return { head = first.text, sep = sep, key = key, module = nil, ends = last.offset + last.length }
-  elseif first.kind == "string" and first.value ~= nil and text_at(tokens, at - 1) == "[" and
-      kind_at(tokens, at - 2) == "identifier" and text_at(tokens, at + 1) == "]" then
+    return { head = first_text, sep = sep, key = key, module = nil, ends = Lexer.stop(tokens, at + 2) }
+  elseif first_kind == "string" and text_at(tokens, at - 1) == "[" and kind_at(tokens, at - 2) == "identifier" and
+      text_at(tokens, at + 1) == "]" then
     -- the error of an index by a string is placed at the string
-    return { head = text_at(tokens, at - 2), sep = "[", key = first.value, module = nil, ends = first.offset + first.length }
-  elseif first.text == "require" and kind_at(tokens, at + 1) == "(" and kind_at(tokens, at + 2) == "string" and
+    local written = tokens.value[at]
+    if written == nil then
+      return nil
+    end
+    return { head = text_at(tokens, at - 2), sep = "[", key = written, module = nil, ends = Lexer.stop(tokens, at) }
+  elseif first_text == "require" and kind_at(tokens, at + 1) == "(" and kind_at(tokens, at + 2) == "string" and
       text_at(tokens, at + 3) == ")" then
-    local literal = tokens[at + 2]
     local dot = text_at(tokens, at + 4)
     local key = name_at(tokens, at + 5)
-    local last = tokens[at + 5]
-    if literal == nil or (dot ~= "." and dot ~= ":") or key == nil or last == nil then
+    if (dot ~= "." and dot ~= ":") or key == nil then
       return nil
     end
-    local value = literal.value
+    local value = tokens.value[at + 2]
     if value == nil then
       return nil
     end
     return {
       head = "require(\"" .. value .. "\")", sep = dot, key = key, module = value,
-      ends = last.offset + last.length,
+      ends = Lexer.stop(tokens, at + 5),
     }
   end
   return nil
@@ -263,8 +254,8 @@ local function removed_through(removed: Catalog, source: RemovedFix.Source, code
                                types: {string}): string | nil
   local tokens = source.tokens
   local access = access_at(tokens, at)
-  local first = tokens[at]
-  if access == nil or first == nil or (access.sep ~= ":" and access.ends ~= first.offset + length) then
+  local first = tokens.offset[at]
+  if access == nil or first == nil or (access.sep ~= ":" and access.ends ~= first + length) then
     return nil
   end
   local visible = Scopes.in_scope(source.scoped, at)

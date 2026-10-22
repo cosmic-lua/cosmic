@@ -91,13 +91,12 @@ local function test_the_compiled_lexer_gives_the_tokens_the_tree_lexer_gives(tmp
   local source = (assert(Fs.read(tmp .. "/src/lang/lexer.tl")))
   local mine = lex(source, "lexer.tl")
   local theirs = Lexer.lex(source, "lexer.tl")
-  assert(#theirs.tokens > 1000, "expected the tokens of a file")
-  assert(#mine.tokens == #theirs.tokens, "the compiled lexer gave another number of tokens")
+  assert(#theirs.tokens.kind > 1000, "expected the tokens of a file")
+  assert(#mine.tokens.kind == #theirs.tokens.kind, "the compiled lexer gave another number of tokens")
   assert(#mine.errors == 0 and #theirs.errors == 0, "a lexer refused the source")
-  for index, token in ipairs(theirs.tokens) do
-    local other = mine.tokens[index]
-    assert(other ~= nil, "no token " .. tostring(index))
-    assert(other.kind == token.kind and other.text == token.text and other.offset == token.offset,
-      "token " .. tostring(index) .. " differs: " .. other.text .. " and " .. token.text)
+  for index, text in ipairs(theirs.tokens.text) do
+    assert(mine.tokens.kind[index] == theirs.tokens.kind[index] and mine.tokens.text[index] == text and
+        mine.tokens.offset[index] == theirs.tokens.offset[index],
+      "token " .. tostring(index) .. " differs: " .. tostring(mine.tokens.text[index]) .. " and " .. text)
   end
 end

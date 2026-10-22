@@ -181,9 +181,14 @@ end
 --- What one parse keeps. A function assigns a field of it, not a local of the
 --- module, so that every function reads the one `S`.
 local record State
-  tokens: {Lexer.Token}
-  --- The `$EOF$` token, which a look past the end finds.
-  eof: Lexer.Token
+  tokens: Lexer.Tokens
+  --- The arrays of `tokens`, which the parser reads far oftener than the record.
+  kinds: {Lexer.Kind}
+  texts: {string}
+  ys: {integer}
+  yends: {integer: integer}
+  --- The index of the `$EOF$` token, which a look past the end finds.
+  last: integer
   --- The index of the current token, and its text and kind, which the parser
   --- reads far oftener than the token.
   pos: integer
@@ -227,10 +232,11 @@ local record State
   require_nodes: {Ast.Node}
 end
 
-local DUMMY <const>: Lexer.Token = { kind = "$EOF$", text = "", offset = 1, length = 0, y = 1, x = 1, yend = 1, xend = 0 }
+local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 
 local S: State = {
-  tokens = {}, eof = DUMMY, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
+  tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
+  yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
   decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {},
   require_nodes = {},
 }
@@ -282,32 +288,52 @@ local RENAME <const>: {string: string} = {
 local function advance()
   local s = S
   local p = s.pos + 1
-  local t = s.tokens[p]
-  if t == nil then
+  local text = s.texts[p]
+  if text == nil then
     return
   end
   s.pos = p
-  s.text = t.text
-  s.kind = t.kind
+  s.text = text
+  s.kind = s.kinds[p]
 end
 
---- The token `n` places after the current one; the `$EOF$` token past the end.
-local function peek(n: integer): Lexer.Token
-  return S.tokens[S.pos + n] or S.eof
+--- The text of the token `n` places after the current one; "" past the end,
+--- as the `$EOF$` token's.
+local function peek_text(n: integer): string
+  return S.texts[S.pos + n] or ""
 end
 
---- How the token `t` reads in a message.
-local function shown(t: Lexer.Token): string
-  if t.kind == "$EOF$" then
+--- The kind of the token `n` places after the current one; `$EOF$` past the end.
+local function peek_kind(n: integer): Lexer.Kind
+  return S.kinds[S.pos + n] or "$EOF$"
+end
+
+--- Whether token `i` begins on a later line than the one before it ends.
+local function begins_line(i: integer): boolean
+  local ys = S.ys
+  return ys[i] > (S.yends[i - 1] or ys[i - 1])
+end
+
+--- Whether token `i` begins on the line the one before it ends.
+local function same_line(i: integer): boolean
+  local ys = S.ys
+  return ys[i] == (S.yends[i - 1] or ys[i - 1])
+end
+
+--- How token `i` reads in a message.
+local function shown(i: integer): string
+  local kind = S.kinds[i]
+  local text = S.texts[i]
+  if kind == "$EOF$" then
     return "the end of the file"
-  elseif t.kind == "string" then
+  elseif kind == "string" then
     return "a string"
-  elseif t.kind == "$ERR$" then
+  elseif kind == "$ERR$" then
     return "an invalid token"
-  elseif #t.text > 24 then
-    return "`" .. t.text:sub(1, 24) .. "...`"
+  elseif #text > 24 then
+    return "`" .. text:sub(1, 24) .. "...`"
   end
-  return "`" .. t.text .. "`"
+  return "`" .. text .. "`"
 end
 
 --- Reports an error at the token `index`, with the token `other` as the second
@@ -315,20 +341,22 @@ end
 --- reported, or twice for one token; a construct not closed may follow another
 --- error there, and a statement after a `return` gives way to it.
 local function report(code: Parser.Code, index: integer, msg: string, fix: string, other?: integer)
-  local t = S.tokens[index] or S.eof
+  local at = S.last
+  if index >= 1 and index <= S.last then
+    at = index
+  end
   local seen = S.reported[index]
-  if t.kind == "$ERR$" or S.muted or (seen ~= nil and not (code == "unclosed" and (seen == "unclosed" or seen == "statement_after_return"))) then
+  if S.kinds[at] == "$ERR$" or S.muted or (seen ~= nil and not (code == "unclosed" and (seen == "unclosed" or seen == "statement_after_return"))) then
     return
   end
   S.reported[index] = code
   local place: Parser.Place = nil
   if other ~= nil then
-    local o = S.tokens[other]
-    place = { y = o.y, x = o.x, offset = o.offset, length = o.length }
+    place = { y = S.ys[other], x = Lexer.x(S.tokens, other), offset = S.tokens.offset[other], length = #S.texts[other] }
   end
   S.errors[#S.errors + 1] = {
-    filename = S.name, code = code, msg = msg, fix = fix, y = t.y, x = t.x, offset = t.offset, length = t.length,
-    other = place,
+    filename = S.name, code = code, msg = msg, fix = fix, y = S.ys[at], x = Lexer.x(S.tokens, at), offset = S.tokens.offset[at],
+    length = #S.texts[at], other = place,
   }
 end
 
@@ -338,7 +366,7 @@ end
 --- all the same where an expression goes on; in a type it is a union of value lists,
 --- which looks the same. Any other `|` is a bitwise or or a union.
 local function arm_bar(in_expression: boolean): boolean
-  if S.text ~= "|" or S.arms == 0 or peek(1).text ~= "(" then
+  if S.text ~= "|" or S.arms == 0 or peek_text(1) ~= "(" then
     return false
   end
   local pos = S.pos
@@ -347,7 +375,7 @@ local function arm_bar(in_expression: boolean): boolean
   end
   local depth = S.scan_depth
   for i = S.scan_at, pos - 1 do
-    local t = S.tokens[i].text
+    local t = S.texts[i]
     if t == "(" or t == "[" or t == "{" then
       depth = depth + 1
     elseif t == ")" or t == "]" or t == "}" then
@@ -358,10 +386,10 @@ local function arm_bar(in_expression: boolean): boolean
   S.scan_depth = depth
   if depth > 0 then
     return false
-  elseif S.tokens[pos].y > S.tokens[pos - 1].yend then
+  elseif begins_line(pos) then
     return true
   end
-  local first, after = peek(2).text, peek(3).text
+  local first, after = peek_text(2), peek_text(3)
   if in_expression and (first == "true" or first == "false") and (after == "," or after == ")") then
     report("arm_on_same_line", pos, "a `match` arm begins on the line of the arm before it",
       "start each arm on its own line")
@@ -396,7 +424,7 @@ local function expect(want: string, after: string, fix: string): boolean
     advance()
     return true
   end
-  report("expected_token", S.pos, "expected `" .. want .. "` " .. after .. ", found " .. shown(S.tokens[S.pos]), fix)
+  report("expected_token", S.pos, "expected `" .. want .. "` " .. after .. ", found " .. shown(S.pos), fix)
   return false
 end
 
@@ -406,9 +434,10 @@ local function line_starts_of_statements(): {integer}
   local found = S.beside
   if found == nil then
     found = {}
-    for i = 2, #S.tokens - 1 do
-      local t = S.tokens[i]
-      if (t.text == "function" or t.text == "local") and t.y > S.tokens[i - 1].yend then
+    local texts = S.texts
+    for i = 2, S.last - 1 do
+      local text = texts[i]
+      if (text == "function" or text == "local") and begins_line(i) then
         found[#found + 1] = i
       end
     end
@@ -423,21 +452,23 @@ end
 --- way, unless its code is written no deeper than the construct (flush left), or the
 --- search has cost more than a few passes over the tokens, when it is read as at the end.
 local function begins_beside(open: integer): integer
-  local tokens = S.tokens
-  if S.muted or S.beside_work > 8 * #tokens + 1000 then
+  local ys, yends, tokens = S.ys, S.yends, S.tokens
+  local count = S.last
+  if S.muted or S.beside_work > 8 * count + 1000 then
     return 0
   end
   local at = open
-  while at > 1 and tokens[at - 1].yend == tokens[open].y do
+  while at > 1 and (yends[at - 1] or ys[at - 1]) == ys[open] do
     at = at - 1
   end
   local body = open + 1
-  while body < #tokens and tokens[body].y <= tokens[open].yend do
+  local open_end = yends[open] or ys[open]
+  while body < count and ys[body] <= open_end do
     body = body + 1
   end
   S.beside_work = S.beside_work + (open - at) + (body - open)
-  local x = tokens[at].x
-  if body >= #tokens or tokens[body].x <= x then
+  local x = Lexer.x(tokens, at)
+  if body >= count or Lexer.x(tokens, body) <= x then
     return 0
   end
   local starts = line_starts_of_statements()
@@ -453,7 +484,7 @@ local function begins_beside(open: integer): integer
   for k = low, #starts do
     S.beside_work = S.beside_work + 1
     local i = starts[k]
-    if tokens[i].x <= x then
+    if Lexer.x(tokens, i) <= x then
       return i
     end
   end
@@ -467,19 +498,20 @@ local function close(want: string, open: integer, desc: string): boolean
     advance()
     return true
   end
-  local o = S.tokens[open]
+  local open_line = S.ys[open]
   local at = S.kind == "$EOF$" and begins_beside(open) or 0
   if at > 0 then
-    local t = S.tokens[at]
+    local at_line = S.ys[at]
     report("unclosed", at,
-      "expected `" .. want .. "` to close the " .. desc .. " on line " .. o.y .. " before the " .. shown(t) .. " on line " .. t.y ..
-        ", which begins no deeper than it",
-      "write `" .. want .. "` where the " .. desc .. " on line " .. o.y .. " ends, before line " .. t.y, open)
+      "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. " before the " .. shown(at) ..
+        " on line " .. at_line .. ", which begins no deeper than it",
+      "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, before line " .. at_line, open)
     return false
   end
   report("unclosed", S.pos,
-    "expected `" .. want .. "` to close the " .. desc .. " on line " .. o.y .. ", found " .. shown(S.tokens[S.pos]),
-    "write `" .. want .. "` where the " .. desc .. " on line " .. o.y .. " ends, or delete its `" .. o.text .. "`", open)
+    "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. ", found " .. shown(S.pos),
+    "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, or delete its `" .. S.texts[open] ..
+      "`", open)
   return false
 end
 
@@ -527,16 +559,16 @@ end
 local function source_text(first: integer, last: integer, limit: integer): string
   local parts: {string} = {}
   local size = 0
+  local offsets = S.tokens.offset
   for i = first, last do
-    local t = S.tokens[i]
-    parts[#parts + 1] = t.text
-    size = size + #t.text
+    local text = S.texts[i]
+    parts[#parts + 1] = text
+    size = size + #text
     if limit > 0 and size > limit and i < last then
       parts[#parts + 1] = "\226\128\166"
       break
     end
-    local n = S.tokens[i + 1]
-    if i < last and n.offset > t.offset + t.length then
+    if i < last and offsets[i + 1] > offsets[i] + #text then
       parts[#parts + 1] = " "
       size = size + 1
     end
@@ -553,14 +585,12 @@ end
 --- the token `index`: the run on the lines just before it, each comment on a
 --- line of its own, not the end of a line of code. Nil where there is none.
 local function doc_of(index: integer): {Lexer.Comment}
-  local t = S.tokens[index]
-  local comments = t.comments
+  local comments = S.tokens.comments[index]
   if comments == nil then
     return nil
   end
-  local line = t.y - 1
-  local previous = S.tokens[index - 1]
-  local floor = previous and previous.yend or 0
+  local line = S.ys[index] - 1
+  local floor = S.yends[index - 1] or S.ys[index - 1] or 0
   local from = #comments + 1
   for i = #comments, 1, -1 do
     local c = comments[i]
@@ -611,7 +641,7 @@ local function binding(what: string): Ast.Binding
     report("expected_name", first, "expected a name for " .. what .. ", found `" .. word .. "`, which is a reserved word",
       "write a name that is not a keyword")
   else
-    report("expected_name", first, "expected a name for " .. what .. ", found " .. shown(S.tokens[S.pos]),
+    report("expected_name", first, "expected a name for " .. what .. ", found " .. shown(S.pos),
       "write a name: letters, digits and `_`, not beginning with a digit")
   end
   return { kind = "Binding", id = 0, first = first, last = first - 1, name = "" }
@@ -628,7 +658,7 @@ local function field_name(): string
     advance()
     return name
   end
-  report("expected_name", S.pos, "expected a field name after `" .. S.tokens[S.pos - 1].text .. "`, found " .. shown(S.tokens[S.pos]),
+  report("expected_name", S.pos, "expected a field name after `" .. S.texts[S.pos - 1] .. "`, found " .. shown(S.pos),
     "write the field's name, or `[\"name\"]` to index with a string")
   return ""
 end
@@ -665,7 +695,7 @@ local function skip_junk(first: integer, force: boolean): Ast.Error
   end
   while S.kind ~= "$EOF$" and not SYNC[S.text] do
     if (S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text])) and
-        S.tokens[S.pos].y > S.tokens[S.pos - 1].yend then
+        begins_line(S.pos) then
       break
     end
     advance()
@@ -678,14 +708,13 @@ end
 --- Whether a `,` at the current token ends a type list because a parameter
 --- begins after it: `Name :`, `Name ? :` or `...`.
 local function starts_parameter(): boolean
-  local a = peek(1)
-  if a.text == "..." then
+  if peek_text(1) == "..." then
     return true
-  elseif a.kind ~= "identifier" then
+  elseif peek_kind(1) ~= "identifier" then
     return false
   end
-  local b = peek(2)
-  return b.text == ":" or (b.text == "?" and peek(3).text == ":")
+  local b = peek_text(2)
+  return b == ":" or (b == "?" and peek_text(3) == ":")
 end
 
 --- The union of the tokens `first` to `last` written `T | nil` or `nil | T`,
@@ -705,18 +734,18 @@ local function refuse_nil_union(members: {Ast.Type}, first: integer, last: integ
   local kept: {string} = {}
   local depth, from = 0, first
   for i = first, last + 1 do
-    local t = S.tokens[i]
-    if i == last + 1 or (depth == 0 and t.text == "|") then
+    local t = S.texts[i]
+    if i == last + 1 or (depth == 0 and t == "|") then
       local text = source_text(from, i - 1, 0)
       if text ~= "nil" then
         kept[#kept + 1] = text
       end
       from = i + 1
-    elseif t.text == "(" or t.text == "{" or t.text == "<" then
+    elseif t == "(" or t == "{" or t == "<" then
       depth = depth + 1
-    elseif t.text == ")" or t.text == "}" or t.text == ">" then
+    elseif t == ")" or t == "}" or t == ">" then
       depth = depth - 1
-    elseif t.text == ">>" then
+    elseif t == ">>" then
       depth = depth - 2
     end
   end
@@ -775,12 +804,12 @@ end
 local function parse_path(): {string}
   local path: {string} = {}
   if S.kind ~= "identifier" then
-    report("expected_name", S.pos, "expected a type name, found " .. shown(S.tokens[S.pos]), "write the name of a type: `string`, `Reader`, `Stream.Reader`")
+    report("expected_name", S.pos, "expected a type name, found " .. shown(S.pos), "write the name of a type: `string`, `Reader`, `Stream.Reader`")
     return path
   end
   path[1] = S.text
   advance()
-  while S.text == "." and peek(1).kind == "identifier" do
+  while S.text == "." and peek_kind(1) == "identifier" do
     advance()
     path[#path + 1] = S.text
     advance()
@@ -808,13 +837,13 @@ end
 
 local function parse_rtype(): Ast.RType
   local first = S.pos
-  if S.kind == "identifier" and peek(1).text == "is" then
+  if S.kind == "identifier" and peek_text(1) == "is" then
     local param = S.text
     advance()
     advance()
     local t = parse_type()
     return { kind = "Narrows", id = 0, first = first, last = end_of(), param = param, type = t, asserts = false }
-  elseif S.text == "asserts" and peek(1).kind == "identifier" and peek(2).text == "is" then
+  elseif S.text == "asserts" and peek_kind(1) == "identifier" and peek_text(2) == "is" then
     advance()
     local param = S.text
     advance()
@@ -835,7 +864,7 @@ local function parse_function_type(): Ast.Type
   end
   local params: {Ast.PType} = {}
   if S.text ~= "(" then
-    report("bare_function_type", S.pos, "a bare `function` is not a type: found " .. shown(S.tokens[S.pos]) .. " where its parameters begin",
+    report("bare_function_type", S.pos, "a bare `function` is not a type: found " .. shown(S.pos) .. " where its parameters begin",
       "write the signature: `function(x: T): U`, and `function()` for a function with no parameters")
     return { kind = "TypeFunction", id = 0, first = first, last = S.pos - 1, typeparams = typeparams, params = params }
   end
@@ -854,11 +883,11 @@ local function parse_function_type(): Ast.Type
         "write `name?: T`, naming the parameter")
       advance()
       optional = true
-    elseif S.kind == "identifier" and peek(1).text == ":" then
+    elseif S.kind == "identifier" and peek_text(1) == ":" then
       name = S.text
       advance()
       advance()
-    elseif S.kind == "identifier" and peek(1).text == "?" and peek(2).text == ":" then
+    elseif S.kind == "identifier" and peek_text(1) == "?" and peek_text(2) == ":" then
       name = S.text
       optional = true
       advance()
@@ -948,7 +977,7 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
   elseif t == "mut" then
     advance()
     if S.text ~= "{" then
-      report("mut_needs_collection", S.pos, "`mut` applies to an array or a map type, found " .. shown(S.tokens[S.pos]) .. " after it",
+      report("mut_needs_collection", S.pos, "`mut` applies to an array or a map type, found " .. shown(S.pos) .. " after it",
         "write `mut {T}` or `mut {K: V}`; a field that is reassigned is `mut name: T`")
       local other = parse_base()
       return { kind = "TypeMut", id = 0, first = first, last = S.pos - 1, inner = other }
@@ -973,7 +1002,7 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
   elseif k == "$ERR$" then
     advance()
   else
-    report("expected_type", first, "expected a type, found " .. shown(S.tokens[S.pos]),
+    report("expected_type", first, "expected a type, found " .. shown(S.pos),
       "write a type: a name like `string` or `Reader`, `{T}`, `{K: V}`, `function(x: T): U`, `nil`, `true` or `false`")
   end
   return { kind = "TypeError", id = 0, first = first, last = S.pos - 1 }
@@ -1017,7 +1046,7 @@ parse_rets = function(): Ast.Rets
     end
     close(")", open, "return list")
     local head = items[1]
-    if S.text == "|" and peek(1).text == "(" and not arm_bar(false) then
+    if S.text == "|" and peek_text(1) == "(" and not arm_bar(false) then
       lists[1] = items
       while S.text == "|" and not arm_bar(false) do
         advance()
@@ -1134,7 +1163,7 @@ end
 local function starts_item(): boolean
   local k = S.kind
   return k == "identifier" or k == "string" or k == "integer" or k == "number" or ITEM_START[S.text] == true or
-    (is_field_word() and peek(1).text == "=")
+    (is_field_word() and peek_text(1) == "=")
 end
 
 local function parse_table(): Ast.Exp
@@ -1151,7 +1180,7 @@ local function parse_table(): Ast.Exp
       expect("=", "after a table key", "write `[key] = value`")
       local value = parse_expression()
       items[#items + 1] = { kind = "Keyed", id = 0, first = first, last = S.pos - 1, key = key, value = value }
-    elseif is_field_word() and peek(1).text == "=" then
+    elseif is_field_word() and peek_text(1) == "=" then
       local name = S.text
       advance()
       advance()
@@ -1163,8 +1192,8 @@ local function parse_table(): Ast.Exp
     end
     if S.text == "," then
       advance()
-    elseif S.text ~= "}" and S.tokens[S.pos].y > S.tokens[S.pos - 1].yend and starts_item() then
-      report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. S.tokens[S.pos - 1].yend .. ", found " .. shown(S.tokens[S.pos]),
+    elseif S.text ~= "}" and begins_line(S.pos) and starts_item() then
+      report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. (S.yends[S.pos - 1] or S.ys[S.pos - 1]) .. ", found " .. shown(S.pos),
         "add a `,` at the end of the item before it; the items of a table are separated by `,`")
     else
       break
@@ -1196,7 +1225,7 @@ local function parse_if_expression(): Ast.Exp
     advance()
     else_value = parse_expression()
   else
-    report("if_needs_else", S.pos, "an `if` expression has no `else`: found " .. shown(S.tokens[S.pos]),
+    report("if_needs_else", S.pos, "an `if` expression has no `else`: found " .. shown(S.pos),
       "write `else <value>` before `end`; to run statements on a condition, write an `if` statement")
     else_value = { kind = "Error", id = 0, first = S.pos, last = S.pos - 1 }
   end
@@ -1212,15 +1241,15 @@ local function parse_primary(): Ast.Exp
     advance()
     return { kind = "Name", id = 0, first = first, last = first, text = text }
   elseif k == "string" then
-    local tok = S.tokens[S.pos]
+    local at = S.pos
     advance()
-    return { kind = "String", id = 0, first = first, last = first, value = tok.value, long = tok.long == true }
+    return { kind = "String", id = 0, first = first, last = first, value = S.tokens.value[at], long = Lexer.long(S.tokens, at) }
   elseif k == "integer" then
-    local number = S.tokens[S.pos].number
+    local number = S.tokens.number[S.pos]
     advance()
     return { kind = "Integer", id = 0, first = first, last = first, value = math.tointeger(number) }
   elseif k == "number" then
-    local number = S.tokens[S.pos].number
+    local number = S.tokens.number[S.pos]
     advance()
     return { kind = "Float", id = 0, first = first, last = first, value = number }
   end
@@ -1261,7 +1290,7 @@ local function parse_primary(): Ast.Exp
     advance()
     return { kind = "Name", id = 0, first = first, last = first, text = t }
   else
-    report("expected_expression", first, "expected an expression, found " .. shown(S.tokens[S.pos]),
+    report("expected_expression", first, "expected an expression, found " .. shown(S.pos),
       "write a value: a name, a number, a string, `nil`, `true`, `false`, a table `{ ... }`, a call, or `function(...) ... end`")
   end
   return error_node(first)
@@ -1292,11 +1321,11 @@ parse_prefix = function(): Ast.Exp
   local prefix = kind == "Name" or kind == "Paren" or kind == "Error"
   while true do
     local t = S.text
-    if S.tables > 0 and (t == "{" or S.kind == "string") and S.tokens[S.pos].y > S.tokens[S.pos - 1].yend then
+    if S.tables > 0 and (t == "{" or S.kind == "string") and begins_line(S.pos) then
       -- The next item of a table, whose `,` is missing, and no argument.
       break
     end
-    if not prefix and (SUFFIX[t] or S.kind == "string") and (t ~= "(" or S.tokens[S.pos].y == S.tokens[S.pos - 1].yend) then
+    if not prefix and (SUFFIX[t] or S.kind == "string") and (t ~= "(" or same_line(S.pos)) then
       local shown_text = quoted_text(first, S.pos - 1)
       report("suffix_needs_parens", S.pos, "`" .. shown_text .. "` takes no `" .. t .. "` suffix: only a name or a parenthesized expression does",
         "write `(" .. shown_text .. ")` and then the suffix")
@@ -1321,25 +1350,24 @@ parse_prefix = function(): Ast.Exp
           "call it as a field of the object: `obj[\"" .. name .. "\"](obj, ...)`, or rename the method")
       end
       local args: {Ast.Exp}
-      if S.text == "(" and S.tokens[S.pos].y == S.tokens[S.pos - 1].yend then
+      if S.text == "(" and same_line(S.pos) then
         args = parse_args()
       elseif S.text == "{" then
         args = { parse_table() }
       elseif S.kind == "string" then
         report("string_call", S.pos, "a call with a string in place of its arguments is not in the grammar",
           "put the string in parentheses: `obj:" .. name .. "(" .. S.text .. ")`")
-        local tok = S.tokens[S.pos]
         local at = S.pos
         advance()
-        args = { { kind = "String", id = 0, first = at, last = at, value = tok.value, long = tok.long == true } }
+        args = { { kind = "String", id = 0, first = at, last = at, value = S.tokens.value[at], long = Lexer.long(S.tokens, at) } }
       else
-        report("expected_token", S.pos, "expected the arguments of the call `:" .. name .. "`, found " .. shown(S.tokens[S.pos]),
+        report("expected_token", S.pos, "expected the arguments of the call `:" .. name .. "`, found " .. shown(S.pos),
           "write the call's arguments in parentheses: `obj:" .. name .. "(x)`")
         args = {}
       end
       e = { kind = "MethodCall", id = 0, first = first, last = S.pos - 1, object = e, name = name, args = args }
     elseif t == "(" then
-      if S.tokens[S.pos].y > S.tokens[S.pos - 1].yend then
+      if begins_line(S.pos) then
         break
       end
       local args = parse_args()
@@ -1352,10 +1380,11 @@ parse_prefix = function(): Ast.Exp
     elseif S.kind == "string" then
       report("string_call", S.pos, "a call with a string in place of its arguments is not in the grammar",
         "put the string in parentheses: `f(" .. S.text .. ")`")
-      local tok = S.tokens[S.pos]
       local at = S.pos
       advance()
-      local string_arg: Ast.String = { kind = "String", id = 0, first = at, last = at, value = tok.value, long = tok.long == true }
+      local string_arg: Ast.String = {
+        kind = "String", id = 0, first = at, last = at, value = S.tokens.value[at], long = Lexer.long(S.tokens, at),
+      }
       e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = e, args = { string_arg } }
     else
       break
@@ -1372,7 +1401,7 @@ local function finish_postfix(first: integer, e: Ast.Exp): Ast.Exp
     local tfirst = S.pos
     local ty = parse_base()
     if S.text == "|" or S.text == "?" then
-      report("is_union", S.pos, "`is` takes one type, found " .. shown(S.tokens[S.pos]) .. " after it",
+      report("is_union", S.pos, "`is` takes one type, found " .. shown(S.pos) .. " after it",
         "test each type apart: `x is A or x is B`; for a value that may be nil write `x ~= nil and x is A`")
       ty = continue_type(tfirst, ty)
     end
@@ -1521,8 +1550,8 @@ end
 
 local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
   local mutable = false
-  local nxt = peek(1)
-  if S.text == "mut" and nxt.text ~= ":" and nxt.text ~= "?" then
+  local nxt = peek_text(1)
+  if S.text == "mut" and nxt ~= ":" and nxt ~= "?" then
     mutable = true
     advance()
   end
@@ -1530,20 +1559,20 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
   local name: Ast.Binding
   if S.text == "[" then
     advance()
-    local key = S.tokens[S.pos]
+    local key_at = S.pos
     if S.kind == "string" then
       advance()
     else
-      report("expected_name", S.pos, "expected a string between `[` and `]`, found " .. shown(S.tokens[S.pos]),
+      report("expected_name", S.pos, "expected a string between `[` and `]`, found " .. shown(S.pos),
         "write the field's name as a string: `[\"end\"]: T`")
     end
     close("]", nfirst, "field name")
-    name = { kind = "Binding", id = 0, first = nfirst, last = S.pos - 1, name = key.value or "" }
+    name = { kind = "Binding", id = 0, first = nfirst, last = S.pos - 1, name = S.tokens.value[key_at] or "" }
   elseif is_field_word() then
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst, name = S.text }
     advance()
   else
-    report("expected_name", S.pos, "expected a field name, found " .. shown(S.tokens[S.pos]),
+    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos),
       "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body")
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst - 1, name = "" }
   end
@@ -1554,7 +1583,7 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
   end
   local t: Ast.Type
   if expect(":", "after the field name `" .. name.name .. "`", "write the field's type: `" .. name.name .. ": T`") or
-      S.tokens[S.pos].y == S.tokens[S.pos - 1].yend then
+      same_line(S.pos) then
     t = parse_annotation()
   else
     t = { kind = "TypeError", id = 0, first = S.pos, last = S.pos - 1 }
@@ -1572,9 +1601,9 @@ local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
   S.arms, S.tables = 0, 0
   advance()
   local pathed = false
-  if S.kind == "identifier" and (peek(1).text == ":" or peek(1).text == ".") then
+  if S.kind == "identifier" and (peek_text(1) == ":" or peek_text(1) == ".") then
     pathed = true
-    local owner, separator, method = S.text, peek(1).text, peek(2).text
+    local owner, separator, method = S.text, peek_text(1), peek_text(2)
     report("method_path", S.pos, "a method is named by its own name inside its class: `" .. owner .. separator .. method .. "` names its class",
       "write `function " .. method .. "(self, ...)`: drop `" .. owner .. separator .. "` and write `self` as the first parameter")
     advance()
@@ -1622,8 +1651,8 @@ local parse_typedecl: function(first: integer, scope: Ast.Scope | nil): Decl
 
 --- Whether the current token names a field, which a `:` or a `?:` after it shows.
 local function names_a_field(): boolean
-  local nxt = peek(1)
-  return is_field_word() and (nxt.text == ":" or (nxt.text == "?" and peek(2).text == ":"))
+  local nxt = peek_text(1)
+  return is_field_word() and (nxt == ":" or (nxt == "?" and peek_text(2) == ":"))
 end
 
 local STATEMENT_START <const>: {string: boolean} = {
@@ -1638,17 +1667,17 @@ local STATEMENT_START <const>: {string: boolean} = {
 --- name that is no deeper than the declaration.
 local function begins_statement(open: integer): boolean
   local t = S.text
-  if S.kind ~= "keyword" or S.tokens[S.pos].y <= S.tokens[S.pos - 1].yend or names_a_field() then
+  if S.kind ~= "keyword" or not begins_line(S.pos) or names_a_field() then
     return false
   elseif t == "function" then
-    if peek(1).kind ~= "identifier" or (peek(2).text ~= "." and peek(2).text ~= ":") then
+    if peek_kind(1) ~= "identifier" or (peek_text(2) ~= "." and peek_text(2) ~= ":") then
       return false
     end
     local at = open
-    while at > 1 and S.tokens[at - 1].yend == S.tokens[open].y do
+    while at > 1 and (S.yends[at - 1] or S.ys[at - 1]) == S.ys[open] do
       at = at - 1
     end
-    return S.tokens[S.pos].x <= S.tokens[at].x
+    return Lexer.x(S.tokens, S.pos) <= Lexer.x(S.tokens, at)
   end
   return STATEMENT_START[t] == true
 end
@@ -1657,7 +1686,7 @@ end
 local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
   local first = S.pos
   local t = S.text
-  local nxt = peek(1)
+  local nxt_kind, nxt_text = peek_kind(1), peek_text(1)
   if names_a_field() then
     return parse_field(first, seen)
   elseif t == "userdata" then
@@ -1674,15 +1703,15 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
           "declare the method as a field: `name: function(self: I, ...): T`")
     end
     return parse_method(first, seen)
-  elseif S.kind == "identifier" and DECL_WORD[t] and nxt.kind == "identifier" then
+  elseif S.kind == "identifier" and DECL_WORD[t] and nxt_kind == "identifier" then
     if owner == "interface" then
       report("nested_in_interface", first, "an interface holds fields only and cannot declare a `" .. t .. "` inside it",
         "declare the `" .. t .. "` before the interface, and name it in the type of a field")
     end
     return parse_typedecl(first, nil)
-  elseif S.kind == "identifier" and t == "metamethod" and nxt.kind == "identifier" then
+  elseif S.kind == "identifier" and t == "metamethod" and nxt_kind == "identifier" then
     report("metamethod", first, "`metamethod` is not in the grammar",
-      "write the field without it: `" .. nxt.text .. ": function(self: T)`, or a method `function " .. nxt.text .. "(self)` of a class")
+      "write the field without it: `" .. nxt_text .. ": function(self: T)`, or a method `function " .. nxt_text .. "(self)` of a class")
     advance()
   end
   return parse_field(first, seen)
@@ -1757,10 +1786,10 @@ local function parse_declaration_body(word: string, first: integer, at: integer,
     while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do
       local vfirst = S.pos
       if S.kind == "string" then
-        values[#values + 1] = { kind = "EnumValue", id = 0, first = vfirst, last = vfirst, value = S.tokens[S.pos].value, doc = doc_of(vfirst) }
+        values[#values + 1] = { kind = "EnumValue", id = 0, first = vfirst, last = vfirst, value = S.tokens.value[S.pos], doc = doc_of(vfirst) }
         advance()
       else
-        report("expected_token", S.pos, "expected a string of the enum `" .. name.name .. "`, found " .. shown(S.tokens[S.pos]),
+        report("expected_token", S.pos, "expected a string of the enum `" .. name.name .. "`, found " .. shown(S.pos),
           "write each value as a string: `\"name\"`, and `end` after the last")
         while S.kind ~= "string" and S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do
           advance()
@@ -1798,7 +1827,7 @@ parse_typedecl = function(first: integer, scope: Ast.Scope | nil): Decl
     typeparams = parse_typeparams()
   end
   expect("=", "after the name of the type `" .. name.name .. "`", "write `type " .. name.name .. " = T`")
-  if S.kind == "identifier" and OLD_BODY[S.text] and not CONTINUES_TYPE[peek(1).text] then
+  if S.kind == "identifier" and OLD_BODY[S.text] and not CONTINUES_TYPE[peek_text(1)] then
     local body_word = S.text
     report("old_type_declaration", S.pos, "`type " .. name.name .. " = " .. body_word .. "` is not in the grammar: " ..
         (body_word == "enum" and "an " or "a ") .. body_word .. " is declared with its own word",
@@ -1807,16 +1836,16 @@ parse_typedecl = function(first: integer, scope: Ast.Scope | nil): Decl
     advance()
     return parse_declaration_body(body_word, first, body_at, scope, name)
   end
-  if S.text == "require" and peek(1).text == "(" then
+  if S.text == "require" and peek_text(1) == "(" then
     advance()
     local open = S.pos
     advance()
     local module = ""
     if S.kind == "string" then
-      module = S.tokens[S.pos].value
+      module = S.tokens.value[S.pos]
       advance()
     else
-      report("expected_token", S.pos, "expected the module name as a string, found " .. shown(S.tokens[S.pos]),
+      report("expected_token", S.pos, "expected the module name as a string, found " .. shown(S.pos),
         "write the module's name: `require(\"cosmic.fs\")`")
     end
     close(")", open, "call")
@@ -1850,8 +1879,8 @@ end
 
 local function parse_local_binding(what: string): Ast.Binding
   local b = binding(what)
-  if S.text == "<" and peek(1).kind == "identifier" and peek(2).text == ">" then
-    local attr = peek(1).text
+  if S.text == "<" and peek_kind(1) == "identifier" and peek_text(2) == ">" then
+    local attr = peek_text(1)
     if attr == "const" or attr == "close" then
       b.attr = attr
     else
@@ -1886,7 +1915,7 @@ local function parse_local(): Ast.Stat
     end
     local fn = parse_fn(ffirst, "function `" .. name.name .. "`")
     return { kind = "LocalFunction", id = 0, first = first, last = S.pos - 1, name = name, typeparams = typeparams, fn = fn }
-  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek(1).kind == "identifier" then
+  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek_kind(1) == "identifier" then
     local decl = parse_typedecl(first, scope)
     -- A class, a record and an import are values in the Lua written for them.
     if decl is Ast.Class or decl is Ast.Record or decl is Ast.Import then
@@ -1943,7 +1972,7 @@ local function parse_function_statement(): Ast.Stat
       advance()
       path[#path + 1] = { kind = "Name", id = 0, first = nfirst, last = nfirst, text = text }
     else
-      report("expected_name", nfirst, "expected a name after `function`, found " .. shown(S.tokens[S.pos]),
+      report("expected_name", nfirst, "expected a name after `function`, found " .. shown(S.pos),
         "write `local function name(...)`, or `function Type.name(...)` for a function of a declared type")
       break
     end
@@ -2082,7 +2111,7 @@ local function parse_repeat(): Ast.Stat
       names[n] = true
     end
     local name = loop.after[1]
-    local continue_line = S.tokens[loop.continue_at].y
+    local continue_line = S.ys[loop.continue_at]
     local fix = "wrap the code from `local " .. name .. "` to the end of the body in `do ... end`, so the local ends before `until`"
     local read = find_read(cond, names)
     if read ~= nil then
@@ -2177,7 +2206,7 @@ local function parse_match(): Ast.Stat
   -- Whether an arm so far matches every value: no arm after it can run.
   local caught = false
   if S.text ~= "|" then
-    report("expected_token", S.pos, "expected the first arm `|` of the `match`, found " .. shown(S.tokens[S.pos]),
+    report("expected_token", S.pos, "expected the first arm `|` of the `match`, found " .. shown(S.pos),
       "write each arm as `| (true, name) then ...`, `true` and `false` selecting the member and a name binding the value")
   end
   while S.text == "|" do
@@ -2289,7 +2318,7 @@ local function parse_goto(): Ast.Stat
   local first = S.pos
   advance()
   local label: string = nil
-  if is_field_word() and S.tokens[S.pos].y == S.tokens[first].y then
+  if is_field_word() and S.ys[S.pos] == S.ys[first] then
     label = S.text
   end
   report("label_or_goto", first, "`goto" .. (label and " " .. label or "") .. "` is not in the grammar",
@@ -2387,17 +2416,18 @@ local function named_as_a_variable(): boolean
   if t ~= "match" and t ~= "continue" then
     return false
   end
-  local nxt = peek(1)
-  if nxt.text == "=" or nxt.text == "," or nxt.text == "." or nxt.text == ":" or nxt.text == "[" then
+  local nxt = peek_text(1)
+  if nxt == "=" or nxt == "," or nxt == "." or nxt == ":" or nxt == "[" then
     return true
-  elseif nxt.text ~= "(" or nxt.y ~= S.tokens[S.pos].y then
+  elseif nxt ~= "(" or S.ys[S.pos + 1] ~= S.ys[S.pos] then
     return false
   elseif t == "continue" then
     return true
   end
   local i = S.pos + 1
-  while i < #S.tokens and S.tokens[i].y == nxt.y do
-    if S.tokens[i].text == "do" then
+  local line = S.ys[i]
+  while i < S.last and S.ys[i] == line do
+    if S.texts[i] == "do" then
       return false
     end
     i = i + 1
@@ -2420,19 +2450,19 @@ parse_statement = function(): Ast.Stat
   local first = S.pos
   if handler ~= nil and S.kind == "keyword" and not named_as_a_variable() then
     stat = handler()
-  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek(1).kind == "identifier" then
-    report("bare_declaration", first, "`" .. S.text .. " " .. peek(1).text .. "` declares a type that nothing scopes",
-      "write `local " .. S.text .. " " .. peek(1).text .. "`; a declaration file writes `global`")
+  elseif S.kind == "identifier" and DECL_WORD[S.text] and peek_kind(1) == "identifier" then
+    report("bare_declaration", first, "`" .. S.text .. " " .. peek_text(1) .. "` declares a type that nothing scopes",
+      "write `local " .. S.text .. " " .. peek_text(1) .. "`; a declaration file writes `global`")
     stat = parse_typedecl(first, nil)
   elseif S.kind == "identifier" or S.text == "(" or (S.kind == "keyword" and RESERVED_NAME[S.text]) then
     stat = parse_expression_statement()
   elseif S.kind == "$ERR$" then
     advance()
     return error_node(first)
-  elseif (LITERAL_KIND[S.kind] or LITERAL_TEXT[S.text]) and SUFFIX[peek(1).text] then
+  elseif (LITERAL_KIND[S.kind] or LITERAL_TEXT[S.text]) and SUFFIX[peek_text(1)] then
     stat = parse_expression_statement()
   else
-    report("unexpected_token", first, "unexpected " .. shown(S.tokens[S.pos]) .. " where a statement begins", unexpected_fix(S.text))
+    report("unexpected_token", first, "unexpected " .. shown(S.pos) .. " where a statement begins", unexpected_fix(S.text))
     return skip_junk(first, true)
   end
   if S.decl then
@@ -2471,7 +2501,7 @@ parse_block = function(mode: integer): Ast.Block
       S.muted = false
       local at = S.pos
       while S.kind ~= "$EOF$" and (not SYNC[S.text] or CLOSES[S.text]) do
-        if (S.kind == "identifier" or S.text == "(") and S.tokens[S.pos].y > S.tokens[S.pos - 1].yend then
+        if (S.kind == "identifier" or S.text == "(") and begins_line(S.pos) then
           break
         end
         advance()
@@ -2488,7 +2518,7 @@ parse_block = function(mode: integer): Ast.Block
     end
     local before = S.pos
     if returned > 0 then
-      report("statement_after_return", before, "a statement follows the `return` on line " .. S.tokens[returned].y .. ": a `return` ends its block",
+      report("statement_after_return", before, "a statement follows the `return` on line " .. S.ys[returned] .. ": a `return` ends its block",
         "move the `return` to the end of the block, or write `do return end` to leave early", returned)
       returned = 0
     end
@@ -2507,12 +2537,12 @@ end
 
 function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): Parser.Parsed
   local tokens = lexed.tokens
-  local eof = tokens[#tokens]
   S.tokens = tokens
-  S.eof = eof
+  S.kinds, S.texts, S.ys, S.yends = tokens.kind, tokens.text, tokens.y, tokens.yend
+  S.last = #tokens.kind
   S.pos = 1
-  S.text = tokens[1].text
-  S.kind = tokens[1].kind
+  S.text = tokens.text[1]
+  S.kind = tokens.kind[1]
   S.errors = {}
   S.name = name
   S.decl = dialect == "decl"
@@ -2534,7 +2564,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.requires = {}
   S.require_nodes = {}
   local body = parse_block(2)
-  local chunk: Ast.Chunk = { kind = "Chunk", id = 0, first = 1, last = #tokens, body = body, tokens = tokens, requires = S.requires }
+  local chunk: Ast.Chunk = { kind = "Chunk", id = 0, first = 1, last = S.last, body = body, tokens = tokens, requires = S.requires }
   Ast.number(chunk)
   for i, req in ipairs(S.requires) do
     req.node = base_of(S.require_nodes[i]).id
@@ -2567,7 +2597,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
     end
     return tostring(a.code) < tostring(b.code)
   end)
-  S.tokens = {}
+  S.tokens, S.kinds, S.texts, S.ys, S.yends, S.last = NO_TOKENS, NO_TOKENS.kind, NO_TOKENS.text, NO_TOKENS.y, NO_TOKENS.yend, 1
   S.errors = {}
   S.loops = {}
   S.requires = {}

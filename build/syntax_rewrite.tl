@@ -13,6 +13,7 @@
 --- its bytes, so deleting `test_a()` leaves no blank line; the comments of that wider range are held to the same refusal.
 --- A call inside a larger statement is an expression, and an empty replacement removes its bytes only.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
 
@@ -89,8 +90,8 @@ local function empty(capture: Match.Capture): boolean
 end
 
 local function capture_span(chunk: Ast.Chunk, capture: Match.Capture): Span
-  local first, last = chunk.tokens[capture.first], chunk.tokens[capture.last]
-  return { first = first.offset, last = last.offset + last.length - 1 }
+  local tokens = chunk.tokens
+  return { first = Lexer.offset(tokens, capture.first), last = Lexer.stop(tokens, capture.last) - 1 }
 end
 
 --- The bytes of the next whole identifier `name` in `text` at or after `init`: a capture name that prefixes another
@@ -143,8 +144,9 @@ end
 --- The comments in the bytes `a` to `b` that no kept range covers, as written: those a rewrite there would delete.
 local function dropped_comments(chunk: Ast.Chunk, a: integer, b: integer, kept: {Span}): {string}
   local dropped: {string} = {}
-  for _, token in ipairs(chunk.tokens) do
-    for _, comment in ipairs(token.comments or {}) do
+  local comments_at = chunk.tokens.comments
+  for token = 1, #chunk.tokens.kind do
+    for _, comment in ipairs(comments_at[token] or {}) do
       if comment.offset >= a and comment.offset <= b then
         local covered = false
         for _, range in ipairs(kept) do
@@ -166,11 +168,12 @@ end
 --- file), so that removing them leaves no blank line.
 local function line_range(chunk: Ast.Chunk, starts: {integer}, length: integer, node: Ast.Node): integer, integer
   local base = Node.base(node)
-  local first, last = chunk.tokens[base.first], chunk.tokens[base.last]
-  local a = starts[first.y]
+  local tokens = chunk.tokens
+  local a = starts[Lexer.y(tokens, base.first)]
   local b = length
-  if last.yend + 1 <= #starts then
-    b = starts[last.yend + 1] - 1
+  local last_end = Lexer.yend(tokens, base.last)
+  if last_end + 1 <= #starts then
+    b = starts[last_end + 1] - 1
   end
   return a, b
 end

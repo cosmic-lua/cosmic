@@ -1,6 +1,7 @@
 --- Which lines of a module's own source could ever be hit: the denominator of a coverage percentage. It reads the
 --- syntax tree, which tells a statement from a blank line, a comment or a bare `end`, where a scan of the text cannot.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 local Translate = require("lang.translate")
 local Sqlite = require("cosmic.sqlite")
@@ -63,12 +64,12 @@ function Lines.executable(source: string, name: string, translated?: boolean): {
       for _, stat in ipairs(node.stats) do
         if not declares_type(stat) then
           local base = Node.base(stat)
-          local y = chunk.tokens[base.first].y
+          local y = chunk.tokens.y[base.first]
           -- Lua attributes a closure to the line its body ends on, and a `local function` is nothing but that closure:
           -- its own first line never runs. (`function M.f` is pinned to its first line by the assignment Lua fixes
           -- there.)
           if stat is Ast.LocalFunction then
-            y = chunk.tokens[base.last].yend
+            y = Lexer.yend(chunk.tokens, base.last)
           end
           out[y] = true
         end

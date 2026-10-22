@@ -17,6 +17,7 @@
 --- A pattern that is a call statement (`os.execute($X)`) is the call, and matches a call wherever it stands: in a
 --- statement or in an expression.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 
 local record Match
@@ -154,7 +155,7 @@ end
 local function range_text(chunk: Ast.Chunk, first: integer, last: integer): string
   local parts: {string} = {}
   for i = first, last do
-    parts[#parts + 1] = chunk.tokens[i].text
+    parts[#parts + 1] = Lexer.text(chunk.tokens, i)
   end
   return table.concat(parts, " ")
 end
@@ -173,7 +174,7 @@ local function bind(st: State, name: string, target: Ast.Node | nil, token: inte
   if predicate ~= nil then
     local text = ""
     if first == last or (target ~= nil and Node.base(target).kind:sub(1, 4) == "Type") then
-      text = st.chunk.tokens[first].text
+      text = Lexer.text(st.chunk.tokens, first)
     else
       return false
     end
@@ -349,8 +350,8 @@ function Match.text(chunk: Ast.Chunk, source: string, capture: Match.Capture): s
   if capture.last < capture.first then
     return ""
   end
-  local first, last = chunk.tokens[capture.first], chunk.tokens[capture.last]
-  return source:sub(first.offset, last.offset + last.length - 1)
+  local tokens = chunk.tokens
+  return source:sub(Lexer.offset(tokens, capture.first), Lexer.stop(tokens, capture.last) - 1)
 end
 
 return Match

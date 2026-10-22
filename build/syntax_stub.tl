@@ -18,6 +18,7 @@
 --- other module keeps every statement, which cosmic's own build refuses of a standard-library module
 --- ([`Stub.Made`]'s `pruned`).
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Declarations = require("lang.declarations")
 local Node = require("build.syntax_node")
 local Types = require("lang.types")
@@ -84,12 +85,13 @@ local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets | nil
     return nil
   end
   local tokens = chunk.tokens
-  local from, close = tokens[body.first], tokens[body.close]
   local never = is_never(rets)
-  if never and from.y >= close.y and close.x - from.x <= #NEVER_BODY then
+  local opener, closer = body.first, body.close
+  if never and Lexer.y(tokens, opener) >= Lexer.y(tokens, closer) and
+      Lexer.x(tokens, closer) - Lexer.x(tokens, opener) <= #NEVER_BODY then
     return nil
   end
-  return { first = body.first, last = body.close - 1, instead = never and NEVER_BODY or nil }
+  return { first = opener, last = closer - 1, instead = never and NEVER_BODY or nil }
 end
 
 --- The bodies of `stat` left out, in source order. What a body left out holds is not walked.
@@ -221,8 +223,8 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
   for i, s in ipairs(statements) do
     local names: {string: boolean} = {}
     for k = Node.base(s).first, Node.base(s).last do
-      if tokens[k].kind == "identifier" and left_out[k] ~= true then
-        names[tokens[k].text] = true
+      if tokens.kind[k] == "identifier" and left_out[k] ~= true then
+        names[Lexer.text(tokens, k)] = true
       end
     end
     spelt[i] = names
@@ -308,14 +310,14 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
     end
     cursor.x = last > 0 and #text - last + 1 or at_x + #text
   end
-  for k, token in ipairs(tokens) do
-    if token.kind == "$EOF$" then
+  for k, kind in ipairs(tokens.kind) do
+    if kind == "$EOF$" then
       break
     end
     if out_of[k] ~= true then
-      put(token.y, token.x, token.text)
+      put(Lexer.y(tokens, k), Lexer.x(tokens, k), Lexer.text(tokens, k))
     elseif instead[k] ~= nil then
-      put(token.y, token.x, instead[k])
+      put(Lexer.y(tokens, k), Lexer.x(tokens, k), instead[k])
     end
   end
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }

@@ -21,8 +21,8 @@ end
 local function shape(source: string): string
   local parts: {string} = {}
   local tokens = lex(source).tokens
-  for i = 1, #tokens - 1 do
-    parts[#parts + 1] = tokens[i].kind .. ":" .. tokens[i].text
+  for i = 1, Lexer.count(tokens) - 1 do
+    parts[#parts + 1] = Lexer.kind(tokens, i) .. ":" .. Lexer.text(tokens, i)
   end
   return table.concat(parts, " ")
 end
@@ -36,9 +36,9 @@ end
 
 --- The token at `index`, which exists.
 local function token(source: string, index: integer): Lexer.Token
-  local found = lex(source).tokens[index]
-  assert(found ~= nil, "no token " .. index .. " in " .. source)
-  return found
+  local tokens = lex(source).tokens
+  assert(index <= Lexer.count(tokens), "no token " .. index .. " in " .. source)
+  return Lexer.token(tokens, index)
 end
 
 local function test_names_and_reserved_words_are_told_apart()
@@ -79,8 +79,8 @@ local function test_a_reserved_word_stands_where_a_field_name_does()
     local lexed = lex(source)
     assert(#lexed.errors == 0, source)
     local found = false
-    for _, t in ipairs(lexed.tokens) do
-      if t.kind == "keyword" then
+    for i = 1, Lexer.count(lexed.tokens) do
+      if Lexer.kind(lexed.tokens, i) == "keyword" then
         found = true
       end
     end
@@ -168,11 +168,11 @@ end
 
 local function test_a_string_across_lines_moves_the_lines_that_follow()
   local lexed = lex("x = \"a\\\nb\" y")
-  local str, y = lexed.tokens[3], lexed.tokens[4]
+  local str, y = Lexer.token(lexed.tokens, 3), Lexer.token(lexed.tokens, 4)
   assert(str.y == 1 and str.x == 5 and str.yend == 2 and str.xend == 2)
   assert(y.y == 2 and y.x == 4 and y.offset == 12)
   local skipped = lex("\"a\\z\n\n  b\" c").tokens
-  assert(skipped[1].yend == 3 and skipped[1].xend == 4 and skipped[2].y == 3 and skipped[2].x == 6)
+  assert(Lexer.yend(skipped, 1) == 3 and Lexer.xend(skipped, 1) == 4 and skipped.y[2] == 3 and Lexer.x(skipped, 2) == 6)
 end
 
 local function test_long_strings_of_every_level()
@@ -188,7 +188,7 @@ end
 
 local function test_a_long_string_spans_lines_and_moves_the_lines_that_follow()
   local lexed = lex("local s = [==[\nab\ncd]==] .. x")
-  local str, dots = lexed.tokens[4], lexed.tokens[5]
+  local str, dots = Lexer.token(lexed.tokens, 4), Lexer.token(lexed.tokens, 5)
   assert(str.y == 1 and str.x == 11 and str.yend == 3 and str.xend == 6, str.yend .. ":" .. str.xend)
   assert(str.length == 14)
   assert(dots.y == 3 and dots.x == 8 and dots.text == "..")
@@ -202,7 +202,7 @@ end
 
 local function test_comments_are_kept_on_the_token_after_them()
   local lexed = lex("-- a\n  -- b\nx -- c\n-- d")
-  local x, eof = lexed.tokens[1], lexed.tokens[2]
+  local x, eof = Lexer.token(lexed.tokens, 1), Lexer.token(lexed.tokens, 2)
   local before = assert(x.comments)
   assert(#before == 2 and before[1].text == "-- a" and before[2].text == "-- b")
   assert(before[1].y == 1 and before[1].x == 1 and before[1].offset == 1 and before[1].length == 4)
@@ -215,7 +215,7 @@ end
 
 local function test_a_comment_is_a_dash_dash_to_the_end_of_the_line()
   local lexed = lex("---[[ x\n--[ y\n--[= z\n--#pragmatic w\n--\nq")
-  local comments = assert(lexed.tokens[1].comments)
+  local comments = assert(Lexer.token(lexed.tokens, 1).comments)
   local texts: {string} = {}
   for _, c in ipairs(comments) do
     texts[#texts + 1] = c.text
@@ -227,7 +227,8 @@ end
 local function test_a_token_knows_its_bytes_and_its_places()
   local lexed = lex("local s =\n\t\"" .. E_ACUTE .. "\" + 12\n")
   local places: {string} = {}
-  for _, t in ipairs(lexed.tokens) do
+  for i = 1, Lexer.count(lexed.tokens) do
+    local t = Lexer.token(lexed.tokens, i)
     places[#places + 1] = string.format("%s@%d+%d=%d:%d-%d:%d", t.kind, t.offset, t.length, t.y, t.x, t.yend, t.xend)
   end
   assert(table.concat(places, " ") ==
@@ -237,10 +238,10 @@ end
 
 local function test_the_end_of_input_is_an_empty_token()
   local empty = lex("").tokens
-  assert(#empty == 1 and empty[1].kind == "$EOF$" and empty[1].offset == 1 and empty[1].length == 0)
-  assert(empty[1].y == 1 and empty[1].x == 1)
+  assert(Lexer.count(empty) == 1 and Lexer.kind(empty, 1) == "$EOF$" and Lexer.offset(empty, 1) == 1 and Lexer.length(empty, 1) == 0)
+  assert(Lexer.y(empty, 1) == 1 and Lexer.x(empty, 1) == 1)
   local blank = lex("  \n  \n").tokens
-  assert(#blank == 1 and blank[1].y == 3 and blank[1].x == 1 and blank[1].offset == 7)
+  assert(Lexer.count(blank) == 1 and Lexer.y(blank, 1) == 3 and Lexer.x(blank, 1) == 1 and Lexer.offset(blank, 1) == 7)
 end
 
 local function test_goto_is_a_keyword_wherever_it_stands_and_the_parser_refuses_the_statement()
@@ -248,9 +249,9 @@ local function test_goto_is_a_keyword_wherever_it_stands_and_the_parser_refuses_
     local lexed = lex(source)
     assert(#lexed.errors == 0, source)
     local kind = ""
-    for _, t in ipairs(lexed.tokens) do
-      if t.text == "goto" then
-        kind = t.kind
+    for i = 1, Lexer.count(lexed.tokens) do
+      if Lexer.text(lexed.tokens, i) == "goto" then
+        kind = Lexer.kind(lexed.tokens, i)
       end
     end
     assert(kind == "keyword", source)
@@ -283,7 +284,7 @@ local function test_a_long_comment_is_refused_and_kept_as_a_comment()
   assert(e.code == "long_comment" and e.msg == "long comments are not in the grammar")
   assert(e.fix == "write line comments: begin each line of the comment with `--`")
   assert(e.y == 1 and e.x == 3 and e.offset == 3 and e.length == 19)
-  local b = lexed.tokens[2]
+  local b = Lexer.token(lexed.tokens, 2)
   assert(b.text == "b" and b.y == 2 and b.x == 10, "the lines after it are counted")
   assert(assert(b.comments)[1].text == "--[==[ one\ntwo ]==]")
 end
@@ -294,7 +295,7 @@ local function test_an_unfinished_long_comment_is_an_error_token_to_the_end()
   assert(e.fix == "write line comments, which begin each line with `--`; a long comment is not in the grammar " ..
       "and this one has no closing `]]`")
   local lexed = lex("a --[=[ one\ntwo")
-  assert(lexed.tokens[2].kind == "$ERR$" and lexed.tokens[2].yend == 2 and lexed.tokens[3].kind == "$EOF$")
+  assert(Lexer.token(lexed.tokens, 2).kind == "$ERR$" and Lexer.token(lexed.tokens, 2).yend == 2 and Lexer.token(lexed.tokens, 3).kind == "$EOF$")
   assert(lexed.errors[1].fix:find("`]=]`", 1, true))
 end
 
@@ -305,7 +306,7 @@ local function test_a_hashbang_line_is_refused()
   assert(e.code == "hashbang" and e.msg == "a `#!` first line is not in the grammar")
   assert(e.fix == "delete the line; run the file with `cosmic t.tl`")
   assert(e.y == 1 and e.x == 1 and e.length == 21)
-  assert(lexed.tokens[1].kind == "$ERR$" and lexed.tokens[2].text == "local" and lexed.tokens[2].y == 2)
+  assert(Lexer.token(lexed.tokens, 1).kind == "$ERR$" and Lexer.token(lexed.tokens, 2).text == "local" and Lexer.token(lexed.tokens, 2).y == 2)
 end
 
 local function test_a_pragma_comment_is_refused_and_kept_as_a_comment()
@@ -317,7 +318,7 @@ local function test_a_pragma_comment_is_refused_and_kept_as_a_comment()
     assert(e.y == 2 and e.x == 1 and e.length == #written, written)
     assert(e.fix:find("delete the comment", 1, true) ~= nil)
     -- the comment is kept on the token that follows it
-    local comments = assert(lexed.tokens[5].comments)
+    local comments = assert(Lexer.token(lexed.tokens, 5).comments)
     assert(#comments == 1 and comments[1].text == written, written)
   end
   -- another comment, one that merely begins alike, a long one and a third dash are no pragma
@@ -383,8 +384,8 @@ local function test_a_string_with_no_closing_quote_is_an_error_token_to_the_end_
       "line end this line with `\\`, or write a long string `[[ ... ]]`")
   assert(e.y == 1 and e.x == 5 and e.length == 4)
   local lexed = lex("x = 'abc\ny = 1")
-  assert(lexed.tokens[3].kind == "$ERR$" and lexed.tokens[3].text == "'abc")
-  assert(lexed.tokens[4].text == "y" and lexed.tokens[4].y == 2, "lexing goes on")
+  assert(Lexer.token(lexed.tokens, 3).kind == "$ERR$" and Lexer.token(lexed.tokens, 3).text == "'abc")
+  assert(Lexer.token(lexed.tokens, 4).text == "y" and Lexer.token(lexed.tokens, 4).y == 2, "lexing goes on")
   assert(lexed.errors[1].fix:find("matching `'`", 1, true))
   assert(only_error("'abc").length == 4, "the end of input ends a string too")
   assert(only_error("'abc\\").code == "unterminated_string")
@@ -396,7 +397,7 @@ local function test_a_long_string_with_no_closing_bracket_is_an_error_token_to_t
   assert(e.fix == "close the string with `]==]`")
   assert(e.y == 1 and e.x == 5)
   local lexed = lex("x = [[ abc")
-  assert(lexed.tokens[3].kind == "$ERR$" and lexed.tokens[4].kind == "$EOF$")
+  assert(Lexer.token(lexed.tokens, 3).kind == "$ERR$" and Lexer.token(lexed.tokens, 4).kind == "$EOF$")
 end
 
 local function test_a_bad_escape_says_which_escapes_there_are()
@@ -468,7 +469,8 @@ local function test_one_run_reports_every_problem()
   assert(table.concat(codes, " ") ==
       "label_or_goto semicolon stray_byte digit_separator unterminated_string hex_float long_comment " ..
       "unterminated_long_string", table.concat(codes, " "))
-  assert(lexed.tokens[#lexed.tokens - 1].kind == "$ERR$" and lexed.tokens[#lexed.tokens].kind == "$EOF$")
+  assert(Lexer.token(lexed.tokens, Lexer.count(lexed.tokens) - 1).kind == "$ERR$" and
+      Lexer.token(lexed.tokens, Lexer.count(lexed.tokens)).kind == "$EOF$")
   local ordered = true
   for i = 2, #lexed.errors do
     ordered = ordered and lexed.errors[i - 1].offset < lexed.errors[i].offset
@@ -560,7 +562,7 @@ local function test_one_long_line_lexes_as_fast_as_the_same_tokens_on_lines_of_t
     local own_lines = (form .. "\n"):rep(10000)
     local function lexes(source: string)
       local lexed = Lexer.lex(source, "t.tl")
-      assert(#lexed.tokens > 1 or #lexed.errors > 1)
+      assert(Lexer.count(lexed.tokens) > 1 or #lexed.errors > 1)
     end
     local ok, why = Speed.within(function()
       lexes(own_lines)
@@ -703,4 +705,93 @@ local function test_a_token_that_ends_in_a_line_break_ends_on_the_line_it_began_
   assert(short.kind == "$ERR$" and short.yend == 1 and short.xend == 8)
   local comment = token("--[[ c\n\n", 1)
   assert(comment.kind == "$ERR$" and comment.yend == 2 and comment.xend == 1)
+end
+
+--- `lines` lines of every kind of token but a comment: names, keywords, operators, brackets, a string, a
+--- number and a long string that spans lines.
+local function program(lines: integer): string
+  return ("local t = { f(a, b) + 0x10 * 2.5, \"s\", [[long\nstring]] } ~= #u\n"):rep(lines)
+end
+
+local TOKENS_PER_LINE <const> = 22
+local LINES <const> = 2000
+
+--- The bytes the tokens of a source hold per token. The arrays of [`Lexer.Tokens`] hold about 60, and a few tables
+--- whatever the size of the source; even an empty table for each token adds about 60 more, so the ceiling is below that.
+local BYTES_PER_TOKEN_CEILING <const> = 100
+
+local record Link
+  token: Lexer.Token
+  rest: Link | nil
+end
+
+--- Garbage collects twice, so that what is counted is what is kept.
+local function settled(): number
+  collectgarbage("collect")
+  collectgarbage("collect")
+  return collectgarbage("count") * 1024
+end
+
+local function test_lexing_makes_a_few_tables_whatever_the_number_of_tokens()
+  local source = program(LINES)
+  local before = settled()
+  local lexed = Lexer.lex(source, "t.tl")
+  local after = settled()
+  local count = Lexer.count(lexed.tokens)
+  assert(count == LINES * TOKENS_PER_LINE + 1, tostring(count))
+  local per_token = (after - before) / count
+  assert(per_token < BYTES_PER_TOKEN_CEILING, string.format("%.1f bytes for each of %d tokens", per_token, count))
+end
+
+local function test_a_table_for_each_token_is_found_to_hold_more_than_the_ceiling()
+  local source = program(LINES)
+  local tokens = Lexer.lex(source, "t.tl").tokens
+  local count = Lexer.count(tokens)
+  local before = settled()
+  -- A linked list holds a table for each token, which it makes without writing an array.
+  local planted: Link | nil = nil
+  for i = 1, count do
+    planted = { token = Lexer.token(tokens, i), rest = planted }
+  end
+  local after = settled()
+  local per_token = (after - before) / count
+  assert(planted ~= nil and per_token > 2 * BYTES_PER_TOKEN_CEILING, string.format("%.1f bytes for each token", per_token))
+end
+
+local function test_a_token_copied_out_of_the_arrays_reads_as_the_arrays_do()
+  local tokens = Lexer.lex("local s =\n\t\"a\" .. [[\nb]] + 1.5 -- c\nx", "t.tl").tokens
+  for i = 1, Lexer.count(tokens) do
+    local copy = Lexer.token(tokens, i)
+    assert(copy.kind == tokens.kind[i] and copy.text == tokens.text[i] and copy.offset == tokens.offset[i])
+    assert(copy.length == Lexer.length(tokens, i) and copy.length == #tokens.text[i])
+    assert(copy.y == tokens.y[i] and copy.x == Lexer.x(tokens, i))
+    assert(copy.yend == Lexer.yend(tokens, i) and copy.xend == Lexer.xend(tokens, i))
+    assert(copy.value == tokens.value[i] and copy.number == tokens.number[i] and copy.comments == tokens.comments[i])
+    assert((copy.long == true) == Lexer.long(tokens, i))
+  end
+  -- Only the tokens that end off their line or off their length have an end of their own.
+  local ends = ""
+  for i = 1, Lexer.count(tokens) do
+    if tokens.yend[i] ~= nil or tokens.xend[i] ~= nil then
+      ends = ends .. tostring(i) .. ","
+    end
+  end
+  assert(ends == "6,", ends)
+end
+
+local function test_the_line_table_holds_where_each_line_begins_whatever_the_line_breaks_and_where_they_stand()
+  local function starts(source: string): string
+    return table.concat(lex(source).tokens.line, ",")
+  end
+  assert(starts("") == "1")
+  assert(starts("a\nb\r\nc\n\rd\re\n") == "1,3,6,9,11,13")
+  -- A break inside a long string, a string's escaped line break and a long comment starts a line as well.
+  local across = "x = [[a\nb\r\nc]] y = 'p\\\nq' --[[ c\nd ]] z\nw"
+  assert(starts(across) == "1,9,12,24,34,41", starts(across))
+  assert(starts("x = [[a\n") == "1,9")
+  assert(starts("--[[ a\nb") == "1,8")
+  assert(starts("#!/bin/cosmic\nx") == "1,15")
+  -- A column is counted from the start of its line.
+  local tokens = lex("ab\n  cd").tokens
+  assert(Lexer.x(tokens, 1) == 1 and Lexer.x(tokens, 2) == 3 and tokens.y[2] == 2)
 end

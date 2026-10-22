@@ -194,9 +194,8 @@ local sub, find, byte, format = string.sub, string.find, string.byte, string.for
 local concat = table.concat
 
 --- The offset one past the last byte of token `i`.
-local function stop_of(tokens: {Lexer.Token}, i: integer): integer
-  local t = tokens[i]
-  return t.offset + t.length
+local function stop_of(tokens: Lexer.Tokens, i: integer): integer
+  return Lexer.stop(tokens, i)
 end
 
 --- Where the blanks (spaces and tabs) that end just before `at` begin.
@@ -260,25 +259,25 @@ local function blank_line(source: string, at: integer): boolean
 end
 
 --- The edit that deletes token `i` and the blanks before it.
-local function delete_with_blanks_before(source: string, tokens: {Lexer.Token}, i: integer): Edit
-  return { lo = blanks_before(source, tokens[i].offset), hi = stop_of(tokens, i), text = "" }
+local function delete_with_blanks_before(source: string, tokens: Lexer.Tokens, i: integer): Edit
+  return { lo = blanks_before(source, Lexer.offset(tokens, i)), hi = stop_of(tokens, i), text = "" }
 end
 
 --- The edit that deletes token `i` and the blanks after it.
-local function delete_with_blanks_after(source: string, tokens: {Lexer.Token}, i: integer): Edit
+local function delete_with_blanks_after(source: string, tokens: Lexer.Tokens, i: integer): Edit
   local hi = stop_of(tokens, i)
-  return { lo = tokens[i].offset, hi = blanks_after(source, hi), text = "" }
+  return { lo = Lexer.offset(tokens, i), hi = blanks_after(source, hi), text = "" }
 end
 
-local function replace_token(tokens: {Lexer.Token}, i: integer, text: string): Edit
-  return { lo = tokens[i].offset, hi = stop_of(tokens, i), text = text }
+local function replace_token(tokens: Lexer.Tokens, i: integer, text: string): Edit
+  return { lo = Lexer.offset(tokens, i), hi = stop_of(tokens, i), text = text }
 end
 
-local function insert_before(tokens: {Lexer.Token}, i: integer, text: string): Edit
-  return { lo = tokens[i].offset, hi = tokens[i].offset, text = text }
+local function insert_before(tokens: Lexer.Tokens, i: integer, text: string): Edit
+  return { lo = Lexer.offset(tokens, i), hi = Lexer.offset(tokens, i), text = text }
 end
 
-local function insert_after(tokens: {Lexer.Token}, i: integer, text: string): Edit
+local function insert_after(tokens: Lexer.Tokens, i: integer, text: string): Edit
   local at = stop_of(tokens, i)
   return { lo = at, hi = at, text = text }
 end
@@ -403,16 +402,15 @@ local function separators_between_digits(text: string): boolean
 end
 
 --- A cut number: `1_000` without its `_`, a hexadecimal float in decimal.
-local function number_rewrite(tokens: {Lexer.Token}, i: integer): Rewrite | nil
-  local t = tokens[i]
-  local kind, text = t.kind, t.text
+local function number_rewrite(tokens: Lexer.Tokens, i: integer): Rewrite | nil
+  local kind, text = tokens.kind[i], tokens.text[i]
   if kind ~= "integer" and kind ~= "number" then
     return nil
   end
   if find(text, "_", 1, true) ~= nil and separators_between_digits(text) then
     return { row = "digit_separator", edits = { replace_token(tokens, i, (text:gsub("_", ""))) } }
   end
-  local value = t.number
+  local value = tokens.number[i]
   if value ~= nil and find(text, "^0[xX]") and find(text, "[%.pP]") then
     local written = decimal_of(value)
     if written ~= nil then
@@ -501,7 +499,7 @@ end
 --- when each middle operand is never false, as an `if` expression. `top` is the
 --- `or` node. `covered` receives the inner `or` nodes of a chain, which are
 --- no ternary of their own.
-local function ternary_rewrite(tokens: {Lexer.Token}, top: Ast.Binary, covered: {Ast.Node: boolean}): Rewrite | nil
+local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {Ast.Node: boolean}): Rewrite | nil
   local ands: {Ast.Binary} = {}
   local spine: {Ast.Binary} = {}
   local cur: Ast.Exp = top.left
@@ -533,13 +531,13 @@ local function ternary_rewrite(tokens: {Lexer.Token}, top: Ast.Binary, covered: 
   for i, a in ipairs(ands) do
     local _, a_last = bounds(a.left)
     local op = a_last + 1
-    if tokens[op].text ~= "and" then
+    if tokens.text[op] ~= "and" then
       return nil
     end
     edits[#edits + 1] = replace_token(tokens, op, "then")
     local _, a_end = bounds(a)
     local joiner = a_end + 1
-    if tokens[joiner].text ~= "or" then
+    if tokens.text[joiner] ~= "or" then
       return nil
     end
     edits[#edits + 1] = replace_token(tokens, joiner, i < #ands and "elseif" or "else")
@@ -552,20 +550,20 @@ local function ternary_rewrite(tokens: {Lexer.Token}, top: Ast.Binary, covered: 
 end
 
 --- The rewrites of a function type's parameters: `T...` and `? T`.
-local function parameter_rewrites(source: string, tokens: {Lexer.Token}, ty: Ast.TypeFunction, out: {Rewrite})
+local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.TypeFunction, out: {Rewrite})
   for index, p in ipairs(ty.params) do
     local first, last = bounds(p)
-    if p.variadic and last > first and tokens[last].kind == "..." then
+    if p.variadic and last > first and tokens.kind[last] == "..." then
       local edits: {Edit} = {}
       local type_first = bounds(p.type)
       if p.name ~= nil then
-        edits[1] = { lo = tokens[first].offset, hi = tokens[type_first].offset, text = "...: " }
+        edits[1] = { lo = Lexer.offset(tokens, first), hi = Lexer.offset(tokens, type_first), text = "...: " }
       else
         edits[1] = insert_before(tokens, first, "...: ")
       end
       edits[2] = delete_with_blanks_before(source, tokens, last)
       out[#out + 1] = { row = "variadic_type", edits = edits }
-    elseif p.optional and p.name == nil and tokens[first].kind == "?" then
+    elseif p.optional and p.name == nil and tokens.kind[first] == "?" then
       local after = blanks_after(source, stop_of(tokens, first))
       local taken: {string: boolean} = {}
       for _, other in ipairs(ty.params) do
@@ -580,14 +578,14 @@ local function parameter_rewrites(source: string, tokens: {Lexer.Token}, ty: Ast
       end
       out[#out + 1] = {
         row = "optional_type",
-        edits = { { lo = tokens[first].offset, hi = after, text = name .. "?: " } },
+        edits = { { lo = Lexer.offset(tokens, first), hi = after, text = name .. "?: " } },
       }
     end
   end
 end
 
 --- The rewrite of a union with `nil`.
-local function union_rewrite(source: string, tokens: {Lexer.Token}, union: Ast.TypeUnion): Rewrite | nil
+local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.TypeUnion): Rewrite | nil
   local kept: {Ast.Type} = {}
   local nils: {Ast.Type} = {}
   for _, m in ipairs(union.members) do
@@ -622,9 +620,8 @@ local function union_rewrite(source: string, tokens: {Lexer.Token}, union: Ast.T
   end
   if #kept == 1 then
     local only = kept[1]
-    local before = tokens[first_kept - 1]
-    if (only is Ast.TypeFunction or only is Ast.TypeUnion) and before ~= nil and before.kind == "(" and
-        tokens[last_kept + 1].kind == ")" then
+    if (only is Ast.TypeFunction or only is Ast.TypeUnion) and tokens.kind[first_kept - 1] == "(" and
+        tokens.kind[last_kept + 1] == ")" then
       -- Already written `(function(): R) | nil` or `(A | B) | nil`: the `?` goes
       -- after the `)`.
       edits[#edits + 1] = insert_after(tokens, last_kept + 1, "?")
@@ -642,17 +639,17 @@ local function union_rewrite(source: string, tokens: {Lexer.Token}, union: Ast.T
 end
 
 --- The rewrite of `local type X = record`: `local record X`.
-local function declaration_rewrite(tokens: {Lexer.Token}, decl: Ast.Node, scope: Ast.Scope | nil,
+local function declaration_rewrite(tokens: Lexer.Tokens, decl: Ast.Node, scope: Ast.Scope | nil,
                                    name: Ast.Binding): Rewrite | nil
   local first = bounds(decl)
   local at = scope ~= nil and first + 1 or first
-  if tokens[at].text ~= "type" then
+  if tokens.text[at] ~= "type" then
     return nil
   end
   local eq = name.last + 1
   local depth = 0
-  while tokens[eq].kind ~= "$EOF$" do
-    local text = tokens[eq].text
+  while tokens.kind[eq] ~= "$EOF$" do
+    local text = tokens.text[eq]
     if text == "<" then
       depth = depth + 1
     elseif text == ">" then
@@ -665,48 +662,48 @@ local function declaration_rewrite(tokens: {Lexer.Token}, decl: Ast.Node, scope:
     eq = eq + 1
   end
   local word = eq + 1
-  if tokens[eq].text ~= "=" or tokens[word].kind ~= "identifier" or tokens[word].y ~= tokens[name.last].yend or
-      tokens[eq].y ~= tokens[name.last].yend then
+  if tokens.text[eq] ~= "=" or tokens.kind[word] ~= "identifier" or tokens.y[word] ~= Lexer.yend(tokens, name.last) or
+      tokens.y[eq] ~= Lexer.yend(tokens, name.last) then
     return nil
   end
   local before = eq - 1
   return {
     row = "type_declaration",
     edits = {
-      replace_token(tokens, at, tokens[word].text),
+      replace_token(tokens, at, Lexer.text(tokens, word)),
       { lo = stop_of(tokens, before), hi = stop_of(tokens, word), text = "" },
     },
   }
 end
 
 --- Whether token `i` is the first on its line.
-local function starts_line(tokens: {Lexer.Token}, i: integer): boolean
-  return i == 1 or tokens[i - 1].yend < tokens[i].y
+local function starts_line(tokens: Lexer.Tokens, i: integer): boolean
+  return i == 1 or Lexer.yend(tokens, i - 1) < tokens.y[i]
 end
 
 --- Whether token `i` is the last on its line.
-local function ends_line(tokens: {Lexer.Token}, i: integer): boolean
-  local after = tokens[i + 1]
-  return after == nil or after.kind == "$EOF$" or after.y > tokens[i].yend
+local function ends_line(tokens: Lexer.Tokens, i: integer): boolean
+  local after = tokens.kind[i + 1]
+  return after == nil or after == "$EOF$" or tokens.y[i + 1] > Lexer.yend(tokens, i)
 end
 
 --- The rewrites of a field: `metamethod` and `readonly` dropped.
-local function field_rewrite(source: string, tokens: {Lexer.Token}, field: Ast.FieldDecl): Rewrite | nil
+local function field_rewrite(source: string, tokens: Lexer.Tokens, field: Ast.FieldDecl): Rewrite | nil
   local first = bounds(field)
   local name_first = bounds(field.name)
-  if first < name_first and tokens[first].text == "metamethod" and tokens[first].kind == "identifier" then
+  if first < name_first and tokens.text[first] == "metamethod" and tokens.kind[first] == "identifier" then
     return { row = "metamethod", edits = { delete_with_blanks_after(source, tokens, first) } }
   end
   -- `readonly f: T` parses as a field named `readonly` whose type is cut short.
-  if field.name.name == "readonly" and tokens[first].kind == "identifier" and first == name_first then
-    local name = tokens[first + 1]
+  if field.name.name == "readonly" and tokens.kind[first] == "identifier" and first == name_first then
+    local name_kind = tokens.kind[first + 1]
     local fits = false
-    if name.kind == "identifier" then
-      fits = tokens[first + 2].kind == ":" or tokens[first + 2].kind == "?"
-    elseif name.kind == "[" then
-      fits = tokens[first + 3].kind == "]" and (tokens[first + 4].kind == ":" or tokens[first + 4].kind == "?")
+    if name_kind == "identifier" then
+      fits = tokens.kind[first + 2] == ":" or tokens.kind[first + 2] == "?"
+    elseif name_kind == "[" then
+      fits = tokens.kind[first + 3] == "]" and (tokens.kind[first + 4] == ":" or tokens.kind[first + 4] == "?")
     end
-    if fits and starts_line(tokens, first) and name.y == tokens[first].y then
+    if fits and starts_line(tokens, first) and tokens.y[first + 1] == tokens.y[first] then
       return { row = "readonly", edits = { delete_with_blanks_after(source, tokens, first) } }
     end
   end
@@ -714,11 +711,11 @@ local function field_rewrite(source: string, tokens: {Lexer.Token}, field: Ast.F
 end
 
 --- The token of the label `::continue::` that is a statement of `body`, or nil.
-local function direct_label(tokens: {Lexer.Token}, body: Ast.Block): integer | nil
+local function direct_label(tokens: Lexer.Tokens, body: Ast.Block): integer | nil
   for _, stat in ipairs(body.stats) do
     if stat is Ast.Error then
       local first, stop = bounds(stat)
-      if first == stop and tokens[first].kind == "$ERR$" and find(tokens[first].text, "^::[ \t]*continue[ \t]*::$") then
+      if first == stop and tokens.kind[first] == "$ERR$" and find(Lexer.text(tokens, first), "^::[ \t]*continue[ \t]*::$") then
         return first
       end
     end
@@ -727,11 +724,11 @@ local function direct_label(tokens: {Lexer.Token}, body: Ast.Block): integer | n
 end
 
 --- The index of the `}` that closes the `{` at token `open`, or of the last token.
-local function brace_end(tokens: {Lexer.Token}, open: integer): integer
+local function brace_end(tokens: Lexer.Tokens, open: integer): integer
   local depth = 0
   local i = open
-  while tokens[i + 1] ~= nil and tokens[i].kind ~= "$EOF$" do
-    local kind = tokens[i].kind
+  while tokens.kind[i + 1] ~= nil and tokens.kind[i] ~= "$EOF$" do
+    local kind = tokens.kind[i]
     if kind == "{" then
       depth = depth + 1
     elseif kind == "}" then
@@ -759,13 +756,13 @@ end
 --- The name of the record that `f`, a statement `function R:m(...)`, is a
 --- method of, or nil where it is no method this translator moves: a path of
 --- other than two names, or a method with type parameters of its own.
-local function method_owner(tokens: {Lexer.Token}, f: Ast.Function): string | nil
+local function method_owner(tokens: Lexer.Tokens, f: Ast.Function): string | nil
   local path = f.path
   if #path ~= 2 or #f.typeparams > 0 then
     return nil
   end
   local first = bounds(path[1])
-  if tokens[first + 1].kind ~= ":" then
+  if tokens.kind[first + 1] ~= ":" then
     return nil
   end
   return path[1].text
@@ -796,11 +793,11 @@ local function indented(text: string, ranges: {{integer}}): string
 end
 
 --- The byte ranges of the tokens that run over several lines.
-local function multiline_tokens(tokens: {Lexer.Token}): {{integer}}
+local function multiline_tokens(tokens: Lexer.Tokens): {{integer}}
   local out: {{integer}} = {}
-  for _, t in ipairs(tokens) do
-    if t.yend > t.y then
-      out[#out + 1] = { t.offset, t.offset + t.length - 1 }
+  for i = 1, #tokens.kind do
+    if tokens.yend[i] ~= nil then
+      out[#out + 1] = { Lexer.offset(tokens, i), Lexer.stop(tokens, i) - 1 }
     end
   end
   return out
@@ -863,8 +860,8 @@ local function squeezed(text: string): string
 end
 
 --- The bytes of the tokens `a` to `b`, squeezed.
-local function spelled(source: string, tokens: {Lexer.Token}, a: integer, b: integer): string
-  return squeezed(sub(source, tokens[a].offset, stop_of(tokens, b) - 1))
+local function spelled(source: string, tokens: Lexer.Tokens, a: integer, b: integer): string
+  return squeezed(sub(source, Lexer.offset(tokens, a), stop_of(tokens, b) - 1))
 end
 
 --- An insertion into a source: `at` is the offset it goes before.
@@ -888,11 +885,11 @@ local function splice(source: string, lo: integer, hi: integer, insertions: {Ins
 end
 
 --- The offset of the `)` that closes the `(` at token `open`.
-local function closer_of(tokens: {Lexer.Token}, open: integer): integer
+local function closer_of(tokens: Lexer.Tokens, open: integer): integer
   local depth = 0
   local i = open
-  while tokens[i].kind ~= "$EOF$" do
-    local kind = tokens[i].kind
+  while tokens.kind[i] ~= "$EOF$" do
+    local kind = tokens.kind[i]
     if kind == "(" then
       depth = depth + 1
     elseif kind == ")" then
@@ -910,10 +907,10 @@ end
 --- leaves out: a parameter without a type, and the return list. A type that
 --- both write and that differs is a `signature` hazard. The field's first
 --- parameter is the receiver.
-local function carried_types(source: string, tokens: {Lexer.Token}, f: Ast.Function, declared: Ast.TypeFunction,
+local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Function, declared: Ast.TypeFunction,
                              hazards: {Translate.Hazard}): {Insertion}
   local out: {Insertion} = {}
-  local line = tokens[bounds(f)].y
+  local line = tokens.y[bounds(f)]
   local class_name = f.path[1].text
   local function differs(what: string)
     hazards[#hazards + 1] = { kind = "signature", class = class_name, method = f.path[2].text, y = line, name = what }
@@ -1074,7 +1071,7 @@ end
 -- TODO: place a method after the local it reads that a call makes, and a function that reads the record as a value, instead of
 -- refusing the method as `unknown_variable`: the fork accepts the file. This waits on the switch (doc/plans/strict-teal.md, "the
 -- switch"), which deletes this translator and has the tree's files spell the class where the locals stand.
-local function hoists_of(tokens: {Lexer.Token}, stats: {Ast.Stat}, declared: {string: {integer}}, held: Owner,
+local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {string: {integer}}, held: Owner,
                          taken: {string: boolean}, methods: {string: boolean}): {Ast.Stat}
   local rec = held.record
   local _, rec_last = bounds(rec)
@@ -1188,13 +1185,13 @@ end
 --- The rewrite that moves the methods written for `held.record` into it.
 --- Nil where a method or the record is not written so that the lines can
 --- be cut: a statement that shares its line with other code.
-local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {string: {integer}}, held: Owner,
+local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {string: {integer}}, held: Owner,
                              strings: {{integer}}, hazards: {Translate.Hazard}, hoisted: {Ast.Stat},
                              taken: {string: boolean}, methods: {string: boolean}): Rewrite | nil
   local rec = held.record
   local rec_first, rec_last = bounds(rec)
   local word = rec.scope ~= nil and rec_first + 1 or rec_first
-  if rec.array ~= nil or tokens[word].text ~= "record" or not starts_line(tokens, rec_last) then
+  if rec.array ~= nil or tokens.text[word] ~= "record" or not starts_line(tokens, rec_last) then
     return nil
   end
   for _, m in ipairs(rec.members) do
@@ -1222,8 +1219,8 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
     if mover ~= nil then
       s_first = leading_doc(mover.doc)
     end
-    local lo = line_start(source, s_first ~= nil and s_first.offset or tokens[first].offset)
-    local hi = after_line(source, tokens[last].offset)
+    local lo = line_start(source, s_first ~= nil and s_first.offset or tokens.offset[first])
+    local hi = after_line(source, Lexer.offset(tokens, last))
     lifted[#lifted + 1] = sub(source, lo, hi - 1) .. "\n"
     local cut = hi
     if lo > 1 and cut <= #source and blank_line(source, cut) and blank_line(source, line_start(source, lo - 1)) then
@@ -1236,7 +1233,7 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
   end
   if #lifted > 0 then
     local rec_doc_first = leading_doc(rec.name.doc)
-    local top = line_start(source, rec_doc_first ~= nil and rec_doc_first.offset or tokens[rec_first].offset)
+    local top = line_start(source, rec_doc_first ~= nil and rec_doc_first.offset or tokens.offset[rec_first])
     edits[#edits + 1] = { lo = top, hi = top, text = concat(lifted) }
   end
   for _, f in ipairs(held.methods) do
@@ -1245,16 +1242,16 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
     local name = f.path[2].text
     local f_doc = f.doc
     local doc_first = f_doc ~= nil and #f_doc > 0 and f_doc[1] or nil
-    local top = doc_first ~= nil and doc_first.offset or tokens[first].offset
-    if not (starts_line(tokens, first) and ends_line(tokens, last) and tokens[open].kind == "(") or
+    local top = doc_first ~= nil and doc_first.offset or tokens.offset[first]
+    if not (starts_line(tokens, first) and ends_line(tokens, last) and tokens.kind[open] == "(") or
         blanks_before(source, top) ~= line_start(source, top) then
       return nil
     end
     local lo = line_start(source, top)
-    local hi = after_line(source, tokens[last].offset)
+    local hi = after_line(source, Lexer.offset(tokens, last))
     local params = f.fn.params
     local header = "function " .. name .. "(self" .. (#params > 0 and ", " or "")
-    local head_lo, head_hi = tokens[first].offset, stop_of(tokens, open)
+    local head_lo, head_hi = tokens.offset[first], stop_of(tokens, open)
     local field = fields[name]
     local carried: {Insertion} = {}
     local declared_type = field ~= nil and field.type or nil
@@ -1276,9 +1273,9 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
       local field_first, field_last = bounds(field)
       local field_doc = field.doc
       local first_doc = field_doc ~= nil and #field_doc > 0 and field_doc[1] or nil
-      local flo = line_start(source, first_doc ~= nil and first_doc.offset or tokens[field_first].offset)
-      local fhi = after_line(source, tokens[field_last].offset)
-      docs = sub(source, flo, line_start(source, tokens[field_first].offset) - 1)
+      local flo = line_start(source, first_doc ~= nil and first_doc.offset or tokens.offset[field_first])
+      local fhi = after_line(source, Lexer.offset(tokens, field_last))
+      docs = sub(source, flo, line_start(source, Lexer.offset(tokens, field_first)) - 1)
       -- A comment after the field on its last line goes with its docs.
       local trailing = sub(source, stop_of(tokens, field_last), fhi - 1):match("^%s*(%-%-.-)%s*$")
       if trailing ~= nil then
@@ -1303,16 +1300,16 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
     end
     local reported: {string: boolean} = {}
     for i = first, last do
-      local t = tokens[i]
-      local prev = tokens[i - 1]
-      if t.kind == "identifier" and declared[t.text] ~= nil and not own[t.text] and not reported[t.text] and
-          moved[t.text] ~= true and taken[t.text] ~= true and not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
-        local between, before = declared_between(declared, t.text, rec_last, first)
+      local written_name = tokens.text[i]
+      local prev = tokens.kind[i - 1]
+      if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and not own[written_name] and not reported[written_name] and
+          moved[written_name] ~= true and taken[written_name] ~= true and not (prev == "." or prev == ":") then
+        local between, before = declared_between(declared, written_name, rec_last, first)
         if between then
-          reported[t.text] = true
+          reported[written_name] = true
           found[#found + 1] = {
-            kind = before and "shadow" or "scope", class = rec.name.name, method = name, y = tokens[first].y,
-            name = t.text,
+            kind = before and "shadow" or "scope", class = rec.name.name, method = name, y = Lexer.y(tokens, first),
+            name = written_name,
           }
         end
       end
@@ -1322,13 +1319,13 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
   if close ~= nil then
     local value = close.value
     local first, last = bounds(close)
-    if value is Ast.FunctionLit and #value.fn.params > 0 and starts_line(tokens, first) and tokens[last + 1] ~= nil and
-        tokens[last + 1].kind == "," and ends_line(tokens, last + 1) then
+    if value is Ast.FunctionLit and #value.fn.params > 0 and starts_line(tokens, first) and
+        tokens.kind[last + 1] == "," and ends_line(tokens, last + 1) then
       local fl, ll = bounds(value)
       local pf, pl = bounds(value.fn.params[1])
-      local indent = sub(source, line_start(source, tokens[first].offset), tokens[first].offset - 1)
-      local text = indent .. "function __close" .. sub(source, stop_of(tokens, fl), tokens[pf].offset - 1) ..
-        tokens[pf].text .. sub(source, stop_of(tokens, pl), stop_of(tokens, ll) - 1) .. "\n"
+      local indent = sub(source, line_start(source, Lexer.offset(tokens, first)), tokens.offset[first] - 1)
+      local text = indent .. "function __close" .. sub(source, stop_of(tokens, fl), tokens.offset[pf] - 1) ..
+        tokens.text[pf] .. sub(source, stop_of(tokens, pl), stop_of(tokens, ll) - 1) .. "\n"
       -- The field `metamethod __close: T` declared goes, its docs to the method.
       local docs = ""
       local field = fields["__close"]
@@ -1336,14 +1333,14 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
         local field_first, field_last = bounds(field)
         local field_doc = field.doc
         local first_doc = field_doc ~= nil and #field_doc > 0 and field_doc[1] or nil
-        local flo = line_start(source, first_doc ~= nil and first_doc.offset or tokens[field_first].offset)
-        local fhi = after_line(source, tokens[field_last].offset)
-        docs = sub(source, flo, line_start(source, tokens[field_first].offset) - 1)
+        local flo = line_start(source, first_doc ~= nil and first_doc.offset or tokens.offset[field_first])
+        local fhi = after_line(source, Lexer.offset(tokens, field_last))
+        docs = sub(source, flo, line_start(source, Lexer.offset(tokens, field_first)) - 1)
         edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
       end
       pieces[#pieces + 1] = ((#pieces == 0 and #rec.members == 0) and "" or "\n") .. docs .. text
       edits[#edits + 1] = {
-        lo = line_start(source, tokens[first].offset), hi = after_line(source, tokens[last + 1].offset), text = "",
+        lo = line_start(source, Lexer.offset(tokens, first)), hi = after_line(source, Lexer.offset(tokens, last + 1)), text = "",
       }
       local own: {string: boolean} = {}
       for _, p in ipairs(value.fn.params) do
@@ -1354,23 +1351,23 @@ local function class_rewrite(source: string, tokens: {Lexer.Token}, declared: {s
       end
       local reported: {string: boolean} = {}
       for i = fl, ll do
-        local t = tokens[i]
-        local prev = tokens[i - 1]
-        if t.kind == "identifier" and declared[t.text] ~= nil and not own[t.text] and not reported[t.text] and
-            moved[t.text] ~= true and taken[t.text] ~= true and not (prev ~= nil and (prev.kind == "." or prev.kind == ":")) then
-          local between, before = declared_between(declared, t.text, rec_last, fl)
+        local written_name = tokens.text[i]
+        local prev = tokens.kind[i - 1]
+        if tokens.kind[i] == "identifier" and declared[written_name] ~= nil and not own[written_name] and not reported[written_name] and
+            moved[written_name] ~= true and taken[written_name] ~= true and not (prev == "." or prev == ":") then
+          local between, before = declared_between(declared, written_name, rec_last, fl)
           if between then
-            reported[t.text] = true
+            reported[written_name] = true
             found[#found + 1] = {
-              kind = before and "shadow" or "scope", class = rec.name.name, method = "__close", y = tokens[fl].y,
-              name = t.text,
+              kind = before and "shadow" or "scope", class = rec.name.name, method = "__close", y = Lexer.y(tokens, fl),
+              name = written_name,
             }
           end
         end
       end
     end
   end
-  local at = line_start(source, tokens[rec_last].offset)
+  local at = line_start(source, Lexer.offset(tokens, rec_last))
   edits[#edits + 1] = { lo = at, hi = at, text = concat(pieces) }
   for _, h in ipairs(found) do
     hazards[#hazards + 1] = h
@@ -1512,15 +1509,15 @@ end
 
 --- The edit that removes the lines of the statement `s`, its docs with it, and a blank line where two would meet; nil
 --- where it shares its lines with other code.
-local function statement_cut(source: string, tokens: {Lexer.Token}, s: Ast.Local, binding: Ast.Binding): Edit | nil
+local function statement_cut(source: string, tokens: Lexer.Tokens, s: Ast.Local, binding: Ast.Binding): Edit | nil
   local first, last = bounds(s)
   if not (starts_line(tokens, first) and ends_line(tokens, last)) then
     return nil
   end
   local doc = binding.doc
   local doc_first = doc ~= nil and #doc > 0 and doc[1] or nil
-  local lo = line_start(source, doc_first ~= nil and doc_first.offset or tokens[first].offset)
-  local hi = after_line(source, tokens[last].offset)
+  local lo = line_start(source, doc_first ~= nil and doc_first.offset or tokens.offset[first])
+  local hi = after_line(source, Lexer.offset(tokens, last))
   if lo > 1 and hi <= #source and blank_line(source, hi) and blank_line(source, line_start(source, lo - 1)) then
     hi = after_line(source, hi)
   end
@@ -1575,7 +1572,7 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
     local args = e.args
     local made, second = args[1], args[2]
     if not (callee is Ast.Name and callee.text == "setmetatable" and #args == 2 and made is Ast.Table and
-        tokens[e.first + 1].kind == "(") then
+        tokens.kind[e.first + 1] == "(") then
       return
     end
     local held: ClassMetatable | nil = nil
@@ -1630,15 +1627,16 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
   end
   walk(chunk.body, enter, leave)
   local references: {string: integer} = {}
-  for _, t in ipairs(tokens) do
-    if t.kind == "identifier" and metatables[t.text] ~= nil then
-      references[t.text] = (references[t.text] or 0) + 1
+  for i = 1, #tokens.kind do
+    local text = tokens.text[i]
+    if tokens.kind[i] == "identifier" and metatables[text] ~= nil then
+      references[text] = (references[text] or 0) + 1
     end
   end
   --- The edits that write the call of `l` as its table.
   local function call_edits(l: Literal): {Edit}
     local edits: {Edit} = {
-      { lo = tokens[l.call.first].offset, hi = stop_of(tokens, l.call.first + 1), text = "" },
+      { lo = Lexer.offset(tokens, l.call.first), hi = stop_of(tokens, l.call.first + 1), text = "" },
       { lo = stop_of(tokens, l.literal.last), hi = stop_of(tokens, l.call.last), text = "" },
     }
     local binding = l.annotate
@@ -1735,7 +1733,7 @@ local TABLE_WRITES <const>: {string: boolean} = { insert = true, remove = true, 
 -- result, a field of a field) and for a collection passed on to a function that
 -- changes it, once the new checker's type report resolves the record and field
 -- of each assignment target and the `mut` parameters of each callee.
-local function mut_tracker(tokens: {Lexer.Token}, hazards: {Translate.Hazard}, interfaces: {Translate.Interface}): MutTracker
+local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, interfaces: {Translate.Interface}): MutTracker
   local declared: {string: {string: Ast.FieldDecl}} = {}
   local seen: {string: integer} = {}
   local assigned: {string: boolean} = {}
@@ -1867,7 +1865,7 @@ local function mut_tracker(tokens: {Lexer.Token}, hazards: {Translate.Hazard}, i
     elseif kind == "Function" then
       if node is Ast.Function then
         local path = node.path
-        if #path == 2 and tokens[bounds(path[1]) + 1].kind == ":" then
+        if #path == 2 and tokens.kind[bounds(path[1]) + 1] == ":" then
           owner_of[node.fn] = path[1].text
         end
       end
@@ -2044,7 +2042,7 @@ local function mut_tracker(tokens: {Lexer.Token}, hazards: {Translate.Hazard}, i
           for _, super in ipairs(outside) do
             if where ~= nil then
               hazards[#hazards + 1] = {
-                kind = "interface", class = start, method = field, y = tokens[where].y, name = super,
+                kind = "interface", class = start, method = field, y = Lexer.y(tokens, where), name = super,
               }
             end
           end
@@ -2106,15 +2104,14 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   local tokens = chunk.tokens
   local out: {Rewrite} = {}
   local semicolons: {integer} = {}
-  for i = 1, #tokens do
-    local t = tokens[i]
-    local kind = t.kind
+  for i = 1, #tokens.kind do
+    local kind = tokens.kind[i]
     if kind == "integer" or kind == "number" then
       local made = number_rewrite(tokens, i)
       if made ~= nil then
         out[#out + 1] = made
       end
-    elseif kind == "$ERR$" and t.text == ";" then
+    elseif kind == "$ERR$" and tokens.text[i] == ";" then
       semicolons[#semicolons + 1] = i
     end
   end
@@ -2145,7 +2142,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         local list = node.lists[1]
         local head = list[1]
         local first, last = bounds(node)
-        if head ~= nil and head is Ast.TypeUnion and (#list > 1 or node.variadic) and tokens[first].kind ~= "(" then
+        if head ~= nil and head is Ast.TypeUnion and (#list > 1 or node.variadic) and tokens.kind[first] ~= "(" then
           local made = union_rewrite(source, tokens, head)
           if made ~= nil and made.opens then
             table.insert(made.edits, insert_before(tokens, first, "("))
@@ -2218,8 +2215,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       -- A `;` after the table's last token whose `{` is closed further on
       -- ended it: the table of a nested `{ a = { b }; c }` is the outer one.
       local first, last = bounds(node)
-      local after = tokens[last + 1]
-      if after.kind == "$ERR$" and after.text == ";" and brace_end(tokens, first) ~= last then
+      if tokens.kind[last + 1] == "$ERR$" and tokens.text[last + 1] == ";" and brace_end(tokens, first) ~= last then
         stopped[last + 1] = first
         open_tables[#open_tables + 1] = first
       end
@@ -2253,10 +2249,8 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       frames[#frames + 1] = { barrier = true, loop = false }
     elseif kind == "Error" then
       local first, last = bounds(node)
-      local t = tokens[first]
-      if first == last and t.kind == "keyword" and t.text == "goto" then
-        local label = tokens[first + 1]
-        if label.text == "continue" then
+      if first == last and tokens.kind[first] == "keyword" and tokens.text[first] == "goto" then
+        if tokens.text[first + 1] == "continue" then
           -- The label it jumps to is the nearest one a block around it holds
           -- before a function ends; `continue` leaves the innermost loop.
           local crossed = false
@@ -2333,15 +2327,14 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       local openers: {string} = {}
       local i = s + 1
       while i < close do
-        local t = tokens[i]
-        local kind = t.kind
+        local kind = tokens.kind[i]
         if kind == "{" or kind == "(" or kind == "[" then
           openers[#openers + 1] = kind
         elseif kind == "}" or kind == ")" or kind == "]" then
           openers[#openers] = nil
-        elseif kind == "keyword" and BLOCK_WORDS[t.text] then
+        elseif kind == "keyword" and BLOCK_WORDS[Lexer.text(tokens, i)] then
           break
-        elseif kind == "$ERR$" and t.text == ";" and (openers[#openers] or "{") == "{" then
+        elseif kind == "$ERR$" and tokens.text[i] == ";" and (openers[#openers] or "{") == "{" then
           commas[i] = true
         end
         i = i + 1
