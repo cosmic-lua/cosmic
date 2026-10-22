@@ -88,3 +88,11 @@ local function test_the_newest_sdist_is_read_from_pypi()
   none, trouble = refresh.tzdata_release("[]")
   assert(none == nil, trouble)
 end
+
+--- A refresh fetches what a binary trusts next, checked by nothing but
+--- the connection it came over, so it trusts the minimal roots, not
+--- every root the running binary carries.
+local function test_a_refresh_trusts_the_minimal_roots_alone()
+  local roots = refresh.fetching().roots
+  assert(roots == "minimal", tostring(roots))
+end

@@ -71,13 +71,21 @@
 --- gap.
 ---
 --- Certificates are always verified; there is no option that turns that
---- off, and none will be added.
+--- off, and none will be added. What they are verified against is
+--- [`Http.Options`]'s to choose: `--roots` names the CA roots (`minimal`,
+--- `none`, or root digests joined by commas), `--cacert` trusts a file's
+--- certificates besides them, and `--pin` holds the server's key to a
+--- public key pin, once for each pin it may match. A value of the wrong
+--- shape, or a `--cacert` file that cannot be read, is exit 2 before any
+--- request; a choice that leaves nothing to trust, or a `--cacert` that
+--- holds no certificate, fails the fetch (exit 1).
 
 local bare = require("build.bare")
 local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
 local plural = require("build.plural")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -118,7 +126,7 @@ end
 local spec = Cli.verbs.fetch.spec or {}
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
-  "[--allow-downgrade] [--head [--json]]"
+  "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"
 
 --- The digests a fetch can be held to: the flag `--<name>`, the fragment
 --- keys that name it in a URL (`#sha256=<hex>`, the form pip reads, and
@@ -168,6 +176,25 @@ local function looks_like_a_checksum(parameter: string): boolean
     if name:find(pattern) then return true end
   end
   return false
+end
+
+--- `--roots`'s value as [`Http.Options`]'s `roots`, or nil and why: a
+--- set's name, or root digests joined by commas, each 64 hex digits
+--- with or without a `:` between bytes.
+local function roots_of(value: string): string | {string} | nil, string
+  if value == "mozilla" or value == "minimal" or value == "none" then
+    return value, ""
+  end
+  local digests: {string} = {}
+  for digest in (value .. ","):gmatch("([^,]*),") do
+    local bare_hex = digest:gsub(":", "")
+    if #bare_hex ~= 64 or bare_hex:find("[^%x]") ~= nil then
+      return nil, "--roots takes mozilla, minimal, none or root sha256 digests joined by commas, not " ..
+        digest:sub(1, 80)
+    end
+    digests[#digests + 1] = bare_hex
+  end
+  return digests, ""
 end
 
 --- `body`'s digest in hex, by the name of one of `algorithms`.
@@ -294,7 +321,30 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
     return refuse("--head prints no body, so there is nothing for -o or a digest")
   end
 
-  local options: Http.Options = { script = to.script }
+  local roots: string | {string} | nil = nil
+  local given_roots = parsed.values["--roots"]
+  if given_roots ~= nil then
+    local chosen, why = roots_of(given_roots)
+    if chosen == nil then return refuse(why) end
+    roots = chosen
+  end
+  local ca: string | nil = nil
+  local cacert = parsed.values["--cacert"]
+  if cacert ~= nil then
+    local text, why = Fs.read(cacert)
+    if text == nil then return refuse("--cacert: " .. why) end
+    ca = text
+  end
+  local pins = parsed.all["--pin"]
+  if pins ~= nil then
+    for _, pin in ipairs(pins) do
+      if #pin ~= 52 or pin:match("^sha256//[%w+/]+=$") == nil then
+        return refuse("--pin takes sha256// and the base64 of 32 bytes, as Http.public_key_pin makes, not " ..
+            pin:sub(1, 80))
+      end
+    end
+  end
+  local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. status)

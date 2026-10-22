@@ -1811,6 +1811,7 @@ fn vendorLibraries(
             "extras/pk.c",
             "extras/pkparse.c",
             "extras/pk_wrap.c",
+            "extras/pkwrite.c",
             "extras/pk_ecc.c",
             "extras/pk_rsa.c",
             "utilities/asn1parse.c",

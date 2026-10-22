@@ -433,3 +433,52 @@ local function test_download_status_uses_typed_code_instead_of_diagnostic_text(t
   assert(ran.code == 1 and ran.err == "cosmic: fetch: " .. url .. ": HTTP 503\n", ran.err)
   assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
 end
+
+--- `--roots`, `--cacert` and `--pin` of a shape the verb cannot use,
+--- or a `--cacert` it cannot read, are exit 2 before any request.
+local function test_trust_flags_it_cannot_use_are_usage_errors(tmp: string)
+  local record Case
+    flag: string
+    value: string
+  end
+  local cases: {Case} = {
+    { flag = "--roots", value = "everything" },
+    { flag = "--roots", value = "minimal," },
+    { flag = "--roots", value = string.rep("a", 63) },
+    { flag = "--pin", value = "sha256//short=" },
+    { flag = "--pin", value = "C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=" },
+    { flag = "--cacert", value = tmp .. "/missing.pem" },
+  }
+  for _, case in ipairs(cases) do
+    local ran = run({ case.flag, case.value, url }, {})
+    assert(ran.code == 2, case.flag .. " " .. case.value .. ": " .. tostring(ran.code) .. " " .. ran.err)
+    assert(ran.err:find(case.flag, 1, true) ~= nil, ran.err)
+  end
+end
+
+--- The trust flags reach the request: a choice that trusts nothing, or a
+--- `--cacert` that holds no certificate, fails it (exit 1); a set and
+--- pins that can be used leave a plain http fetch as it was.
+local function test_trust_flags_reach_the_request(tmp: string)
+  local nothing = run({ "--roots", "none", url }, { reply("200 OK", "", "hello") })
+  assert(nothing.code == 1 and nothing.err:find("no CA roots to trust", 1, true) ~= nil, nothing.err)
+  local junk = tmp .. "/junk.pem"
+  assert(Fs.write(junk, "not a certificate"))
+  local unread = run({ "--cacert", junk, url }, { reply("200 OK", "", "hello") })
+  assert(unread.code == 1 and unread.err:find("opts.ca:", 1, true) ~= nil, unread.err)
+  local pin = "sha256//C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
+  local usable: {{string}} = {
+    { "--roots", "minimal" },
+    { "--roots", "mozilla" },
+    { "--roots", "minimal", "--pin", pin, "--pin", pin },
+  }
+  for _, words in ipairs(usable) do
+    words[#words + 1] = url
+    local ran = run(words, { reply("200 OK", "", "hello") })
+    assert(ran.code == 0 and ran.out == "hello", table.concat(words, " ") .. ": " .. ran.err)
+  end
+  -- Digests, with or without colons, take the shape whatever they name.
+  local digests = run({ "--roots", string.rep("ab:", 31) .. "ab," .. Hash.hex_sha256("x"), "--head", url },
+    { reply("200 OK", "") })
+  assert(digests.code ~= 2, digests.err)
+end

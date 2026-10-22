@@ -52,6 +52,7 @@ local plural = require("build.plural")
 local record refresh
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+
   --- A release of a dataset, as a file on disk.
   record Source
     path: string
@@ -177,9 +178,18 @@ refresh.tzdata_rules = {
   drop = { "**/__init__.py", "zoneinfo/tzdata.zi", "zoneinfo/leapseconds", "zoneinfo/*.tab" },
 }
 
+--- How every fetch of a refresh trusts its server: by the minimal roots
+--- ([`Http.minimal_roots`]), and $SSL_CERT_FILE's as every request but
+--- one choosing "none" does (an intercepting proxy's CA), not every root
+--- the running binary carries, since what it fetches is what a binary
+--- trusts next, and nothing checks it but the connection it came over.
+function refresh.fetching(): Http.Options
+  return { roots = "minimal" }
+end
+
 --- The body `url` answers, refusing anything but a 2xx.
 local function fetch_text(url: string): string | nil, string
-  local got, trouble = Http.get(url)
+  local got, trouble = Http.get(url, refresh.fetching())
   if got == nil then
     return nil, url .. ": " .. trouble
   end
@@ -206,7 +216,7 @@ local cacert: refresh.Dataset = {
     local url = cacert_dated:format(date)
     local path = scratch .. "/cacert.pem"
     local sha256 = Hash.hex_sha256(pem)
-    local ok, download_trouble = Http.download(url, path, { sha256 = sha256 })
+    local ok, download_trouble = Http.download(url, path, { sha256 = sha256, roots = refresh.fetching().roots })
     if not ok then
       return nil, url .. ": " .. download_trouble
     end
@@ -275,7 +285,8 @@ local tzdata: refresh.Dataset = {
       return nil, release_trouble
     end
     source.path = scratch .. "/tzdata-sdist"
-    local ok, download_trouble = Http.download(source.url, source.path, { sha256 = source.sha256 })
+    local ok, download_trouble = Http.download(source.url, source.path,
+      { sha256 = source.sha256, roots = refresh.fetching().roots })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
     end

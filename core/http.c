@@ -44,11 +44,13 @@
 
 #include <curl/curl.h>
 
+#include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
 #include "fail.h"
 #include "fault.h"
+#include "guard.h"
 #include "memory.h"
 #include "process.h"
 #include "store.h"
@@ -115,6 +117,7 @@ struct transfer {
   int paused; /* the write callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
+  int chosen; /* trusts the roots `open`'s ca_blob gave, not the store's */
   CURLcode result;
 };
 
@@ -133,15 +136,25 @@ static struct script *live_scripts;
   "--binary <this program> -o <copy>` writes a copy with newer ones " \
   "(`--cacert <pem>` reads them from a file)"
 
+/* The same advice for a request that chose its own roots, which the
+ * binary's may well include. */
+#define CHOSEN_ROOTS \
+  "the CA roots this request trusts (opts.roots, opts.ca) do not include this peer's"
+
 /* The trust store: every CA root the binary's own database carries
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
  * the certificates in $SSL_CERT_FILE when it names a readable file --
  * which is how a TLS-intercepting proxy's own CA gets trusted. Parsed
  * once and kept for the life of the process: [`use_roots`] hands it to
- * every TLS connection, a proxy's included. */
+ * every TLS connection, a proxy's included, of a request that chose no
+ * roots of its own (`ca_blob`). */
 static mbedtls_x509_crt roots;
 
 static int roots_ready;
+
+/* How many certificates at the head of `roots` are the binary's own
+ * roots; the rest came from $SSL_CERT_FILE. */
+static int carried_roots;
 
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
  * regular file, to `roots`. A certificate there that does not parse is
@@ -230,6 +243,7 @@ static const char *load_roots (lua_State *L) {
     trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert "
       "--binary <this program> -o <copy>` writes a copy that has them";
   }
+  carried_roots = trusted;
   if (trouble == NULL && !add_cert_file()) {
     trouble = "no memory for $SSL_CERT_FILE";
   }
@@ -714,7 +728,7 @@ static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
   if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
       strstr(message, "certificate is not correctly signed by the trusted CA") != NULL) {
-    lua_pushfstring(L, "%s; %s", message, STALE_ROOTS);
+    lua_pushfstring(L, "%s; %s", message, t->chosen ? CHOSEN_ROOTS : STALE_ROOTS);
   } else {
     lua_pushstring(L, message);
   }
@@ -890,6 +904,9 @@ struct request {
   int follow;
   int verbose;
   const char *unix_socket; /* NULL: the network */
+  const char *ca_blob; /* NULL: the trust store; else the PEM to trust */
+  size_t ca_blob_len;
+  const char *pin; /* NULL: none; else CURLOPT_PINNEDPUBLICKEY's value */
   const char *redirect_protocols; /* a static CURLOPT_REDIR_PROTOCOLS_STR */
   long max_redirects;
   long connect_timeout_ms;
@@ -969,7 +986,22 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_LOW_SPEED_LIMIT, r->low_speed_bytes);
   SET(CURLOPT_LOW_SPEED_TIME, r->low_speed_seconds);
   SET(CURLOPT_VERBOSE, r->verbose ? 1L : 0L);
-  SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
+  if (r->ca_blob != NULL) {
+    /* curl copies the blob, parses it into each connection's own chain,
+     * and keys connection reuse and TLS session resumption on it, so a
+     * request trusting other roots never takes over a connection or a
+     * session verified against the store. A proxy's connection is
+     * verified against the same roots. */
+    struct curl_blob blob = {(void *)r->ca_blob, r->ca_blob_len,
+      CURL_BLOB_COPY};
+    SET(CURLOPT_CAINFO_BLOB, &blob);
+    SET(CURLOPT_PROXY_CAINFO_BLOB, &blob);
+  } else {
+    SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
+  }
+  /* Only the origin's key: curl keys connection reuse and TLS session
+   * resumption on the pin too. */
+  if (r->pin != NULL) SET(CURLOPT_PINNEDPUBLICKEY, r->pin);
   /* curl sends every redirect it follows through the same socket. */
   if (r->unix_socket != NULL) SET(CURLOPT_UNIX_SOCKET_PATH, r->unix_socket);
   return set_method(t, r, which);
@@ -1095,6 +1127,9 @@ static int http_open (lua_State *L) {
   if (has_script) script_check(L);
   size_t unix_socket_len = 0;
   r.unix_socket = opt_string(L, "unix_socket", &unix_socket_len); /* index 7 */
+  r.ca_blob = opt_string(L, "ca_blob", &r.ca_blob_len); /* index 8 */
+  size_t pin_len = 0;
+  r.pin = opt_string(L, "pin", &pin_len); /* index 9 */
   r.follow = opt_boolean(L, "follow", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
   r.redirect_protocols = opt_redirect_protocols(L);
@@ -1125,6 +1160,12 @@ static int http_open (lua_State *L) {
       return failed(L, "invalid unix_socket: contains a NUL byte");
     }
   }
+  if (r.ca_blob != NULL && r.ca_blob_len == 0) {
+    return failed(L, "invalid ca_blob: empty");
+  }
+  if (r.pin != NULL && (pin_len == 0 || memchr(r.pin, '\0', pin_len) != NULL)) {
+    return failed(L, "invalid pin: empty or contains a NUL byte");
+  }
   if (has_headers) {
     lua_pushvalue(L, 5);
     if (headers_problem(L)) {
@@ -1139,7 +1180,7 @@ static int http_open (lua_State *L) {
 
   /* The body's one uservalue keeps it alive for as long as curl may
    * still be sending it, which is well past `open`'s return. */
-  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 8 */
+  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 10 */
   memset(t, 0, sizeof *t);
 #ifdef COSMIC_CHECKED
   cosmic_http_live_transfers++;
@@ -1147,7 +1188,7 @@ static int http_open (lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
   if (r.body != NULL) {
     lua_pushvalue(L, 4);
-    lua_setiuservalue(L, 8, 1);
+    lua_setiuservalue(L, 10, 1);
   }
 
   t->easy = COSMIC_FAULT("curl_easy_init") ? NULL : curl_easy_init();
@@ -1156,6 +1197,7 @@ static int http_open (lua_State *L) {
     return failed(L, "curl_easy_init failed");
   }
   t->follow = r.follow;
+  t->chosen = r.ca_blob != NULL;
   const char *which = NULL;
   CURLcode rc = configure(t, &r, &which);
   if (rc != CURLE_OK) return setopt_failed(L, t, which, rc);
@@ -1223,7 +1265,7 @@ static int http_open (lua_State *L) {
     transfer_release(t);
     return 2;
   }
-  lua_settop(L, 8);
+  lua_settop(L, 10);
   return cosmic_succeeded(L);
 }
 
@@ -1265,8 +1307,94 @@ static int http_check_certificate (lua_State *L) {
   return cosmic_done(L);
 }
 
+/* roots(): the trust store's certificates, as DER, in a table: under
+ * `carried` the binary's own roots, each as [`load_roots`] read it, and
+ * under `extra` those $SSL_CERT_FILE added; or `nil, err` when the
+ * store could not be made, as `open` would fail. What
+ * cosmic/http/init.tl builds a request's own roots from. */
+static int http_roots (lua_State *L) {
+  const char *trouble = http_ready(L);
+  if (trouble != NULL) return failed(L, trouble);
+  lua_createtable(L, 0, 2);
+  lua_createtable(L, carried_roots, 0);
+  lua_newtable(L);
+  int carried = 0;
+  int extra = 0;
+  for (const mbedtls_x509_crt *crt = &roots; crt != NULL; crt = crt->next) {
+    if (crt->raw.len == 0) continue;
+    lua_pushlstring(L, (const char *)crt->raw.p, crt->raw.len);
+    if (carried < carried_roots) {
+      lua_rawseti(L, -3, ++carried);
+    } else {
+      lua_rawseti(L, -2, ++extra);
+    }
+  }
+  lua_setfield(L, -3, "extra");
+  lua_setfield(L, -2, "carried");
+  return cosmic_succeeded(L);
+}
+
+static void crt_release (void *resource) {
+  mbedtls_x509_crt_free(resource);
+  cosmic_free(resource);
+}
+
+/* Room for any public key mbedtls_pk_write_pubkey_der writes: an RSA
+ * key's SubjectPublicKeyInfo is at most 38 bytes and twice the largest
+ * MPI (MBEDTLS_MPI_MAX_SIZE, 1024 bytes by default), an EC key's far
+ * less. */
+#define PUBLIC_KEY_DER_MAX 4096
+
+/* public_key(cert): the DER of the SubjectPublicKeyInfo of `cert`, one
+ * certificate as PEM or DER, written as curl writes the peer's key to
+ * check a pin against (mbedtls_pk_write_pubkey_der), so a pin made of it
+ * is one curl matches; or `nil, err` when mbedtls cannot read it as one.
+ * Raises when there was no memory to read it.
+ * TODO: tell an allocation failure from a certificate mbedtls cannot
+ * read here too, as http_check_certificate's TODO says. */
+static int http_public_key (lua_State *L) {
+  size_t len;
+  const char *cert = luaL_checklstring(L, 1, &len);
+  struct cosmic_guard *guard = cosmic_guard_push(L, crt_release);
+  mbedtls_x509_crt *crt = cosmic_malloc(sizeof *crt);
+  if (crt == NULL) return luaL_error(L, "http: no memory to read a certificate");
+  mbedtls_x509_crt_init(crt);
+  guard->resource = crt;
+  /* A Lua string is NUL-terminated past its length, and mbedtls reads
+   * PEM only from a buffer whose length counts that NUL. */
+  int pem = len > 0 && strstr(cert, "-----BEGIN CERTIFICATE-----") != NULL;
+  int parsed = pem ? mbedtls_x509_crt_parse(crt, (const unsigned char *)cert, len + 1)
+                   : mbedtls_x509_crt_parse_der(crt, (const unsigned char *)cert, len);
+  if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
+    return luaL_error(L, "http: no memory to read a certificate");
+  }
+  if (parsed != 0 || crt->next != NULL) {
+    char why[80];
+    if (parsed != 0) {
+      snprintf(why, sizeof why, "not an X.509 certificate mbedtls can read (-0x%04X)",
+               (unsigned)(parsed < 0 ? -parsed : parsed));
+    } else {
+      snprintf(why, sizeof why, "more than one certificate");
+    }
+    return failed(L, why);
+  }
+  unsigned char key[PUBLIC_KEY_DER_MAX];
+  int written = mbedtls_pk_write_pubkey_der(&crt->pk, key, sizeof key);
+  if (written <= 0) {
+    char why[64];
+    snprintf(why, sizeof why, "its public key cannot be written (-0x%04X)",
+             (unsigned)(written < 0 ? -written : 0));
+    return failed(L, why);
+  }
+  /* mbedtls writes the key at the end of the buffer. */
+  lua_pushlstring(L, (const char *)key + sizeof key - (size_t)written, (size_t)written);
+  return cosmic_succeeded(L);
+}
+
 static const luaL_Reg module[] = {
   {"open", http_open},
+  {"roots", http_roots},
+  {"public_key", http_public_key},
   {"check_certificate", http_check_certificate},
   {NULL, NULL},
 };

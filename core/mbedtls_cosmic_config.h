@@ -130,12 +130,16 @@
  * answered with a no_renegotiation alert), session tickets (no
  * ticket-based resumption; a TLS 1.3 NewSessionTicket is read and
  * ignored), file-system loading of CA/CRL/key files (the trust store
- * reaches curl as CURLOPT_CAINFO_BLOB), CRLs, and everything that
- * writes keys or certificates -- which also leaves out curl's
- * public-key pinning, the one reader of mbedtls_pk_write_pubkey_der.
+ * reaches curl through core/http.c), CRLs, and writing certificates.
  * curl's mbedtls backend guards each of those on the matching macro and
  * reports the option that needs one as not built in
  * (CURLE_NOT_BUILT_IN) rather than ignoring it. */
+
+/* Writing a public key: curl's public-key pinning
+ * (CURLOPT_PINNEDPUBLICKEY, cosmic.http's `opts.pin`) hashes the peer's
+ * key as mbedtls_pk_write_pubkey_der writes it, and is built only with
+ * this and MBEDTLS_SSL_KEEP_PEER_CERTIFICATE. */
+#define MBEDTLS_PK_WRITE_C
 
 /* X.509 chain verification and the encoding layers under it. */
 #define MBEDTLS_X509_USE_C
