@@ -15,6 +15,7 @@
 local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
+local Memprobe = require("build.memprobe")
 local LangProof = require("build.lang_proof")
 local Scopes = require("lang.scopes")
 local ShapeSpecs = require("build.syntax_shape_specs")
@@ -46,13 +47,9 @@ local record TreeProgram
   blanked: function(file: string): boolean
 
   --- Resolves the calls of [`Shape.record_of`] of the module `module` (the file `file`) of `build` ([`build.syntax_shape_specs`]),
-  --- and reads the module again with them. nil and why where a call cannot be resolved; true where the module was read
-  --- again and false where it has no such call.
+  --- reading the module in the build's scratch build ([`Driver.Build.scratch`]), and reads the module again with them. nil and
+  --- why where a call cannot be resolved; true where the module was read again and false where it has no such call.
   splice: function(build: Driver.Build, module: string, file: string): boolean | nil, string
-
-  --- [`TreeProgram.splice`] of each of `modules`, in the file the build read it from: the lines that say why a call could not
-  --- be resolved, none where all were. They are among the build's problems too ([`Driver.Build.problems`]).
-  splice_all: function(build: Driver.Build, modules: {string}): {string}
 
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
@@ -90,6 +87,14 @@ local record TreeProgram
   --- that neither declares are left untyped (`external`). With `types` the checker keeps the type of each node.
   build: function(index: Driver.Index, globals: Globals, types?: boolean, stubs?: {string: Driver.Source},
     standard?: Driver.Provider): Driver.Build
+
+  --- Hands each of `modules` to `each`, in the order they require one another, once it is lowered after
+  --- the modules it requires, and retires it when `each` is done with it ([`Driver.Build.retire`]): a build then holds the
+  --- syntax of one module at a time, and not of the tree. With `spliced` the calls of [`Shape.record_of`] of each module are
+  --- resolved before it is lowered ([`TreeProgram.splice`]); the lines that say why one could not are answered, and are among
+  --- the build's problems too. The collector is generational while it runs.
+  stream: function(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
+    each: function(module: string)): {string}
 end
 
 local function skipped(file: string): boolean
@@ -173,7 +178,15 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   if read.text:find("record_of", 1, true) == nil then
     return false
   end
-  local resolved, trouble = ShapeSpecs.resolve(build, module, file, read.text)
+  -- The calls are read in a build of its own, where the module is lowered as it stands and then retired: this build has not
+  -- met the module when its text is replaced, so the replacement keeps its program, and what the reading lowered of the
+  -- modules the module requires is not kept here as syntax.
+  local scratch = build:scratch()
+  local resolved, trouble = ShapeSpecs.resolve(scratch, module, file, read.text)
+  -- A module the reading lowered in passing that has calls of its own to resolve is read here again, when its turn comes.
+  scratch:retire_all(function(other: Driver.Outcome): boolean
+    return other.module ~= module and other.text:find("record_of", 1, true) ~= nil
+  end)
   if resolved == nil then
     return nil, trouble
   end
@@ -183,19 +196,70 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   return true
 end
 
-function TreeProgram.splice_all(build: Driver.Build, modules: {string}): {string}
-  local out: {string} = {}
+--- `modules` in an order in which each comes after the modules among them that its text requires by a literal name, and
+--- otherwise as they stand. A module the index lacks keeps its place, and a cycle of requires is broken where it is met. The
+--- requires are found in the text by their pattern, so one in a comment or a string counts too: that costs a module being
+--- retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
+--- left out ([`Driver.Build.lower`] lowers it as it is needed) is not followed.
+local function ordered(index: Driver.Index, modules: {string}): {string}
+  local wanted: {string: boolean} = {}
   for _, module in ipairs(modules) do
-    local read = build:parsed(module)
-    if read ~= nil then
-      local spliced, refusal = TreeProgram.splice(build, module, read.source.filename)
-      if spliced == nil then
-        out[#out + 1] = refusal
-        build.problems[#build.problems + 1] = refusal
+    wanted[module] = true
+  end
+  local out: {string} = {}
+  local state: {string: boolean} = {}
+  local function visit(module: string)
+    if state[module] == true or wanted[module] ~= true then
+      return
+    end
+    state[module] = true
+    local source = index.by_module[module]
+    if source ~= nil then
+      for _, name in source.text:gmatch("require%s*%(?%s*([\"'])([%w_%.%-]+)%1") do
+        local required = index.by_module[name]
+        if required ~= nil then
+          visit(required.module)
+        end
       end
     end
+    out[#out + 1] = module
+  end
+  for _, module in ipairs(modules) do
+    visit(module)
   end
   return out
+end
+
+function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
+                            each: function(module: string)): {string}
+  local refused: {string} = {}
+  -- The garbage of a module is freed as the next is read, and not when the heap has doubled: the memory the default
+  -- collector waits to free is the resident set the process keeps. A collector already in this mode is left in it.
+  local previous = collectgarbage("generational")
+  local count = 0
+  for _, module in ipairs(ordered(index, modules)) do
+    if spliced then
+      local read = build:parsed(module)
+      if read ~= nil then
+        local done, refusal = TreeProgram.splice(build, module, read.source.filename)
+        if done == nil then
+          refused[#refused + 1] = refusal
+          build.problems[#build.problems + 1] = refusal
+        end
+      end
+    end
+    build:lower({ module })
+    each(module)
+    build:retire(module)
+    count = count + 1
+    if count % 100 == 0 then
+      Memprobe.mark(("stream: %d"):format(count))
+    end
+  end
+  if previous == "incremental" then
+    collectgarbage("incremental")
+  end
+  return refused
 end
 
 function TreeProgram.joined(files: {{string}}, written: {{string}}): TreeProgram.Joined

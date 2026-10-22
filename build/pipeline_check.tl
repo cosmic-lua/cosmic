@@ -69,65 +69,78 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
     return { over = over, other = other, answers = answers }, { "the pipeline: " .. built_why }
   end
   local build = pipeline.build
+  local index, ceilings = pipeline.index, pipeline.ceilings
   -- What the working database stages: the tree of `ci/` and the fork's `checker/` are none of its modules.
-  local staged: {PipelineCheck.Row} = {}
+  local rows_of: {string: {PipelineCheck.Row}} = {}
+  local names: {string} = {}
   for _, row in ipairs(rows) do
-    if build:parsed(row.module) ~= nil then
-      staged[#staged + 1] = row
+    if build:provides(row.module) then
+      local list = rows_of[row.module]
+      if list == nil then
+        list = {}
+        rows_of[row.module] = list
+        names[#names + 1] = row.module
+      end
+      list[#list + 1] = row
     else
       answers[row.key] = "-"
     end
   end
-  local names: {string} = {}
-  for _, row in ipairs(staged) do
-    names[#names + 1] = row.module
-  end
-  local out = TreeProgram.splice_all(build, names)
-  if #out > 0 then
-    return { over = over, other = other, answers = answers }, out
-  end
-  build:lower(names)
-  for _, row in ipairs(staged) do
-    local result = build:result(row.module, row.dialect == "tl")
-    if result ~= nil and row.file:match("%.md$") ~= nil then
-      Pipeline.discounted(result)
+  --- The answer for each row of the module `module`, once it is lowered and checked.
+  local function judge(module: string)
+    local group = rows_of[module]
+    if group == nil then
+      return
     end
-    local counted = false
-    local code = ""
-    if result ~= nil then
-      for _, line in ipairs(build:held(result, pipeline.ceilings)) do
-        -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of the
-        -- tree's checks counts it, and the module is refused for it.
-        local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;")
-        if scoped ~= nil then
-          code = scoped
-        else
-          counted = counted or over_file(line) ~= nil
-        end
+    local tl = false
+    for _, row in ipairs(group) do
+      tl = tl or row.dialect == "tl"
+    end
+    local result = build:result(module, tl)
+    for _, row in ipairs(group) do
+      if result ~= nil and row.file:match("%.md$") ~= nil then
+        Pipeline.discounted(result)
       end
-      if not counted and code == "" then
-        local first = result.syntax[1]
-        local warning = result.warnings[1]
-        if row.dialect ~= "tl" then
-          -- A declaration file is read and not written.
-        elseif result.broken and first ~= nil then
-          code = first.code
-        elseif warning ~= nil then
-          code = warning.code
-        else
-          local emitted = CompileGrammar.emit(build, result, nil, true, true)
-          if emitted.code == nil then
-            code = emitted.trouble:match("%(([%a_]+)%)") or "unwritten"
+      local counted = false
+      local code = ""
+      if result ~= nil then
+        for _, line in ipairs(build:held(result, ceilings)) do
+          -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of
+          -- the tree's checks counts it, and the module is refused for it.
+          local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;")
+          if scoped ~= nil then
+            code = scoped
+          else
+            counted = counted or over_file(line) ~= nil
+          end
+        end
+        if not counted and code == "" then
+          local first = result.syntax[1]
+          local warning = result.warnings[1]
+          if row.dialect ~= "tl" then
+            -- A declaration file is read and not written.
+          elseif result.broken and first ~= nil then
+            code = first.code
+          elseif warning ~= nil then
+            code = warning.code
+          else
+            local emitted = CompileGrammar.emit(build, result, nil, true, true)
+            if emitted.code == nil then
+              code = emitted.trouble:match("%(([%a_]+)%)") or "unwritten"
+            end
           end
         end
       end
+      over[row.file] = counted
+      if code ~= "" then
+        other[row.file] = code
+      end
+      answers[row.key] = counted and "O" or code == "" and "N" or "R " .. code
     end
-    over[row.file] = counted
-    if code ~= "" then
-      other[row.file] = code
-    end
-    answers[row.key] = counted and "O" or code == "" and "N" or "R " .. code
   end
+  -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
+  -- not held at once.
+  local out = TreeProgram.stream(build, index, names, true, judge)
   return { over = over, other = other, answers = answers }, out
 end
 

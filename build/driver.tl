@@ -20,6 +20,10 @@
 --- An error about a name cosmic removed (`os`, `Hash.hex`, `Zip.ZipReader`) has the replacement as its fix
 --- ([`build.removed_fix`]).
 ---
+--- A caller that is done with a module retires it ([`Driver.Build.retire`]): the program keeps the declarations the next module
+--- reads, and the tokens, the syntax tree and the scopes of the module go. Asked for the modules in the order they require one
+--- another, a build holds one module's syntax at a time and not the tree's.
+---
 --- The ceilings ([`build.ceilings`]) are enforced for a module by [`Driver.Build.held`]: a count of errors of a code
 --- above its ceiling is refused, with the same words as the check of the tree. A module that did not parse is refused
 --- for that alone.
@@ -173,6 +177,9 @@ local record Driver
     provide: function(Build, provider: Provider)
     --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
     parsed: function(Build, name: string): Outcome | nil
+    --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
+    --- to tell.
+    provides: function(Build, name: string): boolean
     --- Lowers the modules `names`, each after what it requires, and the globals before them.
     lower: function(Build, names: {string})
     --- The result for `name`, lowered with what it requires. With `bodies` its bodies are checked too. nil where no
@@ -194,6 +201,29 @@ local record Driver
     --- already, and an outcome answered before is no longer the build's. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
     replace: function(Build, name: string, text: string): Outcome | nil
+    -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
+    -- and read them back when a module requires it, once [`Declarations.Program`] can load a module from rows: its entries,
+    -- aliases, statics and values have no text, and a store reads only declarations through [`Types.Loader`]. Measured over the
+    -- tree (1182 modules, 2270 declarations): 0.91 MB serialized (median 96 B and p90 1.6 KB a module), and some 25 MB of the
+    -- 1.5 GB a build held before modules were retired, so the rows would save little memory; they would let a build read a
+    -- module's declarations without reading its source.
+    --- Forgets the tokens, the syntax tree, the scopes and the result of the module `name` (and of the names it answers to):
+    --- what the program knows of its declarations stays, so a module that requires it is lowered as before. The tokens,
+    --- the tree and the scopes of a module are most of what a build holds, and the declarations the next module reads are a
+    --- small part of it, so a caller that is done with a module retires it, and asks for the modules in the order they
+    --- require one another. A module read again by [`Driver.Build.parsed`] is a new reading, outside the program;
+    --- [`Driver.Build.lower`] and [`Driver.Build.result`] answer nothing for it. A declaration file that declares
+    --- globals is not forgotten.
+    retire: function(Build, name: string)
+    --- Whether the module `name` was retired ([`Driver.Build.retire`]) and no replacement has begun the program again since.
+    retired: function(Build, name: string): boolean
+    --- [`Driver.Build.retire`] of every module the build holds but those `keep` answers true for: for a build whose result
+    --- for a module is read once it is lowered, and whose lowering of the modules it requires is not read at all.
+    retire_all: function(Build, keep?: function(Outcome): boolean)
+    --- A build of its own over the same options and providers, made when first asked for and the same afterwards: a caller
+    --- reads a module in it without lowering the module here. Its program, and what it holds of the modules read in it, are
+    --- its own; a module of this build is not retired in it.
+    scratch: function(Build): Build
   end
 
   --- A build over `options`.
@@ -511,6 +541,9 @@ function Driver.new(options: Driver.Options): Driver.Build
     program = program_of(options.external), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
     provide = function(_self: Driver.Build, _provider: Driver.Provider) end,
     parsed = function(_self: Driver.Build, _name: string): Driver.Outcome | nil return nil end,
+    provides = function(_self: Driver.Build, _name: string): boolean
+      return false
+    end,
     lower = function(_self: Driver.Build, _names: {string}) end,
     result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome | nil
       return nil
@@ -521,6 +554,14 @@ function Driver.new(options: Driver.Options): Driver.Build
     replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome | nil
       return nil
     end,
+    retire = function(_self: Driver.Build, _name: string) end,
+    retired = function(_self: Driver.Build, _name: string): boolean
+      return false
+    end,
+    retire_all = function(_self: Driver.Build, _keep?: function(Driver.Outcome): boolean) end,
+    scratch = function(self: Driver.Build): Driver.Build
+      return self
+    end,
   }
   local timing = build.timing
   local providers: {Driver.Provider} = {}
@@ -528,6 +569,9 @@ function Driver.new(options: Driver.Options): Driver.Build
   local globals: {string: Scopes.Global} = {}
   local global_entries: {Entry} = {}
   local started_up: Flag = { done = false }
+  --- The names of the modules [`Driver.Build.retire`] forgot after the program lowered them, which nothing reads again.
+  local retired: {string: boolean} = {}
+  local scratches: {Driver.Build} = {}
 
   local function find(module: string): Driver.Source | nil
     for _, provider in ipairs(providers) do
@@ -568,7 +612,9 @@ function Driver.new(options: Driver.Options): Driver.Build
       scoped = old.scoped, broken = old.broken, lowered = nil, checked = nil, syntax = old.syntax, scope_errors = {},
       declared = {}, bodies = {}, errors = {}, warnings = {}, types = {}, callees = {},
     }
-    return { result = result, lowered = false, closed = false, checked = false, bodies = false, input = entry.input }
+    return {
+      result = result, lowered = false, closed = false, checked = false, bodies = false, input = entry.input,
+    }
   end
 
   local function alias_all(entry: Entry)
@@ -627,8 +673,15 @@ function Driver.new(options: Driver.Options): Driver.Build
     if held ~= nil then
       return held
     end
+    if retired[name] == true then
+      return nil
+    end
     local source = find(name)
     if source == nil then
+      return nil
+    end
+    if retired[source.module] == true then
+      retired[name] = true
       return nil
     end
     held = entries[source.module]
@@ -656,21 +709,47 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
   attach()
 
+  --- Forgets `entry`, under every name it answers to. The program keeps what it lowered of it.
+  local function release(entry: Entry, lowered: boolean)
+    for key, held in pairs(entries) do
+      if held == entry then
+        entries[key] = nil
+        if lowered then
+          retired[key] = true
+        end
+      end
+    end
+  end
+
   build.provide = function(_self: Driver.Build, provider: Driver.Provider)
     providers[#providers + 1] = provider
+  end
+
+  build.provides = function(_self: Driver.Build, name: string): boolean
+    start()
+    return entries[name] ~= nil or retired[name] == true or find(name) ~= nil
   end
 
   build.parsed = function(_self: Driver.Build, name: string): Driver.Outcome | nil
     local entry = prepare(name)
     if entry == nil then
+      if retired[name] == true then
+        -- A new reading, outside the program: the module is lowered in it already.
+        start()
+        local source = find(name)
+        if source ~= nil then
+          return entry_of(read_source(source, {})).result
+        end
+      end
       return nil
     end
     return entry.result
   end
 
   -- TODO: keep what is lowered of the modules that do not require the replaced one, once a Declarations.Program can forget a
-  -- module (lang/declarations.tl): every module is lowered again after a replacement, which costs a second lowering of the
-  -- closure of each module that calls [`Shape.record_of`].
+  -- module (lang/declarations.tl): after the replacement of a module this program has met, every module is lowered again,
+  -- the retired ones read from their sources and kept until their callers retire them. The splice of [`Shape.record_of`] does
+  -- not meet the module here: it reads it in [`Driver.Build.scratch`], so that the replacement takes the first branch below.
   build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome | nil
     local held = prepare(name)
     if held == nil then
@@ -682,6 +761,20 @@ function Driver.new(options: Driver.Options): Driver.Build
     local started = Clock.monotonic_ns()
     local fresh = entry_of(read_source(source, build.problems, true))
     timing.prepare = timing.prepare + Clock.monotonic_ns() - started
+    if build.program.modules[old.module] == nil then
+      -- The program has not met the module, so nothing in it depends on the text that goes: the text that replaces it
+      -- stands in the entries, and every other module stays lowered.
+      for key, entry in pairs(entries) do
+        if entry == held then
+          entries[key] = fresh
+        end
+      end
+      return fresh.result
+    end
+    -- Every module is lowered again, those retired among them when they are next asked for.
+    for key in pairs(retired) do
+      retired[key] = nil
+    end
     -- Every entry again, each name answering to the entry its old one was.
     local made: {Entry: Entry} = {}
     local function again(entry: Entry): Entry
@@ -735,6 +828,49 @@ function Driver.new(options: Driver.Options): Driver.Build
       lower_entry(entry)
       entry.closed = true
     end
+  end
+
+  --- Whether `entry` is one of the declaration files that declare the globals.
+  local function declares_globals(entry: Entry): boolean
+    for _, declaring in ipairs(global_entries) do
+      if declaring == entry then
+        return true
+      end
+    end
+    return false
+  end
+
+  build.retire = function(_self: Driver.Build, name: string)
+    local entry = entries[name]
+    if entry == nil or declares_globals(entry) then
+      return
+    end
+    release(entry, entry.lowered)
+  end
+
+  build.retired = function(_self: Driver.Build, name: string): boolean
+    return retired[name] == true
+  end
+
+  build.retire_all = function(_self: Driver.Build, keep?: function(Driver.Outcome): boolean)
+    -- Taking a name out of `entries` while it is walked is allowed; adding one is not, and `release` adds none.
+    for _, entry in pairs(entries) do
+      if not declares_globals(entry) and (keep == nil or not keep(entry.result)) then
+        release(entry, entry.lowered)
+      end
+    end
+  end
+
+  build.scratch = function(_self: Driver.Build): Driver.Build
+    local held = scratches[1]
+    if held == nil then
+      held = Driver.new(options)
+      for _, provider in ipairs(providers) do
+        held:provide(provider)
+      end
+      scratches[1] = held
+    end
+    return held
   end
 
   build.result = function(self: Driver.Build, name: string, bodies: boolean): Driver.Outcome | nil

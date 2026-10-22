@@ -94,6 +94,10 @@ local allowed: {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
+
+allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"
+
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
@@ -2793,6 +2797,33 @@ local function tree_build(root: string, tree: Tree, types?: boolean, stubs?: {st
   return TreeProgram.build(tree.index, globals, types, stubs)
 end
 
+--- Asks `build` for the result of each module of `rows` (with its bodies checked where `bodies`), and gives
+--- `seen` each row with the result of its module, one module's syntax held at a time ([`TreeProgram.stream`]). With `spliced`
+--- the calls of [`Shape.record_of`] of each module are resolved before it is lowered, as the pipeline resolves them.
+local function streamed(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
+                        seen: function(row: DeclareFile, result: Driver.Outcome | nil))
+  local rows_of: {string: {DeclareFile}} = {}
+  local names: {string} = {}
+  for _, row in ipairs(rows) do
+    local list = rows_of[row.module]
+    if list == nil then
+      list = {}
+      rows_of[row.module] = list
+      names[#names + 1] = row.module
+    end
+    list[#list + 1] = row
+  end
+  local _ = TreeProgram.stream(build, tree.index, names, spliced, function(module: string)
+    local result = build:result(module, bodies)
+    local group = rows_of[module]
+    if group ~= nil then
+      for _, row in ipairs(group) do
+        seen(row, result)
+      end
+    end
+  end)
+end
+
 --- The errors of `list` as a check lists them.
 local function findings_of(list: {Driver.Problem}): {Finding}
   local out: {Finding} = {}
@@ -2878,13 +2909,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   local problems: {string} = {}
   if #missed > 0 then
     local build = tree_build(root, tree)
-    local names: {string} = {}
-    for _, row in ipairs(missed) do
-      names[#names + 1] = row.module
-    end
-    build:lower(names)
-    for _, row in ipairs(missed) do
-      local result = build:result(row.module, false)
+    streamed(build, tree, missed, false, false, function(row: DeclareFile, result: Driver.Outcome | nil)
       local outcome: DeclareOutcome = { errors = {} }
       if result ~= nil and not result.broken then
         outcome = { errors = findings_of(result.declared) }
@@ -2893,7 +2918,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
       if memo ~= nil then
         check_memo.put(memo, "declared", row.key, check_memo.encode(kept_rows(outcome)))
       end
-    end
+    end)
     problems = build.problems
   end
   if memo ~= nil then
@@ -2950,15 +2975,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   local problems: {string} = {}
   if #missed > 0 then
     local build = tree_build(root, tree)
-    local names: {string} = {}
-    for _, row in ipairs(missed) do
-      names[#names + 1] = row.module
-    end
-    -- The calls of [`Shape.record_of`] are resolved as the pipeline resolves them, before anything is lowered for good.
-    local _ = TreeProgram.splice_all(build, names)
-    build:lower(names)
-    for _, row in ipairs(missed) do
-      local result = build:result(row.module, true)
+    streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome | nil)
       local outcome: DeclareOutcome = { errors = {} }
       if result ~= nil and row.dialect == "tl" and not result.broken then
         outcome = { errors = findings_of(result.bodies) }
@@ -2967,7 +2984,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
       if memo ~= nil then
         check_memo.put(memo, "checked", row.key, check_memo.encode(kept_rows(outcome)))
       end
-    end
+    end)
     problems = build.problems
     if phases ~= nil then
       phases.check = build.timing.check
