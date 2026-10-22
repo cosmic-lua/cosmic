@@ -41,6 +41,8 @@ local declared_key = require("build.declared_key")
 local ast = require("build.ast")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
+local GrammarMode = require("build.grammar_mode")
+local Pipeline = require("build.pipeline")
 local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local importer = require("build.importer")
@@ -1202,8 +1204,15 @@ end
 --- opens it. `cosmic fix` rebuilds the tool it runs as when that is
 --- stale, but not the projection, which holds what the tool does not
 --- carry (its tests and examples among it). A module the build refuses
---- is a failure: the checks would read a projection without it.
-function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | nil, string
+--- is a failure: the checks would read a projection without it, other
+--- than the modules the new checker is known to refuse
+--- ([`build.pipeline`]'s `residue`).
+---
+--- The tree is compiled with the checker `grammar` names. A projection
+--- records which: a lookup of the other mode, `cosmic docs` and the
+--- link check among them, reads none of it ([`writer.other_code`]).
+function tree_checks.projection(root: string, built: compiler,
+                                grammar: GrammarMode.Mode): Sqlite.Handle | nil, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -1214,14 +1223,18 @@ function tree_checks.projection(root: string, built: compiler): Sqlite.Handle | 
     return nil, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle, built,
-    Store.meta("compiler") or "", false, shared_compiles.for_build())
+    GrammarMode.tool(Store.meta("compiler") or "", grammar), false, shared_compiles.for_build(), nil, nil, grammar)
   if result == nil then
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
-  if #result.refused > 0 then
+  local refused = result.refused
+  if grammar == "new" then
+    refused = Pipeline.unexpected(refused)
+  end
+  if #refused > 0 then
     local _, _ = work.close(handle)
-    return nil, "the tree does not build:\n" .. table.concat(result.refused, "\n")
+    return nil, "the tree does not build:\n" .. table.concat(refused, "\n")
   end
   local path = build_paths.resolve(root).projection
   local written, write_trouble = writer.write_result(handle, path, result)
