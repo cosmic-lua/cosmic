@@ -1844,8 +1844,8 @@ build/example_checks_test.tl view_written 5
 build/exports_test.tl view_written 3
 build/fact_hook_test.tl view_written 2
 build/fact_hook_tool_test.tl view_written 3
-build/fetch.tl view_written 4
-build/fetch_test.tl view_written 5
+build/fetch.tl view_written 5
+build/fetch_test.tl view_written 6
 build/fix/breaks.tl view_written 14
 build/fix/ctx.tl view_written 4
 build/fix/emit.tl view_written 5
@@ -2080,7 +2080,7 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 312
+build/tree_checks.tl view_written 314
 build/tree_checks_test.tl view_written 25
 build/tree_program.tl view_written 11
 build/tree_program_test.tl view_written 3
@@ -2241,7 +2241,7 @@ cosmic/hash_test.tl view_written 1
 cosmic/html_example.tl view_written 1
 cosmic/html_fuzz_test.tl view_written 9
 cosmic/html_test.tl view_written 9
-cosmic/http/init.tl view_written 2
+cosmic/http/init.tl view_written 11
 cosmic/http/multipart.tl view_written 2
 cosmic/http/multipart_fuzz_test.tl view_written 14
 cosmic/http/multipart_test.tl view_written 1
@@ -2253,6 +2253,7 @@ cosmic/http/server_tool_test.tl view_written 3
 cosmic/http/wire.tl view_written 19
 cosmic/http/wire_fuzz_test.tl view_written 25
 cosmic/http/wire_test.tl view_written 3
+cosmic/http_store_test.tl view_written 4
 cosmic/http_test.tl view_written 6
 cosmic/internal/connector.tl view_written 3
 cosmic/internal/connector_test.tl view_written 10

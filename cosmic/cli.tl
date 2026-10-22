@@ -513,7 +513,8 @@ local record Cli
   --- a pipe reads; exits 0 when done, 2 for a command line, an
   --- input or a write it cannot honor
   codec: string
-  --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]`: one
+  --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
+  --- [--roots set] [--cacert file] [--pin pin]`: one
   --- GET, a small curl. With no `-o` the body goes to standard output, so
   --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
   --- written to a temporary file beside the target and renamed into place
@@ -539,7 +540,13 @@ local record Cli
   --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
   --- `***`. Streaming to standard output can leave partial bytes sent before a
   --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
-  --- verified: there is no option that turns it off. GET only, by
+  --- verified: there is no option that turns it off. `--roots` chooses
+  --- the CA roots to verify against, as [`Http.Options`]'s `roots` does
+  --- (`minimal`, `none`, or digests joined by commas); `--cacert` trusts
+  --- a file's certificates besides them; `--pin` holds the server's key
+  --- to a public key pin ([`Http.public_key_pin`]); a value of the wrong
+  --- shape, or a `--cacert` file it cannot read, exits 2 before any
+  --- request. GET only, by
   --- design: for a header, a body or another method write the script
   --- with [`cosmic.http`]. It prints no summary: its output is the body
   --- a pipe reads. Exits 0 when the body was delivered, 1 when
@@ -949,6 +956,12 @@ local module: Module = {
         ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
         ["--head"] = { about = "print the status and headers, not the body" },
         ["--json"] = { about = "with --head, print them as a JSON object" },
+        ["--roots"] = { value = "set", about = "trust these CA roots: mozilla (the default), minimal, none, " ..
+            "or root sha256 digests joined by commas" },
+        ["--cacert"] = { value = "file", about = "also trust the certificates in this PEM or DER file; " ..
+            "with --roots none, only them" },
+        ["--pin"] = { value = "pin", about = "fail unless the server's key hashes to this sha256//<base64>; " ..
+            "repeat for more than one" },
       },
     },
     time = {

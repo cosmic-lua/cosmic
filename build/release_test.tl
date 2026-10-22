@@ -7,13 +7,18 @@
 --- prefix, the tags it starts and each one's release -- then SHA256SUMS,
 --- source.json and, when it keeps or pins it, the binary.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Shape = require("cosmic.shape")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local release = require("build.release")
 
-Test.policy{ loopback = { "127.0.0.1" } }
+--- `store`: a root the binary carries is read through
+--- [`Store.databases()`].
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local record Ran
   code: integer
@@ -84,7 +89,7 @@ local function source(commit: string, d?: string): string
     "https://github.com/cosmic-lua/cosmic/actions/runs/1"))
 end
 
-local function run(words: {string}, script: {string}, env?: {string:string}): Ran
+local function run(words: {string}, script: {string}, env?: {string:string}, api?: string): Ran
   local argv: {integer:string} = { [1] = "release" }
   for i, word in ipairs(words) do argv[i + 1] = word end
   local scripts: {{string}} = {}
@@ -95,7 +100,7 @@ local function run(words: {string}, script: {string}, env?: {string:string}): Ra
   local code = release.run(argv, {
     requested = function(url: string) asked[#asked + 1] = url end,
     script = scripts,
-    api = "http://cosmic.test/repo",
+    api = api or "http://cosmic.test/repo",
     downloads = "http://cosmic.test/download/",
     env = env or {},
     out = function(text: string): boolean, string
@@ -394,4 +399,35 @@ local function test_sums_digest_reads_the_cosmic_line()
   assert(release.sums_digest(string.rep("a", 63) .. "  cosmic\n") == nil)
   local twice = string.rep("a", 64) .. "  cosmic\n"
   assert(release.sums_digest(twice .. twice) == nil)
+end
+
+--- A TLS 1.2 server's first flight presenting the root the binary
+--- carries under `label`: as far as a script can take a handshake, and
+--- far enough to see the root trusted or not (cosmic/http_store_test.tl
+--- has the same).
+local function presenting(label: string): string
+  local databases = Store.databases()
+  local own = assert(databases[#databases])
+  local rows = assert(Sqlite.text_rows(own,
+    "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
+  local der = assert(Codec.unhex(assert(rows[1]):text(1)))
+  local function message(kind: integer, body: string): string
+    return string.char(kind) .. string.pack(">I3", #body) .. body
+  end
+  local hello = message(2, "\3\3" .. string.rep("B", 32) .. "\0" .. "\192\47" .. "\0")
+  local certificate = message(11, string.pack(">I3", #der + 3) .. string.pack(">I3", #der) .. der)
+  local records = hello .. certificate
+  return "\22\3\3" .. string.pack(">I2", #records) .. records
+end
+
+--- The API's answer names the digests downloads are checked against, so
+--- its server is trusted by the minimal roots, not every carried one: one presenting a
+--- root outside them is refused for this request's choice of roots, and
+--- one inside them only for the name it stands for.
+local function test_the_api_is_trusted_by_the_minimal_roots_alone()
+  local api = "https://cosmic.test/repo"
+  local outside = run({}, { presenting("Telia RSA TLS Root CA v3") }, {}, api)
+  failed(outside, "opts.roots")
+  local inside = run({}, { presenting("ISRG Root X1") }, {}, api)
+  failed(inside, "Common Name")
 end

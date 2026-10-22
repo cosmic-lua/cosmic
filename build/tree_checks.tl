@@ -97,6 +97,12 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
   "over rows a test builds, whose keys no file need hold"
 
+allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
+  "server's key to; cosmic's own fetches choose roots, not pins"
+
+allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
+  "program to read or start a list of its own from"
+
 -- TODO: drop these allowances as build.analyzer, build.link_text, build.links, build.receivers, build.contracts,
 -- build/fix and build/lsp are rewritten to the new syntax tree and call the readers that the tree's checks and tests
 -- alone call now (doc/plans/strict-teal.md, "the switch").

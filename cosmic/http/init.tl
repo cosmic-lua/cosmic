@@ -98,6 +98,24 @@ local record Http
   --- which a canned one cannot complete, but it can carry a certificate
   --- to see how it is verified.
   ---
+  --- `roots`, `ca` and `pin` choose whom an https server, and an https
+  --- proxy, is trusted as. `roots` names the CA roots: "mozilla", every
+  --- root this binary carries (Mozilla's bundle; the default),
+  --- "minimal" ([`Http.minimal_roots`]), "none", or a list of roots this
+  --- binary carries by the SHA-256 of their DER, as hex (a `:` between
+  --- bytes is taken, as Mozilla's bundle prints them). The certificates
+  --- $SSL_CERT_FILE names are trusted with any of these but "none".
+  --- `ca`, PEM (one certificate or more) or one DER certificate, is
+  --- trusted besides them, and alone with "none": it is how a private
+  --- CA, or one server's own certificate, is pinned in code. A request
+  --- that chooses roots this way never reuses a connection or a TLS
+  --- session verified against other roots.
+  --- `pin`, one `sha256//<base64>` or a list of them, is a public key
+  --- pin: the server's key must hash to one of them
+  --- ([`Http.public_key_pin`] makes one from a certificate), or the
+  --- request fails. A `ca` the TLS stack cannot read, or a choice that
+  --- leaves nothing to trust, returns `nil, err`.
+  ---
   --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
   --- integers take no numeric strings), a number with a fraction, or
@@ -137,6 +155,17 @@ local record Http
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script?: {string}
+    --- The CA roots to trust: "mozilla" (the default), "minimal", "none",
+    --- or a list of the SHA-256 digests of roots this binary carries.
+    -- TODO: make "minimal" the default, once `cosmic build` can choose
+    -- the roots an executable carries and the trust store core/http.c
+    -- caches is the minimal set.
+    roots?: string | {string}
+    --- Certificates to trust besides `roots`: PEM, or one DER.
+    ca?: string
+    --- Public key pins, `sha256//<base64>`, one of which the server's
+    --- key must match.
+    pin?: string | {string}
     --- Download only: the expected sha256, sha512 and sha3-256, as hex.
     --- Each given is computed while the body is written and must match,
     --- or the download fails naming the algorithm, the digest wanted and
@@ -222,6 +251,48 @@ local record Http
     --- The response headers, keyed by lower-case name, as [`Response.headers`].
     headers: {string:string}
   end
+
+end
+
+--- The roots of `opts.roots = "minimal"`, by the SHA-256 of each root's
+--- DER as lower-case hex.
+local MINIMAL_ROOTS <const>: {string} = {
+  "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6", -- ISRG Root X1
+  "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470", -- ISRG Root X2
+  "cb3ccbb76031e5e0138f8dd39a23f9de47ffc35e43c1144cea27d46a5ab1cb5f", -- DigiCert Global Root G2
+  "31ad6648f8104138c738f39ea4320133393e3a18cc02296ef97c2ac9ef6731d0", -- DigiCert Global Root G3
+  "018e13f0772532cf809bd1b17281867283fc48c6e13be9c69812854a490c1b05", -- DigiCert TLS ECC P384 Root G5
+  "371a00dc0533b3721a7eeb40e8419e70799d2b0a0f2c1d80693165f7cec4ad75", -- DigiCert TLS RSA4096 Root G5
+  "e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2", -- USERTrust RSA Certification Authority
+  "4ff460d54b9c86dabfbcfc5712e0400d2bed3fbc4d4fbdaa86e06adcd2a9ad7a", -- USERTrust ECC Certification Authority
+  "7bb647a62aeeac88bf257aa522d01ffea395e0ab45c73f93f65654ec38f25a06", -- Sectigo Public Server Authentication Root R46
+  "c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383", -- Sectigo Public Server Authentication Root E46
+  "cbb522d7b7f127ad6a0113865bdf1cd4102e7d0759af635a7cf4720dc963c53b", -- GlobalSign Root CA - R3
+  "2cabeafe37d06ca22aba7391c0033d25982952c453647349763a3ab5ad6ccf69", -- GlobalSign Root CA - R6
+  "4fa3126d8d3a11d1c4855a4f807cbad6cf919d3a5a88b03bea2c6372d93c40c9", -- GlobalSign Root R46
+  "cbb9c44d84b8043e1050ea31a69f514955d7bfd2e2c6b49301019ad61d9f5058", -- GlobalSign Root E46
+  "b085d70b964f191a73e4af0d54ae7a0e07aafdaf9b71dd0862138ab7325a24a2", -- GlobalSign ECC Root CA - R4
+  "179fbc148a3dd00fd24ea13458cc43bfa7f59c8182d783a513f6ebec100c8924", -- GlobalSign ECC Root CA - R5
+  "d947432abde7b7fa90fc2e6b59101b1280e0e1c7e4e40fa3c6887fff57a7f4cf", -- GTS Root R1
+  "34d8a73ee208d9bcdb0d956520934b4e40e69482596e8b6f73c8426b010a6f48", -- GTS Root R3
+  "349dfa4058c5e263123b398ae795573c4e1313c83fe68f93556cd5e8031b3c7d", -- GTS Root R4
+  "8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e", -- Amazon Root CA 1
+  "1ba5b2aa8c65401a82960118f80bec4f62304d83cec4713a19c39c011ea46db4", -- Amazon Root CA 2
+  "18ce6cfe7bf14e60b2e347b8dfe868cb31d02ebb3ada271569f50343b46db3a4", -- Amazon Root CA 3
+  "e35d28419ed02025cfa69038cd623962458da5c695fbdea3c22b0bfb25897092", -- Amazon Root CA 4
+  "568d6905a2c88708a4b3025190edcfedb1974a606a13c6e5290fcb2ae63edab5", -- Starfield Services Root Certificate Authority - G2
+  "c741f70f4b2a8d88bf2e71c14122ef53ef10eba0cfa5e64cfa20f418853073e0", -- Microsoft RSA Root Certificate Authority 2017
+  "358df39d764af9e1b766e9c972df352ee15cfac227af6ad1d70e8e4a6edcba02", -- Microsoft ECC Root Certificate Authority 2017
+}
+
+--- The roots `opts.roots = "minimal"` trusts: those of the CAs that
+--- issue for most of the web (Let's Encrypt, DigiCert, Sectigo,
+--- GlobalSign, Google, Amazon, Microsoft), by the SHA-256 of each
+--- root's DER as lower-case hex, in a list of the caller's own. Only
+--- those this binary carries are trusted, so a root Mozilla withdraws,
+--- and a refreshed binary drops, is not trusted for being listed here.
+function Http.minimal_roots(): {string}
+  return { table.unpack(MINIMAL_ROOTS) }
 end
 
 local MS <const> = Clock.ms(1)
@@ -297,12 +368,208 @@ local function counted(ns: integer | nil, unit: integer, most_ns: integer,
   return Clock.ceil(ns, unit)
 end
 
+--- What `opts.roots` and `opts.ca` choose to trust, for [`trusted`] to
+--- give curl.
+local record Trust
+  --- Every carried root, rather than only those `wanted` names.
+  all: boolean
+  --- Carried roots by the SHA-256 of their DER.
+  wanted: {string:boolean}
+  --- Whether the certificates $SSL_CERT_FILE names are trusted too.
+  extra: boolean
+  ca: string | nil
+end
+
+--- `opts.roots` and `opts.ca` as a [`Trust`], or nil when they leave
+--- the trust store as it is. Raises at `CALLER` for either of the wrong
+--- shape, naming it.
+local function trust_of(opts: Http.Options): Trust | nil
+  local roots = opts.roots
+  local ca = opts.ca
+  if ca ~= nil and type(ca) ~= "string" then
+    error("http: opts.ca must be a string", CALLER)
+  end
+  local wanted: {string:boolean} = {}
+  if roots == nil or roots == "mozilla" then
+    if ca == nil then return nil end
+    return { all = true, wanted = wanted, extra = true, ca = ca }
+  elseif roots == "minimal" then
+    for _, hex in ipairs(MINIMAL_ROOTS) do
+      wanted[assert(Codec.unhex(hex))] = true
+    end
+    return { all = false, wanted = wanted, extra = true, ca = ca }
+  elseif roots == "none" then
+    return { all = false, wanted = wanted, extra = false, ca = ca }
+  elseif type(roots) == "table" then
+    for i, hex in ipairs(roots) do
+      local digest = ""
+      if type(hex) == "string" then
+        digest = (hex:gsub(":", ""))
+      end
+      local bytes, _ = Codec.unhex(digest)
+      if #digest ~= 64 or bytes == nil then
+        error(("http: opts.roots[%d] must be a root's SHA-256, as 64 hex digits"):format(i), CALLER)
+      end
+      wanted[bytes] = true
+    end
+    return { all = false, wanted = wanted, extra = true, ca = ca }
+  end
+  error('http: opts.roots must be "mozilla", "minimal", "none" or a list of SHA-256 digests', CALLER)
+end
+
+--- `opts.pin` as curl takes it, `;` between pins, or nil for none.
+--- Raises at `CALLER` for one of the wrong shape: each pin is
+--- `sha256//` and the base64 of 32 bytes, as [`Http.public_key_pin`]
+--- makes it.
+local function pin_of(opts: Http.Options): string | nil
+  local pin = opts.pin
+  if pin == nil then return nil end
+  local pins: {string}
+  if type(pin) == "string" then
+    pins = { pin }
+  elseif type(pin) == "table" then
+    pins = pin
+  else
+    error("http: opts.pin must be a string or a list of them", CALLER)
+  end
+  if #pins == 0 then
+    error("http: opts.pin must hold a pin", CALLER)
+  end
+  for i = 1, #pins do
+    local one = pins[i]
+    if type(one) ~= "string" or #one ~= 52 or not one:match("^sha256//[%w+/]+=$") then
+      error(("http: opts.pin[%d] must be sha256// and the base64 of 32 bytes, as Http.public_key_pin makes"):
+          format(i), CALLER)
+    end
+  end
+  return table.concat(pins, ";")
+end
+
+--- `der` as PEM.
+local function pem(der: string): string
+  local encoded = Codec.base64(der)
+  local lines: {string} = { "-----BEGIN CERTIFICATE-----" }
+  for at = 1, #encoded, 64 do
+    lines[#lines + 1] = encoded:sub(at, at + 63)
+  end
+  lines[#lines + 1] = "-----END CERTIFICATE-----\n"
+  return table.concat(lines, "\n")
+end
+
+local BEGIN <const> = "%-%-%-%-%-BEGIN CERTIFICATE%-%-%-%-%-"
+local END <const> = "%-%-%-%-%-END CERTIFICATE%-%-%-%-%-"
+
+--- The certificates `text` holds, as DER: each PEM block, or `text`
+--- itself when it holds none and is one DER certificate. Nil and why
+--- when one is not closed, not base64, or not a certificate the TLS
+--- stack reads.
+local function certificates(text: string): {string} | nil, string
+  if not text:find("-----BEGIN", 1, true) then
+    local ok, why = http.check_certificate(text)
+    if not ok then return nil, why end
+    return { text }, ""
+  end
+  local _, begun = text:gsub(BEGIN, "")
+  local ders: {string} = {}
+  for body in text:gmatch(BEGIN .. "(.-)" .. END) do
+    local der, why = Codec.unbase64((body:gsub("%s", "")))
+    if der == nil then
+      return nil, ("certificate %d is not base64: %s"):format(#ders + 1, why)
+    end
+    local ok, unread = http.check_certificate(der)
+    if not ok then
+      return nil, ("certificate %d: %s"):format(#ders + 1, unread)
+    end
+    ders[#ders + 1] = der
+  end
+  if #ders == 0 then
+    return nil, "holds no certificate"
+  end
+  if #ders ~= begun then
+    return nil, ("certificate %d is not closed"):format(#ders + 1)
+  end
+  return ders, ""
+end
+
+--- One carried root, under the SHA-256 of its DER.
+local record Carried
+  der: string
+  digest: string
+end
+
+--- The trust store's certificates, read once: the carried roots with
+--- their digests, and those $SSL_CERT_FILE named.
+local record Store
+  carried: {Carried} | nil
+  extra: {string}
+end
+local store: Store = { carried = nil, extra = {} }
+
+--- The carried roots with their digests, read from the trust store
+--- the first time, or nil and why when it cannot be made.
+local function carried_roots(): {Carried} | nil, string
+  local held = store.carried
+  if held ~= nil then
+    return held, ""
+  end
+  local roots, trouble = http.roots()
+  if roots == nil then
+    return nil, trouble
+  end
+  local read: {Carried} = {}
+  for _, der in ipairs(roots.carried) do
+    read[#read + 1] = { der = der, digest = Hash.sha256(der) }
+  end
+  store.carried = read
+  store.extra = roots.extra
+  return read, ""
+end
+
+--- The PEM of every certificate `trust` names, or nil and why: when the
+--- trust store cannot be made, `trust.ca` holds what the TLS stack
+--- cannot read, or nothing is left to trust.
+local function trusted(trust: Trust): string | nil, string
+  local carried, trouble = carried_roots()
+  if carried == nil then
+    return nil, trouble
+  end
+  local pems: {string} = {}
+  for _, root in ipairs(carried) do
+    if trust.all or trust.wanted[root.digest] == true then
+      pems[#pems + 1] = pem(root.der)
+    end
+  end
+  if trust.extra then
+    for _, der in ipairs(store.extra) do
+      pems[#pems + 1] = pem(der)
+    end
+  end
+  local ca = trust.ca
+  if ca ~= nil then
+    local ders, why = certificates(ca)
+    if ders == nil then
+      return nil, "http: opts.ca: " .. why
+    end
+    for _, der in ipairs(ders) do
+      pems[#pems + 1] = pem(der)
+    end
+  end
+  if #pems == 0 then
+    return nil, "http: no CA roots to trust: opts.roots names none this binary carries, and opts.ca none"
+  end
+  return table.concat(pems), ""
+end
+
 --- `opts` as the raw module reads them: its spans in the milliseconds
---- (and, for `low_speed_ns`, the seconds) it counts them in.
---- `method`, when given, stands in for `opts.method`.
-local function raw_options(opts: Http.Options | nil, method?: string): raw_http.Options | nil
+--- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
+--- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
+--- chooses ([`trust_of`], [`trusted`]); or nil and why when those cannot
+--- be made. `method`, when given, stands in for `opts.method`.
+local function raw_options(opts: Http.Options | nil, method?: string,
+                           trusting?: boolean): raw_http.Options | nil, string
   if opts == nil then
-    return method ~= nil and { method = method } or nil
+    if method == nil then return nil, "" end
+    return { method = method }, ""
   end
   local via = opts.via
   local follow = opts.follow
@@ -313,6 +580,15 @@ local function raw_options(opts: Http.Options | nil, method?: string): raw_http.
     end
     -- A redirect's Location names a host the socket may not serve.
     if follow == nil then follow = false end
+  end
+  local trust = trust_of(opts)
+  local blob: string | nil = nil
+  if trusting == true and trust ~= nil then
+    local made, why = trusted(trust)
+    if made == nil then
+      return nil, why
+    end
+    blob = made
   end
   return {
     unix_socket = via and via.path,
@@ -328,7 +604,9 @@ local function raw_options(opts: Http.Options | nil, method?: string): raw_http.
     low_speed_seconds = counted(opts.low_speed_ns, SECOND, 65535 * SECOND, "low_speed_ns"),
     verbose = opts.verbose,
     script = opts.script,
-  }
+    pin = pin_of(opts),
+    ca_blob = blob,
+  }, ""
 end
 
 --- Every byte a URL never holds literally, to its escape: a space, a
@@ -386,7 +664,11 @@ local function opened(url: string, opts: Http.Options | nil, method: string | ni
     return nil, refused
   end
   url = sent
-  local handle, trouble = http.open(url, raw_options(opts, method))
+  local raw, unmade = raw_options(opts, method, true)
+  if raw == nil and unmade ~= "" then
+    return nil, unmade
+  end
+  local handle, trouble = http.open(url, raw)
   if handle == nil then
     return nil, trouble
   end
@@ -572,7 +854,7 @@ local function downloading(url: string, path: string,
   local pending <close>: PendingDownload = setmetatable({}, pending_mt)
   -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
   -- goes through [`Http.open`], which finds nothing more to refuse.
-  local _ = raw_options(opts)
+  local _, _ = raw_options(opts)
   local response, open_trouble = Http.open(url, opts)
   pending.response = response
   if response == nil then return { kind = "failed", reason = open_trouble } end
@@ -657,6 +939,22 @@ end
 --- it. Raises when there was no memory to read it.
 function Http.check_certificate(der: string): boolean, string
   return http.check_certificate(der)
+end
+
+--- The public key pin of `cert`, one certificate as PEM or DER, as
+--- `opts.pin` and curl's `--pinnedpubkey` take it: `sha256//` and the
+--- base64 of the SHA-256 of its SubjectPublicKeyInfo, and "". Nil and
+--- why when the TLS stack cannot read `cert` as exactly one
+--- certificate. Raises when there was no memory to read it.
+---
+---     local pin = assert(Http.public_key_pin(assert(Fs.read("server.pem"))))
+---     local got = assert(Http.get("https://internal.example/", { pin = pin }))
+function Http.public_key_pin(cert: string): string | nil, string
+  local spki, why = http.public_key(cert)
+  if spki == nil then
+    return nil, why
+  end
+  return "sha256//" .. Codec.base64(Hash.sha256(spki)), ""
 end
 
 return Http

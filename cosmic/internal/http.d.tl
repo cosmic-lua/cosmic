@@ -65,6 +65,23 @@ local record http
     -- Tests only: canned replies, one per connection, in place of the
     -- network. Every entry must be a string.
     script?: {string}
+    -- PEM certificates to verify the server, and an https proxy, against
+    -- in place of the trust store. curl keys connection reuse and TLS
+    -- session resumption on them, so no connection verified otherwise is
+    -- reused. An empty one fails the request.
+    ca_blob?: string
+    -- CURLOPT_PINNEDPUBLICKEY: one or more `sha256//<base64>` joined by
+    -- `;`, one of which the server's public key must hash to. An empty
+    -- one, or one holding NUL, fails the request.
+    pin?: string
+  end
+
+  -- The trust store's certificates, as DER.
+  record Roots
+    -- The binary's own roots, each as the TLS stack reads it.
+    carried: {string}
+    -- Those $SSL_CERT_FILE added.
+    extra: {string}
   end
 
   -- Blocks until the final response's headers have arrived (after
@@ -80,6 +97,16 @@ local record http
   -- or one holding ':', a URL holding NUL, a `unix_socket` that is empty
   -- or holds NUL.
   open: function(url: string, opts?: Options): Handle | nil, string
+
+  -- The trust store `open` verifies a server against when given no
+  -- `ca_blob`, made the first time it is wanted, and "", or `nil, err`
+  -- when it cannot be made, as `open` would fail.
+  roots: function(): Roots | nil, string
+
+  -- The DER of the SubjectPublicKeyInfo of `cert`, one certificate as
+  -- PEM or DER, and "", or `nil, err` when the TLS stack cannot read it
+  -- as exactly one. Raises when there was no memory to read it.
+  public_key: function(cert: string): string | nil, string
 
   -- True and "" when the TLS stack reads `der` as one X.509
   -- certificate, as it reads each CA root the binary carries; false

@@ -340,8 +340,11 @@ function verb.run(argv: {integer:string}, io?: verb.Io): integer
       script = scripts[requests.made]
       if script == nil then script = { "" } end
     end
+    -- The API's answer names the digest each download is checked
+    -- against, so it trusts the minimal roots (and $SSL_CERT_FILE's),
+    -- not every root the binary carries, as `cosmic refresh` does.
     return { script = script, headers = headers, follow = headers == nil, sha256 = sha256,
-      redirect_protocols = https_only, cancelled = cancelled or never }
+      redirect_protocols = https_only, cancelled = cancelled or never, roots = "minimal" }
   end
 
   --- One request to the API: the body, or nil and why. A 404 is nil and "".
