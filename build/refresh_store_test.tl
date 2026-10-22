@@ -124,8 +124,14 @@ end
 local function test_a_new_bundle_replaces_the_roots(tmp: string)
   local path = program(tmp, true)
   local pem = assert(Fs.read(bundle))
-  -- The bundle less its last certificate.
-  local last = pem:match(".*()\n[^\n]+\n=+\n%-%-%-%-%-BEGIN CERTIFICATE")
+  -- The bundle less its last certificate, cut before the last label: a
+  -- line and its `====` underline, which may be followed by comments
+  -- (`# Fingerprint`) before the certificate.
+  local last = 0
+  for at in pem:gmatch("()\n[^\n]+\n=+\n") do
+    last = at
+  end
+  assert(last > 0, "the bundle has a label")
   local smaller = pem:sub(1, last)
   local file = tmp .. "/smaller.pem"
   assert(Fs.write(file, smaller))
