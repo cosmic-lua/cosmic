@@ -907,7 +907,10 @@ end
 --- It is read off the tokens, with the tree's top-level statements for
 --- a record's members; the scopes are walked once, the first time a
 --- comment asks, and each place's answer is kept.
-function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
+---
+--- With `settled`, the scopes are walked at once and the answer holds none of `parsed`: it is small enough to keep for every
+--- file of a tree. Without it, the answer holds the tree until the first comment asks.
+function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_text.Declarations
   -- `names` holds what no scope does; `top` and `inner` say where each
   -- name is declared, for `module_level`.
   local names: {string: boolean} = {}
@@ -1030,10 +1033,17 @@ function link_text.declarations(parsed: ast.Parsed): link_text.Declarations
   -- later one is in scope.
   local everywhere: {string: boolean} = {}
   local top_aliases: {string: string} = {}
+  local walk: function(): {scopes.Binding} = function(): {scopes.Binding}
+    return scopes.bindings_of(parsed)
+  end
+  if settled == true then
+    local now = walk()
+    walk = function(): {scopes.Binding} return now end
+  end
   local function scoped(): {scopes.Binding}
     local found = bindings[1]
     if found == nil then
-      found = scopes.bindings_of(parsed)
+      found = walk()
       bindings[1] = found
       for _, each in ipairs(found) do
         if each.top and not everywhere[each.name] then
