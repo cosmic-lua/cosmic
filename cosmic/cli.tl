@@ -597,7 +597,10 @@ local record Cli
   --- of the
   --- one --binary names, a program `cosmic build` wrote, say -- whose
   --- data is replaced with a newer release: the CA roots it trusts
-  --- (cacert, Mozilla's bundle as curl publishes it) and the time zones
+  --- (cacert, Mozilla's root store as NSS's newest release holds it in
+  --- certdata.txt, with the dates after which it trusts a root for no
+  --- server certificate issued; a file may be that or a PEM bundle, which
+  --- names no dates) and the time zones
   --- it carries (tzdata, as PyPI's tzdata sdist holds them). Each named
   --- dataset is fetched upstream, its newest release; one given a file is
   --- read from it, with no network; with neither, every dataset is
@@ -1023,7 +1026,7 @@ local module: Module = {
       spec = {
         ["-o"] = { value = "path", about = "write the refreshed binary here" },
         ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
-        ["--cacert"] = { value = "file", about = "read the CA roots from this PEM bundle" },
+        ["--cacert"] = { value = "file", about = "read the CA roots from this certdata.txt (NSS's) or PEM bundle" },
         ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
       },
     },

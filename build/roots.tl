@@ -1,7 +1,12 @@
---- The CA roots a cosmic binary trusts: Mozilla's bundle
---- ([`vendor/cacert/cacert.pem`]), one row per certificate in the shipped
---- `ca_roots` table, each the certificate's DER bytes under its SHA-256
---- and the label the bundle gives it.
+--- The CA roots a cosmic binary trusts: those Mozilla's root store
+--- ([`vendor/cacert/certdata.txt`], NSS's certdata.txt) trusts to issue
+--- server certificates, one row per certificate in the shipped
+--- `ca_roots` table, each the certificate's DER bytes under its SHA-256,
+--- the label the store gives it, and the date after which Mozilla trusts
+--- it for no server certificate issued (`distrust_after`), which
+--- [`core/http.c`] enforces as it verifies a chain. A PEM bundle (curl's
+--- cacert.pem, a file `cosmic refresh --cacert` is given) is read too,
+--- and names no such date.
 ---
 --- The database carries the bundle once, as DER, for every core the
 --- artifact holds, rather than as PEM text in each core. [`core/http.c`]
@@ -26,17 +31,20 @@ local record roots
   record Root
     label: string
     der: string
+    --- `YYYYMMDDHHMMSS`, in UTC: a server certificate this root issued
+    --- with a later notBefore is not trusted. "" when there is none.
+    distrust_after: string
   end
 end
 
 --- Where cosmic's own tree keeps the bundle.
-local bundle <const> = "vendor/cacert/cacert.pem"
+local bundle <const> = "vendor/cacert/certdata.txt"
 
 --- Every certificate a PEM bundle holds, in its order, each under the
 --- label the line above its `====` underline gives it (empty when the
 --- bundle names none). Nil and why when a certificate block is not
 --- closed, or its body is not base64.
-function roots.parse(pem: string): {roots.Root} | nil, string
+local function parse_pem(pem: string): {roots.Root} | nil, string
   local found: {roots.Root} = {}
   local label = ""
   local previous = ""
@@ -53,7 +61,7 @@ function roots.parse(pem: string): {roots.Root} | nil, string
         if der == "" then
           return nil, "line " .. number .. ": the certificate above is empty"
         end
-        found[#found + 1] = { label = label, der = der }
+        found[#found + 1] = { label = label, der = der, distrust_after = "" }
         body = nil
         label = ""
       elseif line:find("-----", 1, true) then
@@ -74,6 +82,141 @@ function roots.parse(pem: string): {roots.Root} | nil, string
   return found
 end
 
+--- The bytes a `MULTILINE_OCTAL` value's lines spell (`\060\202...`),
+--- or nil when a line holds anything else.
+local function octal(lines: {string}): string | nil
+  local bytes: {string} = {}
+  for _, line in ipairs(lines) do
+    if line:find("^[\\0-7]*$") == nil then
+      return nil
+    end
+    for digits in line:gmatch("\\([0-7][0-7][0-7])") do
+      bytes[#bytes + 1] = string.char(math.tointeger(tonumber(digits, 8)) or 0)
+    end
+  end
+  return table.concat(bytes)
+end
+
+--- One object of certdata.txt: each attribute's value, by name. A
+--- `MULTILINE_OCTAL` value is its bytes; any other, the text after its
+--- type (`CKO_CERTIFICATE`, `"a label"`, `CK_FALSE`).
+local type Object = {string:string}
+
+--- `CKA_NSS_SERVER_DISTRUST_AFTER`'s value as [`Root.distrust_after`]: an
+--- ASN.1 UTCTime `YYMMDDHHMMSSZ`, its year 19YY from 50 up (RFC 5280
+--- 4.1.2.5.1); "" for `CK_FALSE`. Nil for anything else.
+local function distrust_after(value: string | nil): string | nil
+  if value == nil or value == "CK_FALSE" then
+    return ""
+  end
+  local year, rest = value:match("^(%d%d)(%d%d%d%d%d%d%d%d%d%d)Z$")
+  if year == nil or rest == nil then
+    return nil
+  end
+  local century = "20"
+  if (math.tointeger(tonumber(year)) or 0) >= 50 then
+    century = "19"
+  end
+  return century .. year .. rest
+end
+
+--- The roots NSS's certdata.txt trusts to issue server certificates
+--- (a trust object of the same issuer and serial number whose
+--- `CKA_TRUST_SERVER_AUTH` is `CKT_NSS_TRUSTED_DELEGATOR`), in the
+--- file's order, each with its label and server distrust date. Nil and
+--- why for an object or value the file cannot mean, or a trusted root
+--- with no certificate.
+local function parse_certdata(text: string): {roots.Root} | nil, string
+  local objects: {Object} = {}
+  local object: Object = {}
+  local name = ""
+  local value_lines: {string} | nil = nil
+  local number = 0
+  local begun = false
+  for line in String.lines((text:gsub("\r\n", "\n"))) do
+    number = number + 1
+    local open = value_lines
+    if open ~= nil then
+      if line == "END" then
+        local bytes = octal(open)
+        if bytes == nil then
+          return nil, "line " .. tostring(number) .. ": " .. name .. " holds what is no octal"
+        end
+        object[name] = bytes
+        value_lines = nil
+      else
+        open[#open + 1] = line
+      end
+    elseif line == "BEGINDATA" then
+      begun = true
+    elseif begun and line ~= "" and line:sub(1, 1) ~= "#" then
+      local attribute, kind, rest = line:match("^(CKA_[%w_]+) ([%w_]+)%s*(.*)$")
+      if attribute == nil or kind == nil or rest == nil then
+        return nil, "line " .. tostring(number) .. ": not an attribute: " .. line:sub(1, 80)
+      end
+      if attribute == "CKA_CLASS" then
+        object = {}
+        objects[#objects + 1] = object
+      end
+      if kind == "MULTILINE_OCTAL" then
+        name = attribute
+        value_lines = {}
+      elseif kind == "UTF8" then
+        object[attribute] = rest:match('^"(.*)"$') or rest
+      else
+        object[attribute] = rest
+      end
+    end
+  end
+  if value_lines ~= nil then
+    return nil, name .. " is not closed by END"
+  end
+  if not begun then
+    return nil, "holds no BEGINDATA"
+  end
+  local trusted: {string:boolean} = {}
+  for _, one in ipairs(objects) do
+    if one["CKA_CLASS"] == "CKO_NSS_TRUST" and one["CKA_TRUST_SERVER_AUTH"] == "CKT_NSS_TRUSTED_DELEGATOR" then
+      trusted[(one["CKA_ISSUER"] or "") .. "\0" .. (one["CKA_SERIAL_NUMBER"] or "")] = true
+    end
+  end
+  local found: {roots.Root} = {}
+  for _, one in ipairs(objects) do
+    local key = (one["CKA_ISSUER"] or "") .. "\0" .. (one["CKA_SERIAL_NUMBER"] or "")
+    if one["CKA_CLASS"] == "CKO_CERTIFICATE" and trusted[key] == true then
+      local label = one["CKA_LABEL"] or ""
+      local der = one["CKA_VALUE"]
+      if der == nil or der == "" then
+        return nil, label .. ": a trusted root with no certificate"
+      end
+      local after = distrust_after(one["CKA_NSS_SERVER_DISTRUST_AFTER"])
+      if after == nil then
+        return nil, label .. ": its server distrust date is no UTCTime"
+      end
+      trusted[key] = false
+      found[#found + 1] = { label = label, der = der, distrust_after = after }
+    end
+  end
+  for _, unmet in pairs(trusted) do
+    if unmet then
+      return nil, "a server trust names no certificate in the file"
+    end
+  end
+  return found, ""
+end
+
+--- Every root `text` holds: NSS's certdata.txt when it has a
+--- `BEGINDATA` line (only those it trusts to issue server
+--- certificates, with their distrust dates), else a PEM bundle (each
+--- certificate, with none). Nil and why when it cannot be read as the
+--- one it is.
+function roots.parse(text: string): {roots.Root} | nil, string
+  if text:find("\nBEGINDATA\r?\n") ~= nil then
+    return parse_certdata(text)
+  end
+  return parse_pem(text)
+end
+
 --- Writes `found` into the `ca_roots` table of the database `db` holds
 --- as `qualifier`, which must hold no rows yet: one row per distinct
 --- certificate, in digest order. `ca_roots` is a rowid table, so the
@@ -92,10 +235,10 @@ function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): b
   end
   table.sort(digests)
   for _, digest in ipairs(digests) do
-    local one = by_digest[digest]
+    local one = assert(by_digest[digest])
     local put, put_trouble = Sqlite.run(db,
-      "INSERT INTO " .. qualifier .. "ca_roots (sha256, label, der) VALUES (?1, ?2, ?3)",
-      { bind.blob(digest), bind.text(one.label), bind.blob(one.der) })
+      "INSERT INTO " .. qualifier .. "ca_roots (sha256, label, der, distrust_after) VALUES (?1, ?2, ?3, ?4)",
+      { bind.blob(digest), bind.text(one.label), bind.blob(one.der), bind.text(one.distrust_after) })
     if not put then
       return false, put_trouble
     end

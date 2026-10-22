@@ -14,7 +14,7 @@ local passthrough = verb_cases.passthrough
 local surplus = verb_cases.surplus
 --- Only which verbs have cases is read here, so the bundle `refresh`
 --- reads is named as the tree holds it, unresolved.
-local cases = verb_cases.cases("vendor/cacert/cacert.pem")
+local cases = verb_cases.cases("vendor/cacert/certdata.txt")
 
 --- Runs `cosmic <args>` in `dir`, in this process, as
 --- build/verbs_tool_test.tl's `cosmic` runs every command line that

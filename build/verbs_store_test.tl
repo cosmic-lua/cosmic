@@ -23,7 +23,7 @@ Test.policy{
   profiles = { "cosmic" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "vendor/cacert/cacert.pem", letters = "r" },
+    { path = "vendor/cacert/certdata.txt", letters = "r" },
     { path = "o/cosmic.db", letters = "r" },
   },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
@@ -41,7 +41,7 @@ end
 
 --- The vendored bundle, which `refresh` reads with no network; the
 --- tree's root is where a test module loads.
-local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
+local bundle = assert(Fs.absolute("vendor/cacert/certdata.txt"))
 
 local cases = verb_cases.cases(bundle)
 

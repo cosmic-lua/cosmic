@@ -266,7 +266,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
     copied, copy_trouble = copy_rows(binary, out, "ca_roots",
-      { "sha256", "label", "der" }, "SELECT sha256, label, der FROM ca_roots ORDER BY sha256")
+      { "sha256", "label", "der", "distrust_after" },
+      "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
     if not copied then
       return false, copy_trouble
     end

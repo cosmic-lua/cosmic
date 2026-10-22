@@ -117,6 +117,9 @@ struct transfer {
   int paused; /* the write callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
+  /* The root whose distrust date refused the server's certificate, as
+   * [`cosmic_tls_distrust`] found it; NULL when none did. */
+  const struct distrusted *distrusted;
   int chosen; /* trusts the roots `open`'s ca_blob gave, not the store's */
   CURLcode result;
 };
@@ -152,6 +155,20 @@ static mbedtls_x509_crt roots;
 
 static int roots_ready;
 
+/* A carried root Mozilla trusts for no server certificate issued after a
+ * date (`ca_roots.distrust_after`, build/roots.tl): its DER, its label,
+ * and that date as `YYYYMMDDHHMMSS` in UTC. */
+struct distrusted {
+  unsigned char *der;
+  size_t len;
+  char label[96];
+  char after[15];
+};
+
+/* Every carried root with a distrust date, read with the rest of the
+ * trust store and kept with it. */
+static struct distrusted *distrusted;
+static size_t distrusted_count;
 /* How many certificates at the head of `roots` are the binary's own
  * roots; the rest came from $SSL_CERT_FILE. */
 static int carried_roots;
@@ -198,9 +215,35 @@ static bool add_cert_file (void) {
   return ok;
 }
 
+/* Keeps the root of `stmt`'s row, `der`, in `distrusted` when the row
+ * names a distrust date (column 1, its label column 2). Returns NULL, or
+ * why not: there was no memory, or the date is not `YYYYMMDDHHMMSS`. */
+static const char *keep_distrusted (sqlite3_stmt *stmt, const unsigned char *der,
+                                    size_t len) {
+  const char *after = (const char *)sqlite3_column_text(stmt, 1);
+  if (after == NULL || after[0] == '\0') return NULL;
+  if (strlen(after) != 14 || strspn(after, "0123456789") != 14) {
+    return "no CA roots: a root's distrust date is not YYYYMMDDHHMMSS";
+  }
+  struct distrusted *grown = cosmic_realloc(distrusted, (distrusted_count + 1) * sizeof *grown);
+  if (grown == NULL) return "no memory for the CA roots";
+  distrusted = grown;
+  struct distrusted *one = &distrusted[distrusted_count];
+  one->der = cosmic_malloc(len);
+  if (one->der == NULL) return "no memory for the CA roots";
+  memcpy(one->der, der, len);
+  one->len = len;
+  const char *label = (const char *)sqlite3_column_text(stmt, 2);
+  snprintf(one->label, sizeof one->label, "%s", label != NULL ? label : "");
+  memcpy(one->after, after, sizeof one->after);
+  distrusted_count++;
+  return NULL;
+}
+
 /* Fills `roots` from the `ca_roots` rows of the last database the store
  * searches, which is always the binary's own, so a project's database
- * never adds a root. Returns NULL, or why not, leaving `roots` empty.
+ * never adds a root, and `distrusted` from those of them with a distrust
+ * date. Returns NULL, or why not, leaving `roots` empty.
  * A binary with no roots refuses every request, plain http too, rather
  * than trusting some other set: one whose own database is missing or
  * holds none is broken, and says so at its first request. */
@@ -209,8 +252,8 @@ static const char *load_roots (lua_State *L) {
   sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;
   if (db == NULL) return "no CA roots: this binary carries no database";
   sqlite3_stmt *stmt = NULL;
-  if (sqlite3_prepare_v2(db, "SELECT der FROM main.ca_roots", -1, &stmt,
-                         NULL) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(db, "SELECT der, distrust_after, label FROM main.ca_roots",
+                         -1, &stmt, NULL) != SQLITE_OK) {
     sqlite3_finalize(stmt);
     return "no CA roots: the binary's database has no ca_roots table";
   }
@@ -231,6 +274,7 @@ static const char *load_roots (lua_State *L) {
     int parsed = mbedtls_x509_crt_parse_der(&roots, der, (size_t)len);
     if (parsed == 0) {
       trusted++;
+      trouble = keep_distrusted(stmt, der, (size_t)len);
     } else if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
       trouble = "no memory for the CA roots";
     }
@@ -249,6 +293,10 @@ static const char *load_roots (lua_State *L) {
   }
   if (trouble != NULL) {
     mbedtls_x509_crt_free(&roots);
+    for (size_t i = 0; i < distrusted_count; i++) cosmic_free(distrusted[i].der);
+    cosmic_free(distrusted);
+    distrusted = NULL;
+    distrusted_count = 0;
     return trouble;
   }
   roots_ready = 1;
@@ -713,6 +761,45 @@ static const char *transfer_error (struct transfer *t) {
   return t->errbuf;
 }
 
+/* The root of the chain being verified, when it is one of `distrusted`:
+ * met first, since curl's verify callback is called root first, and
+ * held until the server's own certificate ends the chain. */
+static const struct distrusted *chain_root;
+
+/* What curl's mbedtls verify callback (patch/curl/05-distrust-after.txt)
+ * adds to the flags of `crt`, at `depth` of a chain `easy`'s handshake
+ * verifies: MBEDTLS_X509_BADCERT_OTHER for the server's certificate
+ * (depth 0) when the chain's root is one Mozilla trusts for no server
+ * certificate issued after a date and this one's notBefore is past it,
+ * recorded on the transfer for its message; 0 otherwise. A root the
+ * server presents as its own certificate is held to its own date. */
+uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth) {
+  const struct distrusted *met = NULL;
+  for (size_t i = 0; i < distrusted_count && met == NULL; i++) {
+    if (crt->raw.len == distrusted[i].len &&
+        memcmp(crt->raw.p, distrusted[i].der, distrusted[i].len) == 0) {
+      met = &distrusted[i];
+    }
+  }
+  if (depth > 0) {
+    if (met != NULL) chain_root = met;
+    return 0;
+  }
+  const struct distrusted *root = met != NULL ? met : chain_root;
+  chain_root = NULL;
+  if (root == NULL) return 0;
+  const mbedtls_x509_time *from = &crt->valid_from;
+  char issued[64];
+  snprintf(issued, sizeof issued, "%04d%02d%02d%02d%02d%02d", from->year, from->mon,
+           from->day, from->hour, from->min, from->sec);
+  if (strcmp(issued, root->after) <= 0) return 0;
+  struct transfer *t = NULL;
+  if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, (char **)&t) == CURLE_OK && t != NULL) {
+    t->distrusted = root;
+  }
+  return MBEDTLS_X509_BADCERT_OTHER;
+}
+
 /* Pushes `t`'s failure: curl's message, and for a peer whose chain
  * leads to no root this binary carries, how to get newer ones. Only
  * that flag is the roots' doing -- a name that does not match, or an
@@ -726,7 +813,12 @@ static const char *transfer_error (struct transfer *t) {
  * cuts the untrusted line short, and no hint is given. */
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
-  if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
+  const struct distrusted *root = t->distrusted;
+  if (t->result == CURLE_PEER_FAILED_VERIFICATION && root != NULL) {
+    lua_pushfstring(L, "%s; the CA root \"%s\" is trusted for no server certificate "
+                    "issued after %s UTC, as Mozilla's root store says, and this one was",
+                    message, root->label, root->after);
+  } else if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
       strstr(message, "certificate is not correctly signed by the trusted CA") != NULL) {
     lua_pushfstring(L, "%s; %s", message, t->chosen ? CHOSEN_ROOTS : STALE_ROOTS);
   } else {

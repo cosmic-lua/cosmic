@@ -102,10 +102,18 @@ local record refresh
   datasets: {Dataset}
 end
 
---- Where curl publishes Mozilla's bundle as PEM: the newest, and each
---- by the date of the Mozilla data it holds.
-local cacert_latest <const> = "https://curl.se/ca/cacert.pem"
-local cacert_dated <const> = "https://curl.se/ca/cacert-%s.pem"
+--- Where NSS's release tags are listed, and where each release's
+--- certdata.txt -- Mozilla's root store, with its trust bits and
+--- distrust dates -- is served by its tag.
+local nss_tags <const> = "https://api.github.com/repos/nss-dev/nss/git/matching-refs/tags/NSS_?per_page=100"
+
+--- What GitHub's API wants of a request: it refuses one with no
+--- User-Agent.
+local github_headers <const>: {string:string} = {
+  ["Accept"] = "application/vnd.github+json",
+  ["User-Agent"] = "cosmic-refresh",
+}
+local nss_certdata <const> = "https://raw.githubusercontent.com/nss-dev/nss/%s/lib/ckfw/builtins/certdata.txt"
 
 --- PyPI's description of the `tzdata` package, whose sdist carries the
 --- IANA database compiled to TZif files.
@@ -131,6 +139,39 @@ function refresh.cacert_date(pem: string): string | nil
     return nil
   end
   return ("%s-%s-%02d"):format(year, months[month], number)
+end
+
+--- The URL of the page after this one, by the `Link` header GitHub
+--- answers a paginated listing with (`<url>; rel="next"`), or nil on the
+--- last page.
+function refresh.next_page(link: string | nil): string | nil
+  if link == nil then
+    return nil
+  end
+  for url, rel in link:gmatch('<([^>]*)>%s*;%s*rel="([^"]*)"') do
+    if rel == "next" then
+      return url
+    end
+  end
+  return nil
+end
+
+--- The newest NSS release among the tags `refs` lists (GitHub's
+--- matching-refs JSON): the `NSS_<major>_<minor>[_<patch>]_RTM` tag of the
+--- greatest version, or nil when it lists none.
+function refresh.newest_nss(refs: string): string | nil
+  local newest: string | nil = nil
+  local best = -1
+  for tag in refs:gmatch('"ref"%s*:%s*"refs/tags/(NSS_[%d_]+_RTM)"') do
+    local major, minor, patch = tag:match("^NSS_(%d+)_(%d+)_?(%d*)_RTM$")
+    -- One number orders them: no part of a version reaches 1000.
+    local key = (math.tointeger(tonumber(major)) or -1) * 1000000 +
+      (math.tointeger(tonumber(minor)) or 0) * 1000 + (math.tointeger(tonumber(patch)) or 0)
+    if major ~= nil and key > best then
+      newest, best = tag, key
+    end
+  end
+  return newest
 end
 
 --- What PyPI's JSON describes a package by, as far as a refresh reads it.
@@ -202,32 +243,49 @@ end
 local cacert: refresh.Dataset = {
   name = "cacert",
   fetch = function(scratch: string): refresh.Source | nil, string
-    local pem, trouble = fetch_text(cacert_latest)
-    if pem == nil then
-      return nil, trouble
+    -- Every page: GitHub lists at most 100 refs a page, in name order,
+    -- and the newest release is not the last name.
+    local pages: {string} = {}
+    local page: string | nil = nss_tags
+    while page ~= nil do
+      if #pages == 50 then
+        return nil, nss_tags .. ": lists more than 50 pages of tags"
+      end
+      local got, trouble = Http.get(page, { headers = github_headers, roots = refresh.fetching().roots })
+      if got == nil then
+        return nil, page .. ": " .. trouble
+      end
+      if got.status < 200 or got.status > 299 then
+        return nil, page .. ": HTTP " .. tostring(got.status)
+      end
+      pages[#pages + 1] = got.body
+      page = refresh.next_page(got.headers["link"])
     end
-    local date = refresh.cacert_date(pem)
-    if date == nil then
-      return nil, cacert_latest .. ": names no date for its Mozilla data"
+    local refs = table.concat(pages, "\n")
+    local tag = refresh.newest_nss(refs)
+    if tag == nil then
+      return nil, nss_tags .. ": names no NSS release"
     end
-    -- Fetched again by the dated name, which keeps naming these bytes
-    -- after the newest has moved on, so the recorded URL names what the
-    -- binary holds.
-    local url = cacert_dated:format(date)
-    local path = scratch .. "/cacert.pem"
-    local sha256 = Hash.hex_sha256(pem)
-    local ok, download_trouble = Http.download(url, path, { sha256 = sha256, roots = refresh.fetching().roots })
-    if not ok then
-      return nil, url .. ": " .. download_trouble
+    -- By the tag's name, which keeps naming these bytes after a newer
+    -- release, so the recorded URL names what the binary holds.
+    local url = nss_certdata:format(tag)
+    local text, fetch_trouble = fetch_text(url)
+    if text == nil then
+      return nil, fetch_trouble
     end
-    return { path = path, url = url, version = date, sha256 = sha256 }, ""
+    local path = scratch .. "/certdata.txt"
+    local written, write_trouble = Fs.write(path, text)
+    if not written then
+      return nil, write_trouble
+    end
+    return { path = path, url = url, version = tag, sha256 = Hash.hex_sha256(text) }, ""
   end,
   read = function(path: string, _scratch: string): refresh.Release | nil, string
-    local pem, trouble = Fs.read(path)
-    if pem == nil then
+    local text, trouble = Fs.read(path)
+    if text == nil then
       return nil, trouble
     end
-    local found, parse_trouble = roots.parse(pem)
+    local found, parse_trouble = roots.parse(text)
     if found == nil then
       return nil, path .. ": " .. parse_trouble
     end
@@ -259,10 +317,26 @@ local cacert: refresh.Dataset = {
       return nil, path .. ": no certificate the TLS stack can read: " .. left_out[1]
     end
     return {
-      version = refresh.cacert_date(pem) or "",
+      -- A PEM bundle curl published names its date; certdata.txt names
+      -- no version of its own, which its fetch knows by the tag.
+      version = refresh.cacert_date(text) or "",
       count = count,
       left_out = left_out,
       write = function(db: Sqlite.Handle): boolean, string
+        -- A binary built before the table held distrust dates: its core
+        -- reads only `der`, and takes the column as it comes.
+        local columns, column_trouble = Sqlite.text_rows(db,
+          "SELECT 1 FROM pragma_table_info('ca_roots') WHERE name = 'distrust_after'")
+        if columns == nil then
+          return false, column_trouble
+        end
+        if #columns == 0 then
+          local added, add_trouble = db:exec(
+            "ALTER TABLE ca_roots ADD COLUMN distrust_after TEXT NOT NULL DEFAULT ''")
+          if not added then
+            return false, add_trouble
+          end
+        end
         local cleared, clear_trouble = db:exec("DELETE FROM ca_roots")
         if not cleared then
           return false, clear_trouble
