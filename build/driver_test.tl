@@ -520,6 +520,123 @@ local function test_replacing_a_module_begins_a_new_program_in_which_everything_
   assert(build:replace("nothing here", RECORD) == nil)
 end
 
+local function test_a_retired_module_is_forgotten_and_a_module_that_requires_it_is_checked_as_before()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nlocal s: string = b.n\nreturn b\n" },
+  })
+  build:lower({ "box" })
+  local box = assert(build:result("box", true))
+  assert(box.lowered ~= nil and #box.errors == 0)
+  build:retire("box")
+  -- the build answers nothing for it, and reads it again outside the program when asked to
+  assert(build:result("box", true) == nil)
+  local again = assert(build:parsed("box"))
+  assert(again ~= box and again.lowered == nil and not again.broken)
+  assert(build:parsed("box") ~= again, "a new reading each time, not one the build holds")
+  -- what the program knows of it stays: the type of its field is read through it
+  local used = assert(build:result("use", true))
+  assert(codes_of(used.errors) == "not_assignable", codes_of(used.errors))
+  assert(assert(build.program.modules["box"]).lowered)
+  assert(build:retired("box") and not build:retired("use") and not build:retired("nothing here"))
+end
+
+local function test_a_build_tells_what_it_has_without_reading_it()
+  local build = build_of({ { "box.tl", RECORD } })
+  assert(build:provides("box") and build:provides("std") and not build:provides("nothing here"))
+  build:lower({ "box" })
+  build:retire("box")
+  assert(build:provides("box"), "a retired module is still the build's")
+end
+
+local function test_a_retired_module_leaves_no_syntax_tree_behind()
+  local build = build_of({ { "box.tl", RECORD } })
+  build:lower({ "box" })
+  local weak: {Ast.Chunk} = setmetatable({}, { __mode = "v" })
+  weak[1] = assert(build:result("box", true)).chunk
+  collectgarbage("collect")
+  assert(weak[1] ~= nil, "the build holds the tree until it is retired")
+  build:retire("box")
+  collectgarbage("collect")
+  assert(weak[1] == nil, "the tokens and the tree of a retired module are garbage")
+end
+
+local function test_retiring_every_module_forgets_them_all_and_keeps_the_globals()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+  })
+  assert(#assert(build:result("use", true)).errors == 0)
+  build:retire_all()
+  assert(build:result("use", true) == nil and build:result("box", true) == nil)
+  assert(assert(build.program.modules["use"]).lowered and assert(build.program.modules["box"]).lowered)
+end
+
+local function test_a_module_lowered_again_after_a_replacement_reads_the_modules_it_retired_from_their_sources()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+  })
+  build:lower({ "box" })
+  assert(#assert(build:result("box", true)).errors == 0)
+  build:retire("box")
+  assert(#assert(build:result("use", true)).errors == 0)
+  -- `use` is lowered, so the program begins again; `box` is read from its source when `use` requires it
+  local program = build.program
+  assert(build:replace("use", "local Box = require(\"box\")\nlocal b: Box = { n = \"one\" }\nreturn b\n") ~= nil)
+  assert(build.program ~= program)
+  assert(codes_of(assert(build:result("use", true)).errors) == "not_assignable")
+  assert(assert(build:result("box", true)).lowered ~= nil, "lowered again, from its source")
+end
+
+local function test_replacing_a_module_the_program_has_not_met_keeps_everything_lowered()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+    { "other.tl", "local record O\nend\nreturn O\n" },
+  })
+  build:lower({ "other" })
+  local other = assert(build:result("other", true))
+  local program = build.program
+  local replaced = assert(build:replace("box", "local record Box\n  n: string\nend\nreturn Box\n"))
+  assert(build.program == program, "no module of the program depends on the text that goes")
+  assert(assert(build:parsed("box")) == replaced and assert(build:parsed("other")) == other)
+  assert(codes_of(assert(build:result("use", true)).errors) == "not_assignable")
+end
+
+local function test_a_cycle_of_modules_keeps_the_errors_of_the_check_that_waited_for_the_other()
+  local build = build_of({
+    { "a.tl", "local type B = require(\"b\")\nlocal class C is B.I\nend\nreturn C\n" },
+    { "b.tl", "local type A = require(\"a\")\nlocal record B\n  interface I\n    n: integer\n  end\nend\nreturn B\n" },
+  })
+  build:lower({ "b" })
+  local a = assert(build:result("a", true))
+  assert(codes_of(a.declared) == "interface_disagrees", codes_of(a.declared))
+  build:retire("a")
+  build:retire("b")
+  assert(build:result("a", true) == nil)
+end
+
+local function test_the_scratch_build_reads_a_module_without_lowering_it_in_the_build()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+  })
+  local scratch = build:scratch()
+  assert(scratch ~= build and build:scratch() == scratch, "one scratch build, made when first asked for")
+  scratch:lower({ "use" })
+  assert(assert(scratch:result("use", true)).lowered ~= nil)
+  scratch:retire_all(function(outcome: Driver.Outcome): boolean
+    return outcome.module == "box"
+  end)
+  assert(scratch:retired("use") and not scratch:retired("box"), "what the answer keeps is not retired")
+  scratch:retire_all()
+  assert(scratch:retired("box"))
+  -- nothing was met in this build
+  assert(build.program.modules["use"] == nil and build.program.modules["box"] == nil and not build:retired("use"))
+  assert(#assert(build:result("use", true)).errors == 0)
+end
+
 local function test_a_replacement_is_read_as_written_and_keeps_what_the_module_was()
   local files = { { "m_test.tl", "local function test_x()\nend\n" }, { "d.tl", "return 1\n" } }
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })

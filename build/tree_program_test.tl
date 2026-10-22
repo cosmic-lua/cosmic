@@ -199,12 +199,44 @@ local function test_the_files_and_the_sources_written_from_them_are_one_list_wit
   assert(#files == 1, "the list given is left as it was")
 end
 
-local function test_each_module_with_a_call_to_resolve_is_spliced_and_the_others_are_left()
+local function test_a_module_without_a_call_to_resolve_is_left_as_it_is_and_one_the_build_lacks_is_refused()
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   build:provide(Driver.files(TreeProgram.index({
     { "a.tl", "local record R\n  n: integer\nend\nreturn R\n" },
     { "b.tl", "return 2\n" },
   }, false, {})))
-  assert(#TreeProgram.splice_all(build, { "a", "b", "nowhere" }) == 0)
+  assert(TreeProgram.splice(build, "a", "a.tl") == false and TreeProgram.splice(build, "b", "b.tl") == false)
+  local lacking, why = TreeProgram.splice(build, "nowhere", "nowhere.tl")
+  assert(lacking == nil and why:find("nowhere.tl", 1, true) ~= nil, tostring(why))
   assert(build:parsed("a") ~= nil and not assert(build:parsed("a")).broken)
+end
+
+local function test_modules_are_streamed_after_the_modules_among_them_that_they_require_and_each_is_retired_after_its_turn()
+  local index = TreeProgram.index({
+    { "top.tl", "local a = require(\"lib.a\")\nlocal b = require('lib.b')\nreturn a\n" },
+    { "lib/a.tl", "local b = require(\"lib.b\")\nreturn b\n" },
+    { "lib/b.tl", "return 1\n" },
+    { "other.tl", "local x = require(\"cosmic.fs\")\nreturn x\n" },
+    { "cycle/one.tl", "local two = require(\"cycle.two\")\nreturn two\n" },
+    { "cycle/two.tl", "local one = require(\"cycle.one\")\nreturn one\n" },
+  }, false, {})
+  local function streamed(modules: {string}): string
+    local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+    build:provide(Driver.files(index))
+    local seen: {string} = {}
+    local refused = TreeProgram.stream(build, index, modules, true, function(module: string)
+      local result = build:result(module, false)
+      assert(result == nil or result.lowered ~= nil, module)
+      seen[#seen + 1] = module
+    end)
+    assert(#refused == 0)
+    for _, module in ipairs(modules) do
+      assert(build:retired(module) or index.by_module[module] == nil, module)
+    end
+    return table.concat(seen, " ")
+  end
+  assert(streamed({ "top", "other", "lib.a", "lib.b", "cycle.one", "cycle.two", "absent" }) ==
+      "lib.b lib.a top other cycle.two cycle.one absent")
+  -- only the modules asked for are in the order, though the others are required
+  assert(streamed({ "top" }) == "top")
 end

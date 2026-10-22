@@ -98,6 +98,7 @@ local teal = require("build.teal")
 local template = require("cosmic.template")
 local tree = require("build.tree")
 local example_checks = require("build.example_checks")
+local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
 local Typed = require("build.syntax_typed")
 local type compiler = require("build.compiler")
@@ -1537,33 +1538,43 @@ local function run_tree_checks(ctx: Fix)
       -- What the lexer, the translator, the scope builder, the generator and the checker found in a file that has not changed
       -- is kept in the build directory; without the memo the checks run in full.
       local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
+      Memprobe.mark("tree checks: before the memoed checks")
       for _, line in ipairs(tree_checks.lexed(root, nil, memo)) do
         findings[#findings + 1] = "lexer: " .. line
       end
+      Memprobe.mark("tree checks: lexer")
       for _, line in ipairs(tree_checks.translated(root, nil, nil, memo)) do
         findings[#findings + 1] = "translator: " .. line
       end
+      Memprobe.mark("tree checks: translator")
       for _, line in ipairs(tree_checks.scoped(root, nil, memo)) do
         findings[#findings + 1] = "scopes: " .. line
       end
+      Memprobe.mark("tree checks: scopes")
       for _, line in ipairs(tree_checks.declared(root, nil, memo)) do
         findings[#findings + 1] = "declarations: " .. line
       end
+      Memprobe.mark("tree checks: declarations")
       for _, line in ipairs(tree_checks.generated(root, nil, memo)) do
         findings[#findings + 1] = "generator: " .. line
       end
+      Memprobe.mark("tree checks: generator")
       for _, line in ipairs(tree_checks.read(root, nil, memo)) do
         findings[#findings + 1] = "readers: " .. line
       end
+      Memprobe.mark("tree checks: readers")
       for _, line in ipairs(typed_findings(root, memo)) do
         findings[#findings + 1] = "typed: " .. line
       end
+      Memprobe.mark("tree checks: typed")
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
       end
+      Memprobe.mark("tree checks: checker")
       for _, line in ipairs(pipeline_findings(root, memo)) do
         findings[#findings + 1] = "pipeline: " .. line
       end
+      Memprobe.mark("tree checks: pipeline")
       if memo ~= nil then
         local _, _ = memo:close()
       end
@@ -1831,6 +1842,7 @@ local function fix_verb(argv: {integer:string}): integer
   lay_out_c(ctx)
   check_templates(ctx)
   lay_out_teal(ctx)
+  Memprobe.mark("fix: Teal laid out")
   wrap_asserts(ctx)
   find_unbuilt(ctx)
   run_tree_checks(ctx)

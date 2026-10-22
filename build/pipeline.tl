@@ -37,6 +37,7 @@ local Ast = require("lang.ast")
 local Contracts = require("build.contracts")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
+local Memprobe = require("build.memprobe")
 local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
@@ -182,7 +183,10 @@ local record Pipeline
   --- `facts` each read of a place a test narrowed is wrapped in a check ([`lang.fact_wraps`]). Where `judged` is false (a
   --- stale tool rebuilding itself) a breach of the discipline or of the stub is kept and the compile marked `refused`, as
   --- the fork's does. `built` must have kept the types ([`Pipeline.Options.types`]). The line of an error the docs answer for
-  --- carries a pointer to them when `hints` is given (the databases to look in, as [`ErrorRender.Hints`]).
+  --- carries a pointer to them when `hints` is given (the databases to look in, as [`ErrorRender.Hints`]). The module is
+  --- retired from the build when it is written ([`Driver.Build.retire`]), so a build writes a module once, and the caller
+  --- asks for the modules in the order they require one another: the build then holds the declarations of the modules it has
+  --- written and the syntax of the one it is writing. The collector is generational from the first module.
   generate: function(m: Module, built: Built, facts?: boolean, judged?: boolean, hints?: function(): {Sqlite.Handle}, {boolean}):
       Compilation.Generated | nil, string
 
@@ -467,6 +471,13 @@ function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer | nil, str
   return ErrorCatalog.insert(db, schema)
 end
 
+--- Puts the collector back in the mode `previous` names: the answer it gave when it was switched to the generational one.
+local function restore_collector(previous: string)
+  if previous == "incremental" then
+    collectgarbage("incremental")
+  end
+end
+
 function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                          made: {Derivation.Source}, broken?: {Derivation.Broken}, project?: boolean): boolean, string
   local entries, kinds, trouble = entries_of(db)
@@ -483,6 +494,9 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
     end
     by_file[named] = source
   end
+  -- Each source is read once and its rows kept: the garbage of one is freed as the next is read, and not when the heap has
+  -- doubled. The collector goes back to the mode it was in.
+  local previous = collectgarbage("generational")
   for _, one in ipairs(fresh) do
     -- A file the program leaves out (the fork's own checker, a fixture of a test) is read as a source of the fork's Teal.
     local source = by_file[one.file]
@@ -499,6 +513,7 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
     if first ~= nil then
       local message = ErrorRender.line(one.file, first)
       if broken == nil then
+        restore_collector(previous)
         return false, message
       end
       broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message }
@@ -522,12 +537,14 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
       -- lines a few off in a file the translation made a class of. A source written in the new grammar is unaffected.
       local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped, forked)
       if not put then
+        restore_collector(previous)
         return false, why
       end
       tally.parsed = tally.parsed + 1
       made[#made + 1] = { source_hash = one.source_hash, mapped = one.mapped }
     end
   end
+  restore_collector(previous)
   return true, ""
 end
 
@@ -544,12 +561,14 @@ local function stubs_of(built: Pipeline.Built): {string: Driver.Source}
   end
   if next(built.given) == nil then
     for _, source in ipairs(built.index.sources) do
-      local read = built.build:parsed(source.module)
-      if built.index.by_module[source.module] == source and Typed.judges_stub(source.filename, source.module) and
-          read ~= nil and not read.broken then
-        local made = Stub.made(read.chunk)
-        if made.pruned then
-          texts[source.module] = made.text
+      if built.index.by_module[source.module] == source and Typed.judges_stub(source.filename, source.module) then
+        -- Read apart from the build, so that the tokens of the whole library are not held while a stub is made of each.
+        local read = Driver.parse(source)
+        if #read.syntax == 0 then
+          local made = Stub.made(read.chunk)
+          if made.pruned then
+            texts[source.module] = made.text
+          end
         end
       end
     end
@@ -590,15 +609,19 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   built.stubbed = stubbed
   stubbed:lower({ m.path })
   local why = Typed.stub_verdict(made, built.build, result, stubbed)
+  stubbed:retire(m.path)
   if why ~= "" then
     return m.file .. ": the stub a project's checker reads in its place (build/stub.tl) cannot stand for its source: " .. why
   end
   return ""
 end
 
-function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: function(): {Sqlite.Handle}, {boolean}):
-    Compilation.Generated | nil, string
+local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
+                            hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated | nil, string
   local build = built.build
+  if build:retired(m.path) then
+    return nil, m.file .. ": this build has written the module already: a build writes each module once"
+  end
   -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, and the module is read again with them.
   local spliced, spec_trouble = TreeProgram.splice(build, m.path, m.file)
   if spliced == nil then
@@ -692,6 +715,34 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     return nil, dump_trouble
   end
   return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
+end
+
+--- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).
+local record Written
+  modules: integer
+end
+
+local written: Written = { modules = 0 }
+
+function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
+                           hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated | nil, string
+  -- Between two modules there is the garbage of one and the live data of the build. The generational collector frees the
+  -- garbage of a module as it is made, where the default waits until the heap has doubled, and the memory it frees is not given
+  -- back: the resident set of the run stays near the live data and not near the garbage. The caller writes modules until it is
+  -- done, with no call after the last, so the collector stays in this mode for the rest of the process.
+  if written.modules == 0 then
+    collectgarbage("generational")
+  end
+  local made, why = generated_of(m, built, facts, judged, hints)
+  built.build:retire(m.path)
+  written.modules = written.modules + 1
+  if written.modules % 100 == 0 then
+    Memprobe.mark(("pipeline: wrote %d"):format(written.modules))
+  end
+  if made == nil then
+    return nil, why
+  end
+  return made, ""
 end
 
 function Pipeline.requires(file: string, text: string): {string} | nil, string

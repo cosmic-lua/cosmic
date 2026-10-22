@@ -236,8 +236,9 @@ local function test_a_record_the_build_describes_is_resolved_in_the_text_the_che
   local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options("[checked]\nm.tl export_not_declared 1\n"))
   local made = assert(Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline))
   assert(made.lua:find("record_of(\"R\", ", 1, true) ~= nil, made.lua)
-  local read = assert(pipeline.build:parsed("m"))
-  assert(read.text:find("function(): R error(\"witness\") end", 1, true) ~= nil and read.lowered ~= nil)
+  -- the module is retired when it is written, and read again from the text it was given
+  assert(pipeline.build:result("m", true) == nil)
+  assert(assert(pipeline.build:parsed("m")).text == Translate.translate(source, "m.tl").text)
   -- a module without such a call is read once, as it was
   local plain = Pipeline.over({ { "p.tl", "return 1\n" } }, { ["p.tl"] = "module" },
     options("[checked]\np.tl export_not_declared 1\n"))
@@ -620,7 +621,9 @@ local function test_a_refused_call_points_to_the_worked_example_when_the_docs_ho
   local m = module_of("m", "m.tl", "module", text, {})
   local bare, bare_why = Pipeline.generate(m, pipeline)
   assert(bare == nil and bare_why:find("(arity)", 1, true) ~= nil and not bare_why:find("see also", 1, true), tostring(bare_why))
-  local pointed, why = Pipeline.generate(m, pipeline, false, true, function(): {Sqlite.Handle}, {boolean}
+  -- a module is written once by a build: this reads the same text in another
+  local again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local pointed, why = Pipeline.generate(m, again, false, true, function(): {Sqlite.Handle}, {boolean}
     return { db }, { false }
   end)
   assert(pointed == nil and why:find("(arity): ", 1, true) ~= nil and
@@ -688,6 +691,97 @@ local function fork_stub_differs(source: string, stub: string): boolean
     return built.check_string(text, env, "m.tl", "tl").type
   end
   return Stub.difference(type_of(source), type_of(stub)) ~= nil
+end
+
+--- The Lua of the module `first` and then of the module `second`, written in that order by one build, or why the build refuses it.
+local function written_in_order(first: string, first_text: string, second: string, second_text: string): string, string
+  local entries: {{string}} = { { first .. ".tl", first_text }, { second .. ".tl", second_text } }
+  local kinds: {string: string} = { [first .. ".tl"] = "module", [second .. ".tl"] = "module" }
+  local pipeline = Pipeline.over(entries, kinds, options(""))
+  local one, why_one = Pipeline.generate(module_of(first, first .. ".tl", "module", first_text, {}), pipeline)
+  local two, why_two = Pipeline.generate(module_of(second, second .. ".tl", "module", second_text, {}), pipeline)
+  if one == nil or two == nil then
+    return "refused: " .. tostring(why_one), "refused: " .. tostring(why_two)
+  end
+  return one.lua, two.lua
+end
+
+local SHAPE_HEAD <const> = "local Shape = require(\"cosmic.shape\")\n"
+
+--- Modules that declare a record, ask for its spec and hold a local of the type of another module: `a` and `b` require each
+--- other, and `top` requires `mid`.
+local RA <const> = SHAPE_HEAD .. "local type Other = require(\"b\")\nlocal record RA\n  n: integer\nend\n" ..
+  "local spec = Shape.record_of(\"RA\")\nlocal held: Other | nil = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn RA\n"
+local RB <const> = SHAPE_HEAD .. "local type Other = require(\"a\")\nlocal record RB\n  n: integer\nend\n" ..
+  "local spec = Shape.record_of(\"RB\")\nlocal held: Other | nil = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn RB\n"
+local WRAP <const> = SHAPE_HEAD .. "local record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
+  "if spec == nil then\n  error(\"no spec\")\nend\nreturn Wrap\n"
+local OWN <const> = SHAPE_HEAD .. "local type Other = require(\"mid\")\nlocal record Own\n  n: integer\nend\n" ..
+  "local spec = Shape.record_of(\"Own\")\nlocal held: Other | nil = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn Own\n"
+
+local function test_modules_that_require_one_another_and_each_resolve_a_record_are_each_resolved()
+  -- the second module is read in the closure of the first, and still gets its spec
+  local a, b = written_in_order("a", RA, "b", RB)
+  assert(a:find("record_of(\"RA\", ", 1, true) ~= nil, a)
+  assert(b:find("record_of(\"RB\", ", 1, true) ~= nil, b)
+  local b_first, a_second = written_in_order("b", RB, "a", RA)
+  assert(b_first:find("record_of(\"RB\", ", 1, true) ~= nil, b_first)
+  assert(a_second:find("record_of(\"RA\", ", 1, true) ~= nil, a_second)
+end
+
+local function test_a_module_that_resolves_a_record_is_resolved_though_the_module_that_requires_it_was_written_first()
+  -- `top` is written first, and the closure it is read with holds `mid`, which has a call of its own to resolve
+  local top, mid = written_in_order("top", OWN, "mid", WRAP)
+  assert(top:find("record_of(\"Own\", ", 1, true) ~= nil, top)
+  assert(mid:find("record_of(\"Wrap\", ", 1, true) ~= nil, mid)
+end
+
+local function test_a_module_is_written_once_by_a_build_and_asked_twice_it_says_why()
+  local source = "local record Box\n  n: integer\nend\nlocal b: Box = { n = 1 }\nreturn b\n"
+  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options(""))
+  local m = module_of("m", "m.tl", "module", source, {})
+  assert(Pipeline.generate(m, pipeline) ~= nil)
+  local again, why = Pipeline.generate(m, pipeline)
+  assert(again == nil and why:find("m.tl: this build has written the module already: a build writes each module once", 1, true) == 1,
+    tostring(why))
+end
+
+local function test_a_module_asked_for_before_the_module_it_requires_is_written_as_in_the_other_order()
+  local dep = "local record Dep\n  n: integer\nend\nlocal d: Dep = { n = 3 }\nreturn d\n"
+  local user = "local Dep = require(\"dep\")\nlocal n: integer = Dep.n\nlocal record Out\n  n: integer\nend\nlocal o: Out = { n = n }\nreturn o\n"
+  local entries: {{string}} = { { "dep.tl", dep }, { "user.tl", user } }
+  local kinds: {string: string} = { ["dep.tl"] = "module", ["user.tl"] = "module" }
+  --- The Lua of `path` (the file `path`.tl) written by `pipeline`.
+  local function lua_of(pipeline: Pipeline.Built, path: string, text: string): string
+    local made, why = Pipeline.generate(module_of(path, path .. ".tl", "module", text, {}), pipeline)
+    assert(made ~= nil, tostring(why))
+    return made.lua
+  end
+  local first = Pipeline.over(entries, kinds, options(""))
+  local dep_first = lua_of(first, "dep", dep)
+  local user_second = lua_of(first, "user", user)
+  local second = Pipeline.over(entries, kinds, options(""))
+  local user_first = lua_of(second, "user", user)
+  local dep_second = lua_of(second, "dep", dep)
+  assert(dep_first == dep_second and user_second == user_first)
+end
+
+local function test_a_standard_library_module_asked_for_before_the_stub_module_it_requires_is_held_to_its_stub()
+  local a = table.concat({ 'local Box = require("cosmic.b")', "local record A", "  b: Box", "end", "return A", "" }, "\n")
+  local b = table.concat({ "local record Box", "  n: integer", "end", "return Box", "" }, "\n")
+  local entries: {{string}} = { { "cosmic/a.tl", a }, { "cosmic/b.tl", b } }
+  local kinds: {string: string} = { ["cosmic/a.tl"] = "module", ["cosmic/b.tl"] = "module" }
+  local stubs: {string: string} = { ["cosmic.a"] = a, ["cosmic.b"] = b }
+  local pipeline = Pipeline.over(entries, kinds, options(""), stubs)
+  local ma = module_of("cosmic.a", "cosmic/a.tl", "module", a, {})
+  ma.stub = { text = a, pruned = true }
+  local mb = module_of("cosmic.b", "cosmic/b.tl", "module", b, {})
+  mb.stub = { text = b, pruned = true }
+  -- `cosmic.a` requires `cosmic.b`, which its stub check lowers: `cosmic.b` is then asked for, and is held to its stub as well
+  local made_a, why_a = Pipeline.generate(ma, pipeline)
+  assert(made_a ~= nil, tostring(why_a))
+  local made_b, why_b = Pipeline.generate(mb, pipeline)
+  assert(made_b ~= nil, tostring(why_b))
 end
 
 local function test_a_stub_that_types_a_module_otherwise_than_its_source_is_refused_as_the_fork_refuses_it()

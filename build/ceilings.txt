@@ -556,11 +556,12 @@ build/pipeline.tl condition_type 1
 build/pipeline.tl overload_none 2
 build/pipeline.tl view_as_mut 2
 build/pipeline_check.tl field_fixed 1
-build/pipeline_test.tl arms_differ 5
+build/pipeline_test.tl arms_differ 7
 build/pipeline_test.tl concat_type 1
 build/pipeline_test.tl field_fixed 1
 build/rebuild_lock.tl setmetatable_call 2
 build/rebuild_lock_tool_test.tl literal_missing 1
+build/driver_test.tl setmetatable_call 1
 build/sealed_worker_test.tl setmetatable_call 1
 build/syntax_link_text.tl setmetatable_call 1
 build/teal.tl setmetatable_call 1
@@ -1831,8 +1832,8 @@ build/docs_test.tl view_written 28
 build/doctest/generate.tl view_written 37
 build/doctest/generate_test.tl view_written 1
 build/doctest/markdown.tl view_written 5
-build/driver.tl view_written 36
-build/driver_test.tl view_written 4
+build/driver.tl view_written 42
+build/driver_test.tl view_written 5
 build/embed.tl view_written 9
 build/embed_tool_test.tl view_written 4
 build/entrypoint_test.tl view_written 1
@@ -1933,6 +1934,7 @@ build/lsp/splice.tl view_written 1
 build/lua_children_test.tl view_written 1
 build/lua_standalone_test.tl view_written 3
 build/lua_tail.tl view_written 1
+build/memprobe_test.tl view_written 2
 build/must_confine_fixture.tl view_written 1
 build/must_confine_sandboxed_test.tl view_written 1
 build/must_confine_test.tl view_written 1
@@ -1944,7 +1946,8 @@ build/perf.tl view_written 35
 build/perf_test.tl view_written 12
 build/perf_validation.tl view_written 17
 build/pipeline.tl view_written 31
-build/pipeline_check.tl view_written 19
+build/pipeline_check.tl view_written 20
+build/pipeline_memory_test.tl view_written 21
 build/pipeline_test.tl view_written 6
 build/policy_rules.tl view_written 5
 build/policy_rules_test.tl view_written 5
@@ -2080,10 +2083,10 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 314
+build/tree_checks.tl view_written 317
 build/tree_checks_test.tl view_written 25
-build/tree_program.tl view_written 11
-build/tree_program_test.tl view_written 3
+build/tree_program.tl view_written 14
+build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
 build/type_watch.tl view_written 2
 build/unix_socket.tl view_written 4
@@ -2670,7 +2673,7 @@ build/docs.tl field_fixed 9
 build/docs_checks_test.tl field_fixed 4
 build/doctest/generate.tl field_fixed 1
 build/doctest/generate_test.tl field_fixed 1
-build/driver.tl field_fixed 21
+build/driver.tl field_fixed 26
 build/driver_test.tl field_fixed 1
 build/embed.tl field_fixed 1
 build/error_render.tl field_fixed 1
@@ -2717,6 +2720,8 @@ build/lsp/session.tl field_fixed 10
 build/lsp/session_fixture.tl field_fixed 2
 build/lsp/source.tl field_fixed 28
 build/lsp/splice.tl field_fixed 2
+build/memprobe.tl field_fixed 2
+build/memprobe_test.tl field_fixed 8
 build/patch_test.tl field_fixed 1
 build/perf_test.tl field_fixed 3
 build/perf_validation.tl field_fixed 3
