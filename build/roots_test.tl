@@ -62,6 +62,7 @@ local function test_each_certificate_is_its_der_under_its_label(tmp: string)
     "",
     "Third Root",
     "==========",
+    "# Fingerprint (SHA-256): 04:04",
     block("\4"),
     "",
   }, "\n")))
@@ -72,7 +73,7 @@ local function test_each_certificate_is_its_der_under_its_label(tmp: string)
   assert(#rows == 3)
   assert(by_der[string.rep("01", 100)] == "First Root")
   assert(by_der["0203"] == "", "a block with no label has none")
-  assert(by_der["04"] == "Third Root")
+  assert(by_der["04"] == "Third Root", "a comment after the underline is no label")
 end
 
 local function test_a_broken_bundle_is_refused(tmp: string)
