@@ -17,7 +17,7 @@ Test.policy{
   },
 }
 
-local bundle <const> = "vendor/cacert/cacert.pem"
+local bundle <const> = "vendor/cacert/certdata.txt"
 
 --- The version `vendor/<name>/PIN` names: what a binary built from the
 --- tree records.
@@ -58,8 +58,9 @@ local function test_every_dataset_is_an_option()
   end
 end
 
+--- A PEM bundle `--cacert` names (curl's cacert.pem) is named by the
+--- date of the Mozilla data it holds.
 local function test_a_bundle_is_named_by_its_mozilla_date()
-  assert(refresh.cacert_date((assert(Fs.read(bundle)))) == pinned("cacert"))
   assert(refresh.cacert_date("##\n## Certificate data from Mozilla as of: Tue Sep  1 00:00:00 2026 GMT\n") ==
       "2026-09-01")
   assert(refresh.cacert_date("no date here") == nil)
@@ -69,6 +70,38 @@ local function test_a_bundle_is_named_by_its_mozilla_date()
         " 03:12:01 2026 GMT\n") == nil, day)
   end
   assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Tue Foo  1 00:00:00 2026 GMT\n") == nil)
+end
+
+--- The newest NSS release is the greatest version among the tags,
+--- compared by number, a patch release past its minor's; a tag that is
+--- no release is none.
+local function test_the_newest_nss_release_is_read_from_its_tags()
+  local function refs(...: string): string
+    local items: {string} = {}
+    for i, tag in ipairs({ ... }) do
+      items[i] = '{"ref": "refs/tags/' .. tag .. '", "object": {}}'
+    end
+    return "[" .. table.concat(items, ",") .. "]"
+  end
+  assert(refresh.newest_nss(refs("NSS_3_99_RTM", "NSS_3_131_RTM", "NSS_3_131_1_RTM", "NSS_3_132_BETA1")) ==
+      "NSS_3_131_1_RTM")
+  assert(refresh.newest_nss(refs("NSS_3_131_1_RTM", "NSS_3_132_RTM", "NSS_3_9_RTM")) == "NSS_3_132_RTM")
+  assert(refresh.newest_nss(refs("NSS_4_1_RTM", "NSS_3_200_RTM")) == "NSS_4_1_RTM")
+  assert(refresh.newest_nss(refs("NSS_3_132_BETA1", "nss-3.132")) == nil)
+  assert(refresh.newest_nss("[]") == nil)
+  -- The tree's own pin names one.
+  assert(refresh.newest_nss(refs(pinned("cacert"))) == pinned("cacert"))
+end
+
+--- The next page of a listing is the `Link` header's `rel="next"`, and
+--- the last page has none.
+local function test_the_next_page_is_read_from_the_link_header()
+  local api = "https://api.github.com/repositories/1/git/matching-refs/tags/NSS_?per_page=100"
+  assert(refresh.next_page('<' .. api .. '&page=2>; rel="next", <' .. api .. '&page=4>; rel="last"') ==
+      api .. "&page=2")
+  assert(refresh.next_page('<' .. api .. '&page=1>; rel="prev", <' .. api .. '&page=1>; rel="first"') == nil)
+  assert(refresh.next_page(nil) == nil)
+  assert(refresh.next_page("") == nil)
 end
 
 local function test_the_newest_sdist_is_read_from_pypi()

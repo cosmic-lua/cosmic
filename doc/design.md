@@ -469,7 +469,7 @@ in `decls`, including when it has no implementation.
 `ca_roots` and `zoneinfo` go stale on upstream's schedule, not the
 code's, so `cosmic refresh` ([`build/refresh.tl`]) writes a copy of a
 binary -- the tool, or any executable `cosmic build` wrote -- with
-either replaced from a newer release: fetched from curl.se or PyPI, or
+either replaced from a newer release: fetched from NSS (Mozilla's root store) or PyPI, or
 read from a file. It splits the artifact at its database
 ([`artifact.split`]), replaces the rows with the same functions a boot
 fills them with, records the release in `components`, and puts the

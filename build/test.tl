@@ -2321,7 +2321,8 @@ local sealed_schema <const>: {string} = {
   "CREATE TABLE zoneinfo (name TEXT PRIMARY KEY, data BLOB NOT NULL)",
   "CREATE TABLE web_assets (name TEXT PRIMARY KEY NOT NULL, data BLOB NOT NULL, " ..
     "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
-  "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL)",
+  "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL, " ..
+    "distrust_after TEXT NOT NULL)",
 }
 
 --- The statements [`write_sealed`] runs to fill a sealed database from
@@ -2375,7 +2376,7 @@ local sealed_fill <const>: {string} = {
   "INSERT INTO main.web_assets SELECT name, data, sha256, sha384, version FROM " ..
     "program.web_assets WHERE EXISTS (SELECT 1 FROM main.modules WHERE path = " ..
     "'cosmic.web.htmx') ORDER BY name",
-  "INSERT INTO main.ca_roots SELECT sha256, label, der FROM program.ca_roots WHERE EXISTS " ..
+  "INSERT INTO main.ca_roots SELECT sha256, label, der, distrust_after FROM program.ca_roots WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
 }
 

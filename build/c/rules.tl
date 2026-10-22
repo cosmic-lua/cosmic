@@ -151,6 +151,9 @@ local exempt: {string: string} = {
   ["core/syscalls_fs.c cosmic_sys_open_temporary held-across-raise"] =
     "its answer, and the answer's \"fd\" key, exist before the file is opened, " ..
     "so setting the descriptor into it allocates nothing",
+  ["core/http.h cosmic_tls_distrust single-file"] =
+    "its caller is curl's mbedtls verify callback, which patch/curl/05-distrust-after.txt " ..
+    "adds to vendor/curl, out of the core's own C these rules read",
   ["core/memory.h cosmic_malloc single-file"] = checked_only,
   ["core/memory.h cosmic_calloc single-file"] = checked_only,
   ["core/memory.h cosmic_realloc single-file"] = checked_only,

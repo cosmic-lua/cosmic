@@ -181,9 +181,11 @@ local tables: {{string}} = {
   -- own, which would more than double this one's size. Rows go in in
   -- `sha256` order, which keeps the file the same on every build, and
   -- [`build.roots`] never writes one certificate twice.
+  -- `distrust_after` is [`build.roots.Root`]'s.
   { "ca_roots", [[(sha256 BLOB NOT NULL,
                    label TEXT NOT NULL,
-                   der BLOB NOT NULL)]] },
+                   der BLOB NOT NULL,
+                   distrust_after TEXT NOT NULL)]] },
 
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
@@ -314,7 +316,7 @@ function schema.tables_digest(qualifier: string, web?: boolean): string
     "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
     "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
     "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
-    "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))), char(10) " ..
+    "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))) || ' ' || distrust_after, char(10) " ..
     "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '')" .. assets .. ")))"
 end
 

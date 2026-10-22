@@ -24,7 +24,7 @@ local verbs_fixture = require("build.verbs_fixture")
 --- to find or fetch zig.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/cacert.pem", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "vendor/cacert/certdata.txt", letters = "r" } },
   env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
     "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
@@ -36,7 +36,7 @@ local surplus = verb_cases.surplus
 
 --- The vendored bundle, which `refresh` reads with no network; the
 --- tree's root is where a test module loads.
-local bundle = assert(Fs.absolute("vendor/cacert/cacert.pem"))
+local bundle = assert(Fs.absolute("vendor/cacert/certdata.txt"))
 
 local cases = verb_cases.cases(bundle)
 
