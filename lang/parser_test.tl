@@ -315,6 +315,16 @@ local function test_a_call_opens_on_its_line()
     "(Local \"local\" [(Binding \"x\")] _ [(Call (Call (Name \"f\")) [(Name \"g\")])])", "same line")
 end
 
+local function test_a_token_that_spans_lines_ends_on_the_line_the_next_token_may_continue_from()
+  -- The string ends on the line of the `(`, so the `(` is a suffix of it, which is refused, and no statement of its own.
+  local parsed = Parser.parse(Lexer.lex("local x = [[a\nb]](g)", "t.tl"), "t.tl", "tl")
+  local codes = ""
+  for _, e in ipairs(parsed.errors) do
+    codes = codes .. tostring(e.code) .. " "
+  end
+  assert(codes == "suffix_needs_parens ", codes)
+end
+
 local function test_a_bar_that_begins_a_line_in_a_match_arm_starts_the_next_arm()
   -- Else `return v` would take `| (false, e)` for a bitwise or.
   same(tree("match f() do\n  | (true, v) then return v\n  | (false, e) then error(e)\nend"),
@@ -454,10 +464,10 @@ local function test_a_node_spans_its_tokens_and_a_block_its_terminator()
   local body = second.arms[1].body
   span = Ast.span(chunk, body)
   assert(span.y == 3 and span.yend == 4 and span.x == 3 and span.xend == 3, "the block ends at the end")
-  assert(body.close == body.last and chunk.tokens[body.close].text == "end", "close is the terminator")
+  assert(body.close == body.last and chunk.tokens.text[body.close] == "end", "close is the terminator")
   span = Ast.span(chunk, second)
   assert(span.y == 2 and span.yend == 4, "the if")
-  assert(chunk.first == 1 and chunk.last == #chunk.tokens and chunk.body.last == #chunk.tokens, "the chunk ends at EOF")
+  assert(chunk.first == 1 and chunk.last == #chunk.tokens.kind and chunk.body.last == #chunk.tokens.kind, "the chunk ends at EOF")
 end
 
 local function test_the_elseif_arms_of_an_if_do_not_overlap()

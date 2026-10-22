@@ -1334,11 +1334,11 @@ local function test_a_respelling_keeps_every_line_where_it_was()
   for _, word in ipairs({ "local", "for" }) do
     local before: {integer} = {}
     local after: {integer} = {}
-    for _, t in ipairs(want) do
-      if t.text == word and t.kind == "keyword" then before[#before + 1] = t.y end
+    for i, text in ipairs(want.text) do
+      if text == word and want.kind[i] == "keyword" then before[#before + 1] = Lexer.y(want, i) end
     end
-    for _, t in ipairs(got) do
-      if t.text == word and t.kind == "keyword" then after[#after + 1] = t.y end
+    for i, text in ipairs(got.text) do
+      if text == word and got.kind[i] == "keyword" then after[#after + 1] = Lexer.y(got, i) end
     end
     assert(table.concat(before, ",") == table.concat(after, ","), word)
   end

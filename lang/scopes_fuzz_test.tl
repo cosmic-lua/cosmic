@@ -38,7 +38,7 @@ end
 
 --- What the reference finds in a tree.
 local record Reference
-  tokens: {Lexer.Token}
+  tokens: Lexer.Tokens
   --- For each name, the id of its declaration, 0 for a global.
   bound: {integer: integer}
   --- The errors expected, as `code y:x`.
@@ -63,8 +63,7 @@ local ref_exp: function(r: Reference, e: Ast.Node, env: Decl | nil, fn: integer)
 local ref_block: function(r: Reference, stats: {Ast.Stat}, env: Decl | nil, fn: integer): Decl | nil
 
 local function expect(r: Reference, code: string, token: integer)
-  local t = r.tokens[token]
-  r.errors[#r.errors + 1] = code .. " " .. t.y .. ":" .. t.x
+  r.errors[#r.errors + 1] = code .. " " .. r.tokens.y[token] .. ":" .. Lexer.x(r.tokens, token)
 end
 
 --- The environment after declaring `binding`, and the error a shadow is.

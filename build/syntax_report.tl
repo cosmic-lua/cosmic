@@ -10,6 +10,7 @@
 --- record declares it, under a path that leaves out that record's name (`Writer`), as the fork's rows spell a member.
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
+local Lexer = require("lang.lexer")
 local Driver = require("build.driver")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")
@@ -153,7 +154,7 @@ function Report.declaring(decl: Types.Decl, name: string): Types.Decl | nil
 end
 
 function Report.line(subject: Report.Subject, token: integer): integer
-  return subject.chunk.tokens[token].y
+  return Lexer.y(subject.chunk.tokens, token)
 end
 
 return Report

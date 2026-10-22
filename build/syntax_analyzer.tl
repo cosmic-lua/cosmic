@@ -122,9 +122,15 @@ local function nth<T>(list: {T}, at: integer): T
   return found
 end
 
+--- Token `at` of `tokens`, which the caller knows to be there ([`nth`]).
+local function token_at(tokens: Lexer.Tokens, at: integer): Lexer.Token
+  assert(tokens.kind[at] ~= nil, "the tokens hold an element at " .. tostring(at))
+  return Lexer.token(tokens, at)
+end
+
 --- The first token of `node`.
 local function first_token(chunk: Ast.Chunk, node: Ast.Node): Lexer.Token
-  return nth(chunk.tokens, Node.base(node).first)
+  return token_at(chunk.tokens, Node.base(node).first)
 end
 
 --- The first name of the path of a `function Owner.name()` statement, or "" for any other statement or path.
@@ -227,7 +233,7 @@ end
 --- carries every comment before it, and the line it starts on. A run that ends right above a function declaration is
 --- that function's, not the module's; above a record or a type it is both's.
 local function module_doc(chunk: Ast.Chunk): string, integer
-  local comments = nth(chunk.tokens, 1).comments
+  local comments = chunk.tokens.comments[1]
   if comments == nil or #comments == 0 then
     return "", 1
   end
@@ -288,13 +294,13 @@ end
 local function head_text(chunk: Ast.Chunk, lines: {string}, first: integer, body: Ast.Block): string
   local tokens = chunk.tokens
   local start = Node.base(body).first
-  local opener, last = nth(tokens, first), nth(tokens, start - 1)
+  local opener, last = token_at(tokens, first), token_at(tokens, start - 1)
   local head: {integer: string} = {}
   for line_no = opener.y, last.yend do
     head[line_no] = lines[line_no] or ""
   end
   for at = first + 1, start - 1 do
-    for _, comment in ipairs(nth(tokens, at).comments or {}) do
+    for _, comment in ipairs(tokens.comments[at] or {}) do
       local line = head[comment.y]
       if line ~= nil then
         head[comment.y] = line:sub(1, comment.x - 1) .. string.rep(" ", #comment.text) ..
@@ -444,14 +450,14 @@ local function field_signature(chunk: Ast.Chunk, lines: {string}, member: Ast.Me
   if member is Ast.FieldDecl then
     start = Node.base(member.type).first
   end
-  local first, last = nth(tokens, start), nth(tokens, base.last)
+  local first, last = token_at(tokens, start), token_at(tokens, base.last)
   if last.yend == first.y then
     return line_at(lines, first.y)
   end
   -- Where a comment starts on each line the type spans.
   local comment_at: {integer: integer} = {}
   for at = start + 1, base.last do
-    for _, comment in ipairs(nth(tokens, at).comments or {}) do
+    for _, comment in ipairs(tokens.comments[at] or {}) do
       if comment_at[comment.y] == nil then
         comment_at[comment.y] = comment.x
       end
@@ -1182,7 +1188,7 @@ local function plain_string(chunk: Ast.Chunk, node: Ast.Exp, path: string): stri
   end
   -- The literal as written, which is what the token holds: an escape the running module decodes would read otherwise
   -- here.
-  local written = chunk.tokens[Node.base(node).first].text
+  local written = Lexer.text(chunk.tokens, Node.base(node).first)
   if written:find("\\", 1, true) ~= nil or written:sub(1, 1) == "[" then
     return nil, path .. ": " .. written .. ": write declared paths plainly, without escapes or long brackets"
   end
@@ -1384,7 +1390,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared |
   local tokens = chunk.tokens
   --- The line a call's arguments start on: where a call is placed.
   local function args_line(call: Ast.Call): integer
-    return nth(tokens, Node.base(call.callee).last + 1).y
+    return token_at(tokens, Node.base(call.callee).last + 1).y
   end
   local function at(line: integer): string
     return name .. ":" .. tostring(line) .. ": test.policy: "
@@ -1421,7 +1427,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared |
     end
   end)
   if elsewhere[1] ~= nil then
-    return nil, at(nth(tokens, Node.base(nth(elsewhere, 1)).last).y) .. "call it as a statement at the module's top level, " ..
+    return nil, at(token_at(tokens, Node.base(nth(elsewhere, 1)).last).y) .. "call it as a statement at the module's top level, " ..
       "on the name the module binds require(\"cosmic.test\") to, and nowhere else"
   end
   if found == nil then

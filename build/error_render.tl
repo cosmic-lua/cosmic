@@ -85,13 +85,12 @@ local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem):
   if at == nil then
     return nil
   end
-  local token = tokens[at]
-  if token ~= nil and problem.code == "unknown_variable" then
-    return token.text
+  local text = tokens.text[at]
+  if text ~= nil and problem.code == "unknown_variable" then
+    return text
   end
-  local literal = tokens[at + 2]
-  if literal ~= nil and literal.kind == "string" then
-    return literal.value
+  if tokens.kind[at + 2] == "string" then
+    return tokens.value[at + 2]
   end
   return nil
 end

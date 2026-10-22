@@ -16,7 +16,7 @@
 --- and [`lang.parser`] refuses the statement.
 ---
 --- The tokens and the comments between them hold every byte of the source
---- but whitespace: a token's `offset` and `length` and a comment's say where
+--- but whitespace: a token's `offset` and length and a comment's say where
 --- each byte is, so a file is written back from them. A comment is not a
 --- token. It is `--` to the end of the line, without the line break, and is
 --- kept on the token after it, in `comments`. The final `$EOF$` token keeps
@@ -120,8 +120,9 @@ local record Lexer
     x: integer
   end
 
-  --- A token. The positions are those of its first and last byte; for the
-  --- `$EOF$` token, which is empty, `xend` is `x - 1`.
+  --- One token, as [`Lexer.token`] copies it out of [`Tokens`]. The
+  --- positions are those of its first and last byte; for the `$EOF$` token,
+  --- which is empty, `xend` is `x - 1`.
   record Token
     kind: Kind
     --- The source bytes of the token, exactly. A string token holds its
@@ -148,6 +149,45 @@ local record Lexer
     comments: {Comment} | nil
   end
 
+  --- The tokens of a source, in source order, the last an `$EOF$`: parallel
+  --- arrays indexed by token number, not a table for each token, because a
+  --- tree has millions of tokens. `kind`, `text`, `offset` and `y` hold every
+  --- token, and a reader that goes over the tokens reads them as arrays. One
+  --- that looks at a token here and there asks [`Lexer.kind`], [`Lexer.text`],
+  --- [`Lexer.offset`], [`Lexer.y`] and the functions beside them, which answer
+  --- what an array read cannot: a value that is there. A field a token seldom
+  --- has is a map from the token number, and is read through the function
+  --- that answers its absence ([`Lexer.yend`], [`Lexer.xend`],
+  --- [`Lexer.long`]). A column is derived ([`Lexer.x`]). [`Lexer.token`]
+  --- copies one token out as a [`Token`].
+  record Tokens
+    kind: {Kind}
+    --- The source bytes of the token, exactly. A string token holds its
+    --- quotes and a long string its brackets. The length of a token is the
+    --- length of its text.
+    text: {string}
+    --- The byte offset of the first byte, from 1.
+    offset: {integer}
+    --- The line, from 1, of the first byte.
+    y: {integer}
+    --- The offset of the first byte of each line, by line number.
+    line: {integer}
+    --- Where the last byte is, for a token whose last byte is not on its line
+    --- (`yend`) or not at its column plus the length minus one (`xend`). Use
+    --- [`Lexer.yend`] and [`Lexer.xend`].
+    yend: {integer: integer}
+    xend: {integer: integer}
+    --- A string's contents, escapes decoded and, for a long string, without
+    --- the line break after its opening bracket. Absent for any other token.
+    value: {integer: string}
+    --- A number's value. Absent for any other token and for a number Lua
+    --- cannot read.
+    number: {integer: number}
+    --- The comments before the token, in source order. Absent where there
+    --- are none.
+    comments: {integer: {Comment}}
+  end
+
   --- A lexical error. `y`, `x`, `offset` and `length` place the bytes at
   --- fault.
   record Error
@@ -167,7 +207,7 @@ local record Lexer
   --- answers one ([`build.contracts`]).
   record Lexed
     --- Every token in source order, the last an `$EOF$`.
-    tokens: {Token}
+    tokens: Tokens
     --- Every error in source order.
     errors: {Error}
   end
@@ -175,6 +215,43 @@ local record Lexer
   --- Lexes `source`, which is named `name` in each error. A program and a
   --- declaration file (`.d.tl`) lex alike.
   lex: function(source: string, name: string): Lexed
+
+  --- How many tokens there are, the `$EOF$` among them.
+  count: function(tokens: Tokens): integer
+
+  --- The kind of token `i`, which is there: asking for another raises an error.
+  kind: function(tokens: Tokens, i: integer): Kind
+
+  --- The source bytes of token `i`, which is there.
+  text: function(tokens: Tokens, i: integer): string
+
+  --- The offset of the first byte of token `i`, which is there.
+  offset: function(tokens: Tokens, i: integer): integer
+
+  --- The line of the first byte of token `i`, which is there.
+  y: function(tokens: Tokens, i: integer): integer
+
+  --- The column, from 1, of the first byte of token `i`, which is there.
+  x: function(tokens: Tokens, i: integer): integer
+
+  --- The length in bytes of token `i`, which is there.
+  length: function(tokens: Tokens, i: integer): integer
+
+  --- The offset one past the last byte of token `i`, which is there.
+  stop: function(tokens: Tokens, i: integer): integer
+
+  --- The line of the last byte of token `i`, which is there.
+  yend: function(tokens: Tokens, i: integer): integer
+
+  --- The column of the last byte of token `i`, which is there.
+  xend: function(tokens: Tokens, i: integer): integer
+
+  --- Whether token `i` is a long string.
+  long: function(tokens: Tokens, i: integer): boolean
+
+  --- Token `i`, which is there, as a table of its own. It costs a table, so a
+  --- reader that looks at every token reads the arrays of [`Tokens`] instead.
+  token: function(tokens: Tokens, i: integer): Token
 
   --- Every reserved word, as `keyword` tokens.
   reserved: {string: boolean}
@@ -191,6 +268,8 @@ local record Lexer
   declaration_words: {string}
 
 end
+
+local type Tokens = Lexer.Tokens
 
 local lua_words: {string} = {
   "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
@@ -309,9 +388,10 @@ end
 
 --- The line and the offset of its first byte after the line breaks in
 --- `text`, which holds the source from offset `base`, and the offset of the
---- line before it. It reads the token's own bytes only, so a long line costs
+--- line before it. The offset of each line that begins in `text` is entered
+--- in `tokens.line`. It reads the token's own bytes only, so a long line costs
 --- what it holds.
-local function advance_lines(text: string, base: integer, line: integer,
+local function advance_lines(tokens: Tokens, text: string, base: integer, line: integer,
                              line_start: integer): integer, integer, integer
   local p = 1
   local previous = line_start
@@ -324,6 +404,7 @@ local function advance_lines(text: string, base: integer, line: integer,
     p = q + break_at(text, q)
     previous = line_start
     line_start = base + p - 1
+    tokens.line[#tokens.line + 1] = line_start
   end
 end
 
@@ -331,9 +412,9 @@ end
 --- and which begins on `line` at `line_start`, leaves the lexer at: the line
 --- and the offset of the line that follows it, and the place of its last
 --- byte (which is on the line before when it is a line break).
-local function span_end(text: string, base: integer, line: integer,
+local function span_end(tokens: Tokens, text: string, base: integer, line: integer,
                         line_start: integer): integer, integer, integer, integer
-  local yend, yend_start, previous = advance_lines(text, base, line, line_start)
+  local yend, yend_start, previous = advance_lines(tokens, text, base, line, line_start)
   local last = base + #text - 1
   if yend_start == last + 1 then
     return yend, yend_start, yend - 1, last - previous + 1
@@ -533,8 +614,30 @@ end
 local malformed_fix <const> = "write decimal digits with an optional fraction and exponent (`12`, `1.5`, `2e10`) " ..
   "or `0x` and hexadecimal digits (`0xFF`), and put a space between a number and the name or operator after it"
 
+--- Records where the last byte of token `n` is, when that is not where its
+--- line and length put it: a token that spans lines, or ends in a line break.
+local function mark_end(tokens: Tokens, n: integer, y: integer, x: integer, length: integer,
+                        end_y: integer, end_x: integer)
+  if end_y ~= y then
+    tokens.yend[n] = end_y
+  end
+  if end_x ~= x + length - 1 then
+    tokens.xend[n] = end_x
+  end
+end
+
 function Lexer.lex(source: string, name: string): Lexer.Lexed
-  local tokens: {Lexer.Token} = {}
+  local tokens: Tokens = {
+    kind = {}, text = {}, offset = {}, y = {}, line = {}, yend = {}, xend = {}, value = {}, number = {}, comments = {},
+  }
+  -- The loop writes the arrays through the names below, and each is written once through `tokens`, which is what
+  -- shows [`lang.translate`] that the record's field changes.
+  --
+  -- TODO: write the arrays through their names alone, once `mut_tracker` of lang/translate.tl credits a field of a
+  -- record to a write through a local that holds it.
+  local kinds, texts, offsets, ys = tokens.kind, tokens.text, tokens.offset, tokens.y
+  local line_offsets, values, comments_at = tokens.line, tokens.value, tokens.comments
+  tokens.line[#tokens.line + 1] = 1
   local errors: {Lexer.Error} = {}
   local n = 0
   local len = #source
@@ -546,20 +649,18 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   if sub(source, 1, 2) == "#!" then
     local e = (find(source, "[\r\n]", 3) or len + 1) - 1
     n = 1
-    tokens[1] = {
-      kind = "$ERR$", text = sub(source, 1, e), offset = 1, length = e, y = 1, x = 1, yend = 1, xend = e,
-    }
+    kinds[#kinds + 1], texts[#texts + 1], offsets[#offsets + 1], ys[#ys + 1] = "$ERR$", sub(source, 1, e), 1, 1
     add_error(errors, name, "hashbang", "a `#!` first line is not in the grammar",
       "delete the line; run the file with `cosmic " .. name .. "`", 1, e, 1, 1)
     pos = e + 1
   end
 
-  -- A token of one line and of nothing but its kind and text is made at the
-  -- foot of the loop: eight fields, which a table holds in half the space of
-  -- nine. Tokens that carry more are made where they are read.
+  -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
+  -- the loop makes the token. What only some tokens carry is entered here, under the number of the token to come.
   while pos <= len do
     local b = byte(source, pos)
     local c = class[b]
+    local first_line = line
     local kind: Lexer.Kind | nil = nil
     local text = ""
     local e = pos
@@ -579,6 +680,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       line = line + 1
       pos = pos + break_at(source, pos)
       line_start = pos
+      line_offsets[#line_offsets + 1] = pos
     elseif c == 7 then
       kind = "op"
       if second[b][byte(source, pos + 1)] then
@@ -599,18 +701,15 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         local cs, ce = find(source, close, open_end + 1, true)
         if not cs then
           local text_to_end = sub(source, pos)
-          local yend, yend_start, end_y, end_x = span_end(text_to_end, pos, line, line_start)
-          n = n + 1
-          tokens[n] = {
-            kind = "$ERR$", text = text_to_end, offset = pos, length = len - pos + 1,
-            y = line, x = x, yend = end_y, xend = end_x, comments = pending,
-          }
-          pending = nil
+          local yend, yend_start, end_y, end_x = span_end(tokens, text_to_end, pos, line, line_start)
+          kind = "$ERR$"
+          text = text_to_end
+          e = len
+          mark_end(tokens, n + 1, line, x, len - pos + 1, end_y, end_x)
           add_error(errors, name, "unterminated_long_comment", "unfinished long comment",
             "write line comments, which begin each line with `--`; a long comment is not in the grammar" ..
               " and this one has no closing `" .. close .. "`", pos, len - pos + 1, line, x)
           line, line_start = yend, yend_start
-          pos = len + 1
         else
           local comment_text = sub(source, pos, ce)
           local comments = pending or {}
@@ -620,7 +719,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           pending = comments
           add_error(errors, name, "long_comment", "long comments are not in the grammar",
             "write line comments: begin each line of the comment with `--`", pos, ce - pos + 1, line, x)
-          line, line_start = advance_lines(comment_text, pos, line, line_start)
+          line, line_start = advance_lines(tokens, comment_text, pos, line, line_start)
           pos = ce + 1
         end
       else
@@ -644,14 +743,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       local s = find(source, b == 34 and "[\"\\\r\n]" or "['\\\r\n]", pos + 1)
       if s and byte(source, s) == b then
         -- No escape and no line break: the common string, on one line.
-        n = n + 1
-        tokens[n] = {
-          kind = "string", text = sub(source, pos, s), value = sub(source, pos + 1, s - 1),
-          offset = pos, length = s - pos + 1, y = line, x = x, yend = line, xend = x + s - pos,
-          comments = pending,
-        }
-        pending = nil
-        pos = s + 1
+        kind = "string"
+        text = sub(source, pos, s)
+        e = s
+        tokens.value[n + 1] = sub(source, pos + 1, s - 1)
       else
         local close, stop, bad_at, bad_length, bad_fix = read_string(source, pos, b)
         local token_text = sub(source, pos, stop)
@@ -659,14 +754,14 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         if close > 0 and bad_at == 0 then
           value = decode(sub(source, pos + 1, close - 1))
         end
-        local yend, yend_start, end_y, end_x = span_end(token_text, pos, line, line_start)
-        n = n + 1
-        tokens[n] = {
-          kind = close > 0 and bad_at == 0 and "string" or "$ERR$", text = token_text, value = value,
-          offset = pos, length = stop - pos + 1, y = line, x = x, yend = end_y, xend = end_x,
-          comments = pending,
-        }
-        pending = nil
+        local yend, yend_start, end_y, end_x = span_end(tokens, token_text, pos, line, line_start)
+        kind = close > 0 and bad_at == 0 and "string" or "$ERR$"
+        text = token_text
+        e = stop
+        if value ~= nil then
+          values[n + 1] = value
+        end
+        mark_end(tokens, n + 1, line, x, stop - pos + 1, end_y, end_x)
         if close == 0 then
           local quote = b == 34 and "\"" or "'"
           add_error(errors, name, "unterminated_string", "unterminated string",
@@ -674,13 +769,20 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
               " next line end this line with `\\`, or write a long string `[[ ... ]]`",
             pos, stop - pos + 1, line, x)
         elseif bad_at > 0 then
-          local bad_line, bad_start = advance_lines(sub(source, pos, bad_at - 1), pos, line, line_start)
+          -- The lines the token has are entered by now: the one the bad escape is on is the last that begins before it.
+          local bad_line, bad_start = line, line_start
+          while true do
+            local following = line_offsets[bad_line + 1]
+            if following == nil or following > bad_at then
+              break
+            end
+            bad_line, bad_start = bad_line + 1, following
+          end
           add_error(errors, name, "bad_escape",
             "invalid escape `\\" .. shown(sub(source, bad_at + 1, bad_at + bad_length - 1)) .. "`",
             bad_fix, bad_at, bad_length, bad_line, bad_at - bad_start + 1)
         end
         line, line_start = yend, yend_start
-        pos = stop + 1
       end
     elseif c == 5 or (c == 9 and (byte(source, pos + 1) or 0) >= 48 and (byte(source, pos + 1) or 0) <= 57) then
       local ne = numeral_end(source, pos)
@@ -708,13 +810,12 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
             hex_float_fix(value), pos, ne - pos + 1, line, x)
         end
       end
-      n = n + 1
-      tokens[n] = {
-        kind = number_kind, text = number_text, number = value, offset = pos, length = ne - pos + 1,
-        y = line, x = x, yend = line, xend = x + ne - pos, comments = pending,
-      }
-      pending = nil
-      pos = ne + 1
+      kind = number_kind
+      text = number_text
+      e = ne
+      if value ~= nil then
+        tokens.number[n + 1] = value
+      end
     elseif c == 9 then
       if byte(source, pos + 1) == 46 then
         kind = "op"
@@ -755,7 +856,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         local cs, ce = find(source, close, open_end + 1, true)
         local last = ce or len
         local token_text = sub(source, pos, last)
-        local yend, yend_start, end_y, end_x = span_end(token_text, pos, line, line_start)
+        local yend, yend_start, end_y, end_x = span_end(tokens, token_text, pos, line, line_start)
         local value: string | nil = nil
         if cs then
           local contents = sub(source, open_end + 1 + break_at(source, open_end + 1), cs - 1)
@@ -767,15 +868,14 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           add_error(errors, name, "unterminated_long_string", "unterminated long string",
             "close the string with `" .. close .. "`", pos, last - pos + 1, line, x)
         end
-        n = n + 1
-        tokens[n] = {
-          kind = cs and "string" or "$ERR$", text = token_text, value = value, long = cs and true or nil,
-          offset = pos, length = last - pos + 1, y = line, x = x, yend = end_y, xend = end_x,
-          comments = pending,
-        }
-        pending = nil
+        kind = cs and "string" or "$ERR$"
+        text = token_text
+        e = last
+        if value ~= nil then
+          values[n + 1] = value
+        end
+        mark_end(tokens, n + 1, line, x, last - pos + 1, end_y, end_x)
         line, line_start = yend, yend_start
-        pos = last + 1
       end
     else
       -- A cut `;`, or a byte that begins no token.
@@ -814,26 +914,136 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     end
     if kind ~= nil then
       n = n + 1
-      local x = pos - line_start + 1
-      local token: Lexer.Token = {
-        kind = kind, text = text, offset = pos, length = e - pos + 1,
-        y = line, x = x, yend = line, xend = x + e - pos,
-      }
-      if pending then
-        token.comments = pending
+      kinds[#kinds + 1], texts[#texts + 1], offsets[#offsets + 1], ys[#ys + 1] = kind, text, pos, first_line
+      if pending ~= nil then
+        comments_at[n] = pending
         pending = nil
       end
-      tokens[n] = token
       pos = e + 1
     end
   end
 
-  local x = pos - line_start + 1
-  tokens[n + 1] = {
-    kind = "$EOF$", text = "", offset = pos, length = 0, y = line, x = x, yend = line, xend = x - 1,
-    comments = pending,
-  }
+  n = n + 1
+  tokens.kind[#tokens.kind + 1], tokens.text[#tokens.text + 1] = "$EOF$", ""
+  tokens.offset[#tokens.offset + 1], tokens.y[#tokens.y + 1] = pos, line
+  if pending ~= nil then
+    tokens.comments[n] = pending
+  end
   return { tokens = tokens, errors = errors }
+end
+
+function Lexer.count(tokens: Lexer.Tokens): integer
+  return #tokens.kind
+end
+
+function Lexer.kind(tokens: Lexer.Tokens, i: integer): Lexer.Kind
+  local kind = tokens.kind[i]
+  if kind == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return kind
+end
+
+function Lexer.text(tokens: Lexer.Tokens, i: integer): string
+  local text = tokens.text[i]
+  if text == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return text
+end
+
+function Lexer.offset(tokens: Lexer.Tokens, i: integer): integer
+  local offset = tokens.offset[i]
+  if offset == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return offset
+end
+
+function Lexer.y(tokens: Lexer.Tokens, i: integer): integer
+  local y = tokens.y[i]
+  if y == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return y
+end
+
+function Lexer.x(tokens: Lexer.Tokens, i: integer): integer
+  local offset, y = tokens.offset[i], tokens.y[i]
+  if offset == nil or y == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  local first = tokens.line[y]
+  if first == nil then
+    error("there is no line " .. tostring(y), 2)
+  end
+  return offset - first + 1
+end
+
+function Lexer.length(tokens: Lexer.Tokens, i: integer): integer
+  local text = tokens.text[i]
+  if text == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return #text
+end
+
+function Lexer.stop(tokens: Lexer.Tokens, i: integer): integer
+  local offset, text = tokens.offset[i], tokens.text[i]
+  if offset == nil or text == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return offset + #text
+end
+
+function Lexer.yend(tokens: Lexer.Tokens, i: integer): integer
+  local y = tokens.y[i]
+  if y == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  return tokens.yend[i] or y
+end
+
+function Lexer.xend(tokens: Lexer.Tokens, i: integer): integer
+  local offset, y, text = tokens.offset[i], tokens.y[i], tokens.text[i]
+  if offset == nil or y == nil or text == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  local first = tokens.line[y]
+  if first == nil then
+    error("there is no line " .. tostring(y), 2)
+  end
+  return tokens.xend[i] or offset - first + #text
+end
+
+function Lexer.long(tokens: Lexer.Tokens, i: integer): boolean
+  local kind, text = tokens.kind[i], tokens.text[i]
+  if kind == nil or text == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  -- A long string begins with a bracket and a short one with a quote, which sorts before it.
+  return kind == "string" and text >= "["
+end
+
+function Lexer.token(tokens: Lexer.Tokens, i: integer): Lexer.Token
+  local kind, text, offset, y = tokens.kind[i], tokens.text[i], tokens.offset[i], tokens.y[i]
+  if kind == nil or text == nil or offset == nil or y == nil then
+    error("there is no token " .. tostring(i), 2)
+  end
+  local first = tokens.line[y]
+  if first == nil then
+    error("there is no line " .. tostring(y), 2)
+  end
+  local x = offset - first + 1
+  local long: boolean | nil = nil
+  if kind == "string" and text >= "[" then
+    long = true
+  end
+  return {
+    kind = kind, text = text, value = tokens.value[i], number = tokens.number[i], long = long, offset = offset,
+    length = #text, y = y, x = x, yend = tokens.yend[i] or y, xend = tokens.xend[i] or x + #text - 1,
+    comments = tokens.comments[i],
+  }
 end
 
 Lexer.reserved = reserved_set

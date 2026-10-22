@@ -450,7 +450,7 @@ rewritten by hand in Teal first, so the translator never meets them.
 ### kinds
 
 ```text
-Chunk        body: Block, tokens: {Token}, requires: {Require}
+Chunk        body: Block, tokens: Tokens, requires: {Require}   (* Tokens: parallel arrays, not a table per token *)
 Block        stats: {Stat}, close: token          (* the end/else/until/EOF that ended it *)
 Require      module: string, node: id             (* each literal require("m") call *)
 

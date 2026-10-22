@@ -15,6 +15,7 @@
 --- pre-order walk, and every require names a node. Every error has a code, a
 --- message and a fix, lies within the source and comes in source order.
 local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 
 local record Cover
@@ -50,7 +51,7 @@ local function walk(node: Ast.Node, parent: Ast.Base, state: Walk)
   end
   state.ids[state.count] = true
   local tokens = state.chunk.tokens
-  if b.first < 1 or b.last > #tokens or b.first > b.last + 1 then
+  if b.first < 1 or b.last > #tokens.kind or b.first > b.last + 1 then
     state.problem = at .. " names tokens outside the chunk or backwards"
     return
   end
@@ -76,10 +77,9 @@ local function walk(node: Ast.Node, parent: Ast.Base, state: Walk)
       end
       expected = s.last + 1
     end
-    local close = tokens[node.close]
     -- The terminator is the block's own, unless the construct around the block did not consume it.
     if state.problem == "" and (expected ~= node.close or (node.last ~= node.close and node.last ~= node.close - 1) or
-        not TERMINATORS[close.text]) then
+        not TERMINATORS[Lexer.text(tokens, node.close)]) then
       state.problem = at .. " does not end at its terminator: its statements end at token " .. (expected - 1) .. ", it closes at " .. node.close
     end
   end
@@ -87,7 +87,7 @@ end
 
 function Cover.check(source: string, parsed: Parser.Parsed): boolean, string
   local chunk = parsed.chunk
-  if chunk.first ~= 1 or chunk.last ~= #chunk.tokens or chunk.id ~= 1 then
+  if chunk.first ~= 1 or chunk.last ~= #chunk.tokens.kind or chunk.id ~= 1 then
     return false, "the chunk does not span the tokens or is not node 1"
   end
   local state: Walk = { chunk = chunk, count = 1, problem = "", ids = { true } }

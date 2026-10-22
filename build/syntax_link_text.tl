@@ -18,7 +18,7 @@ local Scopes = require("lang.scopes")
 local record SyntaxLinkText
   --- The line comments `tokens` carry, in the order of their lines, markers taken off. A source that does not parse has
   --- its comments too ([`lang.lexer`] lexes whatever it is given).
-  comments_of: function(tokens: {Lexer.Token}): {LinkText.Comment}
+  comments_of: function(tokens: Lexer.Tokens): {LinkText.Comment}
 
   --- What `chunk` declares where each of its comments stands, and what it declares at its top level and nowhere else;
   --- `scoped` is the resolution of its names ([`Node.scope`]). See [`build.link_text`]'s `declarations`.
@@ -29,10 +29,10 @@ local record SyntaxLinkText
   found: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): {LinkText.Found}
 end
 
-function SyntaxLinkText.comments_of(tokens: {Lexer.Token}): {LinkText.Comment}
+function SyntaxLinkText.comments_of(tokens: Lexer.Tokens): {LinkText.Comment}
   local comments: {LinkText.Comment} = {}
-  for _, token in ipairs(tokens) do
-    for _, comment in ipairs(token.comments or {}) do
+  for token = 1, #tokens.kind do
+    for _, comment in ipairs(tokens.comments[token] or {}) do
       local text = comment.text
       local body = text:gsub("^%-%-+", "")
       local gone = #text - #body
@@ -164,10 +164,10 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     end
   end)
   -- The words a comment is read at: the token each comment's line stands before, and whether it is a doc comment's.
-  local before: {integer: Lexer.Token} = {}
+  local before: {integer: integer} = {}
   local doc: {integer: boolean} = {}
-  for _, token in ipairs(chunk.tokens) do
-    for _, comment in ipairs(token.comments or {}) do
+  for token = 1, #chunk.tokens.kind do
+    for _, comment in ipairs(chunk.tokens.comments[token] or {}) do
       before[comment.y] = token
       doc[comment.y] = comment.text:match("^%-%-%-") ~= nil
     end
@@ -207,7 +207,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     local token = before[line]
     local y, x = line, 0
     if token ~= nil then
-      y, x = token.y, token.x
+      y, x = Lexer.y(chunk.tokens, token), Lexer.x(chunk.tokens, token)
     end
     local doc_line = doc[line] == true
     local place = Lexical.position(y, x) * 2
