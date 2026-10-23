@@ -325,48 +325,52 @@ local record Fragment
   children: {string}
 end
 
---- The [`Fragment`] of a slot, made once, and whether any slot's name has a
---- byte below a newline after its first, which this module's use of them
---- does not hold to (`ordered`).
-local record Fragments
-  of: function(string): Fragment | nil, string
-  unordered: boolean
+--- `a < b` over bytes, which orders strings as `table.sort` does with none.
+local function by_bytes(a: string, b: string): boolean
+  return a < b
 end
 
---- The fragments of `known`'s nodes as [`identify_in`] walks them, where
---- `line_of` is its way of spelling a node.
-local function fragments_in(known: Graph, line_of: function(string, Dependency): string): Fragments
-  local dependencies, resolve = known.dependencies, known.resolve
+--- `list` sorted by bytes, as a list of its own.
+local function sorted(list: {string}): {string}
+  local out: {string} = {}
+  for _, one in ipairs(list) do out[#out + 1] = one end
+  table.sort(out, by_bytes)
+  return out
+end
+
+--- The [`Fragment`] of each slot of `known`, as [`identify_in`] walks them
+--- (`line_of` is its way of spelling a node), made when first asked for and
+--- kept. Nil and why where a name cannot be resolved, "" for no node.
+local function fragments_in(known: Graph, line_of: function(string, Dependency): string):
+    function(string): Fragment | nil, string
   local made: {string:Fragment} = {}
-  local out: Fragments = { of = nil, unordered = false }
-  out.of = function(slot: string): Fragment | nil, string
+  return function(slot: string): Fragment | nil, string
     local kept = made[slot]
     if kept ~= nil then return kept, "" end
     -- `visit`'s display name: the slot less the mark of an implementation.
-    local dependency, resolve_trouble = resolve(slot, slot:sub(1, 1) == "\0" and slot:sub(2) or slot)
+    local display = slot
+    if slot:sub(1, 1) == "\0" then display = slot:sub(2) end
+    local dependency, resolve_trouble = known.resolve(slot, display)
     if dependency == nil then return nil, resolve_trouble end
-    if slot:find("[\0-\10]", 2) ~= nil then out.unordered = true end
     local lines: {string} = { line_of(slot, dependency) }
     local children: {string} = {}
     for _, required in ipairs(dependency.requires) do
-      local child, child_trouble = resolve(required, required)
+      local child, child_trouble = known.resolve(required, required)
       if child == nil and child_trouble ~= "" then return nil, child_trouble end
       if child ~= nil then
         lines[#lines + 1] = slot .. "\nrequires\n" .. required
         children[#children + 1] = required
-        if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
+        if child.kind == "decl" and known.dependencies["\0" .. required] ~= nil then
           lines[#lines + 1] = slot .. "\nloads\n" .. required
           children[#children + 1] = "\0" .. required
         end
       end
     end
-    table.sort(lines)
-    local text_of = table.concat(lines, "\n\0\n")
+    local text_of = table.concat(sorted(lines), "\n\0\n")
     local fragment: Fragment = { text = text_of, digest = Hash.hex_sha256(text_of), children = children }
     made[slot] = fragment
     return fragment, ""
   end
-  return out
 end
 
 --- What a module's compile was keyed by the last time [`fast_keys`] made
@@ -452,14 +456,16 @@ end
 local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys} | nil
   local graph, _ = dependency_graph(db, modules)
   if graph == nil then return nil end
-  local fragments = fragments_in(graph, source_line)
+  local fragment_of = fragments_in(graph, source_line)
   local made: {string:Fragment} = {}
   local pending: {string} = {}
   for _, m in ipairs(modules) do pending[#pending + 1] = "\0" .. m.path end
-  while #pending > 0 do
-    local slot = assert(table.remove(pending))
-    if made[slot] == nil then
-      local fragment, _ = fragments.of(slot)
+  local head = 1
+  while head <= #pending do
+    local slot = pending[head]
+    head = head + 1
+    if slot ~= nil and made[slot] == nil then
+      local fragment, _ = fragment_of(slot)
       if fragment == nil then return nil end
       made[slot] = fragment
       for _, child in ipairs(fragment.children) do
@@ -467,7 +473,13 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
       end
     end
   end
-  if fragments.unordered then return nil end
+  -- A name with a byte below a newline after its first is not one the order of the slots holds for.
+  local slots: {string} = {}
+  for slot, _ in pairs(made) do
+    if slot:find("[\0-\10]", 2) ~= nil then return nil end
+    slots[#slots + 1] = slot
+  end
+  local ordered = sorted(slots)
 
   local kept, digests = kept_graph(db, tool)
   -- The nodes that differ from the kept ones, and each that reaches one.
@@ -489,12 +501,16 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
         queue[#queue + 1] = slot
       end
     end
-    while #queue > 0 do
-      local slot = assert(table.remove(queue))
-      for _, parent in ipairs(leading[slot] or {}) do
-        if not affected[parent] then
-          affected[parent] = true
-          queue[#queue + 1] = parent
+    local front = 1
+    while front <= #queue do
+      local slot = queue[front]
+      front = front + 1
+      if slot ~= nil then
+        for _, parent in ipairs(leading[slot] or {}) do
+          if affected[parent] ~= true then
+            affected[parent] = true
+            queue[#queue + 1] = parent
+          end
         end
       end
     end
@@ -504,28 +520,33 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
   local made_any = kept == nil
   for _, m in ipairs(modules) do
     local root = "\0" .. m.path
-    local before = kept ~= nil and kept[m.path] or nil
-    if before ~= nil and not affected[root] and before.file == m.file then
+    local before: KeptKeys | nil = nil
+    if kept ~= nil then before = kept[m.path] end
+    if before ~= nil and affected[root] ~= true and before.file == m.file then
       out[m.path] = { key = before.key, graph = before.graph }
     else
       made_any = true
-      local reached: {string} = {}
       local seen: {string:boolean} = {}
       local stack: {string} = { root }
-      while #stack > 0 do
-        local slot = assert(table.remove(stack))
-        if not seen[slot] then
+      local top = 1
+      while top <= #stack do
+        local slot = stack[top]
+        top = top + 1
+        if slot ~= nil and seen[slot] ~= true then
           seen[slot] = true
-          reached[#reached + 1] = slot
-          local children = assert(made[slot]).children
-          for i = #children, 1, -1 do
-            if not seen[children[i]] then stack[#stack + 1] = children[i] end
+          local fragment = made[slot]
+          if fragment ~= nil then
+            for _, child in ipairs(fragment.children) do
+              if seen[child] ~= true then stack[#stack + 1] = child end
+            end
           end
         end
       end
-      table.sort(reached)
       local texts: {string} = {}
-      for i, slot in ipairs(reached) do texts[i] = assert(made[slot]).text end
+      for _, slot in ipairs(ordered) do
+        local fragment = made[slot]
+        if seen[slot] == true and fragment ~= nil then texts[#texts + 1] = fragment.text end
+      end
       local sources = table.concat(texts, "\n\0\n")
       out[m.path] = { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. m.file .. "\n" .. tool),
         graph = Hash.hex_sha256(sources) }

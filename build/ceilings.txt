@@ -374,7 +374,7 @@ build/check_memo.tl 1
 build/checker_verdicts.tl 4
 build/closure_store.tl 2
 build/codec.tl 5
-build/compilation.tl 1
+build/compilation.tl 2
 build/confine.tl 2
 build/contracts.tl 4
 build/coverage/lines.tl 1
@@ -1775,13 +1775,13 @@ build/checker_wrapper.tl view_written 1
 build/child_lua_fixture.tl view_written 1
 build/child_policy_database_fixture.tl view_written 1
 build/ci_tree_test.tl view_written 5
-build/closure_store.tl view_written 34
+build/closure_store.tl view_written 35
 build/closure_store_test.tl view_written 5
 build/codec.tl view_written 3
 build/codec_fuzz_test.tl view_written 4
 build/codec_test.tl view_written 11
 build/codec_verb_fuzz_test.tl view_written 4
-build/compilation.tl view_written 36
+build/compilation.tl view_written 59
 build/compile.tl view_written 9
 build/compile_checker_test.tl view_written 4
 build/compile_grammar.tl view_written 20
@@ -1813,6 +1813,7 @@ build/declared_key_pins_test.tl view_written 2
 build/declared_key_test.tl view_written 23
 build/declared_sandboxed_test.tl view_written 1
 build/declared_types_test.tl view_written 1
+build/dependency_keys_test.tl view_written 8
 build/derivation.tl view_written 33
 build/digest_test.tl view_written 6
 build/dispatch.tl view_written 33
@@ -2666,7 +2667,7 @@ build/child_tool_fixture.tl field_fixed 1
 build/closure_store.tl field_fixed 1
 build/codec.tl field_fixed 1
 build/codec_test.tl field_fixed 6
-build/compilation.tl field_fixed 14
+build/compilation.tl field_fixed 15
 build/compile.tl field_fixed 3
 build/compile_grammar.tl field_fixed 1
 build/compiler_test.tl field_fixed 1
@@ -3465,7 +3466,7 @@ build/checker_narrowing_test.tl overload_none 1
 build/checker_verdicts.tl overload_none 4
 build/checker_verdicts_test.tl overload_none 2
 build/closure_store.tl overload_none 2
-build/compilation.tl overload_none 1
+build/compilation.tl overload_none 2
 build/compile_checker_test.tl overload_none 1
 build/compile_lang_test.tl overload_none 1
 build/confine.tl overload_none 2

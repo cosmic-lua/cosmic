@@ -2,8 +2,7 @@
 --- modules that reach what it changed, and they are the keys a build that
 --- kept nothing makes ([`compilation.full_keys`]), whatever the edit:
 --- a body or a comment, what a module requires, a declaration that
---- joins or leaves a module, the file a module is in, a module that is
---- added or goes.
+--- joins or leaves a module, the file a module is in, the compiler.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compilation = require("build.compilation")
@@ -15,33 +14,44 @@ Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local built = assert(teal.load())
 
+--- How many modules the tree has, and the bit of `edges` that is a module of
+--- the standard library, which each may require beside those before it.
+local count <const> = 14
+local library <const> = 14
+
 --- A deterministic source of choices, so that a failure names the same edit
---- on every run.
-local function chooser(seed: integer): function(integer): integer
-  local held = { state = seed }
-  return function(limit: integer): integer
-    held.state = (held.state * 1103515245 + 12345) % 2147483648
-    return held.state // 65536 % limit + 1
-  end
+--- on every run: `choose(n)` is in 1 to `n`.
+local record Chooser
+  state: integer
 end
 
---- The source of module `name` requiring each of `needs`, `salt` the part of
---- it an edit that moves no edge changes.
-local function source_of(name: string, needs: {string}, salt: integer): string
-  local lines: {string} = {}
-  for i, need in ipairs(needs) do
-    lines[#lines + 1] = "local r" .. i .. " = require(\"" .. need .. "\")"
+local function choose(chooser: Chooser, limit: integer): integer
+  chooser.state = (chooser.state * 1103515245 + 12345) % 2147483648
+  return chooser.state // 65536 % limit + 1
+end
+
+--- The source of module `index`: a require of each module before it whose bit
+--- `edges` holds, of the standard library's where the last bit is, and a
+--- comment `salt` names, which an edit that moves no edge changes.
+local function source_of(index: integer, edges: integer, salt: integer): string
+  local text = ""
+  for other = 1, index - 1 do
+    if (edges >> (other - 1)) & 1 == 1 then
+      text = text .. "local r" .. tostring(other) .. " = require(\"m" .. tostring(other) .. "\")\n"
+    end
   end
-  lines[#lines + 1] = "local record " .. name .. "\n  value: integer\nend"
-  lines[#lines + 1] = "-- " .. salt
-  lines[#lines + 1] = "return {} as " .. name
-  return table.concat(lines, "\n") .. "\n"
+  if (edges >> (library - 1)) & 1 == 1 then
+    text = text .. "local fs = require(\"cosmic.fs\")\n"
+  end
+  local name = "m" .. tostring(index)
+  return text .. "local record " .. name .. "\n  value: integer\nend\n-- " .. tostring(salt) ..
+    "\nreturn {} as " .. name .. "\n"
 end
 
 --- The keys of the tree at `root` as `dependency_keys` makes them, and as
---- a build that kept nothing does. They say the same of every module, or the
---- trouble.
-local function same_keys(root: string, tool: string): string
+--- a build that kept nothing does, which say the same of every module or the
+--- names of those they differ for.
+local function differing(root: string, tool: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   assert(importer.derive(handle, false, built))
@@ -59,87 +69,84 @@ local function same_keys(root: string, tool: string): string
   return trouble
 end
 
---- A module of some modules, edited in turn: the keys the memo makes agree with
---- those made of nothing at each step.
+--- A tree of modules requiring some of those before them, edited in turn: the
+--- keys the memo makes agree with those made of nothing at each step.
 local function test_the_keys_made_from_what_changed_are_the_keys_made_of_everything()
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-"))
-  local names: {string} = {}
-  for i = 1, 14 do names[i] = "m" .. i end
-  -- What each requires: some of the others, and a module of the standard library.
-  local needs: {string:{string}} = {}
-  local pick = chooser(7)
-  for i, name in ipairs(names) do
-    local list: {string} = {}
-    for j = 1, i - 1 do
-      if pick(3) == 1 then list[#list + 1] = names[j] end
+  local chooser: Chooser = { state = 7 }
+  -- Each module's edges, comment, whether a declaration stands before it and whether it is in
+  -- a directory of its own.
+  local edges: {integer} = {}
+  local salts: {integer} = {}
+  local declared: {boolean} = {}
+  local nested: {boolean} = {}
+  for index = 1, count do
+    local held = 0
+    for other = 1, index - 1 do
+      if choose(chooser, 3) == 1 then held = held | (1 << (other - 1)) end
     end
-    if pick(4) == 1 then list[#list + 1] = "cosmic.fs" end
-    needs[name] = list
+    if choose(chooser, 4) == 1 then held = held | (1 << (library - 1)) end
+    edges[index], salts[index], declared[index], nested[index] = held, 0, false, false
   end
-  local held = { salt = 0 }
-  local files: {string:string} = {}
-  local function write(name: string)
-    local file = files[name] or (name .. ".tl")
-    files[name] = file
-    assert(Fs.mkdirs(root .. "/" .. (file:match("^(.*)/[^/]*$") or ".")))
-    held.salt = held.salt + 1
-    assert(Fs.write(root .. "/" .. file, source_of(name, needs[name], held.salt)))
+  local function path_of(index: integer): string
+    local name = "m" .. tostring(index)
+    if nested[index] == true then return root .. "/" .. name .. "/init.tl" end
+    return root .. "/" .. name .. ".tl"
   end
-  for _, name in ipairs(names) do write(name) end
-  assert(same_keys(root, "tool-one") == "", "the first keys differ")
+  local function write(index: integer)
+    assert(Fs.mkdirs(root .. "/m" .. tostring(index)))
+    salts[index] = (salts[index] or 0) + 1
+    assert(Fs.write(path_of(index), source_of(index, edges[index] or 0, salts[index] or 0)))
+  end
+  for index = 1, count do write(index) end
+  assert(differing(root, "tool-one") == "", "the first keys differ")
 
-  local choose = chooser(11)
-  local declared: {string:boolean} = {}
+  chooser.state = 11
   for step = 1, 24 do
-    local name = names[choose(#names)]
-    local edit = choose(6)
-    local what: string
+    local index = choose(chooser, count)
+    local name = "m" .. tostring(index)
+    local edit = choose(chooser, 6)
+    local what = "the compiler"
     if edit == 1 or edit == 2 then
       what = "a comment in " .. name
-      write(name)
+      write(index)
     elseif edit == 3 then
       what = "an edge of " .. name
-      local other = names[choose(#names)]
-      local list: {string} = {}
-      local present = false
-      for _, need in ipairs(needs[name]) do
-        if need == other then present = true else list[#list + 1] = need end
-      end
-      if not present and other ~= name then list[#list + 1] = other end
-      needs[name] = list
-      write(name)
+      -- A module before it, or the standard library's.
+      local bit = choose(chooser, index) - 1
+      if bit == index - 1 then bit = library - 1 end
+      edges[index] = (edges[index] or 0) ~ (1 << bit)
+      write(index)
     elseif edit == 4 then
       what = "a declaration of " .. name
-      local path = root .. "/" .. name .. ".d.tl"
-      if declared[name] then
-        assert(Fs.remove(path))
-        declared[name] = nil
+      local file = root .. "/" .. name .. ".d.tl"
+      if declared[index] == true then
+        assert(Fs.remove(file))
       else
-        assert(Fs.write(path, "local record " .. name .. "\n  value: integer\nend\nreturn " .. name .. "\n"))
-        declared[name] = true
+        assert(Fs.write(file, "local record " .. name .. "\n  value: integer\nend\nreturn " .. name .. "\n"))
       end
+      declared[index] = declared[index] ~= true
     elseif edit == 5 then
       what = "the file of " .. name
-      local from = root .. "/" .. (files[name] or "")
-      local to = files[name] == name .. ".tl" and (name .. "/init.tl") or (name .. ".tl")
-      assert(Fs.mkdirs(root .. "/" .. name))
+      local from = path_of(index)
       local text = assert(Fs.read(from))
       assert(Fs.remove(from))
-      assert(Fs.write(root .. "/" .. to, text))
-      files[name] = to
-    else
-      what = "the compiler"
+      nested[index] = nested[index] ~= true
+      assert(Fs.mkdirs(root .. "/" .. name))
+      assert(Fs.write(path_of(index), text))
     end
-    local trouble = same_keys(root, edit == 6 and ("tool-" .. step) or "tool-one")
-    assert(trouble == "", "step " .. step .. ", " .. what .. ": the keys of " .. trouble .. "differ")
+    local tool = "tool-one"
+    if edit == 6 then tool = "tool-" .. tostring(step) end
+    local trouble = differing(root, tool)
+    assert(trouble == "", "step " .. tostring(step) .. ", " .. what .. ": the keys of " .. trouble .. "differ")
   end
 end
 
 --- Keys kept for one compiler are not another's.
 local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-tool-"))
-  assert(Fs.write(root .. "/a.tl", source_of("a", {}, 1)))
-  assert(Fs.write(root .. "/b.tl", source_of("b", { "a" }, 1)))
+  assert(Fs.write(root .. "/m1.tl", source_of(1, 0, 1)))
+  assert(Fs.write(root .. "/m2.tl", source_of(2, 1, 1)))
   local function key_of(tool: string): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
@@ -147,7 +154,7 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
     local modules = assert(compilation.collect(handle.db))
     local keys = assert(compilation.dependency_keys(handle.db, modules, tool))
     work.close(handle)
-    return assert(keys["b"]).key
+    return assert(keys["m2"]).key
   end
   local one = key_of("tool-one")
   local other = key_of("tool-other")

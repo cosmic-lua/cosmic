@@ -144,6 +144,8 @@ allow({
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
     "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
 
+allow({ "build.compilation.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
+    "the keys `dependency_keys` keeps to, edit by edit")
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..

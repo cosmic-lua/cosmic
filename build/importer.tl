@@ -1900,7 +1900,7 @@ local record Held
   standing: Standing | nil
 end
 
-local kept: Held = {}
+local kept: Held = { standing = nil }
 
 --- A digest of what a compile reads of the working database and leaves in
 --- it: each staged file by its hash, each derived source, and the plan of
@@ -1914,8 +1914,10 @@ local function tree_state(db: Sqlite.Handle): string | nil
       "char(10)) FROM (SELECT file, path, kind, source_hash FROM derived ORDER BY file, path)), '') || char(1) || " ..
       "coalesce((SELECT group_concat(path || char(0) || key || char(0) || ordinal, char(10)) FROM " ..
       "(SELECT path, key, ordinal FROM plan ORDER BY path)), ''))))")
-  if rows == nil or rows[1] == nil then return nil end
-  return rows[1]:text(1)
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
+  return row:text(1)
 end
 
 --- Compiles every module, in import order, into Lua and bytecode --
