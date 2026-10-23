@@ -462,8 +462,8 @@ it runs nearly every test again. A cache cannot pass between them (an
 entry is saved under its own ref, which no other reads), so an
 artifact does: each leg of a queue run uploads its native suite's
 verdicts as `verdicts-<leg>` the moment the suite passes, kept a day,
-and the checked job its checked suite's as
-`verdicts-linux-x86_64-checked`. Before its suite, a queue run's leg
+and each share of the checked suite (below) its own as
+`verdicts-linux-x86_64-checked-shard-<part>`. Before its suite, a queue run's leg
 asks the API for the run ahead (`driver.tl queue-ahead`): the
 `merge_group` run on a `gh-readonly-queue/main/` branch whose
 `head_sha` is its base. Where that run holds the leg's artifact, the
@@ -477,9 +477,10 @@ native suite (`SUITE_STEP`): one not started, still building, or itself
 waiting on the run ahead of it. A longer wait cost more than it saved:
 in the queue of 2026-09-30, legs waited 97 and 132 s, one on a leg that
 was itself waiting, where the suite stands mostly on what was restored
-anyway. The checked job waits a minute and a
-half at most, and not at all for a checked job ahead that will not
-have kept its verdicts by then, some seven minutes after it started.
+anyway. A share of the checked suite waits a minute and a
+half at most for the share of the same part, and not at all for one
+ahead that will not have kept its verdicts by then, some seven minutes
+after it started.
 A run, or its leg, that completed without the artifact, a base that
 heads no queue run (main's already, whose verdicts the restore took; a
 restore of the base's own entry skips the lookup), a change that moves
@@ -488,52 +489,110 @@ failed step are all none, and the suite stands on what was restored.
 Only verdicts pass so, never compiles or the driver check's marker,
 and only from a suite that passed.
 
-### the checked job
+### the checked jobs
 
 The checked core's suite, the whole suite on the sanitized core, ran
 at the end of linux-x86_64's assemble: 178 to 345 s after that leg's
 own suites, which made it the queue's longest leg in 9 of 13 runs
-(2026-09-29). It runs instead in a job of its own, `checked`
-(`linux-x86_64-checked`), beside the legs, on that leg's host: its
-runner, image and builder, and so the same `COSMIC_HOST_ID`. It boots
-(`platform boot`, the build phase without the native suite), builds the
-checked core and the format decoder the contract's fixture would have
-left (`platform checked-build`), and runs the suite (`platform
-checked`). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and still
-builds and verifies its checked core in assemble, which its fixtures
-use; a leg that skips the suite removes a `checked.db` from its
+(2026-09-29). It then ran in one job of its own, which took 12 to 25
+minutes for the suite alone and 1934 to 2326 s with its build and the
+checked narrowing run behind it (the legs took 946 to 1503 s), and once
+passed its bound. It runs now in jobs of their own, beside the legs, on
+that leg's host: its runner, image and builder, and so the same
+`COSMIC_HOST_ID`. Each boots (`platform boot`, the build phase without
+the native suite). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and
+still builds and verifies its checked core in assemble, which its
+fixtures use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
-It runs wherever the legs do. On a branch push (`light`), which runs
-no checked suite, it boots all the same and runs what would otherwise
-hold up a leg: the pinned CI driver's check (`cosmic-driver test
-cosmic_ci`, 27 to 54 s a leg where it ran), which a light run's legs
-skip, and which it skips too where main's linux-x86_64 leg left its
-marker for the same key (that leg's host, named again under the leg's
-name, and what the key hashes), and the format check (`platform
-format`), which ran after linux-aarch64's suite and runs on a full run
-in that leg's assemble. There it is `fix --check .` (36 to 55 s on this
-job, 2026-09-30, which then often outlasted the legs); on a light run it
-lays out only what the branch changed since its base on main
-(driver.tl changed-paths, `fix --check --changed`), whose
-tree the queue held to the whole check, and still makes every check
-spanning files -- the tree checks, the links, the asserts -- over the
-whole tree (some 20 s). Where a path changed is part of what
-checks each file alone (the layout, the C rules, the compiler, the
-core), or the paths cannot be named, it checks the whole tree. Its
-`operations.db` is kept on either scope, as
-`ci-driver-linux-x86_64-checked`. It restores linux-x86_64's zig build
-outputs and compiles, which that leg saves, and saves neither. Its
-verdicts it keeps under a name of its own,
-`verdicts-linux-x86_64-checked-<host>-<features>-<digest>`, restored,
-trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are. The
-`ci` join requires it, and `report` counts it with the legs. Its tree
-moves to a path of the commit's own, as a leg's does: the checked core
+- `checked-shard` (`linux-x86_64-checked-shard-<part>`), a share of the
+  suite each, four jobs of one matrix, on a full run where the legs run.
+  It builds the checked core and the format decoder the contract's
+  fixture would have left (`platform checked-build`), and runs its
+  share of the suite (`platform checked`, `cosmic test --shard I/N`,
+  `COSMIC_CI_CHECKED_SHARD`; as a light run's linux-x86_64 legs split
+  their native suite). The harness deals the tests in turn in sorted
+  order, so a share is a quarter of them and of the time whatever any
+  restored. The share's bound is its own, 600 s
+  (`checked_shard_timeout_ns`): the suite's 1096 s where no verdict
+  stood and 1504 s at the slowest are 274 and 376 s a share, and the
+  job's 25 minutes hold its three minutes' build and that bound with
+  room. It restores its verdicts as the whole suite's job did, from
+  the entry of the tree's base on main, and in the merge queue takes
+  the verdicts of the same part of the run ahead (`queue-ahead`,
+  `verdicts-linux-x86_64-checked-shard-<part>`). It trims what it
+  restored to the rows its run used, which are its tests', and keeps
+  them as that artifact in every event, `checked`'s input. A share
+  checks no C function is entered by some test, which only a whole run
+  answers; it saves and seeds nothing. Its `operations.db` is kept as
+  `ci-driver-linux-x86_64-checked-shard-<part>`.
+- `checked` (`linux-x86_64-checked`) gathers them, after all four
+  passed (`needs`; a failed share skips it, and `ci` fails on the
+  share). It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
+  and merges the four artifacts into a verdict cache that holds
+  nothing of main's (its restore only looks the entry up, which the
+  save compares with), then runs the whole suite, on which every test
+  stands (`gather_run`: not `--all`, not `--no-shared`, even where the
+  merge queue's change moves the harness and a share ran every test),
+  so that what a whole run alone answers is checked, the C functions some
+  test enters, which the rows carry. A test that keeps no verdict runs
+  again here. The run's bound is 300 s (`checked_gather_timeout_ns`):
+  where a share's artifact is missing the whole suite would run, and the
+  bound fails the job rather than let it take twenty minutes. Then the
+  bounded performance fixture
+  (`platform performance-checked`). Its verdicts it keeps under a name of
+  its own, `verdicts-linux-x86_64-checked-<host>-<features>-<digest>`,
+  trimmed, saved on `COSMIC_CI_SAVES` and seeded as a leg's are; the
+  cache entry holds the checked suite's rows alone, where the same job's
+  narrowing run kept a `verdicts.db` of another 8700 rows nothing read.
+- `checked-narrowing` (`linux-x86_64-checked-narrowing`), the whole
+  suite on a checked run (`--check-types`, `platform checked-narrowing`)
+  on the release tool, which stands on no verdict and reads no checked
+  core: it boots and keeps and saves nothing. A full run only.
+- `format` (`linux-x86_64-format`), a light run's format check
+  (`platform format`), which a full run makes in linux-aarch64's assemble.
+  There it is `fix --check .`; on a light run it lays out only what the
+  branch changed since its base on main
+  (driver.tl changed-paths, `fix --check --changed`), whose
+  tree the queue held to the whole check, and still makes every check
+  spanning files -- the tree checks, the links, the asserts -- over the
+  whole tree. Where a path changed is part of what
+  checks each file alone (the layout, the C rules, the compiler, the
+  core), or the paths cannot be named, it checks the whole tree.
+
+On a branch push (`light`), which runs no checked suite, the shares and
+the narrowing run do not run, and `checked` runs only the pinned CI
+driver's check (`cosmic-driver test cosmic_ci`, 27 to 54 s a leg where
+it ran), which a light run's legs skip, and which it skips too where
+main's linux-x86_64 leg left its marker for the same key (that leg's
+host, named again under the leg's name, and what the key hashes): no
+boot, so it ends in a minute or two. Beside it `format` boots and checks the
+format, so that the check, which took longer than the legs, is no
+part of another job's path.
+
+The jobs restore linux-x86_64's zig build outputs and compiles, which
+that leg saves, and save neither. Each keeps its `operations.db`, under
+its own name. The `ci` join requires them all, a job a scope does not
+run counting as passed, and `report` counts them with the legs. Each
+moves its tree to a path of the commit's own, as a leg's does: the checked core
 runs the harness, the boot's staging and `tool.tl entry` unsandboxed
 at that path, so a path of another length each commit varies what the
 sanitizers see. The tree moves back before the seed and the verdicts'
 save, whose path actions/cache names relative to the workspace
 (below).
+
+A full run's critical path through them, from the queue's runs of
+2026-10-23: a share's runner starts, restores, boots and builds the checked
+core in 175 to 218 s, runs its quarter of the suite (some 180 s where most
+stood, 274 to 376 s where the harness moved and none did) and keeps its
+verdicts (10 s), 365 to 408 s or 460 to 604 s; `checked` starts 15 s
+after the last share, repeats the 175 to 218 s, merges (5 s), runs the
+gathering suite (some 100 s) and the fixture (40 s), and stages its seed
+(10 s), 345 to 390 s: 710 to 800 s in all where most stood and 805 to 990 s
+where none did, against 1934 to 2326 s of the one job and the legs' 946 to
+1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
+10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
+leg, and the legs are the queue's path.
 
 ### the rehearsal job
 

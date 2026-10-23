@@ -1,5 +1,5 @@
 --- The paths a branch changed since its base on main, for a light run's
---- format check (ci.yml's `checked` job), which lays out only those and
+--- format check (ci.yml's `format` job), which lays out only those and
 --- makes every check spanning files over the whole tree (`cosmic fix
 --- --check --changed`, through cosmic_ci's orchestration):
 ---

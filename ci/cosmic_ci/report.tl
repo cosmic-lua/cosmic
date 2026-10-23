@@ -78,7 +78,8 @@ end
 
 --- The join job of ci.yml (`ci`): every other job of a run but `reuse`
 --- and `seed`'s legs is a leg of the platform matrix, named by its leg,
---- or the checked job (`linux-x86_64-checked`), which runs beside them.
+--- or a job of the checked suite (`linux-x86_64-checked`, its shares, its
+--- narrowing run) or the format check, which run beside them.
 local join_job <const> = "ci"
 --- The suites whose key parts decide whether a run qualifies: the
 --- checked suite's and each leg's native one (orchestration.tl's
@@ -239,8 +240,8 @@ function Report.driver_artifacts(text: string): {Report.Artifact}
   return out
 end
 
---- Whether `name` is a platform leg's job, or the checked job's, which
---- runs beside the legs and can be a run's slowest: not the join, nor
+--- Whether `name` is a platform leg's job, or one of the checked jobs',
+--- which run beside the legs and can be a run's slowest: not the join, nor
 --- ci.yml's `reuse` lookup or a `seed` leg ("seed (<leg>, <runner>)"),
 --- which run in place of the legs on a push to main that reuses the
 --- queue's run.

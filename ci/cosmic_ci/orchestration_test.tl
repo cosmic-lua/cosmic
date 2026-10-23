@@ -834,6 +834,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       "if [ \"$1\" = test ]; then " ..
       "if [ \"" .. candidate_target .. "\" = aarch64-macos ]; then " ..
       "[ \"$2 $3\" = '--all core/socket_sigpipe_checked_test.tl' ] || exit 9; fi\n" ..
+      "printf '%s\\n' \"$*|${COSMIC_TEST_NO_SHARED-unset}\" >> \"$0.argv\"\n" ..
       "printf '%s\\n' " ..
       "'test: key parts: host features 01, host 02, system , runtime 04, compiler 05, harness 06' " ..
       "'test: 7 tests passed in 2 modules; 3 ran, 4 stood, 55 ms; sandboxed'; exit 0; fi\n" ..
@@ -842,19 +843,46 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       script .. string.rep("#", 16384 - #script) .. core, 493)
     return fake, runner_temp
   end
-  for _, case in ipairs({
-      { name = "skip", target = target, switch = "skip", image = digest, checked = right,
-          ok = true, ran = "-e\n", removed = true },
-      { name = "macos-skip", switch = "skip", image = digest, checked = right,
-          target = "aarch64-macos", ok = true, ran = "-e\ntest\n", removed = true },
-      { name = "run", target = target, switch = "run", image = digest, checked = right,
-          ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false },
-      { name = "another-core", target = target, switch = "skip", image = string.rep("0", 64),
-          checked = right, ok = false, ran = "-e\n", removed = false },
-      { name = "checked-disagrees", target = target, switch = "run", image = digest,
-          checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
-  }) do
-    local selected_target = case.target or target
+  local record Case
+    name: string
+    target: string
+    switch: string
+    image: string
+    checked: string
+    ok: boolean
+    ran: string
+    removed: boolean
+    share?: string
+    event?: string
+    argv?: string
+  end
+  local cases: {Case} = {
+    { name = "skip", target = target, switch = "skip", image = digest, checked = right,
+      ok = true, ran = "-e\n", removed = true },
+    { name = "macos-skip", switch = "skip", image = digest, checked = right,
+      target = "aarch64-macos", ok = true, ran = "-e\ntest\n", removed = true },
+    { name = "run", target = target, switch = "run", image = digest, checked = right,
+      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false, argv = "test --census --all|1\n" },
+    -- A share of the suite, which ci.yml's `checked-shard` jobs run: the
+    -- same run of the share's tests alone.
+    { name = "share", target = target, switch = "run", image = digest, checked = right,
+      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false, share = "2/4",
+      argv = "test --census --all --shard 2/4|1\n" },
+    -- The gathering run of `checked`: the whole suite, standing on the
+    -- verdicts the shares kept, in a run that stands on nothing as in
+    -- one that stands (the sandboxed push), and no share of it.
+    { name = "gather", target = target, switch = "gather", image = digest, checked = right,
+      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false, argv = "test --census|unset\n" },
+    { name = "gather-standing", target = target, switch = "gather", image = digest, checked = right,
+      ok = true, ran = "-e\n/tool.tl\ntest\n", removed = false, argv = "test --census|unset\n",
+      event = "push" },
+    { name = "another-core", target = target, switch = "skip", image = string.rep("0", 64),
+      checked = right, ok = false, ran = "-e\n", removed = false },
+    { name = "checked-disagrees", target = target, switch = "run", image = digest,
+      checked = wrong, ok = false, ran = "-e\n/tool.tl\n", removed = false },
+  }
+  for _, case in ipairs(cases) do
+    local selected_target = case.target
     local fake, runner_temp = candidate(case.name, case.image, case.checked, selected_target)
     local verdicts = runner_temp .. "/verdicts"
     assert(Fs.mkdirs(verdicts))
@@ -863,6 +891,9 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     local outcome = Fixture.call("checked-" .. case.name, append(base, { "platform", "checked" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = selected_target, COSMIC_CI_CHECKED_SUITE = case.switch,
+        COSMIC_CI_CHECKED_SHARD = case.share or "",
+        COSMIC_CI_EVENT = case.event or "",
+        COSMIC_CI_REQUIRE_SANDBOX = case.event and "1" or "",
         COSMIC_VERDICT_CACHE = verdicts .. "/verdicts.db",
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
@@ -875,11 +906,15 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. tostring(ran))
     local released = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(released == nil, case.name .. ": the release cosmic ran: " .. tostring(released))
+    if case.argv ~= nil then
+      local argv = Fs.read(fake .. "/o/sanitized/bin/cosmic.argv")
+      assert(argv == case.argv, case.name .. ": the suite ran as: " .. tostring(argv))
+    end
     -- The suite that ran wrote its row, with what its output said.
     local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
     local rows = State.suite_rows(db)
     assert(db:close())
-    if case.name == "run" then
+    if case.argv ~= nil then
       assert(#rows == 1, case.name .. ": " .. #rows .. " suite rows")
       local row = rows[1]
       assert(row.worker == "worker" and row.phase == "checked" and row.suite == "checked")
@@ -1015,13 +1050,16 @@ local function full_run_legs(platform: {string: any}): {string: {string: string}
 end
 
 --- The checked core's suite runs on no leg of ci.yml's platform job
---- (COSMIC_CI_CHECKED_SUITE=skip) but in its `checked` job, which runs
---- the phases that build what it reads and then the suite, beside the
---- legs: run after a leg's own suites, it would make that leg the run's
+--- (COSMIC_CI_CHECKED_SUITE=skip) but in jobs of its own, beside the
+--- legs: `checked-shard`, a share of it each (COSMIC_CI_CHECKED_SHARD),
+--- and `checked`, which gathers them, the whole suite standing on the
+--- verdicts they kept; the whole suite on a checked run (`checked-narrowing`)
+--- runs in another. Each runs the phases that build what it reads: run
+--- after a leg's own suites, the suite would make that leg the run's
 --- longest. The format check, which answers the same on every leg, runs
 --- on one, in a full run's assemble; a branch push's light run makes it
---- in the checked job after its boot, off the legs' path.
-local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_on_one_leg()
+--- in the `format` job after its boot, off the legs' path.
+local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local jobs = ci.jobs as {string: {string: any}}
@@ -1033,20 +1071,38 @@ local function test_the_checked_suite_runs_in_its_own_job_and_the_format_check_o
   local format = assert(env.COSMIC_CI_FORMAT, "ci.yml's platform job sets no COSMIC_CI_FORMAT")
   local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
   assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
-  local checked = assert(jobs.checked, "ci.yml has no checked job")
-  assert((checked.env as {string: string}).COSMIC_CI_CHECKED_SUITE == "run",
-    "the checked job does not run the checked suite")
-  local phases: {string} = {}
-  for _, step in ipairs(checked.steps as {{string: any}}) do
-    local run = step.run
-    local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
-    if phase ~= nil then phases[#phases + 1] = phase end
-    if phase == "performance-checked" or phase == "checked-narrowing" then
-      assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture and the checked-narrowing suite run only in full scope")
-    end
+  local function env_of(job: {string: any}): {string: string}
+    return job["env"] as {string: string}
   end
-  assert(table.concat(phases, " ") == "boot format checked-build checked performance-checked checked-narrowing",
-    "the checked job runs the phases " .. table.concat(phases, " "))
+  local function phases_of(job: {string: any}): string
+    local phases: {string} = {}
+    for _, step in ipairs(job["steps"] as {{string: any}}) do
+      local run = step.run
+      local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
+      if phase ~= nil then phases[#phases + 1] = phase end
+      if phase == "performance-checked" then
+        assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture runs outside the full scope")
+      end
+    end
+    return table.concat(phases, " ")
+  end
+  local checked = assert(jobs.checked, "ci.yml has no checked job")
+  assert(env_of(checked)["COSMIC_CI_CHECKED_SUITE"] == "gather",
+    "the checked job does not gather the checked suite")
+  assert(phases_of(checked) == "boot checked-build checked performance-checked",
+    "the checked job runs the phases " .. phases_of(checked))
+  local shard = assert(jobs["checked-shard"], "ci.yml has no job that runs a share of the checked suite")
+  local senv = env_of(shard)
+  local share = senv["COSMIC_CI_CHECKED_SHARD"]
+  assert(senv["COSMIC_CI_CHECKED_SUITE"] == "run" and share ~= nil and
+      share:match("^%${{ matrix%.part }}/%${{ strategy%.job%-total }}$") ~= nil,
+    "a share does not run a share of the checked suite")
+  assert(phases_of(shard) == "boot checked-build checked", "a share runs the phases " .. phases_of(shard))
+  local narrowing = assert(jobs["checked-narrowing"], "ci.yml has no checked narrowing job")
+  assert(phases_of(narrowing) == "boot checked-narrowing",
+    "the checked narrowing job runs the phases " .. phases_of(narrowing))
+  local light = assert(jobs.format, "ci.yml has no format job")
+  assert(phases_of(light) == "boot format", "the format job runs the phases " .. phases_of(light))
 end
 
 --- ci.yml's platform job's legs, by name, and its environment.

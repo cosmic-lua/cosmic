@@ -57,13 +57,13 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
-  -- As the platform and checked jobs' env set it, and the workflow's;
+  -- As the platform and checked jobs' env (the shares', the format job's) set it, and the workflow's;
   -- RUNNER_TEMP, GITHUB_OUTPUT and GITHUB_ENV as a step's `run` names
   -- them.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
     COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_BASE_SHA = true, COSMIC_CI_FORMAT_CHANGED = true, COSMIC_CI_SHARD = true,
-    COSMIC_CI_PORTABLE_SUITE = true,
+    COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_PORTABLE_SUITE = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
 }

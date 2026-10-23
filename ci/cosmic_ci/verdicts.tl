@@ -4,7 +4,7 @@
 --- before the leg's suites and saves after them. It holds `verdicts.db`,
 --- the native suite's and the portable suite's alike;
 --- `fixtures.db`, the sandboxed fixtures' (cosmic_ci/orchestration.tl's
---- `sandboxed_fixtures`); or, in ci.yml's checked job, which runs no
+--- `sandboxed_fixtures`); or, in ci.yml's checked jobs, which run no
 --- other suite, `checked.db` alone, the checked suite's
 --- (COSMIC_CI_CHECKED_SUITE; cosmic_ci/orchestration.tl's
 --- `suite_verdicts`).

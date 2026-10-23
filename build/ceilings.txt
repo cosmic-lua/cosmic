@@ -962,7 +962,7 @@ build/work_test.tl nil_not_allowed 26
 build/work_tool_test.tl nil_not_allowed 1
 build/worker.tl nil_not_allowed 17
 build/worker_test.tl nil_not_allowed 6
-build/workflows_test.tl nil_not_allowed 66
+build/workflows_test.tl nil_not_allowed 48
 build/writer.tl nil_not_allowed 3
 build/writer_test.tl nil_not_allowed 72
 build/zig.tl nil_not_allowed 8
@@ -3196,7 +3196,7 @@ build/work_nested_tool_test.tl map_field 1
 build/work_test.tl map_field 3
 build/worker.tl map_field 3
 build/worker_test.tl map_field 7
-build/workflows_test.tl map_field 240
+build/workflows_test.tl map_field 193
 build/zig.tl map_field 14
 build/zig_fetch.tl map_field 3
 build/zig_fetch_test.tl map_field 5
@@ -3224,7 +3224,7 @@ ci/cosmic_ci/images.tl map_field 1
 ci/cosmic_ci/images_test.tl map_field 36
 ci/cosmic_ci/launcher_fixture.tl map_field 1
 ci/cosmic_ci/orchestration.tl map_field 52
-ci/cosmic_ci/orchestration_test.tl map_field 117
+ci/cosmic_ci/orchestration_test.tl map_field 99
 ci/cosmic_ci/place_tree.tl map_field 5
 ci/cosmic_ci/prerelease.tl map_field 16
 ci/cosmic_ci/prerelease_test.tl map_field 31
@@ -3833,7 +3833,7 @@ build/test_worker.tl any_use 3
 build/time.tl any_use 15
 build/verb_list_test.tl any_use 3
 build/work_test.tl any_use 1
-build/workflows_test.tl any_use 19
+build/workflows_test.tl any_use 16
 checker/facts.tl any_use 4
 ci/cosmic_ci/cache_trim_test.tl any_use 20
 ci/cosmic_ci/commit_verdicts.tl any_use 1
@@ -4068,7 +4068,7 @@ build/verbs_store_test.tl cast_refused 4
 build/verbs_test.tl cast_refused 1
 build/work_test.tl cast_refused 2
 build/worker_test.tl cast_refused 8
-build/workflows_test.tl cast_refused 325
+build/workflows_test.tl cast_refused 300
 build/zig_caches_test.tl cast_refused 1
 build/zig_test.tl cast_refused 3
 checker/captures.tl cast_refused 4
@@ -6302,7 +6302,7 @@ build/test_worker.tl literal_needs_type 2
 build/time.tl literal_needs_type 1
 build/time_test.tl literal_needs_type 1
 build/tree_checks.tl literal_needs_type 6
-build/workflows_test.tl literal_needs_type 15
+build/workflows_test.tl literal_needs_type 12
 build/writer.tl literal_needs_type 1
 build/zig_lock_test.tl literal_needs_type 1
 checker/captures.tl literal_needs_type 6
@@ -6603,7 +6603,6 @@ build/declared_key_test.tl array_of_optional 1
 build/links_test.tl array_of_optional 1
 build/perf.tl array_of_optional 1
 build/policy_rules.tl array_of_optional 1
-build/workflows_test.tl array_of_optional 3
 core/artifact_fd_test.tl array_of_optional 4
 core/artifact_fd_tool_test.tl array_of_optional 1
 core/startup_test.tl array_of_optional 2
