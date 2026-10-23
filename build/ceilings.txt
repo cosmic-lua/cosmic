@@ -422,6 +422,7 @@ build/pipeline.tl 5
 build/pipeline_check.tl 1
 build/policy_rules.tl 7
 build/positions.tl 1
+build/progress.tl 1
 build/rand.tl 2
 build/rebuild_lock.tl 2
 build/receivers.tl 1
@@ -513,7 +514,7 @@ cosmic/zip.tl 1
 eval/check/grade.tl 7
 eval/summarize.tl 2
 lang/check.tl 6
-lang/check_programs.tl 6
+lang/check_programs.tl 5
 lang/codegen.tl 1
 lang/declarations.tl 2
 lang/lexer.tl 74
@@ -603,6 +604,7 @@ ci/cosmic_ci/rehearsal.tl field_fixed 1
 build/fix/read_memo_test.tl nil_not_allowed 8
 build/key_parts.tl nil_not_allowed 1
 ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
+build/progress.tl overload_none 1
 build/pipeline_check.tl overload_none 1
 ci/cosmic_ci/rehearsal.tl overload_none 1
 build/shape_key.tl view_written 2
@@ -1703,7 +1705,6 @@ lang/ast_dump.tl index_may_be_nil 3
 lang/check.tl index_may_be_nil 41
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 lang/check_fuzz_test.tl index_may_be_nil 3
-lang/check_programs.tl index_may_be_nil 1
 lang/check_test.tl index_may_be_nil 1
 lang/codegen.tl index_may_be_nil 15
 lang/codegen_fuzz_test.tl index_may_be_nil 2
@@ -2581,6 +2582,8 @@ build/lsp/check.tl view_as_mut 1
 build/lsp/graph.tl view_as_mut 1
 build/perf.tl view_as_mut 2
 build/perf_validation.tl view_as_mut 13
+build/progress.tl view_as_mut 1
+build/progress_test.tl view_as_mut 2
 build/sandbox.tl view_as_mut 1
 build/shape_specs.tl view_as_mut 1
 build/stand_in.tl view_as_mut 1
@@ -3687,7 +3690,7 @@ eval/round_test.tl overload_none 2
 eval/solve_test.tl overload_none 1
 eval/summarize.tl overload_none 2
 lang/check.tl overload_none 5
-lang/check_programs.tl overload_none 4
+lang/check_programs.tl overload_none 3
 lang/check_test.tl overload_none 1
 lang/declarations.tl overload_none 1
 lang/literals_test.tl overload_none 3
@@ -5634,7 +5637,7 @@ build/syntax_stub_test.tl concat_type 2
 build/syntax_typed.tl concat_type 1
 build/teal.tl concat_type 6
 build/teal_catalog_test.tl concat_type 1
-build/teal_test.tl concat_type 16
+build/teal_test.tl concat_type 14
 build/term_filter.tl concat_type 1
 build/term_filter_fuzz_test.tl concat_type 1
 build/term_filter_test.tl concat_type 3

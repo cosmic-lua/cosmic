@@ -7,6 +7,7 @@ local paths = require("build.paths")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local reboot = require("build.reboot")
+local stale_reason = require("build.stale_reason")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local artifact = require("build.artifact")
@@ -249,6 +250,30 @@ local function test_carries_tree_code_compares_every_module(tmp: string)
   assert(Fs.write(tmp .. "/build/bind.tl", source))
   assert(Fs.write(tmp .. "/build/nowhere.tl", "return {}\n"))
   assert(not carries(), "a module the binary does not carry carried the tree's code")
+end
+
+--- The line that says why the tool is stale names the modules of the tree
+--- the binary does not carry as the tree has them, a few and a count of
+--- the rest, and says nothing where none moved.
+local function test_the_reason_names_the_modules_that_moved(tmp: string)
+  local function why(): string
+    local handle = assert(work.open(tmp))
+    assert(work.stage(handle, true))
+    local answer = stale_reason.of(handle)
+    assert(work.close(handle))
+    return answer
+  end
+  assert(Fs.mkdirs(tmp .. "/build"))
+  local source = assert(Store.source("build.bind"))
+  assert(Fs.write(tmp .. "/build/bind.tl", source))
+  assert(why() == "", "a module the binary carries moved")
+  assert(Fs.write(tmp .. "/build/bind.tl", source .. "-- edited\n"))
+  assert(why() == " (1 module moved: build.bind)", why())
+  for _, name in ipairs({ "a", "b", "c", "d", "e" }) do
+    assert(Fs.write(tmp .. "/build/" .. name .. ".tl", "return {}\n"))
+  end
+  local many = why()
+  assert(many:find("6 modules moved: build.a, build.b, build.bind and 3 more", 1, true), many)
 end
 
 --- A rebuilt tool carries the running binary's web assets; from a binary

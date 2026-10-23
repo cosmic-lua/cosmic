@@ -180,10 +180,11 @@ end
 ]]
 
 --- Lowers `source` as the module `module` of `program`.
+--- `parsed` is the parse of `source` where the caller has it already.
 local function lower(program: Declarations.Program, module: string, source: string, dialect: Ast.Dialect,
-                     globals: {string: Scopes.Global}, required?: {string: Programs.Run}): Programs.Run
+                     globals: {string: Scopes.Global}, required?: {string: Programs.Run}, read?: Parser.Parsed): Programs.Run
   local name = module .. (dialect == "decl" and ".d.tl" or ".tl")
-  local parsed = Parser.parse(Lexer.lex(source, name), name, dialect)
+  local parsed = read or Parser.parse(Lexer.lex(source, name), name, dialect)
   local scoped = Scopes.build(parsed.chunk, name, globals)
   local input: Declarations.Input = {
     module = module, filename = name, chunk = parsed.chunk, scoped = scoped, dialect = dialect,
@@ -219,12 +220,25 @@ local function sorted_names(named: {string: string}): {string}
   return names
 end
 
+--- The parse of [`Programs.library`], made once: a runner lowers the library into a program of its own for each program a
+--- test checks, and reading its text again each time was most of what that cost. Nothing writes the syntax tree.
+local library_read: {Parser.Parsed} = {}
+
+local function read_library(): Parser.Parsed
+  local held = library_read[1]
+  if held == nil then
+    held = Parser.parse(Lexer.lex(Programs.library, "std.d.tl"), "std.d.tl", "decl")
+    library_read[1] = held
+  end
+  return held
+end
+
 function Programs.runner(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
   local program = Declarations.new()
   program.external["cosmic.sys"] = true
-  local library = Parser.parse(Lexer.lex(Programs.library, "std.d.tl"), "std.d.tl", "decl")
+  local library = read_library()
   local globals = Scopes.declared(library.chunk)
-  local _ = lower(program, "std", Programs.library, "decl", {})
+  local _ = lower(program, "std", Programs.library, "decl", {}, nil, library)
   return function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
     local files = declared or {}
     for _, name in ipairs(sorted_names(files)) do
@@ -265,13 +279,9 @@ function Programs.session(prelude: string, stdlib: string, external?: {string}):
   assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
   local _ = lower(program, "checker.stdlib", Translate.translate(corrected.text, "checker/stdlib.d.tl").text, "decl", globals)
   return function(source: string, module?: string, modules?: {string: string}): Programs.Run
-    local names: {string} = {}
-    for name in pairs(modules or {}) do
-      names[#names + 1] = name
-    end
-    table.sort(names)
-    for _, name in ipairs(names) do
-      local _ = lower(program, name, (modules or {})[name], "tl", globals)
+    local sources = modules or {}
+    for _, name in ipairs(sorted_names(sources)) do
+      local _ = lower(program, name, assert(sources[name]), "tl", globals)
     end
     return lower(program, module or "t", source, "tl", globals)
   end

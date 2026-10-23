@@ -181,3 +181,41 @@ local function test_a_lock_file_that_cannot_be_written_is_refused(tmp: string)
   local held, hold_trouble = rebuild_lock.hold(root, "test", "test")
   assert(held == nil and hold_trouble:find(path .. ": ", 1, true), hold_trouble)
 end
+
+local record Held
+  fd: integer
+  said: string
+  count: integer
+end
+
+--- A run kept waiting says so again every interval, naming the holder
+--- and how long it has waited, rather than going silent after its first
+--- line. Another run holds the flock until the first reminder is said,
+--- which lets it go; the interval is one second here, not the 15 s a run
+--- waits, which is longer than a test may take.
+local function test_a_waiting_run_says_how_long_it_has_waited(tmp: string)
+  local root, path = tree(tmp)
+  local made = assert(Sqlite.open(path, { writable = true }))
+  assert(made:close())
+  local other: Held = { fd = assert(sys.open(path, sys.O_RDWR, 0)), said = "", count = 0 }
+  assert(sys.flock(other.fd, "exclusive"))
+  local function remind(line: string)
+    other.said = line
+    other.count = other.count + 1
+    if other.fd >= 0 then
+      assert(sys.close(other.fd))
+      other.fd = -1
+    end
+  end
+  local before = Clock.monotonic_ns()
+  local ok, waited, trouble = pcall(rebuild_lock.wait, root, "test", "waiting for it",
+    Clock.seconds(1), remind)
+  local took = Clock.monotonic_ns() - before
+  if other.fd >= 0 then assert(sys.close(other.fd)) end
+  assert(ok, tostring(waited))
+  assert(waited, trouble)
+  rebuild_lock.release()
+  assert(other.count == 1, "reminders said: " .. tostring(other.count))
+  assert(other.said:find("still waiting, 1 s on: ", 1, true) == 1, other.said)
+  assert(took < Clock.seconds(5), "the wait took " .. tostring(took // Clock.ms(1)) .. " ms")
+end

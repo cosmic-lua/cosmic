@@ -120,12 +120,23 @@ local function vet(result: compiler.Result | nil)
   end
 end
 
---- What the checker reports for `source`, each error held to [`vet`].
-local function generate(built: compiler, source: string): string | nil, compiler.Result
-  local code, result = built.gen(source, nil, nil, "tl")
-  vet(result)
-  return code, result
-end
+--- What the checker reports for `source`, each error held to [`vet`], read by `built`, or by the stripped compiler
+--- the callers that name none share inside one test. Loading a compiler builds the checker's standard globals again,
+--- which cost more than most of the programs a test gives it; `gen` with no environment makes a fresh one for each
+--- program, so no program meets another's types. A test that sets what a compiler holds loads one of its own.
+local generate: function(built: compiler | nil, source: string): string | nil, compiler.Result = (function(): function(built: compiler | nil, source: string): string | nil, compiler.Result
+  local held: {compiler} = {}
+  return function(built: compiler | nil, source: string): string | nil, compiler.Result
+    if built == nil and held[1] == nil then
+      held[1] = assert(teal.load(true))
+    end
+    local reader = built or held[1]
+    assert(reader ~= nil)
+    local code, result = reader.gen(source, nil, nil, "tl")
+    vet(result)
+    return code, result
+  end
+end)()
 
 local integer_msg = "in assignment: got number, expected integer"
 
@@ -333,8 +344,7 @@ end
 --- The type errors the checker reports for `source`, failing the test
 --- where it raises instead.
 local function type_errors(source: string): {compiler.Error}
-  local built = assert(teal.load(true))
-  local ok, code, result = pcall(generate, built, source)
+  local ok, code, result = pcall(generate, nil, source)
   assert(ok, tostring(code))
   return assert(result).type_errors
 end
@@ -355,8 +365,7 @@ end
 
 --- What the parser refuses in `source`, each as "line:column message".
 local function syntax_errors(source: string): {string}
-  local built = assert(teal.load(true))
-  local _, result = generate(built, source)
+  local _, result = generate(nil, source)
   local out: {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
     out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
@@ -391,7 +400,7 @@ local function test_a_call_after_a_string_spanning_lines()
   for _, source in ipairs({ "f [[a\nb]](1)\n", "f 'a\\z\n  b'(1)\n", "f [==[\n]==]{}(1)\n" }) do
     local found = syntax_errors(source)
     assert(#found == 0, source .. table.concat(found, "; "))
-    local code = assert(generate(built, source))
+    local code = assert(generate(nil, source))
     assert(code:find(";", 1, true) == nil, code)
   end
   local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
@@ -652,8 +661,7 @@ end
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.
 local function replacement_for(source: string, msg: string): string | nil
-  local built = assert(teal.load(true))
-  local _, result = generate(built, source)
+  local _, result = generate(nil, source)
   local found = result ~= nil
   for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
     for _, e in ipairs(group) do
@@ -1157,8 +1165,7 @@ end
 
 --- What [`teal.replacement`] says of the first syntax error in `source`.
 local function syntax_hint(source: string): string | nil
-  local built = assert(teal.load(true))
-  local _, result = generate(built, source)
+  local _, result = generate(nil, source)
   local e = assert(assert(result).syntax_errors[1], source)
   assert(e.code == "expected_one_of", e.msg)
   return teal.replacement(e, source)
@@ -1193,15 +1200,14 @@ end
 --- Everything the parser and the checker refuse in `source`, each as
 --- "line:column message".
 local function refusals(source: string): {string}
-  local built = assert(teal.load(true))
-  local ok, code, result = pcall(generate, built, source)
+  local ok, code, result = pcall(generate, nil, source)
   assert(ok, tostring(code))
   local out: {string} = {}
-  for _, e in ipairs(assert(result).syntax_errors) do
-    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
-  end
-  for _, e in ipairs(result.type_errors) do
-    out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+  local checked = assert(result)
+  for _, group in ipairs({ checked.syntax_errors, checked.type_errors }) do
+    for _, e in ipairs(group) do
+      out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
+    end
   end
   return out
 end

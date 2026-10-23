@@ -40,9 +40,9 @@ worktree's build directory when you delete the worktree.
 
 ## the loop
 
-1. Run `bin/zig build boot` in a fresh worktree. It builds the host's
-   core and stages the tree into the build directory's `build.db`, the
-   working database every later build reads. Copying an existing cosmic
+1. Run `bin/zig build boot` in a fresh worktree (2 to 6 minutes cold).
+   It builds the host's core and stages the tree into the build
+   directory's `build.db`, the working database every later build reads. Copying an existing cosmic
    executable is not a substitute. The tool it writes carries the host's
    core alone, a placeholder script standing where each other core goes,
    which is all `cosmic test`, `fix`, `docs` and the other verbs need; it
@@ -62,13 +62,19 @@ worktree's build directory when you delete the worktree.
    as CI runs it, which also refuses a tree that does not build: run it
    before pushing a change to what they read.
 3. A tool older than the tree rebuilds itself and re-enters the command
-   the moment it notices, so `bin/cosmic test` after an edit is enough. A
+   the moment it notices, so `bin/cosmic test` after an edit is enough (it
+   says why and how long: `cosmic: rebuilt the tool in 20.3 s`). A
    change to the core's C, `build.zig`, the launcher or artifact format,
    or a vendored library's pin or patches runs `bin/zig build boot` first.
    With `COSMIC_AUTO_BOOT=0` the tool refuses instead and exits 3 (CI sets
    it). A boot that fails stops the command: check its exit status, do
    not pipe it away.
-4. Run `timeout 30 bin/cosmic test`.
+4. Run the tests of what you changed: `bin/cosmic test <their *_test.tl
+   files>`, seconds to half a minute. Before pushing, the full suite,
+   `timeout 2700 bin/cosmic test`: about 8 minutes where few verdicts
+   stand (a fresh worktree), about half a minute where they all do, so
+   a `timeout 30` fails it in the first case. It says `test: running
+   n/m tests` as it goes.
 5. Commit, push and open the pull request as [`doc/contributing.md`]
    says.
 

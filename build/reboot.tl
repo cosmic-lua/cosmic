@@ -24,6 +24,7 @@
 
 local build_paths = require("build.paths")
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -35,7 +36,9 @@ local artifact = require("build.artifact")
 local derivation = require("build.derivation")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
+local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
+local stale_reason = require("build.stale_reason")
 local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
@@ -339,6 +342,7 @@ end
 --- entered this process.
 local function into(handle: work.Handle, built: compiler,
                     argv: {string}, settle: boolean): string, boolean
+  local started = Clock.monotonic_ns()
   local refused = refusal(settle)
   if refused ~= nil then
     return closing(handle, refused), false
@@ -482,6 +486,11 @@ local function into(handle: work.Handle, built: compiler,
     return publish_trouble, false
   end
 
+  -- The wait a verb's own summary never counts: it times the run the new
+  -- tool makes.
+  log:complain(string.format("rebuilt the tool in %.1f s (%s compiled, %d cached)",
+    (Clock.monotonic_ns() - started) / Clock.seconds(1),
+    plural.count(result.compiled, "module"), result.cached))
   local environment = sys.environ()
   environment[marker] = settle and "2" or "1"
   local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
@@ -878,7 +887,7 @@ function reboot.guard(handle: work.Handle, root: string,
     log:complain(trouble)
     return 3
   end
-  log:complain("the tool is stale; rebuilding it from the tree")
+  log:complain("the tool is stale; rebuilding it from the tree" .. stale_reason.of(handle))
   local trouble, moved = into(handle, teal.lazy(), argv, false)
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
