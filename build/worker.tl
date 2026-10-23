@@ -332,15 +332,17 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   -- every module checked after it, in the same process: one is refused for
   -- declaring it again unlike another, and one that names it is accepted
   -- without requiring its declarer. Workers each check some of the modules,
-  -- so they would answer differently. No source of the tree declares one
-  -- (its standard library's are the vendored compiler's), so a build that
-  -- finds a line leading with the word, in code or in a string, compiles
-  -- alone.
-  for _, row in ipairs(inputs) do
-    if row:text(3):find("^%s*global%s") or row:text(3):find("[\n;]%s*global%s") then
-      return nil, ""
-    end
-  end
+  -- so they would answer differently. A build whose sources declare one
+  -- compiles alone. What declares one is the parse's own record of it
+  -- (`globals`, which [`compilation.refuse_globals`] reads too), not a
+  -- search of the text: the word leads a line of a source that only quotes
+  -- it, as the checker's own sources do, and a search for it kept every
+  -- build of this tree from the workers.
+  local declared, declared_trouble = Sqlite.text_rows(db,
+    "SELECT i.file FROM inputs i JOIN globals g ON g.source_hash = i.source_hash " ..
+      "WHERE i.kind <> 'vendor' LIMIT 1")
+  if declared == nil then return nil, declared_trouble end
+  if #declared > 0 then return nil, "" end
   local plan = shards.best(items, wanted, pool.size())
   local count = #plan
   if count < 2 then return nil, "" end

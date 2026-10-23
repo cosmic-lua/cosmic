@@ -27,10 +27,15 @@ local built = assert(teal.load())
 
 --- A library, six modules that each use a record of it, and a test of
 --- each: the tests do not import one another, so that sharing them
---- among processes pays ([`build.shards`]).
+--- among processes pays ([`build.shards`]). The library quotes a line
+--- led by the word `global` and declares none, as the checker's own
+--- sources do: the pool takes the build all the same.
 local function project(): {string:string}
   local files: {string:string} = {
     ["lib.tl"] = [[
+--[=[
+global G: integer = 1
+]=]
 local record lib
   record Box
     value: integer
