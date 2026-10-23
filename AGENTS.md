@@ -40,10 +40,20 @@ worktree's build directory when you delete the worktree.
 
 ## the loop
 
-1. Run `bin/zig build boot` in a fresh worktree. It builds the cores and
-   stages the tree into the build directory's `build.db`, the working
-   database every later build reads. Copying an existing cosmic
-   executable is not a substitute.
+1. Run `bin/zig build boot` in a fresh worktree. It builds the host's
+   core and stages the tree into the build directory's `build.db`, the
+   working database every later build reads. Copying an existing cosmic
+   executable is not a substitute. The tool it writes carries the host's
+   core alone, a placeholder script standing where each other core goes,
+   which is all `cosmic test`, `fix`, `docs` and the other verbs need; it
+   rebuilds and boots itself as the same kind. What needs another
+   target's core refuses and names the remedy: `cosmic build` of a
+   portable program (`--host` works), and the tests of it, which are
+   reported skipped with `all_cores` named. `bin/zig build boot
+   -Dboot-cores=all` builds every release core and writes the tool CI
+   verifies; run it before a change to the portable artifact, the
+   launcher or `cosmic build` ([`doc/contributing.md`]). CI names
+   `-Dboot-cores=all` itself ([`ci/cosmic_ci/orchestration.tl`]).
 2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`. It
    checks syntax and builds the tree as `cosmic test` does, so a type
    error or a broken contract fails it, saying why. It writes a C file
@@ -130,6 +140,7 @@ procedure.
 [`build/tree_checks.tl`]: build/tree_checks.tl
 [`build/workflows_test.tl`]: build/workflows_test.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin
+[`ci/cosmic_ci/orchestration.tl`]: ci/cosmic_ci/orchestration.tl
 [`ci/run-local`]: ci/run-local
 [`doc/c.md`]: doc/c.md
 [`doc/contributing.md`]: doc/contributing.md
