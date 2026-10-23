@@ -4,6 +4,7 @@
 local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
+local Codegen = require("lang.codegen")
 local Driver = require("build.driver")
 local Node = require("build.syntax_node")
 local Types = require("lang.types")
@@ -11,6 +12,7 @@ local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+local Truthy = require("lang.truthy")
 
 Test.policy{}
 
@@ -438,17 +440,77 @@ local function test_a_source_written_from_another_file_is_the_module_it_says_and
   assert(assert(refused[2]):find("^core/sys.h: 1 error of float_key") ~= nil, table.concat(refused, "\n"))
 end
 
-local function test_a_translated_source_tells_the_generator_what_the_translator_knows_and_the_text_the_checker_read()
+local function test_every_source_tells_the_generator_what_is_never_false_and_the_text_the_checker_read()
   local text = "local n = 3\nlocal s = n > 2 and 1 or 2\nreturn s\n"
   local translated = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   translated:provide(Driver.files(Driver.index({ { "m.tl", text } }, true, nothing)))
   local one = assert(translated:parsed("m"))
-  assert(one.never_false == Translate.never_false and one.text == Translate.translate(text, "m.tl").text)
-  -- the new grammar is read as it is written, and the generator is told nothing
+  assert(one.never_false == Truthy.never_false and one.text == Translate.translate(text, "m.tl").text)
+  -- the new grammar is read as it is written, and the generator is told the same
   local written = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   written:provide(Driver.files(Driver.index({ { "m.tl", text } }, false, nothing)))
   local two = assert(written:parsed("m"))
-  assert(two.never_false == nil and two.text == text)
+  assert(two.never_false == Truthy.never_false and two.text == text)
+end
+
+--- The Lua the generator writes of the module `m` of `text`, read as `translated` says.
+local function lua_of(text: string, translated: boolean): string
+  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
+  build:provide(Driver.files(Driver.index({ { "m.tl", text } }, translated, nothing)))
+  local read = assert(build:parsed("m"))
+  return Codegen.generate(read.chunk, read.scoped, read.never_false).text
+end
+
+--- The value `if c then (v as T) else "z"` gives for `v` of `value`, a lie about the type `T`: the program's answer is `v`.
+local function cast_if(value: string, cast: string): any
+  local text = table.concat({
+    "local v: any = " .. value,
+    "local c: boolean = true",
+    "local r: any = if c then (v as " .. cast .. ") else \"z\"",
+    "return r",
+    "",
+  }, "\n")
+  local lua = lua_of(text, false)
+  return assert(load(lua, "=m", "t"))()
+end
+
+local function test_a_cast_does_not_make_the_middle_of_an_if_expression_never_false()
+  -- the cast promises a type and holds no value: a nil or a false behind it is the answer, not the else branch
+  assert(cast_if("nil", "string") == nil)
+  assert(cast_if("nil", "{string}") == nil)
+  assert(cast_if("nil", "integer") == nil)
+  assert(cast_if("false", "string") == false)
+  assert(cast_if("false", "{string}") == false)
+  assert(cast_if("false", "integer") == false)
+  -- and one that is a value gives itself
+  assert(cast_if("\"s\"", "string") == "s")
+  assert(cast_if("7", "integer") == 7)
+end
+
+local function test_an_if_expression_written_in_the_new_grammar_is_the_lua_of_its_translation()
+  -- the middles are a cast to a map, a number, a string, a table and a concatenation (forms the tree holds, as
+  -- `Json.array() as {any: any}` does), and a chain; a name stays a call whichever way the file came
+  local fork = table.concat({
+    "local raw: any = {}",
+    "local flag: boolean = raw ~= nil",
+    "local name: string = \"k\"",
+    "local a = flag and (raw as {any: any}) or {}",
+    "local b = flag and 1 or 2",
+    "local c = flag and name .. \"x\" or \"y\"",
+    "local d = flag and { 1 } or flag and \"s\" or nil",
+    "local e = flag and name or \"z\"",
+    "local f = flag and \"!matrix\" or nil",
+    "local g = flag and name .. \" && \" .. name or name",
+    "return { a, b, c, d, e, f, g }",
+    "",
+  }, "\n")
+  local text = Translate.translate(fork, "m.tl").text
+  assert(text:find("if flag then", 1, true) ~= nil, text)
+  local theirs, ours = lua_of(fork, true), lua_of(text, false)
+  assert(theirs == ours, theirs .. "\n--\n" .. ours)
+  -- a cast middle is `and`/`or`, not a function called on the spot
+  local cast = Translate.translate("local raw: any = {}\nlocal t = raw ~= nil and (raw as {any: any}) or {}\nreturn t\n", "m.tl").text
+  assert(lua_of(cast, false):find("function", 1, true) == nil, lua_of(cast, false))
 end
 
 local function test_the_steps_a_source_needs_are_made_to_its_text_after_the_translation_and_before_the_parse()

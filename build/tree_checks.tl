@@ -68,6 +68,7 @@ local SyntaxNode = require("build.syntax_node")
 local ScopesCover = require("lang.scopes_cover")
 local teal = require("build.teal")
 local Translate = require("lang.translate")
+local Truthy = require("lang.truthy")
 local TreeShard = require("build.tree_shard")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -2400,8 +2401,8 @@ function tree_checks.translated(root: string, pinned?: {string: integer}, ceilin
   local found: {string: integer} = {}
   local hazardous: {string} = {}
   local seen: {string: boolean} = {}
-  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/translate.tl",
-    "build/check_memo.tl", "build/tree_checks.tl" }, "translated 2")
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/translate.tl", "lang/truthy.tl",
+    "build/check_memo.tl", "build/tree_checks.tl" }, "translated 3")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "translated")
   end
@@ -2601,9 +2602,9 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
   local given = TreeProgram.tree_globals(root)
   local declared = Driver.globals(given.sources, given.adjust)
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/scopes_cover.tl", "lang/translate.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
+    "lang/scopes_cover.tl", "lang/translate.tl", "lang/truthy.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl" },
-    "scoped 1")
+    "scoped 2")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "scoped")
   end
@@ -2943,9 +2944,9 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl",
+    "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl",
     "build/tree_checks.tl", "build/tree_program.tl", "build/lang_proof.tl", "build/gen_syscalls.tl", "core/syscalls.h",
-    "core/process.h", "core/socket.h" }, "declared 3")
+    "core/process.h", "core/socket.h" }, "declared 4")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -3002,10 +3003,10 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
+    "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "checked 3")
+    "core/socket.h" }, "checked 4")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -3063,7 +3064,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
-    "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/fact_wraps.tl",
+    "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 2")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
@@ -3239,7 +3240,7 @@ local function generate_outcome(file: string, source: string, memo: Sqlite.Handl
       --
       -- TODO: once the new checker's Lua is what the build writes, pass [`Check.enums`] here and compare the membership
       -- test with the fork's kind test normalized, or drop this oracle.
-      local generated = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Translate.never_false)
+      local generated = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Truthy.never_false)
       outcome.errors = generated.errors
       local loaded, load_why = load(generated.text, "=" .. file, "t", {})
       if loaded == nil then
@@ -3318,7 +3319,7 @@ function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: 
   local fork_salt = check_memo.salt(root, { "checker/tl.tl", "checker/flow.tl", "checker/narrowing.tl",
     "checker/captures.tl", "checker/facts.tl", "checker/stdlib.d.tl", "build/compile.tl" }, "forked 1")
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/codegen.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "generated 1 " .. fork_salt)
+    "lang/translate.tl", "lang/codegen.tl", "lang/truthy.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "generated 1 " .. fork_salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "generated")
     local _ = TreeShard.warm(shards, memo, "generated", files, salt, fork_salt)
@@ -3440,7 +3441,7 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "build/syntax_compared.tl", "build/syntax_node.tl",
+    "lang/translate.tl", "lang/truthy.tl", "build/syntax_compared.tl", "build/syntax_node.tl",
     "build/syntax_match.tl", "build/syntax_rewrite.tl",
     "build/syntax_scopes.tl", "build/syntax_globals.tl",
     "build/syntax_stub.tl", "build/coverage/syntax_lines.tl", "build/ast/init.tl", "build/ast/node.tl", "build/ast/walk.tl",
@@ -3449,7 +3450,7 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     "build/stub.tl", "build/coverage/lines.tl", "checker/tl.tl", "build/check_memo.tl",
     "build/syntax_compared_analysis.tl", "build/syntax_analyzer.tl", "build/syntax_link_text.tl",
     "build/policy_rules.tl", "build/analyzer.tl", "build/link_text.tl", "build/cache_names.tl",
-    "build/host_names.tl", "build/plural_sites.tl" }, "read 4")
+    "build/host_names.tl", "build/plural_sites.tl" }, "read 5")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "read")
     local _ = TreeShard.warm(shards, memo, "read", files, salt, "")
@@ -3549,12 +3550,12 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/translate.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
     "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "typed 2")
+    "core/socket.h" }, "typed 3")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")

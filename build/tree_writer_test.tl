@@ -418,9 +418,6 @@ local function lua_of(text: string, translate: boolean): string
   build:provide(Driver.files(index))
   build:lower({ "m" })
   local result = assert(build:result("m", true))
-  -- TODO: drop this line once the driver passes `never_false` for every source and not only for a translated one: a
-  -- module written in the new grammar is compiled with it then, as its translation is today.
-  result.never_false = Translate.never_false
   local emitted = CompileGrammar.emit(build, result)
   return (assert(emitted.code, emitted.trouble))
 end

@@ -1089,6 +1089,13 @@ local function test_a_memo_answers_for_a_file_that_has_not_changed_and_misses_wh
   -- The code that translates changed: the salt moves, the file is translated again.
   assert(Fs.write(root .. "/lang/translate.tl", "-- two\n"))
   assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n") == plain)
+  -- So did the rule it calls, which is a file of its own: the answer planted again is dropped when the rule is edited.
+  assert(Fs.write(root .. "/lang/truthy.tl", "-- one\n"))
+  assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n") == plain)
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
+  assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n"):find("planted", 1, true) ~= nil)
+  assert(Fs.write(root .. "/lang/truthy.tl", "-- two\n"))
+  assert(table.concat(tree_checks.translated(root, {}, 0, memo), "\n") == plain)
   -- The file changed: its key moves, and the rows of the old one are dropped.
   assert(Fs.write(root .. "/build/tuple.tl", source("local a: {{string, string}}", "return a")))
   local edited = table.concat(tree_checks.translated(root, {}, 0, memo), "\n")
@@ -1297,7 +1304,7 @@ end
 --- them misses.
 local function test_a_change_to_the_code_or_the_declarations_the_declaration_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/declaresalt"
-  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl",
+  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl", "lang/truthy.tl",
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl",
     "build/check_memo.tl", "build/tree_checks.tl" }
   assert(Fs.mkdirs(root .. "/build"))
@@ -1397,7 +1404,7 @@ end
 --- Each file whose code or declarations decide what the check finds is in the memo's salt.
 local function test_a_change_to_the_code_or_the_declarations_the_body_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/checksalt"
-  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl",
+  local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl", "lang/truthy.tl",
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
     "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }
   assert(Fs.mkdirs(root .. "/build"))

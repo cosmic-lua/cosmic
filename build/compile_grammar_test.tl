@@ -438,16 +438,17 @@ local function test_emit_writes_the_lua_of_a_module_checked_with_its_bodies_and_
   assert(Grammar.emit(unchecked, assert(unchecked:result("m", false))).code == nil)
 end
 
--- The translator writes an `if` expression only for a middle value that is never false. The generator is told so, or it
--- writes a function called on the spot where the fork writes `and` and `or`.
-local function test_emit_tells_the_generator_what_the_translator_knows_of_an_if_expression()
+-- The translator writes an `if` expression only for a middle value that is never false. The generator is told so for every
+-- source, or it writes a function called on the spot where the fork writes `and` and `or`: the text read as the new grammar
+-- gives the same Lua as the fork's Teal it was translated from.
+local function test_emit_tells_the_generator_what_is_never_false_of_an_if_expression_whichever_grammar_it_was_read_in()
   local fork = "local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n"
   local translated = built(fork, true)
   local told = assert(Grammar.emit(translated, assert(translated:result("m", true))).code)
   assert(told:find("function", 1, true) == nil, told)
-  -- the same text, read as the new grammar, has no word of it
+  -- the same text, read as the new grammar, is told the same
   local plain = built(Translate.translate(fork, "m.tl").text, false)
-  local blind = assert(Grammar.emit(plain, assert(plain:result("m", true))).code)
-  assert(blind:find("function", 1, true) ~= nil and blind ~= told, blind)
-  assert(value_of(told) == "v" and value_of(blind) == "v")
+  local written = assert(Grammar.emit(plain, assert(plain:result("m", true))).code)
+  assert(written == told, written)
+  assert(value_of(told) == "v" and value_of(written) == "v")
 end

@@ -94,6 +94,7 @@
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Truthy = require("lang.truthy")
 
 local record Translate
   --- A place where a rewrite may change what a program means or break it, and
@@ -157,11 +158,6 @@ local record Translate
 
   --- The name of each row, in the order the module doc lists them.
   rows: {string}
-
-  --- Whether `e` can be neither false nor nil, from its syntax alone: a literal, a table, a function, an
-  --- arithmetic or concatenation, or a cast to a type that holds neither. It is what the translator
-  --- needs of a middle operand to write an `if` expression, and what a code generator may take as truthy.
-  never_false: function(e: Ast.Exp): boolean
 end
 
 Translate.rows = {
@@ -455,46 +451,6 @@ end
 
 -- the walk's rewrites
 
---- The operators that answer a number or a string.
-local NUMBERY <const>: {string: boolean} = {
-  ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["//"] = true, ["%"] = true, ["^"] = true,
-  [".."] = true, ["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true,
-}
-
-local VALUE_TYPES <const>: {string: boolean} = { string = true, number = true, integer = true }
-
---- Whether `e` can be neither false nor nil, from its syntax alone: a
---- literal, a table, a function, an arithmetic or concatenation, or a cast to
---- a type that holds neither.
----
--- TODO: write the `if` expression for a middle operand that is neither boolean nor
--- optional by the type report and not by its syntax, once the new checker's
--- type report keyed by node id exists (doc/plans/new-checker-grammar.md, "the
--- interface"): a name or a call stays a ternary until then.
-local function never_false(e: Ast.Exp): boolean
-  local cur: Ast.Node = e
-  while true do
-    if cur is Ast.Paren then
-      cur = cur.inner
-    elseif cur is Ast.Cast then
-      local ty = cur.type
-      if ty is Ast.TypeName then
-        local path = ty.path
-        return #path == 1 and #ty.args == 0 and VALUE_TYPES[path[1]] == true
-      end
-      return ty is Ast.TypeArray or ty is Ast.TypeMap or ty is Ast.TypeFunction
-    elseif cur is Ast.Binary then
-      return NUMBERY[cur.op] == true
-    elseif cur is Ast.Unary then
-      local op = cur.op
-      return op == "-" or op == "#" or op == "~"
-    else
-      return cur is Ast.String or cur is Ast.Integer or cur is Ast.Float or cur is Ast.Table or
-        cur is Ast.FunctionLit
-    end
-  end
-end
-
 --- The rewrite of `c and a or b`, and of a chain `c and a or d and e or b`,
 --- when each middle operand is never false, as an `if` expression. `top` is the
 --- `or` node. `covered` receives the inner `or` nodes of a chain, which are
@@ -521,7 +477,7 @@ local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {
     ands[i], ands[#ands + 1 - i] = ands[#ands + 1 - i], ands[i]
   end
   for _, a in ipairs(ands) do
-    if not never_false(a.right) then
+    if not Truthy.never_false(a.right) then
       return nil
     end
   end
@@ -2468,8 +2424,6 @@ local function converge(run: Run, name: string, dialect: Ast.Dialect, counts: {s
     run.parsed = read(after, name, dialect)
   end
 end
-
-Translate.never_false = never_false
 
 function Translate.translate(source: string, name: string): Translate.Result
   local dialect: Ast.Dialect = find(name, "%.d%.tl$") and "decl" or "tl"

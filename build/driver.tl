@@ -41,6 +41,7 @@ local Parser = require("lang.parser")
 local RemovedFix = require("build.removed_fix")
 local Scopes = require("lang.scopes")
 local Translate = require("lang.translate")
+local Truthiness = require("lang.truthy")
 local Types = require("lang.types")
 
 local record Driver
@@ -111,13 +112,14 @@ local record Driver
   record Outcome
     module: string
     source: Source
-    --- The text the checker reads, in the new grammar: the source's text corrected and translated where it says so, or
+    --- The text the checker reads, in the new grammar: the source's text translated where it says so, or
     --- the text a [`Driver.Build.replace`] gave.
     text: string
-    --- Whether an expression can be neither false nor nil, from its syntax alone ([`lang.translate`]'s `never_false`),
-    --- for the code generator's `if` expressions: set for a source that was translated, nil for one written in the new
-    --- grammar. The translator writes an `if` expression only for a value that cannot be false, and the generator is
-    --- told so, or it writes a function called on the spot where the fork writes `and`/`or`.
+    --- Whether an expression can be neither false nor nil, from its syntax alone ([`lang.truthy`]),
+    --- for the code generator's `if` expressions: set for every source, the translated and the written in the new
+    --- grammar alike. The translator writes an `if` expression only for a value that cannot be false, and a file written
+    --- in the new grammar holds the same form; the generator is told what the rule knows, or it writes a function called
+    --- on the spot where the fork writes `and`/`or`, and a file's Lua would depend on how the file came.
     never_false: Truthy | nil
     chunk: Ast.Chunk
     scoped: Scopes.Scoped
@@ -318,11 +320,7 @@ local function read_source(source: Driver.Source, written?: boolean): Read
     text = text_of(source)
   end
   local parsed = Parser.parse(Lexer.lex(text, source.filename), source.filename, source.dialect)
-  local truthy: Driver.Truthy | nil = nil
-  if source.translate then
-    truthy = Translate.never_false
-  end
-  return { source = source, text = text, never_false = truthy, chunk = parsed.chunk, errors = parsed.errors }
+  return { source = source, text = text, never_false = Truthiness.never_false, chunk = parsed.chunk, errors = parsed.errors }
 end
 
 function Driver.parse(source: Driver.Source): Driver.Parsed

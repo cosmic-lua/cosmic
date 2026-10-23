@@ -148,7 +148,8 @@ local function finite(value: any): any
     return value
   end
   if not (value is {any: any}) then return value end
-  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  local out: {any: any}
+  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end
   for k, v in pairs(value) do out[k] = finite(v) end
   return out
 end

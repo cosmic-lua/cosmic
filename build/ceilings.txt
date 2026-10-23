@@ -582,7 +582,7 @@ build/udp_fixture.tl setmetatable_call 1
 build/zig.tl setmetatable_call 1
 checker/facts.tl setmetatable_call 2
 ci/cosmic_ci/fuzz_test.tl setmetatable_call 1
-ci/cosmic_ci/orchestration.tl condition_type 5
+ci/cosmic_ci/orchestration.tl condition_type 6
 ci/cosmic_ci/rehearsal.tl condition_type 2
 ci/cosmic_ci/orchestration.tl field_fixed 1
 ci/cosmic_ci/rehearsal.tl field_fixed 1
@@ -595,7 +595,7 @@ build/pipeline_check.tl overload_none 1
 ci/cosmic_ci/orchestration.tl overload_none 3
 ci/cosmic_ci/rehearsal.tl overload_none 1
 build/shape_key.tl view_written 2
-ci/cosmic_ci/orchestration.tl view_written 26
+ci/cosmic_ci/orchestration.tl view_written 28
 ci/cosmic_ci/rehearsal.tl view_written 13
 ci/cosmic_ci/rehearsal_test.tl nil_not_allowed 4
 ci/cosmic_ci/rehearsal_test.tl view_written 1
@@ -1288,6 +1288,7 @@ lang/stdlib_test.tl nil_not_allowed 3
 lang/translate.tl nil_not_allowed 91
 lang/translate_fuzz_test.tl nil_not_allowed 5
 lang/translate_test.tl nil_not_allowed 26
+lang/truthy_test.tl nil_not_allowed 1
 lang/types.tl nil_not_allowed 43
 lang/types_programs.tl nil_not_allowed 5
 lang/types_test.tl nil_not_allowed 28
@@ -2975,7 +2976,7 @@ lang/relation_programs.tl field_fixed 19
 lang/relation_test.tl field_fixed 1
 lang/scopes.tl field_fixed 19
 lang/syntax_codes.tl field_fixed 1
-lang/translate.tl field_fixed 3
+lang/translate.tl field_fixed 2
 lang/types.tl field_fixed 4
 lang/types_programs.tl field_fixed 2
 lang/warnings.tl field_fixed 2
@@ -2983,7 +2984,6 @@ test/portable/tool.tl field_fixed 1
 test/terminal/pty.tl field_fixed 6
 test/terminal/relay.tl field_fixed 2
 build/tree_writer.tl field_fixed 6
-build/tree_writer_test.tl field_fixed 1
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
 # declarations lack
@@ -3041,7 +3041,9 @@ lang/scopes.tl field_unknown 177
 lang/scopes_cover.tl field_unknown 19
 lang/scopes_fuzz_test.tl field_unknown 54
 lang/scopes_test.tl field_unknown 5
-lang/translate.tl field_unknown 255
+lang/translate.tl field_unknown 242
+lang/truthy.tl field_unknown 15
+lang/truthy_test.tl field_unknown 2
 lang/types.tl field_unknown 169
 lang/types_fuzz_test.tl field_unknown 75
 lang/types_programs.tl field_unknown 3
@@ -3221,7 +3223,7 @@ ci/cosmic_ci/host_id_test.tl map_field 3
 ci/cosmic_ci/images.tl map_field 1
 ci/cosmic_ci/images_test.tl map_field 36
 ci/cosmic_ci/launcher_fixture.tl map_field 1
-ci/cosmic_ci/orchestration.tl map_field 50
+ci/cosmic_ci/orchestration.tl map_field 52
 ci/cosmic_ci/orchestration_test.tl map_field 117
 ci/cosmic_ci/place_tree.tl map_field 5
 ci/cosmic_ci/prerelease.tl map_field 16
