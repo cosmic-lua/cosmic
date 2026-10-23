@@ -325,6 +325,7 @@ end
 
 -- TODO: hold the child in a `<close>` local again and drop this, once ci/cosmic-driver.pin names a release that
 -- declares [`Child.Handle`] as a class: a `<close>` local must be one.
+
 --- Runs `body` on the child [`start_fuzz`] starts, then closes the child, whether `body` returns or raises.
 local function with_fuzz(tmp: string, lines: {string}, extra: {string:string},
                          body: function(handle: Child.Handle, temp: string, log: string))

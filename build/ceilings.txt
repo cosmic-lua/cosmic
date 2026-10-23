@@ -3978,9 +3978,9 @@ build/zig_caches.tl view_written 1
 
 build/zig_fetch.tl view_written 8
 
-build/zig_fetch_test.tl view_written 2
+build/zig_fetch_test.tl view_written 3
 
-build/zig_test.tl view_written 8
+build/zig_test.tl view_written 9
 
 checker/captures.tl view_written 2
 
@@ -4094,7 +4094,7 @@ ci/run_local.tl view_written 31
 
 ci/run_local_proof.tl view_written 22
 
-ci/run_local_test.tl view_written 13
+ci/run_local_test.tl view_written 14
 
 core/allocation_test.tl view_written 6
 
@@ -5221,7 +5221,7 @@ build/memprobe.tl field_fixed 2
 
 build/memprobe_test.tl field_fixed 8
 
-build/patch_test.tl field_fixed 1
+build/patch_test.tl field_fixed 5
 
 build/perf_test.tl field_fixed 3
 
@@ -5353,11 +5353,11 @@ build/workflows_test.tl field_fixed 1
 
 build/writer_test.tl field_fixed 2
 
-build/zig_fetch_test.tl field_fixed 1
+build/zig_fetch_test.tl field_fixed 3
 
 build/zig_lock_test.tl field_fixed 6
 
-build/zig_test.tl field_fixed 12
+build/zig_test.tl field_fixed 18
 
 checker/facts.tl field_fixed 1
 
@@ -5405,7 +5405,7 @@ ci/cosmic_ci/zig_prune_test.tl field_fixed 12
 
 ci/cosmic_ci/zig_restat.tl field_fixed 5
 
-ci/run_local_test.tl field_fixed 28
+ci/run_local_test.tl field_fixed 38
 
 core/artifact_fd_tool_test.tl field_fixed 1
 
@@ -6787,7 +6787,7 @@ build/zig.tl overload_none 2
 
 build/zig_lock_test.tl overload_none 2
 
-build/zig_test.tl overload_none 1
+build/zig_test.tl overload_none 2
 
 checker/captures.tl overload_none 6
 
@@ -13094,6 +13094,14 @@ ci/cosmic_ci/orchestration_test.tl view_as_mut 5
 ci/fixtures/fixed_point_test.tl view_written 1
 
 ci/fixtures/launcher_test.tl view_written 16
+
+build/patch_test.tl overload_none 1
+
+build/patch_test.tl view_written 1
+
+build/zig_fetch_test.tl overload_none 1
+
+ci/run_local_test.tl overload_none 1
 
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which

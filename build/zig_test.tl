@@ -16,6 +16,8 @@ local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
 local Zig = require("build.zig")
+local Child = require("cosmic.child")
+local Signal = require("cosmic.signal")
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -543,4 +545,66 @@ local function test_cache_fallbacks_follow_selected_output()
   local environment = Zig.passthrough_environment("/selected", {})
   assert(environment.ZIG_GLOBAL_CACHE_DIR == "/selected/zig-global")
   assert(environment.ZIG_LOCAL_CACHE_DIR == "/selected/zig-cache")
+end
+
+--- The open descriptors of this process, each with what it names.
+local function descriptors(): string
+  local out: {string} = {}
+  for _, number in ipairs((assert(Fs.list("/proc/self/fd")))) do
+    local target, _ = Fs.readlink("/proc/self/fd/" .. number)
+    out[#out + 1] = number .. "=" .. (target or "?")
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
+--- A raised error in the callback of [`Zig.with_lock`] must still let go of the lock: a descriptor left open holds the
+--- rebuild lock for the life of the process.
+local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
+  local output = build_dir(tmp .. "/tree")
+  assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 0 end) == 0)
+  local before = descriptors()
+  local ok, trouble = pcall(Zig.with_lock, output, {}, function(_env: {string:string}): integer
+    error("the callback raised")
+  end)
+  assert(not ok and tostring(trouble):find("the callback raised", 1, true) ~= nil, tostring(trouble))
+  assert(descriptors() == before, "a descriptor of the lock stayed open")
+  assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 3 end) == 3)
+  assert(descriptors() == before, "the lock leaked on the normal path")
+end
+
+local record Tally
+  closed: integer
+  released: integer
+end
+
+--- An error that leaves the supervision of [`Zig.run`] must close the signal guard, which restores the signals the
+--- process held: a guard left open keeps SIGINT and SIGTERM caught for the rest of its life.
+local function test_run_closes_the_signal_guard_when_supervising_raises()
+  local real_start, real_guard = Child.start, Signal.guard
+  local tally: Tally = { closed = 0, released = 0 }
+  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle | nil, string
+    error("the start raised")
+  end
+  Signal.guard = function(): Signal.Guard | nil, string
+    local guard, trouble = real_guard()
+    if guard ~= nil then
+      local watched: Signal.Guard = guard
+      local real_close, real_release = watched.close, watched.release
+      watched.close = function(self: Signal.Guard): boolean, string
+        tally.closed = tally.closed + 1
+        return real_close(self)
+      end
+      watched.release = function(self: Signal.Guard): integer | nil, string
+        tally.released = tally.released + 1
+        return real_release(self)
+      end
+    end
+    return guard, trouble
+  end
+  local ok, trouble = pcall(Zig.run, { "/bin/true" })
+  Child.start, Signal.guard = real_start, real_guard
+  assert(not ok and tostring(trouble):find("the start raised", 1, true) ~= nil, tostring(trouble))
+  assert(tally.closed == 1, "the guard was closed " .. tostring(tally.closed) .. " times")
+  assert(tally.released == 0, "the guard was released on a raise")
 end

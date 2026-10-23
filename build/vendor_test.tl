@@ -4,6 +4,7 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
@@ -317,4 +318,27 @@ local function test_an_unnamed_feed_tree_is_kept_or_refused(dir: string)
   assert(Fs.read(root .. "/vendor/feedy/f.json") == "snapshot")
   assert(Fs.write(root .. "/vendor/feedy/f.json", "changed by hand"))
   assert(Vendor.run({}, script) == 1)
+end
+
+--- The download is held to every digest the PIN gives, whoever serves it, and trusts every root: a fetch without
+--- them would take a vendored archive from a host on its word.
+local record Seen
+  options?: Http.Options
+end
+
+local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
+  local seen: Seen = {}
+  local real = Http.download
+  Http.download = function(_url: string, _path: string, options?: Http.Options): boolean, string
+    seen.options = options
+    return false, "stop here"
+  end
+  local fetched, trouble = Vendor.fetch("https://example.invalid/a.tar", dir .. "/a.tar",
+    { { algorithm = "sha256", hex = "aa" }, { algorithm = "sha3-256", hex = "bb" } })
+  Http.download = real
+  assert(fetched == nil and trouble == "stop here", tostring(trouble))
+  local options = assert(seen.options)
+  assert(options.sha256 == "aa", "the download is not held to the sha256")
+  assert(options.sha3_256 == "bb", "the download is not held to the sha3-256")
+  assert(options.roots == "mozilla")
 end

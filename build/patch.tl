@@ -368,17 +368,20 @@ local function patched(inputs: Inputs): Tree | nil, string
   return { dir_mode = dir_mode, dirs = inputs.dirs, files = files }, ""
 end
 
---- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
---- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none.
 -- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
 -- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
+
+--- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none; a
+--- failure always has a message. This copy and the one in the other island are separate because an island
+--- requires no module of the tree.
 local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
   local ok, outcome = pcall(body, scratch)
   local _, _ = Fs.remove_tree(scratch.path)
   local _, _ = sys.close(scratch.owner)
   if not ok then error(outcome, 0) end
-  if type(outcome) == "string" then return outcome end
-  return ""
+  assert(type(outcome) == "string", "a scratch body answers its trouble as a string, \"\" for none")
+  return outcome
 end
 
 --- Writes `tree` into `out`, which must not exist, and syncs every file

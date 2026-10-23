@@ -391,3 +391,99 @@ local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: st
   local _, _ = outer:close()
   if not ran then error(raised, 0) end
 end
+
+--- The open descriptors of this process, each with what it names.
+local function descriptors(): string
+  local out: {string} = {}
+  for _, number in ipairs((assert(Fs.list("/proc/self/fd")))) do
+    local target, _ = Fs.readlink("/proc/self/fd/" .. number)
+    out[#out + 1] = number .. "=" .. (target or "?")
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
+--- A run that ends well must let go of the phase logs it holds: [`Local.run`] releases what it holds on every path,
+--- not only after an error.
+local function test_a_successful_run_closes_the_descriptors_it_held(tmp: string)
+  local root, env = checkout(tmp)
+  assert(invoke(root, env, { "build" }) == 0)
+  local before = descriptors()
+  assert(invoke(root, env, { "build", "fixtures" }) == 0)
+  assert(descriptors() == before, "a successful run left a descriptor open")
+end
+
+local record GuardTally
+  closed: integer
+  first: boolean
+end
+
+--- The run holds a signal guard for its whole length and closes it once, on success and on a failed phase.
+local function test_a_run_closes_its_signal_guard_once(tmp: string)
+  local root, env = checkout(tmp)
+  local real = Signal.guard
+  local tally: GuardTally = { closed = 0, first = true }
+  Signal.guard = function(): Signal.Guard | nil, string
+    local guard, trouble = real()
+    -- The run's own guard is the first one it opens; its children open others.
+    if guard ~= nil and tally.first then
+      tally.first = false
+      local watched: Signal.Guard = guard
+      local real_close = watched.close
+      watched.close = function(self: Signal.Guard): boolean, string
+        tally.closed = tally.closed + 1
+        return real_close(self)
+      end
+    end
+    return guard, trouble
+  end
+  local ok, code = pcall(invoke, root, env, { "build" })
+  tally.first = true
+  local failed_ok, failed_code = pcall(invoke, root, env, { "fail" })
+  Signal.guard = real
+  assert(ok and code == 0, tostring(code))
+  assert(failed_ok and failed_code == 23, tostring(failed_code))
+  assert(tally.closed == 2, "the guard was closed " .. tostring(tally.closed) .. " times in two runs")
+end
+
+local record CredentialedTally
+  runs: integer
+end
+
+--- A credentialed run that ends well removes the copy of the runtime it made and closes its descriptor: the copy
+--- is the whole core, left in /tmp, and its descriptor stays open in a process that may go on to run more.
+local function test_a_successful_credentialed_run_removes_its_runtime_copy(tmp: string)
+  local root, env = checkout(tmp)
+  local user, run, mkdtemp = Proc.user, Child.run, sys.mkdtemp
+  local scratch = { value = "" }
+  local credentialed: CredentialedTally = { runs = 0 }
+  Proc.user = function(_name: string): Proc.User | nil, string
+    return { uid = 65532, gid = 65532 }, ""
+  end
+  sys.mkdtemp = function(template: string): string | nil, string, integer
+    local path, why, errno = mkdtemp(template)
+    if template:find("cosmic-local-runtime", 1, true) then scratch["value"] = path or "" end
+    return path, why, errno
+  end
+  Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+    if options == nil or options.credentials == nil then return run(words, options) end
+    credentialed.runs = credentialed.runs + 1
+    local code = assert(words[#words])
+    -- The preflight and the phase itself are stood in for; the probe that makes the phase directories runs as is.
+    if code:find("getuid", 1, true) ~= nil or code == "success" then
+      return run({ "/bin/true" }, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
+    end
+    options.credentials = nil
+    return run(words, options)
+  end
+  -- Proc.relaunch opens the running core once and caches it.
+  local _ = assert(Proc.relaunch())
+  local before = descriptors()
+  local called, code, diagnostic = pcall(invoke, root, env, { "build" }, 0)
+  Proc.user, Child.run, sys.mkdtemp = user, run, mkdtemp
+  assert(called, tostring(code))
+  assert(code == 0 and credentialed.runs > 0, "the run did not end well: " .. tostring(diagnostic))
+  assert(scratch["value"] ~= "" and Fs.exists(assert(scratch["value"])) == false, "the runtime copy was left in /tmp")
+  local after = descriptors()
+  assert(after == before, "the runtime descriptor stayed open:\n" .. before .. "\n--\n" .. after)
+end

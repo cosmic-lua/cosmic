@@ -243,8 +243,8 @@ end
 --- failure, while any known child status remains available to be saved.
 local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
                         env: {string:string}, out: string, log: integer): integer | nil, string
-  local out_fd = assert(Fs.open_write(out))
   local program = assert(argv[1], "no program to run")
+  local out_fd = assert(Fs.open_write(out))
   local kept: Streamed = { trouble = "" }
   local called, failure = pcall(function()
     local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))

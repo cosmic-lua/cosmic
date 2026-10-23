@@ -251,17 +251,20 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   return false, why .. tostring(tally.attempts) .. " attempts:" .. table.concat(lines)
 end
 
---- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
---- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none.
 -- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
 -- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
+
+--- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none; a
+--- failure always has a message. This copy and the one in the other island are separate because an island
+--- requires no module of the tree.
 local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
   local ok, outcome = pcall(body, scratch)
   local _, _ = Fs.remove_tree(scratch.path)
   local _, _ = sys.close(scratch.owner)
   if not ok then error(outcome, 0) end
-  if type(outcome) == "string" then return outcome end
-  return ""
+  assert(type(outcome) == "string", "a scratch body answers its trouble as a string, \"\" for none")
+  return outcome
 end
 
 --- Downloads, verifies and extracts zig `version`'s release for `host`,
@@ -321,6 +324,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
       local _, _ = Fs.rename(extracted, install)
     end
     if extracted == nil then
+      if trouble == "" then return "no zig was extracted for " .. host end
       return trouble
     end
     local installed, look_trouble = Fs.exists(zig)

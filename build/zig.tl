@@ -769,6 +769,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   end)
   if not ran then
     local _, _ = g:close()
+    -- The message keeps its position; the traceback of the first raise is not kept.
     error(raised, 0)
   end
   local result, trouble = supervised.result, supervised.trouble
@@ -988,10 +989,11 @@ local record Lock
   db: Sqlite.Handle | nil
 end
 
---- Lets go of both halves of `lock`, the SQL one first.
 -- TODO: make [`Lock`] a class with `function __close(self)`, hold it in a `<close>` local and drop the `pcall` of
--- [`Zig.with_lock`], once this file is written in the new grammar (doc/plans/strict-teal.md, "the switch"): the Teal both
--- grammars read has no class, and the new one has no `setmetatable`.
+-- [`Zig.with_lock`], once ci/cosmic-driver.pin names a release that reads the new grammar (doc/plans/strict-teal.md,
+-- "the switch"): the Teal both grammars read has no class, and the new one has no `setmetatable`.
+
+--- Lets go of both halves of `lock`, the SQL one first.
 local function release(lock: Lock)
   local db = lock.db
   if db ~= nil then local _, _ = db:close() end

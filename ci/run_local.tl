@@ -54,10 +54,12 @@ local function close_held(held: Held, fd: integer): boolean, string
   return Fs.close(fd)
 end
 
---- Closes what `held` still holds: the descriptors, then the runtime's descriptor and directory.
 -- TODO: make [`Runtime`] and a descriptor classes with `function __close(self)`, hold them in `<close>` locals and
--- drop [`Held`] and this function, once this file is written in the new grammar (doc/plans/strict-teal.md, "the
--- switch"): the Teal both grammars read has no class, and the new one has no `setmetatable`.
+-- drop [`Held`] and this function, once ci/cosmic-driver.pin names a release that reads the new grammar
+-- (doc/plans/strict-teal.md, "the switch"): the Teal both grammars read has no class, and the new one has no
+-- `setmetatable`.
+
+--- Closes what `held` still holds: the descriptors, then the runtime's descriptor and directory.
 local function release(held: Held)
   while #held.open > 0 do
     local fd = table.remove(held.open)
