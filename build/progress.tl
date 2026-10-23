@@ -1,10 +1,9 @@
 --- A line of progress from a phase that can take long, so that a run
 --- that is slow says where it is: "test: running 120/2300 tests, 40 s".
---- A phase that ends within [`progress.after_ns`] says nothing. Past it
---- the phase says a line each [`progress.terminal_ns`] where stderr is a
---- terminal, and each [`progress.pipe_ns`] where it is not, so that a CI
---- log holds a few lines a minute, never a stream. A line is a plain
---- line, never one rewritten in place.
+--- A phase that ends within ten seconds says nothing. Past it the phase
+--- says a line each ten seconds where stderr is a terminal, and each
+--- thirty where it is not, so that a CI log holds a few lines a minute,
+--- never a stream. A line is a plain line, never one rewritten in place.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -12,13 +11,6 @@ local Proc = require("cosmic.proc")
 local logger = require("build.logger")
 
 local record progress
-  --- How long a phase runs before it says its first line.
-  after_ns: integer
-  --- How long between lines where stderr is a terminal.
-  terminal_ns: integer
-  --- How long between lines where it is not.
-  pipe_ns: integer
-
   --- Where a phase says its lines, and how it reads the time: what a
   --- test supplies in place of stderr and the monotonic clock.
   record Options
@@ -27,24 +19,18 @@ local record progress
     now: function(): integer
   end
 
-  --- A phase's progress: [`Phase.tick`] it as work finishes.
+  --- A phase's progress, which `tick` is told of as work finishes.
   record Phase
-    --- Says a line, when one is due, that `done` of `total` `unit`s
-    --- (a noun, plural by an `s`) are finished.
-    tick: function(self: Phase, done: integer, total: integer)
-    verb: string
-    what: string
-    unit: string
-    started_ns: integer
-    said_ns: integer | nil
-    every_ns: integer
-    options: Options
+    --- Says a line, when one is due, that `done` of `total` are finished.
+    tick: function(done: integer, total: integer)
   end
 end
 
-progress.after_ns = Clock.seconds(10)
-progress.terminal_ns = Clock.seconds(10)
-progress.pipe_ns = Clock.seconds(30)
+--- How long a phase runs before it says its first line.
+local after_ns <const> = Clock.seconds(10)
+--- How long between lines where stderr is a terminal, and where it is not.
+local terminal_ns <const> = Clock.seconds(10)
+local pipe_ns <const> = Clock.seconds(30)
 
 --- How long a phase has run, as a line says it: seconds, and from two
 --- minutes whole minutes and the seconds left.
@@ -56,32 +42,41 @@ function progress.elapsed(ns: integer): string
   return tostring(seconds // 60) .. " min " .. tostring(seconds % 60) .. " s"
 end
 
-local function tick(self: progress.Phase, done: integer, total: integer)
-  local now = self.options.now()
-  local ran = now - self.started_ns
-  if ran < progress.after_ns then return end
-  local said = self.said_ns
-  if said ~= nil and now - said < self.every_ns then return end
-  self.said_ns = now
-  self.options.say(self.verb, self.what .. " " .. tostring(done) .. "/" .. tostring(total) ..
-      (self.unit == "" and "" or " " .. self.unit .. "s") .. ", " .. progress.elapsed(ran))
+local function say_to_stderr(verb: string, detail: string)
+  local _, _ = logger.summary(verb, detail)
 end
 
 --- A phase that began now, said as `verb: what <done>/<total> <unit>s,
---- <elapsed>`. `unit` is "" for none.
+--- <elapsed>`, `unit` a noun made plural by an `s`.
 --- @param options where it says its lines and reads the time, by
 ---   default stderr, as [`build.logger`]'s `summary` writes it, and the
 ---   monotonic clock
 function progress.phase(verb: string, what: string, unit: string,
                         options?: progress.Options): progress.Phase
-  local opts: progress.Options = options or {
-    say = function(v: string, detail: string) local _, _ = logger.summary(v, detail) end,
-    terminal = Proc.is_tty(Fs.stderr),
-    now = Clock.monotonic_ns,
-  }
+  local say = say_to_stderr
+  local terminal = Proc.is_tty(Fs.stderr)
+  local now = Clock.monotonic_ns
+  if options ~= nil then
+    say, terminal, now = options.say, options.terminal, options.now
+  end
+  local every_ns = pipe_ns
+  if terminal then every_ns = terminal_ns end
+  local started_ns = now()
+  -- The time of the last line said, held in a list of at most one: a
+  -- function may change what a table holds, not a local of its maker.
+  local said: {integer} = {}
   return {
-    tick = tick, verb = verb, what = what, unit = unit, started_ns = opts.now(),
-    every_ns = opts.terminal and progress.terminal_ns or progress.pipe_ns, options = opts,
+    tick = function(done: integer, total: integer)
+      local at = now()
+      if at - started_ns < after_ns then return end
+      for _, last in ipairs(said) do
+        if at - last < every_ns then return end
+      end
+      table.remove(said)
+      table.insert(said, at)
+      say(verb, what .. " " .. tostring(done) .. "/" .. tostring(total) .. " " .. unit .. "s, " ..
+          progress.elapsed(at - started_ns))
+    end,
   }
 end
 

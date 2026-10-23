@@ -7,6 +7,7 @@ local paths = require("build.paths")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local reboot = require("build.reboot")
+local stale_reason = require("build.stale_reason")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local stand_in = require("build.stand_in")
@@ -236,11 +237,11 @@ end
 --- The line that says why the tool is stale names the modules of the tree
 --- the binary does not carry as the tree has them, a few and a count of
 --- the rest, and says nothing where none moved.
-local function test_why_stale_names_the_modules_that_moved(tmp: string)
+local function test_the_reason_names_the_modules_that_moved(tmp: string)
   local function why(): string
     local handle = assert(work.open(tmp))
     assert(work.stage(handle, true))
-    local answer = reboot.why_stale(handle)
+    local answer = stale_reason.of(handle)
     assert(work.close(handle))
     return answer
   end

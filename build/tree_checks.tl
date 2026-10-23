@@ -103,7 +103,6 @@ local allowed: {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
-allowed["build.reboot.why_stale"] = "the line that says why a tool is stale, which a test reads of a staged tree: the tool cannot be made stale in one"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"

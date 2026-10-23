@@ -3151,7 +3151,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       sweep(rec, running)
     end
     running = still
-    phase:tick(next_job - 1 - #running, #jobs)
+    phase.tick(next_job - 1 - #running, #jobs)
   end
   if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do

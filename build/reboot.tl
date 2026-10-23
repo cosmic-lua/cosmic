@@ -37,6 +37,7 @@ local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
 local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
+local stale_reason = require("build.stale_reason")
 local shared_compiles = require("build.shared_compiles")
 local teal = require("build.teal")
 local tree = require("build.tree")
@@ -262,42 +263,6 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
     end
   end
   return true
-end
-
---- How many modules of the tree in `handle`, open and staged, the running
---- binary does not carry as the tree has them, and the first few paths
---- among them, as the line that says why the tool is stale names them. Nil
---- where the tree cannot be read.
-local function moved_modules(handle: work.Handle): integer | nil, {string}
-  local rows, _ = Sqlite.text_rows(handle.db,
-    "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
-      "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
-  if rows == nil then
-    return nil, {}
-  end
-  local count = 0
-  local shown: {string} = {}
-  for _, row in ipairs(rows) do
-    local source, _ = Store.source(row:text(1))
-    if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
-      count = count + 1
-      if #shown < 3 then shown[#shown + 1] = row:text(1) end
-    end
-  end
-  return count, shown
-end
-
---- Why the tool is stale, for the line that says it is rebuilding: how
---- many modules moved and the first few, or "" where none is found (what
---- moved was not a module) or the tree cannot be read. `handle` is open
---- and staged.
-function reboot.why_stale(handle: work.Handle): string
-  local count, shown = moved_modules(handle)
-  if count == nil or count == 0 then
-    return ""
-  end
-  local more = count > #shown and (" and " .. tostring(count - #shown) .. " more") or ""
-  return " (" .. plural.count(count, "module") .. " moved: " .. table.concat(shown, ", ") .. more .. ")"
 end
 
 --- Whether the compiler of the tree, whose identity is `wanted`
@@ -894,7 +859,7 @@ function reboot.guard(handle: work.Handle, root: string,
     log:complain(trouble)
     return 3
   end
-  log:complain("the tool is stale; rebuilding it from the tree" .. reboot.why_stale(handle))
+  log:complain("the tool is stale; rebuilding it from the tree" .. stale_reason.of(handle))
   local trouble, moved = into(handle, teal.lazy(), argv, false)
   return reboot.rebuild_failed(root, argv, trouble, moved)
 end
