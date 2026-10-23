@@ -1290,7 +1290,7 @@ local function boot(p: PlatformContext): integer
     Fs.put(Fs.stderr, out .. err)
   end
   -- Every core: what CI verifies is the tool that carries them all, the one
-  -- a release is made of; a bare `boot` writes a host program of the host's.
+  -- a release is made of; a bare `boot` writes a tool of the host's core alone.
   return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot", "-Dboot-cores=all" }, 0)
 end
 

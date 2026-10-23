@@ -123,6 +123,11 @@ local function name_of(main: string): string | nil
   return main:match("^cmd%.([^%.]+)%.main$")
 end
 
+-- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
+-- place of refusing; it waits on the tool knowing the checkout it was
+-- booted from, which its database does not record, so that a project's
+-- `cosmic build` can find the tree to run zig in.
+
 --- The prefix a portable program is made of: the running tool's own, which
 --- carries a core for every target it runs on. A tool booted for the host's
 --- alone (`bin/zig build boot` without `-Dboot-cores=all`) carries a
@@ -130,10 +135,6 @@ end
 --- such prefix to give: a program made of it would run on this host only, and
 --- say nothing of it, so it refuses and names the boot that renews it.
 --- `--host` needs no other core.
--- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
--- place of refusing; it waits on the tool knowing the checkout it was
--- booted from, which its database does not record, so that a project's
--- `cosmic build` can find the tree to run zig in.
 --- @param prefix what [`artifact.trusted_prefix`] answered, or nil
 --- @param trouble and why not, where it answered none
 function embed.portable_prefix(prefix: string | nil, trouble: string): string | nil, string
