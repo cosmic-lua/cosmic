@@ -748,6 +748,52 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
   end
 end
 
+--- COSMIC_CI_CHECK_MEMO names a directory that holds the check's memo
+--- (build/check_memo.tl, `translate-check.db` in the build directory)
+--- of an earlier run: the check finds it where it reads it, in the
+--- build directory, which is new each run, and a check that passed
+--- leaves its own there. Where none is there, or the check fails, it
+--- leaves nothing, and a memo already in the build directory is not
+--- written over.
+local function test_the_format_check_takes_and_leaves_its_memo(tmp: string)
+  local base, project = command(tmp)
+  local record Case
+    name: string
+    held?: string
+    exit: integer
+    saw: string
+    left: string
+  end
+  local cases: {Case} = {
+    { name = "taken", held = "old", exit = 0, saw = "old", left = "new" },
+    { name = "none", exit = 0, saw = "", left = "new" },
+    { name = "failed", held = "old", exit = 1, saw = "old", left = "old" },
+  }
+  for _, case in ipairs(cases) do
+    local fake = tmp .. "/format-memo-" .. case.name
+    local runner_temp = fake .. "-runner-temp"
+    local memo = runner_temp .. "/check-memo"
+    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(memo))
+    local held = case.held
+    if held then assert(Fs.write(memo .. "/translate-check.db", held)) end
+    assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+    -- The check says what memo it found, and leaves one.
+    Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nd=$(dirname \"$0\")/..\n" ..
+        "cat \"$d/translate-check.db\" > \"$0.saw\" 2>/dev/null || : > \"$0.saw\"\n" ..
+        "printf new > \"$d/translate-check.db\"\nexit " .. tostring(case.exit) .. "\n", 493)
+    local outcome = Fixture.call("format-memo-" .. case.name, append(base, { "platform", "format" }),
+      project, tmp .. "/logs", context(fake, runner_temp, {
+        TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run", COSMIC_CI_CHECK_MEMO = memo,
+      }))
+    assert(outcome.result.ok == (case.exit == 0), case.name .. ": the format phase answered " ..
+        tostring(outcome.result.ok))
+    local saw = Fs.read(fake .. "/o/bin/cosmic.saw")
+    assert(saw == case.saw, case.name .. ": the check found the memo " .. tostring(saw))
+    local left = Fs.read(memo .. "/translate-check.db")
+    assert(left == case.left, case.name .. ": the memo left is " .. tostring(left))
+  end
+end
+
 --- The format check keeps a native suite's boundary: where the suite
 --- ran (its immediate snapshot is there) it runs only after the
 --- boundary was checked. A job that ran no suite (ci.yml's `checked`,

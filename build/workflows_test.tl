@@ -1491,7 +1491,8 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(table.concat(needs, ",") == "reuse,platform,checked,checked-shard,checked-narrowing,format,seed",
     "the join needs " .. table.concat(needs, ","))
   -- The join passes on the legs, the checked job and its shares, and the
-  -- checked narrowing run that ran, and (on a light run) the format check,
+  -- checked narrowing run that ran, and (on a light run, and the scheduled
+  -- one's that saves the check's memo) the format check,
   -- `seed`'s where a queue run was found, and on nothing of `reuse`'s but
   -- its output. What the scope does not run reads as passed.
   local check = (join.steps as {{string: any}})[1]
@@ -1506,7 +1507,8 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(check_env.NARROWING == "${{ " .. seeded ..
       "env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing.result || 'success' }}",
     "the join reads another checked narrowing run than the one that ran: " .. tostring(check_env.NARROWING))
-  assert(check_env.FORMAT == "${{ env.COSMIC_CI_SCOPE == 'light' && needs.format.result || 'success' }}",
+  assert(check_env.FORMAT == "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && " ..
+      "needs.format.result || 'success' }}",
     "the join reads another format check than the one that ran: " .. tostring(check_env.FORMAT))
   assert(check.run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; " ..
       "shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; " ..
@@ -2135,19 +2137,79 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(nenv["COSMIC_WORKER"] == "linux-x86_64-checked" and nenv["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and
       nenv["COSMIC_CI_DECLARED_KEYS"] == "0" and nenv["COSMIC_CI_CHECKED_SUITE"] == nil and nenv["COSMIC_CI_FORMAT"] == nil,
     "the checked narrowing is not run as the checked job was: " .. tostring((Json.encode(nenv))))
-  -- The format check: a branch push's, which names the paths the branch
-  -- changed from the base it found, boots, and lays out only those.
+  -- The format check: a branch push's and the scheduled run's, which
+  -- names the paths the branch changed from the base it found, boots,
+  -- and lays out only those.
   assert(format["needs"] == "reuse" and format["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
-      "github.event_name == 'push' && github.ref_name != 'main'",
-    "the format check runs elsewhere than on a branch push: " .. tostring(format["if"]))
+      "((github.event_name == 'push' && github.ref_name != 'main') || github.event_name == 'schedule')",
+    "the format check runs elsewhere than on a branch push or the scheduled run: " .. tostring(format["if"]))
   local fenv = texts_in(format, "env")
   assert(format["name"] == "linux-x86_64-format" and fenv["COSMIC_WORKER"] == format["name"])
   assert(fenv["COSMIC_CI_FORMAT"] == "run", "the format check is skipped")
   assert(phases_of(format) == "boot format", "the format check runs " .. phases_of(format))
   held_to_the_leg("format", format, platform, joined({ { "find the tree's base on main" }, SETUP_STEPS }),
-    function(_: string, theirs: string | nil): string | nil
+    function(step_name: string, theirs: string | nil): string | nil
+      -- The scheduled run checks the whole tree, to leave the memo.
+      if step_name == "find the tree's base on main" then
+        return "github.event_name != 'schedule'"
+      end
       return theirs
     end)
+end
+
+--- The format check starts from the memo of what it found in each file
+--- (build/check_memo.tl), which a branch has no build directory of its
+--- own to hold: the newest the run's ref can read, that the scheduled
+--- run saved under main, restored by prefix under a key no entry has, so
+--- that nothing but the newest is taken. Only the scheduled run saves it
+--- (a push to main does not run the job), from what a passing check left
+--- in the directory the check is told of (COSMIC_CI_CHECK_MEMO), under a
+--- key of its own run's: a cache entry is never overwritten.
+local function test_the_format_check_starts_from_the_scheduled_runs_memo()
+  local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
+  local steps = steps_in(assert(jobs["format"]))
+  local path <const> = "${{ runner.temp }}/check-memo"
+  local key <const> = "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}"
+  local check, checked_at = step_with_id(steps, "format")
+  local restored_at, saved_at: integer | nil, integer | nil
+  local restore, save: {string: any} | nil, {string: any} | nil
+  for i, step in ipairs(steps) do
+    local uses = text_of(step["uses"])
+    local with = table_or_none(step["with"])
+    if uses:find("actions/cache/restore@", 1, true) ~= nil and with["path"] == path then
+      restore, restored_at = step, i
+    end
+    if uses:find("actions/cache/save@", 1, true) ~= nil and with["path"] == path then
+      save, saved_at = step, i
+    end
+  end
+  assert(restore ~= nil and restored_at ~= nil and save ~= nil and saved_at ~= nil,
+    "the format job restores or saves no memo")
+  assert(restored_at < checked_at and checked_at < saved_at, "the memo is restored after the check, or saved before it")
+  local rwith, swith = table_in(restore, "with"), table_in(save, "with")
+  assert(rwith["key"] == key and rwith["restore-keys"] == "check-memo-v1-\n" and rwith["lookup-only"] == nil and
+      restore["if"] == nil, "the memo is restored by another key than a prefix no entry has: " .. tostring(rwith["key"]))
+  assert(swith["key"] == key and
+      save["if"] == "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
+    "the memo is saved by another run than main's scheduled one, or after a failed check: " .. tostring(save["if"]))
+  local cenv = texts_in(check, "env")
+  assert(cenv["COSMIC_CI_CHECK_MEMO"] == path,
+    "the check is told another memo than the one restored: " .. tostring(cenv["COSMIC_CI_CHECK_MEMO"]))
+  -- Whatever else saves a cache of memos: nothing.
+  for name, job in pairs(jobs) do
+    for _, step in ipairs(steps_in(job)) do
+      local with = table_or_none(step["with"])
+      if text_of(step["uses"]):find("actions/cache/", 1, true) ~= nil and
+          text_of(with["key"]):find("check-memo", 1, true) ~= nil then
+        assert(name == "format", name .. " keeps the format check's memo")
+      end
+    end
+  end
+  -- The scheduled run is a full run, whose check of the tree is the whole
+  -- tree's: the format job names no paths changed then.
+  assert(cenv["COSMIC_CI_FORMAT_CHANGED"] == "${{ steps.changed.outputs.paths }}")
+  assert(step_with_id(steps, "changed")["if"] == "github.event_name != 'schedule'",
+    "the scheduled run's check lays out only what changed")
 end
 
 --- A light run's format check lays out only what the branch changed
@@ -2163,10 +2225,11 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local jobs = ci.jobs as {string: {string: any}}
   local steps = jobs.format.steps as {{string: any}}
   local base, found = step_running(steps, "driver.tl merge-base")
-  assert(base["if"] == nil, "the format job finds its base only on some runs: " .. tostring(base["if"]))
+  assert(base["if"] == "github.event_name != 'schedule'",
+    "the format job finds its base on the scheduled run, which checks the whole tree: " .. tostring(base["if"]))
   assert(driver_at(steps) < found, "the format job finds its base before it has the driver")
   local named, listed = step_running(steps, "driver.tl changed-paths")
-  assert(named.id == "changed" and named["if"] == nil and named.shell == "sh" and
+  assert(named.id == "changed" and named["if"] == "github.event_name != 'schedule'" and named.shell == "sh" and
       named["working-directory"] == nil and named["continue-on-error"] == true,
     "the format job names what changed otherwise, or fails for it: " .. tostring(named["if"]))
   local env = named.env as {string: string}
@@ -2469,17 +2532,18 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   assert((step.env as {string: string}).GH_TOKEN == "${{ github.token }}", "the prune has no token")
 end
 
---- Only four jobs save a cache every run restores: the platform legs,
+--- Only five jobs save a cache every run restores: the platform legs,
 --- the checked job and the rehearsal, where COSMIC_CI_SAVES (main's push
---- and the scheduled run), and `seed`, which runs only on a push to main
+--- and the scheduled run), the format check, whose memo only the scheduled
+--- run saves, and `seed`, which runs only on a push to main
 --- that found the queue's run.
 local function test_only_the_legs_and_their_seed_save()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   for name, job in pairs(ci.jobs as {string: {string: any}}) do
     local saves = 0
     for _ in pairs(saves_of(job.steps as {{string: any}} or {})) do saves = saves + 1 end
-    assert(saves == 0 or name == "platform" or name == "checked" or name == "rehearsal" or name == "seed",
-      "job " .. name .. " saves a cache")
+    assert(saves == 0 or name == "platform" or name == "checked" or name == "rehearsal" or name == "format" or
+        name == "seed", "job " .. name .. " saves a cache")
   end
 end
 

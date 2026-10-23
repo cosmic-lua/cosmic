@@ -1858,7 +1858,35 @@ local function format_check(p: PlatformContext): integer
         "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  return checked(p.operation, "format check", format_command(p.root))
+  -- The check's memo (build/check_memo.tl), where COSMIC_CI_CHECK_MEMO
+  -- names a directory that holds one from an earlier run: put where the
+  -- check reads it, as the build directory is new each run, so that the
+  -- files it holds a row of cost the check nothing. A run that passed
+  -- leaves its own there, for ci.yml's `format` job to save. The memo
+  -- only ever speeds the check: a copy that fails is none.
+  local kept = named("COSMIC_CI_CHECK_MEMO")
+  local memo = BuildPaths.directory(p.root) .. "/translate-check.db"
+  if kept ~= nil and exists(kept .. "/translate-check.db") and not exists(memo) then
+    local copied, trouble = pcall(function()
+      mkdir(Fs.dirname(memo))
+      write(memo, read(kept .. "/translate-check.db"))
+    end)
+    if not copied then
+      Fs.put(Fs.stderr, "format check: no memo taken from " .. kept .. ": " .. tostring(trouble) .. "\n")
+      local _, _ = Fs.remove(memo)
+    end
+  end
+  local status = checked(p.operation, "format check", format_command(p.root))
+  if kept ~= nil and status == 0 and exists(memo) then
+    local copied, trouble = pcall(function()
+      mkdir(kept)
+      write(kept .. "/translate-check.db", read(memo))
+    end)
+    if not copied then
+      Fs.put(Fs.stderr, "format check: the memo is not kept in " .. kept .. ": " .. tostring(trouble) .. "\n")
+    end
+  end
+  return status
 end
 
 local function phase_assemble(p: PlatformContext): integer

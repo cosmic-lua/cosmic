@@ -1969,17 +1969,23 @@
       ],
     },
 
-    # A branch push's format check, the tree's, which a full run makes in
-    # linux-aarch64's assemble. A job of its own, beside the legs, so
-    # that its minutes are no part of any other's: of what the branch
-    # changed, where it names the paths (driver.tl changed-paths, `fix
-    # --check --changed`), the checks spanning files still over the
-    # whole tree. It boots the tree to have the tool, and runs no suite.
-    # A light run only: where `platform` runs and the push is a
-    # branch's.
+    # The tree's format check, as a branch push (a light run) makes it,
+    # which a full run makes in linux-aarch64's assemble. A job of its
+    # own, beside the legs, so that its minutes are no part of any
+    # other's: of what the branch changed, where it names the paths
+    # (driver.tl changed-paths, `fix --check --changed`), the checks
+    # spanning files still over the whole tree. It boots the tree to have
+    # the tool, and runs no suite. The check starts from the memo of what
+    # it found in each file (build/check_memo.tl) that the scheduled run
+    # saves, and which a branch finds under main's: the files a branch
+    # did not change cost it nothing, where a check of the tree without
+    # one took some seven minutes. The scheduled run makes the whole
+    # tree's check here for that, besides assemble's, and saves what it
+    # leaves. A job of a branch push, or of the scheduled run, where
+    # `platform` runs.
     format: {
       needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == '' && github.event_name == 'push' && github.ref_name != 'main'",
+      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main') || github.event_name == 'schedule')",
       name: "linux-x86_64-format",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -2058,6 +2064,7 @@
         {
           name: "find the tree's base on main",
           id: "merge-base",
+          if: "github.event_name != 'schedule'",
           shell: "sh",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
@@ -2070,6 +2077,7 @@
         {
           name: "name the paths the branch changed",
           id: "changed",
+          if: "github.event_name != 'schedule'",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
@@ -2096,10 +2104,33 @@
           id: "boot",
           run: "cosmic-driver cosmic_ci/driver.tl platform boot",
         },
+        # The newest memo any run of this ref can read: main's, the
+        # scheduled run's, for a branch. The key is this run's alone, so
+        # nothing is ever found by it, and a miss costs the check its time.
+        {
+          name: "restore the format check's memo",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/check-memo",
+            key: "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "check-memo-v1-\n",
+          },
+        },
         {
           name: "check the tree's format",
-          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
+          id: "format",
+          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}", COSMIC_CI_CHECK_MEMO: "${{ runner.temp }}/check-memo"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
+        },
+        # What the check left, of the whole tree: the scheduled run's alone.
+        {
+          name: "save the format check's memo",
+          if: "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/check-memo",
+            key: "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}",
+          },
         },
         {
           name: "summarize worker operations",
@@ -2568,7 +2599,7 @@
             CHECKED: "${{ needs.reuse.outputs.run != '' && needs.seed.result || needs.checked.result }}",
             SHARES: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result || 'success' }}",
             NARROWING: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing.result || 'success' }}",
-            FORMAT: "${{ env.COSMIC_CI_SCOPE == 'light' && needs.format.result || 'success' }}",
+            FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && needs.format.result || 'success' }}",
             EVENT: "${{ github.event_name }}",
           },
           run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels a queue run, so the other legs may read cancelled; an error annotation names the failed leg\"; exit 1; }",

@@ -558,7 +558,18 @@ verdicts, which would otherwise ride along whole in each save.
   spanning files -- the tree checks, the links, the asserts -- over the
   whole tree. Where a path changed is part of what
   checks each file alone (the layout, the C rules, the compiler, the
-  core), or the paths cannot be named, it checks the whole tree.
+  core), or the paths cannot be named, it checks the whole tree. That
+  check took some seven minutes in a fresh build directory, which holds
+  no memo of what the check found in each file (build/check_memo.tl,
+  `translate-check.db`). So the job restores the newest memo its ref can
+  read, `check-memo-v1-<run>` by its prefix (a branch's restore takes
+  main's), `COSMIC_CI_CHECK_MEMO` names it to the phase, which puts it where the
+  check reads it and leaves the check's own beside it; and the
+  scheduled run, which runs this job too, with no paths changed, checks the whole tree
+  and saves what it left. A row is keyed by the file's bytes and the
+  check's own sources, so a memo a day old answers for every file the branch
+  did not change, and a miss costs only the check's time. A branch saves none, and
+  an entry unread for a week is evicted.
 
 On a branch push (`light`), which runs no checked suite, the shares and
 the narrowing run do not run, and `checked` runs only the pinned CI
