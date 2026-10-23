@@ -1635,12 +1635,30 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
     name: string
     --- Every file of the tree after the edit.
     files: {string:string}
+    --- Whether only the edited module is compiled: the compile of each
+    --- that reaches it stands. False where an interface moved, and
+    --- each that reaches it is compiled again.
+    single?: boolean
   end
   local steps: {Step} = {
-    { name = "a body",
+    { name = "a body", single = true,
       files = { ["lim.tl"] = lim:gsub("return \"x\"", "return \"yy\""), ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a comment",
+    { name = "a comment", single = true,
       files = { ["lim.tl"] = lim .. "-- noted\n", ["mid.tl"] = mid, ["user.tl"] = user } },
+    -- An edit that moves the lines after it moves the stub's text and
+    -- no token of it.
+    { name = "a comment line above everything", single = true,
+      files = { ["lim.tl"] = "-- noted\n" .. lim, ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "blank lines in the declaration", single = true,
+      files = { ["lim.tl"] = lim:gsub("  MAX: integer\n", "\n\n  MAX: integer\n"), ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a body that grows", single = true,
+      files = { ["lim.tl"] = lim:gsub("  return \"x\"\n", "  local y = \"x\"\n\n  -- why\n  return y\n"),
+        ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a comment line above mid", single = true,
+      files = { ["lim.tl"] = lim, ["mid.tl"] = "-- noted\n" .. mid, ["user.tl"] = user } },
+    { name = "the lines move and an enum changes", single = false,
+      files = { ["lim.tl"] = ("-- noted\n\n" .. lim):gsub("\"b\"\n", "\"b\"\n    \"c\"\n"),
+        ["mid.tl"] = mid, ["user.tl"] = user } },
     { name = "a constant the stub keeps",
       files = { ["lim.tl"] = lim:gsub("lim.MAX = 5", "lim.MAX = 6"), ["mid.tl"] = mid, ["user.tl"] = user } },
     { name = "an enum",
@@ -1675,13 +1693,16 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
       end
       before = step.files
       local made, trouble = compile_with_checks(root)
-      if made ~= nil and (step.name == "a body" or step.name == "a comment") then
+      if made ~= nil and step.single then
         assert(made.compiled == 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
         local handle = assert(work.open(root))
         local named = assert(Sqlite.text_rows(handle.db,
           "SELECT count(*) FROM plan p JOIN compiled_interface i ON i.key = p.key WHERE p.path = 'build.user'"))
         work.close(handle)
         assert(assert(named[1]):text(1) == "1", step.name .. ": the interface key names a compile the run did not keep")
+      end
+      if made ~= nil and step.single == false then
+        assert(made.compiled > 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, a stand-in for a changed interface")
       end
       local fresh_root = write_tree_files("fresh-" .. tostring(checks), step.files)
       local fresh, fresh_trouble = compile_with_checks(fresh_root)

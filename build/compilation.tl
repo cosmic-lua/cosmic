@@ -1037,7 +1037,11 @@ end
 --- key moved but whose interface did not -- a body, a comment -- has the same
 --- one, and what was compiled under the one stands for the other: a check
 --- reads of a held stub what it reads of the source, which is what the
---- hold judges. The verdicts kept are read once; a module the stub of which
+--- hold judges. A stub is keyed by its tokens, not where they stand
+--- ([`stub.canonical`]): no output of a compile holds a position in a
+--- module it reaches, so an edit that only moves lines in a dependency (a
+--- comment, a blank line, a body of another length) leaves the key. The
+--- verdicts kept are read once; a module the stub of which
 --- has none under its key is asked of `judge`, which can give one only for a
 --- module compiled in this run and so by the time a module that reaches it
 --- is asked about.
@@ -1061,9 +1065,14 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   if rows == nil then
     return nil, rows_trouble
   end
+  -- What a dependent keys on of a stub is its tokens, not where they stand
+  -- ([`stub.canonical`]); the verdict on the stub stays under its exact text.
   local stubs: {string:string} = {}
+  local verdict_hashes: {string:string} = {}
   for _, row in ipairs(rows) do
-    stubs[row:text(1)] = stub_hash(row:text(2))
+    local body = row:text(2)
+    verdict_hashes[row:text(1)] = stub_hash(body)
+    stubs[row:text(1)] = stub_hash(stub.canonical(body))
   end
   local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
   if verdicts == nil then
@@ -1075,7 +1084,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local judged: {string:boolean} = {}
   local function held(path: string): boolean
-    local hash, named = stubs[path], keys[path]
+    local hash, named = verdict_hashes[path], keys[path]
     if hash == nil or named == nil then
       return false
     end
@@ -1098,7 +1107,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local interfaced: Interfaced = function(m: Module): string | nil, string
     local made, identify_trouble = identify_in(graph, m.path, m.file,
-      "interface-1 " .. tool, line_of)
+      "interface-2 " .. tool, line_of)
     if made == nil then
       return nil, identify_trouble
     end

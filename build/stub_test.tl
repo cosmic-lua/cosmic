@@ -333,3 +333,84 @@ local function test_a_stub_of_every_statement_drops_bodies_alone()
   assert(every.text:find("local unused = Json.encode({})", 1, true), every.text)
   assert(every.text:find("return 1", 1, true) == nil, "a body is left out: " .. every.text)
 end
+
+--- What tl reads of `text` that no position says: each token, and whether
+--- it starts a line of its own, as the parser tells a `(` that is a call
+--- from one that starts a statement.
+local function reading_of(text: string): {string}
+  local parsed = assert(ast.parse(built, text, "m.tl"))
+  local out: {string} = {}
+  local last_y = 0
+  for _, token in ipairs(parsed.tokens) do
+    if token.y > last_y then
+      out[#out + 1] = "\n"
+    end
+    out[#out + 1] = token.tk
+    local _, breaks = token.tk:gsub("\n", "")
+    last_y = token.y + breaks
+  end
+  return out
+end
+
+--- A record with an enum of `value`, which a stub keeps and a project's
+--- checker reads the type of.
+local function with_enum(value: string): string
+  return source("local record M", "  enum E", "    " .. value, "  end", "  n: integer", "end", "return M")
+end
+
+local function test_a_canonical_stub_does_not_hold_where_its_tokens_stand()
+  local text = with_enum('"a  b"')
+  local shifted = source("-- noted", "", "local record M", "", "  enum E", "    -- a comment", "",
+    '    "a  b"', "  end", "  n: integer", "", "", "end", "return M")
+  assert(stub_of(text) ~= stub_of(shifted), "the stubs do not stand where each other's do")
+  assert(stub.canonical(stub_of(text)) == stub.canonical(stub_of(shifted)),
+    stub.canonical(stub_of(text)) .. "\n---\n" .. stub.canonical(stub_of(shifted)))
+  local indented = text:gsub("\n  ", "\n        ")
+  assert(stub.canonical(stub_of(text)) == stub.canonical(stub_of(indented)))
+end
+
+local function test_a_canonical_stub_keeps_what_tl_reads_of_it()
+  local canonical = stub.canonical(stub_of(with_enum('"a  b"')))
+  assert(canonical:find('"a  b"', 1, true), canonical)
+  -- Each is a different type or a different parse.
+  for name, other in pairs({
+      ["a token"] = with_enum('"a  c"'):gsub("integer", "number"),
+      ["a value"] = with_enum('"a  c"'),
+      ["a space in a string"] = with_enum('"a b"'),
+  }) do
+    assert(stub.canonical(stub_of(other)) ~= canonical, name)
+  end
+  local function long(value: string): string
+    return stub.canonical(stub_of(source("local s = " .. value, "return s")))
+  end
+  assert(long("[[a\nb]]") ~= long("[[a  b]]"))
+  assert(long("[==[a]]  b]==]"):find("a]]  b", 1, true))
+  assert(stub.canonical(stub_of(with_enum("'it\\'s  here'"))):find("it\\'s  here", 1, true))
+  -- A `(` on a line of its own is not a call of what is before it.
+  local call = stub.canonical(stub_of(source("local function g(): integer return 1 end", "local x = g", "(print)(1)", "return x")))
+  local same_line = stub.canonical(stub_of(source("local function g(): integer return 1 end", "local x = g (print)(1)", "return x")))
+  assert(call ~= same_line, "the line break before a ( is kept")
+  -- An unfinished string is answered as it is.
+  assert(stub.canonical("local s = 'a\n  b") == "local s = 'a\n  b")
+end
+
+--- Every token of a stub, and every line break between two of them, is as
+--- tl read it of the stub the canonical text came from.
+local function test_a_canonical_stub_is_read_as_its_stub_is()
+  local names: {string} = { "cosmic.json", "cosmic.zip", "cosmic.fs", "cosmic.path", "cosmic.web" }
+  local checked = 0
+  for _, name in ipairs(names) do
+    local text = Store.source(name)
+    if text ~= nil then
+      local stubbed = stub_of(text)
+      local stood = reading_of(stubbed)
+      local canonical = reading_of(stub.canonical(stubbed))
+      assert(#stood == #canonical, name .. ": " .. #stood .. " tokens, " .. #canonical .. " canonical")
+      for i, token in ipairs(stood) do
+        assert(token == canonical[i], name .. ": token " .. i .. " is " .. token .. ", " .. canonical[i])
+      end
+      checked = checked + 1
+    end
+  end
+  assert(checked > 0, "no module of the standard library was read")
+end
