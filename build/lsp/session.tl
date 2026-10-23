@@ -25,6 +25,7 @@
 --- A message with no method answers a request of the session's own, and
 --- is never answered, whatever its id.
 
+local GrammarMode = require("build.grammar_mode")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
@@ -45,6 +46,8 @@ local record session
     err?: function(line: string)
     --- The databases docs are read from: [`Store.databases()`] when nil.
     store?: {Sqlite.Handle}
+    --- The checker the session checks with: the one `COSMIC_GRAMMAR` asks for when nil ([`build.grammar_mode`]).
+    grammar?: GrammarMode.Mode
   end
 
   --- One editor's session: what it opened and what it was told.
@@ -94,7 +97,7 @@ end
 --- A session's checker and docs at `root`.
 local function checked_at(s: Session, root: string)
   s.root = root
-  s.checker = check.new(root, s.err, hints_of({ s }))
+  s.checker = check.new(root, s.err, hints_of({ s }), s.checker.grammar)
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
@@ -103,7 +106,7 @@ function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
   local held: {Session} = {}
-  local checker = check.new(root, err, hints_of(held))
+  local checker = check.new(root, err, hints_of(held), given.grammar)
   local made: Session = {
     root = root,
     encoding = "utf-16",

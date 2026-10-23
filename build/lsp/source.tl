@@ -67,6 +67,7 @@
 -- outer record is told the record has no such field.
 
 local Fs = require("cosmic.fs")
+local GrammarMode = require("build.grammar_mode")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
 local ast = require("build.ast")
@@ -74,6 +75,7 @@ local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
 local stub = require("build.stub")
+local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
 local type compiler = require("build.compiler")
 
@@ -131,6 +133,12 @@ local record source
   --- One session's view of the database.
   record View
     root: string
+    --- The checker the session reads the tree with: the fork's (`teal`), or the new one's (`new`), which reads a text in
+    --- the new grammar ([`build.grammar_mode`]).
+    grammar: GrammarMode.Mode
+    --- The checker the session was given, nil where it asks the environment: what [`rebuild.stage`] is told, so that a
+    --- malformed `COSMIC_GRAMMAR` is refused there as it is for every other run.
+    asked: GrammarMode.Mode | nil
     --- A read handle on `build.db`, nil until there is one to read, and
     --- the device and inode of the file it reads.
     db: Sqlite.Handle | nil
@@ -188,12 +196,22 @@ local function analyzer_identity(): string
   return identity
 end
 
---- A source for the tree at `root`, staged at its first [`source.refresh`].
-function source.new(root: string, err: function(line: string)): source.View
+--- A source for the tree at `root`, staged at its first [`source.refresh`], that reads with the checker `grammar` names: the one
+--- `COSMIC_GRAMMAR` asks for where none is given.
+function source.new(root: string, err: function(line: string), grammar?: GrammarMode.Mode): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
     bodiless_splices = 0, whole_splices = 0, stages = 0, reopened = 0 }
+  local mode: GrammarMode.Mode = "teal"
+  if grammar ~= nil then
+    mode = grammar
+  else
+    local asked, _ = GrammarMode.mode()
+    if asked ~= nil then mode = asked end
+  end
   return {
     root = root,
+    grammar = mode,
+    asked = grammar,
     db = nil,
     identity = "",
     working = nil,
@@ -440,7 +458,7 @@ function source.refresh(src: source.View, built: compiler)
       return
     end
   end
-  local staged, trouble = rebuild.stage(src.root, built)
+  local staged, trouble = rebuild.stage(src.root, built, src.asked)
   if staged ~= nil then adopt(src, staged) end
   -- A database of another schema is another tool's, whose rows this
   -- one's code may misread: none of it is read, and no module found in
@@ -526,10 +544,14 @@ local function made_stub(src: source.View, built: compiler, file: string, text: 
   local held = src.made[hash]
   if held == nil then
     held = ""
-    local parsed, _ = ast.parse(built, text, file)
-    if parsed ~= nil then
-      for _, statement in ipairs(parsed.node) do
-        if statement.kind == "return" then held = stub.made(parsed).text end
+    if src.grammar == "new" then
+      held = syntax_read.stub_of(file, text)
+    else
+      local parsed, _ = ast.parse(built, text, file)
+      if parsed ~= nil then
+        for _, statement in ipairs(parsed.node) do
+          if statement.kind == "return" then held = stub.made(parsed).text end
+        end
       end
     end
     local count = 0

@@ -1914,7 +1914,7 @@ build/link_text_fuzz_test.tl view_written 3
 build/links.tl view_written 38
 build/links_test.tl view_written 5
 build/lookups_new_grammar_tool_test.tl view_written 4
-build/lsp/check.tl view_written 10
+build/lsp/check.tl view_written 12
 build/lsp/check_test.tl view_written 1
 build/lsp/dependents.tl view_written 2
 build/lsp/dependents_test.tl view_written 5
@@ -1930,6 +1930,8 @@ build/lsp/session_fixture.tl view_written 18
 build/lsp/session_test.tl view_written 2
 build/lsp/source.tl view_written 5
 build/lsp/splice.tl view_written 1
+build/lsp/syntax_read.tl view_written 17
+build/lsp/tool_test.tl view_written 1
 build/lua_children_test.tl view_written 1
 build/lua_standalone_test.tl view_written 3
 build/lua_tail.tl view_written 1
@@ -2711,7 +2713,7 @@ build/link_resolve.tl field_fixed 6
 build/link_text.tl field_fixed 2
 build/links_test.tl field_fixed 1
 build/logger.tl field_fixed 1
-build/lsp/check.tl field_fixed 2
+build/lsp/check.tl field_fixed 3
 build/lsp/graph.tl field_fixed 2
 build/lsp/init.tl field_fixed 1
 build/lsp/plan.tl field_fixed 1
