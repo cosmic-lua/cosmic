@@ -22,13 +22,17 @@ local function good(result: Child.Result)
       "proof child status " .. tostring(result.code))
 end
 
-function Proof.main(argv: {string}): integer
-  assert(sys.getuid() == 0, "run-local proof requires root")
-  local _guard <close> = assert(Signal.guard())
+--- What [`prove`] answered, kept where the function that runs it under `pcall` can read it.
+local record Ended
+  status: integer
+end
+
+local function prove(argv: {string}): integer
   local source, driver = assert(argv[1]), assert(argv[2])
   local relaunch = assert(Proc.relaunch())
-  local cached = assert(Fs.stat(relaunch.argv[1]))
-  local cache_digest = Hash.hex_sha256((assert(Fs.read(relaunch.argv[1]))))
+  local program = assert(relaunch.argv[1], "relaunch names no program")
+  local cached = assert(Fs.stat(program))
+  local cache_digest = Hash.hex_sha256((assert(Fs.read(program))))
   local function runtime_scratch(): string
     local names: {string} = {}
     for _, name in ipairs((assert(Fs.list("/tmp")))) do
@@ -89,13 +93,13 @@ printf 'error: fixture phase\n'
     assert(Fs.mkdirs(state))
     assert(Fs.symlink(outside, state .. "/external-link"))
     local env = Env.all()
-    env.GIT_AUTHOR_NAME, env.GIT_COMMITTER_NAME = "Local proof", "Local proof"
-    env.GIT_AUTHOR_EMAIL, env.GIT_COMMITTER_EMAIL = "proof@example.invalid", "proof@example.invalid"
-    env.COSMIC_CI_LOCAL, env.COSMIC_CI_LOCAL_USER = state, "nobody"
-    env.COSMIC_ZIG_CACHE, env.SSL_CERT_FILE = private .. "/seed", private .. "/ca"
-    env.PROOF_UID, env.PROOF_GID = tostring(account.uid), tostring(account.gid)
-    env.PROOF_CORE_SHA = cache_digest
-    env.GIT_CONFIG_COUNT, env.GIT_CONFIG_KEY_0, env.GIT_CONFIG_VALUE_0 = "1", "proof.keep", "original"
+    env["GIT_AUTHOR_NAME"], env["GIT_COMMITTER_NAME"] = "Local proof", "Local proof"
+    env["GIT_AUTHOR_EMAIL"], env["GIT_COMMITTER_EMAIL"] = "proof@example.invalid", "proof@example.invalid"
+    env["COSMIC_CI_LOCAL"], env["COSMIC_CI_LOCAL_USER"] = state, "nobody"
+    env["COSMIC_ZIG_CACHE"], env["SSL_CERT_FILE"] = private .. "/seed", private .. "/ca"
+    env["PROOF_UID"], env["PROOF_GID"] = tostring(account.uid), tostring(account.gid)
+    env["PROOF_CORE_SHA"] = cache_digest
+    env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"] = "1", "proof.keep", "original"
     local git = assert(Proc.find("git"))
     local function git_run(args: {string}): string
       local words = { git, "-C", root }
@@ -152,7 +156,7 @@ printf 'error: fixture phase\n'
     assert(Fs.read(state .. "/logs/failure.log") == "error: fixture phase\n")
     -- The default base shares one global cache per selected numeric user,
     -- while each checkout retains its checksum-named state.
-    env.COSMIC_CI_LOCAL, env.TMPDIR = nil, scratch
+    env["COSMIC_CI_LOCAL"], env["TMPDIR"] = nil, scratch
     good(run({ "build", "fixtures" }))
     local base = scratch .. "/cosmic-ci-local-0"
     local shared_cache = base .. "/zig-global-" .. tostring(account.uid)
@@ -167,26 +171,40 @@ printf 'error: fixture phase\n'
     assert(states == 1)
     good(run({ "fixtures" }))
     assert(assert(Fs.stat(shared_cache)).uid == account.uid)
-    env.COSMIC_CI_LOCAL = state
-    env.COSMIC_CI_LOCAL_USER = "root"
+    env["COSMIC_CI_LOCAL"] = state
+    env["COSMIC_CI_LOCAL_USER"] = "root"
     assert(run({ "later" }).code == 2)
-    env.COSMIC_CI_LOCAL_USER = "cosmic-proof-account-does-not-exist"
+    env["COSMIC_CI_LOCAL_USER"] = "cosmic-proof-account-does-not-exist"
     assert(run({ "later" }).code == 2)
-    env.COSMIC_CI_LOCAL_USER = "nobody"
-    env.GIT_CONFIG_COUNT = "invalid"
+    env["COSMIC_CI_LOCAL_USER"] = "nobody"
+    env["GIT_CONFIG_COUNT"] = "invalid"
     assert(run({ "later" }).code == 2)
     assert(Fs.read(candidate .. "/phases") == "build\nfixtures\nfixtures\nfailure\n")
     return true
   end)
   local removed, trouble = Fs.remove_tree(scratch)
   assert(runtime_scratch() == initial_scratch, "runtime grant survived proof failure")
-  local after = assert(Fs.stat(relaunch.argv[1]))
+  local after = assert(Fs.stat(program))
   assert(after.uid == cached.uid and after.mode == cached.mode and after.ino == cached.ino and
-      Hash.hex_sha256((assert(Fs.read(relaunch.argv[1])))) == cache_digest, "private runtime cache changed")
+      Hash.hex_sha256((assert(Fs.read(program)))) == cache_digest, "private runtime cache changed")
   if not ok then error(why) end
   assert(removed, trouble)
   print("run-local: PASS (real credentials, physical ownership, snapshot, rerun and refusal)")
   return 0
+end
+
+function Proof.main(argv: {string}): integer
+  assert(sys.getuid() == 0, "run-local proof requires root")
+  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
+  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard = assert(Signal.guard())
+  local ended: Ended = { status = 0 }
+  local ran, raised = pcall(function()
+    ended.status = prove(argv)
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  return ended.status
 end
 
 return Proof

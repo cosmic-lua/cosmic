@@ -16,7 +16,7 @@ local default_child_timeout_ns <const> = Clock.seconds(30)
 --- Where this fixture's children build, once [`Fixture.builds_beneath`]
 --- names it; nil until then, for them to build where the environment says.
 local record Builds
-  home: string | nil
+  home?: string
 end
 
 local builds: Builds = {}

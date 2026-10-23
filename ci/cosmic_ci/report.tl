@@ -43,7 +43,7 @@ local record Report
   end
   record Job
     name: string
-    seconds: integer | nil
+    seconds?: integer
     steps: {Step}
   end
   record Run
@@ -68,7 +68,7 @@ local record Report
   record Options
     runs: integer
     event: string
-    branch: string | nil
+    branch?: string
     repo: string
     workflow: string
     client: GithubApi.Client
@@ -138,10 +138,10 @@ end
 local record RunItem
   id: integer
   event: string
-  head_branch: string | nil
+  head_branch?: string
   head_sha: string
-  conclusion: string | nil
-  run_attempt: integer | nil
+  conclusion?: string
+  run_attempt?: integer
 end
 local record RunsAnswer
   workflow_runs: {RunItem}
@@ -152,14 +152,14 @@ local RUNS <const> = Shape.record_of("RunsAnswer")
 --- skipped job has no `steps`, and a skipped step no times.
 local record StepItem
   name: string
-  started_at: string | nil
-  completed_at: string | nil
+  started_at?: string
+  completed_at?: string
 end
 local record JobItem
   name: string
-  started_at: string | nil
-  completed_at: string | nil
-  steps: {StepItem} | nil
+  started_at?: string
+  completed_at?: string
+  steps?: {StepItem}
 end
 local record JobsAnswer
   jobs: {JobItem}
@@ -171,8 +171,8 @@ local JOBS <const> = Shape.record_of("JobsAnswer")
 local record ArtifactItem
   name: string
   id: integer
-  created_at: string | nil
-  expired: boolean | nil
+  created_at?: string
+  expired?: boolean
 end
 local record ArtifactsAnswer
   artifacts: {ArtifactItem}

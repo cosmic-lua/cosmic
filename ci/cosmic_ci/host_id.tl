@@ -100,11 +100,16 @@ local keep: {string:{string}} = {
 
 -- Each sysctl name core/syscalls.c's `cpu_features` asks on macOS, by
 -- the feature's name.
-local darwin_features: {{string}} = {
-  { "aes", "hw.optional.arm.FEAT_AES" },
-  { "asimd", "hw.optional.AdvSIMD" },
-  { "crc32", "hw.optional.armv8_crc32" },
-  { "pmull", "hw.optional.arm.FEAT_PMULL" },
+local record DarwinFeature
+  name: string
+  sysctl: string
+end
+
+local darwin_features: {DarwinFeature} = {
+  { name = "aes", sysctl = "hw.optional.arm.FEAT_AES" },
+  { name = "asimd", sysctl = "hw.optional.AdvSIMD" },
+  { name = "crc32", sysctl = "hw.optional.armv8_crc32" },
+  { name = "pmull", sysctl = "hw.optional.arm.FEAT_PMULL" },
 }
 
 local darwin_system <const> = "/System/Library/CoreServices/SystemVersion.plist"
@@ -127,25 +132,28 @@ local function listed(text: string): {string}
 end
 
 function HostId.features(facts: HostId.Facts): string
-  local found: {string}
+  local found: {string} = {}
   if facts.sysname == "Darwin" then
-    found = {}
-    for _, pair in ipairs(darwin_features) do
-      if chomp(facts.sysctl(pair[2]) or "") == "1" then found[#found + 1] = pair[1] end
+    for _, feature in ipairs(darwin_features) do
+      if chomp(facts.sysctl(feature.sysctl) or "") == "1" then found[#found + 1] = feature.name end
     end
   else
-    found = listed(facts.read("/proc/cpuinfo") or "")
+    for _, flag in ipairs(listed(facts.read("/proc/cpuinfo") or "")) do found[#found + 1] = flag end
   end
   table.sort(found)
   local wanted: {string:boolean} | nil
-  if keep[facts.machine] ~= nil then
-    wanted = {}
-    for _, flag in ipairs(keep[facts.machine]) do wanted[flag] = true end
+  local kept = keep[facts.machine]
+  if kept ~= nil then
+    local set: {string:boolean} = {}
+    for _, flag in ipairs(kept) do set[flag] = true end
+    wanted = set
   end
   local parts: {string} = {}
   local last: string | nil
   for _, flag in ipairs(found) do
-    if flag ~= last and (wanted == nil or wanted[flag]) then parts[#parts + 1] = flag .. "\n" end
+    if flag ~= last and (wanted == nil or wanted[flag] == true) then
+      parts[#parts + 1] = flag .. "\n"
+    end
     last = flag
   end
   if facts.sysname == "Darwin" then
@@ -163,10 +171,12 @@ end
 -- a leg's first run shows.
 function HostId.live(env: {string:string}): HostId.Facts
   local names = sys.uname()
-  local docker = Proc.find("docker", env.PATH or "")
+  local sysname, machine = "", ""
+  if names ~= nil then sysname, machine = names.sysname, names.machine end
+  local docker = Proc.find("docker", env["PATH"] or "")
   return {
-    sysname = names ~= nil and names.sysname or "",
-    machine = names ~= nil and names.machine or "",
+    sysname = sysname,
+    machine = machine,
     read = function(path: string): string | nil
       local text, _ = Fs.read(path)
       return text
@@ -195,9 +205,11 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     local _, _ = Fs.put(Fs.stderr, "leg-host-id: " .. why .. "\n")
     return code
   end
-  if #words ~= 4 then return refuse("usage: leg-host-id NAME IMAGE RUNNER STARTED", 2) end
   local name, image, runner, started = words[1], words[2], words[3], words[4]
-  local system_os, system_version = env.ImageOS or "", env.ImageVersion or ""
+  if #words ~= 4 or name == nil or image == nil or runner == nil or started == nil then
+    return refuse("usage: leg-host-id NAME IMAGE RUNNER STARTED", 2)
+  end
+  local system_os, system_version = env["ImageOS"] or "", env["ImageVersion"] or ""
   if image == "" then
     if runner == "" then return refuse("a leg with no image names no RUNNER", 2) end
     if system_os == "" or system_version == "" then
@@ -228,8 +240,8 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     end
     return ok
   end
-  if not write(env.GITHUB_ENV, env_lines) then return 1 end
-  if not write(env.GITHUB_OUTPUT, { "prefix=" .. prefix,
+  if not write(env["GITHUB_ENV"], env_lines) then return 1 end
+  if not write(env["GITHUB_OUTPUT"], { "prefix=" .. prefix,
       "verdicts=" .. prefix .. HostId.features(facts) .. "-" }) then
     return 1
   end
@@ -238,7 +250,7 @@ end
 
 function HostId.command(argv: {string}): integer
   local words: {string} = {}
-  for i = 1, #argv do words[i] = argv[i] end
+  for _, word in ipairs(argv) do words[#words + 1] = word end
   local env = Env.all()
   return HostId.leg_host_id(words, env, HostId.live(env), function(text: string)
     local _, _ = Fs.put(Fs.stdout, text)

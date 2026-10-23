@@ -14,18 +14,18 @@ local record Runner
   record Request
     argv: {string}
     cwd: string
-    env: {string:string} | nil
-    timeout_ns: integer | nil
-    input: string | nil
-    output: string | nil
-    error: string | nil
+    env?: {string:string}
+    timeout_ns?: integer
+    input?: string
+    output?: string
+    error?: string
     --- More descriptors the child gets, by the number it sees them as
     --- (Child.Options.fds); the caller keeps and closes them.
-    fds: {integer:integer} | nil
+    fds?: {integer:integer}
   end
   record Outcome
-    result: Child.Result | nil
-    trouble: string | nil
+    result?: Child.Result
+    trouble?: string
     status: string
     code: integer
     elapsed_ns: integer
@@ -44,10 +44,10 @@ local record Runner
   record Running
     phase: string
     recording: Recording
-    handle: Child.Handle | nil
+    handle?: Child.Handle
     descriptors: {integer}
     --- Set when the command could not start, and once it is reaped.
-    outcome: Outcome | nil
+    outcome?: Outcome
     reaped: boolean
   end
 end
@@ -62,9 +62,9 @@ end
 --- none left open, when a file cannot be opened.
 local function prepare(request: Runner.Request): Child.Options, {integer}
   local record Opened
-    input: integer | nil
-    output: integer | nil
-    error: integer | nil
+    input?: integer
+    output?: integer
+    error?: integer
   end
   local fds_opened: Opened = {}
   local opened, open_failure = pcall(function(): boolean

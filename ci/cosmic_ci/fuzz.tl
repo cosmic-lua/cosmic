@@ -65,8 +65,16 @@ end
 --- Up to `limit` of `from`, a line each.
 local function joined(from: {string}, limit: integer): string
   local out: {string} = {}
-  for i = 1, math.min(#from, limit) do out[i] = from[i] .. "\n" end
+  for i, line in ipairs(from) do
+    if i > limit then break end
+    out[#out + 1] = line .. "\n"
+  end
   return table.concat(out)
+end
+
+--- How many bytes of the line being read [`each_line`] has kept.
+local record Taken
+  length: integer
 end
 
 --- Calls `each` with every line `next_chunk` answers, as grep reads them
@@ -76,7 +84,7 @@ end
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean)
   local line: {string} = {}
-  local taken = { length = 0 }
+  local taken: Taken = { length = 0 }
   local function add(piece: string)
     if taken.length < cut and #piece > 0 then
       local kept = piece:sub(1, cut - taken.length)
@@ -147,6 +155,17 @@ local function chunks(path: string): Next, Close
   end
 end
 
+--- A byte range of a file: where a line starts and where it ends, its newline excluded.
+local record Span
+  first: integer
+  last: integer
+end
+
+--- The lines [`Fuzz.tail`] has read, kept where the function that reads them under `pcall` can add to them.
+local record Tailed
+  lines: {string}
+end
+
 --- The last `tail_lines` lines of the file at `path`, as `tail -n` and
 --- `cut` answer them, or nil when there is no such file. It reads the
 --- file backwards from its end only as far as those lines begin, and
@@ -155,9 +174,10 @@ function Fuzz.tail(path: string): {string} | nil
   local opened = Fs.open_read(path)
   if opened == nil then return nil end
   local fd: integer = opened
-  local called, answer = pcall(function(): {string}
+  local tailed: Tailed = { lines = {} }
+  local called, raised = pcall(function()
     local size = assert(Fs.stat(path)).size
-    if size == 0 then return {} end
+    if size == 0 then return end
     local function at(offset: integer, count: integer): string
       return (assert(sys.pread(fd, count, offset)))
     end
@@ -165,36 +185,40 @@ function Fuzz.tail(path: string): {string} | nil
     -- excluded, the last line first.
     local stop = size
     if at(size - 1, 1) == "\n" then stop = size - 1 end
-    local spans: {{integer}} = {}
+    local spans: {Span} = {}
     local block_end = stop
     while #spans < tail_lines do
       if block_end == 0 then
-        spans[#spans + 1] = { 0, stop }
+        spans[#spans + 1] = { first = 0, last = stop }
         break
       end
       local block_start = math.max(0, block_end - chunk)
       local block = at(block_start, block_end - block_start)
       local limit = #block
       while #spans < tail_lines do
-        local newline = block:sub(1, limit):match("^.*()\n") as integer
+        local newline = math.tointeger(tonumber(block:sub(1, limit):match("^.*()\n")))
         if newline == nil then break end
-        spans[#spans + 1] = { block_start + newline, stop }
+        spans[#spans + 1] = { first = block_start + newline, last = stop }
         stop = block_start + newline - 1
         limit = newline - 1
       end
       block_end = block_start
     end
-    local tail: {string} = {}
     for i = #spans, 1, -1 do
-      local first, last = spans[i][1], spans[i][2]
-      tail[#tail + 1] = last > first and at(first, math.min(cut, last - first)) or ""
+      local span = spans[i]
+      if span ~= nil then
+        local line = ""
+        if span.last > span.first then
+          line = at(span.first, math.min(cut, span.last - span.first))
+        end
+        tailed.lines[#tailed.lines + 1] = line
+      end
     end
-    return tail
   end)
   local closed, trouble = Fs.close(fd)
-  if not called then error(answer) end
+  if not called then error(raised) end
   assert(closed, trouble)
-  return answer as {string}
+  return tailed.lines
 end
 
 --- What a cancelled run's summary says: the end of the output the run
@@ -205,6 +229,14 @@ function Fuzz.cancelled_summary(tail: {string} | nil): string
     "~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
 end
 
+--- What [`streamed`] learns of the run, kept where the functions that run it under `pcall` can set it.
+local record Streamed
+  --- The child's exit status, once it is known.
+  status?: integer
+  --- Why the output is not whole, "" when it is.
+  trouble: string
+end
+
 --- Keeps merged output in `out` and offers it to `log` as it arrives.
 --- Each bounded drain yields to signal and exit supervision. After exit,
 --- one deadline bounds inherited writers; an incomplete drain is a driver
@@ -212,32 +244,35 @@ end
 local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
                         env: {string:string}, out: string, log: integer): integer | nil, string
   local out_fd = assert(Fs.open_write(out))
-  -- The child's exit status, once it is known.
-  local status: {integer} = {}
-  local called, failure = pcall(function(): string
+  local program = assert(argv[1], "no program to run")
+  local kept: Streamed = { trouble = "" }
+  local called, failure = pcall(function()
     local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
     local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
-      status[1] = Fs.exists(argv[1]) and 126 or 127
-      local wrote, why = sink:write(argv[1] .. ": " .. start_trouble .. "\n")
-      return wrote and "" or why
+      if Fs.exists(program) == true then kept.status = 126 else kept.status = 127 end
+      local wrote, why = sink:write(program .. ": " .. start_trouble .. "\n")
+      if not wrote then kept.trouble = why end
+      return
     end
-    local handle <close> = started
+    -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+    -- [`Child.Handle`] as a class: a `<close>` local must be one.
+    local handle: Child.Handle = started
     local function supervise(): string
       local deadline: integer | nil = nil
       local eof = false
       while true do
         local signal = guard:take()
         if signal ~= 0 then local _, _ = handle:stop(signal) end
-        local state, why = handle:try_wait()
-        if state == nil then return why end
-        if state.finished and status[1] == nil then
-          status[1] = Child.shell_status(assert(state.result))
+        local waiting, why = handle:try_wait()
+        if waiting == nil then return why end
+        if waiting.finished and kept.status == nil then
+          kept.status = Child.shell_status(assert(waiting.result))
           deadline = Clock.monotonic_ns() + final_output_ns
         end
         if eof then
-          if status[1] ~= nil then return "" end
+          if kept.status ~= nil then return "" end
           Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
@@ -254,22 +289,34 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
       end
       return ""
     end
-    local ran, why = pcall(supervise)
+    local ran, reason = pcall(supervise)
+    if not ran then
+      kept.trouble = tostring(reason)
+    elseif type(reason) == "string" then
+      kept.trouble = reason
+    end
     -- drain may have observed exit before a sink failed or raised. Keep
     -- that actual status before scoped cleanup ends any remaining child.
-    if status[1] == nil then
-      local observed, state = pcall(function(): Child.TryWait | nil return (handle:try_wait()) end)
-      if observed and state ~= nil and state.finished then
-        status[1] = Child.shell_status(assert(state.result))
-      end
+    if kept.status == nil then
+      local _, _ = pcall(function()
+        local waiting = handle:try_wait()
+        if waiting ~= nil and waiting.finished then
+          kept.status = Child.shell_status(assert(waiting.result))
+        end
+      end)
     end
-    return ran and why or tostring(why)
+    local _, _ = handle:close()
   end)
   local closed, close_trouble = Fs.close(out_fd)
-  if not called then return status[1], tostring(failure) end
-  if failure ~= "" then return status[1], failure as string end
-  if not closed then return status[1], close_trouble end
-  return status[1], ""
+  if not called then return kept.status, tostring(failure) end
+  if kept.trouble ~= "" then return kept.status, kept.trouble end
+  if not closed then return kept.status, close_trouble end
+  return kept.status, ""
+end
+
+--- A failed run's summary, kept where the function that makes it under `pcall` can set it.
+local record Failed
+  text: string
 end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing
@@ -290,26 +337,34 @@ function Fuzz.execute(r: Fuzz.Run): integer
   local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"
-  local status: integer
-  do
-    -- Streamed to the log as it runs, and kept for the summary: a run
-    -- cancelled at its time limit still shows how far it got. A signal
-    -- caught meanwhile is delivered again once the status is kept.
-    local guard <close> = assert(Signal.guard())
-    local trouble: string
-    status, trouble = streamed(guard, argv, r.root, env, out, r.log)
-    if status ~= nil then
-      assert(Fs.write(r.temp .. "/fuzz.status", tostring(status) .. "\n"))
+  -- Streamed to the log as it runs, and kept for the summary: a run
+  -- cancelled at its time limit still shows how far it got. A signal
+  -- caught meanwhile is delivered again once the status is kept.
+  -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+  -- [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard = assert(Signal.guard())
+  local kept: Streamed = { trouble = "" }
+  local ran, raised = pcall(function()
+    kept.status, kept.trouble = streamed(guard, argv, r.root, env, out, r.log)
+    local reached = kept.status
+    if reached ~= nil then
+      assert(Fs.write(r.temp .. "/fuzz.status", tostring(reached) .. "\n"))
     end
-    assert(trouble == "", trouble)
-    assert(status ~= nil, "fuzz child ended without a status")
-  end
+    assert(kept.trouble == "", kept.trouble)
+    assert(reached ~= nil, "fuzz child ended without a status")
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  local status = assert(kept.status)
   if status ~= 0 then
     local next_chunk, close = chunks(out)
-    local called, text = pcall(Fuzz.failure, next_chunk, seed)
+    local failed: Failed = { text = "" }
+    local called, raised_failure = pcall(function()
+      failed.text = Fuzz.failure(next_chunk, seed)
+    end)
     close()
-    if not called then error(text) end
-    r.summarize(text as string)
+    if not called then error(raised_failure) end
+    r.summarize(failed.text)
   end
   return status
 end

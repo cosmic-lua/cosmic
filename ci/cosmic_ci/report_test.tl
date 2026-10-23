@@ -253,7 +253,7 @@ end
 --- line answers 2, as the driver's dispatch does.
 local function report(f: Fake, args: {string}): Answer, string
   local argv: {string} = {}
-  for i, word in ipairs(args) do argv[i] = word end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
   local got, why = Flags.parse(argv, 1, Report.spec)
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
   local code, out, err = Report.answer(got, f.env, f.client)

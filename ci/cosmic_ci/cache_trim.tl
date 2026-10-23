@@ -16,9 +16,9 @@ local record CacheTrim
   record Request
     family: Family
     paths: {string}
-    since_ns: integer | nil
+    since_ns?: integer
     whole: boolean
-    restored: string | nil
+    restored?: string
   end
 end
 local enum State
@@ -31,11 +31,11 @@ local record File
   path: string
   state: State
   reason: string
-  kept: integer | nil
-  removed: integer | nil
-  before_bytes: integer | nil
-  after_bytes: integer | nil
-  reached: boolean | nil
+  kept?: integer
+  removed?: integer
+  before_bytes?: integer
+  after_bytes?: integer
+  reached?: boolean
   unknown_tables: {string}
   unstamped_tables: {string}
   removed_set_aside: {string}
@@ -43,8 +43,8 @@ end
 local record Report
   version: integer
   files: {File}
-  digest: string | nil
-  fresh: integer | nil
+  digest?: string
+  fresh?: integer
   warnings: {string}
 end
 local REPORT <const> = Shape.record_of("Report")
@@ -91,7 +91,8 @@ local function spelling(path: string): string | nil, string
   local resolved, trouble = Fs.absolute(path)
   if resolved ~= nil then return resolved, "" end
   local exists, why = Fs.exists(path)
-  if exists ~= false then return nil, exists == nil and why or trouble end
+  if exists == nil then return nil, why end
+  if exists ~= false then return nil, trouble end
   local parent, parent_trouble = spelling(Fs.dirname(path))
   if parent == nil then return nil, parent_trouble end
   local parts: {string} = {}
@@ -145,7 +146,7 @@ local function remove_snapshot(path: string): string
 end
 
 local function output(env: {string:string}, values: string): string
-  local path = env.GITHUB_OUTPUT or ""
+  local path = env["GITHUB_OUTPUT"] or ""
   if path == "" or values == "" then return "" end
   local ok, why = Fs.append(path, values)
   return ok and "" or why
@@ -155,7 +156,7 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
   local start, why = Proc.relaunch()
   if start == nil then return nil, why end
   local argv: {string} = {}
-  for i, word in ipairs(start.argv) do argv[i] = word end
+  for _, word in ipairs(start.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "cache", "trim", request.family }) do argv[#argv + 1] = word end
   for _, path in ipairs(request.paths) do argv[#argv + 1] = path end
   if request.whole then
@@ -166,7 +167,8 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
   end
   local restored = request.restored
   if restored ~= nil then
-    argv[#argv + 1], argv[#argv + 2] = "--restored", restored
+    argv[#argv + 1] = "--restored"
+    argv[#argv + 1] = restored
   end
   argv[#argv + 1] = "--json"
   local env = Env.all()
@@ -186,22 +188,28 @@ local function invoke(request: CacheTrim.Request): Report | nil, string
   return decoded, result.stderr or ""
 end
 
---- Cleans the owned snapshot before Child.run's signal is redelivered,
---- and publishes save outputs only from a complete validated report.
-function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string, string
-  local verb = request.family .. "-trim"
-  local opened, guard_trouble = Signal.guard()
-  if opened == nil then
-    local restored = request.restored
-    local cleanup = restored ~= nil and remove_snapshot(restored) or ""
-    return "", verb .. ": " .. guard_trouble .. (cleanup ~= "" and "\n" .. cleanup or "") .. "\n"
-  end
-  local guard <close> = opened
+--- What [`invoke`] answered, kept where the function that runs it under `pcall` can read it.
+local record Invoked
+  report?: Report
+  trouble: string
+end
+
+--- What [`CacheTrim.run`] answers, kept where the function that runs it under `pcall` can read it.
+local record Done
+  lines: string
+  trouble: string
+end
+
+--- The body of [`CacheTrim.run`] while `guard` holds the signals.
+local function trim(guard: Signal.Guard, request: CacheTrim.Request, env: {string:string}, verb: string): string, string
   local value: Report | nil = nil
   local trouble = ""
   if #request.paths > 0 then
-    local ok, answer, why = pcall(invoke, request)
-    if ok then value, trouble = answer as Report, why else trouble = tostring(answer) end
+    local invoked: Invoked = { report = nil, trouble = "" }
+    local ok, raised = pcall(function()
+      invoked.report, invoked.trouble = invoke(request)
+    end)
+    if ok then value, trouble = invoked.report, invoked.trouble else trouble = tostring(raised) end
   end
   local restored = request.restored
   if restored ~= nil then
@@ -212,18 +220,21 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
     end
   end
   if guard:cancelled() ~= 0 then return "", verb .. ": maintenance cancelled\n" end
-  if value == nil then return "", trouble == "" and "" or verb .. ": " .. trouble .. "\n" end
+  if value == nil then
+    if trouble == "" then return "", "" end
+    return "", verb .. ": " .. trouble .. "\n"
+  end
   local lines: {string} = {}
   for _, file in ipairs(value.files) do
     local line = verb .. ": " .. file.path .. ": " .. file.state
     local kept = file.kept
-    if kept ~= nil then line = line .. "; kept " .. kept end
+    if kept ~= nil then line = line .. "; kept " .. tostring(kept) end
     local removed = file.removed
-    if removed ~= nil then line = line .. ", removed " .. removed end
+    if removed ~= nil then line = line .. ", removed " .. tostring(removed) end
     local after_bytes = file.after_bytes
     local before_bytes = file.before_bytes
     if before_bytes ~= nil and after_bytes ~= nil then
-      line = line .. "; " .. before_bytes .. " -> " .. Plural.count(after_bytes, "byte")
+      line = line .. "; " .. tostring(before_bytes) .. " -> " .. Plural.count(after_bytes, "byte")
     end
     lines[#lines + 1] = line .. "\n"
     if #file.removed_set_aside > 0 then
@@ -246,12 +257,37 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string
   end
   local fresh = value.fresh
   if fresh ~= nil then
-    values = values .. "fresh=" .. fresh .. "\n"
-    lines[#lines + 1] = verb .. ": " .. fresh .. " compiles not in what was restored\n"
+    local count = tostring(fresh)
+    values = values .. "fresh=" .. count .. "\n"
+    lines[#lines + 1] = verb .. ": " .. count .. " compiles not in what was restored\n"
   end
   local unsaid = output(env, values)
   if unsaid ~= "" then trouble = trouble .. verb .. ": " .. unsaid .. "\n" end
   return table.concat(lines), trouble
+end
+
+--- Cleans the owned snapshot before Child.run's signal is redelivered,
+--- and publishes save outputs only from a complete validated report.
+function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): string, string
+  local verb = request.family .. "-trim"
+  local opened, guard_trouble = Signal.guard()
+  if opened == nil then
+    local restored = request.restored
+    local cleanup = ""
+    if restored ~= nil then cleanup = remove_snapshot(restored) end
+    if cleanup ~= "" then cleanup = "\n" .. cleanup end
+    return "", verb .. ": " .. guard_trouble .. cleanup .. "\n"
+  end
+  -- TODO: hold the guard in a `<close>` local again and drop the `pcall`, once ci/cosmic-driver.pin names a release
+  -- that declares [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard: Signal.Guard = opened
+  local done: Done = { lines = "", trouble = "" }
+  local ran, raised = pcall(function()
+    done.lines, done.trouble = trim(guard, request, env, verb)
+  end)
+  local _, _ = guard:close()
+  if not ran then error(raised, 0) end
+  return done.lines, done.trouble
 end
 
 --- SINCE as nanoseconds, checked before multiplication can overflow.

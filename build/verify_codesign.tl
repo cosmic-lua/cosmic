@@ -77,11 +77,12 @@ function VerifyCodesign.main(argv: {string}): integer
     log:complain(parse_trouble .. "; usage: " .. usage)
     return 2
   end
-  if parsed.set["--help"] or parsed.set["-h"] then
+  if parsed.set["--help"] == true or parsed.set["-h"] == true then
     log:say(Flags.help({ spec = spec, about = about, usage = "<path-to-macos-binary>" }, "bin/verify-codesign"))
     return 0
   end
-  if #parsed.words ~= 1 then
+  local binary = parsed.words[1]
+  if #parsed.words ~= 1 or binary == nil then
     log:complain("usage: " .. usage)
     return 2
   end
@@ -90,7 +91,7 @@ function VerifyCodesign.main(argv: {string}): integer
     log:complain("uname: " .. trouble)
     return 1
   end
-  return VerifyCodesign.verify(names.sysname, parsed.words[1])
+  return VerifyCodesign.verify(names.sysname, binary)
 end
 
 return VerifyCodesign

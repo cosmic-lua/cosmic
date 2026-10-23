@@ -243,7 +243,7 @@ local record Release
   notes: string
   --- The commit publishing the release makes its tag at, where the tag
   --- is missing.
-  target: string | nil
+  target?: string
 end
 
 --- A repository standing in for GitHub's, answering a client's `send`

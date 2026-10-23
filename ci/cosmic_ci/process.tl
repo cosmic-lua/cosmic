@@ -24,7 +24,7 @@ local record Process
     handle: Child.Handle
     out_fd: integer
     err_fd: integer
-    input_fd: integer | nil
+    input_fd?: integer
     out: string
     err: string
     closed: boolean

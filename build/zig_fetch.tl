@@ -122,21 +122,35 @@ local BUDGET_NS <const> = 12 * 60 * SECOND
 --- fetches.
 function ZigFetch.sources(version: string, name: string, mirrors: {string},
                           random?: function(integer): integer): {string}
-  local pick = random or math.random
+  local pick: function(integer): integer = function(n: integer): integer return math.random(n) end
+  if random ~= nil then pick = random end
   local order: {string} = {}
-  for i, mirror in ipairs(mirrors) do
-    order[i] = mirror
+  for _, mirror in ipairs(mirrors) do
+    order[#order + 1] = mirror
   end
   for i = #order, 2, -1 do
     local j = pick(i)
-    order[i], order[j] = order[j], order[i]
+    local at_i, at_j = order[i], order[j]
+    if at_i ~= nil and at_j ~= nil then
+      order[i], order[j] = at_j, at_i
+    end
   end
   local out: {string} = {}
-  for i = 1, math.min(#order, MIRRORS_TRIED) do
-    out[i] = order[i] .. "/" .. name .. "?source=cosmic"
+  for i, mirror in ipairs(order) do
+    if i > MIRRORS_TRIED then break end
+    out[#out + 1] = mirror .. "/" .. name .. "?source=cosmic"
   end
   out[#out + 1] = "https://ziglang.org/download/" .. version .. "/" .. name
   return out
+end
+
+--- How many downloads [`ZigFetch.fetch`] has tried.
+local record Tally
+  attempts: integer
+end
+
+local function real_download(url: string, path: string, opts: Http.Options): Http.DownloadResult
+  return Http.download_result(url, path, opts)
 end
 
 local function real_sleep(ns: integer)
@@ -145,13 +159,13 @@ end
 
 --- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
-                         timeout_ns?: integer): Http.Options
+                         timeout_ns?: integer, sha256?: string): Http.Options
   -- A community mirror's certificate may come from any CA Mozilla trusts,
   -- and the download is held to its sha256 whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
-    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla" }
+    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla", sha256 = sha256 }
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -172,19 +186,18 @@ end
 --- each source, its last trouble and how long that attempt ran.
 function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
                         via?: ZigFetch.Fetcher): boolean, string
-  local download = via ~= nil and via.download or Http.download_result
-  local sleep = via ~= nil and via.sleep or real_sleep
-  local now = via ~= nil and via.now or Clock.monotonic_ns
+  local fetcher: ZigFetch.Fetcher = { download = real_download, sleep = real_sleep, now = Clock.monotonic_ns }
+  if via ~= nil then fetcher = via end
+  local download, sleep, now = fetcher.download, fetcher.sleep, fetcher.now
   local deadline = now() + BUDGET_NS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}
-  local tally = { attempts = 0 }
+  local tally: Tally = { attempts = 0 }
   local out_of_time = false
 
   local function attempt(url: string, opts: Http.Options): Http.DownloadResult
     tally.attempts = tally.attempts + 1
     local _, _ = Fs.remove(path)
-    opts.sha256 = sha256
     local started = now()
     local result = download(url, path, opts)
     if result.kind ~= "downloaded" then
@@ -200,13 +213,13 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     end
     for i = 1, #urls - 1 do
       local url = urls[i]
-      if not wrong[url] and not out_of_time then
+      if url ~= nil and wrong[url] ~= true and not out_of_time then
         local left = deadline - now()
         if left <= 0 then
           out_of_time = true
         else
           local result = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
-            MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left)))
+            MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left), sha256))
           if result.kind == "downloaded" then
             return true, ""
           end
@@ -218,7 +231,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     end
     if fallback ~= nil then
       local result = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
-        FALLBACK_LOW_SPEED_NS))
+        FALLBACK_LOW_SPEED_NS, nil, sha256))
       if result.kind == "downloaded" then
         return true, ""
       end
@@ -231,9 +244,24 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   for _, url in ipairs(urls) do
     lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
   end
-  local why = out_of_time and "mirrors out of time; every source failed after " or
-    "every source failed after "
+  local why = "every source failed after "
+  if out_of_time then
+    why = "mirrors out of time; every source failed after "
+  end
   return false, why .. tostring(tally.attempts) .. " attempts:" .. table.concat(lines)
+end
+
+--- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, or nil.
+-- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
+-- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
+local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string | nil): string | nil
+  local ok, outcome = pcall(body, scratch)
+  local _, _ = Fs.remove_tree(scratch.path)
+  local _, _ = sys.close(scratch.owner)
+  if not ok then error(outcome, 0) end
+  if type(outcome) == "string" then return outcome end
+  return nil
 end
 
 --- Downloads, verifies and extracts zig `version`'s release for `host`,
@@ -279,29 +307,32 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
-  local holding <close> = owned
-  local work = holding.path .. "/payload"
-  local extracted, trouble: string | nil, string
-  if sha256 == nil or sha256 == "" then
-    extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
-  else
-    extracted, trouble = unpack(work, version, host, sha256)
-  end
-  if extracted ~= nil then
-    -- A concurrent install may have won; its copy is the same bytes,
-    -- so a failed rename is fine as long as a zig ends up in place.
-    local _, _ = Fs.rename(extracted, install)
-  end
-  if extracted == nil then
-    return nil, trouble
-  end
-  local installed, look_trouble = Fs.exists(zig)
-  if installed == nil then
-    return nil, look_trouble
-  end
-  if not installed then
-    return nil, "could not install zig into " .. install
-  end
+  local failed = within(owned, function(holding: Fs.Scratch): string | nil
+    local work = holding.path .. "/payload"
+    local extracted, trouble: string | nil, string
+    if sha256 == nil or sha256 == "" then
+      extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
+    else
+      extracted, trouble = unpack(work, version, host, sha256)
+    end
+    if extracted ~= nil then
+      -- A concurrent install may have won; its copy is the same bytes,
+      -- so a failed rename is fine as long as a zig ends up in place.
+      local _, _ = Fs.rename(extracted, install)
+    end
+    if extracted == nil then
+      return trouble
+    end
+    local installed, look_trouble = Fs.exists(zig)
+    if installed == nil then
+      return look_trouble
+    end
+    if not installed then
+      return "could not install zig into " .. install
+    end
+    return nil
+  end)
+  if failed ~= nil then return nil, failed end
   return zig, ""
 end
 

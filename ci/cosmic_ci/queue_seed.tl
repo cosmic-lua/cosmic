@@ -158,7 +158,7 @@ end
 local record Job
   status: string
   --- Seconds since the epoch where it has started.
-  started: integer | nil
+  started?: integer
   --- Whether it has begun the suite step, where one is named.
   reached: boolean
   name: string

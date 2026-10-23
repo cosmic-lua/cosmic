@@ -370,22 +370,26 @@ end
 
 local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: string)
   local root, env = checkout(tmp)
-  local outer <close> = assert(Signal.guard())
-  local user, run = Proc.user, Child.run
-  local scratch = { value = "" }
-  Proc.user = function(_name: string): Proc.User | nil, string
-    return { uid = 65532, gid = 65532 }, ""
-  end
-  Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
-    if not options or not options.credentials then return run(words, options) end
-    scratch.value = Fs.dirname(words[1])
-    assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    return nil, "cancelled credential probe"
-  end
-  local called, code = pcall(invoke, root, env, { "build" }, 0)
-  Proc.user, Child.run = user, run
-  local signal = assert(outer:release())
-  assert(called, tostring(code))
-  assert(code == 2 and signal == sys.SIGTERM and scratch.value ~= "" and Fs.exists(scratch.value) == false)
-  assert(Fs.exists(env.COSMIC_CI_LOCAL) == false)
+  local outer = assert(Signal.guard())
+  local ran, raised = pcall(function()
+    local user, run = Proc.user, Child.run
+    local scratch = { value = "" }
+    Proc.user = function(_name: string): Proc.User | nil, string
+      return { uid = 65532, gid = 65532 }, ""
+    end
+    Child.run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+      if not options or not options.credentials then return run(words, options) end
+      scratch.value = Fs.dirname(words[1])
+      assert(sys.kill(sys.getpid(), sys.SIGTERM))
+      return nil, "cancelled credential probe"
+    end
+    local called, code = pcall(invoke, root, env, { "build" }, 0)
+    Proc.user, Child.run = user, run
+    local signal = assert(outer:release())
+    assert(called, tostring(code))
+    assert(code == 2 and signal == sys.SIGTERM and scratch.value ~= "" and Fs.exists(scratch.value) == false)
+    assert(Fs.exists(env.COSMIC_CI_LOCAL) == false)
+  end)
+  local _, _ = outer:close()
+  if not ran then error(raised, 0) end
 end

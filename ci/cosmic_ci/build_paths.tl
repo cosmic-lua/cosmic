@@ -27,7 +27,7 @@ function BuildPaths.driver(words: {string}, values: {string:string}):
     for name, value in pairs(relaunch.env) do env[name] = value end
     for number, fd in pairs(relaunch.fds) do fds[number] = fd end
   else
-    argv[1] = assert(Proc.executable())
+    argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   return argv, env, fds
@@ -54,7 +54,8 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
     parts[#parts + 1] = name .. "=" .. (values[name] or "")
   end
   local key = Hash.hex_sha256(table.concat(parts, "\0"))
-  if directories[key] then return directories[key] end
+  local known = directories[key]
+  if known ~= nil then return known end
   local argv, env, fds = BuildPaths.driver({ "--standalone", resolver, root }, values)
   local answer, why = Child.run(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

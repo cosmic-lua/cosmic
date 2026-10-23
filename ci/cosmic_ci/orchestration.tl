@@ -895,9 +895,9 @@ local record FixtureSpec
   source: string
   timeout_ns: integer
   extra: {string:string}
-  placements: {Placement} | nil
+  placements?: {Placement}
   --- Work done in this process just before the fixture starts.
-  setup: function() | nil
+  setup?: function()
 end
 
 --- What a fixture's `cosmic test` is run with: made afresh by
@@ -1329,7 +1329,7 @@ local targets: {string:boolean} = {
   ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
 
 local record PlatformContext
-  trailing: string | nil
+  trailing?: string
   operation: Context
   root: string
   target: string

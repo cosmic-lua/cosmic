@@ -21,10 +21,10 @@ local record Vector
   name: string
   sysname: string
   machine: string
-  cpuinfo: string | nil
-  osrelease: string | nil
-  version: string | nil
-  sysctl: {string:string} | nil
+  cpuinfo?: string
+  osrelease?: string
+  version?: string
+  sysctl?: {string:string}
   digest: string
 end
 
