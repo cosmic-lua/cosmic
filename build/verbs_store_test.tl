@@ -233,21 +233,23 @@ local function write_programs(tmp: string): string
   return tree
 end
 
+--- `build` narrowed by paths, writing host programs: the portable ones need a
+--- tool of every core ([`build.embed_portable_tool_test`] runs them).
 local function test_build_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
-  local one = verbs_fixture.expect(tree, "build", { "build", "./cmd/hi/" }, 0).stdout or ""
+  local one = verbs_fixture.expect(tree, "build", { "build", "--host", "./cmd/hi/" }, 0).stdout or ""
   assert(one == build_dir(tree) .. "/bin/hi\n", one)
   assert(Fs.exists(build_dir(tree) .. "/bin/hi"))
   assert(not Fs.exists(build_dir(tree) .. "/bin/bye"))
-  local refused = verbs_fixture.expect(tree, "build", { "build", "cmd/hi", "lib" }, 1)
+  local refused = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd/hi", "lib" }, 1)
   assert((refused.stderr or ""):find("no cmd/<name>/main.tl under lib", 1, true), refused.stderr)
-  local _ = verbs_fixture.expect(tree, "build", { "build", "cmd" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd" }, 0)
   assert(Fs.exists(build_dir(tree) .. "/bin/bye"))
 end
 
 local function test_uses_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
   local narrowed = verbs_fixture.expect(tree, "uses", { "uses", "Fs.read", "lib" }, 0).stdout or ""
   assert(narrowed:find("lib/reader.tl:2:", 1, true), narrowed)
   assert(not narrowed:find("cosmic/", 1, true), narrowed)
@@ -283,7 +285,7 @@ local function test_uses_prints_each_link_it_finds(tmp: string)
     "return waves.go",
     "",
   }, "\n")))
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
   local function printed(query: string): string
     return verbs_fixture.expect(tree, "uses", { "uses", query }, 0).stdout or ""
   end
@@ -309,7 +311,7 @@ end
 
 local function test_db_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
   local narrowed_run = verbs_fixture.expect(tree, "db", { "db", "./lib/" }, 0)
   local narrowed = narrowed_run.stdout or ""
   assert((narrowed_run.stderr or ""):find("rows about lib in 2 databases", 1, true), narrowed_run.stderr)
@@ -333,7 +335,7 @@ end
 --- reading it, narrowed or not, would fail.
 local function test_db_reads_none_of_a_working_database_of_another_schema(tmp: string)
   local tree = write_programs(tmp)
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
   local working = build_dir(tree) .. "/build.db"
   local db = assert(Sqlite.open(working, { writable = true }))
   assert(db:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
@@ -399,7 +401,7 @@ end
 --- no module beside them (build/test.tl's `base_name`).
 local function test_db_counts_the_closure_stores_alone(tmp: string)
   local tree = write_programs(tmp)
-  local _ = verbs_fixture.expect(tree, "build", { "build" }, 0)
+  local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
   assert(Fs.mkdirs(build_dir(tree) .. "/stores"))
   assert(Fs.write(build_dir(tree) .. "/stores/" .. ("a"):rep(64) .. ".db", "abc"))
   assert(Fs.write(build_dir(tree) .. "/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
