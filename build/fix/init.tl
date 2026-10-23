@@ -62,10 +62,13 @@
 --- `rewrite`), and `--check` fails on one it would link.
 
 -- TODO: once the switch makes `cosmic fix` read the syntax tree first (doc/plans/strict-teal.md, "the switch"), read, check
--- and rewrite a project's sources with the new syntax tree (build/syntax_*.tl) and compile them with the new checker
--- (COSMIC_GRAMMAR=new): `cosmic fix` parses every file with the fork's parser (build.ast), derives rows with
--- [`build.derivation`]'s `parse_fresh`, lays out and rewrites the fork's tree (build/fix/*.tl, [`build.links`]) and checks
--- through the fork ([`build.fix.spill`]), so a file in the new grammar is refused with a syntax error and the mode is ignored.
+-- and rewrite a project's sources with the new syntax tree (build/syntax_*.tl) and compile them with the new checker:
+-- `cosmic fix` parses every file with the fork's parser (build.ast), derives rows with [`build.derivation`]'s `parse_fresh`,
+-- lays out and rewrites the fork's tree (build/fix/*.tl, [`build.links`]) and wraps asserts through the fork
+-- ([`build.fix.spill`]), so a file in the new grammar is refused with a syntax error. COSMIC_GRAMMAR=new moves only the
+-- near notes, the plurals of the tree checks and the check that the tree builds to the new checker, and reads the fork's
+-- Teal for the first two through [`lang.translate`]. The switch drops the fork's branches of those three, [`candidates_of`]
+-- and the loop of [`wrap_asserts`] among them.
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -88,6 +91,9 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
+local SyntaxAnalyzer = require("build.syntax_analyzer")
+local SyntaxNode = require("build.syntax_node")
+local Translate = require("lang.translate")
 local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
@@ -954,17 +960,42 @@ local function compared(file: string): boolean
     not String.ends_with(file, "_example.tl") and not String.ends_with(file, ".d.tl")
 end
 
+--- The candidate `near` compares for a doc entry, nil for one it passes over: an exported function or method with a
+--- doc comment. `signature` tells a method written as a function with a `self` first.
+local function candidate_of(exported: boolean, kind: string, text: string, signature: string, source_symbol: string,
+                            line: integer): near.Candidate | nil
+  if exported and (kind == "function" or kind == "method") and text ~= "" then
+    return { source_symbol = source_symbol, text = text, line = line,
+      method = kind == "method" or signature:find("^[^(]*%(%s*self%s*:") ~= nil }
+  end
+  return nil
+end
+
 --- What `near` compares of a file: each exported function or method
 --- with a doc comment, read off a parse already made of `source`.
 local function candidates_of(parsed: ast.Parsed, source: string): {near.Candidate}
   local candidates: {near.Candidate} = {}
   for _, entry in ipairs(analyzer.docs(parsed, source)) do
-    if entry.exported and (entry.kind == "function" or entry.kind == "method") and
-        entry.text ~= "" then
-      candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
-        text = entry.text, line = entry.line,
-        method = entry.kind == "method" or entry.signature:find("^[^(]*%(%s*self%s*:") ~= nil }
-    end
+    local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
+    if found ~= nil then candidates[#candidates + 1] = found end
+  end
+  return candidates
+end
+
+-- TODO: read `source` as written, with no translation, once the switch commits the tree in the new grammar
+-- (doc/plans/strict-teal.md, "the switch"): the line of a note on a file whose translation makes a class is the
+-- translation's, and a file whose translation does not parse (the fork's [`checker/tl.tl`], [`lang/ast.tl`]) earns no note.
+
+--- [`candidates_of`] by the new checker's reading ([`SyntaxAnalyzer.docs`]) of `source`, the fork's Teal of the file `file`,
+--- translated ([`lang.translate`]); nil where the translation does not parse.
+local function syntax_candidates_of(source: string, file: string): {near.Candidate} | nil
+  local made = Translate.translate(source, file)
+  local chunk, _ = SyntaxNode.parse(made.text, file)
+  if chunk == nil then return nil end
+  local candidates: {near.Candidate} = {}
+  for _, entry in ipairs(SyntaxAnalyzer.docs(chunk, made.text)) do
+    local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
+    if found ~= nil then candidates[#candidates + 1] = found end
   end
   return candidates
 end
@@ -982,9 +1013,18 @@ end
 --- @param ready? {string: {near.Candidate}} Each file's candidates
 --- ([`candidates_of`]), where a parse made already found them; a file
 --- missing here is read and parsed again
+--- @param grammar? the checker that reads the files: the one `COSMIC_GRAMMAR` names where not given. The new one reads
+--- the doc comments off its syntax tree ([`build.syntax_analyzer`]), `built` unused.
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string},
-                   databases: {Sqlite.Handle}, ready?: {string: {near.Candidate}}): {string}
+                   databases: {Sqlite.Handle}, ready?: {string: {near.Candidate}},
+                   grammar?: GrammarMode.Mode): {string}
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then return { chosen_trouble } end
+    mode = chosen
+  end
   -- Each file's path is resolved, so the root must be too: on macOS a
   -- temporary directory is under /var, a link to /private/var.
   local resolved_root, _ = Fs.absolute(root)
@@ -1008,7 +1048,9 @@ function fix.notes(built: compiler, root: string, files: {string},
       candidates = ready ~= nil and ready[file] or nil
       if candidates == nil then
         local source, _ = Fs.read(file)
-        if source ~= nil then
+        if source ~= nil and mode == "new" then
+          candidates = syntax_candidates_of(source, file)
+        elseif source ~= nil then
           local parsed, _ = ast.parse(built, source, file)
           if parsed ~= nil then
             candidates = candidates_of(parsed, source)
@@ -1030,16 +1072,28 @@ end
 --- after parses it again: what its links read (`facts`), what the
 --- notes compare (`ready`), and, where the tree checks will run, the
 --- plurals they look for (`plurals`, by the file's path from the root).
-local function read_off(file: string, result: fix.Fixed,
-                        facts: {string: links.Facts}, ready: {string: {near.Candidate}},
-                        plurals: {string: tree_checks.Plurals} | nil)
+--- In the new grammar mode the notes and the plurals are read off the new
+--- checker's tree of `result.source` instead of the fork's `result.parsed`.
+function fix.read_off(file: string, result: fix.Fixed, grammar: GrammarMode.Mode,
+                      facts: {string: links.Facts}, ready: {string: {near.Candidate}},
+                      plurals: {string: tree_checks.Plurals} | nil)
   facts[file] = links.facts(result.parsed, result.source)
   if compared(file) then
-    ready[file] = candidates_of(result.parsed, result.source)
+    if grammar == "new" then
+      local found = syntax_candidates_of(result.source, file)
+      if found ~= nil then ready[file] = found end
+    else
+      ready[file] = candidates_of(result.parsed, result.source)
+    end
   end
   if plurals ~= nil then
     while file:sub(1, 2) == "./" do file = file:sub(3) end
-    plurals[file] = tree_checks.plurals_in(file, result.source, result.parsed)
+    if grammar == "new" then
+      local found = tree_checks.syntax_plurals_in(file, result.source)
+      if found ~= nil then plurals[file] = found end
+    else
+      plurals[file] = tree_checks.plurals_in(file, result.source, result.parsed)
+    end
   end
 end
 
@@ -1070,6 +1124,7 @@ local record Fix
 
   -- The compiler ([`load_compiler`]).
   built?: compiler
+  grammar?: GrammarMode.Mode
 
   -- What the run has found so far ([`start_tally`] onward).
   files?: {string}
@@ -1161,7 +1216,7 @@ local function choose_files(ctx: Fix): integer | nil
   return nil
 end
 
---- Loads the Teal compiler.
+--- Loads the Teal compiler, and reads the checker `COSMIC_GRAMMAR` asks for.
 --- @return integer | nil The exit code when it does not load, else nil
 local function load_compiler(ctx: Fix): integer | nil
   local built, load_trouble = teal.load()
@@ -1170,6 +1225,12 @@ local function load_compiler(ctx: Fix): integer | nil
     return 1
   end
   ctx.built = built
+  local grammar, grammar_trouble = GrammarMode.mode()
+  if grammar == nil then
+    log:complain(grammar_trouble)
+    return 2
+  end
+  ctx.grammar = grammar
   return nil
 end
 
@@ -1282,6 +1343,7 @@ local function lay_out_teal(ctx: Fix)
   local checking = ctx.checking
   local changed = assert(ctx.changed)
   local failures = assert(ctx.failures)
+  local grammar = assert(ctx.grammar)
   -- What the links read of each Teal file, from the parse its fix made,
   -- while the file on disk is what was parsed.
   local facts: {string: links.Facts} = {}
@@ -1306,11 +1368,11 @@ local function lay_out_teal(ctx: Fix)
           if not written then
             failures[#failures + 1] = write_trouble
           else
-            read_off(file, result, facts, ready, plurals)
+            fix.read_off(file, result, grammar, facts, ready, plurals)
           end
         end
       else
-        read_off(file, result, facts, ready, plurals)
+        fix.read_off(file, result, grammar, facts, ready, plurals)
       end
     end
   end
@@ -1337,6 +1399,18 @@ local function wrap_asserts(ctx: Fix)
   end
   local listed: {string:boolean} = {}
   for _, file in ipairs(changed) do listed[file] = true end
+  -- The new checker names no spill ([`build.fix.spill`] reads the fork's message), so there is nothing to wrap; whether the
+  -- tree builds is [`find_unbuilt`]'s to say.
+  --
+  -- TODO: have the new checker's refusal of a spilled `assert(...)` (`overload_none`, `argument_count`) name the
+  -- `(assert(...))` fix in build/error_catalog.tl, once the switch deletes [`build.fix.spill`], which is where the fix is
+  -- written today (doc/plans/strict-teal.md, "the switch").
+  if ctx.grammar == "new" then
+    ctx.listed = listed
+    ctx.refused = ""
+    ctx.spilled = false
+    return
+  end
   local rounds = 0
   local refused = ""
   local spilled = false
@@ -1399,10 +1473,21 @@ end
 --- check whose build names a spill in a file it covers counts that
 --- file to fix instead, since the checker reports each spill with an
 --- error of its own; over the whole tree, the tree checks' projection
---- refuses it.
+--- refuses it. With `COSMIC_GRAMMAR=new` the new checker builds the
+--- tree and names no spill.
 local function find_unbuilt(ctx: Fix)
   local picked = assert(ctx.picked)
   local unbuilt: string | nil = nil
+  if ctx.grammar == "new" then
+    -- The new checker's build, in its own words: over the whole tree the tree checks' projection says so
+    -- ([`finish_projection`]); a narrower run builds the project here.
+    if not picked.whole then
+      local built, why = rebuild.here("fix", true)
+      if not built then unbuilt = why end
+    end
+    ctx.unbuilt = unbuilt
+    return
+  end
   if not picked.whole and ctx.refused ~= "" and not (ctx.checking and ctx.spilled) then
     unbuilt = ctx.refused
   end
@@ -1679,7 +1764,7 @@ local function say_notes(ctx: Fix)
   end
 
   for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases(),
-      ready)) do
+      ready, ctx.grammar)) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil

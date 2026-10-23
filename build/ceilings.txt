@@ -817,6 +817,7 @@ build/perf.tl nil_not_allowed 28
 build/perf_test.tl nil_not_allowed 10
 build/perf_validation.tl nil_not_allowed 9
 build/pipeline_test.tl nil_not_allowed 1
+build/plural_sites.tl nil_not_allowed 5
 build/policy_rules.tl nil_not_allowed 2
 build/positions.tl nil_not_allowed 1
 build/rand.tl nil_not_allowed 8
@@ -928,7 +929,7 @@ build/todo_scan.tl nil_not_allowed 7
 build/todos.tl nil_not_allowed 13
 build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
-build/tree_checks.tl nil_not_allowed 120
+build/tree_checks.tl nil_not_allowed 116
 build/tree_checks_test.tl nil_not_allowed 91
 build/tree_program_test.tl nil_not_allowed 21
 build/tree_root.tl nil_not_allowed 8
@@ -1514,7 +1515,7 @@ build/todo_scan.tl index_may_be_nil 5
 build/todos.tl index_may_be_nil 3
 build/todos_git_test.tl index_may_be_nil 3
 build/todos_test.tl index_may_be_nil 2
-build/tree_checks.tl index_may_be_nil 43
+build/tree_checks.tl index_may_be_nil 41
 build/tree_program.tl index_may_be_nil 1
 build/tree_root.tl index_may_be_nil 1
 build/vendor.tl index_may_be_nil 1
@@ -1848,7 +1849,8 @@ build/fix/emit.tl view_written 5
 build/fix/equiv.tl view_written 3
 build/fix/expr.tl view_written 1
 build/fix/fix_test.tl view_written 1
-build/fix/init.tl view_written 103
+build/fix/grammar_tool_test.tl view_written 1
+build/fix/init.tl view_written 104
 build/fix/link_build_tool_test.tl view_written 1
 build/fix/near.tl view_written 18
 build/fix/near_test.tl view_written 1
@@ -1947,6 +1949,8 @@ build/pipeline.tl view_written 31
 build/pipeline_check.tl view_written 20
 build/pipeline_memory_test.tl view_written 21
 build/pipeline_test.tl view_written 6
+build/plural_sites.tl view_written 9
+build/plural_sites_test.tl view_written 3
 build/policy_rules.tl view_written 5
 build/policy_rules_test.tl view_written 5
 build/positions.tl view_written 2
@@ -2012,7 +2016,7 @@ build/symbol_index.tl view_written 16
 build/symbols.tl view_written 6
 build/syntax_analyzer.tl view_written 57
 build/syntax_analyzer_test.tl view_written 5
-build/syntax_compared.tl view_written 26
+build/syntax_compared.tl view_written 29
 build/syntax_compared_analysis.tl view_written 34
 build/syntax_compared_test.tl view_written 3
 build/syntax_contracts.tl view_written 67
@@ -2081,8 +2085,8 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 318
-build/tree_checks_test.tl view_written 25
+build/tree_checks.tl view_written 320
+build/tree_checks_test.tl view_written 26
 build/tree_program.tl view_written 14
 build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
@@ -2528,6 +2532,7 @@ build/doctest/generate.tl view_as_mut 2
 build/driver.tl view_as_mut 5
 build/fix/fix_test.tl view_as_mut 5
 build/fix/init.tl view_as_mut 6
+build/fix/notes_test.tl view_as_mut 2
 build/flow.tl view_as_mut 6
 build/fuzz/init.tl view_as_mut 2
 build/gen_syscalls.tl view_as_mut 8
@@ -2748,7 +2753,7 @@ build/stub_tree_test.tl field_fixed 2
 build/symbols.tl field_fixed 2
 build/syntax_compared.tl field_fixed 1
 build/syntax_compared_analysis.tl field_fixed 1
-build/syntax_compared_test.tl field_fixed 28
+build/syntax_compared_test.tl field_fixed 30
 build/syntax_contracts.tl field_fixed 1
 build/syntax_typed.tl field_fixed 2
 build/syntax_typed_fixture.tl field_fixed 2
@@ -2962,6 +2967,7 @@ build/driver_test.tl field_unknown 8
 build/fetch.tl field_unknown 2
 build/hash_tool_test.tl field_unknown 3
 build/lang_proof.tl field_unknown 7
+build/plural_sites.tl field_unknown 24
 build/release.tl field_unknown 2
 build/syntax_analyzer.tl field_unknown 152
 build/syntax_compared.tl field_unknown 3
@@ -3721,7 +3727,7 @@ build/teal.tl return_arity 3
 build/teal_test.tl return_arity 4
 build/test.tl return_arity 3
 build/todos.tl return_arity 4
-build/tree_checks.tl return_arity 6
+build/tree_checks.tl return_arity 5
 build/tree_program.tl return_arity 3
 build/tree_root.tl return_arity 1
 build/work.tl return_arity 5
@@ -4511,6 +4517,7 @@ build/patch_test.tl condition_type 1
 build/paths_test.tl condition_type 1
 build/perf.tl condition_type 6
 build/pipeline_test.tl condition_type 1
+build/plural_sites.tl condition_type 2
 build/rand.tl condition_type 7
 build/rand_test.tl condition_type 3
 build/rebuild_lock.tl condition_type 1
@@ -4573,7 +4580,7 @@ build/this_program_test.tl condition_type 1
 build/time.tl condition_type 4
 build/todo_scan.tl condition_type 2
 build/todos.tl condition_type 5
-build/tree_checks.tl condition_type 31
+build/tree_checks.tl condition_type 30
 build/tree_checks_test.tl condition_type 3
 build/tree_root.tl condition_type 1
 build/tree_root_test.tl condition_type 1
@@ -4847,6 +4854,7 @@ build/must_confine_sandboxed_test.tl or_mix 5
 build/must_confine_test.tl or_mix 6
 build/patch_test.tl or_mix 10
 build/perf_test.tl or_mix 2
+build/plural_sites.tl or_mix 4
 build/positions_test.tl or_mix 11
 build/rand_test.tl or_mix 5
 build/reboot_test.tl or_mix 1
@@ -4904,7 +4912,7 @@ build/time.tl or_mix 1
 build/time_test.tl or_mix 6
 build/time_tool_test.tl or_mix 2
 build/todo_scan.tl or_mix 1
-build/tree_checks.tl or_mix 6
+build/tree_checks.tl or_mix 1
 build/tree_checks_test.tl or_mix 4
 build/vendor_test.tl or_mix 1
 build/verb_list_test.tl or_mix 1
@@ -5220,6 +5228,7 @@ build/links.tl and_ternary 6
 build/patch.tl and_ternary 1
 build/paths.tl and_ternary 1
 build/plural.tl and_ternary 1
+build/plural_sites.tl and_ternary 1
 build/policy_rules.tl and_ternary 1
 build/rand.tl and_ternary 1
 build/receivers.tl and_ternary 4
@@ -5266,7 +5275,7 @@ build/this_program_test.tl and_ternary 1
 build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
-build/tree_checks.tl and_ternary 20
+build/tree_checks.tl and_ternary 19
 build/tree_program_test.tl and_ternary 1
 build/vendor.tl and_ternary 2
 build/vendor_test.tl and_ternary 1
@@ -5926,7 +5935,7 @@ build/test_policy_test.tl compare_disjoint 1
 build/test_sandbox_probe.tl compare_disjoint 1
 build/test_worker.tl compare_disjoint 2
 build/todos.tl compare_disjoint 1
-build/tree_checks.tl compare_disjoint 2
+build/tree_checks.tl compare_disjoint 1
 build/vendor.tl compare_disjoint 1
 build/work.tl compare_disjoint 4
 build/work_test.tl compare_disjoint 1
@@ -6708,6 +6717,7 @@ build/dataset_fuzz_test.tl not_assignable 1
 build/driver_test.tl not_assignable 2
 build/fix/fix_test.tl not_assignable 1
 build/fix/init.tl not_assignable 5
+build/fix/notes_test.tl not_assignable 2
 build/flow_test.tl not_assignable 1
 build/harness_epoch_test.tl not_assignable 2
 build/hash_test.tl not_assignable 1
@@ -6716,6 +6726,7 @@ build/lang_proof.tl not_assignable 1
 build/link_files.tl not_assignable 1
 build/link_text.tl not_assignable 1
 build/lua_tail.tl not_assignable 1
+build/plural_sites.tl not_assignable 2
 build/reboot.tl not_assignable 3
 build/sandbox.tl not_assignable 1
 build/sandbox_connect_test.tl not_assignable 16
@@ -6955,3 +6966,12 @@ cosmic/removed_example.tl expected_token 2
 cosmic/removed_example.tl method_in_record 1
 cosmic/removed_example.tl tuple_type 1
 doc/guides/project.md function_path 1
+
+[testdata]
+# The files under ci/testdata that the new checker takes less strictly written than the fork did: `<file> <code>` to how
+# many findings of that code the file has when `ci_testdata` reads it in the new mode: the collections they fill, which
+# the new grammar declares `mut` and the fork's Teal has no word for.
+# TODO: declare them `mut` and drop the pins, once the switch has the tool the candidate builds compile `ci/testdata` in
+# the new grammar (doc/plans/strict-teal.md, "the switch").
+ci/testdata/portable/retained_probe.tl view_written 1
+ci/testdata/portable/work_db_integrity.tl view_written 1
