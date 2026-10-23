@@ -8,7 +8,9 @@ local Sqlite = require("cosmic.sqlite")
 local fix = require("build.fix")
 local fixture = require("build.docs_fixture")
 local GrammarMode = require("build.grammar_mode")
+local links = require("build.links")
 local near = require("build.fix.near")
+local SyntaxNode = require("build.syntax_node")
 local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
@@ -166,4 +168,48 @@ local function test_the_kept_reading_is_the_new_checkers_in_the_new_mode()
   assert(forked_candidates == 0 and forked_sites == 0, tostring(forked_candidates) .. " " .. tostring(forked_sites))
   local new_candidates, new_sites = kept("new")
   assert(new_candidates == 1 and new_sites == 1, tostring(new_candidates) .. " " .. tostring(new_sites))
+end
+
+--- What a run keeps of a file only the new parser reads: its links' facts, its notes' candidates and its plurals, read off
+--- the text as written (no translation), and the same file's notes by [`fix.notes`] where it is named as written.
+local function test_a_file_in_the_new_grammar_is_kept_as_written(tmp: string)
+  local text = table.concat({
+    "local class Stream",
+    "  --- Reads.",
+    "  function read(self, max: integer?): string?",
+    "    return nil",
+    "  end",
+    "end",
+    "",
+    "local record Paths",
+    "end",
+    "",
+    "--- Where a program is.",
+    "function Paths.which(name: string): string?",
+    "  return #name .. \" tests\"",
+    "end",
+    "",
+    "return Paths",
+    "",
+  }, "\n")
+  local chunk = assert(SyntaxNode.parse(text, "build/paths.tl"))
+  local facts: {string: links.Facts} = {}
+  local ready: {string: {near.Candidate}} = {}
+  local plurals: {string: tree_checks.Plurals} = {}
+  fix.read_off_written("./build/paths.tl", chunk, text, facts, ready, plurals)
+  assert(assert(facts["./build/paths.tl"]).source == text)
+  local candidates = assert(ready["./build/paths.tl"])
+  assert(#candidates == 1, #candidates)
+  local candidate = assert(candidates[1])
+  assert(candidate.source_symbol == "Paths.which" and candidate.line == 12 and candidate.text == "Where a program is.")
+  local sites = assert(plurals["build/paths.tl"]).sites
+  assert(#sites == 1)
+  assert(assert(sites[1])[1] == "13")
+  -- a file named as written is read as written for the notes, and as translated otherwise (to nothing here)
+  assert(Fs.mkdirs(tmp .. "/tree/build"))
+  assert(Fs.write(tmp .. "/tree/build/paths.tl", text))
+  local file = tmp .. "/tree/build/paths.tl"
+  local noted = fix.notes(built, tmp .. "/tree", { file }, { library_of(tmp) }, nil, "new", { [file] = true })
+  assert(#noted == 1, table.concat(noted, "\n"))
+  assert(assert(noted[1]):find("build/paths.tl:12: Paths.which: Proc.find (cosmic.proc) ", 1, true) ~= nil, noted[1])
 end

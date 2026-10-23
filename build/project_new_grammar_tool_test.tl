@@ -20,22 +20,37 @@ local function copy_of(tmp: string, name: string): string
   return root
 end
 
+--- The environment of a run of the program: `grammar` as COSMIC_GRAMMAR and `tmp` as its temporary directory.
+local function environment(tmp: string, grammar: string): {string:string}
+  local env = this_program.environment()
+  env["COSMIC_GRAMMAR"] = grammar
+  env["TMPDIR"] = tmp
+  return env
+end
+
 --- Runs `cosmic test` in `root` with `grammar` as COSMIC_GRAMMAR, unsandboxed (a sandbox nested in this test's own may be
 --- refused where the host nests only two deep), and answers what it said.
 local function tested(root: string, tmp: string, grammar: string): Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
+  local env = environment(tmp, grammar)
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
-  env["COSMIC_GRAMMAR"] = grammar
-  env["TMPDIR"] = tmp
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(120),
   })
   local result, trouble = Child.run(started.argv, started.options)
   assert(Fs.close(fd))
   return assert(result, trouble), (assert(Fs.read(output)))
+end
+
+--- Runs `cosmic fix --check` in `root` with `grammar` as COSMIC_GRAMMAR, and answers what it said.
+local function checked(root: string, tmp: string, grammar: string): Child.Result, string
+  local started = this_program.program({ "fix", "--check" }, {
+    cwd = root, env = environment(tmp, grammar), stdout = "capture", stderr = "stdout", process_group = true, timeout_ns = Clock.seconds(120),
+  })
+  local result, trouble = Child.run(started.argv, started.options)
+  return assert(result, trouble), result.stdout or ""
 end
 
 --- Replaces `from` by `to` in the file `name` of `root`, which must hold it once.
@@ -67,6 +82,18 @@ local function test_a_project_in_the_new_grammar_is_tested_and_its_coverage_coun
   -- the fork does not read the grammar it is not
   local forked, forked_text = tested(copy_of(tmp, "forked"), tmp, "teal")
   assert(not forked.ok and forked_text:find("syntax error", 1, true) ~= nil, forked_text)
+end
+
+--- `cosmic fix --check` reads the project with the new parser where the fork's cannot (the three files that spell `mut`,
+--- a class or `T?`) and lays out the rest; the fork's mode refuses those three.
+local function test_a_project_in_the_new_grammar_is_checked_by_fix_and_the_fork_refuses_it(tmp: string)
+  local result, text = checked(copy_of(tmp, "fix_new"), tmp, "new")
+  assert(result.ok, text)
+  assert(text:find("fix: 7 Teal + 1 template files, 0 to fix, ", 1, true) ~= nil, text)
+  assert(text:find("Teal layout is not applied in the new grammar (3 files read, not laid out)", 1, true) ~= nil, text)
+  local forked, forked_text = checked(copy_of(tmp, "fix_forked"), tmp, "teal")
+  assert(not forked.ok and forked_text:find("syntax error", 1, true) ~= nil, forked_text)
+  assert(forked_text:find("not applied", 1, true) == nil, forked_text)
 end
 
 local function test_a_method_called_on_a_record_is_refused_with_the_class_and_function_field_fix(tmp: string)

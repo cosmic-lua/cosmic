@@ -130,8 +130,7 @@ end
 
 allow({
   "build.syntax_analyzer.analyze",
-  "build.syntax_derivation.rows_of", "build.syntax_links.check",
-  "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
+  "build.syntax_derivation.rows_of", "build.syntax_match.matches", "build.syntax_match.text",
   "build.syntax_rewrite.rewrite",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
