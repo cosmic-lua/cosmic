@@ -3,12 +3,14 @@
 --- of their own: [`build.project_new_grammar_tool_test`] tests it and counts its coverage, plants errors in it and sees them
 --- refused with the new checker's fixes; [`build.embed_tool_test`] builds its program with `cosmic build`.
 ---
---- It is text here and no `.tl` file of the tree because `cosmic fix` reads every `.tl` file of a tree with the fork's
---- parser, which does not read the grammar.
+--- It is text here and no `.tl` file of the tree because the default `cosmic fix` reads every `.tl` file of a tree with the
+--- fork's parser, which does not read the grammar, and so does `cosmic lsp`. `COSMIC_GRAMMAR=new cosmic fix` reads such a
+--- file with the new parser and does not lay it out; [`build.project_new_grammar_tool_test`] checks the project that way.
 --
 -- TODO: make this project real files, testdata/rehearsal/new_grammar, run by CI's `rehearsal-project` phase beside the other two
--- (ci/cosmic_ci/rehearsal.tl), and delete this module, once the switch makes `cosmic fix` and `cosmic lsp` skip a new-grammar
--- file gracefully instead of parsing every `.tl` of a tree with the fork's parser (doc/plans/strict-teal.md, "the switch").
+-- (ci/cosmic_ci/rehearsal.tl), and delete this module, once the switch makes the default `cosmic fix` read a new-grammar file
+-- as `COSMIC_GRAMMAR=new` does and `cosmic lsp` skip it gracefully instead of parsing every `.tl` of a tree with the fork's
+-- parser (doc/plans/strict-teal.md, "the switch").
 local Fs = require("cosmic.fs")
 
 local record NewGrammarProject

@@ -1851,7 +1851,7 @@ build/fix/equiv.tl view_written 3
 build/fix/expr.tl view_written 1
 build/fix/fix_test.tl view_written 1
 build/fix/grammar_tool_test.tl view_written 1
-build/fix/init.tl view_written 104
+build/fix/init.tl view_written 106
 build/fix/link_build_tool_test.tl view_written 1
 build/fix/near.tl view_written 18
 build/fix/near_test.tl view_written 1
@@ -2536,8 +2536,8 @@ build/dispatch.tl view_as_mut 1
 build/doctest/generate.tl view_as_mut 2
 build/driver.tl view_as_mut 5
 build/fix/fix_test.tl view_as_mut 5
-build/fix/init.tl view_as_mut 6
-build/fix/notes_test.tl view_as_mut 2
+build/fix/init.tl view_as_mut 8
+build/fix/notes_test.tl view_as_mut 4
 build/flow.tl view_as_mut 6
 build/fuzz/init.tl view_as_mut 2
 build/gen_syscalls.tl view_as_mut 8
@@ -6724,8 +6724,8 @@ build/database_start_fixture.tl not_assignable 1
 build/dataset_fuzz_test.tl not_assignable 1
 build/driver_test.tl not_assignable 2
 build/fix/fix_test.tl not_assignable 1
-build/fix/init.tl not_assignable 5
-build/fix/notes_test.tl not_assignable 2
+build/fix/init.tl not_assignable 6
+build/fix/notes_test.tl not_assignable 3
 build/flow_test.tl not_assignable 1
 build/harness_epoch_test.tl not_assignable 2
 build/hash_test.tl not_assignable 1

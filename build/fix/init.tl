@@ -55,6 +55,12 @@
 --- whole tree, and says why. A branch's CI runs it in place of the
 --- whole tree's check; the merge queue still runs that.
 ---
+--- With `COSMIC_GRAMMAR=new`, a Teal file the fork's parser does not read is read by the new parser instead: its links are
+--- checked and written through [`build.syntax_links`] at the positions of the file as written, its notes (and its plurals,
+--- in a run that is not over cosmic's own whole tree) are read off its syntax tree, and it gets no layout, which the summary
+--- says once. A file neither parser reads fails in the
+--- new parser's words, with its fix. A file the fork reads keeps the path above.
+---
 --- In any project it also holds the links in comments and Markdown to
 --- resolving ([`build.links`]): each Teal and C file it covers, and each
 --- Markdown and Zig file, which it never lays out. A plain code span
@@ -67,8 +73,12 @@
 -- lays out and rewrites the fork's tree (build/fix/*.tl, [`build.links`]) and wraps asserts through the fork
 -- ([`build.fix.spill`]), so a file in the new grammar is refused with a syntax error. COSMIC_GRAMMAR=new moves only the
 -- near notes, the plurals of the tree checks and the check that the tree builds to the new checker, and reads the fork's
--- Teal for the first two through [`lang.translate`]. The switch drops the fork's branches of those three, [`candidates_of`]
--- and the loop of [`wrap_asserts`] among them.
+-- Teal for the first two through [`lang.translate`]; a file only the new parser reads is read as written and not laid out.
+-- The switch drops the fork's branches of those three, [`candidates_of`] and the loop of [`wrap_asserts`] among them.
+--
+-- TODO: lay out a file in the new grammar, in [`lay_out_teal`], once the formatter is ported to the new syntax tree
+-- (doc/plans/strict-teal.md, "the switch"): `cosmic fix` reads such a file and checks its links but leaves its text as
+-- written, so `cosmic fix --check` cannot tell a new-grammar file that is badly laid out.
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
@@ -91,7 +101,9 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
+local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
+local SyntaxLinks = require("build.syntax_links")
 local SyntaxNode = require("build.syntax_node")
 local Translate = require("lang.translate")
 local analyzer = require("build.analyzer")
@@ -835,6 +847,9 @@ end
 --- A Teal file not in `laid_out`, when it is given, is written with
 --- its spans linked and not rendered: the verb lays out no other.
 ---
+--- A file in `new_grammar` is a Teal file in the new grammar: its links are read off the new syntax tree
+--- ([`build.syntax_links`]) and it is written with its spans linked at their own positions, never laid out.
+---
 --- `mode` "write" links each plain span [`build.links`]'s `rewrite`
 --- would, writes the file, and checks its links as written; "check"
 --- lists each such span in `would` and writes nothing. With no mode,
@@ -842,7 +857,7 @@ end
 --- @param built compiler The loaded compiler, which lexes Teal
 function fix.links(context: link_resolve.Context, built: compiler, files: {string},
                    mode?: string, facts?: {string: links.Facts},
-                   laid_out?: {string: boolean}): fix.Linked
+                   laid_out?: {string: boolean}, new_grammar?: {string: boolean}): fix.Linked
   local known: {string: links.Facts} = facts or {}
   local resolver = link_resolve.resolver(context)
   local out: {string} = {}
@@ -858,8 +873,14 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
     elseif absolute == nil then
       out[#out + 1] = file .. ": " .. absolute_trouble
     elseif kind ~= nil then
+      local in_new_grammar = kind == "teal" and new_grammar ~= nil and new_grammar[file] == true
       if mode ~= nil then
-        local linked = links.rewrite(resolver, file, absolute, kind, source, built, known[file])
+        local linked: links.Rewritten
+        if in_new_grammar then
+          linked = SyntaxLinks.rewrite(resolver, file, absolute, kind, source, known[file])
+        else
+          linked = links.rewrite(resolver, file, absolute, kind, source, built, known[file])
+        end
         if linked.source ~= source and mode == "check" then
           for _, line in ipairs(linked.linked) do would[#would + 1] = line end
           if linked.redefined then
@@ -867,7 +888,7 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
           end
         elseif linked.source ~= source then
           local text, trouble: string, string = linked.source, ""
-          if laid_out == nil or laid_out[file] or kind ~= "teal" then
+          if not in_new_grammar and (laid_out == nil or laid_out[file] or kind ~= "teal") then
             text, trouble = relaid(built, kind, file, linked.source)
           end
           if text == nil then
@@ -883,7 +904,13 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
           end
         end
       end
-      for _, line in ipairs(links.check(resolver, file, absolute, kind, source, built, known[file])) do
+      local problems: {string}
+      if in_new_grammar then
+        problems = SyntaxLinks.check(resolver, file, absolute, kind, source, known[file])
+      else
+        problems = links.check(resolver, file, absolute, kind, source, built, known[file])
+      end
+      for _, line in ipairs(problems) do
         out[#out + 1] = line
       end
     end
@@ -987,18 +1014,30 @@ end
 -- (doc/plans/strict-teal.md, "the switch"): the line of a note on a file whose translation makes a class is the
 -- translation's, and a file whose translation does not parse (the fork's [`checker/tl.tl`], [`lang/ast.tl`]) earns no note.
 
---- [`candidates_of`] by the new checker's reading ([`SyntaxAnalyzer.docs`]) of `source`, the fork's Teal of the file `file`,
---- translated ([`lang.translate`]); nil where the translation does not parse.
-local function syntax_candidates_of(source: string, file: string): {near.Candidate} | nil
-  local made = Translate.translate(source, file)
-  local chunk, _ = SyntaxNode.parse(made.text, file)
-  if chunk == nil then return nil end
+--- [`candidates_of`] by the new checker's reading ([`SyntaxAnalyzer.docs`]) of `text`, the source `chunk` is the tree of.
+local function candidates_from(chunk: Ast.Chunk, text: string): {near.Candidate}
   local candidates: {near.Candidate} = {}
-  for _, entry in ipairs(SyntaxAnalyzer.docs(chunk, made.text)) do
+  for _, entry in ipairs(SyntaxAnalyzer.docs(chunk, text)) do
     local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
     if found ~= nil then candidates[#candidates + 1] = found end
   end
   return candidates
+end
+
+--- [`candidates_from`] the fork's Teal of the file `file`, `source`, translated ([`lang.translate`]); nil where the
+--- translation does not parse.
+local function syntax_candidates_of(source: string, file: string): {near.Candidate} | nil
+  local made = Translate.translate(source, file)
+  local chunk, _ = SyntaxNode.parse(made.text, file)
+  if chunk == nil then return nil end
+  return candidates_from(chunk, made.text)
+end
+
+--- [`candidates_from`] `source`, a file in the new grammar, as written; nil where it does not parse.
+local function written_candidates_of(source: string, file: string): {near.Candidate} | nil
+  local chunk, _ = SyntaxNode.parse(source, file)
+  if chunk == nil then return nil end
+  return candidates_from(chunk, source)
 end
 
 --- `near`'s notes on the exported functions of `files`, each line
@@ -1016,10 +1055,12 @@ end
 --- missing here is read and parsed again
 --- @param grammar? the checker that reads the files: the one `COSMIC_GRAMMAR` names where not given. The new one reads
 --- the doc comments off its syntax tree ([`build.syntax_analyzer`]), `built` unused.
+--- @param new_grammar the files in the new grammar, which are read as written, not translated; the files of `files` it
+--- names are read that way
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string},
                    databases: {Sqlite.Handle}, ready?: {string: {near.Candidate}},
-                   grammar?: GrammarMode.Mode): {string}
+                   grammar?: GrammarMode.Mode, new_grammar?: {string: boolean}): {string}
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -1049,7 +1090,10 @@ function fix.notes(built: compiler, root: string, files: {string},
       candidates = ready ~= nil and ready[file] or nil
       if candidates == nil then
         local source, _ = Fs.read(file)
-        if source ~= nil and mode == "new" then
+        local as_written = new_grammar ~= nil and new_grammar[file] == true
+        if source ~= nil and mode == "new" and as_written then
+          candidates = written_candidates_of(source, file)
+        elseif source ~= nil and mode == "new" then
           candidates = syntax_candidates_of(source, file)
         elseif source ~= nil then
           local parsed, _ = ast.parse(built, source, file)
@@ -1098,6 +1142,19 @@ function fix.read_off(file: string, result: fix.Fixed, grammar: GrammarMode.Mode
   end
 end
 
+--- [`fix.read_off`] for `file`, a file in the new grammar: `chunk` is the new checker's tree of `source` as written, so
+--- that its links, notes and plurals are read off it as they stand, with no translation.
+function fix.read_off_written(file: string, chunk: Ast.Chunk, source: string, facts: {string: links.Facts},
+                              ready: {string: {near.Candidate}}, plurals: {string: tree_checks.Plurals} | nil)
+  facts[file] = SyntaxLinks.facts(chunk, SyntaxNode.scope(chunk, file), source)
+  if compared(file) then ready[file] = candidates_from(chunk, source) end
+  if plurals ~= nil then
+    while file:sub(1, 2) == "./" do file = file:sub(3) end
+    local found = tree_checks.syntax_plurals_in(file, source)
+    if found ~= nil then plurals[file] = found end
+  end
+end
+
 --- Whether `file` is in a tree of its own inside cosmic's own tree at
 --- `root` ([`identity.is_foreign_tree`]).
 local function in_foreign_tree(root: string, file: string): boolean
@@ -1142,6 +1199,8 @@ local record Fix
   facts?: {string: links.Facts}
   ready?: {string: {near.Candidate}}
   plurals: {string: tree_checks.Plurals} | nil
+  --- The files only the new grammar reads, which are read as written and never laid out.
+  new_grammar?: {string: boolean}
 
   -- The asserts ([`wrap_asserts`]).
   listed?: {string:boolean}
@@ -1354,13 +1413,29 @@ local function lay_out_teal(ctx: Fix)
   -- What the tree checks' plurals read of each file, when they will run.
   local plurals: {string: tree_checks.Plurals} | nil = nil
   if picked.whole then plurals = {} end
+  local new_grammar: {string: boolean} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
       local result, trouble = fix.source(built, source, file)
-      if result == nil then
+      -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
+      -- new parser's words.
+      local chunk: Ast.Chunk | nil = nil
+      local refusal = ""
+      if result == nil and grammar == "new" then
+        local forked, _ = ast.parse(built, source, file)
+        if forked == nil then
+          chunk, refusal = SyntaxNode.parse(source, file)
+        end
+      end
+      if chunk ~= nil then
+        new_grammar[file] = true
+        fix.read_off_written(file, chunk, source, facts, ready, plurals)
+      elseif result == nil and refusal ~= "" then
+        failures[#failures + 1] = refusal
+      elseif result == nil then
         failures[#failures + 1] = file .. ": " .. trouble
       elseif result.changed then
         changed[#changed + 1] = file
@@ -1380,6 +1455,7 @@ local function lay_out_teal(ctx: Fix)
   ctx.facts = facts
   ctx.ready = ready
   ctx.plurals = plurals
+  ctx.new_grammar = new_grammar
 end
 
 --- What only the checker can see: built from what is on disk, so a
@@ -1602,6 +1678,9 @@ local function run_tree_checks(ctx: Fix)
   local findings: {string} = {}
   ctx.findings = findings
   if picked.whole then
+    -- TODO: build this projection with the new checker, once the switch deletes the fork's compiler (doc/plans/strict-teal.md,
+    -- "the switch"): the fork refuses a file in the new grammar, so a whole run of cosmic's own tree with one ends here with
+    -- one syntax error and never reaches the plurals read off its syntax tree ([`fix.read_off_written`]).
     local db, projection_trouble = tree_checks.projection(root, built, "teal")
     if db == nil then
       findings[#findings + 1] = "tree checks: " .. projection_trouble
@@ -1741,8 +1820,11 @@ local function check_links(ctx: Fix)
       if not (own and in_foreign_tree(root, file)) then linked[#linked + 1] = file end
     end
   end
+  local new_grammar = assert(ctx.new_grammar)
   local laid_out: {string: boolean} = {}
-  for _, file in ipairs(files) do laid_out[file] = true end
+  for _, file in ipairs(files) do
+    if new_grammar[file] ~= true then laid_out[file] = true end
+  end
   local linked_out: fix.Linked
   local links_unbuilt: string | nil = nil
   do
@@ -1753,7 +1835,7 @@ local function check_links(ctx: Fix)
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
     linked_out = fix.links(source.context, built, linked, ctx.checking and "check" or "write",
-      ctx.facts, laid_out)
+      ctx.facts, laid_out, new_grammar)
     source.close()
     local unbuilt = source.unbuilt
     -- A refusal the build above met already fails the run.
@@ -1797,7 +1879,7 @@ local function say_notes(ctx: Fix)
   end
 
   for _, line in ipairs(fix.notes(built, root, picked.noted or files, Store.databases(),
-      ready, ctx.grammar)) do
+      ready, ctx.grammar, ctx.new_grammar)) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
     local relative: string | nil = nil
@@ -1850,6 +1932,15 @@ local function files_said(ctx: Fix): string
   return kinds .. (ctx.counted == 1 and " file" or " files")
 end
 
+--- What the summary says of the files only the new grammar reads, once: that their layout is not applied. Empty where
+--- there are none.
+local function layout_said(ctx: Fix): string
+  local count = 0
+  for _, _ in pairs(ctx.new_grammar or {}) do count = count + 1 end
+  if count == 0 then return "" end
+  return "; Teal layout is not applied in the new grammar (" .. plural.count(count, "file") .. " read, not laid out)"
+end
+
 --- Says each failure, finding and change, then the summary.
 --- @return integer The exit code: 0 when nothing is left to fix
 local function report(ctx: Fix): integer
@@ -1890,7 +1981,16 @@ local function report(ctx: Fix): integer
   -- A file that does not parse is refused by its own check and by the
   -- build in the same words: the line is said once.
   if unbuilt ~= nil and not failed[plain(unbuilt)] then
-    log:say("fix: FAIL  " .. unbuilt)
+    -- The new checker's refusal lists every file it refused, one per line, among them a file the new parser could not
+    -- read, whose line the file's own check said already.
+    local rest = ""
+    for line in (unbuilt .. "\n"):gmatch("(.-)\n") do
+      if ctx.grammar ~= "new" or failed[plain(line)] ~= true then
+        if rest ~= "" then rest = rest .. "\n" end
+        rest = rest .. line
+      end
+    end
+    if rest ~= "" then log:say("fix: FAIL  " .. rest) end
   end
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)
@@ -1926,16 +2026,16 @@ local function report(ctx: Fix): integer
     if links_unbuilt ~= nil then
       said[#said + 1] = "the links' build failing"
     end
-    local _, _ = logger.summary("fix", table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
+    local _, _ = logger.summary("fix", table.concat(said, ", ") .. ", " .. clock.took(ctx.started) .. layout_said(ctx))
     return 1
   end
   if checking and #changed > 0 then
     local _, _ = logger.summary("fix", #changed .. " of " .. plural.count(counted, "file") .. " to fix, " ..
-        clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
+        clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place" .. layout_said(ctx))
     return 1
   end
   local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
-      (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started))
+      (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started) .. layout_said(ctx))
   return 0
 end
 
