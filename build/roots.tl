@@ -40,6 +40,11 @@ end
 --- Where cosmic's own tree keeps the bundle.
 local bundle <const> = "vendor/cacert/certdata.txt"
 
+--- Where [`roots.fill`] reads the bundle of the tree at `root`.
+function roots.source(root: string): string
+  return root .. "/" .. bundle
+end
+
 --- Every certificate a PEM bundle holds, in its order, each under the
 --- label the line above its `====` underline gives it (empty when the
 --- bundle names none). Nil and why when a certificate block is not

@@ -515,6 +515,55 @@ end
 --- uses depend on it.
 local base_key <const> = "projection_base"
 
+--- The row of the working database's `meta` that names the projection last
+--- signed and the digest of the two files its `ca_roots` and `ca_revoked`
+--- were parsed from ([`vendored_digest`]).
+local vendored_key <const> = "projection_vendored"
+
+--- The digest of the files [`build.roots`] and [`build.onecrl`] parse in the
+--- tree at `root`, each by its bytes or `-` where it is not there: the
+--- tables they fill are a function of these and of those modules' code, which
+--- the writer's identity holds. Nil where a file is there and cannot be read.
+local function vendored_digest(root: string): string | nil
+  local parts: {string} = {}
+  for _, path in ipairs({ roots.source(root), onecrl.source(root) }) do
+    local there, _ = Fs.exists(path)
+    if there == nil then
+      return nil
+    end
+    if there then
+      local bytes, _ = Fs.read(path)
+      if bytes == nil then
+        return nil
+      end
+      parts[#parts + 1] = Hash.hex_sha256(bytes)
+    else
+      parts[#parts + 1] = "-"
+    end
+  end
+  return table.concat(parts, " ")
+end
+
+--- Whether the base's CA tables were made of the files `digest` names: the
+--- projection it was signed as is the one the working database recorded
+--- them under ([`vendored_key`]).
+local function vendored_stands(db: Sqlite.Handle, digest: string): boolean
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT count(*) FROM main.meta m, prev.meta p WHERE m.key = '" .. vendored_key ..
+      "' AND p.key = 'projected' AND m.value = p.value || char(10) || ?1",
+    { text(digest) })
+  return rows ~= nil and rows[1] ~= nil and rows[1]:text(1) == "1"
+end
+
+--- The CA tables of the base, in the order of its rows, for the rows
+--- [`build.roots`] and [`build.onecrl`] would make of the same files.
+local carry_vendored <const> = {
+  "INSERT INTO out.ca_roots (sha256, label, der, distrust_after) " ..
+    "SELECT sha256, label, der, distrust_after FROM prev.ca_roots ORDER BY rowid",
+  "INSERT INTO out.ca_revoked (kind, name, value) " ..
+    "SELECT kind, name, value FROM prev.ca_revoked ORDER BY rowid",
+}
+
 --- The `meta` rows a projection and the working database must hold alike for
 --- a base's rows to be the rows this write would make.
 local base_meta <const> = "('image_hash', 'compiler', 'runtime_basis', 'writer')"
@@ -706,13 +755,34 @@ local function project(handle: work.Handle,
     if not filled then
       return false, fill_trouble
     end
-    local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
-    if not trusted then
-      return false, trust_trouble
+    local digest = vendored_digest(handle.root)
+    local kept = reusing and digest ~= nil and vendored_stands(db, digest)
+    if kept then
+      for _, statement in ipairs(carry_vendored) do
+        local carried_roots, carry_trouble = db:exec(statement)
+        if not carried_roots then
+          return false, carry_trouble
+        end
+      end
+    else
+      local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
+      if not trusted then
+        return false, trust_trouble
+      end
+      local revoked, revoke_trouble = onecrl.fill(db, handle.root, "out.")
+      if not revoked then
+        return false, revoke_trouble
+      end
     end
-    local revoked, revoke_trouble = onecrl.fill(db, handle.root, "out.")
-    if not revoked then
-      return false, revoke_trouble
+    local noted, note_trouble = Sqlite.run(db,
+      "DELETE FROM main.meta WHERE key = '" .. vendored_key .. "'", {})
+    if noted and digest ~= nil then
+      noted, note_trouble = Sqlite.run(db,
+        "INSERT INTO main.meta (key, value) VALUES ('" .. vendored_key .. "', ?1 || char(10) || ?2)",
+        { text(signature), text(digest) })
+    end
+    if not noted then
+      return false, note_trouble
     end
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then

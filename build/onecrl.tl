@@ -44,6 +44,11 @@ end
 --- Where cosmic's own tree keeps the snapshot.
 local snapshot <const> = "vendor/onecrl/onecrl.json"
 
+--- Where [`onecrl.fill`] reads the snapshot of the tree at `root`.
+function onecrl.source(root: string): string
+  return root .. "/" .. snapshot
+end
+
 --- A remote settings changeset, as far as this reads one.
 local record Feed
   record Change

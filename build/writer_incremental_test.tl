@@ -4,9 +4,12 @@
 --- digest names verdicts that checkouts share and two builds of one tree
 --- compare their files.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
+local onecrl = require("build.onecrl")
+local roots = require("build.roots")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -322,5 +325,82 @@ local function test_another_compiler_writes_the_whole_projection(tmp: string)
   local taken = write_both(handle, tmp .. "/out.db", tmp .. "/whole.db", "another-tool")
   assert(taken == 0, "a projection another compiler wrote was built on")
   same_bytes(tmp .. "/out.db", tmp .. "/whole.db", "another compiler")
+  assert(work.close(handle))
+end
+
+--- A PEM block holding `bytes`, which need be no certificate.
+local function block(bytes: string): string
+  return "-----BEGIN CERTIFICATE-----\n" .. Codec.base64(bytes) .. "\n-----END CERTIFICATE-----\n"
+end
+
+--- A changeset revoking one certificate named by `issuer` and `serial`.
+local function changeset(issuer: string, serial: string): string
+  return '{"metadata":{},"timestamp":1792622041776,"changes":[{"issuerName":"' ..
+    Codec.base64(issuer) .. '","serialNumber":"' .. Codec.base64(serial) .. '"}]}'
+end
+
+--- The tables of CA roots and revoked certificates of cosmic's own tree are
+--- parsed from two files; a write from a base parses them again only where
+--- one moved, and is the whole write every way: an edit to neither, to the
+--- bundle, to the snapshot, the snapshot gone.
+local function test_the_ca_tables_stand_or_move_with_their_files(tmp: string)
+  local root = tmp .. "/own"
+  local tree = initial()
+  write_tree(root, tree, {})
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/vendor/cacert"))
+  assert(Fs.mkdirs(root .. "/vendor/onecrl"))
+  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
+  assert(Fs.write(root .. "/vendor/cacert/certdata.txt", block("one") .. block("two")))
+  assert(Fs.write(root .. "/vendor/onecrl/onecrl.json", changeset("issuer", "7")))
+  local parsed = { value = 0 }
+  local fill_roots, fill_revoked = roots.fill, onecrl.fill
+  roots.fill = function(db: Sqlite.Handle, at: string, qualifier: string): boolean, string
+    parsed.value = parsed.value + 1
+    return fill_roots(db, at, qualifier)
+  end
+  onecrl.fill = function(db: Sqlite.Handle, at: string, qualifier: string): boolean, string
+    parsed.value = parsed.value + 1
+    return fill_revoked(db, at, qualifier)
+  end
+  local handle = assert(work.open(root))
+  local out, whole = tmp .. "/own.db", tmp .. "/own.whole.db"
+  write_both(handle, out, whole, "writer-test")
+  same_bytes(out, whole, "start")
+  local function step(label: string, parses: integer, change: function())
+    change()
+    parsed.value = 0
+    local taken = write_both(handle, out, whole, "writer-test")
+    -- The whole write that follows parses two files again.
+    assert(parsed.value == parses + 2, label .. ": parsed " .. (parsed.value - 2) .. " times, want " .. parses)
+    assert(taken > 0, label .. ": no module came from the base")
+    same_bytes(out, whole, label)
+  end
+  step("a module's body", 0, function()
+    tree.specs["b2"].body = 4
+    write_tree(root, tree, {})
+  end)
+  -- A change to either comes with a pin's in the tree, which moves the signature as an edit to a module does.
+  step("the bundle", 2, function()
+    tree.specs["a1"].body = 5
+    write_tree(root, tree, {})
+    assert(Fs.write(root .. "/vendor/cacert/certdata.txt", block("one") .. block("three")))
+  end)
+  step("the snapshot", 2, function()
+    tree.specs["a1"].body = 6
+    write_tree(root, tree, {})
+    assert(Fs.write(root .. "/vendor/onecrl/onecrl.json", changeset("issuer", "8")))
+  end)
+  step("a body again", 0, function()
+    tree.specs["d4"].body = 6
+    write_tree(root, tree, {})
+  end)
+  step("the snapshot gone", 2, function()
+    tree.specs["a1"].body = 7
+    write_tree(root, tree, {})
+    assert(Fs.remove(root .. "/vendor/onecrl/onecrl.json"))
+  end)
+  roots.fill, onecrl.fill = fill_roots, fill_revoked
   assert(work.close(handle))
 end
