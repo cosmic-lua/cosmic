@@ -116,7 +116,16 @@ local doing: {string:string} = {
 local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.
-local reminder_ns <const> = Clock.minutes(5)
+local reminder_ns <const> = Clock.seconds(15)
+
+--- How long a run has waited, as its reminder says it: seconds up to two
+--- minutes, whole minutes after.
+local function elapsed(waited_ns: integer): string
+  if waited_ns < Clock.minutes(2) then
+    return tostring(waited_ns // Clock.seconds(1)) .. " s"
+  end
+  return plural.count(waited_ns // Clock.minutes(1), "minute")
+end
 
 local type Lock = rebuild_lock.Claim
 
@@ -346,8 +355,8 @@ local function handed(root: string): boolean
 end
 
 --- Waits for the rebuild lock of `root`, which another run holds, to
---- take it as `role`, having said `line`; says it still waits every few
---- minutes, for as long as it takes. Answers nil and why when it
+--- take it as `role`, having said `line`; says it still waits every 15
+--- seconds, for as long as it takes. Answers nil and why when it
 --- cannot.
 function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
                            line: string): boolean, string
@@ -362,7 +371,7 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
       return true, ""
     end
     waited_ns = waited_ns + reminder_ns
-    log:complain("still waiting, " .. plural.count(waited_ns // Clock.minutes(1), "minute") ..
+    log:complain("still waiting, " .. elapsed(waited_ns) ..
         " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
   end
 end

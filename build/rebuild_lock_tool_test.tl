@@ -101,6 +101,27 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   assert(text:find("test: %d+ tests? passed in "), text)
 end
 
+--- A run kept waiting says so again every 15 s, naming the holder and
+--- how long it has waited, rather than going silent after its first line.
+local function test_a_waiting_run_says_how_long_it_has_waited(tmp: string)
+  local root = tmp .. "/project"
+  project(root, 0)
+  assert(rebuild_lock.hold(root, "test", "test"))
+  local output = tmp .. "/second.out"
+  local h = start_test(root, output)
+  local ok, failure = pcall(await, "the second run to say it still waits", function(): boolean
+    local text = Fs.read(output) or ""
+    return text:find("still waiting, 15 s on:", 1, true) ~= nil
+  end)
+  rebuild_lock.release()
+  local result = assert(h:wait(Clock.seconds(20)))
+  local text = assert(Fs.read(output))
+  assert(ok, tostring(failure) .. "\n" .. text)
+  assert(result.ok, text)
+  assert(text:find("still waiting, 15 s on: another cosmic run (pid " .. tostring(sys.getpid()) ..
+      ") in this checkout is running its tests", 1, true), text)
+end
+
 --- A run lets its checkout's lock go however it ends: once it has
 --- failed, and once it is interrupted mid-run, a run after it takes the
 --- lock at once.

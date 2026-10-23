@@ -890,7 +890,7 @@ local doing: {string:string} = {
 }
 
 --- How long a waiting boot waits in one go before it says it still is.
-local reminder_ns <const> = Clock.minutes(5)
+local reminder_ns <const> = Clock.seconds(15)
 
 --- Whether `given`, the words after bin/zig, is a build of a step that
 --- boots, writing the working database in the build directory beside a
@@ -1025,8 +1025,10 @@ function Zig.with_lock(output: string, environment: {string:string},
         if taken == "busy" then
           waited_ns = waited_ns + reminder_ns
           local minutes = waited_ns // Clock.minutes(1)
-          log:complain("still waiting, " .. tostring(minutes) ..
-              (minutes == 1 and " minute" or " minutes") .. " on: " ..
+          -- As build/rebuild_lock.tl's `elapsed` says it.
+          local said = tostring(waited_ns // Clock.seconds(1)) .. " s"
+          if minutes >= 2 then said = tostring(minutes) .. " minutes" end
+          log:complain("still waiting, " .. said .. " on: " ..
               Zig.holder(out) .. " (one run at a time holds " .. path .. ")")
         end
       end
