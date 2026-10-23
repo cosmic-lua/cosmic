@@ -353,13 +353,13 @@ end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
-local function pending_links(handle: work.Handle, given: link_index.Library | nil):
+local function pending_links(handle: work.Handle, given: link_index.Library | nil, by: string):
     link_index.Pending | nil, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
   end
-  return link_index.pending(handle.db, handle.root, library)
+  return link_index.pending(handle.db, handle.root, library, by)
 end
 
 --- The signature of `result`'s projection as the writer whose identity
@@ -368,7 +368,7 @@ end
 --- name, in place of the running binary's ([`link_index.running`])
 function writer.signature(handle: work.Handle, result: importer.Result,
                           binary: string, library?: link_index.Library): string | nil, string
-  local pending, trouble = pending_links(handle, library)
+  local pending, trouble = pending_links(handle, library, binary)
   if pending == nil then
     return nil, trouble
   end
@@ -669,7 +669,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if by == nil then
     return false, by_trouble
   end
-  local pending, pending_trouble = pending_links(handle, library)
+  local pending, pending_trouble = pending_links(handle, library, by)
   if pending == nil then
     return false, pending_trouble
   end

@@ -466,6 +466,51 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   assert(work.close(handle))
 end
 
+--- The disk's answers a resolution kept are asked again before a later
+--- call serves them: a file that comes, changes its headings, goes or
+--- becomes a directory is resolved again, to what a resolution that kept
+--- nothing gives, and so is a call by other code. Only what nothing moved is
+--- served, which is what makes a call after an edit elsewhere cheap.
+local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.compile(handle, built, "link-index-test"))
+  local function pending(code: string): link_index.Pending
+    return (assert(link_index.pending(handle.db, root, link_index.none, code)))
+  end
+  --- What a resolution that kept nothing gives now.
+  local function fresh(): string
+    assert(handle.db:exec("DELETE FROM link_answers"))
+    return pending("one").digest
+  end
+  local first = pending("one")
+  assert(not first.remembered, "nothing was kept yet")
+  local again = pending("one")
+  assert(again.remembered and again.digest == first.digest, "a call nothing moved resolves again")
+  assert(not pending("two").remembered, "another code's resolution was served")
+  local last = pending("one")
+  assert(not last.remembered and last.digest == first.digest)
+
+  local function moved(what: string, change: function())
+    local before = pending("one")
+    assert(before.remembered, what .. ": the call before it was not served")
+    change()
+    local after = pending("one")
+    assert(not after.remembered, what .. ": a kept answer was served after the disk moved")
+    assert(after.digest ~= before.digest, what .. ": the digest did not move")
+    assert(after.digest == fresh(), what .. ": the digest is not a fresh resolution's")
+  end
+  moved("a file came", function() assert(Fs.write(root .. "/notes.md", source("# Usage"))) end)
+  moved("a heading was renamed", function()
+    assert(Fs.write(root .. "/notes.md", source("# Using")))
+  end)
+  moved("a file went", function() assert(Fs.remove(root .. "/notes.md")) end)
+  moved("a directory came", function() assert(Fs.mkdirs(root .. "/notes.md")) end)
+  assert(work.close(handle))
+end
+
 --- A file that goes, or is renamed, takes its rows with it, and moves
 --- the signature.
 local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)

@@ -229,6 +229,11 @@ local version <const> = "29"
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
 ---
+--- `link_answers` is what the disk answered the last time
+--- [`build.link_index`]'s `pending` resolved the tree's links, by a
+--- fingerprint of the links and the code that resolves them, so a run
+--- that finds every answer the same does not resolve them again.
+---
 --- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
@@ -417,6 +422,11 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
+                                          path TEXT NOT NULL,
+                                          value TEXT NOT NULL,
+                                          found INTEGER NOT NULL,
+                                          PRIMARY KEY (kind, path)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,
