@@ -18,11 +18,17 @@ local function migrated(files: {string: string}, rounds?: integer): Migrate.Resu
   return (assert(result, why))
 end
 
+--- The fork's compiler, loaded once for the module.
+local forks: {compiler} = {}
+
 --- The Lua `grammar` ("teal" for the fork, "new") writes of `source`, or nil and the refusal.
 local function lua_of(tmp: string, source: string, grammar: GrammarMode.Mode): string | nil, string
   local fork: compiler | nil = nil
   if grammar == "teal" then
-    fork = assert(teal.load(true))
+    if forks[1] == nil then
+      forks[1] = assert(teal.load(true))
+    end
+    fork = forks[1]
   end
   return standalone.code("m.tl", source, { XDG_CACHE_HOME = tmp .. "/cache" }, fork, grammar)
 end
@@ -358,6 +364,24 @@ local function test_a_rewrite_after_a_splice_on_the_same_line_lands_where_it_bel
   assert(text:find("local words: mut {string} = {} words[#words + 1] = \"a\"", 1, true) ~= nil, text)
 end
 
+local function test_an_edit_that_ends_where_a_splice_begins_is_made_before_it()
+  -- The `end` of the `if` expression goes right after `Shape.record_of("Opts")`, where the checker's text has the spec.
+  local source = table.concat({
+    "local Shape = require(\"cosmic.shape\")",
+    "local record Opts",
+    "  name: string",
+    "end",
+    "return function(ok: boolean, given: Opts): Opts",
+    "  return ok and given or Shape.record_of(\"Opts\")",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.rewrites.and_ternary == 1, table.concat(result.untranslated, "\n"))
+  local text = assert(result.texts["m.tl"])
+  assert(text:find("return if ok then given else Shape.record_of(\"Opts\") end\n", 1, true) ~= nil, text)
+end
+
 local function test_a_field_of_a_record_another_file_declares_is_declared_in_that_file()
   local pins = table.concat({
     "local record Pins",
@@ -559,6 +583,212 @@ local function test_an_interface_field_a_class_declares_as_a_method_stays_in_dis
   assert(result.after.interface_disagrees == 1 and (result.rewrites.interface_disagrees or 0) == 0)
   local note = assert(result.left[1]).note
   assert(note:find("`Fake` declares `skip` as a method, which is never `mut`", 1, true) ~= nil, note)
+end
+
+local function test_a_family_with_a_member_the_run_does_not_write_is_left_with_the_member_named()
+  -- [`Time.CivilFields`] is declared in a module this run does not hold, so `year` cannot be `mut` in it, and the type that
+  -- lists it would disagree.
+  local source = table.concat({
+    "local Time = require(\"cosmic.time\")",
+    "local record Mine is Time.CivilFields",
+    "  year: integer",
+    "  month: integer",
+    "  day: integer",
+    "  hour: integer",
+    "  minute: integer",
+    "  second: integer",
+    "  ns: integer",
+    "  offset?: integer",
+    "end",
+    "local record Holder",
+    "  mine: Mine",
+    "end",
+    "return function(h: Holder)",
+    "  h.mine.year = 2000",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert((result.rewrites.field_fixed or 0) == 0 and result.after.field_fixed == 1, tostring(result.after.field_fixed))
+  assert(result.texts["m.tl"] == source)
+  local note = assert(result.left[1]).note
+  assert(note:find("which this run does not write", 1, true) ~= nil, note)
+end
+
+local function test_a_family_changed_is_reported_for_the_declarations_the_run_made_mut_together()
+  local pins = table.concat({
+    "local record Pins",
+    "  interface Held",
+    "    flag: boolean",
+    "  end",
+    "end",
+    "local record Others",
+    "  interface Held",
+    "    other: boolean",
+    "  end",
+    "end",
+    "local record Guard is Pins.Held",
+    "  flag: boolean",
+    "end",
+    "local record Holder",
+    "  guard: Guard",
+    "end",
+    "return function(h: Holder)",
+    "  h.guard.flag = true",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = pins })
+  assert(#result.shared == 2, tostring(#result.shared))
+  assert(result.shared[1].field == "flag" and result.shared[1].name == "Guard" and result.shared[2].name == "Pins.Held")
+end
+
+local function test_a_module_given_as_tl_and_d_tl_says_the_tl_is_not_checked()
+  local result = migrated({ ["m.tl"] = "return 1\n", ["m.d.tl"] = "local record M\nend\nreturn M\n" })
+  assert(#result.unchecked == 1 and result.unchecked[1]:find("m.tl: not checked: m.d.tl declares the same module", 1, true) == 1,
+    table.concat(result.unchecked, "\n"))
+  assert(#migrated({ ["m.d.tl"] = "local record M\nend\nreturn M\n" }).unchecked == 0)
+end
+
+local function test_a_view_passed_to_a_parameter_that_became_mut_is_listed_with_what_to_do()
+  local source = table.concat({
+    "local function fill(names: {string})",
+    "  names[#names + 1] = \"x\"",
+    "end",
+    "return function(): integer",
+    "  local list: {string} = {}",
+    "  fill(list)",
+    "  return #list",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.view_as_mut == 1 and #result.left == 1, tostring(result.after.view_as_mut))
+  local note = assert(result.left[1]).note
+  assert(note:find("declare the argument `mut` where it is made, or pass a copy", 1, true) ~= nil, note)
+end
+
+local function test_a_local_made_by_a_call_that_answers_several_values_is_left()
+  local source = table.concat({
+    "local function two(): {string}, {string}",
+    "  return { \"a\" }, { \"b\" }",
+    "end",
+    "return function(): integer",
+    "  local a, b: {string}, {string} = two()",
+    "  b[#b + 1] = \"x\"",
+    "  return #a + #b",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.texts["m.tl"] == source and result.after.view_written == 1)
+  assert(assert(result.left[1]).note:find("a call that answers several values", 1, true) ~= nil)
+end
+
+local function test_a_ternary_whose_middle_is_any_or_a_type_variable_or_a_union_with_a_boolean_is_left()
+  local generic = table.concat({
+    "local function pick<T>(ok: boolean, x: T, d: T): T",
+    "  return ok and x or d",
+    "end",
+    "return pick",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = generic })
+  assert(result.after.and_ternary == 1 and result.texts["m.tl"] == generic, tostring(result.after.and_ternary))
+end
+
+local function test_a_ternary_whose_middle_is_any_is_left()
+  local source = table.concat({
+    "local function pick(ok: boolean, x: any, d: any): any",
+    "  return ok and x or d",
+    "end",
+    "return pick",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.and_ternary == 1 and result.texts["m.tl"] == source, tostring(result.after.and_ternary))
+end
+
+local function test_a_ternary_whose_middle_is_a_union_with_a_boolean_is_left()
+  local source = table.concat({
+    "local function pick(ok: boolean, x: string | boolean, d: string | boolean): string | boolean",
+    "  return ok and x or d",
+    "end",
+    "return pick",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.and_ternary == 1 and result.texts["m.tl"] == source, tostring(result.after.and_ternary))
+end
+
+local function test_an_empty_local_is_not_typed_from_a_write_whose_key_counts_another_array()
+  local source = table.concat({
+    "return function(): integer",
+    "  local a = {}",
+    "  local b: {string} = { \"q\" }",
+    "  a[#b + 1] = \"x\"",
+    "  return #b",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.literal_needs_type == 1 and (result.rewrites.literal_needs_type or 0) == 0)
+end
+
+local function test_an_empty_local_is_not_typed_from_a_type_of_another_file()
+  local pins = table.concat({
+    "local record Pins",
+    "  record Pin",
+    "    url: string",
+    "  end",
+    "  new: function(): Pins.Pin",
+    "end",
+    "function Pins.new(): Pins.Pin",
+    "  return { url = \"\" }",
+    "end",
+    "return Pins",
+    "",
+  }, "\n")
+  local use = table.concat({
+    "local P = require(\"pins\")",
+    "return function(): integer",
+    "  local list = {}",
+    "  list[#list + 1] = P.new()",
+    "  return #list",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["pins.tl"] = pins, ["use.tl"] = use })
+  assert(result.after.literal_needs_type == 1 and (result.rewrites.literal_needs_type or 0) == 0)
+  assert(result.texts["use.tl"] == use)
+end
+
+local function test_an_empty_local_with_an_attribute_is_left()
+  local source = table.concat({
+    "return function(): integer",
+    "  local seen <const> = {}",
+    "  seen[\"a\"] = true",
+    "  return 1",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.literal_needs_type == 1 and result.texts["m.tl"] == source)
+  assert(assert(result.left[1]).note:find("attribute", 1, true) ~= nil)
+end
+
+local function test_lines_that_end_in_cr_lf_and_tabs_and_text_beyond_ascii_are_edited_in_place()
+  local source = table.concat({
+    "local function pick(env: {string: string}, ok: boolean, word: string): string",
+    "\treturn ok and word or env.NAME or \"\u{e9}\" -- caf\u{e9}",
+    "end",
+    "return pick",
+    "",
+  }, "\r\n")
+  local result = migrated({ ["m.tl"] = source })
+  local text = assert(result.texts["m.tl"])
+  assert(text:find("\treturn if ok then word else env[\"NAME\"] end or \"\u{e9}\" -- caf\u{e9}\r\nend\r\n", 1, true) ~= nil, text)
+  assert(#result.left == 0)
 end
 
 local function test_a_field_an_interface_already_declares_mut_is_not_declared_twice()

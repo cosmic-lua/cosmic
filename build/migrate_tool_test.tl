@@ -20,7 +20,7 @@ end
 local function cosmic(dir: string, words: {string}): Ran
   local started = this_program.program(words, {
     cwd = dir, stdout = "capture", stderr = "capture",
-    timeout_ns = Clock.seconds(60),
+    timeout_ns = Clock.seconds(20),
   })
   local result = assert(Child.run(started.argv, started.options))
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
@@ -44,6 +44,7 @@ local function test_check_writes_nothing_and_exits_1_where_a_file_would_change(t
   assert(ran.code == 1 and ran.out:find("would migrate m.tl\n", 1, true) == 1, ran.out .. ran.err)
   assert(ran.out:find("would change 1; findings 1 after the translation (view_written 1), 0 after 1 rewrite in 1 round", 1, true),
     ran.out)
+  assert(ran.out:find("migrate: exit 1: 1 file would change\n", 1, true) ~= nil, ran.out)
   assert(Fs.read(tmp .. "/m.tl") == WRITTEN)
 end
 
@@ -55,6 +56,7 @@ local function test_a_run_writes_the_files_and_a_second_run_has_nothing_to_chang
   local again = cosmic(tmp, { "migrate", "--check", "m.tl" })
   assert(again.code == 0 and again.out:find("would change 0; findings 0 after the translation", 1, true) ~= nil, again.out)
   assert(again.out:find("would migrate", 1, true) == nil)
+  assert(again.out:find("migrate: nothing would change and nothing is left\n", 1, true) ~= nil, again.out)
   assert(Fs.read(tmp .. "/m.tl") == MIGRATED)
 end
 
@@ -109,12 +111,91 @@ local function test_a_long_list_of_findings_is_cut_and_its_rest_counted(tmp: str
   lines[#lines + 1] = ""
   assert(Fs.write(tmp .. "/m.tl", table.concat(lines, "\n")))
   local ran = cosmic(tmp, { "migrate", "--check", "m.tl" })
-  assert(ran.code == 0, ran.out .. ran.err)
+  assert(ran.code == 1, ran.out .. ran.err)
+  assert(ran.out:find("migrate: exit 1: 205 findings left\n", 1, true) ~= nil, ran.out:sub(-300))
   local listed = 0
   for _ in ran.out:gmatch("%(not_assignable%)\n") do
     listed = listed + 1
   end
-  assert(listed == 200 and ran.out:find("... and 5 more\n", 1, true) ~= nil, tostring(listed))
+  assert(listed == 200 and ran.out:find("... and 5 more findings, counted by code in the summary\n", 1, true) ~= nil, tostring(listed))
+end
+
+local function test_check_exits_1_while_a_finding_is_left_even_when_no_file_would_change(tmp: string)
+  local source = table.concat({
+    "local function first(s: string?): string",
+    "  return s",
+    "end",
+    "return first",
+    "",
+  }, "\n")
+  assert(Fs.write(tmp .. "/m.tl", source))
+  local ran = cosmic(tmp, { "migrate", "--check", "m.tl" })
+  assert(ran.code == 1 and ran.out:find("would change 0;", 1, true) ~= nil, ran.out .. ran.err)
+  assert(ran.out:find("migrate: exit 1: 1 finding left\n", 1, true) ~= nil, ran.out)
+  local written = cosmic(tmp, { "migrate", "m.tl" })
+  assert(written.code == 1 and written.out:find("migrate: exit 1: 1 finding left\n", 1, true) ~= nil, written.out)
+end
+
+local function test_a_named_link_stays_a_link_and_its_target_is_written_with_its_mode(tmp: string)
+  assert(Fs.write(tmp .. "/real.tl", WRITTEN))
+  assert(Fs.chmod(tmp .. "/real.tl", 0x1b4))
+  assert(Fs.symlink("real.tl", tmp .. "/link.tl"))
+  local ran = cosmic(tmp, { "migrate", "link.tl" })
+  assert(ran.code == 0 and ran.out:find("migrated link.tl\n", 1, true) == 1, ran.out .. ran.err)
+  assert(Fs.readlink(tmp .. "/link.tl") == "real.tl")
+  assert(Fs.read(tmp .. "/real.tl") == MIGRATED)
+  local st = assert(Fs.stat(tmp .. "/real.tl"))
+  assert(st.mode & 0x1ff == 0x1b4)
+end
+
+local function test_a_run_that_is_not_given_every_file_of_a_family_names_the_files_that_mention_it(tmp: string)
+  local iface = table.concat({
+    "local record Iface",
+    "  interface Counter",
+    "    n: integer",
+    "  end",
+    "end",
+    "return Iface",
+    "",
+  }, "\n")
+  local impl = table.concat({
+    "local Iface = require(\"iface\")",
+    "local record Impl is Iface.Counter",
+    "  n: integer",
+    "end",
+    "local record Holder",
+    "  impl: Impl",
+    "end",
+    "return function(h: Holder)",
+    "  h.impl.n = 1",
+    "end",
+    "",
+  }, "\n")
+  local other = table.concat({
+    "local Iface = require(\"iface\")",
+    "local record Other is Iface.Counter",
+    "  n: integer",
+    "end",
+    "return function(o: Other): integer",
+    "  return o.n",
+    "end",
+    "",
+  }, "\n")
+  assert(Fs.write(tmp .. "/iface.tl", iface) and Fs.write(tmp .. "/impl.tl", impl) and Fs.write(tmp .. "/other.tl", other))
+  local partial = cosmic(tmp, { "migrate", "--check", "iface.tl", "impl.tl" })
+  assert(partial.code == 1 and partial.out:find("other.tl: mentions `Iface.Counter`, whose field `n` was made `mut` with the types that list it", 1, true) ~= nil,
+    partial.out .. partial.err)
+  assert(partial.out:find("migrate: exit 1: 2 files would change; 1 file outside this run to change with it\n", 1, true) ~= nil,
+    partial.out)
+  local whole = cosmic(tmp, { "migrate", "." })
+  assert(whole.code == 0 and whole.out:find("outside this run", 1, true) == nil, whole.out .. whole.err)
+  assert(Fs.read(tmp .. "/other.tl") ~= other)
+end
+
+local function test_a_directory_with_no_tl_file_is_refused(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/empty"))
+  local ran = cosmic(tmp, { "migrate", "empty" })
+  assert(ran.code == 2 and ran.err:find("empty: no .tl files below it", 1, true) ~= nil, ran.err)
 end
 
 local function test_a_command_line_it_cannot_read_is_refused_with_exit_2(tmp: string)

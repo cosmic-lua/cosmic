@@ -447,10 +447,20 @@ nothing changes (at most 12 rounds). Comments and layout outside the rewritten t
 the new grammar is given only the rewrites it still needs, so a second run changes nothing.
 
 Every other finding is listed with its file, line and column, and left to a person: the verb writes no cast and no `any`
-to make a finding go. A finding that has a rewrite and was left says why, as in "`env` is declared with no type": a
-collection a call answers is a view, and a copy of it is a decision. The exit status is 0 when the project is migrated and
-nothing is left, 1 when something is left to write by hand or, with `--check`, when a file would change, and 2 for a
-command line it refused.
+to make a finding go. It lists the first 200 and counts all of them by code in the summary. A finding that has a rewrite and
+was left says why, as in "`env` is declared with no type": a collection a call answers is a view, and a copy of it is a
+decision. A `view_as_mut` after a parameter became `mut` is listed with the same advice: declare the argument `mut` where it
+is made. `m.NAME` on a map becomes `m["NAME"]`, which reads `string?`; a record is usually the better fix, and the rewrite is
+the one the checker names first.
+
+A field made `mut` in an interface is made `mut` in every type that lists it. A type in a file the run was not given cannot be
+changed, so the run names the files below the working directory that mention the interface: name them too. Run it on the whole
+project. A symbolic link named on the command line is written through, so it stays a link and its target keeps its mode;
+a link inside a directory is skipped.
+
+The last line of the output says why the exit status is 1: with `--check` or without, it is 0 only when nothing would change
+and nothing is left (a finding, a form the translator does not handle, a `.tl` that is not checked because a `.d.tl` of the same
+module is, a file outside the run, rewrites still going after 12 rounds), 1 otherwise, and 2 for a command line it refused.
 
 `cosmic migrate` is meant to go in the release after the one that makes the new checker the tool's own.
 

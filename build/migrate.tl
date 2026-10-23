@@ -89,11 +89,26 @@ local record Migrate
     rewrites: {string: integer}
     --- The findings left, by file and then place.
     left: {Finding}
+    --- The files the checker did not read, one line each with why: the `.tl` of a module that is also given as a `.d.tl`.
+    --
+    -- TODO: check a `.tl` that is given beside the `.d.tl` of its module, once the new checker's program can hold both
+    -- ([`Driver.index`] answers the declaration under every name of the module and the source under none).
+    unchecked: {string}
+    --- The declarations whose `mut` was changed and that other files may list: files outside this run that mention one need the
+    --- same change.
+    shared: {Shared}
     --- The rounds of rewrites made.
     rounds: integer
     --- False when the last round was still rewriting.
     converged: boolean
     nanoseconds: integer
+  end
+
+  --- A declaration and the field of it that was made `mut` together with the declarations that list it.
+  record Shared
+    --- The name of the declaration, as the checker spells it (`Pins.Pin`).
+    name: string
+    field: string
   end
 
   --- What `main` reads and writes: what a test stands in for.
@@ -123,7 +138,7 @@ local usage = "cosmic migrate [--check] <path>..."
 --- The codes that have a rewrite.
 local FIXABLE <const>: {string: boolean} = {
   view_written = true, field_fixed = true, literal_needs_type = true, map_field = true, and_ternary = true,
-  interface_disagrees = true,
+  interface_disagrees = true, view_as_mut = true,
 }
 
 --- The replacement of the bytes `lo` to `hi - 1` of a file by `text`; an insertion has `hi == lo`.
@@ -170,6 +185,8 @@ local record Survey
   requests: {Request}
   --- The path of the file that holds each module.
   holders: {string: string}
+  --- The families of declarations that were made `mut` together.
+  shared: {Migrate.Shared}
 end
 
 --- Everything a rewrite needs of the file it reads.
@@ -320,7 +337,11 @@ local function declared_mut(ctx: Ctx, name: Ast.Name): Edit | nil, string
           return nil, "`" .. name.text .. "` is declared with no type"
         end
         local value = owner.values[i]
-        if value ~= nil and #owner.values >= #owner.bindings then
+        if value == nil then
+          if #owner.values > 0 then
+            return nil, "`" .. name.text .. "` is made by a call that answers several values, which may be views"
+          end
+        else
           local made = type_of(ctx, value)
           if made ~= nil and is_view(made) then
             return nil, "`" .. name.text .. "` is made from a view, which a copy would make a `mut` collection"
@@ -684,9 +705,20 @@ local function interface_disagrees(ctx: Ctx, p: Driver.Problem): Made
   return nothing("no member of a declaration starts here")
 end
 
+--- A view passed where a `mut` collection is wanted: what a callee's `mut` parameter asks of its callers. It has no rewrite, and
+--- says what to do.
+--
+-- TODO: declare the argument `mut` where it is made (a local or a parameter), as [`view_written`] does for a collection that is
+-- written, once a rewrite can tell a collection made here from a view a call answers, whose copy it cannot write. Until then each
+-- [`view_as_mut`] that a new `mut` parameter causes is listed with a note.
+local function view_as_mut(_ctx: Ctx, _p: Driver.Problem): Made
+  return nothing("a callee takes a `mut` collection now: declare the argument `mut` where it is made, or pass a copy")
+end
+
 local MAKERS <const>: {string: function(ctx: Ctx, p: Driver.Problem): Made} = {
   map_field = map_field, and_ternary = and_ternary, view_written = view_written, field_fixed = field_fixed,
   literal_needs_type = literal_needs_type, interface_disagrees = interface_disagrees,
+  view_as_mut = view_as_mut,
 }
 
 --- Where the offsets of a text that a [`build.syntax_shape_specs`] splice lengthened were in the text it was made from.
@@ -697,6 +729,10 @@ end
 
 --- The insertions that make `spliced` of `original`, as [`build.syntax_shape_specs`] splices a spec into the call of
 --- [`Shape.record_of`], which the checker reads in place of the source. nil where `spliced` is more than insertions.
+--
+-- TODO: take the offsets of any text the checker adds to a file from the checker, not only a [`Shape.record_of`] splice found by
+-- comparing the two texts, once [`Driver.Outcome`] answers the splices its source's `mend` and [`build.syntax_shape_specs`] made.
+-- A file whose text is more than insertions is read, its findings are listed with a note, and nothing is rewritten in it.
 local function insertions(original: string, spliced: string): {Shift} | nil
   local shifts: {Shift} = {}
   local i, j = 1, 1
@@ -757,7 +793,7 @@ end
 
 --- Reads the project `texts` (the paths `paths`) with the checker and makes the rewrites its findings call for.
 local function survey(texts: {string: string}, paths: {string}, options: Pipeline.Options): Survey
-  local made: Survey = { counts = {}, findings = {}, rewrites = {}, requests = {}, holders = {} }
+  local made: Survey = { counts = {}, findings = {}, rewrites = {}, requests = {}, holders = {}, shared = {} }
   local entries: {{string}} = {}
   for _, path in ipairs(paths) do
     entries[#entries + 1] = { path, assert(texts[path]) }
@@ -798,6 +834,12 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
     if outcome.text ~= original then
       local found = insertions(original, outcome.text)
       if found == nil then
+        for i, p in ipairs(outcome.errors) do
+          if FIXABLE[p.code] then
+            assert(recorded[i]).note = "the checker read this file with text added that is more than a spliced call, which " ..
+              "this run cannot map back to the source"
+          end
+        end
         return
       end
       shifts = found
@@ -828,6 +870,8 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
           end
           if #edits == #rewrite.edits then
             list[#list + 1] = rewrite_of(rewrite.code, edits)
+          else
+            assert(recorded[i]).note = "an edit of the rewrite lies in text the checker added to the file"
           end
         end
       end
@@ -844,6 +888,20 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
       families[key] = together
     end
     local finding = request.finding
+    if together.blocked == "" then
+      for _, member in ipairs(together.members) do
+        if made.holders[member.module] == nil then
+          together.blocked = "`" .. request.decl.name .. "." .. request.field .. "` is declared alike in `" .. member.name ..
+            "` of the module `" .. member.module .. "`, which this run does not write"
+          break
+        end
+      end
+      if together.blocked == "" and #together.members > 1 then
+        for _, member in ipairs(together.members) do
+          made.shared[#made.shared + 1] = { name = member.name, field = request.field }
+        end
+      end
+    end
     if together.blocked ~= "" then
       if finding ~= nil then
         finding.note = together.blocked
@@ -1020,12 +1078,17 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
   end
   table.sort(paths)
   local result: Migrate.Result = {
-    texts = {}, changed = {}, untranslated = {}, before = {}, after = {}, rewrites = {}, left = {}, rounds = 0,
-    converged = true, nanoseconds = 0,
+    texts = {}, changed = {}, untranslated = {}, before = {}, after = {}, rewrites = {}, left = {}, unchecked = {},
+    shared = {}, rounds = 0, converged = true, nanoseconds = 0,
   }
+  local shared_seen: {string: boolean} = {}
   for _, path in ipairs(paths) do
     local translated = Translate.translate(assert(files[path]), path)
     result.texts[path] = translated.text
+    if path:sub(-5) ~= ".d.tl" and path:sub(-3) == ".tl" and files[path:sub(1, -4) .. ".d.tl"] ~= nil then
+      result.unchecked[#result.unchecked + 1] = path .. ": not checked: " .. path:sub(1, -4) ..
+        ".d.tl declares the same module, and the checker reads that one in its place"
+    end
     for _, e in ipairs(translated.errors) do
       result.untranslated[#result.untranslated + 1] = path .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg .. " (" .. e.code .. ")"
     end
@@ -1044,6 +1107,13 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
       break
     end
     result.rounds = result.rounds + 1
+    for _, family_made in ipairs(found.shared) do
+      local key = family_made.name .. "\0" .. family_made.field
+      if not shared_seen[key] then
+        shared_seen[key] = true
+        result.shared[#result.shared + 1] = family_made
+      end
+    end
     for path, text in pairs(changed) do
       result.texts[path] = text
     end
@@ -1127,6 +1197,43 @@ local function expand(path: string): {string} | nil, string
   return out, ""
 end
 
+--- The file a named path leads to, through the symbolic links it passes: the path itself where it is no link.
+local function target_of(path: string): string
+  local at = path
+  for _ = 1, 16 do
+    local link, _why = Fs.readlink(at)
+    if link == nil then
+      return at
+    end
+    at = link:sub(1, 1) == "/" and link or Fs.dirname(at) .. "/" .. link
+  end
+  return at
+end
+
+--- The files below the working directory that this run was not given and that mention a declaration it changed `mut` together
+--- with the types that list it: they may list it, and need the same change. A line each; none where nothing was changed.
+local function unnamed_mentions(files: {string: string}, shared: {Migrate.Shared}): {string}
+  local lines: {string} = {}
+  if #shared == 0 then
+    return lines
+  end
+  local all, _ = expand(".")
+  for _, path in ipairs(all or {}) do
+    if files[path] == nil then
+      local text, _ = Fs.read(path)
+      for _, family_made in ipairs(shared) do
+        local last = family_made.name:match("([^.]*)$")
+        if text ~= nil and text:find(last, 1, true) ~= nil then
+          lines[#lines + 1] = path .. ": mentions `" .. family_made.name .. "`, whose field `" .. family_made.field ..
+            "` was made `mut` with the types that list it: name this file too"
+          break
+        end
+      end
+    end
+  end
+  return lines
+end
+
 function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   local to = streams or { out = bare.out, err = bare.err }
   local complain = bare.complainer("migrate", to.err)
@@ -1156,6 +1263,10 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
       complain(why)
       return bare.refused
     end
+    if #listed_files == 0 then
+      complain(given .. ": no .tl files below it")
+      return bare.refused
+    end
     for _, path in ipairs(listed_files) do
       if path:sub(1, 1) == "/" or ("/" .. path .. "/"):find("/../", 1, true) ~= nil then
         complain(path .. ": name files below the working directory, which module names are relative to")
@@ -1179,25 +1290,50 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   end
   local result, run_why = Migrate.run(files)
   if result == nil then
-    complain(run_why)
+    complain("cannot set up the checker: " .. run_why)
     return bare.failed
   end
+  -- The files are written first, so that the report says what was written.
+  local written: {string} = {}
+  local write_trouble = ""
+  if not checking then
+    for _, path in ipairs(result.changed) do
+      local at = target_of(path)
+      local mode = modes[path] or 0x1a4
+      local wrote, write_why = Fs.write(at, assert(result.texts[path]), mode)
+      if wrote then
+        wrote, write_why = Fs.chmod(at, mode)
+      end
+      if not wrote then
+        write_trouble = write_why
+        break
+      end
+      written[#written + 1] = path
+    end
+  end
   local lines: {string} = {}
-  for _, path in ipairs(result.changed) do
+  for _, path in ipairs(checking and result.changed or written) do
     lines[#lines + 1] = (checking and "would migrate " or "migrated ") .. path
   end
   for _, line in ipairs(result.untranslated) do
     lines[#lines + 1] = line .. ": not translated: write it by hand"
   end
+  for _, line in ipairs(result.unchecked) do
+    lines[#lines + 1] = line
+  end
   for i, f in ipairs(result.left) do
     if i > LISTED then
-      lines[#lines + 1] = "... and " .. (#result.left - LISTED) .. " more"
+      lines[#lines + 1] = "... and " .. plural.count(#result.left - LISTED, "more finding") .. ", counted by code in the summary"
       break
     end
     local line = f.path .. ":" .. f.y .. ":" .. f.x .. ": " .. f.msg .. " (" .. f.code .. ")"
     if f.note ~= "" then
       line = line .. "; not rewritten: " .. f.note
     end
+    lines[#lines + 1] = line
+  end
+  local outside = unnamed_mentions(files, result.shared)
+  for _, line in ipairs(outside) do
     lines[#lines + 1] = line
   end
   local paths_count = 0
@@ -1208,28 +1344,39 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     #result.changed .. "; findings " .. total(result.before) .. " after the translation (" .. listed(result.before) ..
     "), " .. total(result.after) .. " after " .. plural.count(total(result.rewrites), "rewrite") .. " in " ..
     plural.count(result.rounds, "round") .. " (" .. listed(result.after) .. ")"
+  local open: {string} = {}
+  if checking and #result.changed > 0 then
+    open[#open + 1] = plural.count(#result.changed, "file") .. " would change"
+  end
+  if #result.left > 0 then
+    open[#open + 1] = plural.count(#result.left, "finding") .. " left"
+  end
+  if #result.untranslated > 0 then
+    open[#open + 1] = plural.count(#result.untranslated, "form") .. " not translated"
+  end
+  if #result.unchecked > 0 then
+    open[#open + 1] = plural.count(#result.unchecked, "file") .. " not checked"
+  end
+  if #outside > 0 then
+    open[#open + 1] = plural.count(#outside, "file") .. " outside this run to change with it"
+  end
   if not result.converged then
-    lines[#lines + 1] = "the rewrites were still going after " .. plural.count(result.rounds, "round") ..
-      ": run migrate again"
+    open[#open + 1] = "the rewrites were still going after " .. plural.count(result.rounds, "round") .. ": run migrate again"
+  end
+  if #open == 0 then
+    lines[#lines + 1] = checking and "migrate: nothing would change and nothing is left" or "migrate: nothing is left"
+  else
+    lines[#lines + 1] = "migrate: exit 1: " .. table.concat(open, "; ")
   end
   local sent = bare.delivered(complain, to.out(table.concat(lines, "\n") .. "\n"))
+  if write_trouble ~= "" then
+    complain(write_trouble .. (#written > 0 and "; already migrated: " .. table.concat(written, ", ") or "; none was written"))
+    return bare.failed
+  end
   if not sent then
     return bare.refused
   end
-  if checking then
-    return #result.changed > 0 and bare.failed or bare.ok
-  end
-  for _, path in ipairs(result.changed) do
-    local wrote, write_why = Fs.write(path, assert(result.texts[path]), modes[path])
-    if not wrote then
-      complain(write_why)
-      return bare.failed
-    end
-  end
-  if #result.left > 0 or #result.untranslated > 0 or not result.converged then
-    return bare.failed
-  end
-  return bare.ok
+  return #open == 0 and bare.ok or bare.failed
 end
 
 --- The `migrate` verb as [`build/verb_list.tl`] lists it. Reads the files it is given, never the tree: never
@@ -1241,8 +1388,8 @@ Migrate.spec = {
   run = function(argv: {string}): integer return Migrate.main(argv) end,
   bare = true,
   takes = "the directories and .tl files to migrate",
-  exits = "`migrate` lists what it left and a summary, and exits 0 when the project is migrated with nothing left, 1 when " ..
-    "something is left to write by hand or (with `--check`) when a file would change, 2 for a command line it refused.",
+  exits = "`migrate` lists what it left, a summary and a last line that says why it exits 1, and exits 0 when nothing would " ..
+    "change and nothing is left, 1 otherwise, 2 for a command line it refused.",
   passthrough = "its output is a report of the files it read, so its exit status is the verdict (build/migrate_test.tl)",
 }
 

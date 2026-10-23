@@ -229,30 +229,35 @@ local record Cli
   --- grammar, in place, and then makes the rewrites the new checker's own
   --- findings call for. A path is a `.tl` file or a directory, whose `.tl`
   --- and `.d.tl` files are read apart from hidden directories and
-  --- `vendor`; module names are the paths below the working directory, so
-  --- run it from the project's root. Each file is translated (`T | nil` to
-  --- `T?`, `goto continue` to `continue`, `function R:m` into a `class`,
-  --- `c and a or b` to an `if` expression where `a` is plainly a value),
-  --- and the project is then checked as `COSMIC_GRAMMAR=new` checks a
-  --- project, which holds it to every rule. For the six findings that
-  --- have one mechanical fix it makes it, from the finding's own place:
-  --- `mut` on a collection or a field that is written (`view_written`,
-  --- `field_fixed`), `mut` on a field of an interface and the types that
-  --- list it where they disagree (`interface_disagrees`), the type of `local seen = {}` from its first write
-  --- (`literal_needs_type`), `m["NAME"]` for `m.NAME` on a map
-  --- (`map_field`) and `if a then b else c end` for `a and b or c`
+  --- `vendor` (a link in a directory is skipped; name it to migrate the
+  --- file it leads to, which stays a link); module names are the paths
+  --- below the working directory, so run it from the project's root.
+  --- Each file is translated (`T | nil` to `T?`, `goto continue` to
+  --- `continue`, `function R:m` into a `class`, `c and a or b` to an `if`
+  --- expression where `a` is plainly a value), and the project is then
+  --- checked as `COSMIC_GRAMMAR=new` checks a project, which holds it to
+  --- every rule. For the six findings that have one mechanical fix it
+  --- makes it, from the finding's own place: `mut` on a collection or a
+  --- field that is written (`view_written`, `field_fixed`), `mut` on a
+  --- field of an interface and the types that list it where they
+  --- disagree (`interface_disagrees`), the type of `local seen = {}` from
+  --- its first write (`literal_needs_type`), `m["NAME"]` for `m.NAME` on
+  --- a map (`map_field`) and `if a then b else c end` for `a and b or c`
   --- where `b` can be neither false nor nil (`and_ternary`). It checks
-  --- and rewrites again until nothing changes, at most 12 rounds. Comments
-  --- and layout outside the rewritten tokens stay, and a file already in
-  --- the new grammar is only given the rewrites it still needs. Every
-  --- other finding is listed, with its place, and left for a person: no
-  --- cast and no `any` stands in for one. `--check` writes nothing and
-  --- lists what it would change. The translator and this verb are kept
-  --- for one release after the new checker becomes the tool's own. It
-  --- prints the files it changed, the findings left and a summary. Exits
-  --- 0 when the project is migrated with nothing left, 1 when something
-  --- is left to write by hand or (with `--check`) when a file would
-  --- change, 2 for a command line it refused
+  --- and rewrites again until nothing changes, at most 12 rounds.
+  --- Comments and layout outside the rewritten tokens stay, and a file
+  --- already in the new grammar is only given the rewrites it still
+  --- needs. Every other finding is listed, with its place, and left for a
+  --- person: no cast and no `any` stands in for one. It lists the first
+  --- 200 findings and counts all of them by code in the summary. A
+  --- family of types made `mut` together may have members in files not
+  --- named: the run names those that mention it. `--check` writes
+  --- nothing and lists what it would change. The translator and this verb
+  --- are kept for one release after the new checker becomes the tool's
+  --- own. It prints the files it changed, the findings left, a summary
+  --- and a last line that says why it exits 1. Exits 0 when nothing would
+  --- change (with `--check`) and nothing is left, 1 otherwise, 2 for a
+  --- command line it refused
   migrate: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
@@ -909,7 +914,7 @@ local module: Module = {
       about = "rewrite a project into the new grammar, in place",
       usage = "[--check] <path>...",
       spec = {
-        ["--check"] = { about = "write nothing; list what would change, and exit 1 if anything would" },
+        ["--check"] = { about = "write nothing; list what would change, and exit 1 if anything would or is left" },
       },
     },
     sql = {
