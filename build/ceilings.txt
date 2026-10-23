@@ -346,6 +346,7 @@ cosmic/web/serve_test.tl 1
 cosmic/web/session/cookie_test.tl 1
 cosmic/web/session/session_test.tl 2
 cosmic/web/session/sqlite_test.tl 1
+cosmic/web/sse_test.tl 9
 cosmic/web/static_test.tl 6
 cosmic/web/testing.tl 3
 eval/arena_test.tl 1
@@ -361,7 +362,7 @@ test/coverage_children_test.tl 1
 # of a view, `setmetatable`), `require` apart. The fork judged them; the switch waits on these reaching 0, which they do as
 # the `[checked]` pins of the files do.
 build/analyzer.tl 5
-build/archive.tl 4
+build/archive.tl 2
 build/ast/match.tl 1
 build/ast/requires.tl 1
 build/ast/rewrite.tl 4
@@ -373,7 +374,6 @@ build/ceilings.tl 2
 build/check_memo.tl 1
 build/checker_verdicts.tl 4
 build/closure_store.tl 2
-build/codec.tl 5
 build/compilation.tl 1
 build/confine.tl 2
 build/contracts.tl 4
@@ -386,7 +386,7 @@ build/docs.tl 8
 build/docs_checks.tl 3
 build/docs_fixture.tl 1
 build/embed.tl 1
-build/fetch.tl 3
+build/fetch.tl 1
 build/fix/breaks.tl 3
 build/fix/init.tl 3
 build/fix/near.tl 1
@@ -420,7 +420,7 @@ build/rand.tl 2
 build/rebuild_lock.tl 2
 build/receivers.tl 1
 build/refresh.tl 3
-build/release.tl 3
+build/release.tl 1
 build/roots.tl 1
 build/sandbox.tl 3
 build/sandbox_probe.tl 1
@@ -466,12 +466,11 @@ build/worker.tl 1
 build/zig.tl 3
 build/zig_fetch.tl 7
 cmd/cosmic/main.tl 1
-cosmic/archive.tl 5
 cosmic/child.tl 15
 cosmic/csv.tl 1
 cosmic/flags.tl 3
 cosmic/fs.tl 6
-cosmic/http/init.tl 8
+cosmic/http/init.tl 1
 cosmic/http/wire.tl 3
 cosmic/internal/connector.tl 6
 cosmic/internal/relay_config.tl 13
@@ -496,7 +495,7 @@ cosmic/web/assets.tl 1
 cosmic/web/csp.tl 1
 cosmic/web/dev.tl 1
 cosmic/web/errors.tl 1
-cosmic/web/input.tl 7
+cosmic/web/input.tl 3
 cosmic/web/request.tl 1
 cosmic/web/router.tl 3
 cosmic/web/session/init.tl 1
@@ -1227,7 +1226,7 @@ eval/summarize.tl nil_not_allowed 14
 eval/summarize_test.tl nil_not_allowed 2
 lang/ast.tl nil_not_allowed 12
 lang/ast_dump.tl nil_not_allowed 5
-lang/check.tl nil_not_allowed 107
+lang/check.tl nil_not_allowed 105
 lang/check_class_test.tl nil_not_allowed 30
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
@@ -2461,7 +2460,7 @@ lang/codegen.tl view_written 37
 lang/codegen_fuzz_test.tl view_written 15
 lang/codegen_speed_test.tl view_written 1
 lang/codegen_test.tl view_written 6
-lang/declarations.tl view_written 86
+lang/declarations.tl view_written 91
 lang/declarations_programs.tl view_written 1
 lang/declarations_speed_test.tl view_written 12
 lang/declarations_test.tl view_written 16
@@ -2962,20 +2961,11 @@ test/terminal/relay.tl field_fixed 2
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
 # declarations lack
-build/archive.tl field_unknown 2
-build/archive_test.tl field_unknown 2
-build/codec.tl field_unknown 5
-build/codec_fuzz_test.tl field_unknown 2
-build/codec_test.tl field_unknown 14
-build/codec_verb_fuzz_test.tl field_unknown 2
 build/compile_grammar.tl field_unknown 20
 build/coverage/syntax_lines.tl field_unknown 2
 build/driver_test.tl field_unknown 8
-build/fetch.tl field_unknown 2
-build/hash_tool_test.tl field_unknown 3
 build/lang_proof.tl field_unknown 7
 build/plural_sites.tl field_unknown 24
-build/release.tl field_unknown 2
 build/syntax_analyzer.tl field_unknown 152
 build/syntax_compared.tl field_unknown 3
 build/syntax_contracts.tl field_unknown 315
@@ -2992,32 +2982,24 @@ build/syntax_scopes.tl field_unknown 11
 build/syntax_shape_specs.tl field_unknown 32
 build/syntax_stub.tl field_unknown 52
 build/tree_checks.tl field_unknown 1
-ci/cosmic_ci/github_api.tl field_unknown 1
-core/allocation_test.tl field_unknown 2
-core/fault_test.tl field_unknown 3
 core/surface_test.tl field_unknown 2
-cosmic/archive.tl field_unknown 5
 cosmic/errors_test.tl field_unknown 1
-cosmic/http/init.tl field_unknown 7
 cosmic/http/server.tl field_unknown 12
 cosmic/http/wire.tl field_unknown 12
-cosmic/http_test.tl field_unknown 25
 cosmic/net.tl field_unknown 1
 cosmic/poll.tl field_unknown 4
 cosmic/poll_test.tl field_unknown 1
 cosmic/stream.tl field_unknown 2
-cosmic/stream_test.tl field_unknown 44
-cosmic/web/input.tl field_unknown 4
-cosmic/web/sse_test.tl field_unknown 24
+cosmic/stream_test.tl field_unknown 26
 lang/ast.tl field_unknown 3
-lang/check.tl field_unknown 795
+lang/check.tl field_unknown 816
 lang/check_class_test.tl field_unknown 6
 lang/check_generics_test.tl field_unknown 1
 lang/check_programs.tl field_unknown 2
 lang/check_test.tl field_unknown 1
 lang/codegen.tl field_unknown 252
 lang/codegen_test.tl field_unknown 3
-lang/declarations.tl field_unknown 226
+lang/declarations.tl field_unknown 228
 lang/declarations_test.tl field_unknown 14
 lang/generics.tl field_unknown 84
 lang/parser.tl field_unknown 42
@@ -3432,13 +3414,10 @@ cosmic/child.tl interface_method_value 1
 cosmic/child_lua_test.tl interface_method_value 1
 cosmic/http/multipart_test.tl interface_method_value 1
 cosmic/http/server.tl interface_method_value 2
-cosmic/http_test.tl interface_method_value 1
 cosmic/net.tl interface_method_value 1
 cosmic/net_connector_test.tl interface_method_value 1
 cosmic/poll_test.tl interface_method_value 1
-cosmic/stream.tl interface_method_value 2
-cosmic/stream_fd_test.tl interface_method_value 1
-cosmic/stream_test.tl interface_method_value 3
+cosmic/stream_test.tl interface_method_value 1
 cosmic/tar_test.tl interface_method_value 1
 cosmic/web/app.tl interface_method_value 1
 cosmic/zip_test.tl interface_method_value 1
@@ -5994,6 +5973,9 @@ cosmic/sandbox/seatbelt_test.tl compare_disjoint 1
 cosmic/seatbelt_network_probe_test.tl compare_disjoint 2
 cosmic/shape_test.tl compare_disjoint 4
 cosmic/sqlite.tl compare_disjoint 4
+cosmic/stream.tl compare_disjoint 2
+cosmic/stream_fd_test.tl compare_disjoint 1
+cosmic/stream_test.tl compare_disjoint 2
 cosmic/tar_fuzz_test.tl compare_disjoint 1
 cosmic/template/codegen.tl compare_disjoint 1
 cosmic/template/context.tl compare_disjoint 1
@@ -6794,7 +6776,7 @@ eval/check/grade.tl not_assignable 1
 eval/result.tl not_assignable 1
 lang/check.tl not_assignable 77
 lang/codegen.tl not_assignable 21
-lang/declarations.tl not_assignable 15
+lang/declarations.tl not_assignable 21
 lang/generics.tl not_assignable 3
 lang/parser.tl not_assignable 6
 lang/parser_fuzz_test.tl not_assignable 3

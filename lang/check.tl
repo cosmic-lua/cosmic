@@ -253,6 +253,9 @@ local record Ctx
   declared: {Decl: boolean}
   --- The type of a field read through a union, by the union and the field.
   union_fields: {string: Type}
+  --- The field reads that only ask whether a method is there (`a.cb ~= nil`, `if a.cb then`): nothing of the method
+  --- escapes through them, so they are no use of it as a value.
+  probes: {integer: boolean}
   --- The nodes a left-leaning chain visits, and how many are in use.
   spine: {Ast.Exp}
   top: integer
@@ -589,8 +592,11 @@ local expr: function(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
 
 -- Members --------------------------------------------------------------------------------
 
---- Whether the function type `ft` takes a value of the declaration `decl` first: the shape of a method of it.
-local function takes_receiver(decl: Decl, ft: Type): boolean
+--- Whether the function type `given`, or the function it is when optional, takes a value of the declaration `decl` first: the
+--- shape of a method of it. An optional method (`cb?: function(P): string`) is the function or nil: the receiver is the
+--- function's.
+local function takes_receiver(ctx: Ctx, decl: Decl, given: Type): boolean
+  local ft = ctx.store:non_nil(given)
   if not (ft is Fn) then
     return false
   end
@@ -629,6 +635,12 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
     list[#list + 1] = { type = m.type, mut = false, method = true }
     index.by_name[m.name] = list
   end
+  if not value then
+    -- An interface that lists another has the fields it leaves out from it (a record or class declares every one).
+    for _, f in ipairs(Declarations.inherited(ctx.store, ctx.judge, decl)) do
+      index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false } }
+    end
+  end
   if value then
     for name, f in pairs(ctx.program.statics[decl] or {}) do
       local list = index.by_name[name] or {}
@@ -650,7 +662,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
     -- reads the checker's types and writes `v:m(...)` of such a function as the call `R.m(v, ...)`: a record's value holds
     -- only its fields, so the method call finds no function at run time, and today it is refused.
     for name, f in pairs(ctx.program.statics[decl] or {}) do
-      if takes_receiver(decl, f.type) then
+      if takes_receiver(ctx, decl, f.type) then
         index.selfish[name] = true
         if decl.kind == "class" and (decl.arity or 0) == 0 then
           index.by_name[name] = { { type = f.type, mut = false, method = true } }
@@ -1748,14 +1760,21 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       field_unknown(ctx, node, t, name)
       return ctx.invalid
     end
-    if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not list[1].method and
-        takes_receiver(t.decl, list[1].type) then
+    local first = assert(list[1])
+    if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not first.method and ctx.probes[node.id] ~= true and
+        takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
       local receiver = node is Ast.Field and text_of(ctx, node.object) or "v"
+      local fix = "call it as `" .. receiver .. ":" .. name .. "(...)`"
+      if nilable(first.type) then
+        -- An optional method is there or not: a call needs the test of the place first, which narrows it.
+        fix = "test that it is there, then call it: `if " .. receiver .. "." .. name .. " ~= nil then " .. receiver .. ":" ..
+          name .. "(...) end`"
+      end
       report(ctx, "interface_method_value", node, subject(ctx, node) .. " reads the method " .. quoted(name) ..
           " of the interface " .. tq(ctx, t) .. " as a value, and its implementation depends on the receiver",
-        "call it as `" .. receiver .. ":" .. name .. "(...)`", { show(ctx, t) })
+        fix, { show(ctx, t) })
       return ctx.invalid
     end
     if #list > 1 then
@@ -2130,6 +2149,19 @@ end
 
 --- Checks the condition `node`.
 local function condition(ctx: Ctx, node: Ast.Exp): Type
+  -- Each operand of `not`, `and` and `or` of a condition is only asked whether it holds: a field read there is a probe.
+  local function mark_probes(operand: Ast.Exp)
+    local at = peel(operand)
+    if at is Ast.Field then
+      ctx.probes[at.id] = true
+    elseif at is Ast.Unary and at.op == "not" then
+      mark_probes(at.operand)
+    elseif at is Ast.Binary and (at.op == "and" or at.op == "or") then
+      mark_probes(at.left)
+      mark_probes(at.right)
+    end
+  end
+  mark_probes(node)
   local t = expr(ctx, node, nil)
   local _ = condition_kind(ctx, node, t)
   return t
@@ -4594,6 +4626,16 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
       cands = ctx.cands
     end
     ctx.cands, ctx.cand_node = nil, nil
+    if ctx.flow.paths > 0 and nilable(ft) then
+      -- An optional method that a test showed is there (`if a.cb ~= nil then a:cb() end`): the place `a.cb` holds the fact.
+      local base = path_key(ctx, node.object)
+      if base ~= nil then
+        local fact = ctx.flow.facts[base .. "." .. node.name]
+        if fact ~= nil then
+          ft = fact.type
+        end
+      end
+    end
   end
   return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object, expected)
 end
@@ -4800,6 +4842,15 @@ local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type | nil, wants_lists:
     end
     if node is Ast.Binary and node.op == "or" and nxt is Ast.Binary and nxt.op == "and" then
       ctx.ternaries[nxt.id] = node
+    end
+    if node is Ast.Binary and (node.op == "==" or node.op == "~=") then
+      -- A field compared with nil only asks whether it is there.
+      local left, right = peel(nxt), peel(node.right)
+      if left is Ast.Field and right is Ast.Nil then
+        ctx.probes[left.id] = true
+      elseif left is Ast.Nil and right is Ast.Field then
+        ctx.probes[right.id] = true
+      end
     end
     ctx.top = ctx.top + 1
     ctx.spine[ctx.top] = node
@@ -6015,7 +6066,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = {
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
+    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, literals = {}, declared = {}, union_fields = {}, probes = {}, spine = {},
     top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type

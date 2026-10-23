@@ -695,7 +695,7 @@ end
 
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { script = { reply("200 OK", "", "body") } }))
-  local ok, why = pcall(response.read, response, 0)
+  local ok, why = pcall(function() response:read(0) end)
   assert(not ok and tostring(why):find("http: read's max_bytes must be positive", 1, true), tostring(why))
   response:close()
 end
@@ -754,9 +754,9 @@ local function test_a_response_a_finalizer_revives_is_closed()
   local response = revived[1]
   assert(response ~= nil, "the finalizer ran")
   revived[1] = nil
-  local ok, err = pcall(response.read, response)
+  local ok, err = pcall(function() response:read() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
-  ok, err = pcall(response.sent, response)
+  ok, err = pcall(function() response:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   response:close()
 end
