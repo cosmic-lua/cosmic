@@ -33,11 +33,6 @@
 -- no rule reads here as the fork could not write one, once the new grammar's convention for a failure is settled
 -- (doc/design.md, third principle): until then the usual `T?, string` pair is the only function the rules hold.
 --
--- TODO: read the type of an exported member through an alias: the rule that an exported function answers one result reads the
--- function type written in the field, so `local type F = function(s: string): string...` and `spread: F` in a record are not
--- seen, and a module exports a function of several results (the template tests' spread stage builds and runs that way). It waits
--- on the checker's type of the member ([`Report.of`]) being read here in place of the written type.
---
 -- TODO: follow a reason by the binding the scope builder resolves a name to ([`Scopes.Scoped.resolved`]) in place of the
 -- name's text and position, and drop the notes of rule 6's gaps in build/contracts.tl, once the fork's contracts are
 -- deleted at the switch (doc/plans/strict-teal.md, "the switch").
@@ -1126,12 +1121,20 @@ local function exported_functions(run: Run): {Exported}
       for _, member in ipairs(members_of(n)) do
         local at = line_at(subject, Node.base(member).first)
         if member is Ast.FieldDecl then
-          -- A field written as a function type is a function the module defines; one written by a name (`hints:
-          -- importer.Hints`) is a callback a caller fills in, which the fork saw as a name and not a function.
-          local written = member.type
-          local f = subject.types[Node.base(written).id]
-          if f ~= nil and f is Types.Fn and written is Ast.TypeFunction then
-            out[#out + 1] = { name = joined(prefix, member.name.name, false), type = f, line = at }
+          -- A field of a function type is a function the module exports, written as the type or as a name that stands for
+          -- it (`local type F = function(...)`, then `spread: F`): the type the checker gave the field is the one judged.
+          -- A union of function types holds each function the field may be.
+          local f = subject.types[Node.base(member.type).id]
+          local held: {Types.Type} = {}
+          if f ~= nil and f is Types.Fn then
+            held[1] = f
+          elseif f ~= nil and f is Types.Union then
+            held = f.members
+          end
+          for _, one in ipairs(held) do
+            if one is Types.Fn then
+              out[#out + 1] = { name = joined(prefix, member.name.name, false), type = one, line = at }
+            end
           end
         elseif member is Ast.Method then
           local f = subject.types[Node.base(member).id]
@@ -1148,6 +1151,7 @@ end
 --- Rule 10, over every exported function's declared results.
 local function check_exports(run: Run, exported: {Exported})
   local file = run.subject.file
+  local said: {string: boolean} = {}
   for _, e in ipairs(exported) do
     local members, variadic = results_of(e.type)
     local results = members or {}
@@ -1157,7 +1161,9 @@ local function check_exports(run: Run, exported: {Exported})
       local key = file .. ":" .. e.name
       if run.exemptions.exempt[key] ~= nil then
         run.used.exempt[key] = true
-      else
+      elseif said[key] ~= true then
+        -- A field that may be one of several functions is told once.
+        said[key] = true
         report(run, e.line, string.format("%s: an exported function answers one result, or a value or an effect and its " ..
             "reason; answer a record to hand back more", e.name))
       end

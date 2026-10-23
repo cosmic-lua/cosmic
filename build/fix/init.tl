@@ -100,6 +100,8 @@ local flow = require("build.flow")
 local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
+local laid = require("build.fix.laid")
+local read_memo = require("build.fix.read_memo")
 local near = require("build.fix.near")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
@@ -1376,7 +1378,18 @@ local function lay_out_c(ctx: Fix)
     end
     if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
-  for _, outcome in ipairs(c_check.check(root, compiled)) do
+  -- What the checks made of the compile of each file is kept in the build directory, so that a file whose inputs have not
+  -- changed is not compiled again; without the memo every file is.
+  local memo: Sqlite.Handle | nil = nil
+  if #compiled > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
+    memo = opened
+  end
+  local outcomes = c_check.check(root, compiled, nil, nil, memo)
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
+  for _, outcome in ipairs(outcomes) do
     local findings = outcome.findings
     if findings == nil then
       failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
@@ -1415,43 +1428,106 @@ local function lay_out_teal(ctx: Fix)
   local plurals: {string: tree_checks.Plurals} | nil = nil
   if picked.whole then plurals = {} end
   local new_grammar: {string: boolean} = {}
+  -- A file left as it was by the layout of this code is not laid out again while its text stays: the memo holds that it
+  -- was, so that all the run does with it is parse it.
+  local memo: Sqlite.Handle | nil = nil
+  local kept: laid.Kept | nil = nil
+  if #files > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(assert(ctx.root)).translate_check, { writable = true })
+    memo = opened
+    if memo ~= nil then
+      kept = laid.begin(memo)
+    end
+  end
+  -- What a parse of such a file gave the phases after this one is kept as well, so that it is not parsed at all: in a run
+  -- over the whole tree, which is the one that looks for plurals, so that a row made by another kind of run is not read in
+  -- one that needs more of it. The new grammar reads notes and plurals off another tree, so its runs neither read nor make a
+  -- row.
+  local read_salt: string | nil = nil
+  if kept ~= nil and plurals ~= nil and grammar ~= "new" then
+    read_salt = read_memo.salt()
+  end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
-      local result, trouble = fix.source(built, source, file)
-      -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
-      -- new parser's words.
-      local chunk: Ast.Chunk | nil = nil
-      local refusal = ""
-      if result == nil and grammar == "new" then
-        local forked, _ = ast.parse(built, source, file)
-        if forked == nil then
-          chunk, refusal = SyntaxNode.parse(source, file)
+      local plural_key = file
+      while plural_key:sub(1, 2) == "./" do plural_key = plural_key:sub(3) end
+      local laid_before = kept ~= nil and laid.holds(kept, file, source)
+      local from_memo: read_memo.Read | nil = nil
+      if laid_before and memo ~= nil and read_salt ~= nil then
+        from_memo = read_memo.get(memo, read_salt, built, file, source)
+        -- A row that lacks what the file is read for is not one of this kind of run.
+        if from_memo ~= nil and compared(file) and from_memo.ready == nil then
+          from_memo = nil
         end
       end
-      if chunk ~= nil then
-        new_grammar[file] = true
-        fix.read_off_written(file, chunk, source, facts, ready, plurals)
-      elseif result == nil and refusal ~= "" then
-        failures[#failures + 1] = refusal
-      elseif result == nil then
-        failures[#failures + 1] = file .. ": " .. trouble
-      elseif result.changed then
-        changed[#changed + 1] = file
-        if not checking then
-          local written, write_trouble = Fs.write(file, result.source)
-          if not written then
-            failures[#failures + 1] = write_trouble
-          else
-            fix.read_off(file, result, grammar, facts, ready, plurals)
+      if from_memo ~= nil and plurals ~= nil then
+        facts[file] = from_memo.facts
+        local candidates = from_memo.ready
+        if candidates ~= nil then ready[file] = candidates end
+        local found = from_memo.plurals
+        if found ~= nil then plurals[plural_key] = found end
+      else
+        local result: fix.Fixed | nil = nil
+        local trouble = ""
+        if laid_before then
+          local parsed, _ = ast.parse(built, source, file)
+          if parsed ~= nil then
+            result = { source = source, changed = false, parsed = parsed }
           end
         end
-      else
-        fix.read_off(file, result, grammar, facts, ready, plurals)
+        if result == nil then
+          result, trouble = fix.source(built, source, file)
+        end
+        -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
+        -- new parser's words.
+        local chunk: Ast.Chunk | nil = nil
+        local refusal = ""
+        if result == nil and grammar == "new" then
+          local forked, _ = ast.parse(built, source, file)
+          if forked == nil then
+            chunk, refusal = SyntaxNode.parse(source, file)
+          end
+        end
+        if chunk ~= nil then
+          new_grammar[file] = true
+          fix.read_off_written(file, chunk, source, facts, ready, plurals)
+        elseif result == nil and refusal ~= "" then
+          failures[#failures + 1] = refusal
+        elseif result == nil then
+          failures[#failures + 1] = file .. ": " .. trouble
+        elseif result.changed then
+          changed[#changed + 1] = file
+          if not checking then
+            local written, write_trouble = Fs.write(file, result.source)
+            if not written then
+              failures[#failures + 1] = write_trouble
+            else
+              fix.read_off(file, result, grammar, facts, ready, plurals)
+            end
+          end
+        else
+          if kept ~= nil then
+            laid.keep(kept, file, source)
+          end
+          fix.read_off(file, result, grammar, facts, ready, plurals)
+          local made = facts[file]
+          if memo ~= nil and read_salt ~= nil and made ~= nil then
+            read_memo.put(memo, read_salt, file, source,
+              { facts = made, ready = ready[file], plurals = plurals ~= nil and plurals[plural_key] or nil },
+              result.parsed)
+          end
+        end
       end
     end
+  end
+  if kept ~= nil then
+    laid.finish(kept, picked.whole == true and #failures == 0)
+  end
+  if memo ~= nil then
+    local _, _ = memo:close()
   end
   ctx.facts = facts
   ctx.ready = ready
@@ -2080,14 +2156,19 @@ local function fix_verb(argv: {string}): integer
   code = load_compiler(ctx)
   if code ~= nil then return code end
   start_tally(ctx)
+  Memprobe.mark("fix: compiler loaded")
   lay_out_c(ctx)
+  Memprobe.mark("fix: C checked")
   check_templates(ctx)
   lay_out_teal(ctx)
   Memprobe.mark("fix: Teal laid out")
   wrap_asserts(ctx)
+  Memprobe.mark("fix: asserts checked")
   find_unbuilt(ctx)
   run_tree_checks(ctx)
+  Memprobe.mark("fix: tree checks done")
   check_links(ctx)
+  Memprobe.mark("fix: links checked")
   say_notes(ctx)
   return report(ctx)
 end

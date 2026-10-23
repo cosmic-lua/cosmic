@@ -71,6 +71,7 @@ local Flow = require("lang.flow")
 local Generics = require("lang.generics")
 local Lexer = require("lang.lexer")
 local Literals = require("lang.literals")
+local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")
@@ -246,6 +247,10 @@ local record Ctx
   value_members: {Decl: Members}
   --- The `function R.m(...)` statements at the top of the module that the walk has not passed, by declaration and name.
   pending: {Decl: {string: boolean}}
+  --- What the functions read of those statics, for the functions the module runs as it loads ([`lang.load_order`]).
+  load: LoadOrder.State
+  --- The id of the function being walked, 0 in the chunk.
+  within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
   literals: {integer: Decl}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
@@ -253,6 +258,9 @@ local record Ctx
   declared: {Decl: boolean}
   --- The type of a field read through a union, by the union and the field.
   union_fields: {string: Type}
+  --- The field reads that only ask whether a method is there (`a.cb ~= nil`, `if a.cb then`): nothing of the method
+  --- escapes through them, so they are no use of it as a value.
+  probes: {integer: boolean}
   --- The nodes a left-leaning chain visits, and how many are in use.
   spine: {Ast.Exp}
   top: integer
@@ -589,8 +597,11 @@ local expr: function(ctx: Ctx, e: Ast.Exp, expected: Type | nil): Type
 
 -- Members --------------------------------------------------------------------------------
 
---- Whether the function type `ft` takes a value of the declaration `decl` first: the shape of a method of it.
-local function takes_receiver(decl: Decl, ft: Type): boolean
+--- Whether the function type `given`, or the function it is when optional, takes a value of the declaration `decl` first: the
+--- shape of a method of it. An optional method (`cb?: function(P): string`) is the function or nil: the receiver is the
+--- function's.
+local function takes_receiver(ctx: Ctx, decl: Decl, given: Type): boolean
+  local ft = ctx.store:non_nil(given)
   if not (ft is Fn) then
     return false
   end
@@ -629,6 +640,12 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
     list[#list + 1] = { type = m.type, mut = false, method = true }
     index.by_name[m.name] = list
   end
+  if not value then
+    -- An interface that lists another has the fields it leaves out from it (a record or class declares every one).
+    for _, f in ipairs(Declarations.inherited(ctx.store, ctx.judge, decl)) do
+      index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false } }
+    end
+  end
   if value then
     for name, f in pairs(ctx.program.statics[decl] or {}) do
       local list = index.by_name[name] or {}
@@ -650,7 +667,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members | ni
     -- reads the checker's types and writes `v:m(...)` of such a function as the call `R.m(v, ...)`: a record's value holds
     -- only its fields, so the method call finds no function at run time, and today it is refused.
     for name, f in pairs(ctx.program.statics[decl] or {}) do
-      if takes_receiver(decl, f.type) then
+      if takes_receiver(ctx, decl, f.type) then
         index.selfish[name] = true
         if decl.kind == "class" and (decl.arity or 0) == 0 then
           index.by_name[name] = { { type = f.type, mut = false, method = true } }
@@ -1459,6 +1476,13 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     local why = out_of_reach(ctx, n.decl)
     if why == "" then
       ctx.literals[e.id] = n.decl
+      if ctx.load.waiting > 0 then
+        -- Lua runs the two metamethods a class admits by itself, at a `tostring` or the end of a `<close>` local, on any value
+        -- the literals make: the value is mentioned with them.
+        for _, meta in ipairs({ "__tostring", "__close" }) do
+          LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(n.decl.name .. "." .. meta)))
+        end
+      end
     else
       report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(n.decl.name) .. ", " .. why,
         reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
@@ -1731,31 +1755,43 @@ end
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
   if t is Named then
-    local waiting = ctx.pending[t.decl]
-    if waiting ~= nil and waiting[name] == true and ctx.frames[#ctx.frames].chunk and (t.value or t.decl.kind == "class") then
-      -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
-      --
-      -- TODO: follow a call of a local function made as the module loads into its body, once the checker keeps which
-      -- functions run at load: a use of `R.m` in a function called above the statement of `R.m` finds nil as well, and only a
-      -- use written at the top of the module is refused today.
-      report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
-          quoted(t.decl.name .. "." .. name) .. " before the statement that defines it has run",
-        "move the statement `function " .. t.decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
-          "that runs after the module has loaded", { show(ctx, t) })
+    local decl = t.decl
+    local waiting = ctx.pending[decl]
+    local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
+    if waiting ~= nil and waiting[name] == true and as_declared then
+      if ctx.within == 0 then
+        -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
+        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
+            quoted(decl.name .. "." .. name) .. " before the statement that defines it has run",
+          "move the statement `function " .. decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
+            "that runs after the module has loaded", { show(ctx, t) })
+      else
+        LoadOrder.read(ctx.load, ctx.within, { decl = decl, name = name, first = base_of(node).first })
+      end
+    end
+    if as_declared and ctx.load.waiting > 0 then
+      LoadOrder.mention(ctx.load, ctx.within, node, LoadOrder.of_static(decl, name, quoted(decl.name .. "." .. name)))
     end
     local list = member_types(ctx, t, name)
     if list == nil then
       field_unknown(ctx, node, t, name)
       return ctx.invalid
     end
-    if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not list[1].method and
-        takes_receiver(t.decl, list[1].type) then
+    local first = assert(list[1])
+    if t.decl.kind == "interface" and not (node is Ast.MethodCall) and not first.method and ctx.probes[node.id] ~= true and
+        takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
       local receiver = node is Ast.Field and text_of(ctx, node.object) or "v"
+      local fix = "call it as `" .. receiver .. ":" .. name .. "(...)`"
+      if nilable(first.type) then
+        -- An optional method is there or not: a call needs the test of the place first, which narrows it.
+        fix = "test that it is there, then call it: `if " .. receiver .. "." .. name .. " ~= nil then " .. receiver .. ":" ..
+          name .. "(...) end`"
+      end
       report(ctx, "interface_method_value", node, subject(ctx, node) .. " reads the method " .. quoted(name) ..
           " of the interface " .. tq(ctx, t) .. " as a value, and its implementation depends on the receiver",
-        "call it as `" .. receiver .. ":" .. name .. "(...)`", { show(ctx, t) })
+        fix, { show(ctx, t) })
       return ctx.invalid
     end
     if #list > 1 then
@@ -2130,6 +2166,19 @@ end
 
 --- Checks the condition `node`.
 local function condition(ctx: Ctx, node: Ast.Exp): Type
+  -- Each operand of `not`, `and` and `or` of a condition is only asked whether it holds: a field read there is a probe.
+  local function mark_probes(operand: Ast.Exp)
+    local at = peel(operand)
+    if at is Ast.Field then
+      ctx.probes[at.id] = true
+    elseif at is Ast.Unary and at.op == "not" then
+      mark_probes(at.operand)
+    elseif at is Ast.Binary and (at.op == "and" or at.op == "or") then
+      mark_probes(at.left)
+      mark_probes(at.right)
+    end
+  end
+  mark_probes(node)
   local t = expr(ctx, node, nil)
   local _ = condition_kind(ctx, node, t)
   return t
@@ -3319,6 +3368,8 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   }
   local saved = ctx.lenient
   ctx.lenient = 0
+  local outer_within = ctx.within
+  ctx.within = fn_id
   local outer, outer_loops = ctx.flow, ctx.loops
   ctx.flow, ctx.loops = Flow.enter(outer, ctx.unfixed[fn_id]), {}
   local outer_unfixed = ctx.unfixed_now
@@ -3353,6 +3404,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   end
   ctx.flow, ctx.loops = outer, outer_loops
   ctx.lenient = saved
+  ctx.within = outer_within
   ctx.frames[#ctx.frames] = nil
   if generic then
     ctx.judge:leave()
@@ -3365,6 +3417,9 @@ end
 local function function_literal(ctx: Ctx, e: Ast.FunctionLit, expected: Type | nil): Type
   local ft = function_type(ctx, e.fn, expected, "this function")
   function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil, e.fn.id)
+  if ctx.load.waiting > 0 and ctx.load.given[e.id] ~= true then
+    LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_function(e.fn.id, "the function written here"))
+  end
   return ft
 end
 
@@ -4594,6 +4649,16 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
       cands = ctx.cands
     end
     ctx.cands, ctx.cand_node = nil, nil
+    if ctx.flow.paths > 0 and nilable(ft) then
+      -- An optional method that a test showed is there (`if a.cb ~= nil then a:cb() end`): the place `a.cb` holds the fact.
+      local base = path_key(ctx, node.object)
+      if base ~= nil then
+        local fact = ctx.flow.facts[base .. "." .. node.name]
+        if fact ~= nil then
+          ft = fact.type
+        end
+      end
+    end
   end
   return dispatch_call(ctx, node, node, text, ft, cands, node.args, t, node.object, expected)
 end
@@ -4627,6 +4692,9 @@ local function read_name(ctx: Ctx, e: Ast.Name): Type
   local id = e.binding
   if id == nil then
     return t
+  end
+  if ctx.load.waiting > 0 and (t is Fn or t is Types.Union) and ctx.load.given[e.id] ~= true then
+    LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_local(id, quoted(e.text)))
   end
   if ctx.flow.unsets > 0 and ctx.flow.unset[id] then
     local v = ctx.scoped.vars[id]
@@ -4800,6 +4868,15 @@ local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type | nil, wants_lists:
     end
     if node is Ast.Binary and node.op == "or" and nxt is Ast.Binary and nxt.op == "and" then
       ctx.ternaries[nxt.id] = node
+    end
+    if node is Ast.Binary and (node.op == "==" or node.op == "~=") then
+      -- A field compared with nil only asks whether it is there.
+      local left, right = peel(nxt), peel(node.right)
+      if left is Ast.Field and right is Ast.Nil then
+        ctx.probes[left.id] = true
+      elseif left is Ast.Nil and right is Ast.Field then
+        ctx.probes[right.id] = true
+      end
     end
     ctx.top = ctx.top + 1
     ctx.spine[ctx.top] = node
@@ -5000,6 +5077,14 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
     end
     return
+  end
+  if ctx.load.waiting > 0 then
+    for i, b in ipairs(s.bindings) do
+      local given = s.values[i]
+      if given ~= nil then
+        LoadOrder.bind(ctx.load, b.id, given)
+      end
+    end
   end
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, #s.values, "name")
@@ -5222,6 +5307,25 @@ end
 --- facts and the facts of the paths from it are gone ([`Flow.State`]), it is assigned from here on, and it is known
 --- to have the view of the type of the value ([`value_narrowing`]).
 local function assign_statement(ctx: Ctx, s: Ast.Assign)
+  if ctx.load.waiting > 0 then
+    for i, target in ipairs(s.targets) do
+      local given = s.values[i]
+      if target is Ast.Name then
+        local binding = target.binding
+        if given ~= nil and binding ~= nil then
+          LoadOrder.bind(ctx.load, binding, given)
+        end
+      elseif target is Ast.Field then
+        local object = target.object
+        if given ~= nil and object is Ast.Name then
+          local base = name_value(ctx, object)
+          if base is Named and base.value then
+            LoadOrder.store(ctx.load, base.decl, target.name, given)
+          end
+        end
+      end
+    end
+  end
   local vals = check_assignment(ctx, s)
   for i, target in ipairs(s.targets) do
     local id = target is Ast.Name and target.binding or nil
@@ -5516,9 +5620,16 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     -- a call that answers a fourth value in the last place gives the same closing value
     local closing = vals.types[4]
     local last_expression = s.iterators[#s.iterators]
+    local tail = vals.tail
     if closing ~= nil and closing ~= ctx.nil_type and last_expression ~= nil then
       report(ctx, "iterator_extra", last_expression, subject(ctx, last_expression) .. " answers a fourth value, which Lua takes " ..
           "as the value to close, and raises when it has no `__close`", "write at most three expressions after `in`")
+    elseif closing == nil and tail ~= nil and tail ~= ctx.nil_type and tail.tag ~= "invalid" and last_expression ~= nil then
+      -- The values after the third are not counted: any number may follow, and the fourth is the value to close.
+      report(ctx, "iterator_extra", last_expression, subject(ctx, last_expression) .. " answers any number of " ..
+          tq(ctx, tail) .. " values after those it lists, and Lua takes a fourth as the value to close, raising when it has " ..
+          "no `__close`", "name the three values first (`local iterator, state, control = ...`) and write `for x in " ..
+          "iterator, state, control do`, or answer exactly an iterator, a state and a control value")
     end
   end
   local several, last = vals.lists, vals.last
@@ -5640,6 +5751,35 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl | nil)
     ctx.binders[#ctx.binders + 1] = names
     ctx.bounds[#ctx.bounds + 1] = tparams
   end
+  if decl ~= nil then
+    -- Before any body: a method names the others.
+    for _, m in ipairs(members) do
+      if m is Ast.Method then
+        LoadOrder.define(ctx.load, decl, m.name.name, m.id)
+      end
+    end
+    -- The interfaces it lists, and those they extend: a method called through one may be a method of this class.
+    local to_visit: {Type} = {}
+    if body ~= nil then
+      for _, super in ipairs(body.supers) do
+        to_visit[#to_visit + 1] = super
+      end
+    end
+    local seen: {Decl: boolean} = {}
+    while #to_visit > 0 do
+      local super = table.remove(to_visit)
+      if super is Named and not seen[super.decl] then
+        seen[super.decl] = true
+        LoadOrder.implement(ctx.load, super.decl, decl)
+        local above = super.decl.body
+        if above ~= nil then
+          for _, next_super in ipairs(above.supers) do
+            to_visit[#to_visit + 1] = next_super
+          end
+        end
+      end
+    end
+  end
   for _, m in ipairs(members) do
     if m is Ast.Method then
       local ft = ctx.lowered.types[m.id] or ctx.invalid
@@ -5679,6 +5819,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   local owner = name_value(ctx, head)
   local waiting = owner is Named and ctx.pending[owner.decl] or nil
   if waiting ~= nil and #s.path == 2 then
+    if waiting[s.path[2].text] == true then
+      ctx.load.waiting = ctx.load.waiting - 1
+    end
     waiting[s.path[2].text] = nil
   end
   local text = head.text
@@ -5701,6 +5844,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     if field_type.tag ~= "invalid" then
       local _ = expect(ctx, s, ft, field_type, " as the declaration of " .. quoted(text))
     end
+  end
+  if owner is Named and #s.path == 2 then
+    LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
   function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
 end
@@ -5926,6 +6072,9 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     local ft = function_type(ctx, s.fn, nil, quoted(s.name.name))
     ctx.vars[s.name.id] = ft
     declare_local(ctx, s.name.id, false)
+    if ctx.load.waiting > 0 then
+      LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
+    end
     function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
   elseif s is Ast.Function then
     function_statement(ctx, s)
@@ -5975,9 +6124,65 @@ block = function(ctx: Ctx, b: Ast.Block)
   stats(ctx, b)
 end
 
---- The locals each function reads from outside, and those an assignment may change after the function is made, from the
---- captures the scope builder found.
-local function captures_by_function(ctx: Ctx)
+function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
+  local out: {integer: {string}} = {}
+  for id, t in pairs(lowered.types) do
+    local body = t is Named and not t.value and t.decl.kind == "enum" and t.decl.body or nil
+    if body ~= nil then
+      out[id] = body.values
+    end
+  end
+  return out
+end
+
+function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
+                     typed?: boolean): Check.Checked
+  local store = program.store
+  local ctx: Ctx = {
+    program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
+    tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
+    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
+      return false
+    end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
+    literals = {}, declared = {}, union_fields = {}, spine = {},
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
+    unite = function(a: Type, b: Type): Type
+      return store:union({ a, b })
+    end,
+    covers = function(declared: Type, united: Type): boolean
+      return declared == united
+    end,
+  }
+  ctx.covers = function(declared: Type, united: Type): boolean
+    return below(ctx, declared, united)
+  end
+  ctx.unite = function(a: Type, b: Type): Type
+    return subsume(ctx, store:union({ a, b }))
+  end
+  ctx.load = LoadOrder.new(0, function(decl: Decl, name: string): boolean
+    local waiting = ctx.pending[decl]
+    return waiting ~= nil and waiting[name] == true
+  end, function(node: Ast.Node, spelled: string, found: LoadOrder.Found)
+    local read = found.read
+    local owner = read.decl.name .. "." .. read.name
+    local through = ""
+    if #found.via > 0 then
+      local names: {string} = {}
+      for i, via in ipairs(found.via) do
+        names[i] = via
+      end
+      through = " through " .. table.concat(names, ", ")
+    end
+    report(ctx, "static_before_definition", node, spelled .. " is called, or handed to code that may call it, as " ..
+        "the module loads, and" .. through .. " it reads the function " .. quoted(owner) .. " (line " ..
+        tostring(Lexer.y(ctx.tokens, read.first)) .. ") before the statement that defines it has run",
+      "move the statement `function " .. owner .. "(...)` above this use of " .. spelled .. ", or use " ..
+        spelled .. " in a function that runs after the module has loaded")
+  end)
+  -- The locals each function reads from outside, and those an assignment may change after the function is made, from the
+  -- captures the scope builder found.
   for _, v in ipairs(ctx.scoped.list) do
     for _, c in ipairs(v.captures) do
       local reads = ctx.reads[c.fn]
@@ -5996,42 +6201,6 @@ local function captures_by_function(ctx: Ctx)
       end
     end
   end
-end
-
-function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
-  local out: {integer: {string}} = {}
-  for id, t in pairs(lowered.types) do
-    local body = t is Named and not t.value and t.decl.kind == "enum" and t.decl.body or nil
-    if body ~= nil then
-      out[id] = body.values
-    end
-  end
-  return out
-end
-
-function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
-                     typed?: boolean): Check.Checked
-  local store = program.store
-  local ctx: Ctx = {
-    program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
-    tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, literals = {}, declared = {}, union_fields = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
-    unite = function(a: Type, b: Type): Type
-      return store:union({ a, b })
-    end,
-    covers = function(declared: Type, united: Type): boolean
-      return declared == united
-    end,
-  }
-  ctx.covers = function(declared: Type, united: Type): boolean
-    return below(ctx, declared, united)
-  end
-  ctx.unite = function(a: Type, b: Type): Type
-    return subsume(ctx, store:union({ a, b }))
-  end
-  captures_by_function(ctx)
   for _, top in ipairs(input.chunk.body.stats) do
     if top is Ast.Function and #top.path == 2 then
       local binding = top.path[1].binding
@@ -6039,6 +6208,9 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       local decl = entry ~= nil and entry.decl or nil
       if decl ~= nil then
         local names = ctx.pending[decl] or {}
+        if names[top.path[2].text] ~= true then
+          ctx.load.waiting = ctx.load.waiting + 1
+        end
         names[top.path[2].text] = true
         ctx.pending[decl] = names
       end

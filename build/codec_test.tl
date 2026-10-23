@@ -472,13 +472,13 @@ local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   for _, make in ipairs({ codec.encoder, codec.decoder }) do
     local c = make("base64")
     assert(c:update("") == "" and c:finish() == "")
-    assert(not pcall(c.update, c, "x"))
-    assert(not pcall(c.finish, c))
+    assert(not pcall(function() c:update("x") end))
+    assert(not pcall(function() c:finish() end))
   end
   local bad = codec.decoder("hex")
   assert(bad:update("z") == "")
   assert(bad:finish() == nil)
-  assert(not pcall(bad.finish, bad))
+  assert(not pcall(function() bad:finish() end))
   assert(not pcall(codec.encoder, "base32" as codec.Name))
   assert(not pcall(codec.decoder, "base32" as codec.Name))
 end

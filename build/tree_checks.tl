@@ -62,6 +62,7 @@ local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local PipelineCheck = require("build.pipeline_check")
 local PluralSites = require("build.plural_sites")
+local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
 local ScopesCover = require("lang.scopes_cover")
@@ -157,6 +158,15 @@ allow({
 allow({ "build.pipeline.project", "build.reboot.settled_by" }, "tested directly: the options of a project given the texts " ..
     "of the declarations (a worker's store holds none of the tool's), and the `compiled_by` a tool settled for a mode, which " ..
     "`options` and `unsettled` compose with what the tool carries and what the environment says")
+
+allow({ "build.pipeline_check.keyed", "build.pipeline_check.whole" }, "tested directly: the key of a module's answer by the " ..
+    "ceilings held under its own name, and the digest of every ceiling that keys the rest")
+
+allow({ "build.fix.read_memo.roots", "build.fix.read_memo.alone" }, "tested directly: the modules the read memo names its code by, " ..
+    "which a test holds to what the readers call")
+
+allow({ "build.fix.laid.modules", "build.fix.laid.salt" }, "tested directly: the modules the layout memo names its code by, " ..
+    "which a test holds to what the layout requires, and the salt they make with the binary's identity")
 
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"
@@ -2712,11 +2722,24 @@ local record Tree
   index: Driver.Index
 end
 
+--- Where the digests of the sources the checks of other files read ([`ShapeKey`]) are kept, and the salt of the code that
+--- makes them: a memo ([`build.check_memo`]) of the run, which has none in a test that gives it none.
+local record Shaping
+  memo: Sqlite.Handle | nil
+  salt: string
+end
+
+--- The salt of the digests of [`ShapeKey`], from the code that makes them.
+local function shaping_of(root: string, memo: Sqlite.Handle | nil): Shaping
+  return { memo = memo, salt = check_memo.salt(root, { "lang/lexer.tl", "build/shape_key.tl", "build/check_memo.tl" }, "shape 1") }
+end
+
 --- The files of `files` that a lowering covers, each with the key its answer is kept under: `salt`, its dialect and
 --- its source and the sources of every module it requires, however far. `written` are the sources the build writes from
 --- other files ([`TreeProgram.derived_of`]), which count as files of the tree, named for the file each comes from. With
 --- `steps` the files are mended as the pipeline mends them ([`TreeProgram.index`]).
-local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}}, steps?: boolean): Tree
+local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, written?: {{string}}, steps?: boolean,
+                       shaping?: Shaping): Tree
   local files = TreeProgram.joined(given, written or {}).files
   local derived: {string: boolean} = {}
   for _, entry in ipairs(bindings or {}) do
@@ -2727,6 +2750,16 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   local tree: Tree = { rows = {}, by_module = {}, index = index }
   local rows, by_module = tree.rows, tree.by_module
   local hashes: {string: string} = {}
+  -- What the files that require a module read of it, by module: its digest where it has one ([`ShapeKey`]), else its text.
+  local read: {string: string} = {}
+  local store: Sqlite.Handle | nil = nil
+  local opened = shaping ~= nil and shaping.memo or nil
+  if opened ~= nil then
+    local prepared, _ = check_memo.prepare(opened, "shape")
+    if prepared then
+      store = opened
+    end
+  end
   local row_of: {Driver.Source: DeclareFile} = {}
   for _, source in ipairs(index.sources) do
     -- A declaration derived from a header is no file of the tree: its text is in the salt of the checks that read it.
@@ -2738,8 +2771,24 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       rows[#rows + 1] = row
       row_of[source] = row
       -- A module given as a declaration and a source is read from the declaration; the key holds both texts.
-      hashes[row.module] = (hashes[row.module] or "") .. Hash.hex_sha256(source.text)
+      local exact = Hash.hex_sha256(source.text)
+      hashes[row.module] = (hashes[row.module] or "") .. exact
+      -- A source the build mends, corrects or writes from another file is read as its text says, comments and all.
+      local held = exact
+      if shaping ~= nil and source.dialect == "tl" and source.mend == nil and source.pinned == "" and not source.corrections then
+        local key = check_memo.key(shaping.salt, "shape", source.text)
+        local kept = store ~= nil and check_memo.get(store, "shape", key) or nil
+        local digest = kept or ShapeKey.digest(source.text, source.filename)
+        if kept == nil and store ~= nil then
+          check_memo.put(store, "shape", key, digest)
+        end
+        held = "s" .. digest
+      end
+      read[row.module] = (read[row.module] or "") .. held
     end
+  end
+  if store ~= nil then
+    check_memo.finish(store, "shape")
   end
   for name, source in pairs(index.by_module) do
     local row = row_of[source]
@@ -2772,7 +2821,8 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     table.sort(names)
     local parts: {string} = {}
     for i, m in ipairs(names) do
-      parts[i] = m .. "=" .. hashes[m]
+      -- The file itself is read in full; the modules it requires as the checks of it read them.
+      parts[i] = m .. "=" .. (m == row.module and hashes[m] or read[m])
     end
     -- The files of a cycle of requires reach the same modules: the file itself tells their keys apart.
     row.key = check_memo.key(salt, row.dialect, row.module .. "\n" .. table.concat(parts, "\n"))
@@ -2894,7 +2944,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "declared")
   end
@@ -2960,7 +3010,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if written == nil then
     return { "reading the derived sources: " .. written_why }
   end
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "checked")
   end
@@ -3013,12 +3063,17 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/stdlib_corrections.tl", "checker/stdlib.d.tl", "checker/tl.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
-    "build/ceilings.txt", "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/fact_wraps.tl",
+    "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/fact_wraps.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 2")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true)
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
+  local given: {string: boolean} = {}
+  for _, entry in ipairs(files) do
+    given[entry[1] or ""] = true
+  end
   return PipelineCheck.compare(root, build_db, memo, #tree.rows, function(index: integer): PipelineCheck.Row
     local row = assert(tree.rows[index])
-    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key }
+    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key, plain = given[row.file] == true }
   end, tree_checks.declared(root, nil, memo), tree_checks.checked(root, nil, memo))
 end
 
@@ -3500,7 +3555,7 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
     "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "typed 2")
-  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true)
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")
   end

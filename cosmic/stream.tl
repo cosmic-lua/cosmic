@@ -39,6 +39,11 @@ local record Stream
     read: function(Reader, max_bytes?: integer): string | nil, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
+    -- TODO: declare `skip?:` here and in each Reader that has it (and `pending?:` of Transform), and test `r.skip ~= nil` before
+    -- each `r:skip(n)`, once the Readers' declarations change together (an implementer repeats the `?` exactly): until then the
+    -- new checker reports the tests of `reader.skip == nil` and `t.pending ~= nil` as `compare_disjoint`, pinned in
+    -- build/ceilings.txt.
+
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
     --- would pass the end of the file. A caller checks for it and
@@ -96,12 +101,6 @@ local record Stream
   --- What [`Stream.to_fd`] answers: a Writer that counts what the
   --- descriptor took.
   interface FdWriter is Writer
-    --- As [`Stream.Writer.write`].
-    write: function(FdWriter, string): boolean, string
-    --- As [`Stream.Writer.close`].
-    close: function(FdWriter): boolean, string
-    --- As [`Stream.Writer.abort`].
-    abort: function(FdWriter): boolean, string
     --- How many bytes the descriptor has taken from this Writer in all,
     --- those of a write that then failed included: after a write that
     --- fails with [`Poll.TIMEOUT`], the difference from before it is
@@ -112,16 +111,6 @@ local record Stream
 
   --- An in-memory Writer that also hands back everything written to it.
   interface Collector is Writer
-    -- TODO: drop the three fields repeated here and in FdWriter once the new checker finds the members an interface takes from
-    -- the interfaces it lists: lang/check.tl's members_index reads an interface's own members only, so without them a value
-    -- typed Collector has no `write` for the new checker.
-
-    --- As [`Stream.Writer.write`].
-    write: function(Collector, string): boolean, string
-    --- As [`Stream.Writer.close`].
-    close: function(Collector): boolean, string
-    --- As [`Stream.Writer.abort`].
-    abort: function(Collector): boolean, string
     --- Everything written so far.
     result: function(Collector): string
   end

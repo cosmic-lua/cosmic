@@ -41,16 +41,22 @@ local function test_each_island_is_in_the_tree_and_the_list_is_in_order()
 end
 
 --- A script of `bin/` that runs a file of `build/` standalone on the bootstrap release is one whose file is an
---- island, and each island of `build/` is run so.
+--- island, and so is a file that build/zig.tl runs standalone (`standalone(root, "build/patch.tl", ...)`) on that
+--- release's own binary; each island of `build/` is run so.
 local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_build()
   local run: {string: boolean} = {}
+  local text = (assert(Fs.read("build/zig.tl")))
   for _, name in ipairs((assert(Fs.list("bin")))) do
-    local text = Fs.read("bin/" .. name)
-    if text ~= nil then
-      for path in text:gmatch("cosmic%-bootstrap\" %-%-standalone \"%$root/(build/[%w_]+%.tl)\"") do
-        run[path] = true
-      end
+    text = text .. "\n" .. (Fs.read("bin/" .. name) or "")
+  end
+  for _, pattern in ipairs({ "cosmic%-bootstrap\" %-%-standalone \"%$root/(build/[%w_]+%.tl)\"",
+      "standalone%(root, \"(build/[%w_]+%.tl)\"" }) do
+    for path in text:gmatch(pattern) do
+      run[path] = true
     end
+  end
+  for _, path in ipairs({ "build/patch.tl", "build/paths.tl", "build/zig_fetch.tl" }) do
+    assert(run[path] == true, "build/zig.tl no longer runs " .. path .. ", which this test looks for")
   end
   local listed: {string: boolean} = {}
   for _, path in ipairs(listed_islands(true)) do

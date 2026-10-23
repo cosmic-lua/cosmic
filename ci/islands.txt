@@ -6,10 +6,12 @@
 # compiled by the driver's own tests (`cosmic-driver test cosmic_ci`);
 # a file is type-checked on the pinned release by `driver.tl
 # check-islands`. build/islands_test.tl holds this list to the tree and
-# to the scripts of bin/ that run its files.
+# to the scripts of bin/ and build/zig.tl that run its files.
+build/patch.tl
 build/paths.tl
 build/perf.tl
 build/vendor.tl
 build/verify_codesign.tl
 build/zig.tl
+build/zig_fetch.tl
 ci/

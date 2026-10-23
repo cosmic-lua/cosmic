@@ -55,6 +55,9 @@ local tree = require("build.c.tree")
 local Zig = require("build.zig")
 local plural = require("build.plural")
 local Clock = require("cosmic.clock")
+local Sqlite = require("cosmic.sqlite")
+local check_memo = require("build.check_memo")
+local inputs = require("build.c.inputs")
 
 local record c
   --- What checking one file came to: its findings, or why it could not
@@ -305,6 +308,69 @@ local function declared_in(root: string): {string: rules.Declared}
   return out
 end
 
+--- What a memo keeps of a compile's outcome: the findings, and what the unit defines and refers to.
+local function encoded(findings: {rules.Finding}, unit: rules.Unit): string
+  local rows: {{string}} = {}
+  for _, f in ipairs(findings) do
+    rows[#rows + 1] = { "F", f.file, tostring(f.line), f.rule, f.within, f.message }
+  end
+  local names: {string} = {}
+  for name in pairs(unit.defines) do names[#names + 1] = name end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  for _, name in ipairs(names) do
+    local place = unit.defines[name] or { file = "", line = 0 }
+    rows[#rows + 1] = { "D", name, place.file, tostring(place.line) }
+  end
+  local referred: {string} = {}
+  for name in pairs(unit.refers) do referred[#referred + 1] = name end
+  table.sort(referred, function(a: string, b: string): boolean return a < b end)
+  for _, name in ipairs(referred) do
+    rows[#rows + 1] = { "R", name }
+  end
+  return check_memo.encode(rows)
+end
+
+--- Field `i` of a row a memo kept.
+local function field(fields: {string}, i: integer): string
+  return fields[i] or ""
+end
+
+--- The findings and unit of `file` that `text` encodes ([`encoded`]), or nil where it does not read.
+local function decoded(file: string, text: string): {rules.Finding} | nil, rules.Unit | nil
+  local findings: {rules.Finding} = {}
+  local unit: rules.Unit = { file = file, defines = {}, refers = {} }
+  for _, fields in ipairs(check_memo.decode(text)) do
+    local kind = fields[1]
+    if kind == "F" and #fields == 6 and math.tointeger(tonumber(field(fields, 3))) ~= nil then
+      findings[#findings + 1] = { file = field(fields, 2), line = math.tointeger(tonumber(field(fields, 3))) or 0,
+        rule = field(fields, 4), within = field(fields, 5), message = field(fields, 6) }
+    elseif kind == "D" and #fields == 4 and math.tointeger(tonumber(field(fields, 4))) ~= nil then
+      unit.defines[field(fields, 2)] = { file = field(fields, 3), line = math.tointeger(tonumber(field(fields, 4))) or 0 }
+    elseif kind == "R" and #fields == 2 then
+      unit.refers[field(fields, 2)] = true
+    else
+      return nil, nil
+    end
+  end
+  return findings, unit
+end
+
+--- What `declared` says as text, in an order that does not change: a part of what a compile's outcome is made of.
+local function declared_text(declared: {string: rules.Declared}): string
+  local names: {string} = {}
+  for name in pairs(declared) do names[#names + 1] = name end
+  table.sort(names, function(a: string, b: string): boolean return a < b end)
+  local parts: {string} = {}
+  for _, name in ipairs(names) do
+    local d = declared[name] or { count = 0, fallible = false, effect = false, descriptors = {} }
+    local at: {string} = {}
+    for _, position in ipairs(d.descriptors) do at[#at + 1] = tostring(position) end
+    parts[#parts + 1] = name .. " " .. tostring(d.count) .. " " .. tostring(d.fallible) .. " " .. tostring(d.effect) ..
+      " " .. table.concat(at, ",")
+  end
+  return table.concat(parts, "\n")
+end
+
 --- What checking `file` came to, and what it defines and refers to.
 local function outcome(root: string, file: string, result: Child.Result | nil, trouble: string,
                        declared: {string: rules.Declared}, limit: integer):
@@ -393,8 +459,10 @@ end
 --- refers to ("single-file") is found too, with the file defining it,
 --- as long as every one of them could be read. `limit` is the most bytes
 --- of one file's syntax tree that are read, by default `dump_limit`; a
---- file whose tree is larger is refused rather than half checked.
-function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
+--- file whose tree is larger is refused rather than half checked. With `store`, a database for [`build.check_memo`],
+--- a compile whose inputs have not changed ([`build.c.inputs`]) is not run again: what the checks made of its tree is
+--- read from the memo, and one that is made is kept there. A run over every C file drops the rows it did not use.
+function c.check(root: string, files: {string}, cwd?: string, limit?: integer, store?: Sqlite.Handle):
     {c.Outcome}
   cwd = cwd or root
   local declared = declared_in(root)
@@ -438,22 +506,65 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
   local function absolute(path: string): string
     return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
   end
+  local dirs: {string} = {}
+  for _, dir in ipairs(include_dirs(root, cwd)) do dirs[#dirs + 1] = absolute(dir) end
+  -- The key each compile's outcome is kept under, for those whose inputs can be known and that the memo lacks; those it
+  -- holds are answered here.
+  local keys: {integer: string} = {}
+  local stored = false
+  if store ~= nil and install ~= nil then
+    local prepared, _ = check_memo.prepare(store, "c")
+    stored = prepared
+  end
+  if store ~= nil and stored then
+    local salt = check_memo.salt(root, { "build/c/init.tl", "build/c/rules.tl", "build/c/tree.tl", "build/c/inputs.tl",
+      "build/check_memo.tl", "build/gen_syscalls.tl", "build/plural.tl" }, "c 1")
+    local context = root .. "\0" .. cwd .. "\0" .. tostring(limit or dump_limit) .. "\0" .. declared_text(declared)
+    local readers: {integer: inputs.Reader} = {}
+    for j, job in ipairs(jobs) do
+      local file = assert(files[job.file])
+      local words = command(root, file, cwd, assert(c.variants[job.variant]))
+      local reader = readers[job.variant]
+      if reader == nil then
+        reader = inputs.reader(dirs, words)
+        readers[job.variant] = reader
+      end
+      local read = inputs.key(reader, absolute(file), words, assert(install))
+      if read ~= nil then
+        local key = check_memo.key(salt, "c", context .. "\0" .. read)
+        local text = check_memo.get(store, "c", key)
+        local findings, unit: {rules.Finding} | nil, rules.Unit | nil
+        if text ~= nil then
+          findings, unit = decoded(file, text)
+        end
+        if findings ~= nil and unit ~= nil then
+          results[j] = { file = file, findings = findings }
+          units[j] = unit
+        else
+          keys[j] = key
+        end
+      end
+    end
+  end
   local function compile()
     local running: {Child.Handle} = {}
     local next_job = 1
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
         local job = jobs[next_job]
-        local handle, trouble = Child.start(
-          command(root, files[job.file], cwd, c.variants[job.variant]), {
-            cwd = cwd, env = env, stdout = "capture", stderr = "capture",
-            capture_limit = limit or dump_limit,
-          })
-        if handle == nil then
-          results[next_job] = { file = files[job.file], trouble = trouble }
-        else
-          running[#running + 1] = handle
-          which[handle] = next_job
+        -- A compile the memo answered is not run.
+        if results[next_job] == nil then
+          local handle, trouble = Child.start(
+            command(root, files[job.file], cwd, c.variants[job.variant]), {
+              cwd = cwd, env = env, stdout = "capture", stderr = "capture",
+              capture_limit = limit or dump_limit,
+            })
+          if handle == nil then
+            results[next_job] = { file = files[job.file], trouble = trouble }
+          else
+            running[#running + 1] = handle
+            which[handle] = next_job
+          end
         end
         next_job = next_job + 1
       end
@@ -469,8 +580,15 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
         else
           local result, wait_trouble = done:wait()
           local job = jobs[which[done]]
-          results[which[done]], units[which[done]] = outcome(root, files[job.file], result,
+          local made, unit = outcome(root, files[job.file], result,
             wait_trouble, declared, limit or dump_limit)
+          results[which[done]], units[which[done]] = made, unit
+          local made_findings = made.findings
+          local made_key = keys[which[done]]
+          -- A compile that made findings made a unit too.
+          if store ~= nil and made_key ~= nil and made_findings ~= nil then
+            check_memo.put(store, "c", made_key, encoded(made_findings, unit))
+          end
           local still: {Child.Handle} = {}
           for _, handle in ipairs(running) do
             if handle ~= done then still[#still + 1] = handle end
@@ -510,6 +628,15 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     return ""
   end)
   local _, _ = Fs.remove_tree(deps)
+  local is_whole = whole(cwd, files)
+  if store ~= nil and stored then
+    -- Only a run over every file may say which rows are no longer wanted.
+    if is_whole and compiled then
+      check_memo.finish(store, "c")
+    else
+      local _, _ = Sqlite.run(store, "COMMIT")
+    end
+  end
   if not compiled then error(trouble, 0) end
   -- A file's outcome is the first variant's, with the findings of the
   -- others added; a variant that could not be read fails the file, named
@@ -566,7 +693,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     -- keep from the others.
     if out.trouble ~= nil then out.findings = nil end
   end
-  if whole(cwd, files) then
+  if is_whole then
     local every: {rules.Unit} = {}
     local by_file: {string: c.Outcome} = {}
     for i = 1, #files do
