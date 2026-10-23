@@ -1844,7 +1844,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = archive(c, fresh)
   if s ~= 0 then return s end
   mkdir(portable_d)
-  write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"));
+  write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"))
   s = step(c, "portable executable mode", function(): boolean, string
     return Fs.chmod(portable_d .. "/cosmic-portable", 0x1ed)
   end)
@@ -1975,9 +1975,9 @@ function Orchestration.seed_compiles(env: {string:string},
   if source:sub(1, 1) ~= "/" then
     return false, "COSMIC_BUILD_CACHE names no absolute path: " .. source
   end
-  local held: {{string, sys.Kind}} = { { Fs.dirname(source), "dir" }, { source, "file" } }
-  for _, pair in ipairs(held) do
-    local path, kind = pair[1], pair[2]
+  local held: {sys.Kind} = { "dir", "file" }
+  for _, kind in ipairs(held) do
+    local path = kind == "dir" and Fs.dirname(source) or source
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
     local st, stat_trouble: sys.Stat | nil, string = nil, ""

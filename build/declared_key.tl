@@ -1452,11 +1452,11 @@ end
 function declared_key.program_identity(digests: declared_key.Digests, paths: {string}): string
   local lines: {string} = {}
   for _, path in ipairs(paths) do
-    if path:match("/%.verified%-[^/]*$") ~= nil then goto continue end
-    local st, _ = sys.stat(path)
-    lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or
-      "missing"
-    ::continue::
+    if path:match("/%.verified%-[^/]*$") == nil then
+      local st, _ = sys.stat(path)
+      lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or
+        "missing"
+    end
   end
   return hex_sha256(table.concat(lines, "\n"))
 end

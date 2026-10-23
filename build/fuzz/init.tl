@@ -292,17 +292,17 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string | ni
   end
   local checked = 0
   for _, name in ipairs(names) do
-    if name:sub(-6) ~= ".input" then goto continue end
-    local path = dir .. "/" .. name
-    local input, rtrouble = Fs.read(path)
-    if input == nil then
-      error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+    if name:sub(-6) == ".input" then
+      local path = dir .. "/" .. name
+      local input, rtrouble = Fs.read(path)
+      if input == nil then
+        error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
+      end
+      if kept ~= nil then local _, _ = Fs.write(kept, input) end
+      local held, why = attempt(p.check, input, budget)
+      assert(held or corpus_failed(p, path, why, input))
+      checked = checked + 1
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local held, why = attempt(p.check, input, budget)
-    assert(held or corpus_failed(p, path, why, input))
-    checked = checked + 1
-    ::continue::
   end
   return checked
 end

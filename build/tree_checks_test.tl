@@ -1007,7 +1007,7 @@ local function test_the_tree_is_held_to_the_cut_forms_the_grammar_draft_counts(d
       totals[code] = (totals[code] or 0) + assert(math.tointeger(tonumber(count)))
     end
   end
-  assert(totals["label_or_goto"] == 10 and totals["semicolon"] == 1 and totals["long_comment"] == 27 and
+  assert(totals["label_or_goto"] == nil and totals["semicolon"] == nil and totals["long_comment"] == 27 and
       totals["digit_separator"] == 4 and totals["hex_float"] == nil)
 end
 

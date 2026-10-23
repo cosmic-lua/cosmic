@@ -237,15 +237,15 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
     end
     for key, member in pairs(v) do
       local name: any = key
-      if not (name is string) then goto continue end
-      local field = node.fields[name]
-      if field == nil then
-        field = new_node()
-        node.fields[name] = field
+      if name is string then
+        local field = node.fields[name]
+        if field == nil then
+          field = new_node()
+          node.fields[name] = field
+        end
+        node.seen[name] = (node.seen[name] or 0) + 1
+        absorb(field, member, depth + 1, limit)
       end
-      node.seen[name] = (node.seen[name] or 0) + 1
-      absorb(field, member, depth + 1, limit)
-      ::continue::
     end
   end
 end
