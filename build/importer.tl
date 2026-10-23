@@ -1514,6 +1514,12 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       end
       progress.scanned = true
       if bytes > 0 and pool.ready(bytes) then
+        -- The workers answer only when they are done, so this is the one
+        -- line a long compile says before its result.
+        local count = 0
+        for _ in pairs(wanted) do count = count + 1 end
+        local _, _ = log:complain("build: compiling " .. plural.count(count, "module") ..
+            " in worker processes")
         local made_ahead, ahead_trouble = pool.compile(db, handle.root, order, wanted,
           own_tree, judged)
         if made_ahead == nil and ahead_trouble ~= "" then
