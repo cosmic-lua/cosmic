@@ -53,7 +53,7 @@ worktree's build directory when you delete the worktree.
    before pushing a change to what they read.
 3. A tool older than the tree rebuilds itself and re-enters the command
    the moment it notices, so `bin/cosmic test` after an edit is enough (it
-   says why and how long: `cosmic: rebuilt the tool in 20 s`). A
+   says why and how long: `cosmic: rebuilt the tool in 20.3 s`). A
    change to the core's C, `build.zig`, the launcher or artifact format,
    or a vendored library's pin or patches runs `bin/zig build boot` first.
    With `COSMIC_AUTO_BOOT=0` the tool refuses instead and exits 3 (CI sets
