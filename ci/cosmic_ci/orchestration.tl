@@ -1289,7 +1289,9 @@ local function boot(p: PlatformContext): integer
     local _, out, err = ZigRestat.run(root, project, named("COSMIC_ZIG_GLOBAL_CACHE"))
     Fs.put(Fs.stderr, out .. err)
   end
-  return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
+  -- Every core: what CI verifies is the tool that carries them all, the one
+  -- a release is made of; a bare `boot` writes a host program of the host's.
+  return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot", "-Dboot-cores=all" }, 0)
 end
 
 --- The list, in the checkout, of the test modules whose code takes a
@@ -1536,7 +1538,7 @@ end
 local BUILT_BY <const> = "local S = require('cosmic.store'); print(S.meta('compiled_by') ~= S.meta('compiler')); " ..
   "print(S.source('checker.stdlib') ~= nil and S.source('checker.prelude') ~= nil)"
 
---- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot`) over the one `boot`
+--- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`) over the one `boot`
 --- made in the same build directory: the tree is compiled in one process by the new pipeline, and the tool carries the Lua
 --- the new generator wrote, under the tool string that says so, so that a run that asks for the fork's builds it again and one
 --- that asks for the new checker's does not. `rehearsal` runs the suite on it. On the linux-x86_64 target alone.
@@ -1544,7 +1546,7 @@ local function phase_rehearsal_boot(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
   mkdir(p.local_diagnostics)
-  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot" },
+  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot", "-Dboot-cores=all" },
     rehearsal_boot_timeout_ns, c.root, environment({ COSMIC_GRAMMAR = "new" }))
   if booted ~= 0 then return booted end
   local said = p.local_diagnostics .. "/rehearsal-built-by.out"

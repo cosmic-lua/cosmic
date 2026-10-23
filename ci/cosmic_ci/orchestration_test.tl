@@ -908,7 +908,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
   -- bin/zig logs each build, and leaves what it names.
   Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o\nprintf '%s\\n' \"$*\" >> o/zig.ran\n" ..
       "case \"$*\" in\n" ..
-      "'build cores boot') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
+      "'build cores boot -Dboot-cores=all') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
       "chmod 755 o/bin/cosmic ;;\n" ..
       "'build sanitized') mkdir -p o/sanitized/bin ;;\n" ..
       "'build portable-format-" .. target .. "') mkdir -p o/portable-fixture/format && " ..
@@ -920,7 +920,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
       project, tmp .. "/logs", env)
     assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
   end
-  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot\nbuild sanitized\n" ..
+  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot -Dboot-cores=all\nbuild sanitized\n" ..
       "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
   assert(Fs.read(fake .. "/o/bin/cosmic.ran") == nil, "boot ran the native suite")
   local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
@@ -1526,7 +1526,7 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
   local base, project = command(tmp)
   -- The checked job's leg promises these and `checked`, which the run's
   -- core does not have: the phase leaves that one out.
-  local promised = "sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
+  local promised = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
     "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
   local cases = {
     { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
@@ -1726,7 +1726,7 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
     local boots = Fs.read(fake .. "/o.boots")
     if case.ran then
       -- the second boot is the plain `boot` with the new checker asked for, the first the legs' with the mode unset
-      assert(boots ~= nil and boots:find("\nbuild boot|new\n", 1, true) ~= nil and boots:find("build cores boot|\n", 1, true) == 1,
+      assert(boots ~= nil and boots:find("\nbuild boot -Dboot-cores=all|new\n", 1, true) ~= nil and boots:find("build cores boot -Dboot-cores=all|\n", 1, true) == 1,
         case.name .. ": " .. tostring(boots))
       local projects = Fs.read(fake .. "/o/bin/cosmic.projects")
       assert(projects == "new|0\n", case.name .. ": " .. tostring(projects))

@@ -544,14 +544,14 @@ require it, and the job that cancels a queue run on a failed leg passes over it 
 holds every `continue-on-error` job to both). A branch push shows the job as skipped, one of the exceptions
 `build/workflows_test.tl` names. The job restores linux-x86_64's zig build outputs and compiles and saves neither, and runs these phases in order:
 
-1. `boot`: the tree, with the fork's compiler, as every leg boots it.
+1. `boot`: the tree, with the fork's compiler, as every leg boots it: `bin/zig build cores boot -Dboot-cores=all`, the portable tool of every core. A bare `boot` writes a host program of the host's core alone, which no leg verifies.
 2. `rehearsal-examples`: the examples (`*_example.tl`) and the code blocks of `doc/guides`, which a user copies, each compiled alone
    by the new checker (`build/example_checks_main.tl`, the example part of `COSMIC_GRAMMAR=new cosmic fix --check .`), on the tool
    `boot` built: the check asks for the new checker itself. What they still write in a form only the new grammar reads, or a type
    the new checker lacks, is pinned per file and code under `[examples]` in `build/ceilings.txt`: a finding over its pin and a pin
    above its findings fail the phase, so the pins only fall. Every step after `boot` runs on `boot`'s outcome alone
    (`if: always() && ...`), so a regression in an example fails this step and skips none of the rest.
-3. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot`. The new pipeline (`build/pipeline.tl`) compiles
+3. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`. The new pipeline (`build/pipeline.tl`) compiles
    it in one process, taking no compile another run made, and the tool it leaves carries the Lua the new generator wrote and
    the declarations of the standard library a project is typed against (`build/checker_declarations.tl`). It records that it was
    built so (its `compiled_by` is not its `compiler`, `reboot.settled_by`), so that a run that asks for the fork's builds it
