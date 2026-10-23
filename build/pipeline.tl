@@ -190,6 +190,12 @@ local record Pipeline
   generate: function(m: Module, built: Built, facts?: boolean, judged?: boolean, hints?: function(): {Sqlite.Handle}, {boolean}):
       Compilation.Generated | nil, string
 
+  --- [`Pipeline.generate`] for a build the caller keeps across edits of a module (`cosmic lsp`'s session): the module is
+  --- checked and judged as it is there, and it is neither retired nor written as bytecode (nor are its record-field uses read), so the caller may put
+  --- another text in its place ([`Driver.Build.replace`]) and ask again. The calls of [`Shape.record_of`] are resolved by the caller. The
+  --- types the checker kept of the module are let go once read.
+  review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Compilation.Generated | nil, string
+
   --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
   --- name is its own.
@@ -616,16 +622,20 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   return ""
 end
 
-local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
-                            hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated | nil, string
+--- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
+--- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
+local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
+                            kept?: boolean): Compilation.Generated | nil, string
   local build = built.build
-  if build:retired(m.path) then
-    return nil, m.file .. ": this build has written the module already: a build writes each module once"
-  end
-  -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, and the module is read again with them.
-  local spliced, spec_trouble = TreeProgram.splice(build, m.path, m.file)
-  if spliced == nil then
-    return nil, spec_trouble
+  if kept ~= true then
+    if build:retired(m.path) then
+      return nil, m.file .. ": this build has written the module already: a build writes each module once"
+    end
+    -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, and the module is read again with them.
+    local spliced, spec_trouble = TreeProgram.splice(build, m.path, m.file)
+    if spliced == nil then
+      return nil, spec_trouble
+    end
   end
   build:lower({ m.path })
   local result = build:result(m.path, true)
@@ -701,12 +711,17 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     end
     refused = refused or #problems > 0
   end
-  for _, use in ipairs(Receivers.references(subject)) do
-    references[#references + 1] = { module = use.module, member = use.member, line = use.line }
+  if kept ~= true then
+    for _, use in ipairs(Receivers.references(subject)) do
+      references[#references + 1] = { module = use.module, member = use.member, line = use.line }
+    end
   end
   -- What the readers took is read: the types of the module are of no use to the next, and a tree of them is the memory of a run.
   result.types = {}
   result.callees = {}
+  if kept == true then
+    return { lua = code, bytecode = "", references = references, refused = refused }, ""
+  end
   if m.kind == "test" then
     code = LuaTail.with_test_tail(code, m.tests)
   end
@@ -743,6 +758,12 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     return nil, why
   end
   return made, ""
+end
+
+function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Compilation.Generated | nil, string
+  -- The collector is generational for the life of a session, as it is for a compile: see [`Pipeline.generate`].
+  collectgarbage("generational")
+  return generated_of(m, built, false, true, hints, true)
 end
 
 function Pipeline.requires(file: string, text: string): {string} | nil, string
