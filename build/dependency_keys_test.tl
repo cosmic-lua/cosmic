@@ -220,6 +220,23 @@ local function test_the_keys_made_from_what_changed_are_those_made_of_everything
   walk(2024, 60)
 end
 
+--- A module named with a byte below a newline after its first sorts its lines
+--- ahead of those of one whose name it begins, which the order of the nodes
+--- does not hold to: the keys are made of everything then, and are the same
+--- over the edits that follow.
+local function test_a_name_with_a_byte_below_a_newline_is_keyed_as_a_whole()
+  local root = assert(Fs.mkdtemp("cosmic-dependency-keys-bytes-"))
+  -- One that requires both, which reaches both nodes: "a" sorts before "a\tb", and "a\n" after "a\tb\n".
+  assert(Fs.write(root .. "/c.tl", "local a = require(\"a\")\nlocal b = require(\"a\tb\")\nreturn {}\n"))
+  assert(Fs.write(root .. "/a.tl", "return {}\n"))
+  assert(Fs.write(root .. "/a\tb.tl", "return {}\n"))
+  assert(differing(root, "tool-one") == "", "the first keys differ")
+  assert(Fs.write(root .. "/a\tb.tl", "return { value = 1 }\n"))
+  assert(differing(root, "tool-one") == "", "the keys after an edit differ")
+  assert(Fs.write(root .. "/a.tl", "return { value = 2 }\n"))
+  assert(differing(root, "tool-one") == "", "the keys after another edit differ")
+end
+
 --- Keys kept for one compiler are not another's.
 local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-tool-"))
