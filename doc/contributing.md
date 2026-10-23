@@ -46,7 +46,7 @@ conflict with the parent's squash.
   what changed, then the full suite, `timeout 2700 bin/cosmic test`
   ([`doc/testing.md`] says how long it takes).
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
-  checks read. it takes about 10 minutes (`timeout 2400`), and says which
+  checks read. it takes 5 to 11 minutes (`timeout 2400`), and says which
   of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to C, `ci/`, the launcher, startup, the artifact format or a
