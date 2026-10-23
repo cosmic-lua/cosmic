@@ -528,6 +528,7 @@ lang/types.tl 5
 lang/warnings.tl 1
 test/portable/tool.tl 2
 test/terminal/pty.tl 1
+build/tree_writer.tl 3
 
 [checked]
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
@@ -2540,6 +2541,8 @@ test/portable/tool.tl view_written 8
 test/profile_page.tmpl view_written 14
 test/sqlite_parameter_test.tl view_written 1
 test/sqlite_row_test.tl view_written 1
+build/tree_writer.tl view_written 40
+build/tree_writer_test.tl view_written 4
 # a view passed where a `mut` collection is wanted: the same locals and fields, declared `mut` by the rewrite
 build/analyzer.tl view_as_mut 6
 build/archive.tl view_as_mut 1
@@ -2658,6 +2661,7 @@ lang/translate_fuzz_test.tl view_as_mut 3
 lang/types.tl view_as_mut 3
 lang/types_speed_test.tl view_as_mut 1
 lang/warnings.tl view_as_mut 1
+build/tree_writer.tl view_as_mut 2
 # a field assigned after its record is made, not declared `mut`: the translator writes `mut` on the fields the fork's
 # rows show assigned and not on those it cannot attribute (a field of a module record assigned through its name)
 build/analysis_schema.tl field_fixed 2
@@ -2985,6 +2989,8 @@ lang/warnings.tl field_fixed 2
 test/portable/tool.tl field_fixed 1
 test/terminal/pty.tl field_fixed 6
 test/terminal/relay.tl field_fixed 2
+build/tree_writer.tl field_fixed 6
+build/tree_writer_test.tl field_fixed 1
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
 # declarations lack
@@ -3694,6 +3700,8 @@ lang/types.tl overload_none 4
 lang/warnings.tl overload_none 1
 test/coverage_cache_test.tl overload_none 1
 test/portable/tool.tl overload_none 1
+build/tree_writer.tl overload_none 3
+build/tree_writer_test.tl overload_none 1
 # a `return` of fewer values than the function answers (`return nil` for `T?, string`)
 build/alias_members.tl return_arity 5
 build/ast/requires.tl return_arity 1
