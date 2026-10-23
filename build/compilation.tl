@@ -157,8 +157,12 @@ end
 --- What [`compute_keys`] reads of the tree and of the program's embedded
 --- standard library, as a graph walk needs it: each source the checker can
 --- load, by slot, and how a name is looked up in them.
-local function dependency_graph(db: Sqlite.Handle, modules: {Module}):
-    {string:Dependency} | nil, string
+local record Graph
+  dependencies: {string:Dependency}
+  resolve: function(string, string): Dependency | nil, string
+end
+
+local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -186,38 +190,36 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}):
       kind = m.kind, source_hash = m.source_hash, requires = m.requires,
     }
   end
-  return dependencies, ""
-end
-
---- The node `slot` names, `name` as the source wrote it: in the tree, or
---- else an embedded module of the program's standard library, which is
---- keyed by what the checker reads of it, a stub or a source, and by
---- which: a project compiled against one is never taken for one compiled
---- against the other. Nil, and why or "" for no node at all.
-local function resolve_in(dependencies: {string:Dependency}, slot: string, name: string):
-    Dependency | nil, string
-  local dependency = dependencies[slot]
-  if dependency == nil then
-    if name:sub(1, 7) ~= "cosmic." then
-      return nil, ""
+  --- The node `slot` names, `name` as the source wrote it: in the tree, or
+  --- else an embedded module of the program's standard library, which is
+  --- keyed by what the checker reads of it, a stub or a source, and by
+  --- which: a project compiled against one is never taken for one compiled
+  --- against the other. Nil, and why or "" for no node at all.
+  local function resolve(slot: string, name: string): Dependency | nil, string
+    local dependency = dependencies[slot]
+    if dependency == nil then
+      if name:sub(1, 7) ~= "cosmic." then
+        return nil, ""
+      end
+      local served = teal.standard_text(name)
+      if served == nil then
+        local _, source_trouble = Store.source(name)
+        return nil, source_trouble
+      end
+      local embedded_requires, edges_trouble = embedded_edges(name)
+      if embedded_requires == nil then
+        return nil, edges_trouble
+      end
+      dependency = {
+        kind = served.stubbed and "embedded stub" or "embedded",
+        source_hash = Hash.hex_sha256(served.text),
+        requires = embedded_requires,
+      }
+      dependencies[slot] = dependency
     end
-    local served = teal.standard_text(name)
-    if served == nil then
-      local _, source_trouble = Store.source(name)
-      return nil, source_trouble
-    end
-    local embedded_requires, edges_trouble = embedded_edges(name)
-    if embedded_requires == nil then
-      return nil, edges_trouble
-    end
-    dependency = {
-      kind = served.stubbed and "embedded stub" or "embedded",
-      source_hash = Hash.hex_sha256(served.text),
-      requires = embedded_requires,
-    }
-    dependencies[slot] = dependency
+    return dependency, ""
   end
-  return dependency, ""
+  return { dependencies = dependencies, resolve = resolve }, ""
 end
 
 --- The key of `name` (`file` its file) over the nodes it reaches, each as
@@ -235,16 +237,17 @@ end
 --- Only the key holds it: the graph key ([`build.positions`]'
 --- `graph_key`) is the import graph's by name and content, and a
 --- dependency's file decides nothing of this compile.
-local function identify_in(dependencies: {string:Dependency}, name: string, file: string,
+local function identify_in(known: Graph, name: string, file: string,
                            tool: string, line_of: function(string, Dependency): string):
     Keys | nil, string
+  local dependencies, resolve = known.dependencies, known.resolve
   local seen: {string:boolean} = {}
   local graph: {string} = {}
   local function visit(slot: string, display: string): boolean, string
     if seen[slot] then
       return true, ""
     end
-    local dependency, resolve_trouble = resolve_in(dependencies, slot, display)
+    local dependency, resolve_trouble = resolve(slot, display)
     if dependency == nil then
       if resolve_trouble ~= "" then return false, resolve_trouble end
       return true, ""
@@ -252,7 +255,7 @@ local function identify_in(dependencies: {string:Dependency}, name: string, file
     seen[slot] = true
     graph[#graph + 1] = line_of(slot, dependency)
     for _, required in ipairs(dependency.requires) do
-      local child, child_trouble = resolve_in(dependencies, required, required)
+      local child, child_trouble = resolve(required, required)
       if child == nil and child_trouble ~= "" then
         return false, child_trouble
       end
@@ -291,13 +294,13 @@ end
 --- [`Keys`], by path.
 local function compute_keys(db: Sqlite.Handle, modules: {Module},
                             tool: string): {string:Keys} | nil, string
-  local dependencies, trouble = dependency_graph(db, modules)
-  if dependencies == nil then
+  local graph, trouble = dependency_graph(db, modules)
+  if graph == nil then
     return nil, trouble
   end
   local out: {string:Keys} = {}
   for _, m in ipairs(modules) do
-    local keys, identify_trouble = identify_in(dependencies, m.path, m.file, tool, source_line)
+    local keys, identify_trouble = identify_in(graph, m.path, m.file, tool, source_line)
     if keys == nil then
       return nil, identify_trouble
     end
@@ -683,8 +686,9 @@ local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
   if known == nil then
     return false, known_trouble
   end
-  if known[1] ~= nil then
-    return known[1]:text(1) == "1", ""
+  local verdict = known[1]
+  if verdict ~= nil then
+    return verdict:text(1) == "1", ""
   end
   local stubbed = built.check_string(stub_text, env, file .. " (stub)", "tl")
   local held = #stubbed.syntax_errors == 0 and #stubbed.type_errors == 0 and
@@ -739,7 +743,8 @@ end
 --- @param keys each module's [`compilation.Keys`], by path
 function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler.Env | nil,
                                keys: {string:Keys}, path: string): boolean
-  if keys[path] == nil then
+  local named = keys[path]
+  if named == nil then
     return false
   end
   local rows, _ = Sqlite.text_rows(db,
@@ -747,18 +752,21 @@ function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler
       "WHERE i.kind = 'module' AND i.path = ?1 " ..
       "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
     { text(path) })
-  if rows == nil or rows[1] == nil then
+  local first: Sqlite.Row | nil = nil
+  if rows ~= nil then first = rows[1] end
+  if first == nil then
     return false
   end
-  local file, stub_text = rows[1]:text(1), rows[1]:text(2)
+  local file, stub_text = first:text(1), first:text(2)
   local known, _ = Sqlite.text_rows(db,
     "SELECT held FROM stub_holds WHERE key = ?1 AND stub = ?2",
-    { text(keys[path].key), text(stub_hash(stub_text)) })
+    { text(named.key), text(stub_hash(stub_text)) })
   if known == nil then
     return false
   end
-  if known[1] ~= nil then
-    return known[1]:text(1) == "1"
+  local verdict = known[1]
+  if verdict ~= nil then
+    return verdict:text(1) == "1"
   end
   if env == nil then
     return false
@@ -785,11 +793,11 @@ end
 function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: string,
                                     keys: {string:Keys}, judge: function(string): boolean):
     Interfaced | nil, string
-  local graph, trouble = dependency_graph(db, modules)
-  if graph == nil then
+  local made_graph, trouble = dependency_graph(db, modules)
+  if made_graph == nil then
     return nil, trouble
   end
-  local dependencies: {string:Dependency} = graph
+  local graph: Graph = made_graph
   local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
       "WHERE i.kind = 'module' AND NOT EXISTS " ..
@@ -819,10 +827,12 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
     if verdict ~= nil then
       return verdict
     end
-    if judged[path] == nil then
-      judged[path] = judge(path)
+    local made = judged[path]
+    if made == nil then
+      made = judge(path)
+      judged[path] = made
     end
-    return judged[path]
+    return made
   end
   local function line_of(slot: string, dependency: Dependency): string
     if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
@@ -831,7 +841,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
     return source_line(slot, dependency)
   end
   local interfaced: Interfaced = function(m: Module): string | nil, string
-    local made, identify_trouble = identify_in(dependencies, m.path, m.file,
+    local made, identify_trouble = identify_in(graph, m.path, m.file,
       "interface-1 " .. tool, line_of)
     if made == nil then
       return nil, identify_trouble

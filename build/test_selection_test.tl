@@ -146,9 +146,11 @@ return helper
   local distinct = assert(Sqlite.text_rows(db,
     "SELECT count(*), count(DISTINCT line) FROM coverage WHERE path = 'suite.helper'"))
   assert(db:close())
-  assert(rows[1]:text(1) == "4:1 5:1 6:1 8:1 9:0 10:0 12:1 13:1", rows[1]:text(1))
-  assert(#kinds == 1 and kinds[1]:text(1) == "integerinteger", "a cell was not an integer")
-  assert(distinct[1]:text(1) == distinct[1]:text(2), "a line was written twice")
+  local lines = assert(rows[1]):text(1)
+  assert(lines == "4:1 5:1 6:1 8:1 9:0 10:0 12:1 13:1", lines)
+  assert(#kinds == 1 and assert(kinds[1]):text(1) == "integerinteger", "a cell was not an integer")
+  local counted = assert(distinct[1])
+  assert(counted:text(1) == counted:text(2), "a line was written twice")
 end
 
 local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)

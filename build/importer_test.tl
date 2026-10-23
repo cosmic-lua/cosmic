@@ -1427,7 +1427,7 @@ local function test_a_dependent_takes_its_compile_when_only_a_body_changed()
   local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
   local root = write_own_tree("interface-reuse", { dep = dep, user = user })
   local first = assert(compile_fixture(root))
-  assert(first.compiled >= 2, "the fixture compiled " .. first.compiled)
+  assert(first.compiled >= 2, "the fixture compiled " .. tostring(first.compiled))
   assert(held_stubs(root) >= 2, "the stubs were not held")
   local function bytecode_of(path: string): string
     local handle = assert(work.open(root))
@@ -1442,13 +1442,14 @@ local function test_a_dependent_takes_its_compile_when_only_a_body_changed()
   -- A body of dep: dep is compiled, user is not.
   assert(Fs.write(root .. "/build/dep.tl", (dep:gsub("return 1", "return 2"))))
   local body = assert(compile_fixture(root))
-  assert(body.compiled == 1, "a body edit compiled " .. body.compiled .. " modules")
+  assert(body.compiled == 1, "a body edit compiled " .. tostring(body.compiled) .. " modules")
   assert(bytecode_of("build.user") == before, "the dependent's compile is not the one it had")
   assert(held_stubs(root) >= 2, "the reused module lost its verdict on its stub")
 
   -- Edited again, and put back: still only the module itself.
   assert(Fs.write(root .. "/build/dep.tl", dep .. "-- a comment\n"))
-  assert(assert(compile_fixture(root)).compiled == 1)
+  local commented = assert(compile_fixture(root))
+  assert(commented.compiled == 1, "a comment compiled " .. tostring(commented.compiled) .. " modules")
 
   -- What a check can see: user must be compiled, against the new type.
   local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
@@ -1472,7 +1473,7 @@ local function test_a_dependent_of_a_type_a_body_changed_is_compiled_again()
   assert(compile_fixture(root))
   assert(Fs.write(root .. "/build/e.tl", e_after))
   local again = assert(compile_fixture(root))
-  assert(again.compiled == 3, "e, d and user were compiled " .. again.compiled .. " times")
+  assert(again.compiled == 3, "e, d and user were compiled " .. tostring(again.compiled) .. " times")
   -- With the field in use, the new type must reach user.
   assert(Fs.write(root .. "/build/user.tl",
     (user:gsub("return v", "local n: integer = v.inner.f()\nreturn n"))))

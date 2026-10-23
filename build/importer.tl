@@ -1307,14 +1307,16 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
   local made: {function(Module): string | nil, string} = {}
   local function interface_key(m: Module): string | nil
     if not serving then return nil end
-    if made[1] == nil then
-      local interfaces, _ = compilation.interface_keys(db, modules, tool, keys, function(path: string): boolean
+    local interfaces = made[1]
+    if interfaces == nil then
+      local built_keys, _ = compilation.interface_keys(db, modules, tool, keys, function(path: string): boolean
         return compilation.stub_held(db, built, progress.env, keys, path)
       end)
-      if interfaces == nil then return nil end
-      made[1] = interfaces
+      if built_keys == nil then return nil end
+      made[1] = built_keys
+      interfaces = built_keys
     end
-    local found, _ = made[1](m)
+    local found, _ = interfaces(m)
     return found
   end
   local function reuse(m: Module, key: string): Reuse | nil
@@ -1323,8 +1325,10 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
     local rows, _ = Sqlite.text_rows(db,
       "SELECT c.key, c.lua, c.bytecode FROM compiled_interface i JOIN compiled c ON c.key = i.key " ..
         "WHERE i.ikey = ?1 AND c.tool = ?2 AND c.seen >= 0", { text(interface), text(tool) })
-    if rows == nil or rows[1] == nil then return nil end
-    local old = rows[1]:text(1)
+    local first: Sqlite.Row | nil = nil
+    if rows ~= nil then first = rows[1] end
+    if first == nil then return nil end
+    local old = first:text(1)
     -- What else is kept under a compile's key: the record-field uses it
     -- found, and the verdicts on the stub of its module.
     local copied, _ = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
@@ -1338,7 +1342,7 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
           "SELECT ?1, stub, held FROM stub_holds WHERE key = ?2", { text(key), text(old) })
     end
     if not copied then return nil end
-    local found: Reuse = { lua = rows[1]:text(2), bytecode = rows[1]:bytes(3) }
+    local found: Reuse = { lua = first:text(2), bytecode = first:bytes(3) }
     return found
   end
   local function note(m: Module, key: string)
@@ -1549,7 +1553,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         m.key = key
         m.graph_key = keys[m.path].graph
         if compilation.refusal(m) == nil then
-          if not stands_by[key] then
+          if stands_by[key] ~= true then
             local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
             if elsewhere ~= nil then
               looked[m.path] = elsewhere
@@ -1613,15 +1617,14 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         end
         -- A compile of the same source against the same interfaces, made
         -- under another key, is copied under this one.
-        local reused: Reuse | nil = nil
         if lua == nil and elsewhere == nil then
-          reused = interfacing.reuse(m, key)
+          local reused = interfacing.reuse(m, key)
+          if reused ~= nil then
+            lua = reused.lua
+            bytecode = reused.bytecode
+          end
         end
         if lua ~= nil then
-          result.cached = result.cached + 1
-        elseif reused ~= nil then
-          lua = reused.lua
-          bytecode = reused.bytecode
           result.cached = result.cached + 1
         elseif elsewhere ~= nil then
           lua = elsewhere.lua

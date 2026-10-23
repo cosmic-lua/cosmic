@@ -563,7 +563,7 @@ end
 local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated"))
-  assert(before[1]:text(1) ~= "0", "writing a projection fills the cache")
+  assert(assert(before[1]):text(1) ~= "0", "writing a projection fills the cache")
 
   write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, false))
@@ -571,7 +571,7 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local stale = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM deflated WHERE source_hash NOT IN (SELECT source_hash FROM inputs)"))
-  assert(stale[1]:text(1) == "0", "the cache holds a source no input has")
+  assert(assert(stale[1]):text(1) == "0", "the cache holds a source no input has")
   assert(work.close(handle))
 
   assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
@@ -583,7 +583,8 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
       "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 " ..
       "FROM modules WHERE path = 'greet'"))
   assert(out:close())
-  assert(rows[1]:text(1) == "1" and rows[1]:text(2) == "0", "the edited source was not shipped")
+  local shipped = assert(rows[1])
+  assert(shipped:text(1) == "1" and shipped:text(2) == "0", "the edited source was not shipped")
 end
 
 --- A paired declaration describes the interface; only its implementation

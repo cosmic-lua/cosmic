@@ -904,7 +904,7 @@ build/teal_test.tl nil_not_allowed 33
 build/term_filter.tl nil_not_allowed 3
 build/term_filter_fuzz_test.tl nil_not_allowed 5
 build/term_relay.tl nil_not_allowed 11
-build/test.tl nil_not_allowed 86
+build/test.tl nil_not_allowed 85
 build/test_bail_tool_test.tl nil_not_allowed 6
 build/test_inputs.tl nil_not_allowed 1
 build/test_inputs_test.tl nil_not_allowed 3
@@ -1497,7 +1497,7 @@ build/syntax_typed_fixture.tl index_may_be_nil 4
 build/teal.tl index_may_be_nil 3
 build/teal_test.tl index_may_be_nil 12
 build/term_filter.tl index_may_be_nil 1
-build/test.tl index_may_be_nil 29
+build/test.tl index_may_be_nil 24
 build/test_inputs.tl index_may_be_nil 1
 build/test_inputs_test.tl index_may_be_nil 2
 build/test_policy.tl index_may_be_nil 1
@@ -1781,7 +1781,7 @@ build/codec.tl view_written 3
 build/codec_fuzz_test.tl view_written 4
 build/codec_test.tl view_written 11
 build/codec_verb_fuzz_test.tl view_written 4
-build/compilation.tl view_written 33
+build/compilation.tl view_written 36
 build/compile.tl view_written 9
 build/compile_checker_test.tl view_written 4
 build/compile_grammar.tl view_written 20
@@ -1888,8 +1888,8 @@ build/hash_test.tl view_written 1
 build/host_features_test.tl view_written 7
 build/host_names.tl view_written 4
 build/host_requires.tl view_written 4
-build/identity.tl view_written 13
-build/importer.tl view_written 43
+build/identity.tl view_written 16
+build/importer.tl view_written 45
 build/importer_boot_test.tl view_written 6
 build/importer_store_test.tl view_written 6
 build/importer_test.tl view_written 34
@@ -1905,7 +1905,7 @@ build/key_parts_test.tl view_written 3
 build/lang_proof.tl view_written 38
 build/launcher.tl view_written 1
 build/link_files.tl view_written 19
-build/link_index.tl view_written 16
+build/link_index.tl view_written 21
 build/link_index_test.tl view_written 4
 build/link_resolve.tl view_written 21
 build/link_text.tl view_written 50
@@ -2055,7 +2055,7 @@ build/term_filter.tl view_written 8
 build/term_filter_fuzz_test.tl view_written 10
 build/term_filter_test.tl view_written 5
 build/term_relay.tl view_written 3
-build/test.tl view_written 129
+build/test.tl view_written 130
 build/test_bail_tool_test.tl view_written 1
 build/test_cancelled_verdicts_tool_test.tl view_written 3
 build/test_inputs.tl view_written 33
@@ -2111,7 +2111,7 @@ build/worker.tl view_written 15
 build/worker_test.tl view_written 18
 build/workers.tl view_written 12
 build/workflows_test.tl view_written 70
-build/writer.tl view_written 10
+build/writer.tl view_written 12
 build/writer_test.tl view_written 1
 build/zig.tl view_written 27
 build/zig_caches.tl view_written 1
@@ -3733,7 +3733,7 @@ build/stub_test.tl return_arity 2
 build/symbol_index.tl return_arity 4
 build/teal.tl return_arity 3
 build/teal_test.tl return_arity 4
-build/test.tl return_arity 3
+build/test.tl return_arity 2
 build/todos.tl return_arity 4
 build/tree_checks.tl return_arity 5
 build/tree_program.tl return_arity 3
@@ -4567,7 +4567,7 @@ build/teal_test.tl condition_type 11
 build/term_filter.tl condition_type 1
 build/term_filter_fuzz_test.tl condition_type 1
 build/term_relay.tl condition_type 1
-build/test.tl condition_type 49
+build/test.tl condition_type 48
 build/test_cancelled_verdicts_tool_test.tl condition_type 1
 build/test_inputs.tl condition_type 9
 build/test_inputs_test.tl condition_type 12
@@ -6613,7 +6613,6 @@ build/json_query_test.tl array_hole 1
 build/link_text.tl array_hole 4
 build/perf.tl array_hole 1
 build/sandbox.tl array_hole 2
-build/test.tl array_hole 3
 build/test_worker.tl array_hole 5
 build/tree_checks.tl array_hole 1
 build/worker_test.tl array_hole 1

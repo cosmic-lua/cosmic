@@ -311,6 +311,13 @@ local function memo_fingerprint(code: string, root: string, rows: {link_index.Ra
   return Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
+--- What a row of `link_answers` says the disk answered: `value` where it
+--- answered, nil where it did not.
+local function kept_answer(found: boolean, value: string): string | nil
+  if found then return value end
+  return nil
+end
+
 --- The memo an earlier [`link_index.pending`] kept under `fingerprint`, and
 --- whether a link asked for a symbol, when the disk still answers each
 --- question it holds as it did: a path's kind, a path's real path, a
@@ -340,11 +347,11 @@ local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo
       memo.kinds[path] = value
     elseif what == "real" then
       local now, _ = Fs.absolute(path)
-      if now ~= (found and value or nil) then return nil, false end
+      if now ~= kept_answer(found, value) then return nil, false end
       memo.reals[path] = found and { value } or {}
     elseif what == "read" then
       local now, _ = Fs.read(path)
-      if now ~= (found and value or nil) then return nil, false end
+      if now ~= kept_answer(found, value) then return nil, false end
       memo.reads[path] = found and { value } or {}
     else
       return nil, false
@@ -404,7 +411,8 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       own = row:text(9) == "1", alias = row:text(10),
     }
   end
-  local fingerprint: string | nil = code ~= nil and memo_fingerprint(code, root, rows) or nil
+  local fingerprint: string | nil = nil
+  if code ~= nil then fingerprint = memo_fingerprint(code, root, rows) end
   local recalled_memo: link_index.Memo | nil = nil
   local recalled_asked = false
   if fingerprint ~= nil then
@@ -433,7 +441,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
         local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
       end
     end
-    if fingerprint ~= nil then remember(db, fingerprint, memo, asking.asked) end
+    if fingerprint ~= nil then remember(db, fingerprint, memo, asking["asked"] == true) end
   end
   local signed = library ~= nil and asking.asked and library.identity or nil
   return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
@@ -679,9 +687,11 @@ local function symbols_digest(db: Sqlite.Handle, qualifier: string): string | ni
       "docs", "id"),
     digest({ "path", "name", "requires" }, "bound", "path, name"),
   }, ", "))
-  if rows == nil or rows[1] == nil then return nil end
-  return Hash.hex_sha256(table.concat({ "link-fill-1", rows[1]:text(1), rows[1]:text(2),
-    rows[1]:text(3), rows[1]:text(4) }, "\n"))
+  local row: Sqlite.Row | nil = nil
+  if rows ~= nil then row = rows[1] end
+  if row == nil then return nil end
+  return Hash.hex_sha256(table.concat({ "link-fill-1", row:text(1), row:text(2),
+    row:text(3), row:text(4) }, "\n"))
 end
 
 --- How many answers `memo` holds, which only grows.
@@ -707,11 +717,15 @@ end
 function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
                          qualifier: string): boolean, string
   local fingerprint: string | nil = nil
-  local symbols_key = pending.fingerprint ~= nil and symbols_digest(db, qualifier) or nil
+  local symbols_key: string | nil = nil
+  local pended = pending.fingerprint
+  if pended ~= nil then symbols_key = symbols_digest(db, qualifier) end
   local library = pending.library
-  if pending.fingerprint ~= nil and symbols_key ~= nil then
-    fingerprint = Hash.hex_sha256(table.concat({ "link-fill-key-1", pending.fingerprint,
-      pending.digest, symbols_key, library ~= nil and library.identity or "-" }, "\n"))
+  local library_named = "-"
+  if library ~= nil then library_named = library.identity end
+  if pended ~= nil and symbols_key ~= nil then
+    fingerprint = Hash.hex_sha256(table.concat({ "link-fill-key-1", pended,
+      pending.digest, symbols_key, library_named }, "\n"))
   end
   if fingerprint ~= nil then
     local kept, _ = Sqlite.text_rows(db, "SELECT 1 FROM link_fill WHERE fingerprint = ?1",

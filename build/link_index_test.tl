@@ -531,7 +531,7 @@ local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_move
   end
   --- Marks the rows kept, as there must be some.
   local function poison(where: string)
-    local kept = rows(handle.db, "SELECT count(*) FROM link_fill")[1]
+    local kept = assert(rows(handle.db, "SELECT count(*) FROM link_fill")[1])
     assert(kept == "1", where .. ": nothing was kept to poison, " .. kept)
     assert(handle.db:exec("UPDATE link_fill_rows SET text = 'poison'"))
   end
