@@ -585,6 +585,39 @@ local function test_a_build_that_declares_a_global_compiles_alone_as_it_would_ha
   assert(build_with("global-clash", clash).result == nil, "a clashing global compiled")
 end
 
+local function test_a_pool_leaves_a_build_whose_parse_found_a_global_to_one_process()
+  -- importer.compile refuses a declared global before it asks a pool, so
+  -- the pool's own answer is held here: given the parse's row of one, it
+  -- takes no part, and without one it does.
+  local function asked(recorded: boolean): boolean
+    local pool = pool_of()
+    local seen: {boolean} = {}
+    local troubles: {string} = {}
+    local watching: importer.Workers = {
+      ready = pool.ready,
+      parse = pool.parse,
+      compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
+                         wanted: {string:boolean}, own: boolean,
+                         judged: boolean): importer.Ahead | nil, string
+        if recorded then
+          assert(Sqlite.run(db, "INSERT INTO globals (source_hash, ordinal, line, column) " ..
+              "SELECT source_hash, 1, 1, 1 FROM inputs WHERE kind <> 'vendor' LIMIT 1", {}))
+        end
+        local ahead, why = pool.compile(db, root, order, wanted, own, judged)
+        seen[1], troubles[1] = ahead ~= nil, why
+        return ahead, why
+      end,
+      close = pool.close,
+    }
+    build_with(recorded and "global-row" or "no-global-row", project(), watching)
+    assert(seen[1] ~= nil, "the build did not ask the pool")
+    if recorded then assert(troubles[1] == "", troubles[1]) end
+    return seen[1] == true
+  end
+  assert(asked(false), "the pool took no part in a build with no global")
+  assert(not asked(true), "the pool compiled a build the parse found a global in")
+end
+
 local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()
   local tmp = this_program.environment().TMPDIR or "/tmp"
   local elsewhere = assert(Fs.mkdtemp("cosmic-elsewhere-"))
