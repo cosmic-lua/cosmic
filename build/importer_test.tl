@@ -1415,6 +1415,70 @@ local function test_a_verdict_is_kept_under_the_key_of_the_source_it_judged()
   work.close(after)
 end
 
+--- A module whose key moved because something it reaches changed, but not
+--- in what a check of it can see (a body, a comment: the stub it is checked
+--- against is held to the same type), takes the compile it had
+--- ([`compilation.interface_keys`]) instead of being compiled again: only the
+--- changed module is, and the dependent's compile stands. What does change
+--- the interface compiles it again, and its check sees the new type.
+local function test_a_dependent_takes_its_compile_when_only_a_body_changed()
+  local dep = "local record dep\n  value: number\n  size: function(): integer\nend\n" ..
+    "dep.value = 1\nfunction dep.size(): integer\n  return 1\nend\nreturn dep\n"
+  local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
+  local root = write_own_tree("interface-reuse", { dep = dep, user = user })
+  local first = assert(compile_fixture(root))
+  assert(first.compiled >= 2, "the fixture compiled " .. first.compiled)
+  assert(held_stubs(root) >= 2, "the stubs were not held")
+  local function bytecode_of(path: string): string
+    local handle = assert(work.open(root))
+    local rows = assert(Sqlite.text_rows(handle.db,
+      "SELECT c.bytecode FROM plan p JOIN compiled c ON c.key = p.key WHERE p.path = ?1",
+      { { text = path } }))
+    work.close(handle)
+    return assert(rows[1]):text(1)
+  end
+  local before = bytecode_of("build.user")
+
+  -- A body of dep: dep is compiled, user is not.
+  assert(Fs.write(root .. "/build/dep.tl", (dep:gsub("return 1", "return 2"))))
+  local body = assert(compile_fixture(root))
+  assert(body.compiled == 1, "a body edit compiled " .. body.compiled .. " modules")
+  assert(bytecode_of("build.user") == before, "the dependent's compile is not the one it had")
+  assert(held_stubs(root) >= 2, "the reused module lost its verdict on its stub")
+
+  -- Edited again, and put back: still only the module itself.
+  assert(Fs.write(root .. "/build/dep.tl", dep .. "-- a comment\n"))
+  assert(assert(compile_fixture(root)).compiled == 1)
+
+  -- What a check can see: user must be compiled, against the new type.
+  local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
+  assert(Fs.write(root .. "/build/dep.tl", changed))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "the dependent kept the compile it made against the old type")
+  assert(trouble:find("string", 1, true) ~= nil, trouble)
+end
+
+--- A type a stub does not say moves the interface of what reaches it: `e`
+--- gains a field in a body, `d` holds an `e` and is unchanged byte for
+--- byte, and `user` reads the field through `d`. Neither `d` nor `user`
+--- takes the compile it had.
+local function test_a_dependent_of_a_type_a_body_changed_is_compiled_again()
+  local e_before = "local record e\nend\nfunction e.setup()\n  print(1)\n  print(2)\nend\nreturn e\n"
+  local e_after = "local record e\nend\nfunction e.setup()\n" ..
+    "  function e.f(): integer return 1 end\n  print(2)\nend\nreturn e\n"
+  local d = "local e = require(\"build.e\")\nlocal record d\n  inner: e\nend\nreturn d\n"
+  local user = "local d = require(\"build.d\")\nlocal v: d = { inner = {} }\nreturn v\n"
+  local root = write_own_tree("interface-type", { e = e_before, d = d, user = user })
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/build/e.tl", e_after))
+  local again = assert(compile_fixture(root))
+  assert(again.compiled == 3, "e, d and user were compiled " .. again.compiled .. " times")
+  -- With the field in use, the new type must reach user.
+  assert(Fs.write(root .. "/build/user.tl",
+    (user:gsub("return v", "local n: integer = v.inner.f()\nreturn n"))))
+  assert(compile_fixture(root))
+end
+
 --- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()

@@ -238,6 +238,11 @@ local version <const> = "29"
 --- `fill` wrote, with a fingerprint of what they were written from, so a
 --- projection whose symbols and links did not move copies them.
 ---
+--- `compiled_interface` names, by a module's interface key
+--- ([`build.compilation`]'s `interface_keys`), the compile that stood
+--- for it last: what a module's key that moved without its source or the
+--- interface of anything it reaches moving takes its compile from.
+---
 --- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
@@ -447,6 +452,8 @@ for _, statement in ipairs({
                                                PRIMARY KEY (module, symbol, path, anchor,
                                                             from_file, line, column))
                                               WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS compiled_interface (ikey TEXT PRIMARY KEY,
+                                                   key TEXT NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,
