@@ -41,6 +41,14 @@ end
 local text = bind.text
 local blob = bind.blob
 
+--- `yes` where `flag` holds, else `no`.
+local function choose(flag: boolean, yes: string, no: string): string
+  if flag then
+    return yes
+  end
+  return no
+end
+
 --- The signature recorded inside the projection at `path`, or `""` when
 --- there is none to trust: no file there, a file that is not a database,
 --- or a database with no `projected` row. It is read from the file
@@ -261,6 +269,99 @@ local insert_catalog_extracted =
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
+--- A write that starts from the projection already at `out` ([`usable_base`])
+--- takes a module's rows from it where the module stands as it was, and
+--- fills the rest from the working database as a write of nothing does.
+--- `reused` is the temporary table of the modules that stand: those whose
+--- file, kind, source and key are the base's, and that no declaration
+--- stands in for. A row it carries is the row the full statement would
+--- write, since each is a function of what the table's test holds equal and
+--- of the identities [`usable_base`] holds equal. Each statement below is
+--- the full one beside it, with the base's rows for those modules in
+--- its place and the order `ORDER BY` gave them: SQLite assigns the ids
+--- of `docs` as it inserts, so they are the ones a full write assigns.
+local reused_modules <const> = "(SELECT path FROM temp.reused)"
+
+local make_reused <const> = {
+  "DROP TABLE IF EXISTS temp.reused",
+  "CREATE TEMP TABLE reused (path TEXT PRIMARY KEY) WITHOUT ROWID",
+  "INSERT INTO temp.reused (path) SELECT p.path FROM plan p " ..
+    "JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+    "JOIN prev.modules r ON r.path = p.path AND r.file = i.file AND r.kind = i.kind " ..
+    "AND r.source_hash = CAST(i.source_hash AS BLOB) AND r.key = CAST(p.key AS BLOB) " ..
+    "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND d.kind = 'decl')",
+}
+
+--- The modules of a write that starts from a base. The rows a module that
+--- stands does not take from the base are looked up by subquery, where
+--- a join would look up every module's: a search of `compiled` by key reads
+--- each row it compares whole, the Lua and the bytecode among it, some
+--- 0.2 s for cosmic's own tree.
+local insert_modules_reusing <const> =
+  "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
+  "bytecode, tests) " ..
+  "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
+  "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
+  "AND d.core = " .. deflating_core .. ")), " ..
+  "coalesce(r.bytecode, (SELECT c.bytecode FROM compiled c WHERE c.key = p.key)), " ..
+  "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
+  "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
+  "char(10) ORDER BY ordinal) FROM tests t " ..
+  "WHERE t.source_hash = i.source_hash), '') " ..
+  "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
+  "char(10) ORDER BY ordinal) FROM examples e " ..
+  "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "LEFT JOIN temp.reused u ON u.path = p.path " ..
+  "LEFT JOIN prev.modules r ON r.path = u.path " ..
+  "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
+  "WHERE d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
+  ") AND EXISTS (SELECT 1 FROM compiled c WHERE c.key = p.key)) " ..
+  "ORDER BY p.path"
+
+local insert_docs_reusing <const> =
+  "INSERT INTO out.docs (module, symbol, source_symbol, exported, kind, " ..
+  "signature, text, file, line) " ..
+  "SELECT module, symbol, source_symbol, exported, kind, signature, text, file, line FROM (" ..
+  "SELECT d.module AS module, d.id AS ordinal, d.symbol AS symbol, " ..
+  "d.source_symbol AS source_symbol, d.exported AS exported, d.kind AS kind, " ..
+  "d.signature AS signature, d.text AS text, d.file AS file, d.line AS line " ..
+  "FROM prev.docs d WHERE d.module IN " .. reused_modules .. " " ..
+  "UNION ALL " ..
+  "SELECT m.path, d.ordinal, d.symbol, d.source_symbol, d.exported, d.kind, " ..
+  "d.signature, d.text, i.file, d.line " ..
+  "FROM (SELECT path FROM plan WHERE path NOT IN " .. reused_modules .. " " ..
+  "UNION SELECT path FROM inputs WHERE kind = 'decl') m " ..
+  "JOIN inputs i ON i.path = m.path " ..
+  "AND (i.kind = 'decl' OR NOT EXISTS (SELECT 1 FROM inputs d " ..
+  "WHERE d.path = i.path AND d.kind = 'decl')) " ..
+  "JOIN docs d ON d.source_hash = i.source_hash) ORDER BY module, ordinal"
+
+local insert_uses_reusing <const> =
+  "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
+  "from_file, line) " ..
+  "SELECT r.module, r.member, p.path, i.file, r.line " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN refs r ON r.source_hash = i.source_hash " ..
+  "WHERE p.path NOT IN " .. reused_modules .. " " ..
+  "ORDER BY r.module, r.member, p.path, r.line"
+
+local insert_typed_uses_reusing <const> =
+  "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
+  "from_file, line) " ..
+  "SELECT r.module, r.member, p.path, i.file, r.line " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN typed_refs r ON r.key = p.key " ..
+  "WHERE p.path NOT IN " .. reused_modules .. " " ..
+  "ORDER BY r.module, r.member, p.path, r.line"
+
+--- The uses of the modules that stand, which both statements above
+--- left out: each is a row of the base, whichever of the two wrote it.
+local carry_uses <const> =
+  "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, from_file, line) " ..
+  "SELECT module, symbol, from_module, from_file, line FROM prev.uses " ..
+  "WHERE from_module IN " .. reused_modules
+
 --- What the shipped database is a function of, as one hash: this run's
 --- plan with each module's file, the declarations, fingerprints,
 --- host-independent identities, the zones it carries, the main module,
@@ -408,6 +509,145 @@ local function put_declaration(db: Sqlite.Handle, module: string, source: string
   return Sqlite.run(db, "INSERT INTO out.decls (path, source) VALUES (?1, deflate(?2))", { text(module), text(source) })
 end
 
+--- The row of the working database's `meta` that names the projection last
+--- signed and the record-field identity ([`build.importer`]'s `receivers`)
+--- it was signed with: a projection does not carry that identity, though its
+--- uses depend on it.
+local base_key <const> = "projection_base"
+
+--- The row of the working database's `meta` that names the projection last
+--- signed and the digest of the two files its `ca_roots` and `ca_revoked`
+--- were parsed from ([`vendored_digest`]).
+local vendored_key <const> = "projection_vendored"
+
+--- The digest of the files [`build.roots`] and [`build.onecrl`] parse in the
+--- tree at `root`, each by its bytes or `-` where it is not there: the
+--- tables they fill are a function of these and of those modules' code, which
+--- the writer's identity holds. Nil where a file is there and cannot be read.
+local function vendored_digest(root: string): string | nil
+  local function digest_of(path: string): string | nil
+    local there, _ = Fs.exists(path)
+    if there == nil then
+      return nil
+    end
+    if not there then
+      return "-"
+    end
+    local bytes, _ = Fs.read(path)
+    if bytes == nil then
+      return nil
+    end
+    return Hash.hex_sha256(bytes)
+  end
+  local bundle = digest_of(roots.source(root))
+  local snapshot = digest_of(onecrl.source(root))
+  if bundle == nil or snapshot == nil then
+    return nil
+  end
+  return bundle .. " " .. snapshot
+end
+
+--- Whether the first column of the first row of `rows` is `answer`.
+local function says(rows: Sqlite.Rows | nil, answer: string): boolean
+  if rows == nil then
+    return false
+  end
+  local row = rows[1]
+  return row ~= nil and row:text(1) == answer
+end
+
+--- Whether the first column of the first row of `rows` is `1`: the answer
+--- of a `SELECT` of a condition, false where there was none.
+local function holds(rows: Sqlite.Rows | nil): boolean
+  return says(rows, "1")
+end
+
+--- Whether the base's CA tables were made of the files `digest` names: the
+--- projection it was signed as is the one the working database recorded
+--- them under ([`vendored_key`]).
+local function vendored_stands(db: Sqlite.Handle, digest: string): boolean
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT count(*) FROM main.meta m, prev.meta p WHERE m.key = '" .. vendored_key ..
+      "' AND p.key = 'projected' AND m.value = p.value || char(10) || ?1",
+    { text(digest) })
+  return holds(rows)
+end
+
+--- The CA tables of the base, in the order of its rows, for the rows
+--- [`build.roots`] and [`build.onecrl`] would make of the same files.
+local carry_vendored <const> = {
+  "INSERT INTO out.ca_roots (sha256, label, der, distrust_after) " ..
+    "SELECT sha256, label, der, distrust_after FROM prev.ca_roots ORDER BY rowid",
+  "INSERT INTO out.ca_revoked (kind, name, value) " ..
+    "SELECT kind, name, value FROM prev.ca_revoked ORDER BY rowid",
+}
+
+--- The `meta` rows a projection and the working database must hold alike for
+--- a base's rows to be the rows this write would make.
+local base_meta <const> = "('image_hash', 'compiler', 'runtime_basis', 'writer')"
+
+--- Whether the projection attached as `prev` may stand in for the rows a
+--- write would fill: it was signed by the writer and the compiler this
+--- write runs as (`by`, `tool`), on the core image and with the
+--- record-field identity this write has, under the schema it creates in
+--- `out`, and it holds the same declarations by path, but for the two
+--- the checker is given ([`build.checker_declarations`]). Each of those decides
+--- some row a module's own inputs do not, so where any differs, or cannot
+--- be read, the answer is false and the projection is written whole.
+local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
+  local function schema_rows(from: string, other: string): string
+    return "(SELECT count(*) FROM (SELECT type, name, tbl_name, sql FROM " .. from ..
+      ".sqlite_master EXCEPT SELECT type, name, tbl_name, sql FROM " .. other .. ".sqlite_master))"
+  end
+  local function meta_rows(from: string, other: string): string
+    return "(SELECT count(*) FROM (SELECT key, value FROM " .. from .. ".meta WHERE key IN " ..
+      base_meta .. " EXCEPT SELECT key, value FROM " .. other .. ".meta WHERE key IN " ..
+      base_meta .. "))"
+  end
+  local function named(key: string, parameter: string): string
+    return "(SELECT count(*) FROM prev.meta WHERE key = '" .. key .. "' AND value = " ..
+      parameter .. ") = 1"
+  end
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT " .. schema_rows("out", "prev") .. " + " .. schema_rows("prev", "out") .. " = 0 AND " ..
+      meta_rows("prev", "main") .. " + " .. meta_rows("main", "prev") .. " = 0 AND " ..
+      "(SELECT count(*) FROM main.meta WHERE key IN ('compiler', 'runtime_basis', 'writer')) = 3 AND " ..
+      named("written_by", "?1") .. " AND " .. named("compiled_by", "?2") .. " AND " ..
+      "(SELECT count(*) FROM main.meta WHERE key = '" .. base_key .. "' AND value = " ..
+      "(SELECT p.value || char(10) || r.value FROM prev.meta p, main.meta r " ..
+      "WHERE p.key = 'projected' AND r.key = 'receivers')) = 1 AND " ..
+      "(SELECT coalesce(group_concat(path, char(10)), '') FROM " ..
+      "(SELECT path FROM prev.decls WHERE path NOT IN (?3, ?4) ORDER BY path)) = " ..
+      "(SELECT coalesce(group_concat(path, char(10)), '') FROM " ..
+      "(SELECT path FROM inputs WHERE kind = 'decl' ORDER BY path))",
+    { text(by), text(tool), text(CheckerDeclarations.prelude_module()),
+      text(CheckerDeclarations.stdlib_module()) })
+  return holds(rows)
+end
+
+--- The statements that fill the rows extracted from the sources, in the
+--- order they run: those that carry the base's rows for the modules that
+--- stand where `reusing`.
+local function extraction(reusing: boolean): {string}
+  if reusing then
+    return { insert_catalog_extracted, insert_docs_reusing, insert_uses_reusing,
+      insert_typed_uses_reusing, carry_uses, insert_examples }
+  end
+  return { insert_catalog_extracted, insert_docs, insert_uses, insert_typed_uses, insert_examples }
+end
+
+--- Fills `temp.reused` ([`make_reused`]) from the base, and answers
+--- whether it did; a failure leaves the write whole.
+local function find_reused(db: Sqlite.Handle): boolean
+  for _, statement in ipairs(make_reused) do
+    local ok, _ = db:exec(statement)
+    if not ok then
+      return false
+    end
+  end
+  return true
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -415,7 +655,7 @@ end
 --- in.
 local function project(handle: work.Handle,
                        result: importer.Result, pending: link_index.Pending,
-                       signature: string, by: string): boolean, string
+                       signature: string, by: string, based: boolean): boolean, string
   local db = handle.db
   for _, statement in ipairs(schema.settings("out.")) do
     local ok, failure = db:exec(statement)
@@ -423,14 +663,18 @@ local function project(handle: work.Handle,
       return false, failure
     end
   end
-
-  local statements: {string} = {}
   for _, statement in ipairs(schema.create("out.")) do
-    statements[#statements + 1] = statement
+    local ok, failure = db:exec(statement)
+    if not ok then
+      return false, failure
+    end
   end
+  local usable = based and usable_base(db, by, result.tool)
+  local reusing = usable and find_reused(db)
+  local statements: {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
-  statements[#statements + 1] = insert_modules
+  statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports
   statements[#statements + 1] = insert_bound
@@ -476,8 +720,14 @@ local function project(handle: work.Handle,
   if not carried then
     return false, meta_trouble
   end
-  for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
-      insert_uses, insert_typed_uses, insert_examples }) do
+  -- The identity the uses of this projection were found under, kept for the next write's [`usable_base`].
+  local based_on, base_trouble = Sqlite.run(db,
+    "INSERT OR REPLACE INTO main.meta (key, value) SELECT '" .. base_key .. "', " ..
+      "?1 || char(10) || value FROM main.meta WHERE key = 'receivers'", { text(signature) })
+  if not based_on then
+    return false, base_trouble
+  end
+  for _, statement in ipairs(extraction(reusing)) do
     local ok, failure = db:exec(statement)
     if not ok then
       return false, failure
@@ -520,13 +770,34 @@ local function project(handle: work.Handle,
     if not filled then
       return false, fill_trouble
     end
-    local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
-    if not trusted then
-      return false, trust_trouble
+    local digest = vendored_digest(handle.root)
+    local kept = reusing and digest ~= nil and vendored_stands(db, digest)
+    if kept then
+      for _, statement in ipairs(carry_vendored) do
+        local carried_roots, carry_trouble = db:exec(statement)
+        if not carried_roots then
+          return false, carry_trouble
+        end
+      end
+    else
+      local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
+      if not trusted then
+        return false, trust_trouble
+      end
+      local revoked, revoke_trouble = onecrl.fill(db, handle.root, "out.")
+      if not revoked then
+        return false, revoke_trouble
+      end
     end
-    local revoked, revoke_trouble = onecrl.fill(db, handle.root, "out.")
-    if not revoked then
-      return false, revoke_trouble
+    local noted, note_trouble = Sqlite.run(db,
+      "DELETE FROM main.meta WHERE key = '" .. vendored_key .. "'", {})
+    if noted and digest ~= nil then
+      noted, note_trouble = Sqlite.run(db,
+        "INSERT INTO main.meta (key, value) VALUES ('" .. vendored_key .. "', ?1 || char(10) || ?2)",
+        { text(signature), text(digest) })
+    end
+    if not noted then
+      return false, note_trouble
     end
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
@@ -682,13 +953,33 @@ function writer.write_result(handle: work.Handle, out: string,
   end
   local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
   if not attached then return false, attach_trouble end
-  local projected, project_trouble = project(handle, result, pending, signature, by)
+  -- The file there, if it is a projection, is the base of the write ([`usable_base`]).
+  local based = false
+  local there, _ = Fs.exists(out)
+  if there == true then
+    local joined, _ = Sqlite.run(db, "ATTACH DATABASE ?1 AS prev", { text(out) })
+    based = joined
+  end
+  local projected, project_trouble = project(handle, result, pending, signature, by, based)
   if not projected then
     local _, _ = work.rollback(handle)
     local _, _ = db:exec("DETACH out")
+    if based then
+      -- A base that passed [`usable_base`] yet cannot be read to its end (a page of it damaged) would fail every
+      -- write after this one the same way, since only a write that fills the rows whole replaces it.
+      local checked, _ = Sqlite.text_rows(db, "PRAGMA prev.quick_check(1)")
+      local intact = says(checked, "ok")
+      local _, _ = db:exec("DETACH prev")
+      if not intact then
+        local _, _ = Fs.remove(out)
+      end
+    end
     return false, project_trouble
   end
   local committed, commit_trouble = work.commit(handle)
+  if based then
+    local _, _ = db:exec("DETACH prev")
+  end
   if not committed then
     local _, _ = db:exec("DETACH out")
     return false, commit_trouble

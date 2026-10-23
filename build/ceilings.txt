@@ -2126,7 +2126,7 @@ build/worker.tl view_written 15
 build/worker_test.tl view_written 18
 build/workers.tl view_written 12
 build/workflows_test.tl view_written 70
-build/writer.tl view_written 12
+build/writer.tl view_written 11
 build/writer_test.tl view_written 1
 build/zig.tl view_written 27
 build/zig_caches.tl view_written 1
