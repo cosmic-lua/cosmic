@@ -325,6 +325,39 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   assert(before.graph_key == after.graph_key, "the move moved x's graph key")
 end
 
+--- What the working database of the project at `root` answers to `sql`,
+--- as rows of text.
+local function asked_of(root: string, sql: string): {{string}}
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db, sql))
+  work.close(handle)
+  local out: {{string}} = {}
+  for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
+  return out
+end
+
+--- A run that finds a compile cached does not write the compile's row, which
+--- holds all its Lua and bytecode, to say it used it: its `seen` is written
+--- only once it is many runs old, so a compile in use is never dropped.
+local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
+  local root = assert(write_fixture("seen-lazily", {
+    ["x.tl"] = "return { value = 1 }\n",
+  }))
+  assert(compile_fixture(root))
+  local made = asked_of(root, "SELECT seen FROM compiled")
+  assert(#made == 1, "expected one compile")
+  assert(compile_fixture(root))
+  assert(asked_of(root, "SELECT seen FROM compiled")[1][1] == made[1][1],
+    "a run that used a recent compile wrote its row again")
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE compiled SET seen = seen - 50"))
+  work.close(handle)
+  assert(compile_fixture(root))
+  local after = asked_of(root, "SELECT seen FROM compiled")
+  assert(#after == 1 and after[1][1] ~= tostring(math.tointeger(tonumber(made[1][1])) - 50),
+    "an old compile used by a run kept its old mark")
+end
+
 --- Mutually recursive declaration types are valid input to the checker. A
 --- cache key closes over the graph without rejecting that cycle itself.
 local function test_declaration_dependency_keys_allow_cycles()

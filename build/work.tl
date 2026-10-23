@@ -220,8 +220,10 @@ local version <const> = "29"
 --- order. `tool` is the hash of the tool that made a compile, and
 --- `seen` the last run that used it: a compile another tool made is
 --- dropped the moment this one runs, and one no run has used in the
---- last hundred goes too, so an edit undone is still free and the
---- cache stays bounded.
+--- last hundred (and ten more: [`build.importer`] writes `seen` only
+--- once it is ten runs old, since a row holds the Lua and the bytecode)
+--- goes too, so an edit undone is still free and the cache stays
+--- bounded.
 ---
 --- `typed_refs` is what one compile's checker found a record's field
 --- used through ([`build.receivers`]): keyed by the compile's own key,
