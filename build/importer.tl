@@ -217,6 +217,17 @@ importer.prune_references =
 local prune_stub_holds <const> =
   "DELETE FROM stub_holds WHERE key NOT IN (SELECT +key FROM compiled)"
 
+--- A compile found under an interface key, to be kept under a module's key.
+local record Reuse
+  lua: string
+  bytecode: string
+end
+
+--- The statement that drops the interface keys of every compile `compiled`
+--- no longer holds.
+local prune_interfaces <const> =
+  "DELETE FROM compiled_interface WHERE key NOT IN (SELECT +key FROM compiled)"
+
 --- The derivation and the extractors, generators and parser it calls:
 --- the roots of
 --- [`importer.analyzer_modules`]. "The analyzer" in these names is that
@@ -1022,7 +1033,6 @@ end
 local record Cache
   run: integer
   tool: string
-  peek: Sqlite.Statement
   look: Sqlite.Statement
   touch: Sqlite.Statement
   put: Sqlite.Statement
@@ -1047,19 +1057,12 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
     look:finalize()
     return nil, touch_trouble
   end
-  local peek, peek_trouble = db:prepare("SELECT 1 FROM compiled WHERE key = ?1 AND seen >= 0")
-  if peek == nil then
-    look:finalize()
-    touch:finalize()
-    return nil, peek_trouble
-  end
   local put, put_trouble = db:prepare(
     "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
     touch:finalize()
-    peek:finalize()
     return nil, put_trouble
   end
   local plan, plan_trouble = db:prepare(
@@ -1067,18 +1070,16 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   if plan == nil then
     look:finalize()
     touch:finalize()
-    peek:finalize()
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, tool = tool, peek = peek, look = look, touch = touch,
+  return { run = handle.run, tool = tool, look = look, touch = touch,
     put = put, plan = plan }
 end
 
 local function finish_cache(cache: Cache)
   cache.look:finalize()
   cache.touch:finalize()
-  cache.peek:finalize()
   cache.put:finalize()
   cache.plan:finalize()
 end
@@ -1132,25 +1133,6 @@ local function cached_lua(cache: Cache, key: string): string | nil, string
     end
   end
   return lua, ""
-end
-
---- Whether a compile stands under `key`, as [`cached_lua`] would find it,
---- without marking it used by this run.
-local function cached(cache: Cache, key: string): boolean, string
-  local peek = cache.peek
-  local bound, bind_trouble = peek:bind_text(1, key)
-  if not bound then
-    return false, bind_trouble
-  end
-  local state, trouble = peek:step()
-  if state == nil then
-    return false, trouble
-  end
-  local reset, reset_trouble = peek:reset()
-  if not reset then
-    return false, reset_trouble
-  end
-  return state == "row", ""
 end
 
 --- Puts one compile in the cache under its key, and the module in
@@ -1308,6 +1290,81 @@ local function left_out(file: string, named: string, trouble: string): string
   return file .. " is left out of this run, which does not require it: " .. why
 end
 
+--- What a module's key moving without its interface does: a compile made
+--- under another key, of the same source against the same interfaces, stands
+--- for this one ([`compilation.interface_keys`]). `reuse` copies such a
+--- compile under `key`, and `note` keeps the one just made for the next
+--- run. Only where the stubs are served (`serving`), as the interfaces are
+--- theirs.
+local record Interfacing
+  reuse: function(Module, string): Reuse | nil
+  note: function(Module, string)
+end
+
+-- TODO: offer a reused compile to the shared cache ([`build.shared_compiles`]) as a compiled one is, once
+-- `reuse` reads its record-field uses back from `typed_refs` in the shape `shared.keep` takes: until then
+-- another checkout compiles what this one only copied.
+-- TODO: leave a module `reuse` would take out of `wanted` in the pool's scan below, once that scan can ask
+-- for an interface key before the stubs of the modules compiled in this run are judged: until then the
+-- pool compiles ahead a module the loop then takes from the cache.
+
+local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string, serving: boolean,
+                               modules: {Module}, keys: {string:compilation.Keys},
+                               progress: Progress): Interfacing
+  local made: {function(Module): string | nil, string} = {}
+  local function interface_key(m: Module): string | nil
+    if not serving then return nil end
+    local interfaces = made[1]
+    if interfaces == nil then
+      local built_keys, _ = compilation.interface_keys(db, modules, tool, keys, function(path: string): boolean
+        return compilation.stub_held(db, built, progress.env, keys, path)
+      end)
+      if built_keys == nil then return nil end
+      made[1] = built_keys
+      interfaces = built_keys
+    end
+    local found, _ = interfaces(m)
+    return found
+  end
+  local function reuse(m: Module, key: string): Reuse | nil
+    local interface = interface_key(m)
+    if interface == nil then return nil end
+    local rows, _ = Sqlite.text_rows(db,
+      "SELECT c.key, c.lua, c.bytecode FROM compiled_interface i JOIN compiled c ON c.key = i.key " ..
+        "WHERE i.ikey = ?1 AND c.tool = ?2 AND c.seen >= 0", { text(interface), text(tool) })
+    local first: Sqlite.Row | nil = nil
+    if rows ~= nil then first = rows[1] end
+    if first == nil then return nil end
+    local old = first:text(1)
+    -- What else is kept under a compile's key: the record-field uses it
+    -- found, and the verdicts on the stub of its module.
+    local copied, _ = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
+    if copied then
+      copied, _ = Sqlite.run(db, "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
+          "SELECT ?1, ordinal, module, member, line FROM typed_refs WHERE key = ?2",
+        { text(key), text(old) })
+    end
+    if copied then
+      copied, _ = Sqlite.run(db, "INSERT OR REPLACE INTO stub_holds (key, stub, held) " ..
+          "SELECT ?1, stub, held FROM stub_holds WHERE key = ?2", { text(key), text(old) })
+    end
+    if not copied then return nil end
+    -- The next edit reaches this compile, which stands this run, and not the
+    -- older one a cache that is not used for a while drops.
+    local _, _ = Sqlite.run(db, "INSERT OR REPLACE INTO compiled_interface (ikey, key) VALUES (?1, ?2)",
+      { text(interface), text(key) })
+    local found: Reuse = { lua = first:text(2), bytecode = first:bytes(3) }
+    return found
+  end
+  local function note(m: Module, key: string)
+    local interface = interface_key(m)
+    if interface == nil then return end
+    local _, _ = Sqlite.run(db, "INSERT OR REPLACE INTO compiled_interface (ikey, key) VALUES (?1, ?2)",
+      { text(interface), text(key) })
+  end
+  return { reuse = reuse, note = note }
+end
+
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, built: compiler, tool: string,
@@ -1401,7 +1458,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- reads every module of the tree from source whatever it checks, and waits on
   -- a verdict that a stub has the type its source has under that checker, which
   -- `stub_holds` does not record.
-  local stubbed = compilation.stub_lookup(handle.db, keys, own_tree and grammar ~= "new")
+  local serving = own_tree and grammar ~= "new"
+  local stubbed = compilation.stub_lookup(handle.db, keys, serving)
   -- The new checker's compile: what it is made over ([`build.pipeline`]), read once the first module needs it. A module is
   -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
   local reading: Reading = { options = nil, built = nil }
@@ -1434,6 +1492,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- the loop below, and `scanned` whether the loop below has looked at
   -- every module for a compile elsewhere.
   local progress: Progress = { failure = "", scanned = false }
+
+  local interfacing = interfacing_for(db, built, tool, serving, modules, keys, progress)
 
   -- Where a hint ([`with_docs_hint`]) looks up the name a refused module
   -- could not resolve, as [`docs.databases`] builds the same list for
@@ -1491,17 +1551,20 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       -- them together, and the loop below takes each result in order.
       local wanted: {string:boolean} = {}
       local bytes = 0
+      -- Which compiles stand, asked once rather than for each module.
+      local standing, standing_trouble = Sqlite.text_rows(db, "SELECT key FROM compiled WHERE seen >= 0")
+      if standing == nil then
+        finish_cache(cache)
+        return false, standing_trouble
+      end
+      local stands_by: {string:boolean} = {}
+      for _, row in ipairs(standing) do stands_by[row:text(1)] = true end
       for _, m in ipairs(order) do
         local key = keys[m.path].key
         m.key = key
         m.graph_key = keys[m.path].graph
         if compilation.refusal(m) == nil then
-          local stands, stands_trouble = cached(cache, key)
-          if stands_trouble ~= "" then
-            finish_cache(cache)
-            return false, stands_trouble
-          end
-          if not stands then
+          if stands_by[key] ~= true then
             local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
             if elsewhere ~= nil then
               looked[m.path] = elsewhere
@@ -1573,6 +1636,15 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           looked[m.path] = nil
         elseif lua == nil and shared ~= nil then
           elsewhere = shared.look(m, own_tree)
+        end
+        -- A compile of the same source against the same interfaces, made
+        -- under another key, is copied under this one.
+        if lua == nil and elsewhere == nil then
+          local reused = interfacing.reuse(m, key)
+          if reused ~= nil then
+            lua = reused.lua
+            bytecode = reused.bytecode
+          end
         end
         if lua ~= nil then
           result.cached = result.cached + 1
@@ -1654,6 +1726,9 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
               finish_cache(cache)
               return false, m.file .. ": " .. refs_trouble
             end
+            if not refused then
+              interfacing.note(m, key)
+            end
             -- A refused compile is this run's alone (`remember`), and
             -- never another checkout's.
             if shared ~= nil and not refused then
@@ -1708,6 +1783,10 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     local forgotten_verdicts, forgotten_trouble = db:exec(prune_stub_holds)
     if not forgotten_verdicts then
       return false, forgotten_trouble
+    end
+    local forgotten_interfaces, interfaces_trouble = db:exec(prune_interfaces)
+    if not forgotten_interfaces then
+      return false, interfaces_trouble
     end
     -- Run whether or not the prune above dropped anything: a run that
     -- failed between a compile's [`compilation.keep_references`] and its `remember`

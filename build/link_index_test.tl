@@ -466,6 +466,131 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   assert(work.close(handle))
 end
 
+--- The disk's answers a resolution kept are asked again before a later
+--- call serves them: a file that comes, changes its headings, goes or
+--- becomes a directory is resolved again, to what a resolution that kept
+--- nothing gives, and so is a call by other code. Only what nothing moved is
+--- served, which is what makes a call after an edit elsewhere cheap.
+local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.compile(handle, built, "link-index-test"))
+  local function pending(code: string): link_index.Pending
+    return (assert(link_index.pending(handle.db, root, link_index.none, code)))
+  end
+  --- What a resolution that kept nothing gives now.
+  local function fresh(): string
+    assert(handle.db:exec("DELETE FROM link_answers"))
+    return pending("one").digest
+  end
+  local first = pending("one")
+  assert(not first.remembered, "nothing was kept yet")
+  local again = pending("one")
+  assert(again.remembered and again.digest == first.digest, "a call nothing moved resolves again")
+  assert(not pending("two").remembered, "another code's resolution was served")
+  local last = pending("one")
+  assert(not last.remembered and last.digest == first.digest)
+
+  local function moved(what: string, change: function())
+    local before = pending("one")
+    assert(before.remembered, what .. ": the call before it was not served")
+    change()
+    local after = pending("one")
+    assert(not after.remembered, what .. ": a kept answer was served after the disk moved")
+    assert(after.digest ~= before.digest, what .. ": the digest did not move")
+    assert(after.digest == fresh(), what .. ": the digest is not a fresh resolution's")
+  end
+  moved("a file came", function() assert(Fs.write(root .. "/notes.md", source("# Usage"))) end)
+  moved("a heading was renamed", function()
+    assert(Fs.write(root .. "/notes.md", source("# Using")))
+  end)
+  moved("a file went", function() assert(Fs.remove(root .. "/notes.md")) end)
+  moved("a directory came", function() assert(Fs.mkdirs(root .. "/notes.md")) end)
+  assert(work.close(handle))
+end
+
+--- The rows a projection's links resolved to are kept, and copied by a
+--- projection whose links, code, disk answers and symbols are the same: an
+--- edit to a body writes the rows it wrote. An edit that renames a symbol,
+--- a link that moves and a file that goes each make them again, to what
+--- a resolution that kept nothing makes. (The kept rows are poisoned to
+--- tell a copy from a resolution.)
+local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_moved(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/notes.md", source("# Usage")))
+  local handle = assert(work.open(root))
+  local out = build_dir(root) .. "/cosmic.db"
+  local function texts(): string
+    local db = assert(Sqlite.open(out))
+    local found = rows(db, "SELECT DISTINCT text FROM links ORDER BY text")
+    assert(db:close())
+    return table.concat(found, "|")
+  end
+  --- Marks the rows kept, as there must be some.
+  local function poison(where: string)
+    local kept = assert(rows(handle.db, "SELECT count(*) FROM link_fill")[1])
+    assert(kept == "1", where .. ": nothing was kept to poison, " .. kept)
+    assert(handle.db:exec("UPDATE link_fill_rows SET text = 'poison'"))
+  end
+  --- The rows a resolution that kept nothing makes now: the projection is
+  --- written again, since one the same as the file's is not.
+  local function fresh(): {string}
+    assert(handle.db:exec("DELETE FROM link_fill"))
+    assert(Fs.remove(out))
+    return build_links(handle, out)
+  end
+  local first = build_links(handle, out)
+  assert(texts() ~= "poison")
+  poison("first")
+
+  -- A body edit moves no symbol and no link.
+  local greet = assert(Fs.read(root .. "/greet.tl"))
+  assert(Fs.write(root .. "/greet.tl", (greet:gsub('return "hello"', 'return "hello, there"'))))
+  same(build_links(handle, out), first)
+  assert(texts() == "poison", "the rows were made again where nothing moved: " .. texts())
+
+  -- A symbol is renamed under a link that still names the old: nothing
+  -- else moved, and the link names nothing.
+  write_project(root, "greet.hello", "ciao")
+  local broken = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a symbol moved")
+  same(broken, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage" })
+
+  -- A symbol is renamed, and the link that names it with it.
+  write_project(root, "greet.hello", "ciao")
+  assert(Fs.write(root .. "/wave.tl", source(
+    "local greet = require(\"greet\")",
+    "-- Waves as [`greet.ciao`] does.",
+    "return greet.hello")))
+  local renamed = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a symbol moved")
+  same(renamed, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol ciao #" })
+  same(fresh(), renamed)
+  poison("renamed")
+
+  -- A link moves.
+  assert(Fs.write(root .. "/wave.tl", source(
+    "local greet = require(\"greet\")",
+    "-- Waves as [`greet.hello`] does.",
+    "return greet.hello")))
+  local moved = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a link moved")
+  same(moved, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol hello #" })
+  same(fresh(), moved)
+  poison("moved")
+
+  -- A file a link names goes: its link is no row.
+  assert(Fs.remove(root .. "/notes.md"))
+  local gone = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after the disk moved")
+  assert(#gone < #moved)
+  same(fresh(), gone)
+  assert(work.close(handle))
+end
+
 --- A file that goes, or is renamed, takes its rows with it, and moves
 --- the signature.
 local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)

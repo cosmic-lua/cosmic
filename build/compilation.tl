@@ -119,6 +119,10 @@ local record Dependency
   requires: {string}
 end
 
+--- The interface key of a module ([`compilation.interface_keys`]), or nil
+--- and why.
+local type Interfaced = function(Module): string | nil, string
+
 --- The names the standard-library module `name` requires, from the
 --- `decl_imports` rows of the binary's own database, where
 --- [`Store.source`] reads it. Nil and why when that database has no row
@@ -144,14 +148,21 @@ local function embedded_edges(name: string): {string} | nil, string
   return out, ""
 end
 
---- The identity of every source the checker can load from this tree.
---- A declaration wins over a source of the same name, just as
---- [`build.teal`]'s module search does. An embedded standard-library
---- module is content-addressed by what the checker reads of it when a
---- project imports it ([`teal.standard_text`]). Each module's
---- [`Keys`], by path.
-local function compute_keys(db: Sqlite.Handle, modules: {Module},
-                            tool: string): {string:Keys} | nil, string
+--- One line of the graph a key is a hash of, for the node `dependency` of
+--- `slot`: what [`compute_keys`] keys by, its kind and its source.
+local function source_line(slot: string, dependency: Dependency): string
+  return slot .. "\n" .. dependency.kind .. "\n" .. dependency.source_hash
+end
+
+--- What [`compute_keys`] reads of the tree and of the program's embedded
+--- standard library, as a graph walk needs it: each source the checker can
+--- load, by slot, and how a name is looked up in them.
+local record Graph
+  dependencies: {string:Dependency}
+  resolve: function(string, string): Dependency | nil, string
+end
+
+local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -179,16 +190,17 @@ local function compute_keys(db: Sqlite.Handle, modules: {Module},
       kind = m.kind, source_hash = m.source_hash, requires = m.requires,
     }
   end
-
-  local resolve = function(slot: string, name: string): Dependency | nil, string
+  --- The node `slot` names, `name` as the source wrote it: in the tree, or
+  --- else an embedded module of the program's standard library, which is
+  --- keyed by what the checker reads of it, a stub or a source, and by
+  --- which: a project compiled against one is never taken for one compiled
+  --- against the other. Nil, and why or "" for no node at all.
+  local function resolve(slot: string, name: string): Dependency | nil, string
     local dependency = dependencies[slot]
     if dependency == nil then
       if name:sub(1, 7) ~= "cosmic." then
         return nil, ""
       end
-      -- Keyed by what the checker reads of it, a stub or a source, and
-      -- by which: a project compiled against one is never taken for
-      -- one compiled against the other.
       local served = teal.standard_text(name)
       if served == nil then
         local _, source_trouble = Store.source(name)
@@ -207,72 +219,90 @@ local function compute_keys(db: Sqlite.Handle, modules: {Module},
     end
     return dependency, ""
   end
+  return { dependencies = dependencies, resolve = resolve }, ""
+end
 
-  -- Hash the reachable graph as a sorted set rather than recursively
-  -- hashing one node into another. Declarations can legally refer to each
-  -- other, and a set closes over those cycles without making traversal
-  -- order part of the key. When a declaration shadows an implementation,
-  -- both matter: the checker reads the declaration, while the generated
-  -- `require` loads the implementation at runtime.
-  -- A module's own compile is keyed by its file as well as its import
-  -- path (`file` below): `x.tl` and `x/init.tl` are both `x`, and
-  -- build.contracts names its exemptions by file, so a module moved
-  -- from one to the other is compiled again under its new file's rules.
-  -- Only the key holds it: the graph key ([`build.positions`]'
-  -- `graph_key`) is the import graph's by name and content, and a
-  -- dependency's file decides nothing of this compile.
-  local identify = function(name: string, file: string): Keys | nil, string
-    local seen: {string:boolean} = {}
-    local graph: {string} = {}
-    local function visit(slot: string, display: string): boolean, string
-      if seen[slot] then
-        return true, ""
+--- The key of `name` (`file` its file) over the nodes it reaches, each as
+--- `line_of` says, and `tool`; and the graph digest less the file and tool.
+--- Hash the reachable graph as a sorted set rather than recursively
+--- hashing one node into another. Declarations can legally refer to each
+--- other, and a set closes over those cycles without making traversal
+--- order part of the key. When a declaration shadows an implementation,
+--- both matter: the checker reads the declaration, while the generated
+--- `require` loads the implementation at runtime.
+--- A module's own compile is keyed by its file as well as its import
+--- path (`file` below): `x.tl` and `x/init.tl` are both `x`, and
+--- build.contracts names its exemptions by file, so a module moved
+--- from one to the other is compiled again under its new file's rules.
+--- Only the key holds it: the graph key ([`build.positions`]'
+--- `graph_key`) is the import graph's by name and content, and a
+--- dependency's file decides nothing of this compile.
+local function identify_in(known: Graph, name: string, file: string,
+                           tool: string, line_of: function(string, Dependency): string):
+    Keys | nil, string
+  local dependencies, resolve = known.dependencies, known.resolve
+  local seen: {string:boolean} = {}
+  local graph: {string} = {}
+  local function visit(slot: string, display: string): boolean, string
+    if seen[slot] then
+      return true, ""
+    end
+    local dependency, resolve_trouble = resolve(slot, display)
+    if dependency == nil then
+      if resolve_trouble ~= "" then return false, resolve_trouble end
+      return true, ""
+    end
+    seen[slot] = true
+    graph[#graph + 1] = line_of(slot, dependency)
+    for _, required in ipairs(dependency.requires) do
+      local child, child_trouble = resolve(required, required)
+      if child == nil and child_trouble ~= "" then
+        return false, child_trouble
       end
-      local dependency, resolve_trouble = resolve(slot, display)
-      if dependency == nil then
-        if resolve_trouble ~= "" then return false, resolve_trouble end
-        return true, ""
-      end
-      seen[slot] = true
-      graph[#graph + 1] = slot .. "\n" .. dependency.kind .. "\n" ..
-        dependency.source_hash
-      for _, required in ipairs(dependency.requires) do
-        local child, child_trouble = resolve(required, required)
-        if child == nil and child_trouble ~= "" then
-          return false, child_trouble
+      if child ~= nil then
+        graph[#graph + 1] = slot .. "\nrequires\n" .. required
+        local ok, trouble = visit(required, required)
+        if not ok then
+          return false, trouble
         end
-        if child ~= nil then
-          graph[#graph + 1] = slot .. "\nrequires\n" .. required
-          local ok, trouble = visit(required, required)
+        if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
+          graph[#graph + 1] = slot .. "\nloads\n" .. required
+          ok, trouble = visit("\0" .. required, required)
           if not ok then
             return false, trouble
           end
-          if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
-            graph[#graph + 1] = slot .. "\nloads\n" .. required
-            ok, trouble = visit("\0" .. required, required)
-            if not ok then
-              return false, trouble
-            end
-          end
         end
       end
-      return true, ""
     end
-    local ok, trouble = visit("\0" .. name, name)
-    if not ok then
-      return nil, trouble
-    end
-    table.sort(graph)
-    local sources = table.concat(graph, "\n\0\n")
-    return { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. file .. "\n" .. tool),
-      graph = Hash.hex_sha256(sources) }, ""
+    return true, ""
   end
+  local ok, trouble = visit("\0" .. name, name)
+  if not ok then
+    return nil, trouble
+  end
+  table.sort(graph)
+  local sources = table.concat(graph, "\n\0\n")
+  return { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. file .. "\n" .. tool),
+    graph = Hash.hex_sha256(sources) }, ""
+end
 
+--- The identity of every source the checker can load from this tree.
+--- A declaration wins over a source of the same name, just as
+--- [`build.teal`]'s module search does. An embedded standard-library
+--- module is content-addressed by what the checker reads of it when a
+--- project imports it ([`teal.standard_text`]). Each module's
+--- [`Keys`], by path.
+local function compute_keys(db: Sqlite.Handle, modules: {Module},
+                            tool: string): {string:Keys} | nil, string
+  local graph, trouble = dependency_graph(db, modules)
+  if graph == nil then
+    return nil, trouble
+  end
   local out: {string:Keys} = {}
   for _, m in ipairs(modules) do
-    local keys, trouble = identify(m.path, m.file)
+    local keys, identify_trouble = identify_in(graph, m.path, m.file, tool, source_line)
     if keys == nil then
-      return nil, trouble
+      return nil, identify_trouble
     end
     out[m.path] = keys
   end
@@ -637,6 +667,41 @@ function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
   end
 end
 
+--- Gives the verdict on the stub ([`build.stub`]) of the module `path` under
+--- its key now, unless one is kept: whether it types the module as
+--- `env` holds the source's type of it ([`stub.difference`]), kept in
+--- `stub_holds`. True where it does. A module `env` does not hold the type
+--- of has no verdict given.
+local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
+                        keys: {string:Keys}, path: string, file: string,
+                        stub_text: string): boolean, string
+  local named = keys[path]
+  local source_type = env.modules[path]
+  if named == nil or source_type == nil then
+    return false, ""
+  end
+  local known, known_trouble = Sqlite.text_rows(db,
+    "SELECT held FROM stub_holds WHERE key = ?1 AND stub = ?2",
+    { text(named.key), text(stub_hash(stub_text)) })
+  if known == nil then
+    return false, known_trouble
+  end
+  local verdict = known[1]
+  if verdict ~= nil then
+    return verdict:text(1) == "1", ""
+  end
+  local stubbed = built.check_string(stub_text, env, file .. " (stub)", "tl")
+  local held = #stubbed.syntax_errors == 0 and #stubbed.type_errors == 0 and
+    stub.difference(source_type, stubbed.type) == nil
+  local ok, why = Sqlite.run(db,
+    "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
+    { text(named.key), text(stub_hash(stub_text)), { integer = held and 1 or 0 } })
+  if not ok then
+    return false, why
+  end
+  return held, ""
+end
+
 --- Compares, for each module of the tree that `env` holds the type of
 --- and that has no verdict under its key yet, the stub
 --- ([`build.stub`]) with the source's type ([`stub.difference`]), and
@@ -661,29 +726,129 @@ function compilation.hold_stubs(db: Sqlite.Handle, built: compiler, env: compile
     return false, trouble
   end
   for _, row in ipairs(rows) do
-    local named = keys[row:text(1)]
-    local source_type = env.modules[row:text(1)]
-    if named ~= nil and source_type ~= nil then
-      local known, known_trouble = Sqlite.text_rows(db,
-        "SELECT key FROM stub_holds WHERE key = ?1 AND stub = ?2",
-        { text(named.key), text(stub_hash(row:text(3))) })
-      if known == nil then
-        return false, known_trouble
-      end
-      if known[1] == nil then
-        local stubbed = built.check_string(row:text(3), env, row:text(2) .. " (stub)", "tl")
-        local held = #stubbed.syntax_errors == 0 and #stubbed.type_errors == 0 and
-          stub.difference(source_type, stubbed.type) == nil
-        local ok, why = Sqlite.run(db,
-          "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
-          { text(named.key), text(stub_hash(row:text(3))), { integer = held and 1 or 0 } })
-        if not ok then
-          return false, why
-        end
-      end
+    local _, hold_trouble = hold_one(db, built, env, keys, row:text(1), row:text(2), row:text(3))
+    if hold_trouble ~= "" then
+      return false, hold_trouble
     end
   end
   return true, ""
+end
+
+--- Whether the stub of the module `path` is held to its source's type
+--- under the module's key now: [`verified_stub`]'s test, with the verdict
+--- given on the spot where none is kept and `env` holds the source's type
+--- of the module (it was compiled in this run). A module with no stub,
+--- or one a declaration stands in front of, is not.
+--- @param env what the run has compiled so far, or nil before any module was
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler.Env | nil,
+                               keys: {string:Keys}, path: string): boolean
+  local named = keys[path]
+  if named == nil then
+    return false
+  end
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT i.file, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND i.path = ?1 " ..
+      "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
+    { text(path) })
+  local first: Sqlite.Row | nil = nil
+  if rows ~= nil then first = rows[1] end
+  if first == nil then
+    return false
+  end
+  local file, stub_text = first:text(1), first:text(2)
+  local known, _ = Sqlite.text_rows(db,
+    "SELECT held FROM stub_holds WHERE key = ?1 AND stub = ?2",
+    { text(named.key), text(stub_hash(stub_text)) })
+  if known == nil then
+    return false
+  end
+  local verdict = known[1]
+  if verdict ~= nil then
+    return verdict:text(1) == "1"
+  end
+  if env == nil then
+    return false
+  end
+  local held, _ = hold_one(db, built, env, keys, path, file, stub_text)
+  return held
+end
+
+--- The key of a module over what a dependent's check can see of it: the
+--- module's own source, and of each module it reaches, the stub where that
+--- is held to the source's type in place of the source. A module whose
+--- key moved but whose interface did not -- a body, a comment -- has the same
+--- one, and what was compiled under the one stands for the other: a check
+--- reads of a held stub what it reads of the source, which is what the
+--- hold judges. The verdicts kept are read once; a module the stub of which
+--- has none under its key is asked of `judge`, which can give one only for a
+--- module compiled in this run and so by the time a module that reaches it
+--- is asked about.
+--- @param tool the compiler's identity, as in [`compilation.dependency_keys`]
+--- @param keys each module's [`compilation.Keys`], by path
+--- @param judge whether the stub of the module at a path is held to its source's type
+--- ([`compilation.stub_held`]), where no verdict is kept
+--- @return the interface key of a module, by it: nil and why where the tree cannot be read
+function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: string,
+                                    keys: {string:Keys}, judge: function(string): boolean):
+    Interfaced | nil, string
+  local made_graph, trouble = dependency_graph(db, modules)
+  if made_graph == nil then
+    return nil, trouble
+  end
+  local graph: Graph = made_graph
+  local rows, rows_trouble = Sqlite.text_rows(db,
+    "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND NOT EXISTS " ..
+      "(SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')")
+  if rows == nil then
+    return nil, rows_trouble
+  end
+  local stubs: {string:string} = {}
+  for _, row in ipairs(rows) do
+    stubs[row:text(1)] = stub_hash(row:text(2))
+  end
+  local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
+  if verdicts == nil then
+    return nil, verdicts_trouble
+  end
+  local kept: {string:boolean} = {}
+  for _, row in ipairs(verdicts) do
+    kept[row:text(1) .. "\0" .. row:text(2)] = row:text(3) == "1"
+  end
+  local judged: {string:boolean} = {}
+  local function held(path: string): boolean
+    local hash, named = stubs[path], keys[path]
+    if hash == nil or named == nil then
+      return false
+    end
+    local verdict = kept[named.key .. "\0" .. hash]
+    if verdict ~= nil then
+      return verdict
+    end
+    local made = judged[path]
+    if made == nil then
+      made = judge(path)
+      judged[path] = made
+    end
+    return made
+  end
+  local function line_of(slot: string, dependency: Dependency): string
+    if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
+      return slot .. "\nstub\n" .. (stubs[slot] or "")
+    end
+    return source_line(slot, dependency)
+  end
+  local interfaced: Interfaced = function(m: Module): string | nil, string
+    local made, identify_trouble = identify_in(graph, m.path, m.file,
+      "interface-1 " .. tool, line_of)
+    if made == nil then
+      return nil, identify_trouble
+    end
+    return made.key, ""
+  end
+  return interfaced, ""
 end
 
 --- Why a cosmic build refuses a global declared at `at` (`file:line:column`).

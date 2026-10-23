@@ -225,6 +225,24 @@ local version <const> = "29"
 --- goes too, so an edit undone is still free and the cache stays
 --- bounded.
 ---
+--- `deflated` is the compressed text of a source, by the source's SHA-256
+--- and the core that compressed it, which [`build.writer`] puts in a
+--- projection beside it instead of compressing every source on each write.
+---
+--- `link_answers` is what the disk answered the last time
+--- [`build.link_index`]'s `pending` resolved the tree's links, by a
+--- fingerprint of the links and the code that resolves them, so a run
+--- that finds every answer the same does not resolve them again.
+---
+--- `link_fill` and `link_fill_rows` are the `links` rows the last
+--- `fill` wrote, with a fingerprint of what they were written from, so a
+--- projection whose symbols and links did not move copies them.
+---
+--- `compiled_interface` names, by a module's interface key
+--- ([`build.compilation`]'s `interface_keys`), the compile that stood
+--- for it last: what a module's key that moved without its source or the
+--- interface of anything it reaches moving takes its compile from.
+---
 --- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
@@ -409,6 +427,33 @@ for _, statement in ipairs({
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
+                                         core TEXT NOT NULL,
+                                         data BLOB NOT NULL,
+                                         PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
+                                          path TEXT NOT NULL,
+                                          value TEXT NOT NULL,
+                                          found INTEGER NOT NULL,
+                                          PRIMARY KEY (kind, path)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS link_fill (fingerprint TEXT NOT NULL)]],
+    [[CREATE TABLE IF NOT EXISTS link_fill_rows (module TEXT NOT NULL,
+                                               symbol TEXT NOT NULL,
+                                               path TEXT NOT NULL,
+                                               anchor TEXT NOT NULL,
+                                               from_file TEXT NOT NULL,
+                                               line INTEGER NOT NULL,
+                                               column INTEGER NOT NULL,
+                                               from_module TEXT NOT NULL,
+                                               kind TEXT NOT NULL,
+                                               form TEXT NOT NULL,
+                                               source TEXT NOT NULL,
+                                               text TEXT NOT NULL,
+                                               PRIMARY KEY (module, symbol, path, anchor,
+                                                            from_file, line, column))
+                                              WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS compiled_interface (ikey TEXT PRIMARY KEY,
+                                                   key TEXT NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,
