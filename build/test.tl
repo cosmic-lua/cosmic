@@ -427,7 +427,7 @@ local kept_snapshots = 10
 --- and any `test_runs` row neither table references any more. A
 --- standing verdict's `coverage_by_test` rows are never dropped out
 --- from under it: only a verdict already gone can lose them.
-local function prune_history(handle: Sqlite.Handle, run: integer): boolean, string
+function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, string
   local dropped, drop_trouble = Sqlite.run(handle,
     "DELETE FROM verdicts WHERE seen < ?1", { { integer = run - kept_runs } })
   if not dropped then
@@ -439,10 +439,13 @@ local function prune_history(handle: Sqlite.Handle, run: integer): boolean, stri
   if not pruned_credits then
     return false, credits_trouble
   end
+  -- By range, not `NOT IN`: the key leads with `ran_at_ns`, so this reads
+  -- the rows it drops, where `NOT IN` read every kept snapshot's as well,
+  -- some two million rows a run.
   local pruned_snapshots, snapshots_trouble = handle:exec(
-    "DELETE FROM coverage WHERE ran_at_ns NOT IN " ..
-      "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
-      kept_snapshots .. ")")
+    "DELETE FROM coverage WHERE ran_at_ns < " ..
+      "(SELECT min(ran_at_ns) FROM (SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
+      kept_snapshots .. "))")
   if not pruned_snapshots then
     return false, snapshots_trouble
   end
@@ -4582,7 +4585,7 @@ local function settle(ctx: Run)
     local kept, keep_trouble = keep_violations(records, rec, ctx.run_at_ns)
     if not kept then errors[#errors + 1] = "type violations: " .. keep_trouble end
   end
-  local pruned, prune_trouble = prune_history(records, handle.run)
+  local pruned, prune_trouble = test.prune_history(records, handle.run)
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
   end

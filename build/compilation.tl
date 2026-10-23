@@ -150,8 +150,8 @@ end
 --- module is content-addressed by what the checker reads of it when a
 --- project imports it ([`teal.standard_text`]). Each module's
 --- [`Keys`], by path.
-function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                                     tool: string): {string:Keys} | nil, string
+local function compute_keys(db: Sqlite.Handle, modules: {Module},
+                            tool: string): {string:Keys} | nil, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
@@ -277,6 +277,88 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
     out[m.path] = keys
   end
   return out, ""
+end
+
+--- Everything [`compute_keys`] reads, as one digest: the compiler's
+--- `tool`, every `inputs` row but the compiler's (a module's kind,
+--- path and source hash decide the graph it is in), every `requires`
+--- row (what each source hash imports), and each module's own path,
+--- file, kind and source hash. Nil where the database will not say.
+local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: string): string | nil
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT coalesce((SELECT lower(hex(sha256(group_concat(path || char(1) || kind || char(1) || " ..
+      "source_hash, char(10) ORDER BY path, kind, source_hash)))) FROM inputs WHERE kind <> 'vendor'), ''), " ..
+      "coalesce((SELECT lower(hex(sha256(group_concat(source_hash || char(1) || ordinal || char(1) || " ..
+      "name, char(10) ORDER BY source_hash, ordinal, name)))) FROM requires), '')")
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
+  local parts: {string} = { "keys-memo-1", tool, row:text(1), row:text(2) }
+  for _, m in ipairs(modules) do
+    parts[#parts + 1] = m.path .. "\1" .. m.file .. "\1" .. m.kind .. "\1" .. m.source_hash
+  end
+  return Hash.hex_sha256(table.concat(parts, "\0"))
+end
+
+--- How many fingerprints' keys `keys_memo` holds: a build that
+--- alternates between tools (a run with run-time checks, a boot) keeps
+--- the keys of each.
+local kept_fingerprints <const> = 4
+
+--- The keys `keys_memo` holds under `fingerprint`, one line a module
+--- (path, key, graph, tab-separated), where they name exactly `modules`.
+local function remembered_keys(db: Sqlite.Handle, fingerprint: string,
+                               modules: {Module}): {string:Keys} | nil
+  local rows, _ = Sqlite.text_rows(db, "SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
+  local out: {string:Keys} = {}
+  local count = 0
+  for path, key, graph in row:text(1):gmatch("([^\t\n]+)\t([^\t\n]+)\t([^\t\n]+)\n") do
+    out[path] = { key = key, graph = graph }
+    count = count + 1
+  end
+  if count ~= #modules then return nil end
+  for _, m in ipairs(modules) do
+    if out[m.path] == nil then return nil end
+  end
+  return out
+end
+
+--- Keeps `keys` under `fingerprint`, and drops all but the newest
+--- `kept_fingerprints`. A failure costs only the next run's compute.
+local function keep_keys(db: Sqlite.Handle, fingerprint: string, modules: {Module},
+                         keys: {string:Keys})
+  local lines: {string} = {}
+  for _, m in ipairs(modules) do
+    local one = keys[m.path]
+    if one == nil then return end
+    lines[#lines + 1] = m.path .. "\t" .. one.key .. "\t" .. one.graph .. "\n"
+  end
+  local kept, _ = Sqlite.run(db, "INSERT OR REPLACE INTO keys_memo (fp, body) VALUES (?1, ?2)",
+    { text(fingerprint), text(table.concat(lines)) })
+  if not kept then return end
+  local _, _ = Sqlite.run(db, "DELETE FROM keys_memo WHERE id <= (SELECT max(id) FROM keys_memo) - ?1",
+    { { integer = kept_fingerprints } })
+end
+
+--- [`compute_keys`], or what it computed before for these same inputs:
+--- the digest of a module's whole import graph is some 0.3 s for a tree
+--- of a thousand modules, and a run where nothing changed asks it again.
+--- The memo is `keys_memo` of the working database, keyed by
+--- [`keys_fingerprint`], which holds everything the computation reads.
+function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
+                                     tool: string): {string:Keys} | nil, string
+  local fingerprint = keys_fingerprint(db, modules, tool)
+  if fingerprint ~= nil then
+    local kept = remembered_keys(db, fingerprint, modules)
+    if kept ~= nil then return kept, "" end
+  end
+  local keys, trouble = compute_keys(db, modules, tool)
+  if keys == nil then return nil, trouble end
+  if fingerprint ~= nil then keep_keys(db, fingerprint, modules, keys) end
+  return keys, ""
 end
 
 --- Why a build refuses the module `file` of `kind` that declares what

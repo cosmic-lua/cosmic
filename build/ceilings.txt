@@ -1775,13 +1775,13 @@ build/checker_wrapper.tl view_written 1
 build/child_lua_fixture.tl view_written 1
 build/child_policy_database_fixture.tl view_written 1
 build/ci_tree_test.tl view_written 5
-build/closure_store.tl view_written 26
+build/closure_store.tl view_written 34
 build/closure_store_test.tl view_written 5
 build/codec.tl view_written 3
 build/codec_fuzz_test.tl view_written 4
 build/codec_test.tl view_written 11
 build/codec_verb_fuzz_test.tl view_written 4
-build/compilation.tl view_written 30
+build/compilation.tl view_written 33
 build/compile.tl view_written 9
 build/compile_checker_test.tl view_written 4
 build/compile_grammar.tl view_written 20
@@ -1892,7 +1892,7 @@ build/identity.tl view_written 13
 build/importer.tl view_written 43
 build/importer_boot_test.tl view_written 6
 build/importer_store_test.tl view_written 6
-build/importer_test.tl view_written 32
+build/importer_test.tl view_written 34
 build/invoke.tl view_written 7
 build/islands_test.tl view_written 4
 build/json.tl view_written 11

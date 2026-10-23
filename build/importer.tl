@@ -1024,6 +1024,7 @@ local record Cache
   tool: string
   peek: Sqlite.Statement
   look: Sqlite.Statement
+  touch: Sqlite.Statement
   put: Sqlite.Statement
   plan: Sqlite.Statement
 end
@@ -1036,13 +1037,20 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   -- semantic change: invalidate the stored keys or the cache schema,
   -- rather than treating it as a transport-only edit.
   local look, look_trouble = db:prepare(
-    "UPDATE compiled SET seen = ?2 WHERE key = ?1 AND seen >= 0 RETURNING lua")
+    "SELECT lua, seen FROM compiled WHERE key = ?1 AND seen >= 0")
   if look == nil then
     return nil, look_trouble
+  end
+  local touch, touch_trouble = db:prepare(
+    "UPDATE compiled SET seen = ?2 WHERE key = ?1 AND seen >= 0")
+  if touch == nil then
+    look:finalize()
+    return nil, touch_trouble
   end
   local peek, peek_trouble = db:prepare("SELECT 1 FROM compiled WHERE key = ?1 AND seen >= 0")
   if peek == nil then
     look:finalize()
+    touch:finalize()
     return nil, peek_trouble
   end
   local put, put_trouble = db:prepare(
@@ -1050,6 +1058,7 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
       "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
+    touch:finalize()
     peek:finalize()
     return nil, put_trouble
   end
@@ -1057,33 +1066,42 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
     "INSERT INTO plan (path, key, ordinal) VALUES (?1, ?2, ?3)")
   if plan == nil then
     look:finalize()
+    touch:finalize()
     peek:finalize()
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, tool = tool, peek = peek, look = look, put = put,
-    plan = plan }
+  return { run = handle.run, tool = tool, peek = peek, look = look, touch = touch,
+    put = put, plan = plan }
 end
 
 local function finish_cache(cache: Cache)
   cache.look:finalize()
+  cache.touch:finalize()
   cache.peek:finalize()
   cache.put:finalize()
   cache.plan:finalize()
 end
 
 --- How many runs a compile stays cached after the last one that used
---- it.
+--- it. [`cached_lua`] writes a compile's `seen` only once it is
+--- `refresh_after` runs old, so one goes between `kept_runs` and
+--- `kept_runs + refresh_after` runs after its last use.
 local kept_runs = 100
+
+--- How stale a cached compile's `seen` may be before a run that uses it
+--- writes it again. A row holds the module's Lua and bytecode, so a write
+--- of `seen` alone rewrites all of it: marking each of a tree's modules
+--- on every run cost most of an idle run.
+local refresh_after = 10
 
 local once = bind.once
 
---- The cached Lua under `key`, marked as used by this run, or nil
---- when nothing is cached there.
+--- The cached Lua under `key`, marked as used by this run (see
+--- `refresh_after`), or nil when nothing is cached there.
 local function cached_lua(cache: Cache, key: string): string | nil, string
   local look = cache.look
   local bound, bind_trouble = look:bind_text(1, key)
-  if bound then bound, bind_trouble = look:bind_integer(2, cache.run) end
   if not bound then
     return nil, bind_trouble
   end
@@ -1092,12 +1110,26 @@ local function cached_lua(cache: Cache, key: string): string | nil, string
     return nil, trouble
   end
   local lua: string | nil = nil
+  local stale = false
   if state == "row" then
     lua = look:bytes(0)
+    stale = look:integer(1) < cache.run - refresh_after
   end
   local reset, reset_trouble = look:reset()
   if not reset then
     return nil, reset_trouble
+  end
+  if stale then
+    local touch = cache.touch
+    bound, bind_trouble = touch:bind_text(1, key)
+    if bound then bound, bind_trouble = touch:bind_integer(2, cache.run) end
+    if not bound then
+      return nil, bind_trouble
+    end
+    local touched, touch_trouble = once(touch)
+    if not touched then
+      return nil, touch_trouble
+    end
   end
   return lua, ""
 end
@@ -1658,7 +1690,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     local pruned, prune_trouble = Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
         (judged and " OR seen < 0" or ""),
-      { text(tool), { integer = handle.run - kept_runs } })
+      { text(tool), { integer = handle.run - kept_runs - refresh_after } })
     if not pruned then
       return false, prune_trouble
     end

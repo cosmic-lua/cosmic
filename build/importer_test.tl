@@ -325,6 +325,78 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   assert(before.graph_key == after.graph_key, "the move moved x's graph key")
 end
 
+--- What the working database of the project at `root` answers to `sql`,
+--- as rows of text.
+local function asked_of(root: string, sql: string): {{string}}
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db, sql))
+  work.close(handle)
+  local out: {{string}} = {}
+  for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
+  return out
+end
+
+--- The keys a run makes are kept for the next run that has the same inputs
+--- (`keys_memo`), and an input that changes is never answered with them: an
+--- edit to a module moves its own key and its dependents', and what a
+--- module that requires nothing of it holds stands.
+local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them()
+  local root = assert(write_fixture("keys-memo", {
+    ["x.tl"] = "return { value = 1 }\n",
+    ["main.tl"] = 'local x = require("x")\nreturn x.value\n',
+    ["other.tl"] = "return { value = 2 }\n",
+  }))
+  local function keys_of(result: importer.Result): {string:string}
+    local out: {string:string} = {}
+    for _, m in ipairs(result.modules) do
+      out[m.path] = (m.key or "") .. " " .. (m.graph_key or "")
+    end
+    return out
+  end
+  local first = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "the first run kept no keys")
+  local again = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "an unchanged tree kept its keys twice")
+  for path, key in pairs(first) do
+    assert(again[path] == key, path .. ": the kept keys are not the ones made")
+  end
+  assert(Fs.write(root .. "/x.tl", "return { value = 3 }\n"))
+  local edited = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 2, "an edit was answered with the keys before it")
+  assert(edited["x"] ~= first["x"], "x: an edit kept its key")
+  assert(edited["main"] ~= first["main"], "main: an edit to what it requires kept its key")
+  assert(edited["other"] == first["other"], "other: an edit to another module moved its key")
+  assert(Fs.write(root .. "/x.tl", "return { value = 1 }\n"))
+  local undone = keys_of((assert(compile_fixture(root))))
+  for path, key in pairs(first) do
+    assert(undone[path] == key, path .. ": undoing the edit did not find its keys again")
+  end
+end
+
+--- A run that finds a compile cached does not write the compile's row, which
+--- holds all its Lua and bytecode, to say it used it: its `seen` is written
+--- only once it is many runs old, so a compile in use is never dropped.
+local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
+  local root = assert(write_fixture("seen-lazily", {
+    ["x.tl"] = "return { value = 1 }\n",
+  }))
+  assert(compile_fixture(root))
+  local function seen_of(): integer
+    local rows = asked_of(root, "SELECT seen FROM compiled")
+    assert(#rows == 1, "expected one compile")
+    local row = assert(rows[1])
+    return assert(math.tointeger(tonumber(row[1])))
+  end
+  local made = seen_of()
+  assert(compile_fixture(root))
+  assert(seen_of() == made, "a run that used a recent compile wrote its row again")
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE compiled SET seen = seen - 50"))
+  work.close(handle)
+  assert(compile_fixture(root))
+  assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
+end
+
 --- Mutually recursive declaration types are valid input to the checker. A
 --- cache key closes over the graph without rejecting that cycle itself.
 local function test_declaration_dependency_keys_allow_cycles()

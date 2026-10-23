@@ -22,8 +22,11 @@
 --- query of the projection, a table only the projection fills -- moves
 --- only the addresses of the stores whose rows it moves.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
@@ -143,8 +146,120 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
   return out, ""
 end
 
---- The basis of the closure stores of the projection at `whole`.
-function closure_store.basis(whole: string): closure_store.Basis | nil, string
+--- Where the basis of the projection at `whole` is kept: beside it.
+local function memo_path(whole: string): string
+  return whole .. ".basis"
+end
+
+--- What says the projection at `whole` is the file a kept basis was made
+--- of, and this code the code that made it: the file's size, inode,
+--- modification and change times, and the digest of this module's
+--- bytecode. Nil where there is nothing to say it by, and nil too while
+--- the file is younger than two seconds: a write inside the tick of the
+--- clock that stamped it would leave all of these as they were, so a
+--- basis is kept only of a file already older than that.
+local function memo_token(whole: string): string | nil
+  local st, _ = sys.stat(whole)
+  if st == nil then return nil end
+  local written = st.mtime * 1000000000 + st.mtime_ns
+  local changed = st.ctime * 1000000000 + st.ctime_ns
+  if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
+  local code, _ = Store.bytecode("build.closure_store")
+  if code == nil then return nil end
+  return table.concat({ "basis-memo-1", Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+end
+
+--- Where a read of a kept basis is, and the basis it made.
+local record Reading
+  at: integer
+  basis: closure_store.Basis | nil
+end
+
+--- The basis kept beside `whole` under `token`, or nil where none is, or
+--- it is of another file or another code, or it is not whole.
+local function remembered(whole: string, token: string): closure_store.Basis | nil
+  local bytes, _ = Fs.read(memo_path(whole))
+  if bytes == nil then return nil end
+  local data: string = bytes
+  local reading: Reading = { at = 1, basis = nil }
+  local function next_string(): string
+    local value: string
+    value, reading.at = string.unpack("<s4", data, reading.at)
+    return value
+  end
+  local function next_count(): integer
+    local value: integer
+    value, reading.at = string.unpack("<I4", data, reading.at)
+    return value
+  end
+  -- The reading raises on a truncated file; `pcall`'s own results are all
+  -- that is taken of it, and the basis leaves by `reading`.
+  pcall(function()
+    if next_string() ~= token then return end
+    local out: closure_store.Basis = {
+      modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+    }
+    for _ = 1, next_count() do
+      local path = next_string()
+      out.modules[path] = next_string()
+      out.kinds[path] = next_string()
+    end
+    for i = 1, next_count() do out.pairable[i] = next_string() end
+    for _ = 1, next_count() do
+      local path = next_string()
+      out.decls[path] = next_string()
+      local required: {string} = {}
+      for i = 1, next_count() do required[i] = next_string() end
+      out.decl_requires[path] = required
+    end
+    if reading.at ~= #data + 1 then return end
+    reading.basis = out
+  end)
+  return reading.basis
+end
+
+--- Keeps `basis` beside `whole` under `token`, written aside and moved into
+--- place so that what is there is whole. A failure costs the next run
+--- the work it would have saved, and nothing else.
+local function remember(whole: string, token: string, basis: closure_store.Basis)
+  local parts: {string} = {}
+  local function put_string(value: string) parts[#parts + 1] = string.pack("<s4", value) end
+  local function put_count(value: integer) parts[#parts + 1] = string.pack("<I4", value) end
+  put_string(token)
+  put_string(basis.shared)
+  -- In the order `pairs` has them: a reader takes them by name.
+  local modules = 0
+  for _ in pairs(basis.modules) do modules = modules + 1 end
+  put_count(modules)
+  for path, line in pairs(basis.modules) do
+    put_string(path)
+    put_string(line)
+    put_string(basis.kinds[path] or "")
+  end
+  put_count(#basis.pairable)
+  for _, path in ipairs(basis.pairable) do put_string(path) end
+  local declared = 0
+  for _ in pairs(basis.decls) do declared = declared + 1 end
+  put_count(declared)
+  for path, line in pairs(basis.decls) do
+    put_string(path)
+    put_string(line)
+    local required = basis.decl_requires[path] or {}
+    put_count(#required)
+    for _, name in ipairs(required) do put_string(name) end
+  end
+  local aside = memo_path(whole) .. "." .. tostring(Proc.pid()) .. ".building"
+  local written, _ = Fs.write(aside, table.concat(parts))
+  if written then
+    local moved, _ = Fs.rename(aside, memo_path(whole))
+    if moved then return end
+  end
+  local _, _ = Fs.remove(aside)
+end
+
+--- The basis of the closure stores of the projection at `whole`, read from
+--- every row of it.
+local function read_basis(whole: string): closure_store.Basis | nil, string
   local opened, trouble = Sqlite.open(whole)
   if opened == nil then return nil, whole .. ": " .. trouble end
   local db: Sqlite.Handle = opened
@@ -226,6 +341,22 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
   local _, _ = db:close()
   if basis == nil then return nil, whole .. ": " .. read_trouble end
   return basis, ""
+end
+
+--- The basis of the closure stores of the projection at `whole`: read
+--- from the file beside it where an earlier run kept one of this very
+--- file ([`memo_token`]), which saves hashing every row of the
+--- projection, some half a second for cosmic's own tree.
+function closure_store.basis(whole: string): closure_store.Basis | nil, string
+  local token = memo_token(whole)
+  if token ~= nil then
+    local kept = remembered(whole, token)
+    if kept ~= nil then return kept, "" end
+  end
+  local made, made_trouble = read_basis(whole)
+  if made == nil then return nil, made_trouble end
+  if token ~= nil then remember(whole, token, made) end
+  return made, ""
 end
 
 --- Modules a module loads by other means than `require`, which a

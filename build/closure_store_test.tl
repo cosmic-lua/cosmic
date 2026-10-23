@@ -525,3 +525,41 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   assert(moved ~= address, "a row of the closure left the address")
   assert(moved_key ~= key, "a change to the store's bytes left the key")
 end
+
+--- The basis of a projection is kept beside it once the file is older than
+--- the clock's tick, and read back the same; a write to the file, even in
+--- place, makes the next read come from its rows.
+local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
+  local whole = tmp .. "/whole.db"
+  local fresh = assert(closure_store.basis(whole))
+  assert(Fs.exists(whole .. ".basis") ~= true, "a basis was kept of a file just written")
+  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
+  local made = assert(closure_store.basis(whole))
+  assert(Fs.exists(whole .. ".basis"), "no basis was kept of a file two seconds old")
+  local kept = assert(closure_store.basis(whole))
+  for _, basis in ipairs({ made, kept }) do
+    assert(basis.shared == fresh.shared, "the kept basis names other meta")
+    for path, line in pairs(fresh.modules) do
+      assert(basis.modules[path] == line and basis.kinds[path] == fresh.kinds[path],
+        path .. ": a kept basis holds another line")
+    end
+    assert(#basis.pairable == #fresh.pairable, "a kept basis pairs other modules")
+  end
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  assert(db:exec("UPDATE modules SET bytecode = bytecode || X'00' WHERE path = 'greet'"))
+  assert(db:close())
+  local changed = assert(closure_store.basis(whole))
+  assert(changed.modules["greet"] ~= fresh.modules["greet"],
+    "a basis kept of the file before an edit in place answered after it")
+  -- Once the edited file is older than the tick too, a basis is kept and
+  -- looked for again: only its token says it is of the file before the edit.
+  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
+  assert(Fs.exists(whole .. ".basis"))
+  local old_token = assert(closure_store.basis(whole))
+  assert(old_token.modules["greet"] == changed.modules["greet"],
+    "a basis kept of the file before an edit in place answered after it, once the file was old")
+  assert(old_token.modules["greet"] ~= fresh.modules["greet"], "the edit is not in the kept basis")
+end
