@@ -1480,6 +1480,97 @@ local function test_a_dependent_of_a_type_a_body_changed_is_compiled_again()
   assert(compile_fixture(root))
 end
 
+--- What a tree's compile holds for each planned module: its Lua, its
+--- bytecode and the record-field uses found, which a compile made fresh
+--- in another root must hold the same of.
+local function compile_outputs(root: string): {string}
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT p.path || char(10) || c.lua || char(10) || hex(c.bytecode) || char(10) || " ..
+      "coalesce((SELECT group_concat(module || '|' || member || '|' || line, ';') FROM " ..
+      "(SELECT module, member, line FROM typed_refs t WHERE t.key = p.key ORDER BY ordinal)), '') " ..
+      "FROM plan p JOIN compiled c ON c.key = p.key ORDER BY p.path"))
+  work.close(handle)
+  local out: {string} = {}
+  for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+  return out
+end
+
+--- Writes `files` (`build/<name>`) under a fresh own-tree root.
+local function write_tree_files(case: string, files: {string:string}): string
+  local root = write_own_tree(case, {})
+  for name, source in pairs(files) do
+    assert(Fs.write(root .. "/build/" .. name, source))
+  end
+  return root
+end
+
+--- A compile that took what an earlier tree compiled for a module whose
+--- key moved is the compile made fresh, over edits that leave a stub as it
+--- was (a body, a comment) and edits that do not (a constant a stub keeps,
+--- an enum, a declaration standing in front of a module), with and
+--- without the run-time checks, which write what a dependency's type says
+--- into a dependent.
+local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
+  local lim = "local record lim\n  enum Mode\n    \"a\"\n    \"b\"\n  end\n  MAX: integer\n" ..
+    "  name: function(): string\nend\nlim.MAX = 5\nfunction lim.name(): string\n" ..
+    "  return \"x\"\nend\nreturn lim\n"
+  local mid = "local lim = require(\"build.lim\")\nlocal record mid\n  m: lim.Mode\n" ..
+    "  top: function(): integer\nend\nfunction mid.top(): integer\n  return lim.MAX\nend\nreturn mid\n"
+  local user = "local mid = require(\"build.mid\")\nlocal lim = require(\"build.lim\")\n" ..
+    "local limit <const> = lim.MAX\nlocal chosen: lim.Mode = \"a\"\n" ..
+    "local function f(m: mid): integer\n  return limit + mid.top() + #lim.name() + #chosen + (m.m == \"a\" and 1 or 0)\nend\nreturn f\n"
+  local decl = "local record lim\n  enum Mode\n    \"a\"\n    \"b\"\n  end\n  MAX: integer\n" ..
+    "  name: function(): string\nend\nreturn lim\n"
+  local steps: {{string, {string:string}}} = {
+    { "a body", { ["lim.tl"] = lim:gsub("return \"x\"", "return \"yy\"") } },
+    { "a comment", { ["lim.tl"] = lim .. "-- noted\n" } },
+    { "a constant the stub keeps", { ["lim.tl"] = lim:gsub("lim.MAX = 5", "lim.MAX = 6") } },
+    { "an enum", { ["lim.tl"] = lim:gsub("\"b\"\n", "\"b\"\n    \"c\"\n") } },
+    { "a declaration in front", { ["lim.tl"] = lim, ["lim.d.tl"] = decl } },
+    { "the module's body, with the declaration", { ["lim.tl"] = lim:gsub("return \"x\"", "return \"zzz\"") } },
+    { "the declaration gone", { ["lim.tl"] = lim, ["lim.d.tl"] = false as string } },
+    { "a body of mid", { ["mid.tl"] = mid:gsub("return lim.MAX", "return lim.MAX + 0") } },
+  }
+  for _, checks in ipairs({ false, true }) do
+    local files: {string:string} = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user }
+    local root = write_tree_files("reused-" .. tostring(checks), files)
+    local function compile_with_checks(at: string): importer.Result | nil, string
+      local handle = assert(work.open(at))
+      assert(work.stage(handle, false))
+      local result, trouble = importer.compile(handle, built, "declaration-cache-test", false, nil, nil, checks)
+      work.close(handle)
+      return result, trouble
+    end
+    assert(compile_with_checks(root))
+    for _, step in ipairs(steps) do
+      for name, source in pairs(step[2]) do
+        if source == (false as string) then
+          files[name] = nil
+          assert(Fs.remove(root .. "/build/" .. name))
+        else
+          files[name] = source
+          assert(Fs.write(root .. "/build/" .. name, source))
+        end
+      end
+      local made, trouble = compile_with_checks(root)
+      if made ~= nil and (step[1] == "a body" or step[1] == "a comment") then
+        assert(made.compiled == 1, step[1] .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
+      end
+      local fresh_root = write_tree_files("fresh-" .. tostring(checks), files)
+      local fresh, fresh_trouble = compile_with_checks(fresh_root)
+      assert((made == nil) == (fresh == nil), step[1] .. ": " .. tostring(trouble) .. " / " .. tostring(fresh_trouble))
+      if made ~= nil then
+        local had, wanted = compile_outputs(root), compile_outputs(fresh_root)
+        assert(#had == #wanted, step[1])
+        for i, row in ipairs(had) do
+          assert(row == wanted[i], "checks=" .. tostring(checks) .. ", " .. step[1] .. ": " .. row .. "\n---\n" .. wanted[i])
+        end
+      end
+    end
+  end
+end
+
 --- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()

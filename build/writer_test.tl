@@ -587,6 +587,27 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
   assert(shipped:text(1) == "1" and shipped:text(2) == "0", "the edited source was not shipped")
 end
 
+--- A compressed source is kept for the core that compressed it: a
+--- projection written by a core of another image never ships bytes the
+--- first made, and the cache drops what that core made.
+local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
+  assert(handle.db:exec("UPDATE deflated SET data = x'00'"))
+  assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  assert(writer.write_result(handle, tmp .. "/second.db", result))
+  local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated"))
+  assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
+    "the cache holds a core's bytes that is not the writing core's")
+  assert(work.close(handle))
+  local out = assert(Sqlite.open(tmp .. "/second.db"))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 FROM modules WHERE path = 'greet'"))
+  assert(out:close())
+  assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
+end
+
 --- A paired declaration describes the interface; only its implementation
 --- contributes executable rows and runtime dependencies.
 local function test_paired_declaration_projects_each_source_in_its_role(tmp: string)
