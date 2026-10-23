@@ -397,6 +397,31 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
   assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
 end
 
+--- The test above sets `seen` below zero, which marks a compile never
+--- reused, so it is compiled again whether or not a use of the old one
+--- marks it. This one ages the compile by the runs that went by instead:
+--- one standing, used by a run many runs after its mark, is marked again
+--- and not compiled.
+local function test_a_standing_compile_used_many_runs_later_is_marked_not_compiled()
+  local root = assert(write_fixture("seen-by-runs", {
+    ["x.tl"] = "return { value = 1 }\n",
+  }))
+  assert(compile_fixture(root))
+  local function seen_of(): integer
+    local rows = asked_of(root, "SELECT seen FROM compiled")
+    assert(#rows == 1, "expected one compile")
+    local row = assert(rows[1])
+    return assert(math.tointeger(tonumber(row[1])))
+  end
+  local made = seen_of()
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE meta SET value = value + 40 WHERE key = 'run'"))
+  work.close(handle)
+  local result = assert(compile_fixture(root))
+  assert(result.compiled == 0 and result.cached == 1, "a standing compile was made again")
+  assert(seen_of() >= made + 40, "a compile used 40 runs after its mark kept its mark")
+end
+
 --- Mutually recursive declaration types are valid input to the checker. A
 --- cache key closes over the graph without rejecting that cycle itself.
 local function test_declaration_dependency_keys_allow_cycles()

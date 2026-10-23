@@ -427,6 +427,7 @@ for _, statement in ipairs({
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
+    [[CREATE INDEX IF NOT EXISTS compiled_by_seen ON compiled (key, seen)]],
     [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
