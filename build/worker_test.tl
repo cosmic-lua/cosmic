@@ -543,8 +543,9 @@ local function test_a_signal_to_the_builds_group_ends_its_workers()
 end
 
 --- `pool` as a build is given it, and how many times it handed back
---- compiled modules for the build to take.
-local function counted(pool: importer.Workers): importer.Workers, {integer}
+--- compiled modules for the build to take. `before` is run on the working
+--- database just before each ask.
+local function counted(pool: importer.Workers, before?: function(Sqlite.Handle)): importer.Workers, {integer}
   local taken = { 0 }
   return {
     ready = pool.ready,
@@ -552,6 +553,7 @@ local function counted(pool: importer.Workers): importer.Workers, {integer}
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own: boolean,
                        judged: boolean): importer.Ahead | nil, string
+      if before ~= nil then before(db) end
       local ahead, trouble = pool.compile(db, root, order, wanted, own, judged)
       if ahead ~= nil then taken[1] = taken[1] + 1 end
       return ahead, trouble
@@ -589,33 +591,15 @@ local function test_a_pool_leaves_a_build_whose_parse_found_a_global_to_one_proc
   -- importer.compile refuses a declared global before it asks a pool, so
   -- the pool's own answer is held here: given the parse's row of one, it
   -- takes no part, and without one it does.
-  local function asked(recorded: boolean): boolean
-    local pool = pool_of()
-    local seen: {boolean} = {}
-    local troubles: {string} = {}
-    local watching: importer.Workers = {
-      ready = pool.ready,
-      parse = pool.parse,
-      compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
-                         wanted: {string:boolean}, own: boolean,
-                         judged: boolean): importer.Ahead | nil, string
-        if recorded then
-          assert(Sqlite.run(db, "INSERT INTO globals (source_hash, ordinal, line, column) " ..
-              "SELECT source_hash, 1, 1, 1 FROM inputs WHERE kind <> 'vendor' LIMIT 1", {}))
-        end
-        local ahead, why = pool.compile(db, root, order, wanted, own, judged)
-        seen[1], troubles[1] = ahead ~= nil, why
-        return ahead, why
-      end,
-      close = pool.close,
-    }
-    build_with(recorded and "global-row" or "no-global-row", project(), watching)
-    assert(seen[1] ~= nil, "the build did not ask the pool")
-    if recorded then assert(troubles[1] == "", troubles[1]) end
-    return seen[1] == true
-  end
-  assert(asked(false), "the pool took no part in a build with no global")
-  assert(not asked(true), "the pool compiled a build the parse found a global in")
+  local clean, taken_clean = counted(pool_of())
+  build_with("no-global-row", project(), clean)
+  assert(taken_clean[1] == 1, "the pool took no part in a build with no global")
+  local recorded, taken_recorded = counted(pool_of(), function(db: Sqlite.Handle)
+    assert(Sqlite.run(db, "INSERT INTO globals (source_hash, ordinal, line, column) " ..
+        "SELECT source_hash, 1, 1, 1 FROM inputs WHERE kind <> 'vendor' LIMIT 1", {}))
+  end)
+  build_with("global-row", project(), recorded)
+  assert(taken_recorded[1] == 0, "the pool compiled a build the parse found a global in")
 end
 
 local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()
