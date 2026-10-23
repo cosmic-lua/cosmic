@@ -225,6 +225,10 @@ local version <const> = "29"
 --- goes too, so an edit undone is still free and the cache stays
 --- bounded.
 ---
+--- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
+--- of the last few sets of inputs, by a digest of everything they are a
+--- function of, so a run where no source moved does not make them again.
+---
 --- `typed_refs` is what one compile's checker found a record's field
 --- used through ([`build.receivers`]): keyed by the compile's own key,
 --- since a value's type depends on everything its module imports, and
@@ -414,6 +418,9 @@ for _, statement in ipairs({
     [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
                                      key TEXT NOT NULL,
                                      ordinal INTEGER NOT NULL) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS keys_memo (id INTEGER PRIMARY KEY,
+                                          fp TEXT NOT NULL UNIQUE,
+                                          body TEXT NOT NULL)]],
     [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,

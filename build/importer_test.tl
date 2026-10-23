@@ -336,6 +336,43 @@ local function asked_of(root: string, sql: string): {{string}}
   return out
 end
 
+--- The keys a run makes are kept for the next run that has the same inputs
+--- (`keys_memo`), and an input that changes is never answered with them: an
+--- edit to a module moves its own key and its dependents', and what a
+--- module that requires nothing of it holds stands.
+local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them()
+  local root = assert(write_fixture("keys-memo", {
+    ["x.tl"] = "return { value = 1 }\n",
+    ["main.tl"] = 'local x = require("x")\nreturn x.value\n',
+    ["other.tl"] = "return { value = 2 }\n",
+  }))
+  local function keys_of(result: importer.Result): {string:string}
+    local out: {string:string} = {}
+    for _, m in ipairs(result.modules) do
+      out[m.path] = (m.key or "") .. " " .. (m.graph_key or "")
+    end
+    return out
+  end
+  local first = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "the first run kept no keys")
+  local again = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 1, "an unchanged tree kept its keys twice")
+  for path, key in pairs(first) do
+    assert(again[path] == key, path .. ": the kept keys are not the ones made")
+  end
+  assert(Fs.write(root .. "/x.tl", "return { value = 3 }\n"))
+  local edited = keys_of((assert(compile_fixture(root))))
+  assert(#asked_of(root, "SELECT fp FROM keys_memo") == 2, "an edit was answered with the keys before it")
+  assert(edited["x"] ~= first["x"], "x: an edit kept its key")
+  assert(edited["main"] ~= first["main"], "main: an edit to what it requires kept its key")
+  assert(edited["other"] == first["other"], "other: an edit to another module moved its key")
+  assert(Fs.write(root .. "/x.tl", "return { value = 1 }\n"))
+  local undone = keys_of((assert(compile_fixture(root))))
+  for path, key in pairs(first) do
+    assert(undone[path] == key, path .. ": undoing the edit did not find its keys again")
+  end
+end
+
 --- A run that finds a compile cached does not write the compile's row, which
 --- holds all its Lua and bytecode, to say it used it: its `seen` is written
 --- only once it is many runs old, so a compile in use is never dropped.
