@@ -18,8 +18,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
   local values = Env.all()
-  values.COSMIC_BOOTSTRAP, values.COSMIC_BOOTSTRAP_VERIFY = nil, nil
-  values.COSMIC_BOOTSTRAP_ATTEMPTS = nil
+  values["COSMIC_BOOTSTRAP"], values["COSMIC_BOOTSTRAP_VERIFY"] = nil, nil
+  values["COSMIC_BOOTSTRAP_ATTEMPTS"] = nil
   if extra then
     for name, value in pairs(extra) do values[name] = value end
   end
@@ -336,14 +336,14 @@ local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: str
   out = assert(Fs.read(tmp .. "/ran.out"))
   assert(ran.ok and out == "ran\n" .. physical(tmp) .. "\na b\nc\n", out)
   -- A relative one is answered absolute, for a caller that moves on.
-  env.COSMIC_BOOTSTRAP = "stand-in"
+  env["COSMIC_BOOTSTRAP"] = "stand-in"
   local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
     tmp, tmp .. "/relative.out", env)
   out = assert(Fs.read(tmp .. "/relative.out"))
   assert(relative.ok and out:sub(1, 1) == "/" and out:find("/stand%-in\n$") ~= nil, out)
   -- With COSMIC_BOOTSTRAP_VERIFY, which asks for the pin's checked one,
   -- a stand-in is refused rather than answered unchecked.
-  env.COSMIC_BOOTSTRAP, env.COSMIC_BOOTSTRAP_VERIFY = cosmic, "1"
+  env["COSMIC_BOOTSTRAP"], env["COSMIC_BOOTSTRAP_VERIFY"] = cosmic, "1"
   local verified = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
     tmp, tmp .. "/verified.out", env)
   out = assert(Fs.read(tmp .. "/verified.out"))
@@ -501,17 +501,17 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
   local one = call({ runner, driver, "run", "--help" }, project, tmp .. "/run-help.out", env,
     driver_timeout)
   local run_help = assert(Fs.read(tmp .. "/run-help.out"))
-  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
+  assert(one.code == 0 and run_help:find("driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true) ~= nil,
     run_help)
   local refused = call({ runner, driver, "platfrom" }, project, tmp .. "/unknown.out", env,
     driver_timeout)
   local why = assert(Fs.read(tmp .. "/unknown.out"))
-  assert(refused.code == 2 and why:find("no such command: platfrom", 1, true), why)
+  assert(refused.code == 2 and why:find("no such command: platfrom", 1, true) ~= nil, why)
   -- The form without "--" is refused with the usage that shows where it
   -- goes.
   local old = call({ runner, driver, "run", "p", "100", "/bin/sh", "-c", "exit 0" }, project,
     tmp .. "/old-run.out", env, driver_timeout)
   local told = assert(Fs.read(tmp .. "/old-run.out"))
-  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true),
+  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE", 1, true) ~= nil,
     told)
 end

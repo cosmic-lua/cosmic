@@ -40,7 +40,7 @@ function LauncherFixture.environment(cache?: string,
     PORTABLE_CALLER_LOCALE = "preserved",
   })
   for _, name in ipairs(private_environment) do values[name] = nil end
-  values.COSMIC_PORTABLE_CACHE = cache
+  values["COSMIC_PORTABLE_CACHE"] = cache
   if extra then
     for name, value in pairs(extra) do values[name] = value end
   end

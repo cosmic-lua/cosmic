@@ -89,7 +89,7 @@ local record Settings
 end
 
 local function settings(env: {string:string}, who: string): Settings | nil, string
-  local repository = env.REPOSITORY
+  local repository = env["REPOSITORY"]
   if repository == nil or repository == "" then return nil, who .. ": no REPOSITORY" end
   local call, why = whole(env, "CALL_SECONDS", 15)
   if call == nil then return nil, who .. ": " .. why end
@@ -218,8 +218,8 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
     return 2
   end
   local legs: {string} = {}
-  for leg in (env.LEGS or ""):gmatch("%S+") do legs[#legs + 1] = leg end
-  local sha = env.SHA or ""
+  for leg in (env["LEGS"] or ""):gmatch("%S+") do legs[#legs + 1] = leg end
+  local sha = env["SHA"] or ""
   if #legs == 0 or sha == "" then
     local _, _ = Fs.put(Fs.stderr, "queue-find: no " .. (#legs == 0 and "LEGS" or "SHA") .. "\n")
     return 2
@@ -258,7 +258,7 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
       if names ~= nil then
         local missing = ""
         for _, leg in ipairs(legs) do
-          if not names["seed-" .. leg] then missing = missing .. " " .. leg end
+          if names["seed-" .. leg] ~= true then missing = missing .. " " .. leg end
         end
         if missing == "" then
           found, url = candidate, candidate_url
@@ -287,7 +287,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, "queue-ahead: " .. why .. "\n")
     return 2
   end
-  local artifact, job = env.ARTIFACT or "", env.JOB or ""
+  local artifact, job = env["ARTIFACT"] or "", env["JOB"] or ""
   if artifact == "" or job == "" then return refuse("no ARTIFACT or JOB") end
   local s, why = settings(env, "queue-ahead")
   if s == nil then
@@ -301,8 +301,8 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
   if within == nil then return refuse(trouble) end
   ready, trouble = whole(env, "READY_SECONDS", nil)
   if trouble ~= "" then return refuse(trouble) end
-  local suite = env.SUITE_STEP or ""
-  local base = env.BASE or ""
+  local suite = env["SUITE_STEP"] or ""
+  local base = env["BASE"] or ""
   local found, said = "", ""
   local deadline = host.now() + within
   if not Github.is_commit(base) then
@@ -335,7 +335,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
       local names = listed and artifact_names(listed) or nil
       if names == nil then
         pending = true
-      elseif names[artifact] then
+      elseif names[artifact] == true then
         found = run
       elseif status == "completed" then
         said = "the run ahead, " .. run .. ", completed without " .. artifact .. ": nothing taken from the run ahead."

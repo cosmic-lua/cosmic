@@ -147,8 +147,8 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
     end
   end
   for _, write in ipairs(writes) do
-    local ok, trouble = Fs.write(write[1], write[2])
-    if not ok then return nil, write[1] .. ": " .. trouble end
+    local ok, trouble = Fs.write(assert(write[1]), assert(write[2]))
+    if not ok then return nil, assert(write[1]) .. ": " .. trouble end
     result.manifests = result.manifests + 1
   end
   return result, ""
@@ -182,8 +182,8 @@ function ZigRestat.command(project: string, shared: string | nil, root: string,
     return 0, "", "zig-restat: left as restored: " .. trouble .. "\n"
   end
   return 0, "zig-restat: " .. Plural.count(result.records, "file") .. " listed: " ..
-    result.adopted .. " given their new inode, " .. result.rehashed ..
-    " re-hashed and taken, " .. result.left .. " left; " ..
+    tostring(result.adopted) .. " given their new inode, " .. tostring(result.rehashed) ..
+    " re-hashed and taken, " .. tostring(result.left) .. " left; " ..
     Plural.count(result.manifests, "manifest") .. " rewritten\n", ""
 end
 
@@ -195,8 +195,8 @@ end
 function ZigRestat.run(root: string, project: string, shared: string | nil): integer, string, string
   if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
   local env = Env.all()
-  env.COSMIC_ZIG_CACHE = project
-  if shared ~= nil then env.COSMIC_ZIG_GLOBAL_CACHE = shared end
+  env["COSMIC_ZIG_CACHE"] = project
+  if shared ~= nil then env["COSMIC_ZIG_GLOBAL_CACHE"] = shared end
   local lib: string | nil = nil
   local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture" })

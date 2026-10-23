@@ -102,7 +102,7 @@ function State.open(path: string): Sqlite.Handle
   local wanted: {string} = { "held" }
   for _, part in ipairs(State.key_parts) do wanted[#wanted + 1] = part[2] end
   for _, name in ipairs(wanted) do
-    if not present[name] then
+    if present[name] ~= true then
       assert(db:exec("ALTER TABLE suite_runs ADD COLUMN " .. name .. " TEXT"))
     end
   end
@@ -167,10 +167,10 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   -- An operations database written before a column was lacks it.
   local columns = suite_columns_of(db)
   for _, part in ipairs(State.key_parts) do
-    selected[#selected + 1] = columns[part[2]] and
-      (part[2] .. " IS NULL, COALESCE(" .. part[2] .. ", '')") or "1, ''"
+    selected[#selected + 1] = columns[assert(part[2])] == true and
+      (assert(part[2]) .. " IS NULL, COALESCE(" .. assert(part[2]) .. ", '')") or "1, ''"
   end
-  selected[#selected + 1] = columns.held and "held IS NULL, COALESCE(held, '')" or "1, ''"
+  selected[#selected + 1] = columns["held"] and "held IS NULL, COALESCE(held, '')" or "1, ''"
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
@@ -180,13 +180,13 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
     for _, name in ipairs(State.suite_columns) do
       if cells:text(column) ~= "1" then
         local value = cells:text(column + 1)
-        row[name] = integer_columns[name] and math.tointeger(tonumber(value)) or value
+        row[name] = integer_columns[name] == true and math.tointeger(tonumber(value)) or value
       end
       column = column + 2
     end
     local parts: {string:string} = {}
     for _, part in ipairs(State.key_parts) do
-      if cells:text(column) ~= "1" then parts[part[1]] = cells:text(column + 1) end
+      if cells:text(column) ~= "1" then parts[assert(part[1])] = cells:text(column + 1) end
       column = column + 2
     end
     row.parts = parts
@@ -215,12 +215,12 @@ function State.suite(path: string, row: State.SuiteRun)
   local parts = row.parts or {}
   for _, part in ipairs(State.key_parts) do
     columns[#columns + 1] = part[2]
-    values[#values + 1] = maybe_text(parts[part[1]])
+    values[#values + 1] = maybe_text(parts[assert(part[1])])
   end
   columns[#columns + 1] = "held"
   values[#values + 1] = maybe_text(row.held)
   local marks: {string} = {}
-  for i = 1, #columns do marks[i] = "?" .. i end
+  for i = 1, #columns do marks[i] = "?" .. tostring(i) end
   local db = State.open(path)
   assert(Sqlite.run(db, "INSERT INTO suite_runs (" .. table.concat(columns, ",") ..
       ") VALUES (" .. table.concat(marks, ",") .. ")", values))

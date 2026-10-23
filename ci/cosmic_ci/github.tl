@@ -103,7 +103,7 @@ end
 -- harness did not move": every test then stands on the verdicts it
 -- would, which costs a stale verdict at worst, never a failed run.
 function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
-  local git = Proc.find("git", env.PATH or "")
+  local git = Proc.find("git", env["PATH"] or "")
   local function run_git(argv: {string}): integer | nil
     if git == nil then return nil end
     local words: {string} = { git }
@@ -135,7 +135,7 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     end,
     -- $GITHUB_OUTPUT, standard output for a run by hand.
     output = function(text: string)
-      local file = env.GITHUB_OUTPUT
+      local file = env["GITHUB_OUTPUT"]
       if file ~= nil and file ~= "" then
         local _, _ = Fs.append(file, text .. "\n")
       else
@@ -144,7 +144,7 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     end,
     print = function(text: string) line(Fs.stdout, text) end,
     summary = function(text: string)
-      local file = env.GITHUB_STEP_SUMMARY
+      local file = env["GITHUB_STEP_SUMMARY"]
       if file ~= nil and file ~= "" then
         local _, _ = Fs.append(file, text .. "\n")
       end

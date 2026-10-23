@@ -74,12 +74,12 @@ end
 local function entry(id: integer, key: string, hours: number): string
   -- With milliseconds, as the API writes them.
   local created = Time.format_rfc3339((GithubFake.START - math.floor(hours * 3600)) * 1000000000, nil, { digits = 3 })
-  return '{"id":' .. id .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
+  return '{"id":' .. tostring(id) .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
 end
 
 --- The API's list of the entries given, a page.
 local function listing(...: string): string
-  return '{"total_count":' .. select("#", ...) .. ',"actions_caches":[' .. table.concat({ ... }, ",") .. "]}"
+  return '{"total_count":' .. tostring(select("#", ...)) .. ',"actions_caches":[' .. table.concat({ ... }, ",") .. "]}"
 end
 
 --- A listing in `pages`: each is one page the fake serves linked to the next.
@@ -101,7 +101,7 @@ end
 --- the fake, what it said and its status.
 local function prune(env: {string: string}, answer: string | nil, refuse?: {string}): GithubFake.Fake, string, integer
   local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end, refuse)
-  env.REPOSITORY = "o/r"
+  env["REPOSITORY"] = "o/r"
   local code = CommitVerdicts.prune(env, fake.host)
   return fake, GithubFake.text(fake.printed), code
 end
@@ -155,14 +155,14 @@ end
 local function test_a_failed_delete_leaves_the_rest_deleted()
   local fake, said = prune({}, pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 30),
     entry(2, "verdicts-leg-h-f-sha-" .. BASE, 30))), { "1" })
-  assert(deleted(fake) == "1 2" and said:find("pruned 1 commit-keyed verdict entry older", 1, true) and
+  assert(deleted(fake) == "1 2" and said:find("pruned 1 commit-keyed verdict entry older", 1, true) ~= nil and
       said:find("(1 failed)", 1, true), table.concat(fake.calls, "\n") .. said)
 end
 
 --- A listing or a delete that fails fails nothing: the rest go on.
 local function test_a_failed_prune_fails_nothing()
   local fake, said, code = prune({}, nil)
-  assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), table.concat(fake.calls, "\n") .. said)
+  assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true) ~= nil, table.concat(fake.calls, "\n") .. said)
   -- Both listings are asked, and both said.
   assert(#fake.calls == 2 and #fake.printed == 4, table.concat(fake.printed, "\n"))
   assert(said:find("lookup failed: GET repos/o/r/", 1, true) and said:find(": HTTP 500", 1, true), said)
@@ -172,7 +172,7 @@ local function test_a_failed_prune_fails_nothing()
       pages('{"actions_caches":[{"id":1,"key":"verdicts-h-f-sha-' .. SHA .. '"}]}'),
       pages('{"actions_caches":[{"id":1,"key":"verdicts-h-f-sha-' .. SHA .. '","created_at":"yesterday"}]}') }) do
     fake, said, code = prune({}, answer)
-    assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true), answer .. said)
+    assert(code == 0 and deleted(fake) == "" and said:find("none pruned", 1, true) ~= nil, answer .. said)
   end
 end
 
@@ -180,7 +180,7 @@ end
 local function test_an_unreadable_environment_is_refused()
   for _, env in ipairs({ { HOURS = "a day" }, { HOURS = "-1" }, { CALL_SECONDS = "soon" } }) do
     local fake, _, code = prune(env, pages(listing()))
-    assert(code == 2 and #fake.calls == 0, tostring(env.HOURS))
+    assert(code == 2 and #fake.calls == 0, tostring(env["HOURS"]))
   end
   local fake = GithubFake.new(function(): string | nil return nil end)
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
@@ -222,12 +222,12 @@ end
 local function test_a_failed_invalidate_fails_nothing()
   local fake = GithubFake.new(function(): string | nil return nil end)
   local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
-  assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true))
+  assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true) ~= nil)
   fake = GithubFake.new(function(): string | nil
     return pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 1), entry(2, "verdicts-leg-g-f-sha-" .. SHA, 1)))
   end, { "1" })
   code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
-  assert(code == 0 and deleted(fake) == "1 2" and GithubFake.text(fake.printed):find("(1 failed)", 1, true))
+  assert(code == 0 and deleted(fake) == "1 2" and GithubFake.text(fake.printed):find("(1 failed)", 1, true) ~= nil)
   for _, env in ipairs({ { COMMIT = SHA, CALL_SECONDS = "soon" }, {}, { COMMIT = "" }, { COMMIT = "abc" },
       { COMMIT = SHA:upper() }, { COMMIT = "main" }, { COMMIT = SHA .. "0" } } as {{string: string}}) do
     fake = GithubFake.new(function(): string | nil return nil end)

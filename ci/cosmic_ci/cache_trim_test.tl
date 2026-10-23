@@ -31,7 +31,7 @@ local function mocked(request: CacheTrim.Request, env: {string:string}, payload:
   local ok, out, err = pcall(CacheTrim.run, request, env)
   Child.run = original
   assert(ok, out)
-  return out as string, err
+  return out as string, assert(err)
 end
 
 local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: string)
@@ -52,13 +52,13 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
   Json.array(bad.files)
   cases[#cases + 1] = bad
   bad = encoded(path)
-  bad.files[1].state = "failed"
+  assert(bad.files[1]).state = "failed"
   cases[#cases + 1] = bad
   bad = encoded(path)
-  bad.files[1].state = "missing"
+  assert(bad.files[1]).state = "missing"
   cases[#cases + 1] = bad
   bad = encoded(path)
-  bad.files[1].kept = -1
+  assert(bad.files[1]).kept = -1
   cases[#cases + 1] = bad
   bad = encoded(path)
   bad.digest = "bad"
@@ -70,7 +70,7 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
   bad.warnings = Json.array({ "comparison incomplete" })
   cases[#cases + 1] = bad
   for i, value in ipairs(cases) do
-    local output = tmp .. "/output" .. i
+    local output = tmp .. "/output" .. tostring(i)
     local _, err = mocked(request, { GITHUB_OUTPUT = output }, (assert(Json.encode(value))))
     assert(err ~= "" and Fs.stat(output) == nil, err)
   end
@@ -102,7 +102,7 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   local payload: string = assert(Json.encode(encoded(path)))
   local ok, _, err = pcall(mocked, request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
   Fs.exists = original
-  assert(ok and err:find("injected inaccessible path", 1, true), err)
+  assert(ok and assert(err):find("injected inaccessible path", 1, true) ~= nil, err)
   assert(Fs.read(restored) == "owned" and Fs.stat(tmp .. "/output") == nil)
   request.restored = nil
   local append = Fs.append
@@ -112,7 +112,7 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   local out: any
   ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
   Fs.append = append
-  assert(ok and tostring(out):find("digest", 1, true), out)
+  assert(ok and tostring(out):find("digest", 1, true) ~= nil, out)
   assert(err == "diagnosticcompiles-trim: " .. tmp .. "/output: injected output failure\n", err)
 end
 
@@ -156,7 +156,7 @@ local function test_snapshot_identity_failures_retain_snapshot_and_save_nothing(
   local called, code, _, err = pcall(Compiles.command, { "5", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   Fs.absolute, Fs.exists = absolute, exists
-  assert(called and code == 0 and err:find("snapshot retained", 1, true), err)
+  assert(called and code == 0 and assert(err):find("snapshot retained", 1, true) ~= nil, err)
   assert(Fs.read(restored) == "owned" and Fs.stat(tmp .. "/output") == nil)
 end
 
@@ -172,7 +172,7 @@ local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string
   local called, code, _, err = pcall(Compiles.command, { "5", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   Child.run = original
-  assert(called and code == 0 and err:find("injected start failure", 1, true), err)
+  assert(called and code == 0 and assert(err):find("injected start failure", 1, true) ~= nil, err)
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do assert(Fs.stat(restored .. suffix) == nil) end
   assert(Fs.stat(tmp .. "/output") == nil)
 end
@@ -185,7 +185,7 @@ local function test_a_guard_failure_cleans_snapshot_without_raising(tmp: string)
   local called, code, _, err = pcall(Compiles.command, { "5", restored },
     { COSMIC_BUILD_CACHE = tmp .. "/cache.db", GITHUB_OUTPUT = tmp .. "/output" })
   Signal.guard = original
-  assert(called and code == 0 and err:find("injected guard failure", 1, true), err)
+  assert(called and code == 0 and assert(err):find("injected guard failure", 1, true) ~= nil, err)
   assert(Fs.stat(restored) == nil and Fs.stat(tmp .. "/output") == nil)
 end
 
@@ -248,7 +248,7 @@ local function test_partial_output_failure_keeps_the_report_and_does_not_retry(t
   end
   local ok, out, err = pcall(mocked, request, { GITHUB_OUTPUT = output }, payload)
   Fs.append = append
-  assert(ok and calls.value == 1 and tostring(out):find("digest", 1, true), out)
+  assert(ok and calls.value == 1 and tostring(out):find("digest", 1, true) ~= nil, out)
   assert(err == "diagnosticcompiles-trim: " .. output .. ": injected append failure\n", err)
   assert(Fs.read(output) == "earlier=value\ndig")
 end

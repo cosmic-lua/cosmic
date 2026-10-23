@@ -65,7 +65,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): integer, string
   if since == nil and not whole then
     return 2, "", "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n"
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
     return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", ""
   end
@@ -118,7 +118,7 @@ end
 local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
-  return math.tointeger(tonumber(rows[1]:text(1))) or 0, ""
+  return math.tointeger(tonumber(assert(rows[1]):text(1))) or 0, ""
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
@@ -146,7 +146,7 @@ local function merge_file(from: string, into: string): string, string
   local differing: {string} = {}
   local session = { attached = false }
   local function work(): boolean, string
-    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
+    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))
     if not timed then return false, time_trouble end
     local ok, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS ahead", { { text = from } })
     if not ok then return false, attach_trouble end
@@ -260,7 +260,7 @@ function Verdicts.merge(argv: {string}, env: {string:string}): integer, string, 
   if from == "" or argv[2] ~= nil then
     return 2, "", "usage: verdicts-merge DIR\n"
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
     return 0, "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
       "'); nothing to merge\n", ""

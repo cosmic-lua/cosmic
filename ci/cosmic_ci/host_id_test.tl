@@ -243,6 +243,6 @@ local function test_a_leg_named_by_nothing_is_refused(tmp: string)
   }) do
     local env, output, said, code = named(tmp, "darwin-all", case.args, case.env, "28.0.4")
     assert(code == 2 and env == nil and output == nil and said == "",
-      table.concat(case.args, " ") .. ": " .. code)
+      table.concat(case.args, " ") .. ": " .. tostring(code))
   end
 end

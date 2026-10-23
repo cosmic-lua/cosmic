@@ -122,7 +122,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
   local values = Fixture.environment({
     COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
   if shares then
-    values.COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES")
+    values["COSMIC_BUILD_CACHE"] = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES")
   end
   for _, stage in ipairs({ "edited", "undone" }) do
     if stage == "edited" then

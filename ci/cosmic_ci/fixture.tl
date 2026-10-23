@@ -131,7 +131,7 @@ end
 --- yet, and answers it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
-  assert(not Fs.exists(destination), "unpack destination already exists: " .. destination)
+  assert(Fs.exists(destination) ~= true, "unpack destination already exists: " .. destination)
   Fixture.mkdir(destination)
   local written, trouble = Archive.extract(tar, destination)
   assert(written, tar .. ": " .. tostring(trouble))
@@ -144,7 +144,7 @@ end
 --- `require`s and writes what it builds (its o/).
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"
-  if Fs.exists(tree) then return tree end
+  if Fs.exists(tree) == true then return tree end
   return Fixture.unpack(fixture_dir .. "/tool.tar", tree)
 end
 
@@ -246,9 +246,9 @@ function Fixture.environment_of(base: {string:string},
     if base[name] ~= nil then environment[name] = base[name] end
   end
   local home = builds.home
-  if home ~= nil then environment.COSMIC_BUILD_HOME = home end
-  environment.COSMIC_BUILD_CACHE = "0"
-  environment.COSMIC_TEST_SANDBOX = "0"
+  if home ~= nil then environment["COSMIC_BUILD_HOME"] = home end
+  environment["COSMIC_BUILD_CACHE"] = "0"
+  environment["COSMIC_TEST_SANDBOX"] = "0"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end
@@ -361,8 +361,8 @@ function Fixture.targets(path: string): {Fixture.Target}
     assert(id and configuration and kind and name and uname_os and uname_arch,
       "invalid generated target record: " .. line)
     local pair = tostring(id) .. ":" .. tostring(configuration)
-    assert(not pairs_seen[pair], "duplicate target/configuration: " .. pair)
-    assert(not names_seen[name], "duplicate target name: " .. name)
+    assert(pairs_seen[pair] ~= true, "duplicate target/configuration: " .. pair)
+    assert(names_seen[name] ~= true, "duplicate target name: " .. name)
     pairs_seen[pair], names_seen[name] = true, true
     targets[#targets + 1] = {
       id = id,

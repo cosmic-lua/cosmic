@@ -132,7 +132,7 @@ local function name(sha: string, leg: string, event?: string, declared?: string)
   local given, out = host(environment(sha, leg, event, declared))
   assert(PlaceTree.run(given, "--name") == 0)
   assert(#out == 1)
-  return out[1]
+  return assert(out[1])
 end
 
 local function test_names_match_the_recorded_vectors()
@@ -162,12 +162,12 @@ local function test_every_commit_and_leg_names_one_directory_of_its_own_length()
     for _, leg in ipairs(LEGS) do
       local named = name(sha, leg)
       assert(named:match("^%x+$") ~= nil and #named <= 24, sha .. " " .. leg .. " names " .. named)
-      if not lengths[#named] then distinct = distinct + 1 end
+      if lengths[#named] ~= true then distinct = distinct + 1 end
       lengths[#named] = true
     end
   end
   -- The name's length varies too, not only its digits.
-  assert(distinct >= 8, "only " .. distinct .. " lengths in 96 names")
+  assert(distinct >= 8, "only " .. tostring(distinct) .. " lengths in 96 names")
 end
 
 local function test_another_leg_or_commit_names_another_path()
@@ -233,7 +233,7 @@ local function layout(root: string): string
       local target = Fs.readlink(root .. path)
       if target then
         lines[#lines + 1] = path .. " -> " .. target
-      elseif Fs.is_dir(root .. path) then
+      elseif Fs.is_dir(root .. path) == true then
         lines[#lines + 1] = path .. "/"
         walk(path)
       else
@@ -367,7 +367,7 @@ local function test_a_move_onto_an_existing_directory_is_refused()
   local before = layout(root)
   local given, out, err = host(environment(SHA, "linux-x86_64", "push", "0", workspace))
   assert(PlaceTree.run(given, "") == 1)
-  assert(#out == 0 and err[1]:find("exists already", 1, true), tostring(err[1]))
+  assert(#out == 0 and assert(err[1]):find("exists already", 1, true) ~= nil, tostring(err[1]))
   assert(layout(root) == before, layout(root))
   assert(Fs.remove_tree(root))
 end

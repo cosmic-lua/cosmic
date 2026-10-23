@@ -91,6 +91,6 @@ local function test_old_shared_parent_alias_is_rejected(tmp: string)
   local changed, count = source:gsub("local samples = run_pairs%(parent,", "parent = a\n    local samples = run_pairs(parent,")
   assert(count == 1)
   local result = run(tmp, changed)
-  assert(not result.ok and (result.stderr or ""):find("unbalanced fixture build history", 1, true),
+  assert(not result.ok and (result.stderr or ""):find("unbalanced fixture build history", 1, true) ~= nil,
     diagnostic(result))
 end

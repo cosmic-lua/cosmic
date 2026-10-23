@@ -58,7 +58,7 @@ end
 -- failed run read as false are met only in CI, where any of them going
 -- wrong reads as the whole tree rather than a wrong list.
 function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
-  local git = Proc.find("git", env.PATH or "")
+  local git = Proc.find("git", env["PATH"] or "")
   return function(argv: {string}, seconds: integer): boolean, string
     if git == nil then return false, "" end
     local words: {string} = { git }
@@ -71,7 +71,7 @@ function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
 end
 
 function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git: ChangedPaths.Git): integer
-  local out = env.OUT
+  local out = env["OUT"]
   if out == nil or out == "" then
     local _, _ = Fs.put(Fs.stderr, "changed-paths: OUT names the file to write the paths to\n")
     return 2
@@ -89,7 +89,7 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     local _, _ = Fs.put(Fs.stderr, "changed-paths: " .. why .. "\n")
     return 2
   end
-  local base = env.BASE or ""
+  local base = env["BASE"] or ""
   if not Github.is_commit(base) then return whole_tree("no base on main") end
   if not git({ "fetch", "--quiet", "--no-tags", "--depth=1", "origin", base }, wait) then
     return whole_tree("could not fetch " .. base)
@@ -101,7 +101,7 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
   if listed:find("\n", 1, true) then return whole_tree("a path changed holds a line break") end
   local _, paths = listed:gsub("\0", "\n")
   if paths > limit then
-    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. limit)
+    return whole_tree(Plural.count(paths, "path") .. " changed, more than " .. tostring(limit))
   end
   if not Fs.write(out, (listed:gsub("\0", "\n"))) then
     return whole_tree("could not write " .. out)

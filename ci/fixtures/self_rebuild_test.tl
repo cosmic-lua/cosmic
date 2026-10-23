@@ -127,8 +127,8 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
           "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
-      total.value = total.value + math.tointeger(tonumber(counts[1]:text(1)))
-      used.value = used.value + math.tointeger(tonumber(counts[1]:text(2)))
+      total.value = total.value + math.tointeger(tonumber(assert(counts[1]):text(1)))
+      used.value = used.value + math.tointeger(tonumber(assert(counts[1]):text(2)))
     end
     return true
   end)
@@ -749,16 +749,16 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
-    local outcome = Fixture.call_with_environment("foreign-" .. (verb[1]:gsub("/", "-")),
+    local outcome = Fixture.call_with_environment("foreign-" .. (assert(verb[1]):gsub("/", "-")),
       argv, tree, diagnostics, values)
-    assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
+    assert(outcome.result.code == 3, assert(verb[1]) .. ": exit status was " ..
         tostring(outcome.result.code) .. ", want 3")
     Fixture.contains(outcome.err, "is not the tree's own tool")
     assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
-      verb[1] .. ": a tool outside the tree rebuilt itself")
+      assert(verb[1]) .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
-      verb[1] .. ": a tool outside the tree was overwritten")
+      assert(verb[1]) .. ": a tool outside the tree was overwritten")
     assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
-      verb[1] .. ": a tool outside the tree wrote one into it")
+      assert(verb[1]) .. ": a tool outside the tree wrote one into it")
   end
 end

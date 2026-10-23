@@ -37,7 +37,7 @@ function Compiles.command(argv: {string}, env: {string:string}): integer, string
   if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true)) then
     return 2, "", "compiles-trim: RESTORED must be an absolute path without NUL\n"
   end
-  local path = env.COSMIC_BUILD_CACHE or ""
+  local path = env["COSMIC_BUILD_CACHE"] or ""
   local paths: {string} = {}
   if path:sub(1, 1) == "/" then
     if path:find("\0", 1, true) then return 2, "", "compiles-trim: cache path contains NUL\n" end

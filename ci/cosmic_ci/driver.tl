@@ -175,8 +175,8 @@ return function(argv: {string}): integer
   end
   local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
   if ran == nil then
-    local named = argv[1] ~= nil and commands[argv[1]] or nil
-    local usage = named ~= nil and "; usage: driver.tl " .. argv[1] .. " " .. named.usage or ""
+    local named = argv[1] ~= nil and commands[assert(argv[1])] or nil
+    local usage = named ~= nil and "; usage: driver.tl " .. assert(argv[1]) .. " " .. named.usage or ""
     local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. usage .. "\n")
     return 2
   end

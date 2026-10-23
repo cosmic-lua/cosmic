@@ -323,7 +323,7 @@ end
 --- the output to `$temp/fuzz.out` and the status to `$temp/fuzz.status`,
 --- and answers the status.
 function Fuzz.execute(r: Fuzz.Run): integer
-  local seed, iters = r.env.FUZZ_SEED or "", r.env.FUZZ_ITERS or ""
+  local seed, iters = r.env["FUZZ_SEED"] or "", r.env["FUZZ_ITERS"] or ""
   r.summarize(Fuzz.header(seed, iters))
   -- A failing test's directory is left under TMPDIR, holding the
   -- shrunk input it kept (build/test.tl's sweep).
@@ -331,9 +331,9 @@ function Fuzz.execute(r: Fuzz.Run): integer
   assert(Fs.mkdirs(scratch))
   local env: {string:string} = {}
   for name, value in pairs(r.env) do env[name] = value end
-  env.TMPDIR = scratch
-  env.COSMIC_AUTO_BOOT = "0"
-  env.COSMIC_TEST_TIMEOUT = "1200"
+  env["TMPDIR"] = scratch
+  env["COSMIC_AUTO_BOOT"] = "0"
+  env["COSMIC_TEST_TIMEOUT"] = "1200"
   local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"

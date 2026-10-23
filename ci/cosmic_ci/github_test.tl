@@ -33,8 +33,8 @@ local function test_a_lookup_gets_the_path_and_decodes_its_answer()
   local page = pages[1] as {string: any}
   assert(#pages == 1 and (page.merge_base_commit as {string: string}).sha == "abc")
   assert(#sent == 1)
-  has(sent[1], "GET /repos/o/r/compare/main...x HTTP/1.1\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer secret\r\n")
+  has(assert(sent[1]), "GET /repos/o/r/compare/main...x HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
 end
 
 --- A listing answers every page, each fetched where the `Link` header of
@@ -55,9 +55,9 @@ local function test_a_listing_follows_the_link_header_to_every_page()
     assert(caches[1].id == i)
   end
   assert(#sent == 3)
-  has(sent[1], "GET /repos/o/r/actions/caches?per_page=1 HTTP/1.1\r\n")
-  has(sent[2], "GET /repos/o/r/actions/caches?page=2 HTTP/1.1\r\n")
-  has(sent[3], "GET /repos/o/r/actions/caches?page=3 HTTP/1.1\r\n")
+  has(assert(sent[1]), "GET /repos/o/r/actions/caches?per_page=1 HTTP/1.1\r\n")
+  has(assert(sent[2]), "GET /repos/o/r/actions/caches?page=2 HTTP/1.1\r\n")
+  has(assert(sent[3]), "GET /repos/o/r/actions/caches?page=3 HTTP/1.1\r\n")
 end
 
 --- A listing whose next page is on another origin fails, and the token
@@ -68,7 +68,7 @@ local function test_a_next_link_to_another_origin_fails_the_listing()
     { reply("200 OK", "", "{}") },
   })
   local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
-  assert(pages == nil and why:find("refusing to send the token to", 1, true) and
+  assert(pages == nil and why:find("refusing to send the token to", 1, true) ~= nil and
       why:find("page 2", 1, true), tostring(why))
   assert(#sent == 1, "the token was sent on")
 end
@@ -79,7 +79,7 @@ local function test_a_next_link_that_repeats_a_page_fails_the_listing()
   local host, sent = host_with({ { reply("200 OK", loop, "{}") }, { reply("200 OK", loop, "{}") },
     { reply("200 OK", loop, "{}") } })
   local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
-  assert(pages == nil and why:find("repeats", 1, true), tostring(why))
+  assert(pages == nil and why:find("repeats", 1, true) ~= nil, tostring(why))
   assert(#sent == 2, "the loop was followed")
 end
 
@@ -108,12 +108,12 @@ end
 local function test_a_host_with_no_token_fails_every_lookup()
   local bare = Github.live({})
   local pages, why = bare.fetch("repos/o/r", false, 1)
-  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
   pages, why = bare.fetch("repos/o/r", true, 1)
-  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(pages == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
   local deleted: boolean
   deleted, why = bare.delete("repos/o/r/actions/caches/1", 1)
-  assert(deleted == false and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(deleted == false and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
 end
 
 --- A request is cut off after the seconds the lookup gives.
@@ -136,8 +136,8 @@ local function test_a_delete_sends_delete()
   local host, sent = host_with({ { reply("204 No Content", "") },
     { reply("403 Forbidden", "", '{"message":"Must have admin rights"}') } })
   assert(host.delete("repos/o/r/actions/caches/7", 30))
-  has(sent[1], "DELETE /repos/o/r/actions/caches/7 HTTP/1.1\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer secret\r\n")
+  has(assert(sent[1]), "DELETE /repos/o/r/actions/caches/7 HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
   local deleted, why = host.delete("repos/o/r/actions/caches/8", 30)
   assert(deleted == false and why == "DELETE repos/o/r/actions/caches/8: HTTP 403: Must have admin rights", why)
 end

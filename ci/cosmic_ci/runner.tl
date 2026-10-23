@@ -311,7 +311,7 @@ function Runner.stop(running: Runner.Running): Runner.Outcome
   local handle = running.handle
   if handle == nil then return Runner.reap(running) end
   local polled = handle:try_wait()
-  if polled and polled.finished then return Runner.reap(running) end
+  if (polled and polled.finished) == true then return Runner.reap(running) end
   local _, _ = handle:close()
   local elapsed = Clock.monotonic_ns() - running.recording.started
   return settle(running, { status = "cancelled", code = 130, elapsed_ns = elapsed,

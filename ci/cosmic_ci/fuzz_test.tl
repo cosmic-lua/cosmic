@@ -269,9 +269,9 @@ local function test_driver_commands_read_the_environment(tmp: string)
   local summary = tmp .. "/summary.md"
   -- The job's own GITHUB_* and RUNNER_TEMP, under CI, are replaced.
   local env = Env.all()
-  env.GITHUB_WORKSPACE, env.RUNNER_TEMP = root, temp
-  env.GITHUB_STEP_SUMMARY = summary
-  env.FUZZ_SEED, env.FUZZ_ITERS = "11", "2"
+  env["GITHUB_WORKSPACE"], env["RUNNER_TEMP"] = root, temp
+  env["GITHUB_STEP_SUMMARY"] = summary
+  env["FUZZ_SEED"], env["FUZZ_ITERS"] = "11", "2"
   local fuzz = assert(Child.run({ driver[1], driver[2], "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
@@ -310,8 +310,8 @@ local function start_fuzz(tmp: string, body: {string},
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
   local env = Env.all()
-  env.GITHUB_WORKSPACE, env.RUNNER_TEMP = root, temp
-  env.GITHUB_STEP_SUMMARY = tmp .. "/summary.md"
+  env["GITHUB_WORKSPACE"], env["RUNNER_TEMP"] = root, temp
+  env["GITHUB_STEP_SUMMARY"] = tmp .. "/summary.md"
   if extra then
     for name, value in pairs(extra) do env[name] = value end
   end
@@ -451,7 +451,7 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = Fs.stdout,
     summarize = function(_text: string) end })
   Fs.open_write, Stream.tee = original_open, original_tee
-  assert(not ok and tostring(why):find("injected sink constructor failure", 1, true))
+  assert(not ok and tostring(why):find("injected sink constructor failure", 1, true) ~= nil)
   local opened_value = opened.value
   assert(opened_value ~= nil)
   local _, _, errno = sys.write(opened_value, "must be closed")
@@ -493,7 +493,7 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
     summarize = function(_text: string) end })
   Child.start = original
   assert(Fs.close(log))
-  assert(not ok and tostring(why):find("injected sink failure", 1, true))
+  assert(not ok and tostring(why):find("injected sink failure", 1, true) ~= nil)
   assert(closed.value and read(temp .. "/fuzz.status") == "17\n")
   assert(read(temp .. "/fuzz.out") == "saved-once\n" and read(tmp .. "/log") == "saved-once\n")
 end

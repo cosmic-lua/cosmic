@@ -71,13 +71,15 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     local path = request.url:sub(#origin + 2)
     fake.calls[#fake.calls + 1] = request.method .. " " .. path
     if request.method == "DELETE" then
-      if refused[path:match("[^/]*$")] then return reply(403, '{"message":"refused"}') end
+      if refused[assert(path:match("[^/]*$"))] == true then
+        return reply(403, '{"message":"refused"}')
+      end
       return reply(204, "")
     end
     local at, number = path:match("^(.-)#page=(%d+)$")
     local asked = at or path
     asks[asked] = (asks[asked] or 0) + (at and 0 or 1)
-    local text = answer(asked, asks[asked])
+    local text = answer(asked, assert(asks[asked]))
     if text == nil then return reply(500, "") end
     local pages = Json.decode_array(text)
     if pages == nil then return reply(200, text) end

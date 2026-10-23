@@ -64,7 +64,7 @@ local function parts_of(list: string): {string:string}
   local parts: {string:string} = {}
   for item in (list .. ", "):gmatch("(.-), ") do
     local name, value = item:match("^(.-) (%S*)$")
-    if name and name ~= "" then parts[name] = value end
+    if (name and name ~= "") == true then parts[assert(name)] = value end
   end
   return parts
 end
@@ -89,12 +89,12 @@ local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   into.verdict = "fail"
   into.failed, into.tests = number(failed), number(total)
   into.errors, into.elapsed_ms = number(errors), number(ms)
-  local tail, skipped = rest:match("^(.*); (%d+) not run after the first failure$")
+  local tail, skipped = assert(rest):match("^(.*); (%d+) not run after the first failure$")
   if skipped then
     into.not_run = number(skipped)
     rest = tail
   end
-  into.sandbox = rest:match("^; (.*)$") or ""
+  into.sandbox = assert(rest):match("^; (.*)$") or ""
   return true
 end
 
@@ -106,7 +106,7 @@ function SuiteOutput.held(list: string): {SuiteOutput.Held}
     local rows, named = group:match("^(%d+) rows? under (.*)$")
     if rows then
       out[#out + 1] = { rows = number(rows),
-        parts = named == "no parts named" and {} or parts_of(named) }
+        parts = named == "no parts named" and {} or parts_of(assert(named)) }
     end
   end
   return out
@@ -207,7 +207,7 @@ function SuiteOutput.markdown(rows: {State.SuiteRun}): string
       cell(row.stood), SuiteOutput.stood_percent(row), cell(row.shared),
       cell(row.elapsed_ms) }
     local parts = row.parts or {}
-    for _, part in ipairs(shown_parts) do cells[#cells + 1] = cell(parts[part[2]]) end
+    for _, part in ipairs(shown_parts) do cells[#cells + 1] = cell(parts[assert(part[2])]) end
     lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
   end
   return table.concat(lines)
@@ -251,7 +251,7 @@ function SuiteOutput.skip_report(name: string, text: string): string
   if #reasons == 0 then return "" end
   local total = 0
   for _, row in ipairs(reasons) do total = total + (row[2] as integer) end
-  local lines: {string} = { "### Skipped tests: " .. name .. " (" .. total .. ")\n\n",
+  local lines: {string} = { "### Skipped tests: " .. name .. " (" .. tostring(total) .. ")\n\n",
     "| tests | reason |\n| ---: | --- |\n" }
   for _, row in ipairs(reasons) do
     local escaped = ((row[1] as string):gsub("[|`*<>]", "\\%0"))

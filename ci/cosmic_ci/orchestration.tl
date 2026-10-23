@@ -134,11 +134,11 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
   if env["COSMIC_CI_GATHER"] == "1" then return true end
-  if env.COSMIC_CI_EVENT == "merge_group" and env.COSMIC_CI_HARNESS_MOVED ~= "0" then
+  if env["COSMIC_CI_EVENT"] == "merge_group" and env["COSMIC_CI_HARNESS_MOVED"] ~= "0" then
     return false
   end
-  return (env.COSMIC_CI_REQUIRE_SANDBOX == "1" or env.COSMIC_CI_DECLARED_KEYS == "1") and
-    standing_events[env.COSMIC_CI_EVENT or ""] == true
+  return (env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" or env["COSMIC_CI_DECLARED_KEYS"] == "1") and
+    standing_events[env["COSMIC_CI_EVENT"] or ""] == true
 end
 
 --- The file that records the harness's epoch and the digests last
@@ -158,15 +158,15 @@ local function git(root: string, words: {string}): string | nil, string
   local argv = { "/usr/bin/env", "git", "-C", root }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local env = Env.all()
-  env.GIT_TERMINAL_PROMPT = "0"
+  env["GIT_TERMINAL_PROMPT"] = "0"
   local result, trouble = Child.run(argv, { env = env, stdout = "capture",
     stderr = "capture", timeout_ns = git_timeout_ns })
-  if result == nil then return nil, "git " .. words[1] .. ": " .. trouble end
+  if result == nil then return nil, "git " .. assert(words[1]) .. ": " .. trouble end
   if result.timed_out then
-    return nil, "git " .. words[1] .. ": timed out after " .. (git_timeout_ns // Clock.seconds(1)) .. " s"
+    return nil, "git " .. assert(words[1]) .. ": timed out after " .. tostring((git_timeout_ns // Clock.seconds(1))) .. " s"
   end
   if not result.ok then
-    return nil, "git " .. words[1] .. ": exit " .. tostring(result.code) .. ": " ..
+    return nil, "git " .. assert(words[1]) .. ": exit " .. tostring(result.code) .. ": " ..
       ((result.stderr or ""):gsub("%s+$", ""))
   end
   return result.stdout or "", ""
@@ -220,8 +220,10 @@ local moved_by_base: {string:boolean} = {}
 --- build/harness_epoch.tl ([`harness_moved`], of the checkout
 --- GITHUB_WORKSPACE names against COSMIC_CI_BASE_SHA), else "0".
 local function decide_harness(env: {string:string})
-  if env.COSMIC_CI_EVENT ~= "merge_group" or env.COSMIC_CI_HARNESS_MOVED ~= nil then return end
-  local root, base = env.GITHUB_WORKSPACE or "", env.COSMIC_CI_BASE_SHA or ""
+  if env["COSMIC_CI_EVENT"] ~= "merge_group" or env["COSMIC_CI_HARNESS_MOVED"] ~= nil then
+    return
+  end
+  local root, base = env["GITHUB_WORKSPACE"] or "", env["COSMIC_CI_BASE_SHA"] or ""
   local asked = root .. "\0" .. base
   if moved_by_base[asked] == nil then
     local moved, why = Orchestration.harness_moved(root, base)
@@ -235,14 +237,14 @@ local function decide_harness(env: {string:string})
     end
     Fs.put(Fs.stderr, "merge queue: " .. said .. why .. "\n")
   end
-  env.COSMIC_CI_HARNESS_MOVED = moved_by_base[asked] and "1" or "0"
+  env["COSMIC_CI_HARNESS_MOVED"] = moved_by_base[asked] == true and "1" or "0"
 end
 
 --- Sets `env` for a suite that stands on nothing another run reached
 --- (COSMIC_TEST_NO_SHARED=1) where it does not stand on verdicts
 --- (`stands`).
 function Orchestration.shares(env: {string:string})
-  if not Orchestration.stands(env) then env.COSMIC_TEST_NO_SHARED = "1" end
+  if not Orchestration.stands(env) then env["COSMIC_TEST_NO_SHARED"] = "1" end
 end
 
 --- A suite's `cosmic test` words in `env`: `--all` where it stands on
@@ -254,7 +256,7 @@ end
 function Orchestration.test_words(env: {string:string}): {string}
   local words: {string} = { "test" }
   if not Orchestration.stands(env) then words[#words + 1] = "--all" end
-  if env.COSMIC_CI_EVENT == "merge_group" then words[#words + 1] = "--bail" end
+  if env["COSMIC_CI_EVENT"] == "merge_group" then words[#words + 1] = "--bail" end
   return words
 end
 
@@ -265,10 +267,10 @@ end
 --- leg's (the provenance join, fuzz.yml) promises nothing, and a
 --- variable the environment already sets is the caller's.
 function Orchestration.promise(env: {string:string})
-  local promised = (Capabilities.legs as {string:{string}})[env.COSMIC_WORKER or ""]
-  if promised == nil or env.COSMIC_TEST_PROMISES ~= nil then return end
-  env.COSMIC_TEST_PROMISES = table.concat(promised, ",")
-  env.COSMIC_TEST_LEG = env.COSMIC_WORKER
+  local promised = (Capabilities.legs as {string:{string}})[env["COSMIC_WORKER"] or ""]
+  if promised == nil or env["COSMIC_TEST_PROMISES"] ~= nil then return end
+  env["COSMIC_TEST_PROMISES"] = table.concat(promised, ",")
+  env["COSMIC_TEST_LEG"] = env["COSMIC_WORKER"]
 end
 
 --- The promised names the pinned release (ci/cosmic-driver.pin) does not know. A
@@ -303,7 +305,7 @@ end
 --- gating suite's copy ([`forget_run`]).
 local function environment(extra?: {string:string}): {string:string}
   local all = Env.all()
-  all.FUZZ_ITERS = "0"
+  all["FUZZ_ITERS"] = "0"
   if extra then
     for k, v in pairs(extra) do all[k] = v end
   end
@@ -324,9 +326,9 @@ local function environment(extra?: {string:string}): {string:string}
   -- the sandbox tests of core/syscalls_test.tl cannot pass unchecked.
   -- The mode also runs every test no key can hold, as --all does; a
   -- sandboxed run has none.
-  if all.COSMIC_CI_REQUIRE_SANDBOX == "1" then
-    all.COSMIC_TEST_SANDBOX = "1"
-    all.COSMIC_SANDBOX = "must"
+  if all["COSMIC_CI_REQUIRE_SANDBOX"] == "1" then
+    all["COSMIC_TEST_SANDBOX"] = "1"
+    all["COSMIC_SANDBOX"] = "must"
   end
   Orchestration.promise(all)
   return all
@@ -401,10 +403,10 @@ end
 --- and the checked suite's census (`--census`) counts only its own
 --- suite's rows when the file is its own.
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
-  local shared = env.COSMIC_VERDICT_CACHE or ""
+  local shared = env["COSMIC_VERDICT_CACHE"] or ""
   if shared:sub(1, 1) ~= "/" then return "0" end
   if name == "portable" then return shared end
-  return shared:match("^(.*)/[^/]*$") .. "/" .. name .. ".db"
+  return assert(shared:match("^(.*)/[^/]*$")) .. "/" .. name .. ".db"
 end
 
 local record Context
@@ -441,14 +443,14 @@ local function request_for(c: Context, command: {string}, timeout: integer,
   -- path of the commit's own (ci/cosmic_ci/place_tree.tl), whose build
   -- directory is new with it, so a cache there would never be reused:
   -- CI saves the seed's as it stands.
-  if (child_environment.COSMIC_ZIG_CACHE or "") == "" then
+  if (child_environment["COSMIC_ZIG_CACHE"] or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
-    child_environment.COSMIC_ZIG_CACHE = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
+    child_environment["COSMIC_ZIG_CACHE"] = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
   end
   -- The driver boots the candidate itself; a tool that finds its core
   -- stale is a fault to report, not one to boot past (build/reboot.tl).
-  if not child_environment.COSMIC_AUTO_BOOT then
-    child_environment.COSMIC_AUTO_BOOT = "0"
+  if not child_environment["COSMIC_AUTO_BOOT"] then
+    child_environment["COSMIC_AUTO_BOOT"] = "0"
   end
   return runner, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ns = timeout,
@@ -817,16 +819,16 @@ end
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  env.TMPDIR = tmpdir
-  env.COSMIC_BUILD_CACHE = compiles
+  env["TMPDIR"] = tmpdir
+  env["COSMIC_BUILD_CACHE"] = compiles
   if verdicts ~= nil then
-    env.COSMIC_VERDICT_CACHE = verdicts
+    env["COSMIC_VERDICT_CACHE"] = verdicts
     Orchestration.shares(env)
     return env
   end
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_NO_SHARED = "1"
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_NO_SHARED"] = "1"
   -- Nor is it keyed by what it declares, on a leg whose suites are
   -- (COSMIC_CI_DECLARED_KEYS), by the pinned driver: it shares no verdict
   -- for a key to name. A release that keys every unsandboxed run by
@@ -985,7 +987,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       return outcome.code
     end,
     abandon = function(_: Runner.Outcome)
-      if prepared[1] then replay(prepared[1].out, prepared[1].err) end
+      if prepared[1] then replay(assert(prepared[1]).out, assert(prepared[1]).err) end
     end,
   }
 end
@@ -1093,7 +1095,7 @@ local function checked_suite(c: Context, target: string, work: string,
   assert(not raw:find("/coverage_map.c", 1, true),
     "the checked core names its generated coverage map's path: " ..
       "the map compiles without build.zig's -g0")
-  local expected = offset .. "\t" .. length .. "\t" .. digest .. "\n"
+  local expected = tostring(offset) .. "\t" .. tostring(length) .. "\t" .. digest .. "\n"
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
   -- which builds and writes nothing.
@@ -1281,7 +1283,7 @@ local function suite(c: Context, name: string, executable: string,
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
   local words, values = Orchestration.suite_run(env)
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  values["COSMIC_TEST_TIMEOUT"] = suite_test_timeout_s
   -- Its key parts said, as the checked suite's are, for its row.
   table.insert(words, 2, "--census")
   if shard then
@@ -1302,7 +1304,7 @@ local function suite(c: Context, name: string, executable: string,
     Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
   elseif status ~= 0 then
     Fs.put(Fs.stderr,
-      name .. " suite: failed (status " .. status .. ")\n")
+      name .. " suite: failed (status " .. tostring(status) .. ")\n")
   end
   if status ~= 0 then return status end
   if snapshot_status ~= 0 then return snapshot_status end
@@ -1360,7 +1362,7 @@ local function boot(p: PlatformContext): integer
   local cache = seed and seed .. "/zig-cache" or from
   -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
-  if cache and not is_dir(cache) then
+  if cache ~= nil and not is_dir(cache) then
     Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
         "; compiling from nothing\n")
   end
@@ -1462,7 +1464,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
       return 0
     end
   end
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  values["COSMIC_TEST_TIMEOUT"] = suite_test_timeout_s
   local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
@@ -1471,7 +1473,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root, values)
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
-    Fs.put(Fs.stderr, "darwin suite: failed (status " .. status .. ")\n")
+    Fs.put(Fs.stderr, "darwin suite: failed (status " .. tostring(status) .. ")\n")
   end
   return status
 end
@@ -1512,7 +1514,7 @@ local function phase_declared_types(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/declared-types-test.out"
   local _, values = Orchestration.suite_run()
-  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
+  values["COSMIC_TEST_TIMEOUT"] = suite_test_timeout_s
   local status = logged(c, "declared types", argv, out,
     p.local_diagnostics .. "/declared-types-test.err", suite_timeout_ns, c.root, values)
   -- A test that skipped asked nothing of the checks: the run was not checked.
@@ -1528,10 +1530,10 @@ end
 --- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
 local function release_promises(values: {string:string})
   local promised: {string} = {}
-  for name in (values.COSMIC_TEST_PROMISES or ""):gmatch("[^,]+") do
+  for name in (values["COSMIC_TEST_PROMISES"] or ""):gmatch("[^,]+") do
     if name ~= "checked" then promised[#promised + 1] = name end
   end
-  values.COSMIC_TEST_PROMISES = table.concat(promised, ",")
+  values["COSMIC_TEST_PROMISES"] = table.concat(promised, ",")
 end
 
 --- The whole suite on a checked run (`cosmic test --check-types`), on the
@@ -1548,7 +1550,7 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local _, values = Orchestration.suite_run()
-  values.COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s
+  values["COSMIC_TEST_TIMEOUT"] = checked_narrowing_test_timeout_s
   release_promises(values)
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
@@ -1795,8 +1797,8 @@ local function phase_sandbox(p: PlatformContext): integer
   ContextEnv.summarize("## Sandbox probe (" .. c.worker .. ")\n\n" .. said .. "\n")
   assert(Fs.put(Fs.stdout, said))
   local refused = said:match("Confinement: %*%*unavailable%*%*[^\n]*")
-  if refused and named("COSMIC_CI_REQUIRE_SANDBOX") == "1" then
-    assert(Fs.put(Fs.stderr, "sandbox: this worker cannot confine a test: " .. refused .. "\n"))
+  if (refused and named("COSMIC_CI_REQUIRE_SANDBOX") == "1") == true then
+    assert(Fs.put(Fs.stderr, "sandbox: this worker cannot confine a test: " .. assert(refused) .. "\n"))
     return 1
   end
   return 0
@@ -2055,7 +2057,7 @@ end
 --- case cold.
 function Orchestration.seed_compiles(env: {string:string},
                                      destination: string): boolean, string
-  local source = env.COSMIC_BUILD_CACHE or ""
+  local source = env["COSMIC_BUILD_CACHE"] or ""
   if source == "0" then
     return false, "COSMIC_BUILD_CACHE=0: the leg keeps no compiles to seed " ..
       "the self-rebuild fixture with; unset it, or name a file"
@@ -2088,7 +2090,7 @@ function Orchestration.seed_compiles(env: {string:string},
       return false, path .. ": writable by its group or others"
     end
   end
-  if Fs.exists(destination) then
+  if Fs.exists(destination) == true then
     return false, destination .. ": already exists"
   end
   local db, open_trouble = Sqlite.open(source)
@@ -2107,7 +2109,7 @@ end
 --- never claim more workers than processors. Nil when the fixtures run one
 --- after another, as they always did.
 function Orchestration.fixture_lanes(env: {string:string}, cpus: integer): integer | nil, integer | nil
-  if env.COSMIC_CI_FIXTURE_BUDGET ~= "run" or cpus < 2 then return nil, nil end
+  if env["COSMIC_CI_FIXTURE_BUDGET"] ~= "run" or cpus < 2 then return nil, nil end
   return cpus - 1, 1
 end
 
@@ -2146,7 +2148,7 @@ function Orchestration.run_groups(high: Orchestration.Group,
   local ran, failure = pcall(function(): boolean
     begin(high, false)
     if low[1] then
-      begin(low[1], true)
+      begin(assert(low[1]), true)
       run.next_low = 2
     end
     while #active > 0 and run.status == 0 do
@@ -2158,11 +2160,11 @@ function Orchestration.run_groups(high: Orchestration.Group,
         end
       end
       local group = owner[done]
-      run.status = group.finish(Runner.reap(done))
+      run.status = assert(group).finish(Runner.reap(done))
       if run.status == 0 and in_low[done] and low[run.next_low] then
         local following = low[run.next_low]
         run.next_low = run.next_low + 1
-        begin(following, true)
+        begin(assert(following), true)
       end
     end
     return true
@@ -2170,7 +2172,7 @@ function Orchestration.run_groups(high: Orchestration.Group,
   for _, running in ipairs(active) do
     local outcome = Runner.stop(running)
     local abandoned, trouble = pcall(function(): boolean
-      owner[running].abandon(outcome)
+      assert(owner[running]).abandon(outcome)
       return true
     end)
     if not abandoned and ran then ran, failure = false, trouble end
@@ -2200,7 +2202,7 @@ local function phase_fixtures(p: PlatformContext): integer
   else
     local compiles = work .. "/self-rebuild-compiles.db"
     s = step(c, "self-rebuild compiles seed", function(): boolean, string
-      if Fs.exists(compiles) then assert(Fs.remove(compiles)) end
+      if Fs.exists(compiles) == true then assert(Fs.remove(compiles)) end
       return Orchestration.seed_compiles(Env.all(), compiles)
     end)
     if s ~= 0 then return s end
@@ -2385,7 +2387,7 @@ local function provenance_impl(c: Context, products: string): integer
     end
   end
   assert(expected ~= nil, "no product to compare")
-  assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. count)
+  assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
   return step(c, "provenance comparison", function(): boolean, string
     return true
   end)

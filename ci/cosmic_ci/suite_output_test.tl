@@ -19,10 +19,10 @@ local function test_a_passing_sandboxed_run()
   assert(figures.every == 0 and figures.failed == 0)
   assert(figures.elapsed_ms == 2385 and figures.sandbox == "sandboxed", figures.sandbox)
   local parts = assert(figures.parts)
-  assert(parts["host features"] == "0123456789abcdef" and parts.host == "aaaaaaaaaaaa")
-  assert(parts.system == "" and parts.runtime == "bbbbbbbbbbbb")
-  assert(parts.compiler == "cccccccccccc" and parts.harness == "dddddddddddd")
-  assert(parts.launcher == nil)
+  assert(parts["host features"] == "0123456789abcdef" and parts["host"] == "aaaaaaaaaaaa")
+  assert(parts["system"] == "" and parts["runtime"] == "bbbbbbbbbbbb")
+  assert(parts["compiler"] == "cccccccccccc" and parts["harness"] == "dddddddddddd")
+  assert(parts["launcher"] == nil)
   assert(SuiteOutput.status(figures, 0) == "pass")
 end
 
@@ -55,7 +55,7 @@ local function test_a_count_of_one_is_read_in_the_singular()
       "0 of them of those tests: no other run reached them (host features 0123456789abcdef, " ..
       "host aaaaaaaaaaaa)\n")
   local unmatched_parts = assert(unmatched.parts)
-  assert(unmatched_parts.host == "aaaaaaaaaaaa")
+  assert(unmatched_parts["host"] == "aaaaaaaaaaaa")
 end
 
 --- A failing run says its failures, then a summary with no ran or stood
@@ -68,7 +68,7 @@ local function test_a_failing_run()
   assert(figures.errors == 1 and figures.elapsed_ms == 4100 and figures.sandbox == "sandboxed")
   assert(figures.ran == nil and figures.stood == nil)
   local failed_parts = assert(figures.parts)
-  assert(failed_parts.harness == "dddddddddddd")
+  assert(failed_parts["harness"] == "dddddddddddd")
   assert(SuiteOutput.status(figures, 1) == "fail")
   local bare = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms\n")
   assert(bare.verdict == "fail" and bare.sandbox == "" and bare.not_run == nil)
@@ -91,7 +91,7 @@ local function test_the_unmatched_line_says_the_parts()
       "compiler 05, harness 06, launcher 07)\n" ..
       "test: 1994 tests passed in 193 modules; 1994 ran, 0 stood, 250000 ms; sandboxed\n")
   local parts = assert(figures.parts)
-  assert(parts.runtime == "04" and parts.harness == "06" and parts.launcher == "07")
+  assert(parts["runtime"] == "04" and parts["harness"] == "06" and parts["launcher"] == "07")
   assert(figures.ran == 1994 and figures.stood == 0)
 end
 
@@ -104,13 +104,13 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
       "test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed\n", 0)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
-  assert(#held == 2 and held[1].rows == 1990 and held[2].rows == 1)
-  assert(held[1].parts.runtime == "bbbbbbbbbbbb" and held[1].parts.harness == "e8-072f7458-t60000")
-  assert(held[1].parts["host features"] == "01" and next(held[2].parts) == nil)
+  assert(#held == 2 and assert(held[1]).rows == 1990 and assert(held[2]).rows == 1)
+  assert(held[1].parts["runtime"] == "bbbbbbbbbbbb" and assert(held[1]).parts["harness"] == "e8-072f7458-t60000")
+  assert(held[1].parts["host features"] == "01" and next(assert(held[2]).parts) == nil)
   -- An empty cache, said so; a run that said nothing has none.
   local empty = SuiteOutput.parse("test: census: no rows\n")
   local empty_held = empty.held
-  assert(empty_held == "" and #SuiteOutput.held(empty_held) == 0)
+  assert(empty_held == "" and #SuiteOutput.held(assert(empty_held)) == 0)
   assert(SuiteOutput.parse(key_parts .. "\n").held == nil)
   -- Timed out, it keeps the census, said before its tests ran.
   local timed = SuiteOutput.read("test: census: 3 rows under runtime r, harness h\n", 124)
@@ -133,9 +133,9 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(handle:exec("INSERT INTO suite_runs (worker, run, attempt, phase, suite, status, " ..
       "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
   local rows = State.suite_rows(handle)
-  assert(#rows == 1 and rows[1].held == nil)
+  assert(#rows == 1 and assert(rows[1]).held == nil)
   local old_parts = assert(rows[1].parts)
-  assert(old_parts.runtime == "r" and old_parts.store == nil)
+  assert(old_parts["runtime"] == "r" and old_parts["store"] == nil)
   assert(handle:close())
   -- Written to again, it gains the columns it lacks.
   State.suite(old, { worker = "w", run = "2", attempt = "1", phase = "build",
@@ -143,7 +143,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   handle = assert(Sqlite.open(old))
   rows = State.suite_rows(handle)
   assert(#rows == 2)
-  assert(assert(rows[2].parts).store == "s")
+  assert(assert(rows[2].parts)["store"] == "s")
   assert(handle:close())
 end
 
@@ -167,7 +167,7 @@ local function test_a_timed_out_suite_keeps_only_its_key_parts()
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
-  assert(assert(figures.parts).runtime == "bbbbbbbbbbbb")
+  assert(assert(figures.parts)["runtime"] == "bbbbbbbbbbbb")
   local bare, bare_status = SuiteOutput.read("", 124)
   assert(bare_status == "timeout" and bare.parts == nil)
 end
@@ -212,11 +212,11 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   local rows = State.suite_rows(db)
   assert(db:close())
   assert(#rows == 2)
-  assert(rows[1].ran == 1 and rows[1].stood == 199 and rows[1].elapsed_ms == 2385)
+  assert(rows[1].ran == 1 and assert(rows[1]).stood == 199 and assert(rows[1]).elapsed_ms == 2385)
   local first_parts, second_parts = assert(rows[1].parts), assert(rows[2].parts)
-  assert(first_parts.runtime == "bbbbbbbbbbbb" and first_parts.system == "" and
-      first_parts.store == "eeeeeeeeeeee")
-  assert(rows[2].tests == nil and rows[2].exit_code == 124 and second_parts.runtime == nil)
+  assert(first_parts["runtime"] == "bbbbbbbbbbbb" and first_parts["system"] == "" and
+      first_parts["store"] == "eeeeeeeeeeee")
+  assert(rows[2].tests == nil and assert(rows[2]).exit_code == 124 and second_parts["runtime"] == nil)
   local text = SuiteOutput.markdown(rows)
   assert(text:find("| linux-x86_64 | build | local | pass | 0 | 200 | 1 | 199 | 99.5 | 0 | " ..
       "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
@@ -242,7 +242,7 @@ local function test_skips_are_grouped_by_reason_for_the_summary()
     "test: 5 tests passed in 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed",
   }, "\n") .. "\n"
   local skips = SuiteOutput.skips(text)
-  assert(#skips == 2 and skips[1][2] == 2 and skips[1][1] == "no socket (<dir>: denied)")
+  assert(#skips == 2 and assert(skips[1])[2] == 2 and assert(skips[1])[1] == "no socket (<dir>: denied)")
   local report = SuiteOutput.skip_report("local", text)
   assert(report:find("### Skipped tests: local (3)", 1, true), report)
   assert(report:find("| 2 | no socket (\\<dir\\>: denied) |", 1, true), report)
