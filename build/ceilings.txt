@@ -1813,7 +1813,7 @@ build/declared_key_pins_test.tl view_written 2
 build/declared_key_test.tl view_written 23
 build/declared_sandboxed_test.tl view_written 1
 build/declared_types_test.tl view_written 1
-build/dependency_keys_test.tl view_written 8
+build/dependency_keys_test.tl view_written 1
 build/derivation.tl view_written 33
 build/digest_test.tl view_written 6
 build/dispatch.tl view_written 33
