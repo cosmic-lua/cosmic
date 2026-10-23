@@ -252,16 +252,16 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
 end
 
 --- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
---- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, or nil.
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none.
 -- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
 -- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
-local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string | nil): string | nil
+local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
   local ok, outcome = pcall(body, scratch)
   local _, _ = Fs.remove_tree(scratch.path)
   local _, _ = sys.close(scratch.owner)
   if not ok then error(outcome, 0) end
   if type(outcome) == "string" then return outcome end
-  return nil
+  return ""
 end
 
 --- Downloads, verifies and extracts zig `version`'s release for `host`,
@@ -307,7 +307,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
-  local failed = within(owned, function(holding: Fs.Scratch): string | nil
+  local failed = within(owned, function(holding: Fs.Scratch): string
     local work = holding.path .. "/payload"
     local extracted, trouble: string | nil, string
     if sha256 == nil or sha256 == "" then
@@ -330,9 +330,9 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
     if not installed then
       return "could not install zig into " .. install
     end
-    return nil
+    return ""
   end)
-  if failed ~= nil then return nil, failed end
+  if failed ~= "" then return nil, failed end
   return zig, ""
 end
 

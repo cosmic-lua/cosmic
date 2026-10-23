@@ -293,7 +293,7 @@ end
 
 --- A value as the JSON files hold it: itself, and `null` where it is missing, which a record's missing field
 --- would leave out (doc/performance.md: an unbounded side is `null`).
-local function shown(value: number | nil): any
+local function shown(value?: number): any
   if value == nil then return Json.null end
   return passed(value)
 end

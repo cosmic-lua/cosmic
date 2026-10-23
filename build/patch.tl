@@ -369,16 +369,16 @@ local function patched(inputs: Inputs): Tree | nil, string
 end
 
 --- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
---- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, or nil.
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none.
 -- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
 -- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
-local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string | nil): string | nil
+local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
   local ok, outcome = pcall(body, scratch)
   local _, _ = Fs.remove_tree(scratch.path)
   local _, _ = sys.close(scratch.owner)
   if not ok then error(outcome, 0) end
   if type(outcome) == "string" then return outcome end
-  return nil
+  return ""
 end
 
 --- Writes `tree` into `out`, which must not exist, and syncs every file
@@ -479,7 +479,7 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
-  local failed = within(owned, function(holding: Fs.Scratch): string | nil
+  local failed = within(owned, function(holding: Fs.Scratch): string
     local payload = holding.path .. "/payload"
     local written, write_trouble = write_tree(tree, payload)
     if not written then
@@ -498,7 +498,7 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
       -- Another build may have won the race; its tree is the same bytes.
       local raced, _ = Fs.exists(dir)
       if raced == true then
-        return nil
+        return ""
       end
       return move_trouble
     end
@@ -506,9 +506,9 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
     -- writing it again. Best effort: the tree at its name is whole
     -- whether or not the rename lasts.
     local _, _ = sync_dir(cache)
-    return nil
+    return ""
   end)
-  if failed ~= nil then return nil, failed end
+  if failed ~= "" then return nil, failed end
   return dir, ""
 end
 
@@ -528,7 +528,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local cache = Fs.dirname(out)
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return false, own_trouble end
-  local failed = within(owned, function(holding: Fs.Scratch): string | nil
+  local failed = within(owned, function(holding: Fs.Scratch): string
     local payload = holding.path .. "/payload"
     local copied, copy_trouble = Fs.copy_tree(lib, payload)
     if not copied then
@@ -574,13 +574,13 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
       -- Another build may have won the race; its library is the same bytes.
       local raced, _ = Fs.exists(out)
       if raced == true then
-        return nil
+        return ""
       end
       return move_trouble
     end
-    return nil
+    return ""
   end)
-  if failed ~= nil then return false, failed end
+  if failed ~= "" then return false, failed end
   return true, ""
 end
 

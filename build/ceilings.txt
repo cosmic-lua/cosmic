@@ -3940,7 +3940,7 @@ build/type_watch.tl view_written 2
 
 build/unix_socket.tl view_written 4
 
-build/vendor.tl view_written 12
+build/vendor.tl view_written 13
 
 build/verb_cases.tl view_written 1
 

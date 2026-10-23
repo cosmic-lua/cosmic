@@ -209,16 +209,9 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- and the download is held to the PIN's digests whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
-  local want_sha256: string | nil = nil
-  local want_sha3_256: string | nil = nil
-  for _, digest in ipairs(digests) do
-    if digest.algorithm == "sha256" then
-      want_sha256 = digest.hex
-    elseif digest.algorithm == "sha3-256" then
-      want_sha3_256 = digest.hex
-    end
-  end
-  local options: Http.Options = { roots = "mozilla", sha256 = want_sha256, sha3_256 = want_sha3_256 }
+  local want: {string:string} = {}
+  for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
+  local options: Http.Options = { roots = "mozilla", sha256 = want["sha256"], sha3_256 = want["sha3-256"] }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, trouble
