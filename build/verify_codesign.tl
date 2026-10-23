@@ -71,7 +71,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
   return 0
 end
 
-function VerifyCodesign.main(argv: {integer: string}): integer
+function VerifyCodesign.main(argv: {string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 1, spec)
   if parsed == nil then
     log:complain(parse_trouble .. "; usage: " .. usage)

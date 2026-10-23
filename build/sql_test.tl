@@ -23,8 +23,8 @@ local function project(): string
   return root
 end
 
-local function argv_of(words: {string}): {integer:string}
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "sql" }
+local function argv_of(words: {string}): {string}
+  local argv: {string} = { "sql" }
   for index, word in ipairs(words) do
     argv[index + 1] = word
   end

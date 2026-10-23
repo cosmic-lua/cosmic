@@ -21,10 +21,12 @@ Test.policy{
 }
 
 -- The controller's entry is the lifecycle seam, which takes a few pairs where
--- `Perf.main` refuses fewer than 30.
+-- `Perf.benchmark` refuses fewer than 30.
 local function controller(): string
   local source = assert(Fs.read(Fixture.placed("performance") .. "/perf.tl"))
-  local changed, count = source:gsub("\nreturn Perf\n$", "\nPerf.main = Perf.lifecycle\nreturn Perf\n")
+  local seam = "\nPerf.main = function(argv: {string}): integer\n" ..
+    "  return Perf.rehearse(argv, (assert(arg[0])))\nend\nreturn Perf\n"
+  local changed, count = source:gsub("\nreturn Perf\n$", seam)
   assert(count == 1)
   return changed
 end

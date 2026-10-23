@@ -176,9 +176,9 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
 end
 
 local function test_an_unknown_task_is_a_usage_error()
-  assert(Grader.main({ "chess", "/nowhere" }) == 2)
-  assert(Grader.main({ "notes" }) == 2)
-  assert(Grader.main({ "notes", "/nowhere", "extra" }) == 2)
+  assert(Grader.run({ "chess", "/nowhere" }, "eval/check/grade.tl") == 2)
+  assert(Grader.run({ "notes" }, "eval/check/grade.tl") == 2)
+  assert(Grader.run({ "notes", "/nowhere", "extra" }, "eval/check/grade.tl") == 2)
 end
 
 local function test_a_journal_is_a_regular_file_with_something_in_it(dir: string)

@@ -520,9 +520,9 @@ local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
   return paired
 end
 
---- The shared body of [`Perf.main`] and [`Perf.lifecycle`]: `count` sample pairs
+--- The shared body of [`Perf.benchmark`] and [`Perf.rehearse`]: `count` sample pairs
 --- after three discarded warmups, and `probes` timings of `/usr/bin/true`.
-local function experiment(argv: {integer:string}, count: integer, probes: integer): integer
+local function experiment(argv: {string}, count: integer, probes: integer, program: string): integer
   local selected: {Workload} = {}
   for _, w in ipairs(workloads()) do
     if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
@@ -539,7 +539,7 @@ local function experiment(argv: {integer:string}, count: integer, probes: intege
   local cpuinfo, _ = Fs.read("/proc/cpuinfo")
   local kernel, _ = Fs.read("/proc/version")
   local controller = assert(Proc.executable())
-  local script = assert(Fs.absolute(argv[0]))
+  local script = assert(Fs.absolute(program))
   local pin_path = script:gsub("/build/perf.tl$", "/ci/cosmic-driver.pin")
   local pin, _ = Fs.read(pin_path)
   local timer: {number} = {}
@@ -627,8 +627,9 @@ end
 
 --- Run independently retained artifacts in new fixture directories. Status 1
 --- means a command/counter failed; status 2 means a measured regression or an
---- unresolved comparison. Neither is a passing performance gate.
-function Perf.main(argv: {integer:string}): integer
+--- unresolved comparison. Neither is a passing performance gate. `program` is
+--- this script's own path.
+function Perf.benchmark(argv: {string}, program: string): integer
   if argv[1] == nil or argv[2] == nil or argv[3] == nil or argv[6] ~= nil then
     print("usage: bin/perf <baseline> <candidate> <new-output-directory> [pairs=200] [workload]")
     return 1
@@ -640,19 +641,24 @@ function Perf.main(argv: {integer:string}): integer
     count = math.tointeger(parsed)
   end
   assert(count ~= nil and count >= 30 and count <= 2000, "pairs must be an integer from 30 to 2000")
-  return experiment(argv, count, 30)
+  return experiment(argv, count, 30, program)
 end
 
---- The same preparation, history, order and counter checks as [`Perf.main`],
+--- The same preparation, history, order and counter checks as [`Perf.benchmark`],
 --- for tests of the fixture lifecycle, whose elapsed times are ignored. The
 --- pair count is `argv[4]` (required): six to 29, the fewest a median interval
 --- takes and below the benchmark's minimum. It draws six supervisor probes. It
---- is no benchmark: only [`Perf.main`] validates a count fit to compare.
-function Perf.lifecycle(argv: {integer:string}): integer
+--- is no benchmark: only [`Perf.benchmark`] validates a count fit to compare.
+function Perf.rehearse(argv: {string}, program: string): integer
   local count = math.tointeger(tonumber(argv[4]))
   assert(count ~= nil and count >= 6 and count < 30,
     "lifecycle pairs must be an integer from 6 to 29")
-  return experiment(argv, count, 6)
+  return experiment(argv, count, 6, program)
+end
+
+--- The entry point: [`Perf.benchmark`] with this script's path, Lua's `arg[0]`.
+function Perf.main(argv: {string}): integer
+  return Perf.benchmark(argv, (assert(arg[0], "perf: no script path")))
 end
 
 return Perf

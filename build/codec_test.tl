@@ -22,7 +22,7 @@ end
 --- One run: `words` after `cosmic codec`, and `stdin` standing in for
 --- standard input.
 local function run(words: {string}, stdin?: string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
+  local argv: {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
@@ -170,7 +170,7 @@ end
 local function test_a_failed_write_exits_2_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do
     local complaints = { value = "" }
-    local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
+    local argv: {string} = { "codec" }
     for index, word in ipairs(words) do argv[index + 1] = word end
     local code = codec.run(argv, {
       out = function(_: string): boolean, string return false, "No space left on device" end,
@@ -209,7 +209,7 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
   local late = { value = 0.0 }
   local same = { value = true }
   local repeated = expect:rep(2)
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
+  local argv: {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local code = codec.run(argv, {
     input = function(): Stream.Reader | nil, string return input, "" end,
@@ -288,7 +288,7 @@ local function trickle(text: string): Stream.Reader
 end
 
 local function run_trickled(words: {string}, text: string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "codec" }
+  local argv: {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
@@ -327,7 +327,7 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
     return true, ""
   end
   local seen: {integer} = {}
-  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
+  local code = codec.run({ "codec", "hex" }, {
     input = function(): Stream.Reader | nil, string return input, "" end,
     out = function(_text: string): boolean, string
       writes.value = writes.value + 1
@@ -343,7 +343,7 @@ end
 
 local function test_no_input_given_is_an_error_not_a_crash()
   local complaint = { value = "" }
-  local code = codec.run({ [0] = "cosmic", [1] = "codec", [2] = "hex" }, {
+  local code = codec.run({ "codec", "hex" }, {
     out = function(_text: string): boolean, string return true, "" end,
     err = function(line: string) complaint.value = line end,
   })

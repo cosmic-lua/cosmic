@@ -245,7 +245,7 @@ local function apply_step8_edit(tree: string)
   lines = insert_after(lines, "local Clock = require(\"cosmic.clock\")",
     { "local step8_sys = require(\"cosmic.sys\")" })
   lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer", {
+    "local function run(argv: {string}): integer", {
       "  assert(argv[1] == \"test\")",
       "  assert(argv[2] == \"build/embed_test.tl\")",
       "  assert(argv[3] == \"argument with spaces\")",
@@ -267,7 +267,7 @@ local function apply_docs_marker_edit(tree: string)
   local path = tree .. "/build/docs.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer",
+    "local function run(argv: {string}): integer",
     { "  local _, _ = Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
@@ -550,7 +550,7 @@ local function apply_fix_marker_edit(tree: string)
   local path = tree .. "/build/fix/init.tl"
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
-    "local function run(argv: {integer:string}): integer",
+    "local function run(argv: {string}): integer",
     { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end

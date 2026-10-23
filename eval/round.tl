@@ -100,7 +100,7 @@ end
 --- Reads the command line: the tasks, then the options; `--run` is 1,
 --- `--jobs` 3, `--max-turns` 150 and `--timeout` 600 (eval/solve's own
 --- defaults, stated so result.json records them) unless given.
-function Round.parse(argv: {integer: string}): Round.Options | nil, string
+function Round.parse(argv: {string}): Round.Options | nil, string
   local tasks: {string} | nil = nil
   local model: string | nil = nil
   local tool: string | nil = nil
@@ -374,17 +374,19 @@ local function complain(message: string)
   local _, _ = Fs.put(Fs.stderr, "round: " .. message .. "\n")
 end
 
-function Round.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
   local options, trouble = Round.parse(argv)
   if options == nil then
     complain(trouble)
     local _, _ = Fs.put(Fs.stderr, USAGE .. "\n")
     return 2
   end
-  local script, strouble = Fs.absolute(argv[0])
+  local script, strouble = Fs.absolute(program)
   local root = script ~= nil and script:match("^(.*)/eval/[^/]+%.tl$") or nil
   if root == nil then
-    complain(script == nil and strouble or argv[0] .. ": expected to run as .../eval/round.tl")
+    complain(script == nil and strouble or program .. ": expected to run as .../eval/round.tl")
     return 2
   end
   local system = real_system()
@@ -422,6 +424,11 @@ function Round.main(argv: {integer: string}): integer
   local plan = Round.plan(options, root, absolute, short, absolute_out)
   local failures = Round.execute(plan, system)
   return failures == 0 and 0 or 1
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Round.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "round: no script path")))
 end
 
 return Round

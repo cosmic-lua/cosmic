@@ -153,7 +153,7 @@ end
 --- A checkout whose checked core is a script standing in for it: it
 --- says what it was given and ran with, and fails as told.
 local function fake_checkout(root: string, exit: string, body?: {string})
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   write(root .. "/build/a_fuzz_test.tl", "")
   write(root .. "/build/fuzz/b_fuzz_test.tl", "")
@@ -212,7 +212,7 @@ end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))

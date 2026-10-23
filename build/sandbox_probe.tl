@@ -36,7 +36,7 @@ end
 local process = raw_process_table()
 
 local record SandboxProbe
-  main: function({integer:string}): integer
+  main: function({string}): integer
   --- One part of the sandbox, as tried.
   record Part
     name: string
@@ -304,7 +304,7 @@ function SandboxProbe.markdown(report: SandboxProbe.Report): string
 end
 
 --- Probes this host and prints the report; 0 whatever it found.
-function SandboxProbe.main(_argv: {integer:string}): integer
+function SandboxProbe.main(_argv: {string}): integer
   local sandboxes, _, _ = process.sandbox_platform()
   if not sandboxes then
     assert(Fs.put(Fs.stdout, "Confinement: not probed; the sandbox is Linux's alone.\n"))

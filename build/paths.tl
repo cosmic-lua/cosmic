@@ -244,7 +244,7 @@ end
 --- Prints `root`'s build directory for the bootstrap scripts, which run
 --- this file standalone before the project's modules have been built:
 --- `[--prepare] <project-root>`, `--prepare` making it first ([`prepare`]).
-function paths.main(argv: {integer:string}): integer
+function paths.main(argv: {string}): integer
   local making = argv[1] == "--prepare"
   local at = making and 2 or 1
   if argv[at] == nil or argv[at + 1] ~= nil then

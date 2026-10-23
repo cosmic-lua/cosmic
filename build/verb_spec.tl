@@ -12,7 +12,7 @@ local record verb_spec
     --- The word that names it on the command line; `Cli.<name>` is its prose.
     name: string
     --- Runs the command line, `name` at slot 1, and answers the exit code.
-    run: function(argv: {integer:string}): integer
+    run: function(argv: {string}): integer
     --- True when the verb prints no summary, its output being data for a
     --- pipe and its exit status saying how it went, and the tool's
     --- staleness is not checked after it.
@@ -62,7 +62,7 @@ local record verb_spec
     --- are the program's own, so `cosmic <verb> prog --help` runs prog with
     --- `--help` rather than asking for the verb's help, which only the
     --- words before it can.
-    program_slot: function(argv: {integer:string}): integer | nil
+    program_slot: function(argv: {string}): integer | nil
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
     --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to

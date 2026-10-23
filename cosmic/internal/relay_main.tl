@@ -266,9 +266,9 @@ local function serve(config: Config.Config): integer
 end
 
 --- Reads the config and serves the relay. The sealed database's main.
---- @param _args {integer:string} The command line, which carries nothing
+--- @param _args {string} The command line, which carries nothing
 --- @return integer The exit status
-local function main(_args: {integer:string}): integer
+local function main(_args: {string}): integer
   -- The core has opened the database this runs on, which its starter now
   -- removes, so that no program can swap it; this process never reads its
   -- path again.

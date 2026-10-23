@@ -250,7 +250,7 @@ local standard: verb.Io = { out = bare.out, err = bare.err }
 --- `cosmic release [options]`: returns the exit code.
 --- @param argv the command line, `release` at slot 1
 --- @param io where output, complaints and requests go; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("release", to.err)
   local function refuse(why: string): integer
@@ -658,7 +658,7 @@ verb.spec = {
   name = "release",
   guide = "none: finds and fetches cosmic's own releases, described by `cosmic help release`",
   tests = { "build.release_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the criteria a release must meet",
   exits = "`release` prints the release, the list or the cached path and nothing after, and exits 0 when it " ..

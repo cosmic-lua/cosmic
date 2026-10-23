@@ -48,7 +48,7 @@ local function build_resolver(root: string)
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/ci"))
   assert(Fs.write(root .. "/ci/islands.txt", "build/paths.tl\n"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
 end
 
 --- The driver reads its context (GITHUB_WORKSPACE, GITHUB_RUN_ID,

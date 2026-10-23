@@ -5,7 +5,7 @@
 --- This is not an argument parser for a project's own command line: a
 --- project's cmd/<name>/main.tl gets its arguments as a plain array, and
 --- `Flags.parse(argv, 1, spec)` from cosmic.flags reads its options, or
---- `Flags.dispatch(argv, 1, commands)` its commands -- see argv.
+--- `Flags.dispatch(argv, 1, commands, name)` its commands -- see argv.
 ---
 --- The index comes from each verb's `usage` and `about` and from `groups`,
 --- a verb's page from its field and its `spec`, in the order `order`

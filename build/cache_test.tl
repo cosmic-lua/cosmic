@@ -277,7 +277,7 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
     end,
     err = function(text: string) trouble.value = trouble.value .. text end,
   }
-  local argv: {integer:string} = { [0] = "cosmic", "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
+  local argv: {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
   assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
   assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true), output.value)
   argv[6] = "-1"

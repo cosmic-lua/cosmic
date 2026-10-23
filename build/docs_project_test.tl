@@ -93,7 +93,7 @@ local function test_a_listed_function_module_answers_its_name(tmp: string)
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project .. "/cmd/greet"))
   assert(Fs.write(project .. "/cmd/greet/main.tl",
-    "--- Says hello.\nlocal function main(_argv: {integer:string}): integer\n" ..
+    "--- Says hello.\nlocal function main(_argv: {string}): integer\n" ..
       "  return 0\nend\nreturn main\n"))
   local built = cosmic(project, { "build" })
   assert(built.code == 0, built.stdout .. built.stderr)
