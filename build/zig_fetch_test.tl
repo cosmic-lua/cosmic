@@ -226,6 +226,7 @@ local function test_limits_preserve_native_nanoseconds()
   assert(options.connect_timeout_ns == Clock.ms(1500) + 1 and options.low_speed_ns == Clock.ms(1500))
   assert(options.timeout_ns == Clock.ms(7) + 1)
   assert(options.low_speed_bytes == 1024)
+  assert(options.roots == "mozilla", "a mirror's certificate may come from any CA Mozilla trusts")
   local brief = ZigFetch.limits(1, 1024, 1)
   assert(brief.connect_timeout_ns == 1 and brief.low_speed_ns == 1 and brief.timeout_ns == nil)
 end

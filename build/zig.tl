@@ -797,10 +797,6 @@ local MOST_BUILDS <const> = 3
 --- it and answers its status ([`Zig.run`] in zig's own environment).
 function Zig.watched_build(root: string, command: function(): {string} | nil,
                            run: function({string}): integer): integer
-  -- TODO: bin/zig runs this on the pinned bootstrap release, so it runs a
-  -- boot again for a moved source only once ci/cosmic-driver.pin names a
-  -- release that carries this function; the release before it still fails
-  -- the boot an edit moved.
   local runs = 0
   while true do
     runs = runs + 1
