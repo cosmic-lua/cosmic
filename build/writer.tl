@@ -525,23 +525,36 @@ local vendored_key <const> = "projection_vendored"
 --- tables they fill are a function of these and of those modules' code, which
 --- the writer's identity holds. Nil where a file is there and cannot be read.
 local function vendored_digest(root: string): string | nil
-  local parts: {string} = {}
-  for _, path in ipairs({ roots.source(root), onecrl.source(root) }) do
+  local function digest_of(path: string): string | nil
     local there, _ = Fs.exists(path)
     if there == nil then
       return nil
     end
-    if there then
-      local bytes, _ = Fs.read(path)
-      if bytes == nil then
-        return nil
-      end
-      parts[#parts + 1] = Hash.hex_sha256(bytes)
-    else
-      parts[#parts + 1] = "-"
+    if not there then
+      return "-"
     end
+    local bytes, _ = Fs.read(path)
+    if bytes == nil then
+      return nil
+    end
+    return Hash.hex_sha256(bytes)
   end
-  return table.concat(parts, " ")
+  local bundle = digest_of(roots.source(root))
+  local snapshot = digest_of(onecrl.source(root))
+  if bundle == nil or snapshot == nil then
+    return nil
+  end
+  return bundle .. " " .. snapshot
+end
+
+--- Whether the first column of the first row of `rows` is `1`: the answer
+--- of a `SELECT` of a condition, false where there was none.
+local function holds(rows: Sqlite.Rows | nil): boolean
+  if rows == nil then
+    return false
+  end
+  local row = rows[1]
+  return row ~= nil and row:text(1) == "1"
 end
 
 --- Whether the base's CA tables were made of the files `digest` names: the
@@ -552,7 +565,7 @@ local function vendored_stands(db: Sqlite.Handle, digest: string): boolean
     "SELECT count(*) FROM main.meta m, prev.meta p WHERE m.key = '" .. vendored_key ..
       "' AND p.key = 'projected' AND m.value = p.value || char(10) || ?1",
     { text(digest) })
-  return rows ~= nil and rows[1] ~= nil and rows[1]:text(1) == "1"
+  return holds(rows)
 end
 
 --- The CA tables of the base, in the order of its rows, for the rows
@@ -604,10 +617,7 @@ local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
       "(SELECT path FROM inputs WHERE kind = 'decl' ORDER BY path))",
     { text(by), text(tool), text(CheckerDeclarations.prelude_module()),
       text(CheckerDeclarations.stdlib_module()) })
-  if rows == nil or rows[1] == nil then
-    return false
-  end
-  return rows[1]:text(1) == "1"
+  return holds(rows)
 end
 
 --- The statements that fill the rows extracted from the sources, in the
