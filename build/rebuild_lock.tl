@@ -354,24 +354,33 @@ local function handed(root: string): boolean
 end
 
 --- Waits for the rebuild lock of `root`, which another run holds, to
---- take it as `role`, having said `line`; says it still waits every 15
---- seconds, for as long as it takes. Answers nil and why when it
---- cannot.
+--- take it as `role`, having said `line`; says it still waits every
+--- `interval_ns` (15 seconds unless given, which a test shortens), for as
+--- long as it takes; each reminder goes to `say` (the logger's complaint
+--- unless given, which a test takes in its place). Answers nil and why
+--- when it cannot.
 function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
-                           line: string): boolean, string
+                           line: string, interval_ns?: integer,
+                           say?: function(string)): boolean, string
+  local step = interval_ns or reminder_ns
   log:complain(line)
   local waited_ns = 0
   while true do
-    local taken, trouble = rebuild_lock.take(root, reminder_ns, role)
+    local taken, trouble = rebuild_lock.take(root, step, role)
     if taken == nil then
       return false, trouble
     end
     if taken == "held" then
       return true, ""
     end
-    waited_ns = waited_ns + reminder_ns
-    log:complain("still waiting, " .. elapsed(waited_ns) ..
-        " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root))
+    waited_ns = waited_ns + step
+    local reminder = "still waiting, " .. elapsed(waited_ns) ..
+      " on: " .. rebuild_lock.holder(root) .. rebuild_lock.suffix(root)
+    if say ~= nil then
+      say(reminder)
+    else
+      log:complain(reminder)
+    end
   end
 end
 
