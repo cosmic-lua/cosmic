@@ -10,10 +10,12 @@
 --- does the CA roots ([`build.roots`]); `carried` copies it into the tool
 --- and `cosmic build` into every executable.
 ---
---- TODO: take the feed's newest state into vendor/onecrl each day, in a
---- scheduled workflow that runs `bin/vendor onecrl` and opens the pull
---- request it makes, once one is written; until then the snapshot is as
---- new as its last bump, and `cosmic refresh onecrl` the fresher.
+--- A binary refuses what the snapshot it was built from names: `cosmic
+--- refresh` writes a copy of that binary, or of cosmic itself, holding
+--- the feed's newest state, as it does Mozilla's newest roots. The
+--- snapshot here moves when `bin/vendor onecrl` takes the feed's newest
+--- into vendor/onecrl, for a pull request.
+---
 --- TODO: verify a changeset's content signature (its `metadata`'s
 --- `signature`, under Mozilla's content-signing root) before reading it,
 --- once cosmic can verify a P-384 ECDSA signature and a chain to that
