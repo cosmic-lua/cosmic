@@ -1994,3 +1994,28 @@ local function test_the_projection_of_the_tree_checks_is_written_in_the_mode_ask
     assert(db:close())
   end
 end
+
+--- The ceilings file of the tree is held to its layout where the lexer's check reads it: a ceiling with a neighbour is
+--- refused with how many there are and the first, and the same file with a blank line after each is read. Pins a caller
+--- passes are not a file and are not held to it.
+local function test_the_lexers_check_refuses_a_ceiling_with_a_neighbour_in_the_trees_file(dir: string)
+  local root = dir .. "/crowded"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/there.tl", source("local x: integer = 1", "return x")))
+  assert(Fs.write(root .. "/build/ceilings.txt",
+    "[lexed]\nbuild/there.tl label_or_goto 1\nbuild/there.tl semicolon 1\n\nbuild/there.tl digit_separator 1\nbuild/there.tl long_comment 1\n"))
+  local crowded = tree_checks.lexed(root)
+  assert(#crowded == 1, table.concat(crowded, "\n"))
+  local only = crowded[1] or ""
+  assert(only:find("reading the ceilings: 2 of them have a neighbour", 1, true), only)
+  assert(only:find("build/ceilings.txt:2: `build/there.tl label_or_goto 1`", 1, true), only)
+  assert(Fs.write(root .. "/build/ceilings.txt",
+    "[lexed]\nbuild/there.tl label_or_goto 1\n\nbuild/there.tl semicolon 1\n\nbuild/there.tl digit_separator 1\n\nbuild/there.tl long_comment 1\n"))
+  for _, line in ipairs(tree_checks.lexed(root)) do
+    assert(line:find("have a neighbour", 1, true) == nil, line)
+  end
+  assert(Fs.write(root .. "/build/ceilings.txt", "[lexed]\nbuild/there.tl label_or_goto 1\nbuild/there.tl semicolon 1\n"))
+  for _, line in ipairs(tree_checks.lexed(root, {})) do
+    assert(line:find("have a neighbour", 1, true) == nil, line)
+  end
+end
