@@ -203,6 +203,11 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
     return path, ""
   end
   local _, _ = Fs.remove(path)
+  -- TODO: give `roots = "mozilla"` once ci/cosmic-driver.pin names a
+  -- release whose cosmic.http trusts the minimal roots by default:
+  -- upstream's host may have its certificate from any CA Mozilla trusts,
+  -- and the download is held to the PIN's digests whoever serves it; the
+  -- pinned release, which runs this, has no `roots` to give.
   local options: Http.Options = {}
   for _, digest in ipairs(digests) do
     if digest.algorithm == "sha256" then

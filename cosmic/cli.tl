@@ -182,7 +182,10 @@ local record Cli
   --- writes the same bin/<name>, replacing a launcher build of it (and
   --- the other way round). The launcher `exec`s the core once ready, so
   --- the process you start is the program's own and signals reach it
-  --- directly. Either
+  --- directly. Every executable carries every CA root this cosmic does,
+  --- and its requests trust the minimal ones ([`Http.default_roots`])
+  --- unless `--roots mozilla` makes it all of them, as COSMIC_CA_ROOTS
+  --- does when it runs. Either
   --- carries this binary's CA roots and time zones: `cosmic refresh
   --- --binary <path> -o <copy>` writes a copy with newer ones
   --- later. The tree is found as `test` finds it
@@ -852,6 +855,8 @@ local module: Module = {
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
+        ["--roots"] = { value = "set", about = "the CA roots its requests trust by default: minimal (the default) " ..
+            "or mozilla; every root goes along either way" },
       },
     },
     db = {
@@ -961,7 +966,7 @@ local module: Module = {
         ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
         ["--head"] = { about = "print the status and headers, not the body" },
         ["--json"] = { about = "with --head, print them as a JSON object" },
-        ["--roots"] = { value = "set", about = "trust these CA roots: mozilla (the default), minimal, none, " ..
+        ["--roots"] = { value = "set", about = "trust these CA roots: minimal (the default), mozilla, none, " ..
             "or root sha256 digests joined by commas" },
         ["--cacert"] = { value = "file", about = "also trust the certificates in this PEM or DER file; " ..
             "with --roots none, only them" },

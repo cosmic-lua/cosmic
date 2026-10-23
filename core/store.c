@@ -670,7 +670,10 @@ static bool core_identity_holds (const struct cosmic_artifact *artifact) {
 
 /* One entry of metadata. Runtime values come only from the validated artifact
  * context and its own final database, never from a project database searched
- * ahead of it. Other build metadata keeps ordinary database search order. */
+ * ahead of it, and so does `ca_roots_default`, the roots its requests trust by
+ * default (cosmic/http/init.tl's [`Http.default_roots`]), which a database
+ * searched first must not widen. Other build metadata keeps ordinary database
+ * search order. */
 static int store_meta (lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -690,6 +693,7 @@ static int store_meta (lua_State *L) {
       lua_pushnil(L);
     return 1;
   }
+  if (strcmp(key, "ca_roots_default") == 0) return push_binary_meta(L, list, key);
   if (strcmp(key, "host") == 0 || strcmp(key, "host_image") == 0 ||
       strcmp(key, "runtime") == 0 || strcmp(key, "runtime_basis") == 0 ||
       strcmp(key, "artifact") == 0) {

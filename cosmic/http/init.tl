@@ -23,7 +23,9 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
+local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which an ordinary `require` never
@@ -99,11 +101,13 @@ local record Http
   --- to see how it is verified.
   ---
   --- `roots`, `ca` and `pin` choose whom an https server, and an https
-  --- proxy, is trusted as. `roots` names the CA roots: "mozilla", every
-  --- root this binary carries (Mozilla's bundle; the default),
-  --- "minimal" ([`Http.minimal_roots`]), "none", or a list of roots this
-  --- binary carries by the SHA-256 of their DER, as hex (a `:` between
-  --- bytes is taken, as Mozilla's bundle prints them). The certificates
+  --- proxy, is trusted as. `roots` names the CA roots: "minimal"
+  --- ([`Http.minimal_roots`]), "mozilla", every root this binary carries
+  --- (Mozilla's root store), "none", or a list of roots this binary
+  --- carries by the SHA-256 of their DER, as hex (a `:` between bytes is
+  --- taken, as Mozilla's store prints them). With no `roots` a request
+  --- trusts [`Http.default_roots`]: "minimal", unless `COSMIC_CA_ROOTS`
+  --- or `cosmic build --roots` says "mozilla". The certificates
   --- $SSL_CERT_FILE names are trusted with any of these but "none".
   --- `ca`, PEM (one certificate or more) or one DER certificate, is
   --- trusted besides them, and alone with "none": it is how a private
@@ -155,11 +159,9 @@ local record Http
     --- Tests only: canned replies, one per connection, in place of the
     --- network. Every entry must be a string.
     script?: {string}
-    --- The CA roots to trust: "mozilla" (the default), "minimal", "none",
-    --- or a list of the SHA-256 digests of roots this binary carries.
-    -- TODO: make "minimal" the default, once `cosmic build` can choose
-    -- the roots an executable carries and the trust store core/http.c
-    -- caches is the minimal set.
+    --- The CA roots to trust: "minimal", "mozilla", "none", or a list of
+    --- the SHA-256 digests of roots this binary carries; when nil,
+    --- [`Http.default_roots`].
     roots?: string | {string}
     --- Certificates to trust besides `roots`: PEM, or one DER.
     ca?: string
@@ -371,6 +373,10 @@ end
 --- What `opts.roots` and `opts.ca` choose to trust, for [`trusted`] to
 --- give curl.
 local record Trust
+  --- What names the blob these roots make for every request that chooses
+  --- them, when one does ("minimal", "none"): nil when `ca` or a list of
+  --- digests makes it the request's own.
+  key: string | nil
   --- Every carried root, rather than only those `wanted` names.
   all: boolean
   --- Carried roots by the SHA-256 of their DER.
@@ -380,26 +386,59 @@ local record Trust
   ca: string | nil
 end
 
+--- The roots a request that names none trusts, "minimal" or "mozilla",
+--- and "": `COSMIC_CA_ROOTS` when it is set, else what `cosmic build
+--- --roots` recorded in this executable, else "minimal". Nil and why
+--- when either names anything else.
+function Http.default_roots(): string | nil, string
+  local chosen = Env.get("COSMIC_CA_ROOTS")
+  local from = "COSMIC_CA_ROOTS"
+  if chosen == nil or chosen == "" then
+    chosen = Store.meta("ca_roots_default")
+    from = "this executable's `cosmic build --roots`"
+  end
+  if chosen == nil or chosen == "" then
+    return "minimal", ""
+  end
+  if chosen ~= "minimal" and chosen ~= "mozilla" then
+    return nil, ("http: %s names %q, not minimal or mozilla"):format(from, chosen:sub(1, 40))
+  end
+  return chosen, ""
+end
+
 --- `opts.roots` and `opts.ca` as a [`Trust`], or nil when they leave
---- the trust store as it is. Raises at `CALLER` for either of the wrong
+--- the trust store core/http.c holds (every carried root) as it is; and
+--- "", or why the roots a request naming none trusts cannot be told
+--- ([`Http.default_roots`]). Raises at `CALLER` for either of the wrong
 --- shape, naming it.
-local function trust_of(opts: Http.Options): Trust | nil
+local function trust_of(opts: Http.Options): Trust | nil, string
   local roots = opts.roots
   local ca = opts.ca
   if ca ~= nil and type(ca) ~= "string" then
     error("http: opts.ca must be a string", CALLER)
   end
+  if roots == nil then
+    local default, why = Http.default_roots()
+    if default == nil then
+      return nil, why
+    end
+    roots = default
+  end
   local wanted: {string:boolean} = {}
-  if roots == nil or roots == "mozilla" then
-    if ca == nil then return nil end
-    return { all = true, wanted = wanted, extra = true, ca = ca }
+  if roots == "mozilla" then
+    if ca == nil then return nil, "" end
+    return { key = nil, all = true, wanted = wanted, extra = true, ca = ca }, ""
   elseif roots == "minimal" then
     for _, hex in ipairs(MINIMAL_ROOTS) do
       wanted[assert(Codec.unhex(hex))] = true
     end
-    return { all = false, wanted = wanted, extra = true, ca = ca }
+    local key: string | nil = nil
+    if ca == nil then key = "minimal" end
+    return { key = key, all = false, wanted = wanted, extra = true, ca = ca }, ""
   elseif roots == "none" then
-    return { all = false, wanted = wanted, extra = false, ca = ca }
+    local key: string | nil = nil
+    if ca == nil then key = "none" end
+    return { key = key, all = false, wanted = wanted, extra = false, ca = ca }, ""
   elseif type(roots) == "table" then
     for i, hex in ipairs(roots) do
       local digest = ""
@@ -412,9 +451,9 @@ local function trust_of(opts: Http.Options): Trust | nil
       end
       wanted[bytes] = true
     end
-    return { all = false, wanted = wanted, extra = true, ca = ca }
+    return { key = nil, all = false, wanted = wanted, extra = true, ca = ca }, ""
   end
-  error('http: opts.roots must be "mozilla", "minimal", "none" or a list of SHA-256 digests', CALLER)
+  error('http: opts.roots must be "minimal", "mozilla", "none" or a list of SHA-256 digests', CALLER)
 end
 
 --- `opts.pin` as curl takes it, `;` between pins, or nil for none.
@@ -499,11 +538,13 @@ end
 
 --- The trust store's certificates, read once: the carried roots with
 --- their digests, and those $SSL_CERT_FILE named.
-local record Store
+local record Held
   carried: {Carried} | nil
   extra: {string}
+  --- The blob of each [`Trust`] with a `key`, by it, made once.
+  blobs: {string:string}
 end
-local store: Store = { carried = nil, extra = {} }
+local store: Held = { carried = nil, extra = {}, blobs = {} }
 
 --- The carried roots with their digests, read from the trust store
 --- the first time, or nil and why when it cannot be made.
@@ -529,6 +570,13 @@ end
 --- trust store cannot be made, `trust.ca` holds what the TLS stack
 --- cannot read, or nothing is left to trust.
 local function trusted(trust: Trust): string | nil, string
+  local key = trust.key
+  if key ~= nil then
+    local made = store.blobs[key]
+    if made ~= nil then
+      return made, ""
+    end
+  end
   local carried, trouble = carried_roots()
   if carried == nil then
     return nil, trouble
@@ -557,7 +605,11 @@ local function trusted(trust: Trust): string | nil, string
   if #pems == 0 then
     return nil, "http: no CA roots to trust: opts.roots names none this binary carries, and opts.ca none"
   end
-  return table.concat(pems), ""
+  local blob = table.concat(pems)
+  if key ~= nil then
+    store.blobs[key] = blob
+  end
+  return blob, ""
 end
 
 --- `opts` as the raw module reads them: its spans in the milliseconds
@@ -565,12 +617,9 @@ end
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
 --- chooses ([`trust_of`], [`trusted`]); or nil and why when those cannot
 --- be made. `method`, when given, stands in for `opts.method`.
-local function raw_options(opts: Http.Options | nil, method?: string,
+local function raw_options(given: Http.Options | nil, method?: string,
                            trusting?: boolean): raw_http.Options | nil, string
-  if opts == nil then
-    if method == nil then return nil, "" end
-    return { method = method }, ""
-  end
+  local opts: Http.Options = given or {}
   local via = opts.via
   local follow = opts.follow
   if via ~= nil then
@@ -581,7 +630,10 @@ local function raw_options(opts: Http.Options | nil, method?: string,
     -- A redirect's Location names a host the socket may not serve.
     if follow == nil then follow = false end
   end
-  local trust = trust_of(opts)
+  local trust, untold = trust_of(opts)
+  if untold ~= "" then
+    return nil, untold
+  end
   local blob: string | nil = nil
   if trusting == true and trust ~= nil then
     local made, why = trusted(trust)

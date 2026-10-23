@@ -130,7 +130,10 @@ end
 --- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
-function embed.database(project: string, main: string): string | nil, string
+--- `roots`, when given, is recorded as the roots a request that names
+--- none trusts ("minimal" or "mozilla", [`Http.default_roots`]); every
+--- root the binary carries goes along either way.
+function embed.database(project: string, main: string, roots?: string): string | nil, string
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
@@ -347,6 +350,13 @@ function embed.database(project: string, main: string): string | nil, string
         return false, failure
       end
     end
+    if roots ~= nil then
+      local ok, failure = Sqlite.run(out,
+        "INSERT INTO meta (key, value) VALUES ('ca_roots_default', ?1)", { text(roots) })
+      if not ok then
+        return false, failure
+      end
+    end
     return true, ""
   end)
   if not made then
@@ -383,7 +393,11 @@ end
 ---   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
 ---   project written in a form only the fork reads is refused with the new
 ---   checker's words and fix.
-function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode): {string} | nil, string
+--- @param roots the roots its executables trust by default, as
+---   `cosmic build --roots` names them ([`embed.database`]); nil records
+---   none, which is "minimal"
+function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+                    roots?: string): {string} | nil, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -485,7 +499,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     if name == nil then
       return nil, main .. " is not a cmd/<name>/main.tl"
     end
-    local database, database_trouble = embed.database(project, main)
+    local database, database_trouble = embed.database(project, main, roots)
     if database == nil then
       return nil, name .. ": " .. database_trouble
     end
@@ -510,7 +524,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   return names
 end
 
---- `cosmic build [--host] [path...]`: the tree in the working directory,
+--- `cosmic build [--host] [--roots minimal|mozilla] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any. Prints each executable it
 --- wrote on stdout, a path per line, for a caller to run; its summary on
@@ -523,12 +537,17 @@ local function run(argv: {integer:string}): integer
     return 2
   end
   local host = parsed.set["--host"] == true
+  local roots = parsed.values["--roots"]
+  if roots ~= nil and roots ~= "minimal" and roots ~= "mozilla" then
+    log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
+    return 2
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words))
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots)
   if names == nil then
     log:complain(trouble)
     return 1
