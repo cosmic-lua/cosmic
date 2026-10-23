@@ -1301,6 +1301,13 @@ local record Interfacing
   note: function(Module, string)
 end
 
+-- TODO: offer a reused compile to the shared cache ([`build.shared_compiles`]) as a compiled one is, once
+-- `reuse` reads its record-field uses back from `typed_refs` in the shape `shared.keep` takes: until then
+-- another checkout compiles what this one only copied.
+-- TODO: leave a module `reuse` would take out of `wanted` in the pool's scan below, once that scan can ask
+-- for an interface key before the stubs of the modules compiled in this run are judged: until then the
+-- pool compiles ahead a module the loop then takes from the cache.
+
 local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string, serving: boolean,
                                modules: {Module}, keys: {string:compilation.Keys},
                                progress: Progress): Interfacing
