@@ -812,8 +812,8 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(diagnostics))
     for _, snapshot in ipairs({ { "local-immediate", case.immediate }, { "local-boundary", case.boundary } }) do
       if snapshot[2] then
-        assert(Fs.mkdirs(diagnostics .. "/" .. snapshot[1] as string))
-        assert(Fs.write(diagnostics .. "/" .. snapshot[1] as string .. "/hashes.sha256", ""))
+        assert(Fs.mkdirs(diagnostics .. "/" .. assert(snapshot[1])))
+        assert(Fs.write(diagnostics .. "/" .. assert(snapshot[1]) .. "/hashes.sha256", ""))
       end
     end
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))

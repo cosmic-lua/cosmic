@@ -1334,7 +1334,7 @@ local function archive(c: Context, destination: string): integer
   if status ~= 0 then return status end
   status = step(c, "tracked source extract", function(): boolean, string
     local written, trouble = Archive.extract(tar, destination,
-      { links = "create" })
+      { links = "create", filter = nil })
     return written ~= nil, trouble
   end)
   assert(not exists(destination .. "/o"), "tracked source archive holds o/")
@@ -2049,7 +2049,7 @@ local function fixture_source(p: PlatformContext, destination: string): integer
     assert(Fs.remove_tree(destination))
     mkdir(destination)
     local written, trouble = Archive.extract(p.fresh .. ".tar", destination,
-      { links = "create" })
+      { links = "create", filter = nil })
     return written ~= nil, trouble
   end)
 end

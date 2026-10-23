@@ -300,9 +300,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     assert(file.uid == owner and file.mode & 0x1ff == 0x16d and file.size == original.size)
     assert(Hash.hex_sha256((assert(Fs.read(assert(words[1]))))) == digest)
     local option_fds, option_env = assert(options.fds), assert(options.env)
-    local given = option_fds[slot]
-    assert(type(given) == "number")
-    handed.value = given as integer
+    handed.value = assert(option_fds[slot])
     assert(handed.value ~= borrowed and assert(sys.fstat(handed.value)).ino == file.ino)
     for number, fd in pairs(launched.fds) do
       assert(option_fds[number] == (number == slot and handed.value or fd), "another runtime grant changed")

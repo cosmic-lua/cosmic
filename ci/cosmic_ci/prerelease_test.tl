@@ -338,7 +338,7 @@ end
 
 local function serve_page(r: Repo, rest: string): GithubApi.Reply
   -- Pages of 100, drafts first, as GitHub lists them.
-  local page = math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")) as integer
+  local page = assert(math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")))
   local ordered: {Release} = {}
   for _, rel in ipairs(r.releases) do
     if rel.draft then ordered[#ordered + 1] = rel end

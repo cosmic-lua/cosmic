@@ -80,9 +80,9 @@ local function test_reuse_and_seed_are_no_platform_jobs()
     } }
   assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
   table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64")
+  assert(assert(Report.slowest(run)).name == "linux-x86_64")
   table.insert(run.jobs, { name = "linux-x86_64-checked", seconds = 61, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64-checked")
+  assert(assert(Report.slowest(run)).name == "linux-x86_64-checked")
 end
 
 --- A run whose rows say what its restored cache held qualifies by
@@ -219,9 +219,12 @@ end
 
 --- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
 local function artifacts(f: Fake, run: string, listed: {{string:any}})
-  local body: {string:any} = { artifacts = listed }
-  if #listed == 0 then body["artifacts"] = Json.array() end
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100", body)
+  local path = "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100"
+  if #listed > 0 then
+    answer(f, path, { artifacts = listed })
+  else
+    answer(f, path, { artifacts = Json.array() })
+  end
 end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.

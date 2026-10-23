@@ -244,7 +244,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local base = ctx.work .. "/base-cache"
   outcome_ok(run(ctx, "base-cold", base), "base cold launch")
   local core = only_core(base)
-  local key = core:match("([^/]+)$") as string
+  local key = assert(core:match("([^/]+)$"))
   local core_bytes, core_hash = Fixture.read(core), Fixture.hash(core)
   local sentinel = ctx.work .. "/sentinel"
   Fixture.write(sentinel, "untouched\n")

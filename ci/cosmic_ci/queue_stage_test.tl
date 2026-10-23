@@ -170,7 +170,7 @@ end
 --- `tar` laid out under `dir` by cosmic's own reader.
 local function unpacked(tar: string, dir: string): string
   assert(Fs.mkdirs(dir))
-  assert(Archive.extract(tar, dir, { links = "create" }))
+  assert(Archive.extract(tar, dir, { links = "create", filter = nil }))
   return dir .. "/zig-build"
 end
 

@@ -83,12 +83,12 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     if text == nil then return reply(500, ""), "" end
     local pages = Json.decode_array(text)
     if pages == nil then return reply(200, text), "" end
-    local index = math.tointeger(tonumber(number) or 1) as integer
+    local index = assert(math.tointeger(tonumber(number) or 1))
     local more = index < #pages
     -- The fake's own marker, not GitHub's `page` parameter, keeps the
     -- path the answer is keyed by.
     return reply(200, assert(Json.encode(pages[index])),
-      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. (index + 1) .. '>; rel="next"' } or nil), ""
+      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } or nil), ""
   end
   local fetch, delete = Github.over({ send = send, base = origin,
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })

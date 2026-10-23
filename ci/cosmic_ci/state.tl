@@ -189,14 +189,15 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
       " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
-    local row: {string:any} = {}
+    local texts: {string:string} = {}
+    local figures: {string:integer} = {}
     local column = 1
     for _, name in ipairs(State.suite_columns) do
       if cells:text(column) ~= "1" then
         local value = cells:text(column + 1)
         local count: integer | nil
         if integer_columns[name] == true then count = math.tointeger(tonumber(value)) end
-        if count ~= nil then row[name] = count else row[name] = value end
+        if count ~= nil then figures[name] = count else texts[name] = value end
       end
       column = column + 2
     end
@@ -205,9 +206,16 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
       if cells:text(column) ~= "1" then parts[part.said] = cells:text(column + 1) end
       column = column + 2
     end
-    row.parts = parts
-    if cells:text(column) ~= "1" then row.held = cells:text(column + 1) end
-    out[#out + 1] = row as State.SuiteRun
+    local held: string | nil
+    if cells:text(column) ~= "1" then held = cells:text(column + 1) end
+    out[#out + 1] = { worker = texts["worker"] or "", run = texts["run"] or "",
+      attempt = texts["attempt"] or "", phase = texts["phase"] or "",
+      suite = texts["suite"] or "", status = texts["status"] or "",
+      exit_code = figures["exit_code"], tests = figures["tests"],
+      modules = figures["modules"], ran = figures["ran"], stood = figures["stood"],
+      every = figures["every"], shared = figures["shared"], failed = figures["failed"],
+      elapsed_ms = figures["elapsed_ms"], sandbox = texts["sandbox"],
+      parts = parts, held = held }
   end
   return out
 end
