@@ -230,7 +230,7 @@ end
 --- The facts of Teal `source`, parsed to `parsed`, for `check` and
 --- `rewrite`.
 function links.facts(parsed: ast.Parsed, source: string): links.Facts
-  local found = link_text.declarations(parsed)
+  local found = link_text.declarations(parsed, true)
   return {
     source = source,
     blocks = link_text.blocks_of(link_text.comments_of(parsed.tokens, source)),
