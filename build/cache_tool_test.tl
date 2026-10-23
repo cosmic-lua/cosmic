@@ -86,7 +86,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local script = 'local Sqlite = require("cosmic.sqlite"); local Fs = require("cosmic.fs"); ' ..
     'local cache = require("build.cache"); local Proc = require("cosmic.proc"); local original = Sqlite.open; ' ..
     'Sqlite.open = function(path, opts) local db, why = original(path, opts); assert(Fs.put(1,"r")); return db, why end; ' ..
-    'Proc.exit(cache.run({[0]="cosmic","cache","trim","compiles",' .. string.format("%q", path) ..
+    'Proc.exit(cache.run({"cache","trim","compiles",' .. string.format("%q", path) ..
     ',"--since-ns","0","--json"}))'
   local started = this_program.program({ "-e", script }, { cwd = tmp,
     stdout = "stream", stderr = "capture", process_group = false })

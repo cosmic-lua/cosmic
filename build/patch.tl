@@ -579,9 +579,8 @@ function Patch.names(root: string): {string} | nil, string
   return names, ""
 end
 
---- The whole entry point, over `argv` as the entry-point contract
---- hands it: `argv[0]` is this script's own path.
-function Patch.main(argv: {integer:string}): integer
+--- The whole entry point, over the words after this script's path.
+function Patch.main(argv: {string}): integer
   if argv[1] == "--zig-lib" then
     local root, lib, out = argv[2], argv[3], argv[4]
     if root == nil or lib == nil or out == nil or argv[5] ~= nil then

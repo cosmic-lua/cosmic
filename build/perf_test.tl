@@ -169,18 +169,16 @@ local function test_shared_fixture_history_cannot_pass_pair_checks()
   assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "4", "5" }))
 end
 
-local function argv_with(count: string): {integer:string}
-  local argv: {integer:string} = { "a", "b", "/nonexistent/out", count }
-  argv[0] = "perf.tl"
-  return argv
+local function argv_with(count: string): {string}
+  return { "a", "b", "/nonexistent/out", count }
 end
 
 local function test_sample_counts_are_validated_apart_for_benchmark_and_lifecycle()
   -- Each refuses before it makes an output directory.
-  local ok, trouble = pcall(Perf.main, argv_with("29"))
+  local ok, trouble = pcall(Perf.benchmark, argv_with("29"), "perf.tl")
   assert(not ok and tostring(trouble):find("30 to 2000", 1, true))
   for _, count in ipairs({ "5", "30" }) do
-    local lifecycle_ok, lifecycle_trouble = pcall(Perf.lifecycle, argv_with(count))
+    local lifecycle_ok, lifecycle_trouble = pcall(Perf.rehearse, argv_with(count), "perf.tl")
     assert(not lifecycle_ok and tostring(lifecycle_trouble):find("6 to 29", 1, true))
   end
 end

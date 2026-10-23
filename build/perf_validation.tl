@@ -202,7 +202,7 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
 end
 
 --- Run the frozen numerical populations and persist every case as it finishes.
-function Validation.main(argv: {integer:string}): integer
+function Validation.main(argv: {string}): integer
   assert(argv[1] ~= nil and argv[2] == nil, "usage: cosmic build/perf_validation.tl NEW_REPORT.json")
   local exists, trouble = Fs.exists(argv[1])
   assert(exists ~= nil, trouble)

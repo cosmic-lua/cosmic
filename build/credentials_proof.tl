@@ -29,7 +29,7 @@ local function children(): string
   return (assert(Fs.read("/proc/self/task/" .. pid .. "/children")))
 end
 
-function Proof.main(argv: {integer:string}): integer
+function Proof.main(argv: {string}): integer
   assert(argv[1] ~= nil and argv[2] ~= nil and argv[3] ~= nil and argv[4] == nil,
     "credentials proof needs helper, directory and mode")
   local helper, directory, mode = argv[1], argv[2], argv[3]

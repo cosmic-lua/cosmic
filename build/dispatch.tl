@@ -367,9 +367,9 @@ end
 --- is 0, and anything but a whole number from 0 to 255, or text naming
 --- one, exits 2. No function at all is 0.
 --- @param file the path named on the command line
---- @param argv the whole command line, `cosmic` at slot 0 and `file` at
----   slot 1; the file sees only what follows it, as its own `argv`
-local function run(file: string, argv: {integer:string}): integer
+--- @param argv the whole command line, `file` at slot 1; the file sees only
+---   what follows it, as its own `argv`
+local function run(file: string, argv: {string}): integer
   local Store = require("cosmic.store")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
@@ -508,7 +508,7 @@ end
 
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
-local function version(argv: {integer:string}): integer
+local function version(argv: {string}): integer
   local Codec = require("cosmic.codec")
   local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
@@ -563,9 +563,8 @@ end
 --- does, against this binary's own standard library, with no tree around
 --- it. The words after it are its `...`; what it returns is the exit
 --- code as a file run's is -- see build/exit_status.tl.
---- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
----   slot 1
-local function evaluate(argv: {integer:string}): integer
+--- @param argv the whole command line, `-e` at slot 1
+local function evaluate(argv: {string}): integer
   local chunk = argv[2]
   if chunk == nil then
     log:complain("usage: cosmic -e '<chunk>' [args...]")
@@ -593,7 +592,7 @@ local help_spec: verb_spec.Spec | nil
 --- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
-local function help(argv: {integer:string}, asked: string | nil): integer
+local function help(argv: {string}, asked: string | nil): integer
   local Cli = require("cosmic.cli")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
@@ -623,7 +622,7 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       -- A verb spelled as an option (`cosmic --standalone <file>`,
       -- `cosmic -e <chunk>`) is asked about by either spelling.
       line = {}
-      for slot, word in pairs(argv) do line[slot] = word end
+      for slot, word in ipairs(argv) do line[slot] = word end
       line[2] = spelled
     end
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
@@ -668,7 +667,7 @@ help_spec = {
   name = "help",
   guide = "none: the verb that describes the others, itself described by `cosmic help help`",
   tests = { "build.verbs_store_test" },
-  run = function(argv: {integer:string}): integer
+  run = function(argv: {string}): integer
     return help(argv, nil)
   end,
   bare = false,
@@ -693,7 +692,7 @@ local function spec_of(word: string): verb_spec.Spec | nil
     -- A tool older than the tree rebuilds first ([`build.reboot`]).
     found = {
       name = found.name,
-      run = function(argv: {integer:string}): integer
+      run = function(argv: {string}): integer
         local stale = require("build.reboot").stale_exit(argv, reads)
         if stale ~= nil then
           return stale
@@ -734,8 +733,8 @@ end
 help_source.provide(help_texts)
 
 --- Runs the command line and answers its exit code.
---- @param argv the command line, with the program's own name at slot 0
-function dispatch.main(argv: {integer:string}): integer
+--- @param argv the command line, the verb at slot 1
+function dispatch.main(argv: {string}): integer
   local word = argv[1]
   if word == "-e" then
     -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
@@ -759,7 +758,7 @@ function dispatch.main(argv: {integer:string}): integer
   -- policy's run of this program is given (cosmic.child), whose user may
   -- have no build directory to write.
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") == "1" then
-    local shifted: {integer:string} = { [0] = argv[0], [1] = "--standalone" }
+    local shifted: {string} = { "--standalone" }
     local slot = 1
     while argv[slot] ~= nil do
       shifted[slot + 1] = argv[slot]
@@ -807,7 +806,7 @@ function dispatch.main(argv: {integer:string}): integer
     verb = "help"
     chosen = {
       name = "help",
-      run = function(line: {integer:string}): integer
+      run = function(line: {string}): integer
         return help(line, asked)
       end,
       bare = false,

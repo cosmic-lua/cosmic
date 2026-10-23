@@ -124,11 +124,11 @@ end
 
 --- `vendor/<name> <archive>`: argv[1] names a tree directly (it holds
 --- a "/"), so it and argv[2] are read as the two-argument form.
-function Vendor.is_direct_rewrite(argv: {integer:string}): boolean
+function Vendor.is_direct_rewrite(argv: {string}): boolean
   return argv[1] ~= nil and argv[2] ~= nil and argv[1]:find("/", 1, true) ~= nil
 end
 
---- The repository root, from this script's own path, `argv[0]`. Like
+--- The repository root, from this script's own path, Lua's `arg[0]`. Like
 --- build/zig.tl's, which names itself in its messages: each runs standalone
 --- on cosmic.* modules alone, so neither can load the other's.
 function Vendor.repo_root(script_path: string): string | nil, string
@@ -567,12 +567,13 @@ local spec: {string:boolean | Flags.Option} = {
   ["-h"] = { about = "show this help" },
 }
 
---- Runs [`bin/vendor`]'s command line: `argv[0]` is this script's own
---- path, and the words after it are names, or a tree and an archive. It
---- takes no options but `--help`, so a word that begins with "-" is
---- refused (exit 2) rather than read as a name; one that must begin
---- with "-", such as an archive's path, goes after "--".
-function Vendor.main(argv: {integer:string}): integer
+--- Runs [`bin/vendor`]'s command line: the words are names, or a tree and
+--- an archive. It takes no options but `--help`, so a word that begins
+--- with "-" is refused (exit 2) rather than read as a name; one that must
+--- begin with "-", such as an archive's path, goes after "--".
+--- @param argv the words after the script's path
+--- @param program this script's own path, to find the repository from
+function Vendor.run(argv: {string}, program: string): integer
   local parsed, parse_trouble = Flags.parse(argv, 1, spec)
   if parsed == nil then
     log:complain(parse_trouble .. "; usage: " .. usage)
@@ -594,7 +595,7 @@ function Vendor.main(argv: {integer:string}): integer
     return 0
   end
 
-  local root, root_trouble = Vendor.repo_root(argv[0])
+  local root, root_trouble = Vendor.repo_root(program)
   if root == nil then
     log:complain(root_trouble)
     return 2
@@ -637,6 +638,11 @@ function Vendor.main(argv: {integer:string}): integer
     end
   end
   return failed and 1 or 0
+end
+
+--- The entry point: [`Vendor.run`] with this script's path, Lua's `arg[0]`.
+function Vendor.main(argv: {string}): integer
+  return Vendor.run(argv, (assert(arg[0], "vendor: no script path")))
 end
 
 return Vendor

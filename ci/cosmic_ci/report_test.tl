@@ -252,7 +252,7 @@ end
 --- `driver.tl report` with `args`, in `f`'s environment; an unreadable
 --- line answers 2, as the driver's dispatch does.
 local function report(f: Fake, args: {string}): Answer, string
-  local argv: {integer:string} = { [0] = "report" }
+  local argv: {string} = {}
   for i, word in ipairs(args) do argv[i] = word end
   local got, why = Flags.parse(argv, 1, Report.spec)
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
@@ -367,7 +367,7 @@ local function test_report_refuses_a_bad_line_and_a_missing_token(tmp: string)
   assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true), asked)
   -- Without a client of its own, the report makes the live one from its
   -- environment, which needs a token.
-  local got = assert(Flags.parse({ [0] = "report" }, 1, Report.spec))
+  local got = assert(Flags.parse({}, 1, Report.spec))
   f.env.GH_TOKEN, f.env.GITHUB_TOKEN = nil, nil
   local code, _, told = Report.answer(got, f.env)
   assert(code == 1 and told:find("no GitHub token", 1, true), told)

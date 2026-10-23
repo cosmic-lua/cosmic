@@ -60,7 +60,7 @@ local fixture = table.concat({
   "  return total, \"\"",
   "end",
   "",
-  "function Mod.run(argv: {integer:string}): integer",
+  "function Mod.run(argv: {string}): integer",
   "  local first = argv[1] as string",
   "  local found, trouble = look_up(first,",
   "    3)",

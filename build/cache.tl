@@ -20,7 +20,7 @@ local usage = "cosmic cache trim compiles PATH --since-ns N [--restored PATH] [-
   "cosmic cache trim verdicts PATH... (--since-ns N | --whole) [--json]"
 
 --- Runs the explicit operation; neither a cache path nor a cutoff is inferred.
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("cache", to.err)
   local function refuse(why: string): integer

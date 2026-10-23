@@ -396,9 +396,8 @@ end
 
 function LangProof.build(out: string, files: {string}): LangProof.Built
   assert(Fs.mkdirs(out .. "/lua"))
-  local argv: {integer:string} = {
-    [0] = "cosmic", [1] = "compile", [2] = "--grammar", [3] = "new", [4] = "--errors", [5] = "--root",
-    [6] = out .. "/src", [7] = "-o", [8] = out .. "/lua",
+  local argv: {string} = {
+    "compile", "--grammar", "new", "--errors", "--root", out .. "/src", "-o", out .. "/lua",
   }
   for index, stem in ipairs(files) do
     argv[8 + index] = out .. "/src/lang/" .. stem .. ".tl"

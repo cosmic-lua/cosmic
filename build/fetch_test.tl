@@ -41,7 +41,7 @@ end
 --- Runs `fetch` with `words` after the verb, over `script`; `fail_out`
 --- makes every write to standard output fail.
 local function run(words: {string}, script?: {string}, fail_out?: string): Ran
-  local argv: {integer:string} = { "fetch" }
+  local argv: {string} = { "fetch" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local out: {string} = {}
   local err: {string} = {}
@@ -267,7 +267,7 @@ end
 
 local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
   local path = tmp .. "/got.txt"
-  local argv: {integer:string} = { "fetch", url, "-o", path }
+  local argv: {string} = { "fetch", url, "-o", path }
   local err: {string} = {}
   local code = fetch.run(argv, {
     script = { reply("200 OK", "", string.rep("y", 200000)) },
@@ -287,7 +287,7 @@ end
 --- raises included: left open, it would hold SIGINT and SIGTERM for the
 --- rest of the process, and a later [`Signal.guard`] would be refused.
 local function test_the_guard_is_closed_when_a_complaint_raises(tmp: string)
-  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" } as {integer:string}, {
+  local ok, trouble = pcall(fetch.run, { "fetch", url, "-o", tmp .. "/got" }, {
     script = { reply("404 Not Found", "", "no") },
     out = function(_text: string): boolean, string return true, "" end,
     err = function(_line: string) error("stderr is gone") end,

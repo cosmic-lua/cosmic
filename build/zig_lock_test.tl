@@ -176,8 +176,8 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   Zig.snapshot = function(): {string:string} | nil, string
     error("snapshot failed", 0)
   end
-  local ok, trouble: boolean, any = pcall(Zig.main,
-    { [0] = root .. "/build/zig.tl", "build", "boot" } as {integer:string})
+  local ok, trouble: boolean, any = pcall(Zig.enter,
+    { "build", "boot" }, root .. "/build/zig.tl")
   Env.get, Zig.snapshot = get, snapshot
   assert(not ok and trouble == "snapshot failed", tostring(trouble))
   assert(probe(root) == "held", "main retained its lock after a snapshot exception")

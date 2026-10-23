@@ -766,20 +766,22 @@ local function complain(message: string)
   local _, _ = Fs.put(Fs.stderr, "eval/summarize: " .. message .. "\n")
 end
 
-function Summarize.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
   local transcript = argv[1]
   if transcript == nil or argv[2] ~= nil then
     local _, _ = Fs.put(Fs.stderr, "usage: eval/summarize <transcript.jsonl>\n")
     return 2
   end
-  local script, strouble = Fs.absolute(argv[0])
+  local script, strouble = Fs.absolute(program)
   if script == nil then
     complain(strouble)
     return 2
   end
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")
   if repo == nil then
-    complain(argv[0] .. ": expected to run as .../eval/summarize.tl")
+    complain(program .. ": expected to run as .../eval/summarize.tl")
     return 2
   end
   local parent = transcript:match("^(.*)/[^/]*$") or "."
@@ -795,6 +797,11 @@ function Summarize.main(argv: {integer: string}): integer
   end
   local _, _ = Fs.put(Fs.stdout, Summarize.report(text, arena, repo))
   return 0
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Summarize.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "summarize: no script path")))
 end
 
 return Summarize

@@ -72,7 +72,7 @@ local Json = require("cosmic.json")
 print("json", (Json.encode({ a = 1 })))
 print("args", arg[0], arg[1], arg[2])
 print("outside", (pcall(require, "cosmic.archive")))
-return function(args: {integer:string}): integer
+return function(args: {string}): integer
   print("main", args[1])
   return 3
 end

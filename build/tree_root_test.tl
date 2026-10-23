@@ -17,7 +17,7 @@ local function build_dir(root: string): string
 end
 
 --- The move a command line gets, or nil.
-local function moved_by(argv: {integer:string}, options: {string:boolean | Flags.Option},
+local function moved_by(argv: {string}, options: {string:boolean | Flags.Option},
                         home: string | nil, named?: string): tree_root.Move | nil
   return tree_root.move(argv, options, home, named).move
 end
@@ -48,7 +48,7 @@ end
 local function rooted(dir: string, home: string | nil, named?: string): string | nil
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local moved = moved_by({ [0] = "cosmic", "todos" }, {}, home, named)
+  local moved = moved_by({ "todos" }, {}, home, named)
   assert(sys.chdir(here))
   if moved == nil then return nil end
   return moved.root
@@ -124,13 +124,13 @@ local function test_paths_are_read_from_where_the_verb_started(tmp: string)
   assert(Fs.write(root .. "/a/b/x_test.tl", ""))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
-  local fix = moved_by({ [0] = "cosmic", "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
-  local test = moved_by({ [0] = "cosmic", "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
+  local fix = moved_by({ "fix", "--check", "x_test.tl", "." }, { ["--check"] = {} }, nil)
+  local test = moved_by({ "test", "--jobs", "2", "x_test.tl:test_a", "some.module" },
     { ["--jobs"] = { value = "n" } }, nil)
-  local uses = moved_by({ [0] = "cosmic", "uses", "Fs.read", "x_test.tl" }, {}, nil)
-  local docs = moved_by({ [0] = "cosmic", "docs", "x_test.tl" }, {}, nil)
-  local made = moved_by({ [0] = "cosmic", "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
-  local json = moved_by({ [0] = "cosmic", "json", "x" }, {}, nil)
+  local uses = moved_by({ "uses", "Fs.read", "x_test.tl" }, {}, nil)
+  local docs = moved_by({ "docs", "x_test.tl" }, {}, nil)
+  local made = moved_by({ "fix", "new/x.tl", "../x.tl", "/elsewhere/y" }, {}, nil, nil)
+  local json = moved_by({ "json", "x" }, {}, nil)
   assert(sys.chdir(here))
   assert(made ~= nil)
   assert(table.concat(made.argv, " ") == "fix a/b/new/x.tl a/x.tl /elsewhere/y",
@@ -173,7 +173,7 @@ local function test_an_unreadable_database_is_said(tmp: string)
   assert(Fs.write(build_dir(root) .. "/build.db", "not a database"))
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a/b"))
-  local answer = tree_root.move({ [0] = "cosmic", "todos" }, {}, nil)
+  local answer = tree_root.move({ "todos" }, {}, nil)
   assert(sys.chdir(here))
   assert(answer.move == nil and answer.refused == "")
   assert(answer.note:find("not using the tree at " .. root, 1, true), answer.note)
@@ -184,7 +184,7 @@ local function test_a_root_of_slash_joins_cleanly(tmp: string)
   local root = project(tmp)
   local here = assert(sys.getcwd())
   assert(sys.chdir(root .. "/a"))
-  local moved = moved_by({ [0] = "cosmic", "fix", "x.tl" }, {}, nil, "/")
+  local moved = moved_by({ "fix", "x.tl" }, {}, nil, "/")
   assert(sys.chdir(here))
   assert(moved ~= nil and moved.root == "/")
   assert(moved.argv[2] == root:sub(2) .. "/a/x.tl", moved.argv[2])

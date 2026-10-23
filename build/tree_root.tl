@@ -40,7 +40,7 @@ local record tree_root
     root: string
     --- The command line, its path arguments read from where the verb
     --- was started and now relative to `root`.
-    argv: {integer:string}
+    argv: {string}
   end
 
   --- What `move` decides.
@@ -146,7 +146,7 @@ end
 --- @param options the verb's options, as [`cosmic.cli`] names them in `verbs`
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
-function tree_root.move(argv: {integer:string},
+function tree_root.move(argv: {string},
                         options: {string:boolean | Flags.Option}, home: string | nil,
                         named?: string): tree_root.Answer
   local kind = paths[argv[1]]
@@ -175,8 +175,8 @@ function tree_root.move(argv: {integer:string},
   end
   if root == nil then return { refused = "", note = note } end
 
-  local line: {integer:string} = {}
-  for slot, word in pairs(argv) do line[slot] = word end
+  local line: {string} = {}
+  for slot, word in ipairs(argv) do line[slot] = word end
   local seen = 0
   local slot = 2
   local literal = false

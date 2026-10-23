@@ -2,7 +2,7 @@ local Flags = require("cosmic.flags")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
-local function parsed(argv: {integer:string}): Flags.Parsed
+local function parsed(argv: {string}): Flags.Parsed
   local got, why = Flags.parse(argv, 2, spec)
   assert(got ~= nil, why)
   return got
@@ -43,7 +43,8 @@ local function test_mistakes_are_refused_with_why()
         "; give one that begins with \"-\" as --jobs=" .. next_word, why)
   end
   for _, case in ipairs(cases) do
-    local got, why = Flags.parse({ "x", case[1] }, 2, spec)
+    local word = assert(case[1])
+    local got, why = Flags.parse({ "x", word }, 2, spec)
     assert(got == nil and why == case[2], why)
   end
 end
@@ -109,7 +110,8 @@ local function test_a_cluster_is_refused_with_the_letter_at_fault()
     { "-vn", "-n needs a value" },
   }
   for _, case in ipairs(cases) do
-    local got, why = Flags.parse({ case[1] }, 1, short)
+    local word = assert(case[1])
+    local got, why = Flags.parse({ word }, 1, short)
     assert(got == nil and why == case[2], why)
   end
 end
@@ -181,7 +183,7 @@ local function test_help_of_a_command_says_options_where_its_usage_is_unwritten(
 end
 
 local function test_asks_help_stops_at_the_double_dash_and_defers_to_the_spec()
-  local line: {integer:string} = { "run", "a", "--help" }
+  local line: {string} = { "run", "a", "--help" }
   assert(Flags.asks_help(line, 2, {}))
   assert(Flags.asks_help({ "run", "-j", "-h" }, 2, { ["-j"] = true }))
   assert(not Flags.asks_help({ "run", "--", "--help" }, 2, {}))
@@ -207,9 +209,9 @@ local function test_dispatch_runs_the_command_with_its_own_options()
       end,
     },
   }
-  local done, why = Flags.dispatch({ [0] = "prog", "build", "--jobs=2", "a" }, 1, commands)
+  local done, why = Flags.dispatch({ "build", "--jobs=2", "a" }, 1, commands, "prog")
   assert(done ~= nil and done.code == 3 and done.help == "" and why == "", why)
-  local cleaned = assert(Flags.dispatch({ "prog", "clean" }, 2, commands))
+  local cleaned = assert(Flags.dispatch({ "prog", "clean" }, 2, commands, "prog"))
   assert(cleaned.code == 0 and cleaned.help == "")
   assert(ran[1] == "build 2 a" and ran[2] == "clean 0", table.concat(ran, "|"))
   local refusals: {{string}} = {
@@ -218,20 +220,23 @@ local function test_dispatch_runs_the_command_with_its_own_options()
     { "--jobs", "no such command: --jobs" },
   }
   for _, case in ipairs(refusals) do
-    local refused, trouble = Flags.dispatch({ case[1] }, 1, commands)
+    local word = case[1]
+    local line: {string} = {}
+    if word ~= nil then line = { word } end
+    local refused, trouble = Flags.dispatch(line, 1, commands, "prog")
     assert(refused == nil and trouble == case[2], trouble)
   end
-  local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands)
+  local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands, "prog")
   assert(refused == nil and trouble == "clean: no such option: --jobs", trouble)
   assert(#ran == 2)
-  assert(not pcall(Flags.dispatch, { "x" }, 1, {}))
+  assert(not pcall(Flags.dispatch, { "x" }, 1, {}, "prog"))
 end
 
 local function test_dispatch_refuses_a_command_with_no_run()
   local commands: {string:Flags.Command} = { told = { about = "described, not run" } }
-  local refused, trouble = Flags.dispatch({ [1] = "told" }, 1, commands)
+  local refused, trouble = Flags.dispatch({ "told" }, 1, commands, "prog")
   assert(refused == nil and trouble == "told: the command has no run", trouble)
-  local helped = assert(Flags.dispatch({ [1] = "help", [2] = "told" }, 1, commands))
+  local helped = assert(Flags.dispatch({ "help", "told" }, 1, commands, "prog"))
   assert(helped.help:find("described, not run", 1, true) ~= nil, helped.help)
 end
 
@@ -266,13 +271,13 @@ local function test_dispatch_answers_help_rather_than_running()
     "",
     "Run `prog <command> --help` for a command's options.",
   }, "\n")
-  local asks: {{integer:string}} = {
-    { [0] = "/usr/bin/prog", "--help" },
-    { [0] = "prog", "-h", "build" },
-    { [0] = "prog", "help" },
+  local asks: {{string}} = {
+    { "--help" },
+    { "-h", "build" },
+    { "help" },
   }
   for _, argv in ipairs(asks) do
-    local done, why = Flags.dispatch(argv, 1, help_commands)
+    local done, why = Flags.dispatch(argv, 1, help_commands, "prog")
     assert(done ~= nil and done.code == 0 and done.help == program_help, why)
   end
   for _, argv in ipairs({
@@ -286,7 +291,7 @@ local function test_dispatch_answers_help_rather_than_running()
   assert(clean.help == "usage: prog clean", clean.help)
   local unknown, why = Flags.dispatch({ "help", "bulid" }, 1, help_commands, "prog")
   assert(unknown == nil and why == "no such command: bulid", why)
-  local missing, why_missing = Flags.dispatch({}, 1, help_commands)
+  local missing, why_missing = Flags.dispatch({}, 1, help_commands, "prog")
   assert(missing == nil and why_missing == "needs a command: build, clean", why_missing)
 end
 
@@ -307,9 +312,9 @@ local function test_help_after_a_double_dash_or_named_by_the_spec_is_not_help()
       end,
     },
   }
-  assert(assert(Flags.dispatch({ "grep", "-h", "x" }, 1, commands)).help == "")
-  assert(assert(Flags.dispatch({ "grep", "--", "--help" }, 1, commands)).help == "")
-  assert(assert(Flags.dispatch({ "help" }, 1, commands)).help == "")
+  assert(assert(Flags.dispatch({ "grep", "-h", "x" }, 1, commands, "prog")).help == "")
+  assert(assert(Flags.dispatch({ "grep", "--", "--help" }, 1, commands, "prog")).help == "")
+  assert(assert(Flags.dispatch({ "help" }, 1, commands, "prog")).help == "")
   assert(seen[1] == "true x" and seen[2] == "nil --help" and seen[3] == "own help 0",
     table.concat(seen, "|"))
 end
@@ -356,18 +361,25 @@ local function test_help_of_help_and_help_of_too_much()
   assert(asked.help == build_help, asked.help)
 end
 
-local function test_the_program_is_named_from_argv_zero()
-  local names: {{string}} = {
-    { "C:\\x\\prog.exe", "prog.exe" },
-    { "dir/", "program" },
-    { "p", "p" },
-  }
-  for _, case in ipairs(names) do
-    local done = assert(Flags.dispatch({ [0] = case[1], "--help" }, 1, help_commands))
-    assert(done.help:sub(1, 7 + #case[2]) == "usage: " .. case[2], done.help)
+local function test_the_program_is_named_by_its_own_argument_not_read_from_argv()
+  for _, name in ipairs({ "C:\\x\\prog.exe", "dir/", "p" }) do
+    -- A name planted in slot 0 is not the program's.
+    local line: {string} = table.move({ "planted", "--help" }, 1, 2, 0, {})
+    assert(line[0] == "planted" and line[1] == "--help")
+    local done = assert(Flags.dispatch(line, 1, help_commands, name))
+    assert(done.help:sub(1, 7 + #name) == "usage: " .. name, done.help)
+    local one = assert(Flags.dispatch({ "build", "-h" }, 1, help_commands, name))
+    assert(one.help:sub(1, 13 + #name) == "usage: " .. name .. " build", one.help)
   end
-  local bare = assert(Flags.dispatch({ "--help" }, 1, help_commands))
-  assert(bare.help:sub(1, 14) == "usage: program", bare.help)
+end
+
+local function test_dispatch_without_the_program_name_says_so()
+  -- An untyped caller, which the compiler cannot refuse.
+  local chunk = assert(load('local Flags = require("cosmic.flags") ' ..
+      'return pcall(Flags.dispatch, { "build" }, 1, { build = { run = function() return 0 end } })'))
+  local ok, trouble = chunk()
+  assert(ok == false)
+  assert(tostring(trouble):find("needs the program's name", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_options_lists_them_as_help_does()

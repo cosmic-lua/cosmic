@@ -21,7 +21,7 @@ local function test_the_command_line_refuses_what_it_cannot_run()
     { "one arena only: /b", "/a", "/b" },
   }
   for _, case in ipairs(cases) do
-    local argv: {integer:string} = { table.unpack(case, 2) }
+    local argv: {string} = { table.unpack(case, 2) }
     local options, trouble = Solve.parse(argv)
     assert(options == nil and trouble == case[1], trouble)
   end

@@ -2281,7 +2281,7 @@ function Orchestration.platform(a: {string}): integer
   local ctx = ContextEnv.read()
   local target = ContextEnv.target()
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
-    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))),
+    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(arg[0]))),
     phase = phase }
   local p: PlatformContext = { trailing = a[2], operation = c, root = ctx.root,
     target = target, work = ctx.work, product = ctx.work .. "/product",
@@ -2294,10 +2294,10 @@ function Orchestration.platform(a: {string}): integer
   end)
 end
 
-function Orchestration.provenance(a: {string}): integer
+function Orchestration.provenance(_a: {string}): integer
   local ctx = ContextEnv.read()
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
-    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))) }
+    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(arg[0]))) }
   return run_phase(c, "provenance", function(): integer
     return provenance_impl(c, ctx.products)
   end)

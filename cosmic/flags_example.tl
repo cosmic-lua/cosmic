@@ -41,8 +41,10 @@ end
 --- [`Flags.dispatch`] reads the command from `argv[1]` and parses the
 --- words after it with that command's spec, so `got.words[1]` is the
 --- file, never the command, and options may come before the words or
---- after them. `Flags.parse(argv, 1, spec)` reads no command: in such a
---- program it would take "report" for the file.
+--- after them. The program's name, "ledger", is an argument of its own,
+--- for help to show; `argv` holds only the words after it. `Flags.parse(argv,
+--- 1, spec)` reads no command: in such a program it would take "report"
+--- for the file.
 function Example.subcommands()
   local asked: {string} = {}
   local commands: {string:Flags.Command} = {
