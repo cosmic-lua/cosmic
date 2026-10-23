@@ -14,42 +14,26 @@ Test.policy{
   },
 }
 
---- The file of the module `name` below `build/` or `cosmic/`, nil where it has none (a module of the core).
-local function source_of(name: string): string | nil
-  for _, path in ipairs({ name:gsub("%.", "/") .. ".tl", name:gsub("%.", "/") .. "/init.tl" }) do
-    local text, _ = Fs.read(path)
-    if text ~= nil then
-      return text
-    end
-  end
-  return nil
-end
-
 --- A run over a memo of its own.
 local function begun(): laid.Kept
   local db = assert(Sqlite.memory())
   return assert(laid.begin(db, "salt"))
 end
 
-local function test_the_modules_are_those_the_layout_requires()
+local function test_the_modules_are_those_the_layout_calls()
   local held: {string: boolean} = {}
   for _, name in ipairs(laid.modules) do
     held[name] = true
   end
-  -- What [`fix.source`] calls: the compiler's parse, the rules, the renderer and the equivalence.
-  local stack: {string} = { "build.ast", "build.fix.rule", "build.fix.render", "build.fix.equiv" }
-  local seen: {string: boolean} = {}
-  while #stack > 0 do
-    local name = assert(table.remove(stack))
-    if seen[name] == nil then
-      seen[name] = true
-      local text = source_of(name)
-      if text ~= nil then
-        assert(held[name] == true, name .. " is run by the layout and is not in laid.modules")
-        for required in text:gmatch("require%s*%(?%s*[\"']([%w_%.%-]+)[\"']") do
-          stack[#stack + 1] = required
-        end
-      end
+  -- What [`fix.source`] calls: the compiler's parse, the rules, the renderer and the equivalence; each loads the rest.
+  local init = assert(Fs.read("build/fix/init.tl"))
+  local from = assert(init:find("function fix.source(", 1, true))
+  local upto = assert(init:find("\n--- The files one invocation covers", from, true))
+  local body = init:sub(from, upto)
+  for alias, module in pairs({ ast = "build.ast", equiv = "build.fix.equiv", render_mod = "build.fix.render",
+      rule = "build.fix.rule" }) do
+    if body:find(alias .. ".", 1, true) ~= nil then
+      assert(held[module] == true, module .. " is called by the layout and is not in laid.modules")
     end
   end
   assert(held["build.fix"], "the layout's own module is held")

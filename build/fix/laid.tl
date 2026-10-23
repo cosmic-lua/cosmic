@@ -2,9 +2,9 @@
 --- again the files that have not changed.
 ---
 --- A file's layout ([`build.fix`]'s `source`) is a function of its text, its name and the code that makes it: the
---- compiler that parses it and the modules of the layout. The answer kept is that this text, under this name, was
---- laid out as it stands. It is kept in the check memo ([`build.check_memo`]) under the SHA-256 of the compiler's
---- bytecode and that of each module the layout runs, of the core's identity and of the name and text, so a
+--- compiler that parses it and the modules of the layout and everything they load. The answer kept is that this text,
+--- under this name, was laid out as it stands. It is kept in the check memo ([`build.check_memo`]) under the SHA-256 of
+--- the compiler's bytecode and that of each of those modules, of the core's identity and of the name and text, so a
 --- change to any of them misses and the layout runs. A file the layout changes or refuses is not kept: it is laid out
 --- again each run, and a run that writes it keeps what it wrote as the next run's text.
 ---
@@ -22,10 +22,14 @@ local record laid
     salt: string
   end
 
-  --- The modules the layout runs, which a test holds to what the layout's sources require
-  --- ([`build/fix/laid_test.tl`]): those of [`fix.source`], which [`build.fix`] itself holds.
+  --- The modules whose bytecode names the code that lays out a file, with everything they load: those [`fix.source`] calls
+  --- and [`build.fix`] itself ([`build/fix/laid_test.tl`] holds them to what it requires).
   modules: {string}
 
+  --- The salt of the code that makes an answer: `version`, the core's identity, the compiler's bytecode and the bytecode
+  --- of the modules `roots` name and everything they load, and of `alone`, the modules named without what they load. Nil
+  --- where any of it cannot be named.
+  code_salt: function(version: string, roots: {string}, alone: {string}): string | nil
   --- The salt of the code that lays out a file, or nil where some of it cannot be named.
   salt: function(): string | nil
   --- Begins a run over the memo in `db`, nil where it cannot or where the code cannot be named. A test gives the `salt`
@@ -39,17 +43,14 @@ local record laid
   finish: function(kept: laid.Kept, whole: boolean)
 end
 
-laid.modules = { "build.fix", "build.fix.breaks", "build.fix.ctx", "build.fix.emit", "build.fix.equiv", "build.fix.expr",
-  "build.fix.render", "build.fix.rule", "build.fix.sig", "build.fix.stmt", "build.fix.typescan", "build.ast",
-  "build.ast.match", "build.ast.match_cast", "build.ast.node", "build.ast.requires", "build.ast.rewrite", "build.ast.walk",
-  "build.plural", "cosmic.string" }
+laid.modules = { "build.ast", "build.fix.rule", "build.fix.render", "build.fix.equiv", "build.fix" }
 
 local KIND <const> = "laid"
 
-function laid.salt(): string | nil
-  local parts: {string} = { "laid 1" }
+function laid.code_salt(version: string, roots: {string}, alone: {string}): string | nil
+  local parts: {string} = { version }
   -- The core's own digest: what the modules do runs on it. (The boot hash moves with every module of the tool, which the
-  -- bytecode of the layout's own modules names more narrowly.)
+  -- bytecode of the modules that make the answer names more narrowly.)
   local identity = Store.meta("host_image")
   if identity == nil then
     return nil
@@ -60,7 +61,20 @@ function laid.salt(): string | nil
     return nil
   end
   parts[#parts + 1] = Hash.hex_sha256(compiler)
-  for _, name in ipairs(laid.modules) do
+  local every: {string} = {}
+  local listed, _ = pcall(function(): string
+    for _, name in ipairs(Store.closure(roots)) do
+      every[#every + 1] = name
+    end
+    return ""
+  end)
+  if not listed then
+    return nil
+  end
+  for _, name in ipairs(alone) do
+    every[#every + 1] = name
+  end
+  for _, name in ipairs(every) do
     local bytes, _ = Store.bytecode(name)
     if bytes == nil then
       return nil
@@ -68,6 +82,21 @@ function laid.salt(): string | nil
     parts[#parts + 1] = name .. "=" .. Hash.hex_sha256(bytes)
   end
   return Hash.hex_sha256(table.concat(parts, "\0"))
+end
+
+function laid.salt(): string | nil
+  -- What [`fix.source`] calls: the compiler's parse, the rules, the renderer and the equivalence of what it rendered; and
+  -- [`build.fix`], which holds `source` itself.
+  local roots: {string} = {}
+  local alone: {string} = {}
+  for _, name in ipairs(laid.modules) do
+    if name == "build.fix" then
+      alone[#alone + 1] = name
+    else
+      roots[#roots + 1] = name
+    end
+  end
+  return laid.code_salt("laid 2", roots, alone)
 end
 
 function laid.begin(db: Sqlite.Handle, salt?: string): laid.Kept | nil

@@ -101,6 +101,7 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local laid = require("build.fix.laid")
+local read_memo = require("build.fix.read_memo")
 local near = require("build.fix.near")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
@@ -1437,54 +1438,87 @@ local function lay_out_teal(ctx: Fix)
       kept = laid.begin(memo)
     end
   end
+  -- What a parse of such a file gave the phases after this one is kept as well, so that it is not parsed at all: in a run
+  -- over the whole tree, which is the one that looks for plurals, so that a row made by another kind of run is not read in
+  -- one that needs more of it. The new grammar reads notes and plurals off another tree, so its runs neither read nor make a
+  -- row.
+  local read_salt: string | nil = nil
+  if kept ~= nil and plurals ~= nil and grammar ~= "new" then
+    read_salt = read_memo.salt()
+  end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
-      local result: fix.Fixed | nil = nil
-      local trouble = ""
-      if kept ~= nil and laid.holds(kept, file, source) then
-        local parsed, _ = ast.parse(built, source, file)
-        if parsed ~= nil then
-          result = { source = source, changed = false, parsed = parsed }
+      local plural_key = file
+      while plural_key:sub(1, 2) == "./" do plural_key = plural_key:sub(3) end
+      local laid_before = kept ~= nil and laid.holds(kept, file, source)
+      local from_memo: read_memo.Read | nil = nil
+      if laid_before and memo ~= nil and read_salt ~= nil then
+        from_memo = read_memo.get(memo, read_salt, built, file, source)
+        -- A row that lacks what the file is read for is not one of this kind of run.
+        if from_memo ~= nil and compared(file) and from_memo.ready == nil then
+          from_memo = nil
         end
       end
-      if result == nil then
-        result, trouble = fix.source(built, source, file)
-      end
-      -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
-      -- new parser's words.
-      local chunk: Ast.Chunk | nil = nil
-      local refusal = ""
-      if result == nil and grammar == "new" then
-        local forked, _ = ast.parse(built, source, file)
-        if forked == nil then
-          chunk, refusal = SyntaxNode.parse(source, file)
-        end
-      end
-      if chunk ~= nil then
-        new_grammar[file] = true
-        fix.read_off_written(file, chunk, source, facts, ready, plurals)
-      elseif result == nil and refusal ~= "" then
-        failures[#failures + 1] = refusal
-      elseif result == nil then
-        failures[#failures + 1] = file .. ": " .. trouble
-      elseif result.changed then
-        changed[#changed + 1] = file
-        if not checking then
-          local written, write_trouble = Fs.write(file, result.source)
-          if not written then
-            failures[#failures + 1] = write_trouble
-          else
-            fix.read_off(file, result, grammar, facts, ready, plurals)
+      if from_memo ~= nil and plurals ~= nil then
+        facts[file] = from_memo.facts
+        local candidates = from_memo.ready
+        if candidates ~= nil then ready[file] = candidates end
+        local found = from_memo.plurals
+        if found ~= nil then plurals[plural_key] = found end
+      else
+        local result: fix.Fixed | nil = nil
+        local trouble = ""
+        if laid_before then
+          local parsed, _ = ast.parse(built, source, file)
+          if parsed ~= nil then
+            result = { source = source, changed = false, parsed = parsed }
           end
         end
-      else
-        if kept ~= nil then
-          laid.keep(kept, file, source)
+        if result == nil then
+          result, trouble = fix.source(built, source, file)
         end
-        fix.read_off(file, result, grammar, facts, ready, plurals)
+        -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
+        -- new parser's words.
+        local chunk: Ast.Chunk | nil = nil
+        local refusal = ""
+        if result == nil and grammar == "new" then
+          local forked, _ = ast.parse(built, source, file)
+          if forked == nil then
+            chunk, refusal = SyntaxNode.parse(source, file)
+          end
+        end
+        if chunk ~= nil then
+          new_grammar[file] = true
+          fix.read_off_written(file, chunk, source, facts, ready, plurals)
+        elseif result == nil and refusal ~= "" then
+          failures[#failures + 1] = refusal
+        elseif result == nil then
+          failures[#failures + 1] = file .. ": " .. trouble
+        elseif result.changed then
+          changed[#changed + 1] = file
+          if not checking then
+            local written, write_trouble = Fs.write(file, result.source)
+            if not written then
+              failures[#failures + 1] = write_trouble
+            else
+              fix.read_off(file, result, grammar, facts, ready, plurals)
+            end
+          end
+        else
+          if kept ~= nil then
+            laid.keep(kept, file, source)
+          end
+          fix.read_off(file, result, grammar, facts, ready, plurals)
+          local made = facts[file]
+          if memo ~= nil and read_salt ~= nil and made ~= nil then
+            read_memo.put(memo, read_salt, file, source,
+              { facts = made, ready = ready[file], plurals = plurals ~= nil and plurals[plural_key] or nil },
+              result.parsed)
+          end
+        end
       end
     end
   end

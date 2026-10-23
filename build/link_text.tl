@@ -60,6 +60,9 @@ local record link_text
     --- Each module-level name, dotted as [`Declared.names`] holds it,
     --- that nothing else of the file declares.
     module_level: {string: boolean}
+    --- Each name every comment of the file sees ([`Declared.names`] inherits them), which is filled once a line has been
+    --- asked for: nil for a reader that does not keep them apart.
+    everywhere?: {string: boolean}
   end
 
   --- What a file declares, for the first step of resolution.
@@ -1075,7 +1078,7 @@ function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_tex
     seen[place] = known
     return known
   end
-  return { at = at, module_level = module_level }
+  return { at = at, module_level = module_level, everywhere = everywhere }
 end
 
 --- `text` as a reader is shown it: each shortcut link, and each
