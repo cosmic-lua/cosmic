@@ -19,7 +19,7 @@ what [web apps](web.md) says about routes and templates.
   `text/event-stream` body read from a subscription. It sends a heartbeat
   so a client that left is found.
 - An **event** names itself (`event:`), may carry an id (`id:`) and has
-  data. [`Sse.Event.html`] makes one whose data is markup, typed
+  data. [`Sse.html`] makes one whose data is markup, typed
   [`Html.SafeHtml`] so a handler cannot send an unescaped string.
 - The app is given the hub in `hubs`, which closes its streams when the
   server stops, so shutting down does not wait for streams that never end.
@@ -140,7 +140,7 @@ function Board.app(): Web.App
         local text = Url.query_last(assert(read.value), "text") or ""
         if text == "" then return Web.abort(422, "say something") end
         notes[#notes + 1] = { text = text }
-        hub:publish("notes", Sse.Event.html("notes", list()))
+        hub:publish("notes", Sse.html("notes", list()))
         return Web.empty(204)
       end),
 
@@ -246,8 +246,8 @@ test: 5 tests passed
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`Html.SafeHtml`]: ../../cosmic/html.tl
 [`Htmx.head`]: ../../cosmic/web/htmx.tl
-[`Sse.Event.html`]: ../../cosmic/web/sse.tl
 [`Sse.EventStream`]: ../../cosmic/web/sse.tl
+[`Sse.html`]: ../../cosmic/web/sse.tl
 [`Sse.last_event_id`]: ../../cosmic/web/sse.tl
 [`Sse.new_hub`]: ../../cosmic/web/sse.tl
 [`Web.with_client`]: ../../cosmic/web/init.tl

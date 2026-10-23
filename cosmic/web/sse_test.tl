@@ -141,11 +141,11 @@ local function test_format_event_refuses_a_field_that_would_start_another()
 end
 
 local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
-  local html = Sse.Event.html("row", Html.escape("<b>"))
+  local html = Sse.html("row", Html.escape("<b>"))
   assert(html.event == "row" and html.data == "&lt;b&gt;")
-  assert(Sse.Event.json("n", { a = 1 }).data == '{"a":1}')
-  assert(Sse.Event.text("t", "hi").data == "hi")
-  assert(raised(function() local _ = Sse.Event.json("n", function() end) end):find("json", 1, true))
+  assert(Sse.json("n", { a = 1 }).data == '{"a":1}')
+  assert(Sse.text("t", "hi").data == "hi")
+  assert(raised(function() local _ = Sse.json("n", function() end) end):find("json", 1, true))
 end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
@@ -351,7 +351,7 @@ local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
     local other = open(client.host, "/events/sport")
     assert(chunk(other) == "retry: 100\n\n")
     assert(hub:subscribers() == 4 and hub:subscribers("news") == 3)
-    assert(hub:publish("news", Sse.Event.text("headline", "hello")) == 3)
+    assert(hub:publish("news", Sse.text("headline", "hello")) == 3)
     for _, feed in ipairs(feeds) do
       assert(chunk(feed) == "event: headline\nid: 1\ndata: hello\n\n")
     end

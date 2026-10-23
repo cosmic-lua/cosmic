@@ -493,7 +493,7 @@ cosmic/time.tl 9
 cosmic/web/app.tl 2
 cosmic/web/assets.tl 1
 cosmic/web/csp.tl 1
-cosmic/web/dev.tl 3
+cosmic/web/dev.tl 1
 cosmic/web/errors.tl 1
 cosmic/web/input.tl 7
 cosmic/web/request.tl 1
@@ -2996,11 +2996,8 @@ cosmic/poll.tl field_unknown 4
 cosmic/poll_test.tl field_unknown 1
 cosmic/stream.tl field_unknown 2
 cosmic/stream_test.tl field_unknown 44
-cosmic/web/dev.tl field_unknown 2
 cosmic/web/input.tl field_unknown 4
-cosmic/web/sse.tl field_unknown 3
-cosmic/web/sse_example.tl field_unknown 4
-cosmic/web/sse_test.tl field_unknown 29
+cosmic/web/sse_test.tl field_unknown 24
 lang/ast.tl field_unknown 3
 lang/check.tl field_unknown 795
 lang/check_class_test.tl field_unknown 6
@@ -6200,10 +6197,8 @@ cosmic/web/session/cookie.tl literal_missing 1
 cosmic/web/session/csrf_example.tl literal_missing 4
 cosmic/web/session/session_example.tl literal_missing 4
 cosmic/web/session/session_test.tl literal_missing 1
-cosmic/web/sse.tl literal_missing 8
-cosmic/web/sse_example.tl literal_missing 1
-cosmic/web/sse_fuzz_test.tl literal_missing 1
-cosmic/web/sse_test.tl literal_missing 47
+cosmic/web/sse.tl literal_missing 3
+cosmic/web/sse_test.tl literal_missing 3
 cosmic/web/testing.tl literal_missing 5
 cosmic/zip.tl literal_missing 5
 eval/check/grade.tl literal_missing 1
@@ -6970,12 +6965,6 @@ cosmic/web/input_example.tl arms_differ 1
 cosmic/web_example.tl any_use 1
 cosmic/web_example.tl arms_differ 3
 doc/guides/web.md any_use 1
-# TODO: call `Sse.Event.html`, `Sse.Event.json` and `Sse.Event.text` as the functions they are once the switch
-# (doc/plans/strict-teal.md, "the switch") gives the functions of a nested record a place: `Sse.Event` is a type, so the
-# new checker finds no field `Event` in `Sse`, and a literal of the record `Event` must give the three functions its
-# declaration lists among its fields.
-cosmic/web/sse_example.tl field_unknown 4
-cosmic/web/sse_example.tl literal_missing 1
 # TODO: type the command line of `Flags.parse`, `Flags.asks_help` and `Flags.dispatch` as `{string}`, once the tree's own verbs
 # declare theirs so: every verb and entry point holds its argv as `{integer: string}` for the slot 0 that carries the program's
 # name (about 45 declarations and the `{ [0] = ... }` literals that build them), which the new checker takes no array literal
