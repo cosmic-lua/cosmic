@@ -1046,8 +1046,12 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   -- judges the module again. Changing which verdict may stand is a
   -- semantic change: invalidate the stored keys or the cache schema,
   -- rather than treating it as a transport-only edit.
+  -- By the index that holds `seen` beside the key (`compiled_by_seen`,
+  -- [`build.work`]): a row holds the module's Lua and bytecode before its
+  -- `seen`, and SQLite reaches a column by reading through every page
+  -- of the ones before it, 27 MB a run for a tree's modules.
   local look, look_trouble = db:prepare(
-    "SELECT lua, seen FROM compiled WHERE key = ?1 AND seen >= 0")
+    "SELECT seen FROM compiled INDEXED BY compiled_by_seen WHERE key = ?1 AND seen >= 0")
   if look == nil then
     return nil, look_trouble
   end
@@ -1085,7 +1089,7 @@ local function finish_cache(cache: Cache)
 end
 
 --- How many runs a compile stays cached after the last one that used
---- it. [`cached_lua`] writes a compile's `seen` only once it is
+--- it. [`cached_stands`] writes a compile's `seen` only once it is
 --- `refresh_after` runs old, so one goes between `kept_runs` and
 --- `kept_runs + refresh_after` runs after its last use.
 local kept_runs = 100
@@ -1098,41 +1102,42 @@ local refresh_after = 10
 
 local once = bind.once
 
---- The cached Lua under `key`, marked as used by this run (see
---- `refresh_after`), or nil when nothing is cached there.
-local function cached_lua(cache: Cache, key: string): string | nil, string
+--- Whether a compile stands under `key`, marked as used by this run (see
+--- `refresh_after`). Its Lua is not read: no caller of a compile asked
+--- for that of a module it did not make ([`build.module`]'s `lua`).
+local function cached_stands(cache: Cache, key: string): boolean, string
   local look = cache.look
   local bound, bind_trouble = look:bind_text(1, key)
   if not bound then
-    return nil, bind_trouble
+    return false, bind_trouble
   end
   local state, trouble = look:step()
   if state == nil then
-    return nil, trouble
+    return false, trouble
   end
-  local lua: string | nil = nil
+  local stands = false
   local stale = false
   if state == "row" then
-    lua = look:bytes(0)
-    stale = look:integer(1) < cache.run - refresh_after
+    stands = true
+    stale = look:integer(0) < cache.run - refresh_after
   end
   local reset, reset_trouble = look:reset()
   if not reset then
-    return nil, reset_trouble
+    return false, reset_trouble
   end
   if stale then
     local touch = cache.touch
     bound, bind_trouble = touch:bind_text(1, key)
     if bound then bound, bind_trouble = touch:bind_integer(2, cache.run) end
     if not bound then
-      return nil, bind_trouble
+      return false, bind_trouble
     end
     local touched, touch_trouble = once(touch)
     if not touched then
-      return nil, touch_trouble
+      return false, touch_trouble
     end
   end
-  return lua, ""
+  return stands, ""
 end
 
 --- Puts one compile in the cache under its key, and the module in
@@ -1187,8 +1192,8 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   end
   local source = rows[1]:text(1)
   local key = compilation.vendor_key(source, tool)
-  local lua, look_trouble = cached_lua(cache, key)
-  if lua ~= nil then
+  local stands, look_trouble = cached_stands(cache, key)
+  if stands then
     return remember(cache, "vendor.tl", key, ordinal, nil, nil, false)
   end
   if look_trouble ~= "" then
@@ -1620,33 +1625,35 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
       else
-        local lua, look_trouble = cached_lua(cache, key)
-        if lua == nil and look_trouble ~= "" then
+        local stands, look_trouble = cached_stands(cache, key)
+        if not stands and look_trouble ~= "" then
           finish_cache(cache)
           return false, look_trouble
         end
+        -- The Lua of a compile made or copied here, not of one that stands.
+        local lua: string | nil = nil
         local bytecode: string | nil = nil
         local refused = false
         -- Another checkout's compile stands for one made here: its key
         -- and what else decides it are the same ([`build.shared_compiles`]),
         -- and it lands as a compile does, uses and all.
         local elsewhere: importer.Shared.Compile | nil = nil
-        if lua == nil and progress.scanned then
+        if not stands and progress.scanned then
           elsewhere = looked[m.path]
           looked[m.path] = nil
-        elseif lua == nil and shared ~= nil then
+        elseif not stands and shared ~= nil then
           elsewhere = shared.look(m, own_tree)
         end
         -- A compile of the same source against the same interfaces, made
         -- under another key, is copied under this one.
-        if lua == nil and elsewhere == nil then
+        if not stands and elsewhere == nil then
           local reused = interfacing.reuse(m, key)
           if reused ~= nil then
             lua = reused.lua
             bytecode = reused.bytecode
           end
         end
-        if lua ~= nil then
+        if stands or lua ~= nil then
           result.cached = result.cached + 1
         elseif elsewhere ~= nil then
           lua = elsewhere.lua
@@ -1737,8 +1744,9 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
             end
           end
         end
-        -- Nil only for a module left out above, of which nothing is kept.
-        if lua ~= nil then
+        -- Nothing stands, and nothing is made, only for a module left out
+        -- above, of which nothing is kept.
+        if stands or lua ~= nil then
           m.lua = lua
           local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
             bytecode, refused)
