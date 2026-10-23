@@ -224,6 +224,35 @@ local record Cli
   --- there, which it leaves for a person to remove; 2 for a command line
   --- it refuses
   lsp: string
+  --- `cosmic migrate [--check] <path>...`: rewrites the Teal files of a
+  --- project written for the fork's checker into the new checker's
+  --- grammar, in place, and then makes the rewrites the new checker's own
+  --- findings call for. A path is a `.tl` file or a directory, whose `.tl`
+  --- and `.d.tl` files are read apart from hidden directories and
+  --- `vendor`; module names are the paths below the working directory, so
+  --- run it from the project's root. Each file is translated (`T | nil` to
+  --- `T?`, `goto continue` to `continue`, `function R:m` into a `class`,
+  --- `c and a or b` to an `if` expression where `a` is plainly a value),
+  --- and the project is then checked as `COSMIC_GRAMMAR=new` checks a
+  --- project, which holds it to every rule. For the five findings that
+  --- have one mechanical fix it makes it, from the finding's own place:
+  --- `mut` on a collection or a field that is written (`view_written`,
+  --- `field_fixed`), the type of `local seen = {}` from its first write
+  --- (`literal_needs_type`), `m["NAME"]` for `m.NAME` on a map
+  --- (`map_field`) and `if a then b else c end` for `a and b or c`
+  --- where `b` can be neither false nor nil (`and_ternary`). It checks
+  --- and rewrites again until nothing changes, at most 12 rounds. Comments
+  --- and layout outside the rewritten tokens stay, and a file already in
+  --- the new grammar is only given the rewrites it still needs. Every
+  --- other finding is listed, with its place, and left for a person: no
+  --- cast and no `any` stands in for one. `--check` writes nothing and
+  --- lists what it would change. The translator and this verb are kept
+  --- for one release after the new checker becomes the tool's own. It
+  --- prints the files it changed, the findings left and a summary. Exits
+  --- 0 when the project is migrated with nothing left, 1 when something
+  --- is left to write by hand or (with `--check`) when a file would
+  --- change, 2 for a command line it refused
+  migrate: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against the projection in the build directory, or the binary's own
@@ -797,7 +826,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -873,6 +902,13 @@ local module: Module = {
           about = "serve each editor that connects to this TCP port" },
         ["--socket"] = { value = "path",
           about = "serve each editor that connects to this socket file" },
+      },
+    },
+    migrate = {
+      about = "rewrite a project into the new grammar, in place",
+      usage = "[--check] <path>...",
+      spec = {
+        ["--check"] = { about = "write nothing; list what would change, and exit 1 if anything would" },
       },
     },
     sql = {
@@ -1100,12 +1136,12 @@ local module: Module = {
   },
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
-    { "Project", "test", "fix", "build", "db", "lsp" },
+    { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
     "bom", "refresh", "release", "sandbox", "help" },
 }
 
