@@ -16,7 +16,7 @@
 ---         end),
 ---       },
 ---     }
----     hub:publish("orders", Sse.Event.text("order-added", "order 17"))
+---     hub:publish("orders", Sse.text("order-added", "order 17"))
 ---
 --- A stream is a chunked `text/event-stream` reply whose body is read as it
 --- is sent. The hub never makes a publisher wait: a subscriber that cannot
@@ -55,16 +55,6 @@ local record Sse
     retry?: integer
     --- A comment (`: text` lines), which a client ignores: a heartbeat.
     comment?: string
-
-    --- An event named `name` whose data is the markup `body`; typed
-    --- [`Html.SafeHtml`] so a handler cannot send an unescaped string as
-    --- markup by accident.
-    html: function(name: string, body: Html.SafeHtml): Event
-    --- An event named `name` whose data is `value` as JSON; a value that
-    --- cannot be encoded raises.
-    json: function(name: string, value: any): Event
-    --- An event named `name` whose data is `text`.
-    text: function(name: string, text: string): Event
   end
 
   --- Where a stream gets its events from.
@@ -263,17 +253,23 @@ local function format_event(ev: Sse.Event): string
   return table.concat(out)
 end
 
-local function html_event(name: string, body: Html.SafeHtml): Sse.Event
+--- An event named `name` whose data is the markup `body`; typed
+--- [`Html.SafeHtml`] so a handler cannot send an unescaped string as
+--- markup by accident.
+function Sse.html(name: string, body: Html.SafeHtml): Sse.Event
   return { event = name, data = Html.raw(body) }
 end
 
-local function json_event(name: string, value: any): Sse.Event
+--- An event named `name` whose data is `value` as JSON; a value that
+--- cannot be encoded raises.
+function Sse.json(name: string, value: any): Sse.Event
   local text, why = Json.encode(value)
   if text == nil then error("sse: json: " .. why, 2) end
   return { event = name, data = text }
 end
 
-local function text_event(name: string, text: string): Sse.Event
+--- An event named `name` whose data is `text`.
+function Sse.text(name: string, text: string): Sse.Event
   return { event = name, data = text }
 end
 
@@ -833,9 +829,6 @@ local function new_hub(opts?: Sse.HubOptions): Sse.Hub
   return hub
 end
 
-Sse.Event.html = html_event
-Sse.Event.json = json_event
-Sse.Event.text = text_event
 Sse.format_event = format_event
 Sse.last_event_id = last_event_id
 Sse.from_queue = from_queue

@@ -358,7 +358,7 @@ local function event_for(paths: {string}): Sse.Event
   end
   local shown: {string} = {}
   for i = 1, math.min(#paths, LISTED) do shown[i] = paths[i] end
-  return Sse.Event.text(css and "css" or "reload", table.concat(shown, "\n"))
+  return Sse.text(css and "css" or "reload", table.concat(shown, "\n"))
 end
 
 --- Looks at the directory once, queueing an event for what moved.
@@ -418,7 +418,7 @@ local function events(req: Types.Request, boot: string, static: string, interval
     queue = {}, shut = false, notifier = Poll.notifier(), next = Watch.next, close = Watch.close,
   }
   return Sse.EventStream(req, source, {
-    retry_ms = RECONNECT_MS, initial = { Sse.Event.text("boot", boot) },
+    retry_ms = RECONNECT_MS, initial = { Sse.text("boot", boot) },
   })
 end
 

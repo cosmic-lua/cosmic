@@ -909,11 +909,11 @@ U+FFFD at the client): not validated, documented.
 
 Helpers:
 
-- `Sse.Event.html(name, safe_html)`: the data is the rendered fragment,
+- `Sse.html(name, safe_html)`: the data is the rendered fragment,
   typed `SafeHtml` so a handler cannot send an unescaped string as markup
   by accident.
-- `Sse.Event.json(name, value)`: `Json.encode(value)`.
-- `Sse.Event.text(name, s)`.
+- `Sse.json(name, value)`: `Json.encode(value)`.
+- `Sse.text(name, s)`.
 
 Property test (a fuzz-style round-trip, since the formatter's input is
 untrusted data, using build.fuzz `run`): for random strings `data`,
@@ -1107,7 +1107,7 @@ end
 local function add_order(req: Web.Request): Web.Response
   local order = ...  -- insert (a short SQLite call)
   hub:publish("user:" .. order.user,
-    Sse.Event.html("order-added", render_row(order)))
+    Sse.html("order-added", render_row(order)))
   return Web.redirect("/orders")
 end
 ```
