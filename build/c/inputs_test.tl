@@ -58,6 +58,15 @@ local function test_a_header_found_earlier_in_the_search_changes_the_key(tmp: st
   assert(key_of(tmp, nil, { "early", "late" }) ~= before, "a header that now shadows another did not change the key")
 end
 
+local function test_a_copy_of_a_header_found_earlier_changes_the_key_though_its_bytes_are_the_same(tmp: string)
+  -- The tree a compile prints names the file each declaration is in, so a header found at another path is another answer.
+  write(tmp, { ["main.c"] = "#include <h.h>\n", ["late/h.h"] = "int h;\n" })
+  local before = key_of(tmp, nil, { "early", "late" })
+  assert(before ~= nil)
+  write(tmp, { ["early/h.h"] = "int h;\n" })
+  assert(key_of(tmp, nil, { "early", "late" }) ~= before, "a copy that now shadows the header did not change the key")
+end
+
 local function test_a_header_beside_the_includer_shadows_a_searched_one(tmp: string)
   write(tmp, { ["main.c"] = '#include "sub/a.h"\n', ["sub/a.h"] = '#include "h.h"\n', ["inc/h.h"] = "int far;\n" })
   local before = key_of(tmp)
