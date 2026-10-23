@@ -1850,7 +1850,7 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     "the fixture changed the promises it was given")
   local newer = Orchestration.fixture_run("format", { COSMIC_TEST_PROMISES = "all_cores,proc" },
     tmp .. "/tmp", tmp .. "/c.db")
-  assert(newer.COSMIC_TEST_PROMISES == "proc", newer.COSMIC_TEST_PROMISES)
+  assert(newer["COSMIC_TEST_PROMISES"] == "proc", newer["COSMIC_TEST_PROMISES"])
 end
 
 --- A fixture project made again at the same path starts with no build
