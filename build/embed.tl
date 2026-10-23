@@ -271,6 +271,13 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
+    -- And the certificates OneCRL revokes ([`build.onecrl`]), which it
+    -- refuses in a chain.
+    copied, copy_trouble = copy_rows(binary, out, "ca_revoked", { "kind", "name", "value" },
+      "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
+    if not copied then
+      return false, copy_trouble
+    end
     local attached, attach_trouble = Sqlite.run(out,
       "ATTACH DATABASE ?1 AS project", { text(project) })
     if not attached then

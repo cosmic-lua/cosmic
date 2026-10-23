@@ -2323,6 +2323,7 @@ local sealed_schema <const>: {string} = {
     "sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID",
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL, " ..
     "distrust_after TEXT NOT NULL)",
+  "CREATE TABLE ca_revoked (kind TEXT NOT NULL, name BLOB NOT NULL, value BLOB NOT NULL)",
 }
 
 --- The statements [`write_sealed`] runs to fill a sealed database from
@@ -2378,6 +2379,8 @@ local sealed_fill <const>: {string} = {
     "'cosmic.web.htmx') ORDER BY name",
   "INSERT INTO main.ca_roots SELECT sha256, label, der, distrust_after FROM program.ca_roots WHERE EXISTS " ..
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY sha256",
+  "INSERT INTO main.ca_revoked SELECT kind, name, value FROM program.ca_revoked WHERE EXISTS " ..
+    "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY rowid",
 }
 
 --- What sealing the databases of this run's workers is made from

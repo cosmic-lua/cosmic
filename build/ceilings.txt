@@ -932,7 +932,7 @@ build/tree_checks.tl nil_not_allowed 120
 build/tree_checks_test.tl nil_not_allowed 91
 build/tree_program_test.tl nil_not_allowed 21
 build/tree_root.tl nil_not_allowed 8
-build/vendor.tl nil_not_allowed 12
+build/vendor.tl nil_not_allowed 13
 build/vendor_test.tl nil_not_allowed 1
 build/verbs_fixture.tl nil_not_allowed 2
 build/verbs_store_test.tl nil_not_allowed 2
@@ -1125,7 +1125,7 @@ cosmic/shape_record_test.tl nil_not_allowed 3
 cosmic/shape_test.tl nil_not_allowed 1
 cosmic/signal.tl nil_not_allowed 1
 cosmic/sqlite.tl nil_not_allowed 7
-cosmic/store.tl nil_not_allowed 7
+cosmic/store.tl nil_not_allowed 8
 cosmic/store_handles_test.tl nil_not_allowed 5
 cosmic/store_seal_test.tl nil_not_allowed 15
 cosmic/stream.tl nil_not_allowed 10
@@ -1938,6 +1938,7 @@ build/must_confine_fixture.tl view_written 1
 build/must_confine_sandboxed_test.tl view_written 1
 build/must_confine_test.tl view_written 1
 build/narrow.tl view_written 4
+build/onecrl.tl view_written 2
 build/parses_fixture.tl view_written 3
 build/patch.tl view_written 8
 build/paths_test.tl view_written 1
@@ -1959,7 +1960,7 @@ build/rand_test.tl view_written 7
 build/reboot.tl view_written 4
 build/rebuild_lock.tl view_written 4
 build/receivers.tl view_written 9
-build/refresh.tl view_written 11
+build/refresh.tl view_written 14
 build/refresh_fuzz_test.tl view_written 6
 build/refresh_store_test.tl view_written 10
 build/refresh_test.tl view_written 2
@@ -2089,7 +2090,7 @@ build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
 build/type_watch.tl view_written 2
 build/unix_socket.tl view_written 4
-build/vendor.tl view_written 8
+build/vendor.tl view_written 12
 build/verb_cases.tl view_written 1
 build/verb_list.tl view_written 1
 build/verb_list_test.tl view_written 6
@@ -2777,7 +2778,7 @@ build/todos_test.tl field_fixed 3
 build/tree_checks.tl field_fixed 3
 build/tree_checks_test.tl field_fixed 17
 build/udp_fixture.tl field_fixed 1
-build/vendor.tl field_fixed 7
+build/vendor.tl field_fixed 8
 build/verb_cases.tl field_fixed 2
 build/verb_list.tl field_fixed 1
 build/work.tl field_fixed 7

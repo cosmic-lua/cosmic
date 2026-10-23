@@ -413,3 +413,65 @@ local function test_a_binary_from_before_distrust_dates_is_refreshed(tmp: string
   assert(#dated == 1 and assert(dated[1]):text(1) == "ISRG Root X1")
   assert(after:close())
 end
+
+--- A OneCRL changeset revoking R11 by `change`, a JSON object's text.
+local function revoking(change: string): string
+  return '{"metadata":{},"timestamp":1792622041776,"changes":[' .. change .. ']}'
+end
+
+--- A certificate OneCRL revokes is refused wherever it sits in a chain,
+--- by its issuer and serial number or by its subject and key, naming it,
+--- while the chain's root alone is still trusted: here Let's Encrypt's
+--- R11 under ISRG Root X1, which the unrefreshed program trusts.
+local function test_a_certificate_onecrl_revokes_is_refused(tmp: string)
+  local db = carried(program(tmp))
+  local isrg = assert(assert(Sqlite.rows(db, "SELECT der FROM ca_roots WHERE label = 'ISRG Root X1'"))[1]):blob(1)
+  assert(db:close())
+  local path = presenter(tmp, { isrg, (assert(Codec.unhex(R11))) })
+  local before = presented(path)
+  assert(#before == 2 and trusted(assert(before[1])) and trusted(assert(before[2])), table.concat(before, "\n"))
+  local changes: {string} = {
+    -- R11's issuer, ISRG Root X1's Name, and its serial number.
+    '{"issuerName":"ME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBTZWN1cml0eSBSZXNlYXJjaCBHcm91cDEV' ..
+      'MBMGA1UEAxMMSVNSRyBSb290IFgx","serialNumber":"AIp9PhPWLzDvI4a9KQdrNPg="}',
+    -- R11's subject and the SHA-256 of its key.
+    '{"subject":"MDMxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNSMTE=",' ..
+      '"pubKeyHash":"bdrBhpj38ffhxpubzkINl0rG+UyossdhcBYj+Zx2fcc="}',
+  }
+  for i, change in ipairs(changes) do
+    local file = tmp .. "/onecrl-" .. tostring(i) .. ".json"
+    assert(Fs.write(file, revoking(change)))
+    local out = tmp .. "/revoked-" .. tostring(i)
+    assert(refresh.binary(path, out, { assert(datasets["onecrl"]) }, { onecrl = file }))
+    local after = presented(out)
+    assert(#after == 2, table.concat(after, "\n"))
+    local root, issued = assert(after[1]), assert(after[2])
+    assert(trusted(root), root)
+    assert(issued:find("CN=R11", 1, true) ~= nil and issued:find("is revoked by Mozilla's OneCRL", 1, true) ~= nil,
+      issued)
+  end
+end
+
+--- A binary built before cosmic carried OneCRL records no onecrl
+--- component, and its core reads none: refreshing every dataset passes it
+--- over, saying so, and naming it refuses.
+local function test_a_binary_without_onecrl_is_passed_over(tmp: string)
+  local path = program(tmp)
+  local parts = assert(artifact.split((assert(Fs.read(path)))))
+  local copy = tmp .. "/old.db"
+  assert(Fs.write(copy, parts.database))
+  local db = assert(Sqlite.open(copy, { writable = true }))
+  assert(db:exec("DELETE FROM components WHERE name = 'onecrl'; DROP TABLE ca_revoked; VACUUM"))
+  assert(db:close())
+  local old = tmp .. "/old"
+  assert(Fs.write(old, (assert(artifact.rejoin(parts, (assert(Fs.read(copy))))))))
+  local file = tmp .. "/onecrl.json"
+  assert(Fs.write(file, '{"metadata":{},"timestamp":1,"changes":[]}'))
+
+  local every = assert(refresh.binary(old, tmp .. "/every", { assert(datasets["cacert"]), assert(datasets["onecrl"]) },
+    { cacert = bundle, onecrl = file }, true))
+  local said = table.concat(every, "\n")
+  assert(said:find("onecrl: none: the binary was built before cosmic carried one", 1, true) ~= nil, said)
+  local named, why = refresh.binary(old, tmp .. "/named", { assert(datasets["onecrl"]) }, { onecrl = file })
+  assert(named == nil and why:find("records no onecrl component", 1, true) ~= nil, tostring(why))
+end

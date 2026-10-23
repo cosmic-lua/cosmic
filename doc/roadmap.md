@@ -361,7 +361,7 @@ promises lean on come first:
   component of a URL, and the template takes it.
 
 - refresh `vendor/htmx` and `vendor/htmx-ext-sse` from npm's `dist-tags` as
-  `cosmic refresh` does `cacert` and `tzdata`, once a bump of a major library
+  `cosmic refresh` does `cacert`, `onecrl` and `tzdata`, once a bump of a major library
   can be reviewed from a release note the command prints; today it is a PIN
   edit and `bin/vendor htmx htmx-ext-sse`.
 

@@ -1,0 +1,8 @@
+version 1792622041776
+url https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/onecrl/changeset?_expected=1792622041776
+feed https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/onecrl/changeset?_expected=0
+sha256 1c26d8ad2a9454c2fd5e69ece0ef6008ec5da90b786caf5c49dde6e696a55f11
+file onecrl.json
+keep onecrl.json
+kind data
+license MPL-2.0

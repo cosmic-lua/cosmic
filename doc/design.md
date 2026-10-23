@@ -422,6 +422,9 @@ input to the build, never to the runtime. one database holds:
   the gzip of `data` when that is worth sending, else NULL.
 - **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
   which [`core/http.c`] reads from the binary's own database alone.
+- **ca_revoked**: the certificates Mozilla's OneCRL revokes
+  (`vendor/onecrl`), by issuer and serial number or by subject and key,
+  which [`core/http.c`] refuses anywhere in a chain.
 - **zoneinfo**: the IANA time zone database (`vendor/tzdata`), one
   TZif file per zone name, the only zone rules [`cosmic.time`] reads:
   a host's own zone files are never read, so a zone name means the
@@ -466,10 +469,10 @@ links; the implementation supplies its executable source and bytecode,
 import edges, uses and error catalog entries. The declaration remains
 in `decls`, including when it has no implementation.
 
-`ca_roots` and `zoneinfo` go stale on upstream's schedule, not the
+`ca_roots`, `ca_revoked` and `zoneinfo` go stale on upstream's schedule, not the
 code's, so `cosmic refresh` ([`build/refresh.tl`]) writes a copy of a
 binary -- the tool, or any executable `cosmic build` wrote -- with
-either replaced from a newer release: fetched from NSS (Mozilla's root store) or PyPI, or
+any of them replaced from a newer release: fetched from NSS (Mozilla's root store), OneCRL or PyPI, or
 read from a file. It splits the artifact at its database
 ([`artifact.split`]), replaces the rows with the same functions a boot
 fills them with, records the release in `components`, and puts the

@@ -187,6 +187,12 @@ local tables: {{string}} = {
                    der BLOB NOT NULL,
                    distrust_after TEXT NOT NULL)]] },
 
+  -- The certificates OneCRL revokes ([`build.onecrl`]), filled and
+  -- carried as `ca_roots` is, in the order of their bytes.
+  { "ca_revoked", [[(kind TEXT NOT NULL,
+                     name BLOB NOT NULL,
+                     value BLOB NOT NULL)]] },
+
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
                   module TEXT NOT NULL,
@@ -317,7 +323,10 @@ function schema.tables_digest(qualifier: string, web?: boolean): string
     "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
     "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
     "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))) || ' ' || distrust_after, char(10) " ..
-    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '')" .. assets .. ")))"
+    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), '') || char(10) || " ..
+    "'ca_revoked' || char(10) || coalesce((SELECT group_concat(kind || ' ' || lower(hex(name)) || " ..
+    "' ' || lower(hex(value)), char(10) ORDER BY kind, name, value) FROM " .. qualifier ..
+    "ca_revoked), '')" .. assets .. ")))"
 end
 
 return schema

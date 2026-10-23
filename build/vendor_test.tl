@@ -282,3 +282,39 @@ local function test_help_is_answered_before_anything_is_fetched()
   assert(Vendor.main({ [1] = "--help" }) == 0)
   assert(Vendor.main({ [1] = "curl", [2] = "-h" }) == 0)
 end
+
+--- A feed's PIN is rewritten to name the snapshot: its version the
+--- state's timestamp, its url the feed's asking for that timestamp, its
+--- sha256 the body's; every other line stays as it was.
+local function test_a_feed_pin_names_its_newest_snapshot()
+  local text = "version 1\nurl https://feed.test/changeset?_expected=1\n" ..
+    "feed https://feed.test/changeset?_expected=0\nsha256 aa\nfile f.json\nkeep f.json\nkind data\n"
+  local rewritten = Vendor.feed_pin(text, "1792622041776", "body").text
+  assert(rewritten == "version 1792622041776\nurl https://feed.test/changeset?_expected=1792622041776\n" ..
+      "feed https://feed.test/changeset?_expected=0\nsha256 " .. Hash.hex_sha256("body") ..
+      "\nfile f.json\nkeep f.json\nkind data\n", rewritten)
+  local bare = Vendor.feed_pin("version 1\nurl x\nfeed https://feed.test/all\nsha256 aa\n", "7", "b").text
+  assert(bare:find("\nurl https://feed.test/all?_expected=7\n", 1, true) ~= nil, bare)
+  local none = Vendor.feed_pin("version 1\nurl x\nsha256 aa\n", "7", "b")
+  assert(none.text == "" and none.why == "names no feed", none.why)
+  local short = Vendor.feed_pin("feed https://feed.test/all\nsha256 aa\n", "7", "b")
+  assert(short.text == "" and short.why == "names no version", short.why)
+end
+
+--- Unnamed, a feed's tree is kept while its file matches its PIN, and
+--- refused when it does not: its url cannot be fetched again to the
+--- same bytes.
+local function test_an_unnamed_feed_tree_is_kept_or_refused(dir: string)
+  local root = dir .. "/root"
+  assert(Fs.mkdirs(root .. "/vendor/feedy"))
+  assert(Fs.write(root .. "/vendor/feedy/f.json", "snapshot"))
+  assert(Fs.write(root .. "/vendor/feedy/PIN", "version 1\nurl https://feed.test/c?_expected=1\n" ..
+      "feed https://feed.test/c?_expected=0\nsha256 " .. Hash.hex_sha256("snapshot") .. "\nfile f.json\nkeep f.json\n"))
+  assert(Fs.mkdirs(root .. "/build"))
+  local script = root .. "/build/vendor.tl"
+  assert(Fs.write(script, ""))
+  assert(Vendor.main({ [0] = script }) == 0)
+  assert(Fs.read(root .. "/vendor/feedy/f.json") == "snapshot")
+  assert(Fs.write(root .. "/vendor/feedy/f.json", "changed by hand"))
+  assert(Vendor.main({ [0] = script }) == 1)
+end
