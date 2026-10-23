@@ -536,6 +536,88 @@ local function sorted_lines(set: {integer: any}): {integer}
   return out
 end
 
+--- Writes `coverage`'s rows of every one of `modules` for `run_at_ns` with one
+--- statement, as [`coverage_report.lines_of`] answers them one module at a
+--- time: each executable line, 1 where `hits` has it and else 0. The lines
+--- are those the fork's reader found of each source ([`build.coverage.lines`]),
+--- kept by its hash in the working database's `executable`, which SQLite
+--- spreads into rows (`json_each`) rather than Lua making and sorting a
+--- table for each of a thousand modules: some 0.45 s of a run that ran one
+--- test. A source the cache does not hold yet is read first, which keeps
+--- it. Returns the hit and executable-line counts of what it wrote, and a
+--- trouble message.
+---
+--- Only for the fork's reader: the new checker's lines are kept under
+--- other keys ([`build.coverage.syntax_lines`]).
+local function write_module_coverage(handle: Sqlite.Handle, built: compiler, modules: {importer.Module},
+                                     hits: Coverage.Hits, run_at_ns: integer): integer, integer, string
+  local cached, cached_trouble = Sqlite.text_rows(handle, "SELECT source_hash FROM executable")
+  if cached == nil then return 0, 0, cached_trouble end
+  local known: {string: boolean} = {}
+  for _, row in ipairs(cached) do known[row:text(1)] = true end
+  for _, m in ipairs(modules) do
+    if not known[m.source_hash] then
+      local found, trouble = coverage_report.lines_of(handle, built, m, hits)
+      if found == nil then return 0, 0, m.file .. ": " .. trouble end
+      known[m.source_hash] = true
+    end
+  end
+  local made, made_trouble = handle:exec(
+    "CREATE TEMP TABLE IF NOT EXISTS run_modules (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL) " ..
+      "WITHOUT ROWID; CREATE TEMP TABLE IF NOT EXISTS run_hits (path TEXT NOT NULL, line INTEGER NOT NULL, " ..
+      "PRIMARY KEY (path, line)) WITHOUT ROWID; DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
+  if not made then return 0, 0, made_trouble end
+  local prepared_modules, modules_trouble = handle:prepare(
+    "INSERT INTO temp.run_modules (path, source_hash) VALUES (?1, ?2)")
+  if prepared_modules == nil then return 0, 0, modules_trouble end
+  local into_modules: Sqlite.Statement = prepared_modules
+  local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
+  if prepared_hits == nil then
+    into_modules:finalize()
+    return 0, 0, hits_trouble
+  end
+  local into_hits: Sqlite.Statement = prepared_hits
+  local function fill(): boolean, string
+    for _, m in ipairs(modules) do
+      local ok, trouble = into_modules:bind_text(1, m.path)
+      if ok then ok, trouble = into_modules:bind_text(2, m.source_hash) end
+      if ok then ok, trouble = bind.once(into_modules) end
+      if not ok then return false, trouble end
+      for line, hit in pairs(hits[m.path] or {}) do
+        if hit then
+          ok, trouble = into_hits:bind_text(1, m.path)
+          if ok then ok, trouble = into_hits:bind_integer(2, line) end
+          if ok then ok, trouble = bind.once(into_hits) end
+          if not ok then return false, trouble end
+        end
+      end
+    end
+    return true, ""
+  end
+  local called, filled, fill_trouble = pcall(fill)
+  into_modules:finalize()
+  into_hits:finalize()
+  if not called then return 0, 0, tostring(filled) end
+  if not filled then return 0, 0, fill_trouble end
+  local written, write_trouble = Sqlite.run(handle,
+    "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
+      "SELECT ?1, m.path, j.value, EXISTS (SELECT 1 FROM temp.run_hits h WHERE h.path = m.path AND h.line = j.value) " ..
+      "FROM temp.run_modules m JOIN executable e ON e.source_hash = m.source_hash, " ..
+      "json_each('[' || replace(e.lines, ' ', ',') || ']') j ORDER BY m.path, j.value",
+    { { integer = run_at_ns } })
+  if not written then return 0, 0, write_trouble end
+  -- How many rows that wrote, and how many of them are hit: the lines
+  -- `run_hits` names that a module's executable lines hold.
+  local totals, totals_trouble = Sqlite.text_rows(handle,
+    "SELECT changes(), (SELECT count(*) FROM temp.run_hits h JOIN temp.run_modules m ON m.path = h.path " ..
+      "JOIN executable e ON e.source_hash = m.source_hash WHERE EXISTS (SELECT 1 FROM " ..
+      "json_each('[' || replace(e.lines, ' ', ',') || ']') j WHERE j.value = h.line))")
+  local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
+  if totals == nil then return 0, 0, totals_trouble end
+  if not cleaned then return 0, 0, clean_trouble end
+  return math.tointeger(tonumber(totals[1]:text(2))) or 0, math.tointeger(tonumber(totals[1]:text(1))) or 0, ""
+end
+
 --- Every line [`build.coverage`] found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`. Rows are
 --- never replaced, only later pruned by [`prune_history`], so a file's
@@ -590,9 +672,10 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: {string: importer.Module} = {}
   local sorted_paths: {string} = {}
+  local one_by_one = grammar == "new"
   for _, m in ipairs(modules) do
     by_source[m.path] = m
-    sorted_paths[#sorted_paths + 1] = m.path
+    if one_by_one then sorted_paths[#sorted_paths + 1] = m.path end
   end
   for path in pairs(native_lines) do
     if by_source[path] == nil then
@@ -610,6 +693,14 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   end
   table.sort(test_names)
   local write_rows = function(): boolean, string
+    -- The fork's reader's modules in one statement; the rest, and every
+    -- module of the new checker, one at a time below.
+    if not one_by_one then
+      local hit_lines, executable_lines, module_trouble = write_module_coverage(handle, built, modules, hits, run_at_ns)
+      if module_trouble ~= "" then return false, module_trouble end
+      totals.hit = totals.hit + hit_lines
+      totals.lines = totals.lines + executable_lines
+    end
     for _, path in ipairs(sorted_paths) do
       local m = by_source[path]
       local per_line: coverage_report.LineHits
