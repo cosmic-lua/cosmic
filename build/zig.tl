@@ -1027,7 +1027,7 @@ function Zig.with_lock(output: string, environment: {string:string},
           local minutes = waited_ns // Clock.minutes(1)
           -- As build/rebuild_lock.tl's `elapsed` says it.
           local said = tostring(waited_ns // Clock.seconds(1)) .. " s"
-          if minutes >= 2 then said = tostring(minutes) .. " minutes" end
+          if minutes >= 2 then said = tostring(minutes) .. " min" end
           log:complain("still waiting, " .. said .. " on: " ..
               Zig.holder(out) .. " (one run at a time holds " .. path .. ")")
         end

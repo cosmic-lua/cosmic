@@ -64,7 +64,6 @@ local Poll = require("cosmic.poll")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local log = require("build.logger").log
-local plural = require("build.plural")
 
 local record rebuild_lock
 
@@ -119,12 +118,12 @@ local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 local reminder_ns <const> = Clock.seconds(15)
 
 --- How long a run has waited, as its reminder says it: seconds up to two
---- minutes, whole minutes after.
+--- minutes, whole minutes ("3 min") after.
 local function elapsed(waited_ns: integer): string
   if waited_ns < Clock.minutes(2) then
     return tostring(waited_ns // Clock.seconds(1)) .. " s"
   end
-  return plural.count(waited_ns // Clock.minutes(1), "minute")
+  return tostring(waited_ns // Clock.minutes(1)) .. " min"
 end
 
 local type Lock = rebuild_lock.Claim

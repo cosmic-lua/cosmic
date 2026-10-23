@@ -275,7 +275,8 @@ local function moved_modules(handle: work.Handle): integer | nil, {string}
   if rows == nil then
     return nil, {}
   end
-  local count, shown = 0, {}
+  local count = 0
+  local shown: {string} = {}
   for _, row in ipairs(rows) do
     local source, _ = Store.source(row:text(1))
     if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
