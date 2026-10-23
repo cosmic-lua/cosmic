@@ -2106,7 +2106,7 @@ build/verify_codesign.tl view_written 2
 build/warnings_fork_test.tl view_written 4
 build/work.tl view_written 23
 build/work_test.tl view_written 6
-build/worker.tl view_written 17
+build/worker.tl view_written 15
 build/worker_test.tl view_written 18
 build/workers.tl view_written 12
 build/workflows_test.tl view_written 70

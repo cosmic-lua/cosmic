@@ -13,11 +13,14 @@ local record tree_worker
   --- Serves phases as [`worker.serve`] does, with the compiler the tool carries, until the end of its input, and answers the
   --- exit status.
   serve: function(): integer
+  --- What the worker makes of `source`, a file named `file`, for `read` ([`tree_worker.reading`]), over `memo`: the text the check keeps.
+  --- `extra` is the salt and a line end.
+  reading: function(memo: Sqlite.Handle, built: compiler, file: string, source: string, extra: string): {string}
 end
 
 --- What `read` makes of a file: the text its memo keeps. `extra` begins with the salt the check keys by, which keeps each file's
 --- answer apart from every other's in the worker's memo: one key for every file would answer each with the first's.
-local function reading(memo: Sqlite.Handle, built: compiler, file: string, source: string, extra: string): {string}
+function tree_worker.reading(memo: Sqlite.Handle, built: compiler, file: string, source: string, extra: string): {string}
   local salt = extra:match("^([^\n]*)\n")
   if salt == nil then return {} end
   local key = check_memo.key(salt, "tl", source)
@@ -52,7 +55,7 @@ function tree_worker.serve(): integer
   local more: {string: function(compiler, string, integer): string} = {}
   more["tree_read"] = function(built: compiler, job: string, index: integer): string
     return tree_shard.serve(job, index, function(b: compiler, file: string, source: string, extra: string): {string}
-      return reading(memo, b, file, source, extra)
+      return tree_worker.reading(memo, b, file, source, extra)
     end, built)
   end
   more["tree_generated"] = function(built: compiler, job: string, index: integer): string

@@ -41,7 +41,9 @@ local function shards_of(size: integer, dir: string, asked: {string}, lost?: boo
       end
       return why
     end,
-    say = function(_line: string) end,
+    say = function(line: string)
+      if lost == true then asked[#asked + 1] = line end
+    end,
   }
 end
 
@@ -88,6 +90,7 @@ local function test_too_few_files_or_no_workers_are_left_to_the_check()
   local asked: {string} = {}
   assert(tree_shard.warm(shards_of(3, dir, asked), memo, "read", files_of(5), "salt", "") == 0)
   assert(tree_shard.warm(nil, memo, "read", files_of(40), "salt", "") == 0)
+  assert(tree_shard.warm(shards_of(1, dir, asked), memo, "read", files_of(40), "salt", "") == 0)
   assert(#asked == 0)
   assert(memo:close())
   local _ = Fs.remove_tree(dir)
@@ -99,6 +102,11 @@ local function test_a_lost_worker_leaves_its_files_unanswered()
   assert(check_memo.prepare(memo, "read"))
   local asked: {string} = {}
   assert(tree_shard.warm(shards_of(2, dir, asked, true), memo, "read", files_of(40), "salt", "") == 0)
+  local lost = 0
+  for _, line in ipairs(asked) do
+    if line:find("did not finish (lost)", 1, true) ~= nil then lost = lost + 1 end
+  end
+  assert(lost == 2, "a worker that did not finish was not said: " .. table.concat(asked, " | "))
   assert(check_memo.get(memo, "read", check_memo.key("salt", "tl", "local x = 1")) == nil)
   assert(memo:close())
   local _ = Fs.remove_tree(dir)

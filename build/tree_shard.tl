@@ -149,7 +149,12 @@ local function made_by(shards: tree_shard.Shards, phase: string, items: {Item}):
   local job, _ = shards.path("tree")
   if job == nil then return {} end
   if written(job, items, count) ~= nil then return {} end
-  local _ = shards.run("tree_" .. phase, job, count)
+  for index, why in ipairs(shards.run("tree_" .. phase, job, count)) do
+    if why ~= "" then
+      shards.say(phase .. ": worker " .. tostring(index) .. " of " .. tostring(count) .. " did not finish (" .. why ..
+          "); the check makes the answers it left itself")
+    end
+  end
   return read_back(job, count)
 end
 
@@ -175,7 +180,7 @@ function tree_shard.warm(shards: tree_shard.Shards | nil, memo: Sqlite.Handle, k
       end
     end
   end
-  if #lacking < threshold or not shards.ready(bytes) then return 0 end
+  if #lacking < threshold or shards.size() < 2 or not shards.ready(bytes) then return 0 end
   shards.say(kind .. ": making " .. String.counted(#lacking, "answer") .. " the memo lacks in " ..
       String.counted(shards.size(), "process", "processes"))
   local answered = 0

@@ -535,16 +535,13 @@ function worker.serve(built?: compiler, more?: {string:function(compiler, string
     end
     checker = loaded
   end
-  local served: {string:function(compiler, string, integer): string} = {}
-  for name, one in pairs(phases) do served[name] = one end
-  for name, one in pairs(more or {}) do served[name] = one end
   local input = Stream.lines(Stream.from_fd(0))
   local output = Stream.to_fd(1)
   while true do
     local line, _ = input:read()
     if line == nil then return 0 end
     local phase, job, index = line:match("^([^\t]+)\t([^\t]+)\t(%d+)\t%d+$")
-    local serve = phase ~= nil and served[phase] or nil
+    local serve = phase ~= nil and (more ~= nil and more[phase] or phases[phase]) or nil
     local said = "unknown job: " .. line
     if serve ~= nil and job ~= nil then
       local ran, answer = pcall(serve, checker, job, math.tointeger(tonumber(index)) or 0)

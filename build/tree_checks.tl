@@ -210,8 +210,11 @@ for _, name in ipairs({ "names", "class" }) do
   allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
     "`parse` and `check`, the only calls outside the module, are made of"
 end
-allowed["build.tree_worker.serve"] = "what a worker of the whole-tree checks runs: the program " ..
-  "`build.workers`' `tree_spec` names as a string, which no call in the tree makes"
+for _, name in ipairs({ "serve", "reading" }) do
+  allowed["build.tree_worker." .. name] = "a worker's side of the whole-tree checks: `serve` is the program " ..
+    "`build.workers`' `tree_spec` names as a string, which no call in the tree makes, and `reading` is " ..
+    "tested directly (build/tree_worker_test.tl), over the memo it answers into"
+end
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
