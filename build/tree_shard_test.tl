@@ -83,14 +83,16 @@ local function test_a_file_the_memo_holds_is_not_made_again()
   local _ = Fs.remove_tree(dir)
 end
 
-local function test_too_few_files_or_no_workers_are_left_to_the_check()
+local function test_too_few_files_or_workers_are_left_to_the_check()
   local dir = assert(Fs.mkdtemp("tree_shard_"))
   local memo = assert(Sqlite.memory())
   assert(check_memo.prepare(memo, "read"))
   local asked: {string} = {}
-  assert(tree_shard.warm(shards_of(3, dir, asked), memo, "read", files_of(5), "salt", "") == 0)
+  -- three workers and five files, then one worker and forty
+  for _, case in ipairs({ { 3, 5 }, { 1, 40 } }) do
+    assert(tree_shard.warm(shards_of(case[1] or 0, dir, asked), memo, "read", files_of(case[2] or 0), "salt", "") == 0)
+  end
   assert(tree_shard.warm(nil, memo, "read", files_of(40), "salt", "") == 0)
-  assert(tree_shard.warm(shards_of(1, dir, asked), memo, "read", files_of(40), "salt", "") == 0)
   assert(#asked == 0)
   assert(memo:close())
   local _ = Fs.remove_tree(dir)
