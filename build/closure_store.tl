@@ -437,6 +437,25 @@ local function candidates(basis: closure_store.Basis, name: string): {string}
   return out
 end
 
+--- Each line of a basis by its digest, kept for the life of the process: a
+--- test and the examples share most of their modules with the others, and
+--- an address digested the whole of each line it names, so the address
+--- of every test module in the tree hashed each shared module again:
+--- 0.12 s of a run's 0.27. A line's digest stands for it in an address, as
+--- `basis.shared` stands for the meta rows: the address moves with any
+--- byte of any line, and the memo is by the whole line.
+local line_digests: {string:string} = {}
+
+--- The hex SHA-256 of `line`, made once.
+local function digest_of_line(line: string): string
+  local digest = line_digests[line]
+  if digest == nil then
+    digest = Hash.hex_sha256(line)
+    line_digests[line] = digest
+  end
+  return digest
+end
+
 --- The address of the closure store for `names` over `basis`: the
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
@@ -455,12 +474,14 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
   local lines: {string} = { basis.shared, salt }
   for _, name in ipairs(stored(basis, names)) do
-    lines[#lines + 1] = basis.modules[name]
+    lines[#lines + 1] = digest_of_line(basis.modules[name])
     if basis.kinds[name] == "example" then
       lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
     end
   end
-  for _, name in ipairs(declared(basis, names)) do lines[#lines + 1] = basis.decls[name] end
+  for _, name in ipairs(declared(basis, names)) do
+    lines[#lines + 1] = digest_of_line(basis.decls[name])
+  end
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
