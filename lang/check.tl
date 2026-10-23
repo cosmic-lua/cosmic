@@ -71,6 +71,7 @@ local Flow = require("lang.flow")
 local Generics = require("lang.generics")
 local Lexer = require("lang.lexer")
 local Literals = require("lang.literals")
+local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
 local Types = require("lang.types")
@@ -246,6 +247,10 @@ local record Ctx
   value_members: {Decl: Members}
   --- The `function R.m(...)` statements at the top of the module that the walk has not passed, by declaration and name.
   pending: {Decl: {string: boolean}}
+  --- What the functions read of those statics, for the functions the module runs as it loads ([`lang.load_order`]).
+  load: LoadOrder.State
+  --- The id of the function being walked, 0 in the chunk.
+  within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
   literals: {integer: Decl}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
@@ -1471,6 +1476,13 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     local why = out_of_reach(ctx, n.decl)
     if why == "" then
       ctx.literals[e.id] = n.decl
+      if ctx.load.waiting > 0 then
+        -- Lua runs the two metamethods a class admits by itself, at a `tostring` or the end of a `<close>` local, on any value
+        -- the literals make: the value is mentioned with them.
+        for _, meta in ipairs({ "__tostring", "__close" }) do
+          LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(n.decl.name .. "." .. meta)))
+        end
+      end
     else
       report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(n.decl.name) .. ", " .. why,
         reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
@@ -1743,17 +1755,22 @@ end
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
   if t is Named then
-    local waiting = ctx.pending[t.decl]
-    if waiting ~= nil and waiting[name] == true and ctx.frames[#ctx.frames].chunk and (t.value or t.decl.kind == "class") then
-      -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
-      --
-      -- TODO: follow a call of a local function made as the module loads into its body, once the checker keeps which
-      -- functions run at load: a use of `R.m` in a function called above the statement of `R.m` finds nil as well, and only a
-      -- use written at the top of the module is refused today.
-      report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
-          quoted(t.decl.name .. "." .. name) .. " before the statement that defines it has run",
-        "move the statement `function " .. t.decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
-          "that runs after the module has loaded", { show(ctx, t) })
+    local decl = t.decl
+    local waiting = ctx.pending[decl]
+    local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
+    if waiting ~= nil and waiting[name] == true and as_declared then
+      if ctx.within == 0 then
+        -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
+        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
+            quoted(decl.name .. "." .. name) .. " before the statement that defines it has run",
+          "move the statement `function " .. decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
+            "that runs after the module has loaded", { show(ctx, t) })
+      else
+        LoadOrder.read(ctx.load, ctx.within, { decl = decl, name = name, first = base_of(node).first })
+      end
+    end
+    if as_declared and ctx.load.waiting > 0 then
+      LoadOrder.mention(ctx.load, ctx.within, node, LoadOrder.of_static(decl, name, quoted(decl.name .. "." .. name)))
     end
     local list = member_types(ctx, t, name)
     if list == nil then
@@ -3351,6 +3368,8 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   }
   local saved = ctx.lenient
   ctx.lenient = 0
+  local outer_within = ctx.within
+  ctx.within = fn_id
   local outer, outer_loops = ctx.flow, ctx.loops
   ctx.flow, ctx.loops = Flow.enter(outer, ctx.unfixed[fn_id]), {}
   local outer_unfixed = ctx.unfixed_now
@@ -3385,6 +3404,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   end
   ctx.flow, ctx.loops = outer, outer_loops
   ctx.lenient = saved
+  ctx.within = outer_within
   ctx.frames[#ctx.frames] = nil
   if generic then
     ctx.judge:leave()
@@ -3397,6 +3417,9 @@ end
 local function function_literal(ctx: Ctx, e: Ast.FunctionLit, expected: Type | nil): Type
   local ft = function_type(ctx, e.fn, expected, "this function")
   function_body(ctx, e.fn.params, e.fn.body, ft, {}, e, e.fn.rets ~= nil, e.fn.id)
+  if ctx.load.waiting > 0 and ctx.load.given[e.id] ~= true then
+    LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_function(e.fn.id, "the function written here"))
+  end
   return ft
 end
 
@@ -4670,6 +4693,9 @@ local function read_name(ctx: Ctx, e: Ast.Name): Type
   if id == nil then
     return t
   end
+  if ctx.load.waiting > 0 and (t is Fn or t is Types.Union) and ctx.load.given[e.id] ~= true then
+    LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_local(id, quoted(e.text)))
+  end
   if ctx.flow.unsets > 0 and ctx.flow.unset[id] then
     local v = ctx.scoped.vars[id]
     local tokens = ctx.tokens
@@ -5052,6 +5078,14 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
     end
     return
   end
+  if ctx.load.waiting > 0 then
+    for i, b in ipairs(s.bindings) do
+      local given = s.values[i]
+      if given ~= nil then
+        LoadOrder.bind(ctx.load, b.id, given)
+      end
+    end
+  end
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, #s.values, "name")
   for i, b in ipairs(s.bindings) do
@@ -5273,6 +5307,25 @@ end
 --- facts and the facts of the paths from it are gone ([`Flow.State`]), it is assigned from here on, and it is known
 --- to have the view of the type of the value ([`value_narrowing`]).
 local function assign_statement(ctx: Ctx, s: Ast.Assign)
+  if ctx.load.waiting > 0 then
+    for i, target in ipairs(s.targets) do
+      local given = s.values[i]
+      if target is Ast.Name then
+        local binding = target.binding
+        if given ~= nil and binding ~= nil then
+          LoadOrder.bind(ctx.load, binding, given)
+        end
+      elseif target is Ast.Field then
+        local object = target.object
+        if given ~= nil and object is Ast.Name then
+          local base = name_value(ctx, object)
+          if base is Named and base.value then
+            LoadOrder.store(ctx.load, base.decl, target.name, given)
+          end
+        end
+      end
+    end
+  end
   local vals = check_assignment(ctx, s)
   for i, target in ipairs(s.targets) do
     local id = target is Ast.Name and target.binding or nil
@@ -5567,9 +5620,16 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     -- a call that answers a fourth value in the last place gives the same closing value
     local closing = vals.types[4]
     local last_expression = s.iterators[#s.iterators]
+    local tail = vals.tail
     if closing ~= nil and closing ~= ctx.nil_type and last_expression ~= nil then
       report(ctx, "iterator_extra", last_expression, subject(ctx, last_expression) .. " answers a fourth value, which Lua takes " ..
           "as the value to close, and raises when it has no `__close`", "write at most three expressions after `in`")
+    elseif closing == nil and tail ~= nil and tail ~= ctx.nil_type and tail.tag ~= "invalid" and last_expression ~= nil then
+      -- The values after the third are not counted: any number may follow, and the fourth is the value to close.
+      report(ctx, "iterator_extra", last_expression, subject(ctx, last_expression) .. " answers any number of " ..
+          tq(ctx, tail) .. " values after those it lists, and Lua takes a fourth as the value to close, raising when it has " ..
+          "no `__close`", "name the three values first (`local iterator, state, control = ...`) and write `for x in " ..
+          "iterator, state, control do`, or answer exactly an iterator, a state and a control value")
     end
   end
   local several, last = vals.lists, vals.last
@@ -5691,6 +5751,35 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl | nil)
     ctx.binders[#ctx.binders + 1] = names
     ctx.bounds[#ctx.bounds + 1] = tparams
   end
+  if decl ~= nil then
+    -- Before any body: a method names the others.
+    for _, m in ipairs(members) do
+      if m is Ast.Method then
+        LoadOrder.define(ctx.load, decl, m.name.name, m.id)
+      end
+    end
+    -- The interfaces it lists, and those they extend: a method called through one may be a method of this class.
+    local to_visit: {Type} = {}
+    if body ~= nil then
+      for _, super in ipairs(body.supers) do
+        to_visit[#to_visit + 1] = super
+      end
+    end
+    local seen: {Decl: boolean} = {}
+    while #to_visit > 0 do
+      local super = table.remove(to_visit)
+      if super is Named and not seen[super.decl] then
+        seen[super.decl] = true
+        LoadOrder.implement(ctx.load, super.decl, decl)
+        local above = super.decl.body
+        if above ~= nil then
+          for _, next_super in ipairs(above.supers) do
+            to_visit[#to_visit + 1] = next_super
+          end
+        end
+      end
+    end
+  end
   for _, m in ipairs(members) do
     if m is Ast.Method then
       local ft = ctx.lowered.types[m.id] or ctx.invalid
@@ -5730,6 +5819,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   local owner = name_value(ctx, head)
   local waiting = owner is Named and ctx.pending[owner.decl] or nil
   if waiting ~= nil and #s.path == 2 then
+    if waiting[s.path[2].text] == true then
+      ctx.load.waiting = ctx.load.waiting - 1
+    end
     waiting[s.path[2].text] = nil
   end
   local text = head.text
@@ -5752,6 +5844,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     if field_type.tag ~= "invalid" then
       local _ = expect(ctx, s, ft, field_type, " as the declaration of " .. quoted(text))
     end
+  end
+  if owner is Named and #s.path == 2 then
+    LoadOrder.define(ctx.load, owner.decl, s.path[2].text, s.fn.id)
   end
   function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
 end
@@ -5977,6 +6072,9 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     local ft = function_type(ctx, s.fn, nil, quoted(s.name.name))
     ctx.vars[s.name.id] = ft
     declare_local(ctx, s.name.id, false)
+    if ctx.load.waiting > 0 then
+      LoadOrder.hold(ctx.load, s.name.id, s.fn.id)
+    end
     function_body(ctx, s.fn.params, s.fn.body, ft, names_of_params(s.typeparams), s, s.fn.rets ~= nil, s.fn.id)
   elseif s is Ast.Function then
     function_statement(ctx, s)
@@ -6026,9 +6124,65 @@ block = function(ctx: Ctx, b: Ast.Block)
   stats(ctx, b)
 end
 
---- The locals each function reads from outside, and those an assignment may change after the function is made, from the
---- captures the scope builder found.
-local function captures_by_function(ctx: Ctx)
+function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
+  local out: {integer: {string}} = {}
+  for id, t in pairs(lowered.types) do
+    local body = t is Named and not t.value and t.decl.kind == "enum" and t.decl.body or nil
+    if body ~= nil then
+      out[id] = body.values
+    end
+  end
+  return out
+end
+
+function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
+                     typed?: boolean): Check.Checked
+  local store = program.store
+  local ctx: Ctx = {
+    program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
+    tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
+    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
+      return false
+    end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
+    literals = {}, declared = {}, union_fields = {}, spine = {},
+    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
+    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
+    unite = function(a: Type, b: Type): Type
+      return store:union({ a, b })
+    end,
+    covers = function(declared: Type, united: Type): boolean
+      return declared == united
+    end,
+  }
+  ctx.covers = function(declared: Type, united: Type): boolean
+    return below(ctx, declared, united)
+  end
+  ctx.unite = function(a: Type, b: Type): Type
+    return subsume(ctx, store:union({ a, b }))
+  end
+  ctx.load = LoadOrder.new(0, function(decl: Decl, name: string): boolean
+    local waiting = ctx.pending[decl]
+    return waiting ~= nil and waiting[name] == true
+  end, function(node: Ast.Node, spelled: string, found: LoadOrder.Found)
+    local read = found.read
+    local owner = read.decl.name .. "." .. read.name
+    local through = ""
+    if #found.via > 0 then
+      local names: {string} = {}
+      for i, via in ipairs(found.via) do
+        names[i] = via
+      end
+      through = " through " .. table.concat(names, ", ")
+    end
+    report(ctx, "static_before_definition", node, spelled .. " is called, or handed to code that may call it, as " ..
+        "the module loads, and" .. through .. " it reads the function " .. quoted(owner) .. " (line " ..
+        tostring(Lexer.y(ctx.tokens, read.first)) .. ") before the statement that defines it has run",
+      "move the statement `function " .. owner .. "(...)` above this use of " .. spelled .. ", or use " ..
+        spelled .. " in a function that runs after the module has loaded")
+  end)
+  -- The locals each function reads from outside, and those an assignment may change after the function is made, from the
+  -- captures the scope builder found.
   for _, v in ipairs(ctx.scoped.list) do
     for _, c in ipairs(v.captures) do
       local reads = ctx.reads[c.fn]
@@ -6047,42 +6201,6 @@ local function captures_by_function(ctx: Ctx)
       end
     end
   end
-end
-
-function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
-  local out: {integer: {string}} = {}
-  for id, t in pairs(lowered.types) do
-    local body = t is Named and not t.value and t.decl.kind == "enum" and t.decl.body or nil
-    if body ~= nil then
-      out[id] = body.values
-    end
-  end
-  return out
-end
-
-function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
-                     typed?: boolean): Check.Checked
-  local store = program.store
-  local ctx: Ctx = {
-    program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
-    tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, members = {}, value_members = {}, pending = {}, literals = {}, declared = {}, union_fields = {}, probes = {}, spine = {},
-    top = 0, ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0,
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, types = {}, callees = {}, consts = {}, library = {}, typed = typed ~= false, warnings = {},
-    unite = function(a: Type, b: Type): Type
-      return store:union({ a, b })
-    end,
-    covers = function(declared: Type, united: Type): boolean
-      return declared == united
-    end,
-  }
-  ctx.covers = function(declared: Type, united: Type): boolean
-    return below(ctx, declared, united)
-  end
-  ctx.unite = function(a: Type, b: Type): Type
-    return subsume(ctx, store:union({ a, b }))
-  end
-  captures_by_function(ctx)
   for _, top in ipairs(input.chunk.body.stats) do
     if top is Ast.Function and #top.path == 2 then
       local binding = top.path[1].binding
@@ -6090,6 +6208,9 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       local decl = entry ~= nil and entry.decl or nil
       if decl ~= nil then
         local names = ctx.pending[decl] or {}
+        if names[top.path[2].text] ~= true then
+          ctx.load.waiting = ctx.load.waiting + 1
+        end
         names[top.path[2].text] = true
         ctx.pending[decl] = names
       end
