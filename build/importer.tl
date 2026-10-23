@@ -184,10 +184,6 @@ local record importer
   --- `compiled` no longer holds, run at the end of each compile.
   prune_references: string
 
-  --- The statement that drops the stub verdicts of every compile
-  --- `compiled` no longer holds, run beside it.
-  prune_stub_holds: string
-
   --- The worked examples a checker diagnostic points its reader to
   --- (`cosmic docs <name>`), by the kind of diagnostic:
   --- [`build.tree_checks`] holds the tree to answering each.
@@ -215,8 +211,10 @@ importer.diagnostic_queries = {
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
--- Spelt as `prune_references` is, for the reason given there.
-importer.prune_stub_holds =
+-- The statement that drops the stub verdicts of every compile `compiled`
+-- no longer holds, run beside the one above. Spelt as
+-- [`importer.prune_references`] is, for the reason given there.
+local prune_stub_holds <const> =
   "DELETE FROM stub_holds WHERE key NOT IN (SELECT +key FROM compiled)"
 
 --- The derivation and the extractors, generators and parser it calls:
@@ -1365,20 +1363,13 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   end
   -- In cosmic's own tree, a module that requires one whose stub has been
   -- held to its source's type is checked against the stub, which the
-  -- checker reads in a fraction of the time ([`compilation.verified_stubs`]).
+  -- checker reads in a fraction of the time ([`compilation.verified_stub`]).
   --
   -- TODO: serve the new checker's compile ([`build.pipeline`]) the verified stubs too: it
   -- reads every module of the tree from source whatever it checks, and waits on
   -- a verdict that a stub has the type its source has under that checker, which
   -- `stub_holds` does not record.
-  local stubbed: {string:string} | nil = nil
-  if own_tree and grammar ~= "new" then
-    local found, stubbed_trouble = compilation.verified_stubs(handle.db, keys)
-    if found == nil then
-      return nil, stubbed_trouble
-    end
-    stubbed = found
-  end
+  local stubbed = compilation.stub_lookup(handle.db, keys, own_tree and grammar ~= "new")
   -- The new checker's compile: what it is made over ([`build.pipeline`]), read once the first module needs it. A module is
   -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
   local reading: Reading = { options = nil, built = nil }
@@ -1671,7 +1662,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     if not pruned then
       return false, prune_trouble
     end
-    local forgotten_verdicts, forgotten_trouble = db:exec(importer.prune_stub_holds)
+    local forgotten_verdicts, forgotten_trouble = db:exec(prune_stub_holds)
     if not forgotten_verdicts then
       return false, forgotten_trouble
     end

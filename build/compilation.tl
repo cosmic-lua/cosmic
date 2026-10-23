@@ -501,46 +501,53 @@ local function stub_hash(stub_text: string): string
   return Hash.hex_sha256(stub_text)
 end
 
---- The stub ([`build.stub`]) of each module of the tree whose type a
---- compile has held to the source's ([`compilation.hold_stubs`]) under
---- the module's key now, by path: what a compile of a module that requires
---- one reads in place of its source ([`teal.environment_for`]). A module
---- whose stub was never compared, or differs, is read from its source, as
---- is one a declaration stands in front of. Typing a module's whole source
---- is most of what a compile costs when a module it requires changed, and
---- a stub leaves every body out and, of a module that returns a named type,
---- every statement that type needs none of, with the modules those
---- statements require.
+--- The stub ([`build.stub`]) of the module of the tree at `path` if a
+--- compile has held it to the source's type ([`compilation.hold_stubs`])
+--- under the module's key now, else nil: what a compile of a module that
+--- requires it reads in place of its source ([`teal.environment_for`]). A
+--- module whose stub was never compared, or differs, is read from its
+--- source, as is one a declaration stands in front of, and one the
+--- database cannot be asked about. Typing a module's whole source is most
+--- of what a compile costs when a module it requires changed, and a stub
+--- leaves every body out and, of a module that returns a named type, every
+--- statement that type needs none of, with the modules those statements
+--- require.
 --- @param keys each module's [`compilation.Keys`], by path
-function compilation.verified_stubs(db: Sqlite.Handle,
-                                    keys: {string:Keys}): {string:string} | nil, string
-  local held_rows, held_trouble = Sqlite.text_rows(db,
-    "SELECT key || stub FROM stub_holds WHERE held = 1")
-  if held_rows == nil then
-    return nil, held_trouble
+function compilation.verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string | nil
+  local named = keys[path]
+  if named == nil then
+    return nil
   end
-  local held: {string:boolean} = {}
-  for _, row in ipairs(held_rows) do
-    held[row:text(1)] = true
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND i.path = ?1 " ..
+      "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
+    { text(path) })
+  if rows == nil or rows[1] == nil then
+    return nil
   end
-  local out: {string:string} = {}
-  if next(held) == nil then
-    return out, ""
+  local stub_text = rows[1]:text(1)
+  local held, _ = Sqlite.text_rows(db,
+    "SELECT key FROM stub_holds WHERE key = ?1 AND stub = ?2 AND held = 1",
+    { text(named.key), text(stub_hash(stub_text)) })
+  if held == nil or held[1] == nil then
+    return nil
   end
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind = 'module' AND i.path NOT IN (SELECT path FROM inputs WHERE kind = 'decl') " ..
-      "ORDER BY i.path")
-  if rows == nil then
-    return nil, trouble
-  end
-  for _, row in ipairs(rows) do
-    local named = keys[row:text(1)]
-    if named ~= nil and held[named.key .. stub_hash(row:text(2))] then
-      out[row:text(1)] = row:text(2)
+  return stub_text
+end
+
+--- [`compilation.verified_stub`] as a function of the path alone, for
+--- [`build.teal`]'s `environment_for`: one that answers nil for every path unless
+--- `serving`.
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
+                                 serving: boolean): function(string): string | nil
+  return function(path: string): string | nil
+    if not serving then
+      return nil
     end
+    return compilation.verified_stub(db, keys, path)
   end
-  return out, ""
 end
 
 --- Compares, for each module of the tree that `env` holds the type of
@@ -559,14 +566,6 @@ end
 --- @param keys each module's [`compilation.Keys`], by path
 function compilation.hold_stubs(db: Sqlite.Handle, built: compiler, env: compiler.Env,
                                 keys: {string:Keys}): boolean, string
-  local decided_rows, decided_trouble = Sqlite.text_rows(db, "SELECT key || stub FROM stub_holds")
-  if decided_rows == nil then
-    return false, decided_trouble
-  end
-  local decided: {string:boolean} = {}
-  for _, row in ipairs(decided_rows) do
-    decided[row:text(1)] = true
-  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
       "WHERE i.kind = 'module' AND i.path NOT IN (SELECT path FROM inputs WHERE kind = 'decl') " ..
@@ -575,21 +574,26 @@ function compilation.hold_stubs(db: Sqlite.Handle, built: compiler, env: compile
     return false, trouble
   end
   for _, row in ipairs(rows) do
-    local path = row:text(1)
-    local named = keys[path]
-    local source_type = env.modules[path]
-    local verdict = named ~= nil and named.key .. stub_hash(row:text(3)) or ""
-    if named ~= nil and source_type ~= nil and not decided[verdict] then
-      local stubbed = built.check_string(row:text(3), env, row:text(2) .. " (stub)", "tl")
-      local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
-      local held = refusal == nil and stub.difference(source_type, stubbed.type) == nil
-      local ok, why = Sqlite.run(db,
-        "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
-        { text(named.key), text(stub_hash(row:text(3))), { integer = held and 1 or 0 } })
-      if not ok then
-        return false, why
+    local named = keys[row:text(1)]
+    local source_type = env.modules[row:text(1)]
+    if named ~= nil and source_type ~= nil then
+      local known, known_trouble = Sqlite.text_rows(db,
+        "SELECT key FROM stub_holds WHERE key = ?1 AND stub = ?2",
+        { text(named.key), text(stub_hash(row:text(3))) })
+      if known == nil then
+        return false, known_trouble
       end
-      decided[verdict] = true
+      if known[1] == nil then
+        local stubbed = built.check_string(row:text(3), env, row:text(2) .. " (stub)", "tl")
+        local held = #stubbed.syntax_errors == 0 and #stubbed.type_errors == 0 and
+          stub.difference(source_type, stubbed.type) == nil
+        local ok, why = Sqlite.run(db,
+          "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
+          { text(named.key), text(stub_hash(row:text(3))), { integer = held and 1 or 0 } })
+        if not ok then
+          return false, why
+        end
+      end
     end
   end
   return true, ""
