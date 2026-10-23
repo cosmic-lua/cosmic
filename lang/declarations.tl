@@ -1114,9 +1114,9 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
     end
     return store:atom(primitive)
   end
-  -- TODO: drop `thread` here and from the primitives of lang/scopes.tl once the `debug` functions that take a thread
-  -- (`debug.traceback`, `debug.getinfo`) are declared over `Coroutine<Y, R, S>` or dropped: the typed `coroutine` library
-  -- no longer names it.
+  -- TODO: drop `thread` here and from the primitives of lang/scopes.tl once cosmic/errors.tl, cosmic/internal/errors.d.tl and
+  -- cosmic/poll.tl (the `thread_type` pins of `[declared]`) no longer name it: the declarations of the standard library name
+  -- `Coroutine<Y, R, S>` alone.
   if #path == 1 and head == "thread" then
     report_at(ctx, "thread_type", t, "`thread` is no type: a coroutine is a `Coroutine<Y, R, S>`",
       "write `Coroutine<Y, R, S>` with the type it yields, returns and is sent")

@@ -30,7 +30,8 @@ Test.policy{
   grants = {
     { path = "build/ceilings.txt", letters = "r" }, { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
     { path = "core/socket.h", letters = "r" }, { path = "checker/stdlib.d.tl", letters = "r" },
-    { path = "checker/tl.tl", letters = "r" },
+    { path = "checker/tl.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
+    { path = "lang/prelude.d.tl", letters = "r" },
   },
 }
 
@@ -1148,14 +1149,16 @@ end
 
 --- A name the scope builder cannot resolve, and a declaration that hides one, are refused past
 --- their pins with the place, the message and the fix; the globals are the ones the tree's
---- declaration file declares; the fork's file is not read; a pin above what the tree has is
+--- declaration file declares; the fork's files are not read; a pin above what the tree has is
 --- told to fall.
 local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_pin_with_its_fix(dir: string)
   local root = dir .. "/scoperoot"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/checker"))
+  assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.mkdirs(root .. "/vendor"))
-  assert(Fs.write(root .. "/checker/stdlib.d.tl", source("global print: integer")))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", source("global print: integer")))
+  assert(Fs.write(root .. "/checker/stdlib.d.tl", source("print(unknown_to_the_forks_library)")))
   assert(Fs.write(root .. "/build/ok.tl", source("local x = 1", "print(x)", "return x")))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2", "print(y)", "return x")))
   assert(Fs.write(root .. "/checker/tl.tl", source("print(unknown_to_the_fork)")))
@@ -1166,6 +1169,7 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_
       found:find("build/bad.tl: 1 error of shadows in its scopes, pinned 0; follow the fix above rather than raise the pin", 1, true),
     found)
   assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and
+      not found:find("checker/stdlib.d.tl", 1, true) and not found:find("lang/stdlib.d.tl", 1, true) and
       not found:find("vendor", 1, true) and not found:find("print", 1, true), found)
   local pins: {string: integer} = { ["build/bad.tl shadows"] = 1, ["build/bad.tl unknown_variable"] = 1 }
   assert(#tree_checks.scoped(root, pins) == 0)
@@ -1294,11 +1298,10 @@ end
 local function test_a_change_to_the_code_or_the_declarations_the_declaration_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/declaresalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl",
+    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl",
     "build/check_memo.tl", "build/tree_checks.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/lang"))
-  assert(Fs.mkdirs(root .. "/checker"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
@@ -1396,10 +1399,9 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
   local root = dir .. "/checksalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/translate.tl",
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
-    "checker/stdlib.d.tl", "checker/tl.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }
+    "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/tree_checks.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/lang"))
-  assert(Fs.mkdirs(root .. "/checker"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
@@ -1424,16 +1426,15 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   local root = dir .. "/scopememo"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/lang"))
-  assert(Fs.mkdirs(root .. "/checker"))
   assert(Fs.write(root .. "/lang/scopes.tl", "-- one\n"))
-  assert(Fs.write(root .. "/checker/stdlib.d.tl", source("global print: integer")))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", source("global print: integer")))
   assert(Fs.write(root .. "/build/bad.tl", source("print(y)", "return 1")))
   local memo = assert(Sqlite.memory())
   local plain = table.concat(tree_checks.scoped(root, {}), "\n")
   assert(plain:find("(unknown_variable)", 1, true), plain)
   assert(table.concat(tree_checks.scoped(root, {}, memo), "\n") == plain)
   local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
-  assert(count[1]:integer(1) == 3, "the three files")
+  assert(count[1]:integer(1) == 2, "the two files")
   -- Plant another answer under the key: a run that finds it did not scope.
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
@@ -1974,6 +1975,9 @@ local function test_the_projection_of_the_tree_checks_is_written_in_the_mode_ask
     assert(Fs.mkdirs(root .. "/checker"))
     assert(Fs.write(root .. "/checker/stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl")))))
     assert(Fs.write(root .. "/checker/tl.tl", (assert(Fs.read("checker/tl.tl")))))
+    assert(Fs.mkdirs(root .. "/lang"))
+    assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+    assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
     assert(Fs.write(root .. "/things.tl", "--- Opens.\nlocal function open(): integer\n  return 1\nend\n\nreturn open\n"))
     local db = assert(tree_checks.projection(root, (assert(teal.load())), mode))
     local own, trouble = writer.other_code(db, rebuild.compiled_by(mode))

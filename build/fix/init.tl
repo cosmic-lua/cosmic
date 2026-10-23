@@ -224,6 +224,17 @@ local not_source: {string:boolean} = {
 --- patches applied in place, and its first layout is a change of its own.
 local held_out_of_own_tree <const> = "checker"
 
+--- The files of cosmic's own tree that are never laid out because they are written in the new grammar, which the layout
+--- does not read until it does by default: the declarations of the new checker's globals ([`lang/prelude.d.tl`],
+--- [`lang/stdlib.d.tl`]).
+---
+--- TODO: lay these files out like the rest of the tree, and drop this exemption, once the switch makes the new grammar the
+--- one the layout reads (doc/plans/strict-teal.md, "the switch").
+local held_new_grammar <const>: {string: boolean} = {
+  ["lang/prelude.d.tl"] = true,
+  ["lang/stdlib.d.tl"] = true,
+}
+
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
   if not_source[first] then
@@ -236,12 +247,12 @@ end
 --- files count, since the renderer must write them back unchanged like
 --- any other source.
 --- @param root string
---- @param own whether `root` is cosmic's own tree, which holds out `held_out_of_own_tree`
+--- @param own whether `root` is cosmic's own tree, which holds out `held_out_of_own_tree` and `held_new_grammar`
 --- @return {string}|nil
 --- @return string Error message on failure
 local function sources(root: string, own: boolean): {string} | nil, string
   local files, trouble = Fs.walk(root, function(entry: string): boolean
-    return skip(entry) or (own and entry == held_out_of_own_tree)
+    return skip(entry) or (own and (entry == held_out_of_own_tree or held_new_grammar[entry] == true))
   end)
   if files == nil then
     return nil, trouble
@@ -298,11 +309,23 @@ local function checked_sources(root: string): {string} | nil, string
 end
 
 --- Whether `file`, a path named or found under a named directory, is in
---- `root`'s `held_out_of_own_tree`, however it is spelled.
+--- `root`'s `held_out_of_own_tree` or one of its `held_new_grammar`, however it is spelled.
 local function held_out(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
+  if absolute == nil then
+    return false
+  end
   local held, _ = Fs.absolute(root .. "/" .. held_out_of_own_tree)
-  return absolute ~= nil and held ~= nil and String.starts_with(absolute, held .. "/")
+  if held ~= nil and String.starts_with(absolute, held .. "/") then
+    return true
+  end
+  for name in pairs(held_new_grammar) do
+    local one, _ = Fs.absolute(root .. "/" .. name)
+    if one == absolute then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether `files`, however each was named, hold every Teal source

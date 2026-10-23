@@ -16,7 +16,7 @@
 --- **Generic calls.** A call of a generic function, an overload among them, instantiates it: each type parameter is
 --- solved from the receiver and the arguments, then from the type the call is expected to answer ([`lang.generics`]),
 --- and met against its bound, and the instance is applied as any function is. `pcall`, `xpcall`, `ipairs`, `assert`,
---- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang.stdlib_corrections`]); a generic
+--- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang/stdlib.d.tl`]); a generic
 --- function is a value of the function types its parameters can be taken from ([`lang.relation`]).
 ---
 --- **`match`.** The arms cover the lists the call answers exactly: `true` and `false` select the lists that have the
@@ -1003,9 +1003,8 @@ local function unknown_offsets(ctx: Ctx): {integer: boolean}
   return out
 end
 
---- The type of a global the declaration files declare. The standard library's are the fork's, as
---- [`lang.stdlib_corrections`] corrects them: a function that answers nil where Lua does says so (`s:find(p)` is
---- `integer?`), so each use of its result is held to that.
+--- The type of a global the declaration files declare. The standard library's ([`lang/stdlib.d.tl`]) say that a function that
+--- answers nil where Lua does says so (`s:find(p)` is `integer?`), so each use of its result is held to that.
 local function global_value(ctx: Ctx, node: Ast.Name): Type
   local program = ctx.program
   local values = program.values[node.text]

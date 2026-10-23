@@ -256,7 +256,7 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
     provided[module] = true
     local made: Driver.Source
     if source.declaration then
-      made = Driver.declarations(module, source.relative, source.text, false, false, {})
+      made = Driver.declarations(module, source.relative, source.text, false, {})
       globals[#globals + 1] = made
     else
       made = Driver.source(module, source.relative, source.text, "tl")

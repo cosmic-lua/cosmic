@@ -1294,7 +1294,7 @@ the switch is a hard cutover for a project outside the tree. from the
 change that makes the tool compile with the new checker, every project
 compiles with it, with no fork to fall back to, and a project's globals are
 the new checker's declarations of the standard library
-([`lang/stdlib_corrections.tl`] over [`checker/stdlib.d.tl`]), not the carried
+([`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]), not the carried
 fork's. a project written in a form only the fork reads breaks, and the error
 it meets carries the new checker's fix ([`build/error_catalog.tl`],
 [`build/removed_fix.tl`]) that says how to write it. a project gets the
@@ -1525,8 +1525,8 @@ since the seed's Lua runs on the tree's VM.
 [`build/pipeline.tl`]: ../../build/pipeline.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
 [`build/removed_fix.tl`]: ../../build/removed_fix.tl
-[`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
-[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
+[`lang/stdlib.d.tl`]: ../../lang/stdlib.d.tl
+[`lang/prelude.d.tl`]: ../../lang/prelude.d.tl
 [`build/paths.tl`]: ../../build/paths.tl
 [`build/perf.tl`]: ../../build/perf.tl
 [`build/vendor.tl`]: ../../build/vendor.tl

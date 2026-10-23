@@ -140,8 +140,8 @@ local record Verdicts
   --- The stage that reports `code` when it comes from before the bodies were checked.
   early_stage: function(code: string): string
 
-  --- Judges programs against the standard library, which it lowers once: `prelude` is the text of the fork's prelude,
-  --- `stdlib` that of checker/stdlib.d.tl. Each program is a module of its own, and is put in the new grammar first
+  --- Judges programs against the standard library, which it lowers once: `prelude` is the text of lang/prelude.d.tl,
+  --- `stdlib` that of lang/stdlib.d.tl. Each program is a module of its own, and is put in the new grammar first
   --- unless the call says it is in it.
   judge: function(prelude: string, stdlib: string): function(source: string, new_grammar?: boolean): Verdict
 

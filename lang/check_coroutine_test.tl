@@ -1,4 +1,4 @@
---- Tests of the typed coroutines in [`lang.check`] ([`lang.stdlib_corrections`] declares them): a `Coroutine<Y, R, S>`
+--- Tests of the typed coroutines in [`lang.check`] ([`lang/stdlib.d.tl`] declares them): a `Coroutine<Y, R, S>`
 --- yields `Y` through the handle its body is given, returns `R` and is sent `S`. Every program the checker takes is also
 --- run as the Lua [`lang.codegen`] writes, over the typed library [`lang.check_programs`] describes the declarations
 --- with ([`Programs.execute`]).

@@ -589,8 +589,8 @@ the fork, and rows and incremental checking come after it.
   special cases to declarations.
 - **the driver.** [`build/driver.tl`] builds one program over a module graph
   from providers (the tree's files, the `cosmic.*` modules, stubs, and the
-  declaration files of the standard library, which it corrects with
-  [`lang/stdlib_corrections.tl`] and reports the drift of), and gives each module
+  declaration files of the standard library, [`lang/prelude.d.tl`] and
+  [`lang/stdlib.d.tl`]), and gives each module
   its errors, its warnings ([`lang/warnings.tl`]: `unused`, `unread`, `branch`,
   `hint`, each with a code and a catalogue row) and the type of every node it
   typed, by the id of the node. the tree checks run through it. the ceilings are
@@ -864,9 +864,8 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   returns the first alone (`io.open`, `FILE:close`, `os.remove`, `utf8.len`, `load`), unlike the tree's own `T?, string` that
   its functions answer. The callbacks of
   `string.gsub` are enumerated by the number of captures they take (0 to 3) and answer `string | number | nil`, a nil
-  keeping the match. The fork reads the same file and lets a result that may be nil be added and passed on, so a
-  corrected declaration goes in [`checker/stdlib.d.tl`] where its check of the tree takes it, and in
-  [`lang/stdlib_corrections.tl`] where it does not. A capture is declared a `string` and a position capture `()` is an
+  keeping the match. The fork's file ([`checker/stdlib.d.tl`]) lets a result that may be nil be added and passed on, so the
+  corrected declarations are the new checker's own, in [`lang/stdlib.d.tl`]. A capture is declared a `string` and a position capture `()` is an
   integer: a TODO until the checker reads patterns. `select` and `string.match` are unchanged: what they answer past
   the first value is a tail, which reads `T?` as one value. *not adopted:* alternatives (`(T) | (nil, string, integer)`) for the
   calls that fail, which every call would have to `match`.
@@ -965,7 +964,7 @@ that refuses more where it is silent. *not adopted:* each reading's looser form,
 
 ### generics, `match`, protected calls and coroutines read the rules strictly
 
-[`lang/check.tl`], [`lang/generics.tl`] and the declarations of [`lang/stdlib_corrections.tl`] take the reading of [calls and
+[`lang/check.tl`], [`lang/generics.tl`] and the declarations of [`lang/stdlib.d.tl`] take the reading of [calls and
 overloads](#calls-and-overloads) and [`match` and tagged unions](#match-and-tagged-unions) that refuses more where they are
 silent. *not adopted:* each reading's looser form, named here.
 
@@ -1111,12 +1110,13 @@ silent. *not adopted:* each reading's looser form, named here.
 [`lang/declarations.tl`]: ../../lang/declarations.tl
 [`lang/flow.tl`]: ../../lang/flow.tl
 [`lang/generics.tl`]: ../../lang/generics.tl
+[`lang/prelude.d.tl`]: ../../lang/prelude.d.tl
 [`lang/relation.tl`]: ../../lang/relation.tl
 [`lang/relation_speed_test.tl`]: ../../lang/relation_speed_test.tl
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/scopes_speed_test.tl`]: ../../lang/scopes_speed_test.tl
 [`lang/speed.tl`]: ../../lang/speed.tl
-[`lang/stdlib_corrections.tl`]: ../../lang/stdlib_corrections.tl
+[`lang/stdlib.d.tl`]: ../../lang/stdlib.d.tl
 [`lang/syntax_codes.tl`]: ../../lang/syntax_codes.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
 [`lang/warnings.tl`]: ../../lang/warnings.tl

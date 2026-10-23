@@ -4,7 +4,7 @@
 ---
 --- A program is in the fork's Teal, with a small prelude of functions that fail and a stand-in [`cosmic.log`]; the new
 --- checker reads its translation ([`lang.translate`]) against the real standard library's declarations. A test that uses
---- this module grants [`checker/stdlib.d.tl`] and [`checker/tl.tl`] for reading.
+--- this module grants [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] for reading.
 local Contracts = require("build.contracts")
 local Fs = require("cosmic.fs")
 local GenSyscalls = require("build.gen_syscalls")
@@ -130,9 +130,8 @@ local bindings: {string: string} = {}
 
 function Fixture.subject(source: string, modules?: {string: string}): Report.Subject
   if standard[1] == nil then
-    local tl = assert(Fs.read("checker/tl.tl"))
-    standard[1] = assert(tl:match("%[=====%[\n(.-)%]=====%]"), "checker/tl.tl has no prelude")
-    standard[2] = assert(Fs.read("checker/stdlib.d.tl"))
+    standard[1] = assert(Fs.read("lang/prelude.d.tl"))
+    standard[2] = assert(Fs.read("lang/stdlib.d.tl"))
     -- The bindings of C are typed from the declarations the build derives from their headers, as the tree checks have them.
     for _, derivation in ipairs(GenSyscalls.targets) do
       local text = assert(GenSyscalls.declaration(assert(Fs.read(derivation.target.header)), derivation.target))

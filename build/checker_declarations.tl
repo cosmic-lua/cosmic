@@ -1,6 +1,6 @@
---- The declarations the new checker types a program against besides the program's own and the bindings of C: the prelude of the
---- fork ([`checker/tl.tl`]'s `prelude`, the types the language itself has) and the Lua standard library
---- ([`checker/stdlib.d.tl`]). The tool carries both as rows of `decls` ([`CheckerDeclarations.prelude_module`],
+--- The declarations the new checker types a program against besides the program's own and the bindings of C: the prelude
+--- ([`lang/prelude.d.tl`], the types the language itself has) and the Lua standard library ([`lang/stdlib.d.tl`]), both
+--- written in the new grammar. The tool carries them as rows of `decls` ([`CheckerDeclarations.prelude_module`],
 --- [`CheckerDeclarations.stdlib_module`]), as it does the bindings of C, so that a project outside cosmic's tree has globals
 --- when `COSMIC_GRAMMAR=new` compiles it ([`build.pipeline`]'s `options`): they are no module, and nothing requires them.
 ---
@@ -24,8 +24,11 @@ local record CheckerDeclarations
   --- The name the standard library's declarations are carried under in `decls`.
   stdlib_module: function(): string
 
-  --- The prelude in `tl`, the text of [`checker/tl.tl`]: the text between its `[=====[` marks, nil where it has none.
-  prelude_of: function(tl: string): string | nil
+  --- The file of the prelude, below the root of the tree.
+  prelude_file: function(): string
+
+  --- The file of the standard library's declarations, below the root of the tree.
+  stdlib_file: function(): string
 
   --- The texts the tree at `root` holds, for a tool being written from it: the files themselves, held to the hashes the
   --- working database `db` staged them with, so that a file edited during the build is no part of the tool. nil and "" where
@@ -38,19 +41,25 @@ local record CheckerDeclarations
   carried: function(): Texts | nil, string
 end
 
-local TL <const> = "checker/tl.tl"
-local STDLIB <const> = "checker/stdlib.d.tl"
+local PRELUDE <const> = "lang/prelude.d.tl"
+local STDLIB <const> = "lang/stdlib.d.tl"
 
+function CheckerDeclarations.prelude_file(): string
+  return PRELUDE
+end
+
+function CheckerDeclarations.stdlib_file(): string
+  return STDLIB
+end
+
+-- TODO: name the rows `lang.prelude` and `lang.stdlib` for the files they come from, once the switch deletes `checker/`:
+-- ci/cosmic_ci/orchestration.tl reads them by the names they have.
 function CheckerDeclarations.prelude_module(): string
   return "checker.prelude"
 end
 
 function CheckerDeclarations.stdlib_module(): string
   return "checker.stdlib"
-end
-
-function CheckerDeclarations.prelude_of(tl: string): string | nil
-  return tl:match("%[=====%[\n(.-)%]=====%]")
 end
 
 --- The text of `file` below `root`, held to `hash`.
@@ -67,39 +76,35 @@ end
 
 function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDeclarations.Texts | nil, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT path, sha256 FROM tool WHERE path IN (?1, ?2) ORDER BY path",
-    { { text = TL }, { text = STDLIB } })
+    { { text = PRELUDE }, { text = STDLIB } })
   if rows == nil then
     return nil, trouble
   end
   if #rows == 0 then
     return nil, ""
   end
-  local tl_hash: string | nil = nil
+  local prelude_hash: string | nil = nil
   local stdlib_hash: string | nil = nil
   for _, row in ipairs(rows) do
-    if row:text(1) == TL then
-      tl_hash = row:text(2)
+    if row:text(1) == PRELUDE then
+      prelude_hash = row:text(2)
     else
       stdlib_hash = row:text(2)
     end
   end
-  if tl_hash == nil then
-    return nil, "the working database stages " .. STDLIB .. " without " .. TL .. ", which the tool carries together"
+  if prelude_hash == nil then
+    return nil, "the working database stages " .. STDLIB .. " without " .. PRELUDE .. ", which the tool carries together"
   end
   if stdlib_hash == nil then
-    return nil, "the working database stages " .. TL .. " without " .. STDLIB .. ", which the tool carries together"
+    return nil, "the working database stages " .. PRELUDE .. " without " .. STDLIB .. ", which the tool carries together"
   end
-  local tl, tl_why = read_as(root, TL, tl_hash)
-  if tl == nil then
-    return nil, tl_why
+  local prelude, prelude_why = read_as(root, PRELUDE, prelude_hash)
+  if prelude == nil then
+    return nil, prelude_why
   end
   local stdlib, stdlib_why = read_as(root, STDLIB, stdlib_hash)
   if stdlib == nil then
     return nil, stdlib_why
-  end
-  local prelude = CheckerDeclarations.prelude_of(tl)
-  if prelude == nil then
-    return nil, TL .. " has no prelude between `[=====[` marks, which the tool carries"
   end
   return { prelude = prelude, stdlib = stdlib }, ""
 end

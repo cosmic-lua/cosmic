@@ -41,8 +41,8 @@ Test.policy{
   grants = {
     { path = "testdata/fuzz/checker-total/", letters = "r" },
     { path = "testdata/fuzz/checker-sound/", letters = "r" },
-    { path = "checker/stdlib.d.tl", letters = "r" },
-    { path = "checker/tl.tl", letters = "r" },
+    { path = "lang/stdlib.d.tl", letters = "r" },
+    { path = "lang/prelude.d.tl", letters = "r" },
   },
 }
 
@@ -189,22 +189,23 @@ local function test_the_globals_of_the_fork_are_the_ones_the_declaration_files_d
   local function declared_by(path: string, text: string): {string: Scopes.Global}
     return Scopes.declared(Parser.parse(Lexer.lex(text, path), path, "decl").chunk)
   end
-  local tl = assert(Fs.read("checker/tl.tl"))
-  local prelude = assert(tl:match("%[=====%[\n(.-)%]=====%]"))
-  local mine = declared_by("prelude.d.tl", prelude)
-  for name, g in pairs(declared_by("stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl"))))) do
+  local mine = declared_by("lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl"))))
+  for name, g in pairs(declared_by("lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl"))))) do
     mine[name] = g
   end
-  -- The parser reads `global interface userdata is userdata` as the declaration of `interface`.
-  mine["interface"] = nil
-  mine["userdata"] = { space = "type", const = false }
+  -- The typed coroutine is the new checker's alone: the fork has `thread`.
+  mine["Coroutine"] = nil
+  mine["Yielder"] = nil
   for _, name in ipairs(teal.withheld) do
     mine[name] = nil
   end
   mine["_G"] = DECLARED["_G"]
+  -- `any` and `thread` are primitive types of the scope builder, and `userdata` marks a record: the fork's names for them are
+  -- no global of the new checker's.
+  local primitive: {string: boolean} = { any = true, thread = true, userdata = true }
   local missing: {string} = {}
   for name in pairs(DECLARED) do
-    if mine[name] == nil then
+    if mine[name] == nil and primitive[name] ~= true then
       missing[#missing + 1] = name
     end
   end

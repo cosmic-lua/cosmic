@@ -96,7 +96,18 @@ local tool_files: {string:boolean} = {
   ["build.zig.zon"] = true,
   ["bin/zig"] = true,
   ["bin/zig.pin"] = true,
+  ["lang/prelude.d.tl"] = true,
+  ["lang/stdlib.d.tl"] = true,
 }
+
+--- The files of cosmic's own tree that the tool carries as text for the new checker's globals ([`build.checker_declarations`])
+--- and that no module is: they declare globals, and the fork, which compiles every declaration file of the tree, reads
+--- Teal and not the new grammar they are written in.
+local global_declarations: {string:boolean} = {
+  ["lang/prelude.d.tl"] = true,
+  ["lang/stdlib.d.tl"] = true,
+}
+
 --- The directory the `bin/` files above sit in, walked for them and,
 --- one level deep, for the TODOs its other scripts hold.
 local tool_dirs: {string:boolean} = {
@@ -228,10 +239,10 @@ end
 --- Whether a file the walk found is one the build consumes: Teal
 --- source and declarations, a template, a doc guide or a static asset. Generated header
 --- inputs are added by [`build.work`]. Never anything under the trees the tool alone
---- is made of.
+--- is made of, nor the declarations of the new checker's globals (`global_declarations`).
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
-  if not_input[first] or (own_tree and (foreign_trees[first] or checker_trees[first])) then
+  if not_input[first] or (own_tree and (foreign_trees[first] or checker_trees[first] or global_declarations[file])) then
     return false
   end
   if identity.is_static(file) then
@@ -368,6 +379,7 @@ end
 --- The Teal compiler's and Lua's pins and sources, as one text: the pin
 --- of Lua, the checker's source ([`checker/tl.tl`]) and the Lua standard
 --- library's declarations it is compiled with ([`checker/stdlib.d.tl`]),
+--- the declarations the new checker types a program against ([`lang/prelude.d.tl`], [`lang/stdlib.d.tl`]),
 --- and Lua's patches. Part of the compiler's identity, and the whole of
 --- `runtime_basis`. [`ci/cosmic-driver.pin`], which names the release that
 --- seeds a boot, is not in it: a boot loads
@@ -378,7 +390,7 @@ end
 local pins <const> =
   "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
   "ORDER BY path) FROM tool WHERE path = 'vendor/lua/PIN' " ..
-  "OR path GLOB 'checker/*' OR path GLOB 'patch/lua/*'), '')"
+  "OR path GLOB 'checker/*' OR path IN ('lang/prelude.d.tl', 'lang/stdlib.d.tl') OR path GLOB 'patch/lua/*'), '')"
 
 --- What a module of the tree in the working database requires, as
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
