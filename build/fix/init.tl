@@ -124,6 +124,7 @@ local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
 
 local logger = require("build.logger")
+local progress = require("build.progress")
 local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -1654,9 +1655,19 @@ local function tree_say(line: string)
   log:say("fix: tree checks: " .. line)
 end
 
---- When the check being run began, in nanoseconds of the monotonic clock.
+--- When the check being run began, in nanoseconds of the monotonic clock,
+--- and when the tree checks did.
 local record TreeTiming
   began: integer
+  run_began: integer
+end
+
+--- Says on stderr which part of the tree checks begins and how long they
+--- have run, so that a part that takes minutes is not silent: [`tree_took`]
+--- speaks only once it is over. `step` is "n of m" for the memoed checks.
+local function tree_begin(timing: TreeTiming, name: string, step?: string)
+  local _, _ = logger.summary("fix", "tree checks: " .. name .. (step ~= nil and " (" .. step .. ")" or "") ..
+      ", " .. progress.elapsed(Clock.monotonic_ns() - timing.run_began) .. " in")
 end
 
 --- Says how long the check `name` took, where that is long enough to wait on, so that a run that is slow says where, and
@@ -1678,6 +1689,8 @@ local function run_tree_checks(ctx: Fix)
   local findings: {string} = {}
   ctx.findings = findings
   if picked.whole then
+    local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
+    tree_begin(timing, "making the projection")
     -- TODO: build this projection with the new checker, once the switch deletes the fork's compiler (doc/plans/strict-teal.md,
     -- "the switch"): the fork refuses a file in the new grammar, so a whole run of cosmic's own tree with one ends here with
     -- one syntax error and never reaches the plurals read off its syntax tree ([`fix.read_off_written`]).
@@ -1698,6 +1711,7 @@ local function run_tree_checks(ctx: Fix)
       if help == nil then
         findings[#findings + 1] = "tree checks: " .. help_trouble
       end
+      tree_begin(timing, "the checks of the projection, docs and examples")
       local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root), carried, help,
         ctx.plurals)
       for _, line in ipairs(found) do
@@ -1725,47 +1739,56 @@ local function run_tree_checks(ctx: Fix)
       Memprobe.mark("tree checks: before the memoed checks")
       -- The processors' worth of workers the per-file checks share, started where a check has files enough to need them.
       local pool = workers.checking(workers.tree_spec(), tree_say)
-      local timing: TreeTiming = { began = Clock.monotonic_ns() }
+      timing.began = Clock.monotonic_ns()
+      tree_begin(timing, "lexer", "1 of 9")
       for _, line in ipairs(tree_checks.lexed(root, nil, memo)) do
         findings[#findings + 1] = "lexer: " .. line
       end
       tree_took(timing, "lexer")
       Memprobe.mark("tree checks: lexer")
+      tree_begin(timing, "translator", "2 of 9")
       for _, line in ipairs(tree_checks.translated(root, nil, nil, memo)) do
         findings[#findings + 1] = "translator: " .. line
       end
       tree_took(timing, "translator")
       Memprobe.mark("tree checks: translator")
+      tree_begin(timing, "scopes", "3 of 9")
       for _, line in ipairs(tree_checks.scoped(root, nil, memo)) do
         findings[#findings + 1] = "scopes: " .. line
       end
       tree_took(timing, "scopes")
       Memprobe.mark("tree checks: scopes")
+      tree_begin(timing, "declarations", "4 of 9")
       for _, line in ipairs(tree_checks.declared(root, nil, memo)) do
         findings[#findings + 1] = "declarations: " .. line
       end
       tree_took(timing, "declarations")
       Memprobe.mark("tree checks: declarations")
+      tree_begin(timing, "generator", "5 of 9")
       for _, line in ipairs(tree_checks.generated(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "generator: " .. line
       end
       tree_took(timing, "generator")
       Memprobe.mark("tree checks: generator")
+      tree_begin(timing, "readers", "6 of 9")
       for _, line in ipairs(tree_checks.read(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "readers: " .. line
       end
       tree_took(timing, "readers")
       Memprobe.mark("tree checks: readers")
+      tree_begin(timing, "typed", "7 of 9")
       for _, line in ipairs(typed_findings(root, memo)) do
         findings[#findings + 1] = "typed: " .. line
       end
       tree_took(timing, "typed")
       Memprobe.mark("tree checks: typed")
+      tree_begin(timing, "checker", "8 of 9")
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
       end
       tree_took(timing, "checker")
       Memprobe.mark("tree checks: checker")
+      tree_begin(timing, "pipeline", "9 of 9")
       for _, line in ipairs(pipeline_findings(root, memo)) do
         findings[#findings + 1] = "pipeline: " .. line
       end
