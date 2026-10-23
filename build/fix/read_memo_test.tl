@@ -181,3 +181,20 @@ local function test_a_row_that_does_not_read_is_a_miss()
     "a line that is none")
   assert(not answers_after(function(text: string): string return (text:gsub("^V\t1", "V\t2")) end), "another version")
 end
+
+local function test_the_code_that_names_a_row_holds_what_the_readers_call()
+  local held: {string: boolean} = {}
+  for _, name in ipairs(read_memo.roots) do held[name] = true end
+  for _, name in ipairs(read_memo.alone) do held[name] = true end
+  -- [`tree_checks.plurals_in`] reads the sites of a plural in a parse by a module of its own, which [`build.tree_checks`] holds
+  -- alone: an edit to it must miss the plurals a row kept.
+  local source = text_of("build/tree_checks.tl")
+  local from = assert(source:find("function tree_checks.plurals_in(", 1, true))
+  local upto = assert(source:find("\nend\n", from, true))
+  local body = source:sub(from, upto)
+  for alias, module in pairs({ PluralSites = "build.plural_sites" }) do
+    if body:find(alias .. ".", 1, true) ~= nil then
+      assert(held[module] == true, module .. " is called by plurals_in and is not in the code a row is keyed by")
+    end
+  end
+end

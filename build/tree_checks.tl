@@ -162,6 +162,9 @@ allow({ "build.pipeline.project", "build.reboot.settled_by" }, "tested directly:
 allow({ "build.pipeline_check.keyed", "build.pipeline_check.whole" }, "tested directly: the key of a module's answer by the " ..
     "ceilings held under its own name, and the digest of every ceiling that keys the rest")
 
+allow({ "build.fix.read_memo.roots", "build.fix.read_memo.alone" }, "tested directly: the modules the read memo names its code by, " ..
+    "which a test holds to what the readers call")
+
 allow({ "build.fix.laid.modules", "build.fix.laid.salt" }, "tested directly: the modules the layout memo names its code by, " ..
     "which a test holds to what the layout requires, and the salt they make with the binary's identity")
 

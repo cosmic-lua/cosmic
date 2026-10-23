@@ -563,7 +563,7 @@ build/c/memo_test.tl view_written 1
 build/fix/laid.tl view_written 7
 build/fix/laid_test.tl view_written 1
 build/fix/read_memo.tl view_written 30
-build/fix/read_memo_test.tl view_written 3
+build/fix/read_memo_test.tl view_written 5
 build/importer_grammar_test.tl view_written 9
 build/fix/read_memo.tl setmetatable_call 1
 build/json_query_test.tl setmetatable_call 1
@@ -575,6 +575,7 @@ build/pipeline.tl overload_none 2
 build/c/inputs.tl view_as_mut 1
 build/pipeline.tl view_as_mut 2
 build/fix/laid.tl field_fixed 1
+build/fix/read_memo.tl field_fixed 2
 build/fix/read_memo_test.tl field_fixed 2
 build/pipeline_check.tl field_fixed 2
 build/pipeline_test.tl arms_differ 7
@@ -956,7 +957,7 @@ build/todo_scan.tl nil_not_allowed 7
 build/todos.tl nil_not_allowed 13
 build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
-build/tree_checks.tl nil_not_allowed 119
+build/tree_checks.tl nil_not_allowed 115
 build/tree_checks_test.tl nil_not_allowed 91
 build/tree_program_test.tl nil_not_allowed 21
 build/tree_root.tl nil_not_allowed 8
@@ -1876,7 +1877,8 @@ build/fix/emit.tl view_written 5
 build/fix/equiv.tl view_written 3
 build/fix/expr.tl view_written 1
 build/fix/fix_test.tl view_written 1
-build/fix/init.tl view_written 106
+build/fix/grammar_tool_test.tl view_written 1
+build/fix/init.tl view_written 109
 build/fix/link_build_tool_test.tl view_written 1
 build/fix/near.tl view_written 18
 build/fix/near_test.tl view_written 1
@@ -2112,8 +2114,8 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 321
-build/tree_checks_test.tl view_written 25
+build/tree_checks.tl view_written 323
+build/tree_checks_test.tl view_written 26
 build/tree_program.tl view_written 14
 build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
@@ -5309,7 +5311,7 @@ build/this_program_test.tl and_ternary 1
 build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
-build/tree_checks.tl and_ternary 23
+build/tree_checks.tl and_ternary 22
 build/tree_program_test.tl and_ternary 1
 build/vendor.tl and_ternary 2
 build/vendor_test.tl and_ternary 1

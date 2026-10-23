@@ -27,6 +27,10 @@ local record read_memo
     plurals: tree_checks.Plurals | nil
   end
 
+  --- The modules whose bytecode, with everything they load, and those whose bytecode alone, name the code that reads a parse
+  --- ([`build/fix/read_memo_test.tl`] holds them to what the readers call).
+  roots: {string}
+  alone: {string}
   --- The salt of the code that reads a parse, or nil where it cannot be named.
   salt: function(): string | nil
   --- What the memo `db` keeps under `salt` of the file `name` whose text is `source`, or nil where it keeps none or it does not
@@ -38,12 +42,15 @@ end
 
 local KIND <const> = "laid"
 
+read_memo.roots = { "build.link_text", "build.analyzer", "build.scopes", "build.ast", "build.symbols", "build.plural_sites" }
+read_memo.alone = { "build.links", "build.fix", "build.tree_checks", "build.fix.read_memo", "build.fix.near" }
+
 function read_memo.salt(): string | nil
-  -- What the readers run: what a link says of a file, the docs of its functions, the scopes and the parse, with everything
-  -- they load; and the modules that hold [`links.facts`], `read_off`, `candidates_of`, `plurals_in` and this one, themselves
-  -- alone (what they load beyond those is what they call elsewhere).
-  return laid.code_salt("read 1", { "build.link_text", "build.analyzer", "build.scopes", "build.ast", "build.symbols" },
-    { "build.links", "build.fix", "build.tree_checks", "build.fix.read_memo", "build.fix.near" })
+  -- What the readers run: what a link says of a file, the docs of its functions, the scopes, the parse and the sites of its
+  -- plurals ([`tree_checks.plurals_in`] calls [`build.plural_sites`]), with everything they load; and the modules that hold
+  -- [`links.facts`], `read_off`, `candidates_of`, `plurals_in` and this one, themselves alone (what they load beyond those is
+  -- what they call elsewhere).
+  return laid.code_salt("read 2", read_memo.roots, read_memo.alone)
 end
 
 --- The line of every comment of a parse, in order and once.
