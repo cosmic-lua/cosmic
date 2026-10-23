@@ -422,6 +422,7 @@ build/pipeline.tl 5
 build/pipeline_check.tl 1
 build/policy_rules.tl 7
 build/positions.tl 1
+build/progress.tl 1
 build/rand.tl 2
 build/rebuild_lock.tl 2
 build/receivers.tl 1
@@ -603,6 +604,7 @@ ci/cosmic_ci/rehearsal.tl field_fixed 1
 build/fix/read_memo_test.tl nil_not_allowed 8
 build/key_parts.tl nil_not_allowed 1
 ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
+build/progress.tl overload_none 1
 build/pipeline_check.tl overload_none 1
 ci/cosmic_ci/rehearsal.tl overload_none 1
 build/shape_key.tl view_written 2
@@ -2580,6 +2582,8 @@ build/lsp/check.tl view_as_mut 1
 build/lsp/graph.tl view_as_mut 1
 build/perf.tl view_as_mut 2
 build/perf_validation.tl view_as_mut 13
+build/progress.tl view_as_mut 1
+build/progress_test.tl view_as_mut 2
 build/sandbox.tl view_as_mut 1
 build/shape_specs.tl view_as_mut 1
 build/stand_in.tl view_as_mut 1

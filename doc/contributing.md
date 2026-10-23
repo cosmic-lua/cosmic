@@ -42,9 +42,12 @@ conflict with the parent's squash.
 ## check before pushing
 
 - the change has a test that fails without it ([`doc/testing.md`]).
-- `bin/cosmic fix <changed-paths>`, then `timeout 30 bin/cosmic test`.
+- `bin/cosmic fix <changed-paths>`, then `bin/cosmic test` on the tests of
+  what changed, then the full suite, `timeout 2700 bin/cosmic test`
+  ([`doc/testing.md`] says how long it takes).
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
-  checks read.
+  checks read. it takes 5 to 11 minutes (`timeout 2400`), and says which
+  of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to C, `ci/`, the launcher, startup, the artifact format or a
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
