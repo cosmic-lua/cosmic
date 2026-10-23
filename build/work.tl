@@ -247,6 +247,12 @@ local version <const> = "29"
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
 ---
+--- `key_memo` and `key_frags` are the keys of the last build's modules and
+--- the digest of each node of their import graphs, written together
+--- under the compiler they were made for, so that a build keys again only
+--- the modules that reach a node that changed ([`build.compilation`]'s
+--- `fast_keys`).
+---
 --- `typed_refs` is what one compile's checker found a record's field
 --- used through ([`build.receivers`]): keyed by the compile's own key,
 --- since a value's type depends on everything its module imports, and
@@ -459,6 +465,14 @@ for _, statement in ipairs({
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,
                                               PRIMARY KEY (key, stub)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS key_memo (path TEXT PRIMARY KEY,
+                                         tool TEXT NOT NULL,
+                                         file TEXT NOT NULL,
+                                         key TEXT NOT NULL,
+                                         graph TEXT NOT NULL) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS key_frags (slot TEXT PRIMARY KEY,
+                                          tool TEXT NOT NULL,
+                                          digest TEXT NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
                                            ordinal INTEGER NOT NULL,
                                            module TEXT NOT NULL,
