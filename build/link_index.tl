@@ -326,45 +326,54 @@ end
 --- same questions asks the same ones in turn and makes the same memo:
 --- nothing a file's mtime or size could miss is trusted. Nil where none
 --- is kept, it is another's, or the disk answers any question differently.
-local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo | nil, boolean
+--- With them, the digest of those answers and the links ([`digest_of`])
+--- the call that kept them made, and what it signed in ([`link_index.Pending`]'s
+--- `digest`): it is a function of the rows, the answers and that, which is
+--- all `recalled` has found the same.
+local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo | nil, boolean, string | nil, string
   local kept, _ = Sqlite.text_rows(db,
     "SELECT kind, path, value, found FROM link_answers ORDER BY kind, path")
-  if kept == nil then return nil, false end
+  if kept == nil then return nil, false, nil, "" end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
   local matched, asked = false, false
+  local kept_digest: string | nil = nil
+  local kept_signed = ""
   for _, row in ipairs(kept) do
     local what, path, value, found = row:text(1), row:text(2), row:text(3), row:text(4) == "1"
     if what == "fingerprint" then
-      if value ~= fingerprint then return nil, false end
+      if value ~= fingerprint then return nil, false, nil, "" end
       matched = true
     elseif what == "asked" then
       asked = value == "1"
+    elseif what == "digest" then
+      kept_signed, kept_digest = path, value
     elseif what == "kind" then
       local st, _ = Fs.stat(path)
       if (st == nil and "" or (st.kind == "dir" and "dir" or "file")) ~= value then
-        return nil, false
+        return nil, false, nil, ""
       end
       memo.kinds[path] = value
     elseif what == "real" then
       local now, _ = Fs.absolute(path)
-      if now ~= kept_answer(found, value) then return nil, false end
+      if now ~= kept_answer(found, value) then return nil, false, nil, "" end
       memo.reals[path] = found and { value } or {}
     elseif what == "read" then
       local now, _ = Fs.read(path)
-      if now ~= kept_answer(found, value) then return nil, false end
+      if now ~= kept_answer(found, value) then return nil, false, nil, "" end
       memo.reads[path] = found and { value } or {}
     else
-      return nil, false
+      return nil, false, nil, ""
     end
   end
-  if not matched then return nil, false end
-  return memo, asked
+  if not matched then return nil, false, nil, "" end
+  return memo, asked, kept_digest, kept_signed
 end
 
 --- Keeps `memo` under `fingerprint` for [`recalled`], in the working
 --- transaction, replacing any other. A failure to keep it costs a later
 --- call its resolution and nothing else.
-local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index.Memo, asked: boolean)
+local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index.Memo, asked: boolean,
+                        signed: string, digest: string)
   local prepared, _ = db:prepare(
     "INSERT INTO link_answers (kind, path, value, found) VALUES (?1, ?2, ?3, ?4)")
   if prepared == nil then return end
@@ -380,6 +389,7 @@ local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index
   if cleared then
     add("fingerprint", "", fingerprint)
     add("asked", "", asked and "1" or "0")
+    add("digest", signed, digest)
     for path, kind in pairs(memo.kinds) do add("kind", path, kind) end
     for path, answer in pairs(memo.reals) do add("real", path, answer[1]) end
     for path, answer in pairs(memo.reads) do add("read", path, answer[1]) end
@@ -415,8 +425,10 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   if code ~= nil then fingerprint = memo_fingerprint(code, root, rows) end
   local recalled_memo: link_index.Memo | nil = nil
   local recalled_asked = false
+  local kept_digest: string | nil = nil
+  local kept_signed = ""
   if fingerprint ~= nil then
-    recalled_memo, recalled_asked = recalled(db, fingerprint)
+    recalled_memo, recalled_asked, kept_digest, kept_signed = recalled(db, fingerprint)
   end
   local memo: link_index.Memo = recalled_memo or { kinds = {}, reads = {}, reals = {} }
   -- No symbol is known yet: every name reads as naming none.
@@ -441,12 +453,26 @@ function link_index.pending(db: Sqlite.Handle, root: string,
         local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
       end
     end
-    if fingerprint ~= nil then remember(db, fingerprint, memo, asking["asked"] == true) end
   end
   local signed = library ~= nil and asking.asked and library.identity or nil
+  local digest: string
+  if recalled_memo ~= nil and kept_digest ~= nil and kept_signed == (signed or "") then
+    digest = kept_digest
+  else
+    digest = digest_of(root, memo, rows, signed)
+    if fingerprint ~= nil then
+      if recalled_memo == nil then
+        remember(db, fingerprint, memo, asking["asked"] == true, signed or "", digest)
+      else
+        -- Answers kept before the digest was, or by a call that signed another library in.
+        local _, _ = Sqlite.run(db, "DELETE FROM link_answers WHERE kind = 'digest'")
+        local _, _ = Sqlite.run(db, "INSERT INTO link_answers (kind, path, value, found) VALUES ('digest', ?1, ?2, 1)",
+          { text(signed or ""), text(digest) })
+      end
+    end
+  end
   return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
-    digest = digest_of(root, memo, rows, signed), remembered = recalled_memo ~= nil,
-    fingerprint = fingerprint }
+    digest = digest, remembered = recalled_memo ~= nil, fingerprint = fingerprint }
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
