@@ -522,3 +522,114 @@ local function test_the_ca_tables_stand_or_move_with_their_files(tmp: string)
   same_bytes(out, whole, "the snapshot gone")
   assert(work.close(handle))
 end
+
+--- Overwrites the page `page` (1-based, of 4096 bytes) of the file at `path`.
+local function ruin(path: string, page: integer)
+  local bytes = assert(Fs.read(path))
+  local start = (page - 1) * 4096
+  assert(Fs.write(path, bytes:sub(1, start) .. string.rep("\255", 4096) .. bytes:sub(start + 4097)))
+end
+
+--- Whether the file at `path` still answers for its `meta`, its schema and
+--- the columns that decide which modules stand (what [`build.writer`]'s
+--- `usable_base` and `make_reused` ask) though a row it carries cannot be read.
+local function readable_but_for_rows(path: string): boolean
+  local db = Sqlite.open(path)
+  if db == nil then
+    return false
+  end
+  local asked = Sqlite.text_rows(db, "SELECT count(*) FROM meta") ~= nil and
+    Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master") ~= nil and
+    Sqlite.text_rows(db, "SELECT path, file, kind, source_hash, key FROM modules") ~= nil and
+    Sqlite.text_rows(db, "SELECT path FROM decls") ~= nil
+  local carried = Sqlite.text_rows(db, "SELECT * FROM modules") ~= nil and
+    Sqlite.text_rows(db, "SELECT * FROM docs") ~= nil and
+    Sqlite.text_rows(db, "SELECT * FROM uses") ~= nil
+  assert(db:close())
+  return asked and not carried
+end
+
+--- A projection standing whose pages are damaged where the write reads
+--- them, but whose schema and `meta` still read, is no base: the write is
+--- whole and replaces it, as it does a file that is no database. The write
+--- that finds it so fails once, and removes it: the next is whole.
+local function test_a_base_damaged_past_its_schema_is_written_over(tmp: string)
+  local root = tmp .. "/damaged"
+  local out, whole = root .. ".db", root .. ".whole.db"
+  write_tree(root, initial, "")
+  local handle = assert(work.open(root))
+  write_both(handle, out, whole, "writer-test")
+  local pristine = assert(Fs.read(out))
+  local probe = root .. ".probe.db"
+  local page = 0
+  for candidate = 2, #pristine // 4096 do
+    assert(Fs.write(probe, pristine))
+    ruin(probe, candidate)
+    if readable_but_for_rows(probe) then
+      page = candidate
+      break
+    end
+  end
+  assert(page > 0, "no page of the projection leaves it readable but for its rows")
+  ruin(out, page)
+  write_tree(root, changed(initial, "b2", function(spec: Spec): Spec return with_body(spec, 5) end), "")
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  local written, _ = writer.write_result(handle, out, result)
+  assert(not written, "a write read a damaged base to its end")
+  assert(Fs.exists(out) ~= true, "a damaged base was left to fail the next write")
+  write_both(handle, out, whole, "writer-test")
+  same_bytes(out, whole, "a damaged base")
+  assert(work.close(handle))
+end
+
+--- The record-field uses of a module that calls a method of a record
+--- another module declares: the module's own text does not move when the
+--- record is renamed in the other, so its rows are the base's only where its
+--- key stands, and are those of the whole write.
+local function test_a_use_of_another_modules_record_follows_that_module(tmp: string)
+  local root = tmp .. "/typed"
+  local out, whole = tmp .. "/typed.db", tmp .. "/typed.whole.db"
+  assert(Fs.mkdirs(root))
+  local function put(record_name: string, extra: string)
+    assert(Fs.write(root .. "/main.tl", "return function(): integer\n  return 0\nend\n"))
+    assert(Fs.write(root .. "/b.tl",
+      "local record M\n  record " .. record_name .. "\n    go: function(" .. record_name .. "): integer\n  end\nend\n" ..
+        "--- Makes one" .. extra .. ".\nfunction M.make(): M." .. record_name ..
+        "\n  return { go = function(_: M." .. record_name .. "): integer return 1 end }\nend\nreturn M\n"))
+    assert(Fs.write(root .. "/a.tl",
+      'local B = require("b")\nlocal record M\nend\n--- Runs, as [`B.make`] does.\n' ..
+        "function M.run(): integer\n  local x: B." .. record_name .. " = B.make()\n  return x:go()\nend\nreturn M\n"))
+    assert(Fs.write(root .. "/c.tl", 'local record M\nend\n--- Alone.\nfunction M.one(): integer\n  return 1\nend\nreturn M\n'))
+  end
+  local function uses_of_a(path: string): string
+    local db = assert(Sqlite.open(path))
+    local rows = assert(Sqlite.text_rows(db,
+      "SELECT coalesce(group_concat(module || ' ' || symbol, ';'), '') FROM uses WHERE from_module = 'a'"))
+    assert(db:close())
+    return assert(rows[1]):text(1)
+  end
+  put("R1", "")
+  local handle = assert(work.open(root))
+  write_both(handle, out, whole, "writer-test")
+  same_bytes(out, whole, "start")
+  assert(uses_of_a(out) == "b R1.go;b make", uses_of_a(out))
+  local record Change
+    name: string
+    extra: string
+    uses: string
+  end
+  local steps: {Change} = {
+    { name = "R2", extra = "", uses = "b R2.go;b make" },
+    { name = "R2", extra = " again", uses = "b R2.go;b make" },
+    { name = "R3", extra = " again", uses = "b R3.go;b make" },
+  }
+  for step, change in ipairs(steps) do
+    put(change.name, change.extra)
+    local taken = write_both(handle, out, whole, "writer-test")
+    same_bytes(out, whole, "record step " .. tostring(step))
+    assert(uses_of_a(out) == change.uses, "step " .. tostring(step) .. ": " .. uses_of_a(out))
+    assert(taken >= 2, "main and c did not stand: " .. tostring(taken))
+  end
+  assert(work.close(handle))
+end

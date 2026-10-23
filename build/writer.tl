@@ -960,7 +960,15 @@ function writer.write_result(handle: work.Handle, out: string,
     local _, _ = work.rollback(handle)
     local _, _ = db:exec("DETACH out")
     if based then
+      -- A base that passed [`usable_base`] yet cannot be read to its end (a page of it damaged) would fail every
+      -- write after this one the same way, since only a write that fills the rows whole replaces it.
+      local checked, _ = Sqlite.text_rows(db, "PRAGMA prev.quick_check(1)")
+      local first = checked ~= nil and checked[1] or nil
+      local intact = first ~= nil and first:text(1) == "ok"
       local _, _ = db:exec("DETACH prev")
+      if not intact then
+        local _, _ = Fs.remove(out)
+      end
     end
     return false, project_trouble
   end
