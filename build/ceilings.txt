@@ -1918,6 +1918,7 @@ build/lsp/check_test.tl view_written 1
 build/lsp/dependents.tl view_written 2
 build/lsp/dependents_test.tl view_written 5
 build/lsp/graph.tl view_written 16
+build/lsp/held_test.tl view_written 4
 build/lsp/hover.tl view_written 4
 build/lsp/init.tl view_written 3
 build/lsp/lines.tl view_written 4
@@ -2721,6 +2722,7 @@ build/links_test.tl field_fixed 1
 build/logger.tl field_fixed 1
 build/lsp/check.tl field_fixed 3
 build/lsp/graph.tl field_fixed 2
+build/lsp/held.tl field_fixed 1
 build/lsp/init.tl field_fixed 1
 build/lsp/plan.tl field_fixed 1
 build/lsp/protocol.tl field_fixed 6

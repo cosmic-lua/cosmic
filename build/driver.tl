@@ -229,8 +229,8 @@ local record Driver
   --- A build over `options`.
   new: function(options: Options): Build
 
-  --- A source with the defaults: checked, not translated, not corrected, not a test module, no alias.
-  source: function(module: string, filename: string, text: string, dialect: Ast.Dialect): Source
+  --- A source with the defaults: checked, not translated, not corrected, no alias, and a test module only where `tests`.
+  source: function(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Source
 
   --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, translated when
   --- `translate` and corrected ([`lang.stdlib_corrections`]) when `corrections`, answering to `aliases` as well.
@@ -289,8 +289,8 @@ local function make(module: string, filename: string, text: string, dialect: Ast
   }
 end
 
-function Driver.source(module: string, filename: string, text: string, dialect: Ast.Dialect): Driver.Source
-  return make(module, filename, text, dialect, false, false, true, {}, false, "", nil)
+function Driver.source(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Driver.Source
+  return make(module, filename, text, dialect, false, false, true, {}, tests == true, "", nil)
 end
 
 function Driver.declarations(module: string, filename: string, text: string, translate: boolean, corrections: boolean,

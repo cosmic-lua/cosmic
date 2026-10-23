@@ -66,14 +66,13 @@ function syntax_read.token_parts(text: string, file: string): {string}
   return parts
 end
 
---- What [`ShapeSpecs.splices`] finds of `text`, the file `name`, the module `path`, which the program of `build` holds as that
---- text: the calls of [`Shape.record_of`] are found in the whole text, which the new checker reads fast enough that a stub of it is
---- not worth the reading. They are found in a program of their own ([`Driver.Build.scratch`]), so that `build` has not met the
---- module. `count` is called when the text has a call, to tell the session how many it found whole.
+--- What [`ShapeSpecs.splices`] finds of `text`, the file `name`, the module `path`, which `build` holds as that text: the calls of
+--- [`Shape.record_of`] are found in the whole text, which the new checker reads fast enough that a stub of it is not worth the
+--- reading. `count` is called when the text has a call, to tell the session how many it found whole.
 function syntax_read.splices(build: Driver.Build, name: string, text: string, path: string,
                              count: function()): shape_specs.Found
   if text:find("record_of(", 1, true) ~= nil then count() end
-  local found = ShapeSpecs.splices(build:scratch(), path, name, text)
+  local found = ShapeSpecs.splices(build, path, name, text)
   local splices: {shape_specs.Splice} = {}
   for _, one in ipairs(found.splices) do
     splices[#splices + 1] = { at = one.at, text = one.text }
@@ -191,7 +190,7 @@ local function refusals_of_lines(lines: {string}): {Refusal}
   return out
 end
 
---- The refusals of `trouble`, what [`Pipeline.generate`] answers for a module it refuses: the header line it puts before the
+--- The refusals of `trouble`, what [`Pipeline.review`] answers for a module it refuses: the header line it puts before the
 --- checker's lines is dropped, and each line left is one refusal.
 local function refusals_of_generated(trouble: string): {Refusal}
   local lines: {string} = {}
@@ -203,16 +202,16 @@ local function refusals_of_generated(trouble: string): {Refusal}
   return refusals_of_lines(lines)
 end
 
---- What the new checker refuses of the module `compiled` in the program of `pipeline` ([`Pipeline.over`]), whose text is the
---- document's as spliced ([`build.lsp.syntax_read`]): every error and warning the checker finds and what else the pipeline
---- refuses ([`Pipeline.generate`]: in a module of the discipline its contracts and the calls it judged no rule of, in a
+--- What the new checker refuses of the module `compiled` in the program of `pipeline` that a session holds ([`build.lsp.held`]),
+--- whose text is the document's as spliced ([`build.lsp.syntax_read`]): every error and warning the checker finds and what else the pipeline
+--- refuses ([`Pipeline.review`]: in a module of the discipline its contracts and the calls it judged no rule of, in a
 --- standard-library module its stub, the generator's own refusals), each worded as a build words it and read back into where
 --- it is. The checker's errors are refusals here: the new checker words them itself ([`build.error_render`]), and `result`
 --- is the fork's reading, which it has none of. A declaration file is checked and written nothing.
 local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Built,
                             hints?: function(): {Sqlite.Handle}, {boolean}): plan.Compiled
   if compiled.kind ~= "decl" then
-    local made, trouble = Pipeline.generate(compiled, pipeline, false, true, hints)
+    local made, trouble = Pipeline.review(compiled, pipeline, hints)
     if made == nil then
       return { result = nil, refusals = refusals_of_generated(trouble) }
     end
