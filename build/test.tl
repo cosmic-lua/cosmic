@@ -670,6 +670,10 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: {string: importer.Module} = {}
   local sorted_paths: {string} = {}
+  -- TODO: write the new checker's modules with the statement of [`write_module_coverage`] too, once
+  -- [`build.coverage.syntax_lines`] keeps their lines in `executable` under the source hash, as the fork's reader does
+  -- (it keeps them under a key that names the reader), so that the statement can join on it: until then they go one
+  -- at a time, as every module did.
   local one_by_one = grammar == "new"
   for _, m in ipairs(modules) do
     by_source[m.path] = m
