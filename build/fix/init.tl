@@ -100,6 +100,7 @@ local flow = require("build.flow")
 local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
+local laid = require("build.fix.laid")
 local near = require("build.fix.near")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
@@ -1425,12 +1426,33 @@ local function lay_out_teal(ctx: Fix)
   local plurals: {string: tree_checks.Plurals} | nil = nil
   if picked.whole then plurals = {} end
   local new_grammar: {string: boolean} = {}
+  -- A file left as it was by the layout of this code is not laid out again while its text stays: the memo holds that it
+  -- was, so that all the run does with it is parse it.
+  local memo: Sqlite.Handle | nil = nil
+  local kept: laid.Kept | nil = nil
+  if #files > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(assert(ctx.root)).translate_check, { writable = true })
+    memo = opened
+    if memo ~= nil then
+      kept = laid.begin(memo)
+    end
+  end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
-      local result, trouble = fix.source(built, source, file)
+      local result: fix.Fixed | nil = nil
+      local trouble = ""
+      if kept ~= nil and laid.holds(kept, file, source) then
+        local parsed, _ = ast.parse(built, source, file)
+        if parsed ~= nil then
+          result = { source = source, changed = false, parsed = parsed }
+        end
+      end
+      if result == nil then
+        result, trouble = fix.source(built, source, file)
+      end
       -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
       -- new parser's words.
       local chunk: Ast.Chunk | nil = nil
@@ -1459,9 +1481,18 @@ local function lay_out_teal(ctx: Fix)
           end
         end
       else
+        if kept ~= nil then
+          laid.keep(kept, file, source)
+        end
         fix.read_off(file, result, grammar, facts, ready, plurals)
       end
     end
+  end
+  if kept ~= nil then
+    laid.finish(kept, picked.whole == true and #failures == 0)
+  end
+  if memo ~= nil then
+    local _, _ = memo:close()
   end
   ctx.facts = facts
   ctx.ready = ready

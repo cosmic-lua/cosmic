@@ -557,6 +557,8 @@ build/importer_grammar_test.tl not_assignable 1
 build/c/inputs.tl view_written 28
 build/c/inputs_test.tl view_written 2
 build/c/memo_test.tl view_written 1
+build/fix/laid.tl view_written 3
+build/fix/laid_test.tl view_written 3
 build/importer_grammar_test.tl view_written 9
 build/json_query_test.tl setmetatable_call 1
 build/link_text.tl setmetatable_call 1
@@ -565,8 +567,10 @@ build/c/init.tl overload_none 3
 build/c/inputs.tl overload_none 1
 build/pipeline.tl overload_none 2
 build/c/inputs.tl view_as_mut 1
+build/fix/laid_test.tl view_as_mut 1
 build/pipeline.tl view_as_mut 2
 build/pipeline_check.tl field_fixed 1
+build/fix/laid.tl field_fixed 1
 build/pipeline_test.tl arms_differ 7
 build/pipeline_test.tl concat_type 1
 build/pipeline_test.tl field_fixed 1
