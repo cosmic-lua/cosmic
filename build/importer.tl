@@ -1337,7 +1337,7 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
   local function interface_key(m: Module): string | nil
     if not serving then return nil end
     if made[1] == nil then
-      local interfaces, _ = compilation.interface_keys(db, modules, tool, function(path: string): boolean
+      local interfaces, _ = compilation.interface_keys(db, modules, tool, keys, function(path: string): boolean
         return compilation.stub_held(db, built, progress.env, keys, path)
       end)
       if interfaces == nil then return nil end

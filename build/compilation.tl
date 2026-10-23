@@ -769,55 +769,74 @@ end
 
 --- The key of a module over what a dependent's check can see of it: the
 --- module's own source, and of each module it reaches, the stub where that
---- is held to the source's type (`held`) in place of the source. A module whose
+--- is held to the source's type in place of the source. A module whose
 --- key moved but whose interface did not -- a body, a comment -- has the same
 --- one, and what was compiled under the one stands for the other: a check
 --- reads of a held stub what it reads of the source, which is what the
---- hold judges. Each module is looked up by `held` once, and by then must
---- have been compiled if it is to be.
+--- hold judges. The verdicts kept are read once; a module the stub of which
+--- has none under its key is asked of `judge`, which can give one only for a
+--- module compiled in this run and so by the time a module that reaches it
+--- is asked about.
 --- @param tool the compiler's identity, as in [`compilation.dependency_keys`]
---- @param held whether the stub of the module at a path is held ([`compilation.stub_held`])
+--- @param keys each module's [`compilation.Keys`], by path
+--- @param judge whether the stub of the module at a path is held to its source's type
+--- ([`compilation.stub_held`]), where no verdict is kept
 --- @return the interface key of a module, by it: nil and why where the tree cannot be read
 function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: string,
-                                    held: function(string): boolean):
+                                    keys: {string:Keys}, judge: function(string): boolean):
     Interfaced | nil, string
   local graph, trouble = dependency_graph(db, modules)
   if graph == nil then
     return nil, trouble
   end
   local dependencies: {string:Dependency} = graph
+  local rows, rows_trouble = Sqlite.text_rows(db,
+    "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND NOT EXISTS " ..
+      "(SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')")
+  if rows == nil then
+    return nil, rows_trouble
+  end
   local stubs: {string:string} = {}
-  local asked: {string:boolean} = {}
-  local function stub_of(path: string): string | nil
-    if not asked[path] then
-      asked[path] = true
-      local rows, _ = Sqlite.text_rows(db,
-        "SELECT s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-          "WHERE i.kind = 'module' AND i.path = ?1 " ..
-          "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
-        { text(path) })
-      if rows ~= nil and rows[1] ~= nil and held(path) then
-        stubs[path] = stub_hash(rows[1]:text(1))
-      end
+  for _, row in ipairs(rows) do
+    stubs[row:text(1)] = stub_hash(row:text(2))
+  end
+  local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
+  if verdicts == nil then
+    return nil, verdicts_trouble
+  end
+  local kept: {string:boolean} = {}
+  for _, row in ipairs(verdicts) do
+    kept[row:text(1) .. "\0" .. row:text(2)] = row:text(3) == "1"
+  end
+  local judged: {string:boolean} = {}
+  local function held(path: string): boolean
+    local hash, named = stubs[path], keys[path]
+    if hash == nil or named == nil then
+      return false
     end
-    return stubs[path]
+    local verdict = kept[named.key .. "\0" .. hash]
+    if verdict ~= nil then
+      return verdict
+    end
+    if judged[path] == nil then
+      judged[path] = judge(path)
+    end
+    return judged[path]
   end
   local function line_of(slot: string, dependency: Dependency): string
-    if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" then
-      local hash = stub_of(slot)
-      if hash ~= nil then
-        return slot .. "\nstub\n" .. hash
-      end
+    if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
+      return slot .. "\nstub\n" .. (stubs[slot] or "")
     end
     return source_line(slot, dependency)
   end
   local interfaced: Interfaced = function(m: Module): string | nil, string
-    local keys, identify_trouble = identify_in(dependencies, m.path, m.file,
+    local made, identify_trouble = identify_in(dependencies, m.path, m.file,
       "interface-1 " .. tool, line_of)
-    if keys == nil then
+    if made == nil then
       return nil, identify_trouble
     end
-    return keys.key, ""
+    return made.key, ""
   end
   return interfaced, ""
 end
