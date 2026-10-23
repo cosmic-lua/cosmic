@@ -339,7 +339,7 @@ function receivers.references(state: receivers.State, env: compiler.Env,
       return
     end
     -- A field the record inherits is a use of the interface that
-    -- declares it ([`Writer.write`], not [`Collector.write`]), when some
+    -- declares it ([`Writer.write`], not the record's own `write`), when some
     -- module's type declares that interface.
     local from = declaring(typed, name, {})
     local inherited = from ~= nil and owners[from.typeid] or nil
