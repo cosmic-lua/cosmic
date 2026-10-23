@@ -8,6 +8,9 @@ local Stream = require("cosmic.stream")
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
+  pending: function(Fake): boolean
+  update: function(Fake, string): string | nil, string
+  finish: function(Fake): string | nil, string
   done: function(Fake): boolean
   rest: function(Fake): string
 end
@@ -152,10 +155,11 @@ end
 local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: string)
   local fd = assert(Fs.open_write(tmp .. "/closed"))
   local collected = Stream.collect()
-  local codec: Fake = {}
-  codec.pending = function(_self: Fake): boolean return false end
-  codec.update = function(_self: Fake, chunk: string): string | nil, string return chunk, "" end
-  codec.finish = function(_self: Fake): string | nil, string return "", "" end
+  local codec: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string | nil, string return chunk, "" end,
+    finish = function(_self: Fake): string | nil, string return "", "" end,
+  }
   local transformed = Stream.transform_writer(Stream.collect(), codec)
   local hashing = assert(Stream.hashing("sha256"))
   local writers: {Stream.Writer} = { collected, Stream.to_fd(fd), hashing, transformed }
@@ -214,23 +218,24 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   -- own output oddly to prove the transform Reader does not assume
   -- one chunk in yields one chunk out.
   local pending = { value = "" }
-  local codec: Fake = {}
-  codec.pending = function(_self: Fake): boolean return false end
-  codec.update = function(_self: Fake, chunk: string): string | nil, string
-    pending.value = pending.value .. chunk:upper()
-    local out = pending.value:sub(1, 1)
-    pending.value = pending.value:sub(2)
-    return out, ""
-  end
-  codec.finish = function(_self: Fake): string | nil, string
-    return pending.value, ""
-  end
-  codec.done = function(_self: Fake): boolean
-    return pending.value == ""
-  end
-  codec.rest = function(_self: Fake): string
-    return pending.value
-  end
+  local codec: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string | nil, string
+      pending.value = pending.value .. chunk:upper()
+      local out = pending.value:sub(1, 1)
+      pending.value = pending.value:sub(2)
+      return out, ""
+    end,
+    finish = function(_self: Fake): string | nil, string
+      return pending.value, ""
+    end,
+    done = function(_self: Fake): boolean
+      return pending.value == ""
+    end,
+    rest = function(_self: Fake): string
+      return pending.value
+    end,
+  }
   local underlying = Stream.from_string("hello world")
   local transformed = Stream.transform(underlying, codec)
   assert(drain(transformed) == "HELLO WORLD")
@@ -238,21 +243,22 @@ end
 
 local function test_transform_writer_flushes_the_codec_on_close()
   local held = { value = "" }
-  local codec: Fake = {}
-  codec.pending = function(_self: Fake): boolean return false end
-  codec.update = function(_self: Fake, chunk: string): string | nil, string
-    held.value = held.value .. chunk
-    return "", ""
-  end
-  codec.finish = function(_self: Fake): string | nil, string
-    return held.value, ""
-  end
-  codec.done = function(_self: Fake): boolean
-    return true
-  end
-  codec.rest = function(_self: Fake): string
-    return ""
-  end
+  local codec: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string | nil, string
+      held.value = held.value .. chunk
+      return "", ""
+    end,
+    finish = function(_self: Fake): string | nil, string
+      return held.value, ""
+    end,
+    done = function(_self: Fake): boolean
+      return true
+    end,
+    rest = function(_self: Fake): string
+      return ""
+    end,
+  }
   local c = Stream.collect()
   local w = Stream.transform_writer(c, codec)
   assert(w:write("ab"))
@@ -292,22 +298,23 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   -- quadratic for small reads; reads of any size must still see the
   -- batch intact and in order.
   local given = { value = false }
-  local codec: Fake = {}
-  codec.pending = function(_self: Fake): boolean return false end
-  codec.update = function(_self: Fake, chunk: string): string | nil, string
-    if given.value then return "", "" end
-    given.value = true
-    return chunk, ""
-  end
-  codec.finish = function(_self: Fake): string | nil, string
-    return "", ""
-  end
-  codec.done = function(_self: Fake): boolean
-    return given.value
-  end
-  codec.rest = function(_self: Fake): string
-    return ""
-  end
+  local codec: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string | nil, string
+      if given.value then return "", "" end
+      given.value = true
+      return chunk, ""
+    end,
+    finish = function(_self: Fake): string | nil, string
+      return "", ""
+    end,
+    done = function(_self: Fake): boolean
+      return given.value
+    end,
+    rest = function(_self: Fake): string
+      return ""
+    end,
+  }
   local big = string.rep("0123456789", 5000) -- 50,000 bytes, under the
     -- 64 KiB the transform Reader pulls from `underlying` at once, so
     -- the whole thing reaches the codec, and this Reader, in one batch
@@ -487,14 +494,15 @@ local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
 end
 
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
-  local codec: Fake = {}
-  codec.pending = function(_self: Fake): boolean return false end
-  codec.update = function(_self: Fake, chunk: string): string | nil, string
-    return chunk, ""
-  end
-  codec.finish = function(_self: Fake): string | nil, string
-    return nil, "injected finish failure"
-  end
+  local codec: Fake = {
+    pending = function(_self: Fake): boolean return false end,
+    update = function(_self: Fake, chunk: string): string | nil, string
+      return chunk, ""
+    end,
+    finish = function(_self: Fake): string | nil, string
+      return nil, "injected finish failure"
+    end,
+  }
   local path = tmp .. "/out"
   local w = Stream.transform_writer(assert(Stream.create(path)), codec)
   assert(w:write("data"))
@@ -510,19 +518,20 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   -- four bytes per call, like a bounded decoder: it must be asked for
   -- the rest with update("") before it is given new input.
   local held = { value = "" }
-  local codec: Fake = {}
-  codec.update = function(_self: Fake, chunk: string): string | nil, string
-    assert(chunk == "" or held.value == "", "fed new input while output was pending")
-    for i = 1, #chunk do held.value = held.value .. string.rep(chunk:sub(i, i), 10) end
-    local out = held.value:sub(1, 4)
-    held.value = held.value:sub(5)
-    return out, ""
-  end
-  codec.pending = function(_self: Fake): boolean return held.value ~= "" end
-  codec.finish = function(_self: Fake): string | nil, string
-    assert(held.value == "", "finished while output was pending")
-    return "", ""
-  end
+  local codec: Fake = {
+    update = function(_self: Fake, chunk: string): string | nil, string
+      assert(chunk == "" or held.value == "", "fed new input while output was pending")
+      for i = 1, #chunk do held.value = held.value .. string.rep(chunk:sub(i, i), 10) end
+      local out = held.value:sub(1, 4)
+      held.value = held.value:sub(5)
+      return out, ""
+    end,
+    pending = function(_self: Fake): boolean return held.value ~= "" end,
+    finish = function(_self: Fake): string | nil, string
+      assert(held.value == "", "finished while output was pending")
+      return "", ""
+    end,
+  }
   local transformed = Stream.transform(Stream.from_string("abc"), codec)
   assert(drain(transformed) == string.rep("a", 10) .. string.rep("b", 10) .. string.rep("c", 10))
 end
@@ -555,22 +564,34 @@ end
 local record Recorded is Stream.Writer
   got: string
   ended: string
+  --- The byte count at which a write is refused, nil for none.
+  limit?: integer
+  write: function(Recorded, string): boolean, string
+  close: function(Recorded): boolean, string
+  abort: function(Recorded): boolean, string
 end
 
-local function recording(): Recorded
-  local r: Recorded = { got = "", ended = "" }
-  r.write = function(_self: Stream.Writer, data: string): boolean, string
-    r.got = r.got .. data
-    return true, ""
-  end
-  r.close = function(_self: Stream.Writer): boolean, string
-    r.ended = "closed"
-    return true, ""
-  end
-  r.abort = function(_self: Stream.Writer): boolean, string
-    r.ended = "aborted"
-    return true, ""
-  end
+function Recorded:write(data: string): boolean, string
+  local limit = self.limit
+  if limit ~= nil and #self.got + #data >= limit then return false, "sink full" end
+  self.got = self.got .. data
+  return true, ""
+end
+
+function Recorded:close(): boolean, string
+  self.ended = "closed"
+  return true, ""
+end
+
+function Recorded:abort(): boolean, string
+  self.ended = "aborted"
+  return true, ""
+end
+
+local recorded_mt: metatable<Recorded> = { __index = Recorded }
+
+local function recording(limit?: integer): Recorded
+  local r: Recorded = setmetatable({ got = "", ended = "", limit = limit }, recorded_mt)
   return r
 end
 
@@ -676,13 +697,7 @@ end
 --- bytes or more: for a test of a sink that fails as held output is
 --- released.
 local function failing_after(limit: integer): Recorded
-  local r = recording()
-  local inner = r.write
-  r.write = function(self: Stream.Writer, data: string): boolean, string
-    if #r.got + #data >= limit then return false, "sink full" end
-    return inner(self, data)
-  end
-  return r
+  return recording(limit)
 end
 
 local function test_transform_writer_hold_reports_a_sink_that_fails_as_a_write_is_released()
@@ -1077,24 +1092,33 @@ end
 local record Failing is Stream.Writer
   aborts: integer
   closes: integer
+  writes: integer
+  fails_at: integer
+  write: function(Failing, string): boolean, string
+  close: function(Failing): boolean, string
+  abort: function(Failing): boolean, string
 end
 
+function Failing:write(_data: string): boolean, string
+  self.writes = self.writes + 1
+  if self.writes >= self.fails_at then return false, "disk full" end
+  return true, ""
+end
+
+function Failing:close(): boolean, string
+  self.closes = self.closes + 1
+  return true, ""
+end
+
+function Failing:abort(): boolean, string
+  self.aborts = self.aborts + 1
+  return true, ""
+end
+
+local failing_mt: metatable<Failing> = { __index = Failing }
+
 local function failing(fails_at: integer): Failing
-  local writes = { value = 0 }
-  local f: Failing = { aborts = 0, closes = 0 }
-  f.write = function(_self: Stream.Writer, _data: string): boolean, string
-    writes.value = writes.value + 1
-    if writes.value >= fails_at then return false, "disk full" end
-    return true, ""
-  end
-  f.close = function(_self: Stream.Writer): boolean, string
-    f.closes = f.closes + 1
-    return true, ""
-  end
-  f.abort = function(_self: Stream.Writer): boolean, string
-    f.aborts = f.aborts + 1
-    return true, ""
-  end
+  local f: Failing = setmetatable({ aborts = 0, closes = 0, writes = 0, fails_at = fails_at }, failing_mt)
   return f
 end
 

@@ -30,13 +30,11 @@ end
 --- [`Signal.guard`].
 local record Guard is Innermost.Held
   metamethod __close: function(Guard)
-  --- The stamp the guard last read: a signal moves it.
-  _read: integer
+  --- What the guard has read of the signals: the stamp it last read, which a signal moves, whether it has closed, and
+  --- the signal delivered since the last take. Internal: [`cosmic.child`]'s waits read it, and no caller reads or writes it.
+  state: Innermost.State
   --- The signal delivered last, 0 until one is.
   _signal: integer
-  --- The signal delivered last since the last take, 0 when none was.
-  _fresh: integer
-  _closed: boolean
   --- Why the dispositions could not be restored, "" when they were.
   _trouble: string
   --- The last SIGINT or SIGTERM caught, or 0 until one is. It is kept
@@ -72,14 +70,15 @@ local owed = { stamp = 0 }
 --- stamp that moved since the last is a signal caught, for both what
 --- `cancelled` and what `take` answer.
 local function noted(g: Guard, stamp: integer)
-  if stamp ~= g._read then
+  if stamp ~= g.state.read then
     local signal = stamp % raw.SIGNAL_STAMP_UNIT
-    g._signal, g._fresh, g._read = signal, signal, stamp
+    g._signal = signal
+    Innermost.note(g.state, signal, stamp)
   end
 end
 
 local function read_guard(self: Guard)
-  if self._closed then return end
+  if self.state.closed then return end
   noted(self, raw.child_signal_read(self == Innermost.active()))
 end
 
@@ -90,9 +89,7 @@ end
 
 Guard.take = function(self: Guard): integer
   read_guard(self)
-  local signal = self._fresh
-  self._fresh = 0
-  return signal
+  return Innermost.take_fresh(self.state)
 end
 
 Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
@@ -105,13 +102,13 @@ Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
     -- pipe's bytes: another task waiting on it may have drained it.
     local signal = self:take()
     if signal ~= 0 then return signal, "" end
-    if self._closed then return 0, "signal: the guard is closed" end
+    if self.state.closed then return 0, "signal: the guard is closed" end
     local left: integer | nil
     if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
     local woken, why = Poll.readable(raw.child_signal_fd(), left)
     if not woken then return 0, why end
     -- The last close wakes this wait having closed the pipe.
-    if not self._closed then Innermost.drain_wake(raw.child_signal_fd()) end
+    if not self.state.closed then Innermost.drain_wake(raw.child_signal_fd()) end
   end
 end
 
@@ -120,7 +117,7 @@ end
 --- restored, kept for every later close or release to answer again;
 --- whether this was the last; and, for the last, the signal owed it.
 local function restore_guard(self: Guard): string, boolean, integer
-  self._closed = true
+  Innermost.close(self.state)
   for i = #open_guards, 1, -1 do
     if open_guards[i] == self then
       table.remove(open_guards, i)
@@ -133,7 +130,7 @@ local function restore_guard(self: Guard): string, boolean, integer
   local owing = 0
   if last then owing, owed.stamp = owed.stamp % raw.SIGNAL_STAMP_UNIT, 0 end
   local fd = raw.child_signal_fd()
-  local stamp, trouble = raw.unguard_child_signals(active ~= nil and active._read or 0)
+  local stamp, trouble = raw.unguard_child_signals(active ~= nil and active.state.read or 0)
   -- Every task waiting on the pipe looks again: one waiting on this
   -- guard finds it closed and returns, and one waiting on a guard
   -- still open finds its stamp unmoved and waits again.
@@ -147,7 +144,7 @@ local function restore_guard(self: Guard): string, boolean, integer
 end
 
 Guard.close = function(self: Guard): boolean, string
-  if self._closed then
+  if self.state.closed then
     if self._trouble ~= "" then return false, self._trouble end
     return true, ""
   end
@@ -157,7 +154,7 @@ Guard.close = function(self: Guard): boolean, string
     -- The caller's dispositions are not back yet: the guards still
     -- open have seen the signal, if they opened before it, and the
     -- last to close delivers it.
-    if self._signal ~= 0 and self._read > owed.stamp then owed.stamp = self._read end
+    if self._signal ~= 0 and self.state.read > owed.stamp then owed.stamp = self.state.read end
     return true, ""
   end
   local signal = self._signal ~= 0 and self._signal or owing
@@ -169,7 +166,7 @@ Guard.close = function(self: Guard): boolean, string
 end
 
 Guard.release = function(self: Guard): integer | nil, string
-  if self._closed then
+  if self.state.closed then
     if self._trouble ~= "" then return nil, self._trouble end
     return self._signal, ""
   end
@@ -191,7 +188,7 @@ local guard_mt: metatable<Guard> = {
 --- A guard not yet open: [`opened`] opens it.
 local function make_guard(): Guard
   local g: Guard = setmetatable({
-    _read = 0, _signal = 0, _fresh = 0, _closed = false, _trouble = "",
+    state = Innermost.fresh_state(), _signal = 0, _trouble = "",
   }, guard_mt)
   return g
 end
@@ -207,7 +204,7 @@ local function opened(): Guard | nil, string
     open_guards[#open_guards] = nil
     return nil, trouble
   end
-  g._read = stamp
+  Innermost.set_read(g.state, stamp)
   Innermost.set(g)
   return g, ""
 end

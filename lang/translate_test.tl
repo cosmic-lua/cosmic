@@ -390,7 +390,8 @@ local function test_a_ternary_with_a_middle_that_is_never_false_is_an_if_express
     "local d = x and f .. \"z\" or w",
     "local e = x and #t + 1 or 0",
     "local f = x and function() end or nil",
-    "local g = x and (y as string) or \"\"",
+    "local g = x and ((\"s\") as string) or \"\"",
+    "local h = x and true or w",
     "return c and 1 or 2"), lines(
       "local a = if n == 1 then \"item\" else \"items\" end",
       "local b = if x then 1 else 2 end",
@@ -398,7 +399,8 @@ local function test_a_ternary_with_a_middle_that_is_never_false_is_an_if_express
       "local d = if x then f .. \"z\" else w end",
       "local e = if x then #t + 1 else 0 end",
       "local f = if x then function() end else nil end",
-      "local g = if x then (y as string) else \"\" end",
+      "local g = if x then ((\"s\") as string) else \"\" end",
+      "local h = if x then true else w end",
       "return if c then 1 else 2 end"))
 end
 
@@ -429,7 +431,9 @@ end
 local function test_a_ternary_whose_middle_needs_its_type_stays()
   -- `y` may be false or nil, so `c and y or z` is not `if c then y else z end`
   -- until the type report says it is neither.
-  local source = lines("local a = c and y or z", "local b = c and f() or z", "local d = c and not y or z", "local e = c and true or z")
+  -- A cast is a promise about the type and no value: `y as string` is false or nil when `y` is.
+  local source = lines("local a = c and y or z", "local b = c and f() or z", "local d = c and not y or z",
+    "local e = c and false or z", "local g = c and (y as string) or z", "local h = c and f() as {string} or z")
   translates(source, source)
 end
 

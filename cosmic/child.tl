@@ -1671,12 +1671,12 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
       if pipe.reader_closed then return result("failed", closed_reader) end
     end
     if guard ~= nil then
-      if guard._closed then return result("failed", "child: the guard is closed") end
+      if guard.state.closed then return result("failed", "child: the guard is closed") end
       local signal = guard:cancelled()
-      if (stamp[1] == nil and guard._fresh ~= 0) or (stamp[1] ~= nil and guard._read ~= stamp[1]) then
+      if (stamp[1] == nil and guard.state.fresh ~= 0) or (stamp[1] ~= nil and guard.state.read ~= stamp[1]) then
         return result("interrupted", cancelled_by(signal))
       end
-      if stamp[1] == nil then stamp[1] = guard._read end
+      if stamp[1] == nil then stamp[1] = guard.state.read end
     end
     return nil
   end

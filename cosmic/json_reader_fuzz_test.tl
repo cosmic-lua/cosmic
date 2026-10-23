@@ -172,7 +172,8 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
       return values, ""
     end
     if t.kind == "object" or t.kind == "array" then
-      local container: {any: any} = t.kind == "array" and Json.array() as {any: any} or {}
+      local container: {any: any}
+      if t.kind == "array" then container = Json.array() as {any: any} else container = {} end
       place(container)
       stack[#stack + 1] = container
     elseif t.kind == "end_object" or t.kind == "end_array" then

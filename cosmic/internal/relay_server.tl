@@ -419,13 +419,18 @@ local function bypasses(no_proxy: {string}, host: string, port: integer): boolea
     local entry = lower(listed)
     if entry == "*" then return true end
     local name, at = entry:match("^(.-):(%d+)$")
+    local port_differs = false
     if name ~= nil and not entry:find("::", 1, true) and not entry:find("^%[") then
-      if tonumber(at) ~= port then goto continue end
-      entry = name
+      if tonumber(at) ~= port then
+        port_differs = true
+      else
+        entry = name
+      end
     end
-    entry = entry:gsub("^%*?%.", "")
-    if host == entry or (host:sub(-#entry - 1) == "." .. entry) then return true end
-    ::continue::
+    if not port_differs then
+      entry = entry:gsub("^%*?%.", "")
+      if host == entry or (host:sub(-#entry - 1) == "." .. entry) then return true end
+    end
   end
   return false
 end

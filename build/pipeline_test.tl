@@ -16,6 +16,7 @@ local Stub = require("build.stub")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+local Truthy = require("lang.truthy")
 local compilation = require("build.compilation")
 local compile = require("build.compile")
 local importer = require("build.importer")
@@ -296,7 +297,7 @@ local function alone(file: string, source: string): string
   local made = Translate.translate(source, file)
   local parsed = Parser.parse(Lexer.lex(made.text, file), file, "tl")
   assert(#parsed.errors == 0, file)
-  return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Translate.never_false).text
+  return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Truthy.never_false).text
 end
 
 local function test_the_lua_over_the_files_of_the_tree_is_the_generators_and_the_forks()

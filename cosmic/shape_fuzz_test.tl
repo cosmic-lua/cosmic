@@ -225,7 +225,8 @@ local function filled(value: any): any
   for k in pairs(value) do
     if k is integer and k > top then top = k elseif not (k is integer) then listed = false end
   end
-  local out: {any: any} = Json.is_array(value) and Json.array() as {any: any} or {}
+  local out: {any: any}
+  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end
   if listed then
     for i = 1, top do
       local v = filled(value[i])

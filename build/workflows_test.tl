@@ -2573,7 +2573,10 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     assert(within ~= nil and wait ~= nil and wait < within and within <= case.within,
       where .. " waits too long for the run ahead: " .. tostring(env.WITHIN_SECONDS))
     assert((env.READY_SECONDS or "") == case.ready, where .. " takes its job ahead to keep them at another time")
-    assert(env.SUITE_STEP == (case.begun and steps[at[case.suite]].name as string or nil),
+    -- A job that has begun names its suite's step, the other none.
+    local suite_step: string | nil = nil
+    if case.begun then suite_step = steps[at[case.suite]].name as string end
+    assert(env.SUITE_STEP == suite_step,
       where .. " waits on a job ahead by another step than its suite: " .. tostring(env.SUITE_STEP))
     local budget = within + 3 * call
     local minutes = find["timeout-minutes"] as integer
@@ -2675,8 +2678,12 @@ local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
   assert(kept.name == env.ARTIFACT and kept.overwrite == true, "the key is kept under another name, or not replaced")
   for _, step in ipairs(steps) do
     local saves = (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil
-    local from = step.with and (step.with as {string: any}).path as string or ""
-    assert(not (saves and from:find("driver-relay", 1, true)), "the relayed key is saved as main's marker")
+    local from = ""
+    if step.with then
+      local path = (step.with as {string: any}).path as string
+      if path then from = path end
+    end
+    assert(not (saves and from:find("driver-relay", 1, true) ~= nil), "the relayed key is saved as main's marker")
   end
 end
 
