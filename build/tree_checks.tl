@@ -65,6 +65,7 @@ local Scopes = require("lang.scopes")
 local ScopesCover = require("lang.scopes_cover")
 local teal = require("build.teal")
 local Translate = require("lang.translate")
+local TreeShard = require("build.tree_shard")
 local TreeProgram = require("build.tree_program")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
@@ -78,6 +79,13 @@ local Hash = require("cosmic.hash")
 local type Node = ast.Node
 
 local record tree_checks
+  --- Generates `source` for `file` as [`generated`] does, keeping the answer in `memo` under the keys `salt` and `fork_salt`
+  --- make, for a worker of [`build.tree_worker`]; `held` holds the fork's compiler.
+  generate: function(file: string, source: string, memo: Sqlite.Handle, salt: string, fork_salt: string, held: {compiler})
+  --- The outcome of reading `source`, a file named `file`, by both sets of readers, kept in `memo` under `key`
+  --- ([`read`]'s own answer for a file), for a worker of [`build.tree_worker`]; `held` holds the fork's compiler.
+  read_outcome: function(file: string, source: string, memo: Sqlite.Handle | nil, key: string, held: {compiler}):
+    Compared.Outcome | nil, string
   --- What [`plurals`] finds in one text of a file, read off a parse made
   --- before the checks ran ([`plurals_in`]).
   record Plurals
@@ -202,6 +210,8 @@ for _, name in ipairs({ "names", "class" }) do
   allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
     "`parse` and `check`, the only calls outside the module, are made of"
 end
+allowed["build.tree_worker.serve"] = "what a worker of the whole-tree checks runs: the program " ..
+  "`build.workers`' `tree_spec` names as a string, which no call in the tree makes"
 allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
   "workflows to takes a bare key by the same rule the layout writes one by"
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
@@ -3238,6 +3248,11 @@ local function generate_outcome(file: string, source: string, memo: Sqlite.Handl
   return outcome
 end
 
+function tree_checks.generate(file: string, source: string, memo: Sqlite.Handle, salt: string, fork_salt: string,
+                              held: {compiler})
+  local _ = generate_outcome(file, source, memo, salt, fork_salt, held)
+end
+
 --- Every `.tl` file of the tree, translated ([`lang.translate`]), parsed, scoped and generated ([`lang.codegen`]),
 --- and its Lua compared with the fork's for the Teal it started from: the same bytes, once the layout of a
 --- `continue` is set aside ([`lang.codegen`]'s `compared`). The fork compiles each file alone with no module served, so its Lua is
@@ -3251,8 +3266,10 @@ end
 --- with its first difference and each refusal of the generator, and one with fewer, and a pin for a file that
 --- matches, is told to lower the pin. The Lua the generator writes must also load, whatever the fork writes. The
 --- answer for a file is kept in `memo` under its source, the sources of the generator and of everything it reads and
---- the fork's compiler, and the fork's Lua under the file and the compiler alone.
-function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+--- the fork's compiler, and the fork's Lua under the file and the compiler alone. The answers the memo lacks are made first
+--- by the workers of `shards` ([`build.tree_shard`]) where there are enough of them.
+function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
+                               shards?: TreeShard.Shards): {string}
   local ceilings, why = ceilings_for(root, "generated", pinned)
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
@@ -3268,6 +3285,7 @@ function tree_checks.generated(root: string, pinned?: {string: integer}, memo?: 
     "lang/translate.tl", "lang/codegen.tl", "build/check_memo.tl", "build/tree_checks.tl" }, "generated 1 " .. fork_salt)
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "generated")
+    local _ = TreeShard.warm(shards, memo, "generated", files, salt, fork_salt)
   end
   local out: {string} = {}
   local found: {string: integer} = {}
@@ -3358,6 +3376,11 @@ local function read_outcome(file: string, source: string, memo: Sqlite.Handle | 
   return outcome, ""
 end
 
+function tree_checks.read_outcome(file: string, source: string, memo: Sqlite.Handle | nil, key: string, held: {compiler}):
+    Compared.Outcome | nil, string
+  return read_outcome(file, source, memo, key, held)
+end
+
 --- Every `.tl` file of the tree read by the fork's readers ([`build.ast`], [`build.scopes`], [`build.globals`],
 --- [`build.stub`], [`build.coverage`]) and by their ports ([`build.syntax_compared`]) over the file translated to the
 --- new grammar, and what each reader answers compared: the modules a file requires, the lines of its global
@@ -3368,8 +3391,9 @@ end
 --- check cannot compare (the fork or its translation does not parse, which `translated` counts), the fork's own
 --- [`checker/tl.tl`] and the declaration files, which the fork's readers do not read, are left out. The answer for a
 --- file is kept in `memo` under its source and the sources of every reader and of the fork's parser; the format of what
---- it keeps ([`kept_reading`], [`read_outcome`]) is the label of the salt, bumped when either changes.
-function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+--- it keeps ([`kept_reading`], [`read_outcome`]) is the label of the salt, bumped when either changes. The answers the memo
+--- lacks are made first by the workers of `shards` ([`build.tree_shard`]) where there are enough of them.
+function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle, shards?: TreeShard.Shards): {string}
   local ceilings, why = ceilings_for(root, "read", pinned)
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
@@ -3392,6 +3416,7 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     "build/host_names.tl" }, "read 3")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "read")
+    local _ = TreeShard.warm(shards, memo, "read", files, salt, "")
   end
   local out: {string} = {}
   local found: {string: integer} = {}

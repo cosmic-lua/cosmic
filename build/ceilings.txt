@@ -457,6 +457,7 @@ build/test_worker.tl 20
 build/todo_scan.tl 2
 build/todos.tl 4
 build/tree_checks.tl 32
+build/tree_shard.tl 1
 build/udp_fixture.tl 2
 build/unix_socket.tl 2
 build/verbs_fixture.tl 3
@@ -2085,11 +2086,13 @@ build/todo_scan.tl view_written 9
 build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
-build/tree_checks.tl view_written 318
+build/tree_checks.tl view_written 319
 build/tree_checks_test.tl view_written 25
 build/tree_program.tl view_written 14
 build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
+build/tree_shard.tl view_written 4
+build/tree_worker.tl view_written 2
 build/type_watch.tl view_written 2
 build/unix_socket.tl view_written 4
 build/vendor.tl view_written 12
@@ -2102,7 +2105,7 @@ build/verify_codesign.tl view_written 2
 build/warnings_fork_test.tl view_written 4
 build/work.tl view_written 23
 build/work_test.tl view_written 6
-build/worker.tl view_written 15
+build/worker.tl view_written 17
 build/worker_test.tl view_written 18
 build/workers.tl view_written 12
 build/workflows_test.tl view_written 70
@@ -3558,6 +3561,7 @@ build/todos.tl overload_none 4
 build/todos_test.tl overload_none 1
 build/tree_checks.tl overload_none 28
 build/tree_program_test.tl overload_none 1
+build/tree_shard.tl overload_none 1
 build/unix_socket.tl overload_none 1
 build/warnings_fork_test.tl overload_none 2
 build/work.tl overload_none 3

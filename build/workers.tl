@@ -30,6 +30,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local worker = require("build.worker")
 local type compiler = require("build.compiler")
+local type tree_shard = require("build.tree_shard")
 local type derivation = require("build.derivation")
 local type importer = require("build.importer")
 local type Sqlite = require("cosmic.sqlite")
@@ -62,6 +63,11 @@ local record PoolState
 end
 
 local record workers
+  --- The workers of the whole-tree checks and how to end them.
+  record Checking
+    shards: tree_shard.Shards
+    close: function()
+  end
   --- How to start one worker and when one is worth it.
   record Spec
     --- The program and the arguments that make it serve phases
@@ -166,6 +172,13 @@ function workers.tool_spec(): workers.Spec
   return { argv = argv, open_bytes = 512 * 1024, phase_bytes = 128 * 1024, startup_ns = 0 }
 end
 
+--- How a check starts a worker: itself, serving the phases of the whole-tree
+--- checks ([`build.tree_worker`]) besides the build's.
+function workers.tree_spec(): workers.Spec
+  local argv, _, _ = again({ "-e", 'require("cosmic.proc").exit(require("build.tree_worker").serve())' })
+  return { argv = argv, open_bytes = 512 * 1024, phase_bytes = 128 * 1024, startup_ns = 0 }
+end
+
 --- What `handle`'s worker wrote to its standard error, after it ended, on
 --- one line and led by ": ", or "" where it wrote nothing.
 local function stderr_of(handle: Child.Handle): string
@@ -205,10 +218,10 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- A pool of up to `jobs` workers started as `spec` says, none yet.
---- `jobs` is what `COSMIC_BUILD_JOBS` names, or one fewer than the
---- processors, by default. The caller closes it.
-function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
+--- A pool of up to `jobs` workers started as `spec` says, none yet, as the
+--- build's phases ([`importer.Workers`]) and as the phases themselves
+--- ([`worker.Pool`]) reach it.
+local function made_pool(spec: workers.Spec, jobs?: integer): importer.Workers, worker.Pool
   local most = jobs or jobs_of_build()
   local state: PoolState = { jobs_made = 0, started = false, started_at = 0, broken = false, running = {} }
 
@@ -364,7 +377,7 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
     end,
   }
 
-  return {
+  local phases: importer.Workers = {
     ready = ready,
     parse = function(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
                      tally: derivation.Parses, made: {derivation.Source},
@@ -385,6 +398,29 @@ function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
       end
       state.started = false
     end,
+  }
+  return phases, pool
+end
+
+--- A pool of up to `jobs` workers started as `spec` says, none yet.
+--- `jobs` is what `COSMIC_BUILD_JOBS` names, or one fewer than the
+--- processors, by default. The caller closes it.
+function workers.pool(spec: workers.Spec, jobs?: integer): importer.Workers
+  local phases, _ = made_pool(spec, jobs)
+  return phases
+end
+
+--- A pool for the whole-tree checks ([`build.tree_shard`]): as many workers
+--- as there are processors, since the process that asks waits for them,
+--- started by `ready`, which tell what they wait on through `say`; the caller closes it.
+function workers.checking(spec: workers.Spec, say: function(line: string)): workers.Checking
+  local named = Env.get(variable)
+  local jobs: integer | nil = nil
+  if named == nil or named == "" then jobs = math.max(Proc.cpu_count(), 1) end
+  local phases, pool = made_pool(spec, jobs)
+  return {
+    shards = { ready = phases.ready, size = pool.size, path = pool.path, run = pool.run, say = say },
+    close = phases.close,
   }
 end
 
