@@ -1223,6 +1223,126 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
+--- Writes the smallest tree [`tree.is_own`] takes for cosmic's own, with
+--- the modules `files` names under `build/`.
+local function write_own_tree(case: string, files: {string:string}): string
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-" .. case .. "-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
+  for name, source in pairs(files) do
+    assert(Fs.write(root .. "/build/" .. name .. ".tl", source))
+  end
+  return root
+end
+
+--- The stub the fixture at `root` derived for the module `path`.
+local function stub_text_of(root: string, path: string): string
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash WHERE i.path = ?1",
+    { { text = path } }))
+  work.close(handle)
+  return assert(rows[1]):text(1)
+end
+
+--- How many stub verdicts of the fixture at `root` hold.
+local function held_stubs(root: string): integer
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM stub_holds WHERE held = 1"))
+  work.close(handle)
+  return math.tointeger(assert(rows[1]):text(1)) or 0
+end
+
+--- A module of cosmic's own tree that requires another is checked against
+--- the other's stub once a compile has held the stub to its source's type
+--- ([`compilation.stub_lookup`]): what that serves must never be a type
+--- the source no longer has. A dependency whose exported type changes
+--- reaches its dependent's check, and a stub that is not the one verified
+--- is not served.
+local function test_a_stale_stub_is_not_served_to_a_dependent_check()
+  local dep = "local record dep\n  value: number\n  size: function(): integer\nend\n" ..
+    "dep.value = 1\nfunction dep.size(): integer return 1 end\nreturn dep\n"
+  local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
+  local root = write_own_tree("stub-verdict", { dep = dep, user = user })
+  assert(compile_fixture(root))
+  assert(held_stubs(root) >= 1, "no stub was held to its source's type")
+
+  -- Another type the dependency exports: the dependent must see it.
+  local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
+  assert(Fs.write(root .. "/build/dep.tl", changed))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "the dependent was checked against the type the dependency had")
+  assert(trouble:find("string", 1, true) ~= nil, "the new type did not reach the check: " .. trouble)
+
+  -- The dependency as it was, and its stub made to say another type: the
+  -- verdict was of the stub's text before, so the dependent is checked
+  -- against the source, which it passes.
+  assert(Fs.write(root .. "/build/dep.tl", dep))
+  assert(compile_fixture(root))
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE stubs SET text = replace(text, 'value: number', 'value: string')"))
+  work.close(handle)
+  assert(Fs.write(root .. "/build/user.tl", user .. "-- edited\n"))
+  local again, again_trouble = compile_fixture(root)
+  assert(again ~= nil, "a stub no verdict was given for was served: " .. tostring(again_trouble))
+end
+
+--- A verdict that a stub has its source's type holds for the source it
+--- judged, and no other: a module's stub text can stay the same while its
+--- type changes, when the change is in a body the stub leaves out (`function
+--- e.f` inside a function adds `f` to the record `e`). Here only `e` changes,
+--- `d` stays byte for byte and its stub names `e`'s type rather than
+--- spelling it. The verdict is kept under the key, so the new `e` is judged
+--- again and `user` is checked against the `f` it has; and a lookup under
+--- another key is not given the stub, whatever text the verdict was kept for.
+---
+--- The importer compiles in dependency order in one environment, so a module
+--- whose key moved is compiled before anything reads it, and the lookup's key
+--- is not what fails a compile that drops it: the lookup is asked directly.
+local function test_a_verdict_is_kept_under_the_key_of_the_source_it_judged()
+  -- A stub keeps each token where the source had it, so both bodies are
+  -- two lines long.
+  local e_before = "local record e\nend\nfunction e.setup()\n  print(1)\n  print(2)\nend\nreturn e\n"
+  local e_after = "local record e\nend\nfunction e.setup()\n" ..
+    "  function e.f(): integer return 1 end\n  print(2)\nend\nreturn e\n"
+  local d = "local e = require(\"build.e\")\nlocal record d\n  inner: e\nend\nreturn d\n"
+  local user = "local d = require(\"build.d\")\nlocal v: d = { inner = {} }\n" ..
+    "local n: integer = v.inner.f()\nreturn n\n"
+  local root = write_own_tree("stub-key", { e = e_before, d = d })
+  assert(compile_fixture(root))
+  assert(held_stubs(root) >= 2, "the stubs of e and d were not held")
+
+  local handle = assert(work.open(root))
+  local modules = assert(compilation.collect(handle.db))
+  local keys = assert(compilation.dependency_keys(handle.db, modules, "declaration-cache-test"))
+  local named = assert(keys["build.e"])
+  assert(compilation.stub_lookup(handle.db, keys, true)("build.e") ~= nil, "a held stub was not served")
+  local moved: {string:compilation.Keys} = { ["build.e"] = { key = named.key .. "-moved", graph = named.graph } }
+  assert(compilation.stub_lookup(handle.db, moved, true)("build.e") == nil,
+    "a verdict was served under a key it was not kept for")
+  work.close(handle)
+
+  -- Only e changes, in a body: its stub text is the same, its type is not.
+  -- user is first written now, as it cannot pass the e of before.
+  local stub_before = stub_text_of(root, "build.e")
+  assert(Fs.write(root .. "/build/e.tl", e_after))
+  assert(Fs.write(root .. "/build/user.tl", user))
+  local result, trouble = compile_fixture(root)
+  assert(stub_text_of(root, "build.e") == stub_before, "the fixture's stub of e changed")
+  assert(result ~= nil, "user was checked against a type e no longer has: " .. tostring(trouble))
+  local after = assert(work.open(root))
+  local after_modules = assert(compilation.collect(after.db))
+  local after_keys = assert(compilation.dependency_keys(after.db, after_modules, "declaration-cache-test"))
+  assert(assert(after_keys["build.e"]).key ~= named.key, "the key of e did not move")
+  assert(compilation.stub_lookup(after.db, after_keys, true)("build.e") == nil,
+    "the stub of e was served under a new key it was never judged under")
+  work.close(after)
+end
+
 --- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
