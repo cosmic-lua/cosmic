@@ -106,6 +106,7 @@ local tree = require("build.tree")
 local example_checks = require("build.example_checks")
 local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
+local workers = require("build.workers")
 local Typed = require("build.syntax_typed")
 local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
@@ -1572,6 +1573,25 @@ local function finish_projection(db: Sqlite.Handle, root: string, built: compile
   return nil
 end
 
+--- Says what the tree checks are doing, as a line of the run's log.
+local function tree_say(line: string)
+  log:say("fix: tree checks: " .. line)
+end
+
+--- When the check being run began, in nanoseconds of the monotonic clock.
+local record TreeTiming
+  began: integer
+end
+
+--- Says how long the check `name` took, where that is long enough to wait on, so that a run that is slow says where, and
+--- starts the next check's time.
+local function tree_took(timing: TreeTiming, name: string)
+  local now = Clock.monotonic_ns()
+  local seconds = (now - timing.began) // 1000000000
+  if seconds >= 3 then tree_say(name .. ": " .. tostring(seconds) .. " s") end
+  timing.began = now
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1624,42 +1644,55 @@ local function run_tree_checks(ctx: Fix)
       -- is kept in the build directory; without the memo the checks run in full.
       local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
       Memprobe.mark("tree checks: before the memoed checks")
+      -- The processors' worth of workers the per-file checks share, started where a check has files enough to need them.
+      local pool = workers.checking(workers.tree_spec(), tree_say)
+      local timing: TreeTiming = { began = Clock.monotonic_ns() }
       for _, line in ipairs(tree_checks.lexed(root, nil, memo)) do
         findings[#findings + 1] = "lexer: " .. line
       end
+      tree_took(timing, "lexer")
       Memprobe.mark("tree checks: lexer")
       for _, line in ipairs(tree_checks.translated(root, nil, nil, memo)) do
         findings[#findings + 1] = "translator: " .. line
       end
+      tree_took(timing, "translator")
       Memprobe.mark("tree checks: translator")
       for _, line in ipairs(tree_checks.scoped(root, nil, memo)) do
         findings[#findings + 1] = "scopes: " .. line
       end
+      tree_took(timing, "scopes")
       Memprobe.mark("tree checks: scopes")
       for _, line in ipairs(tree_checks.declared(root, nil, memo)) do
         findings[#findings + 1] = "declarations: " .. line
       end
+      tree_took(timing, "declarations")
       Memprobe.mark("tree checks: declarations")
-      for _, line in ipairs(tree_checks.generated(root, nil, memo)) do
+      for _, line in ipairs(tree_checks.generated(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "generator: " .. line
       end
+      tree_took(timing, "generator")
       Memprobe.mark("tree checks: generator")
-      for _, line in ipairs(tree_checks.read(root, nil, memo)) do
+      for _, line in ipairs(tree_checks.read(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "readers: " .. line
       end
+      tree_took(timing, "readers")
       Memprobe.mark("tree checks: readers")
       for _, line in ipairs(typed_findings(root, memo)) do
         findings[#findings + 1] = "typed: " .. line
       end
+      tree_took(timing, "typed")
       Memprobe.mark("tree checks: typed")
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
       end
+      tree_took(timing, "checker")
       Memprobe.mark("tree checks: checker")
       for _, line in ipairs(pipeline_findings(root, memo)) do
         findings[#findings + 1] = "pipeline: " .. line
       end
+      tree_took(timing, "pipeline")
       Memprobe.mark("tree checks: pipeline")
+      pool.close()
       if memo ~= nil then
         local _, _ = memo:close()
       end

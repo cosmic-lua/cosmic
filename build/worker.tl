@@ -524,7 +524,8 @@ local phases: {string:function(compiler, string, integer): string} = {
 --- answering a line of standard output: `ok`, or `fail` and why. Ends
 --- at the end of its input, and answers the exit status.
 --- @param built the compiler the build runs, or the tool's own
-function worker.serve(built?: compiler): integer
+--- @param more phases to serve besides the build's, by name ([`build.tree_worker`])
+function worker.serve(built?: compiler, more?: {string:function(compiler, string, integer): string}): integer
   local checker = built
   if checker == nil then
     local loaded, trouble = teal.load()
@@ -540,7 +541,7 @@ function worker.serve(built?: compiler): integer
     local line, _ = input:read()
     if line == nil then return 0 end
     local phase, job, index = line:match("^([^\t]+)\t([^\t]+)\t(%d+)\t%d+$")
-    local serve = phase ~= nil and phases[phase] or nil
+    local serve = phase ~= nil and (more ~= nil and more[phase] or phases[phase]) or nil
     local said = "unknown job: " .. line
     if serve ~= nil and job ~= nil then
       local ran, answer = pcall(serve, checker, job, math.tointeger(tonumber(index)) or 0)
