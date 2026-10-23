@@ -134,6 +134,31 @@ local function test_checked_manifest_keeps_release_entries_but_selects_checked()
       ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
 end
 
+--- A host-only boot puts a script where it built no core, and a prefix with
+--- one says so: it is the ordinary layout (every target has an entry, as the
+--- core requires), found by what each placeholder begins with, which no
+--- real core does.
+local function test_a_placeholder_core_marks_a_host_only_prefix()
+  local placeholder = artifact.placeholder("arm")
+  assert(String.starts_with(placeholder, "#!/bin/sh\n"), "it runs as a script")
+  assert(placeholder:find("arm", 1, true) ~= nil, "it names the target")
+  assert(placeholder:find("-Dboot-cores=all", 1, true) ~= nil, "it names the boot that builds the core")
+  assert(artifact.placeholder("arm") == placeholder and artifact.placeholder("mac") ~= placeholder,
+    "it is a function of the target")
+  local own, other = "ELF-x86\0a core of this host", "ELF-arm-another"
+  local whole = assert(artifact.prefix(records, { x86 = own, arm = other, mac = other }))
+  assert(not artifact.host_only(whole), "a prefix of every core is no host-only boot's")
+  local only = assert(artifact.prefix(records, { x86 = own, arm = placeholder,
+    mac = artifact.placeholder("mac") }))
+  assert(artifact.host_only(only), "a prefix with placeholders is")
+  local partly = assert(artifact.prefix(records, { x86 = own, arm = other,
+    mac = artifact.placeholder("mac") }))
+  assert(artifact.host_only(partly), "one placeholder is enough")
+  local program = assert(artifact.program(only, "SQLite format 3\0db"))
+  local parts = assert(artifact.split(program))
+  assert(parts.head == only and not parts.host, "a program of it splits as any does")
+end
+
 --- A portable and a host program alike split at their database, and
 --- rejoin to the same bytes, or around a new database to what the
 --- writer would have written with it.

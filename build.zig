@@ -2,7 +2,9 @@
 //! vendor trees bin/zig writes first (build/patch.tl).
 //!
 //!     bin/zig build cores     the core for all three targets
-//!     bin/zig build boot      all release cores, then the boot bridge
+//!     bin/zig build boot      the host's release core, then the boot bridge
+//!     bin/zig build boot -Dboot-cores=all
+//!                             every release core, then the boot bridge
 //!
 //! Everything lands in the install prefix bin/zig hands it: the build
 //! directory build/paths.tl names. Run it through [`bin/zig`], which pins the
@@ -60,6 +62,9 @@ const Configuration = struct {
     name: []const u8,
     sanitize: bool,
 };
+
+/// The release cores a boot's tool carries (`-Dboot-cores`).
+const BootCores = enum { host, all };
 
 /// Whether a core observes its own C ([`core/coverage.c`]): not at all, or
 /// with sancov's per-block flags, once linked with an empty block-to-line
@@ -750,7 +755,19 @@ pub fn build(b: *std.Build) void {
     const seed = seedCompiler(b);
 
     const cores = b.step("cores", "build the core for every target");
-    const boot = b.step("boot", "build all release cores, then bridge into Teal");
+    const boot = b.step("boot", "build the host's release core (-Dboot-cores=all: every one), then bridge into Teal");
+    // A boot's tool carries the cores it is told to: the host's alone by
+    // default, which is all the edit, check and test loop of a checkout
+    // runs, or every release core (`-Dboot-cores=all`), which is what CI
+    // verifies and what a tool needs to make a portable program
+    // ([`build/embed.tl`]). A tool of the host's alone is the same portable
+    // artifact, with a placeholder script where each other core goes
+    // ([`build/boot.tl`]); every core is built by `cores` either way.
+    const boot_cores = b.option(
+        BootCores,
+        "boot-cores",
+        "which release cores the boot's tool carries: host (default) or all",
+    ) orelse .host;
     const portable_hook_cores = b.step(
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
@@ -917,15 +934,19 @@ pub fn build(b: *std.Build) void {
             // [`bin/zig`] holds its rebuild lock around the whole of
             // `zig build`, so they cannot race; the second depends on the
             // first and so runs after it.
-            const bridge = bootBridge(b, exe, target_records, seed, t.name, "--stage");
+            const all = boot_cores == .all;
+            const bridge = bootBridge(b, exe, target_records, seed, t.name, "--stage", all);
             bridge.step.dependOn(vendored);
             // The assembly reads every raw core and the carried database
             // beside them, and writes the tool last: a boot interrupted
             // or failing before then leaves the previous tool, and the
-            // next boot stages again.
-            const assembly = bootBridge(b, exe, target_records, seed, t.name, "--assemble");
+            // next boot stages again. A host-only boot reads the host's
+            // alone, which is all it waits for: it puts a placeholder
+            // where each other core goes ([`build/boot.tl`]), and the
+            // other cores are not built.
+            const assembly = bootBridge(b, exe, target_records, seed, t.name, "--assemble", all);
             assembly.step.dependOn(&bridge.step);
-            assembly.step.dependOn(cores);
+            assembly.step.dependOn(if (all) cores else &out.step);
             boot.dependOn(&assembly.step);
         }
     }
@@ -1098,12 +1119,16 @@ fn seedCompiler(b: *std.Build) std.Build.LazyPath {
 }
 
 /// A run of the host core's `--boot` bridge in `mode`, `--stage` or
-/// `--assemble` ([`build/boot.tl`]), over the release targets alone.
-fn bootBridge(b: *std.Build, exe: *std.Build.Step.Compile, target_records: std.Build.LazyPath, seed: std.Build.LazyPath, host: []const u8, mode: []const u8) *std.Build.Step.Run {
+/// `--assemble` ([`build/boot.tl`]), over the release targets alone, the
+/// cores of all of them where `all`, else the host's.
+fn bootBridge(b: *std.Build, exe: *std.Build.Step.Compile, target_records: std.Build.LazyPath, seed: std.Build.LazyPath, host: []const u8, mode: []const u8, all: bool) *std.Build.Step.Run {
     const run = b.addRunArtifact(exe);
     run.addArg("--boot");
     run.addDirectoryArg2(b.path("."), .{});
     run.addDirectoryArg2(seed, .{});
+    // `--host-only` leads the mode ([`build/boot.tl`]): the records are
+    // the same, but the cores are the host's alone.
+    if (!all) run.addArg("--host-only");
     run.addArg(mode);
     run.addArg(host);
     run.addFileArg2(target_records, .{});

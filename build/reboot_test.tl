@@ -9,6 +9,7 @@ local Pipeline = require("build.pipeline")
 local reboot = require("build.reboot")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
+local artifact = require("build.artifact")
 local stand_in = require("build.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
@@ -18,6 +19,23 @@ local function test_auto_boot_unless_told_not_to()
   assert(reboot.auto_boot({}))
   assert(reboot.auto_boot({ COSMIC_AUTO_BOOT = "1" }))
   assert(not reboot.auto_boot({ COSMIC_AUTO_BOOT = "0" }))
+end
+
+--- The words a boot this tool starts hands bin/zig, after "bin/zig": its own
+--- kind's ([`reboot.boot_command`]), as its prefix says it: a placeholder in
+--- it, which the tool CI verifies has none, is a host-only boot's.
+local function boot_words(): string
+  local prefix, _ = artifact.trusted_prefix()
+  local words = reboot.boot_command("bin/zig", prefix ~= nil and artifact.host_only(prefix))
+  return table.concat(words, " "):sub(#"bin/zig " + 1)
+end
+
+--- A boot never changes what its tool carries: a tool of the host's core
+--- alone boots for it alone, any other for every core, as every boot did
+--- before there was a choice.
+local function test_a_boot_keeps_the_cores_the_tool_carries()
+  assert(table.concat(reboot.boot_command("zig", true), " ") == "zig build boot")
+  assert(table.concat(reboot.boot_command("zig", false), " ") == "zig build boot -Dboot-cores=all")
 end
 
 --- A tree whose bin/zig is a stand-in that records how it was run and
@@ -51,8 +69,8 @@ end
 local function test_boot_into_reports_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
   local trouble = reboot.boot_into(root, { "test" }, {})
-  assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
-  assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+  assert(trouble:find("bin/zig " .. boot_words() .. " failed", 1, true), trouble)
+  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
 end
 
 --- The boot a run holding the rebuild lock starts is handed that lock
@@ -71,7 +89,7 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local trouble = reboot.boot_into(root, { "test" }, {})
   rebuild_lock.release()
-  assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
+  assert(trouble:find("bin/zig " .. boot_words() .. " failed", 1, true), trouble)
   assert(Fs.read(root .. "/bin/handed") == "[" .. layout.lock .. "]\n",
     Fs.read(root .. "/bin/handed"))
 end
@@ -81,7 +99,7 @@ end
 local function test_boot_into_enters_the_booted_tool(tmp: string)
   local root = tree_with_zig(tmp, 0)
   local trouble = reboot.boot_into(root, { "test" }, {})
-  assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
   assert(trouble ~= "", "boot_into returned without a reason")
 end
 
@@ -135,7 +153,7 @@ local function test_rebuild_failed_boots_when_the_compiler_moved(tmp: string)
   local code = reboot.rebuild_failed(root, { "test" },
     "checker: T (unresolved generic)", true, {})
   assert(code == 3, code)
-  assert(Fs.read(root .. "/bin/ran") == "build boot\n")
+  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
 end
 
 --- A boot that then fails says the compile failure it was to mend, which
@@ -148,7 +166,7 @@ local function test_rebuild_failed_says_the_compile_failure_of_a_failed_boot(tmp
   end)
   assert(code == "3", code)
   assert(all:find("checker: T (unresolved generic)", 1, true), all)
-  assert(all:find("bin/zig build boot failed", 1, true), all)
+  assert(all:find("bin/zig " .. boot_words() .. " failed", 1, true), all)
 end
 
 --- A failure while the compiler has not moved is the tree's own error:

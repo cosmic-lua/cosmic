@@ -7,7 +7,8 @@
 --- rebuilt tool's writer is not the code that wrote its database, that
 --- tool writes the database again itself and re-enters once more, so a
 --- rebuild lands on the bytes a boot writes. When a core input differs,
---- only zig can rebuild it: the tool runs `bin/zig build boot` and
+--- only zig can rebuild it: the tool runs `bin/zig build boot`
+--- ([`reboot.boot_command`] says with what) and
 --- re-enters the original argv on the tool that boot wrote, unless
 --- `COSMIC_AUTO_BOOT=0` says to refuse instead ([`reboot.auto_boot`]).
 --- A Teal rebuild whose compile fails after the compiler's own modules
@@ -120,8 +121,33 @@ local function unsettled(seen?: reboot.Seen): boolean
     compiled_by == nil or carried == nil or compiled_by ~= reboot.settled_by(carried, word)
 end
 
+--- The command that renews a tool that carries every core, or, with
+--- `host_only`, the host's core alone (a boot without `-Dboot-cores=all`
+--- wrote it), run as `zig`: the same kind, so that a boot the tool starts
+--- never changes what it can do. Every boot was of every core before there
+--- was a choice.
+--- @param zig the program that runs zig: a tree's [`bin/zig`]
+--- @param host_only whether the tool carries the host's core alone
+function reboot.boot_command(zig: string, host_only: boolean): {string}
+  if host_only then
+    return { zig, "build", "boot" }
+  end
+  return { zig, "build", "boot", "-Dboot-cores=all" }
+end
+
+--- Whether the running tool carries the host's core alone, as a boot
+--- without `-Dboot-cores=all` leaves it ([`artifact.host_only`]). A tool
+--- with no portable prefix to read says no: it is no host-only boot's.
+local function host_only_tool(): boolean
+  local prefix, _ = artifact.trusted_prefix()
+  return prefix ~= nil and artifact.host_only(prefix)
+end
+
 --- What a tool stale against the core says when it does not boot.
-local core_refusal = "the tool is stale; run bin/zig build boot"
+local function core_refusal(): string
+  return "the tool is stale; run " ..
+    table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
+end
 
 --- What a stale cosmic that is not the tree's own tool says: it neither
 --- rebuilds itself nor boots the tree. bin/cosmic runs the tree's own,
@@ -655,7 +681,8 @@ local function serialize(handle: work.Handle, root: string,
   return 3
 end
 
---- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
+--- Rebuilds the core with `root/bin/zig build boot`, as the running tool's
+--- own cores ask ([`reboot.boot_command`]), whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
 --- with the tool the boot wrote ([`build.paths`]' `tool`), running `argv`
 --- again.
@@ -669,20 +696,21 @@ function reboot.boot_into(root: string, argv: {string},
   if environment[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  log:complain("the core is stale; running bin/zig build boot")
+  local command = table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
+  log:complain("the core is stale; running " .. command)
   -- The boot takes the rebuild lock (build/zig.tl), which a guard
   -- calling this holds: handed on, rather than waited for.
   local boot_environment = environment
   if rebuild_lock.holds(root) then
     boot_environment = rebuild_lock.hand(environment, root)
   end
-  local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
+  local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only_tool()),
     { cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
-    return "bin/zig build boot: " .. trouble
+    return command .. ": " .. trouble
   end
   if not result.ok then
-    return "bin/zig build boot failed; fix what it reports and run this again"
+    return command .. " failed; fix what it reports and run this again"
   end
   environment[marker] = "1"
   local _, exec_trouble = Proc.exec(reentry(build_paths.resolve(root).tool, argv),
@@ -715,7 +743,7 @@ function reboot.rebuild_failed(root: string, argv: {string},
   end
   if not reboot.auto_boot(environment) then
     log:complain(trouble)
-    log:complain(core_refusal)
+    log:complain(core_refusal())
     return 3
   end
   log:complain("the tool cannot compile the tree and its compiler has moved; " ..
@@ -805,7 +833,7 @@ function reboot.guard(handle: work.Handle, root: string,
     local environment: {string:string} | nil = nil
     if seen ~= nil then environment = seen.environment end
     if not reboot.auto_boot(environment) then
-      log:complain(closing(handle, core_refusal))
+      log:complain(closing(handle, core_refusal()))
       return 3
     end
     if entered_by(seen) ~= nil then
