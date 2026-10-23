@@ -28,6 +28,7 @@ local Hash = require("cosmic.hash")
 local check = require("build.lsp.check")
 local publish = require("build.lsp.publish")
 local source = require("build.lsp.source")
+local syntax_read = require("build.lsp.syntax_read")
 
 local record dependents
   --- One session's dependents yet to check.
@@ -76,10 +77,14 @@ local function key_of(checker: check.Checker, name: string): string
   local built = check.compiler(checker)
   local served = source.served(checker.source, built, listed.path, check.open_files(checker), true)
   if served == nil then return "" end
-  local tokens, _ = built.lex(served.text, served.file)
   local parts: {string} = {}
-  for _, token in ipairs(tokens) do
-    parts[#parts + 1] = tostring(token.y) .. ":" .. tostring(token.x) .. " " .. token.tk
+  if checker.source.grammar == "new" then
+    parts = syntax_read.token_parts(served.text, served.file)
+  else
+    local tokens, _ = built.lex(served.text, served.file)
+    for _, token in ipairs(tokens) do
+      parts[#parts + 1] = tostring(token.y) .. ":" .. tostring(token.x) .. " " .. token.tk
+    end
   end
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end

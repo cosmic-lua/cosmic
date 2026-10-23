@@ -121,7 +121,6 @@ allow({
   "build.syntax_derivation.rows_of", "build.syntax_links.check",
   "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
   "build.syntax_rewrite.rewrite",
-  "build.syntax_node.require_sites", "build.syntax_shape_specs.splices", "build.syntax_shape_specs.spliced",
 }, "a reader of the new syntax tree (build/syntax_*.tl) that the rewrites of the readers of the fork's tree call; " ..
     "tested directly until they do")
 
@@ -140,9 +139,9 @@ allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` com
   "from the file hands its text here, and the tests read fixtures"
 
 allow({
-  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.carried", "build.pipeline.over",
-}, "the build's compile with the new checker: the mode and the tool string the harness chooses (`build.grammar_mode`), the " ..
-    "standard library of the binary and a build over given sources, which the pipeline's own tests are the callers of")
+  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.over",
+}, "the build's compile with the new checker: the mode and the tool string the harness chooses (`build.grammar_mode`) and a " ..
+    "build over given sources, which the pipeline's own tests are the callers of")
 
 allow({ "build.pipeline.project", "build.reboot.settled_by" }, "tested directly: the options of a project given the texts " ..
     "of the declarations (a worker's store holds none of the tool's), and the `compiled_by` a tool settled for a mode, which " ..

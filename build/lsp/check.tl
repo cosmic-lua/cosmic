@@ -39,9 +39,13 @@
 --- its last check, with no module served dropped since, publishes what
 --- it published then.
 
+local Driver = require("build.driver")
+local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Pipeline = require("build.pipeline")
 local Template = require("cosmic.template")
+local TreeProgram = require("build.tree_program")
 local analysis_schema = require("build.analysis_schema")
 local graph = require("build.lsp.graph")
 local identity = require("build.identity")
@@ -53,6 +57,7 @@ local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
 local source = require("build.lsp.source")
 local splice = require("build.lsp.splice")
+local syntax_read = require("build.lsp.syntax_read")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
@@ -81,8 +86,14 @@ local record check
   record Checker
     root: string
     source: source.View
+    --- The checker the session checks with: the fork's (`teal`), or the new one's (`new`), which reads and checks a text in
+    --- the new grammar ([`build.grammar_mode`]).
+    grammar: GrammarMode.Mode
+    --- The fork's compiler, which the new grammar reads no text with either: it stages the tree ([`source.refresh`]).
     built: compiler | nil
     env: compiler.Env | nil
+    --- What the new checker is made over besides the document: the declarations of the standard library the tool carries.
+    options: Pipeline.Options | nil
     --- The types the checker reports of the document it checks, which
     --- [`build.contracts`] reads.
     typed: receivers.State | nil
@@ -111,13 +122,17 @@ end
 local type Checker = check.Checker
 local type Document = check.Document
 
---- A checker of the tree at `root`, made ready on its first check.
-function check.new(root: string, err: function(line: string), hints: importer.Hints): Checker
+--- A checker of the tree at `root`, made ready on its first check, that checks with the checker `grammar` names: the one
+--- `COSMIC_GRAMMAR` asks for where none is given.
+function check.new(root: string, err: function(line: string), hints: importer.Hints, grammar?: GrammarMode.Mode): Checker
+  local view = source.new(root, err, grammar)
   return {
     root = root,
-    source = source.new(root, err),
+    source = view,
+    grammar = view.grammar,
     built = nil,
     env = nil,
+    options = nil,
     typed = nil,
     base_globals = {},
     served = {},
@@ -223,11 +238,21 @@ function check.open_files(checker: Checker): source.Open
   end
 end
 
---- The checker and its environment, made on first use.
+--- The fork's compiler, made on first use. A session of the new grammar holds it to stage the tree
+--- ([`source.refresh`]) and to read nothing with.
+local function compiler_of(checker: Checker): compiler
+  local held = checker.built
+  if held ~= nil then return held end
+  local loaded = assert(teal.load())
+  checker.built = loaded
+  return loaded
+end
+
+--- The fork's checker and its environment, made on first use.
 local function prepared(checker: Checker): compiler, compiler.Env
   local built, env = checker.built, checker.env
   if built ~= nil and env ~= nil then return built, env end
-  local loaded = assert(teal.load())
+  local loaded = compiler_of(checker)
   local open = check.open_files(checker)
   loaded.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
     local listed = checker.source.modules[name] ~= nil
@@ -256,8 +281,10 @@ local function prepared(checker: Checker): compiler, compiler.Env
   return loaded, made
 end
 
---- The checker, made on first use.
+--- The fork's compiler, made on first use: the checker of a session of the fork's grammar, and what stages the tree of one of
+--- the new.
 function check.compiler(checker: Checker): compiler
+  if checker.grammar == "new" then return compiler_of(checker) end
   local built, _ = prepared(checker)
   return built
 end
@@ -270,12 +297,18 @@ end
 --- check declared a global, the document's own or a module's. The
 --- `cosmic.*` modules the binary serves stay, which is most of what a
 --- check costs.
-local function refresh(checker: Checker, env: compiler.Env)
+---
+--- A session of the new grammar has no environment (`env` is nil): each check is made over a program of its own
+--- ([`program_of`]), which holds no global an earlier text declared, so a module served is dropped only when it would
+--- now be served otherwise.
+local function refresh(checker: Checker, env: compiler.Env | nil)
   local stale = false
-  for name in pairs(env.globals) do
-    if checker.base_globals[name] ~= true then
-      env.globals[name] = nil
-      stale = true
+  if env ~= nil then
+    for name in pairs(env.globals) do
+      if checker.base_globals[name] ~= true then
+        env.globals[name] = nil
+        stale = true
+      end
     end
   end
   local open = check.open_files(checker)
@@ -284,9 +317,11 @@ local function refresh(checker: Checker, env: compiler.Env)
     if source.key(checker.source, name, open) ~= key then stale = true end
   end
   if not stale then return end
-  for name in pairs(checker.served) do
-    env.modules[name] = nil
-    env.module_filenames[name] = nil
+  if env ~= nil then
+    for name in pairs(checker.served) do
+      env.modules[name] = nil
+      env.module_filenames[name] = nil
+    end
   end
   checker.served = {}
   checker.epoch = checker.epoch + 1
@@ -340,15 +375,88 @@ local function remember(checker: Checker, document: Document, sites: {plan.Site}
   document.requires = names
 end
 
---- Checks `document` in `env`, as a build checks it.
-local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
+--- The options of the new checker's program: the declarations of the standard library the tool carries, and no ceiling,
+--- so that every error of the checker refuses, as `cosmic lsp` refuses every error of the fork's.
+local function options_of(checker: Checker): Pipeline.Options
+  local held = checker.options
+  if held ~= nil then return held end
+  local made, trouble = Pipeline.alone()
+  if made == nil then error(trouble, 0) end
+  checker.options = made
+  return made
+end
+
+--- What answers the new checker for a module a `require` names: the working database's, or an open document's, as the fork's
+--- `search_module` answers it ([`source.served`]), or the binary's own `cosmic.*` modules. The modules the stage lists are
+--- read in the fork's Teal where they are, translated as a build translates them, and never checked: what a `require` reads
+--- is their type.
+local function provider_of(checker: Checker, built: compiler): Driver.Provider
+  local open = check.open_files(checker)
+  local carried = Pipeline.carried()
+  local listed = Driver.standard(function(module: string): string | nil
+    local found = source.served(checker.source, built, module, open)
+    if found == nil then return nil end
+    checker.served[module] = found.key
+    return found.text
+  end, true, function(module: string): boolean
+    local named = checker.source.modules[module]
+    return named ~= nil and named.kind == "decl"
+  end)
+  return function(module: string): Driver.Source | nil
+    if checker.source.modules[module] ~= nil then
+      local made = listed(module)
+      if made == nil then checker.served[module] = source.key(checker.source, module, open) end
+      return made
+    end
+    local standard = carried(module)
+    if standard == nil then checker.served[module] = "" end
+    return standard
+  end
+end
+
+--- A program of the new checker over the document `text`, the file `name`, the module `path` of `kind`, with the modules it
+--- requires served ([`provider_of`]).
+--
+-- TODO: hold one program for the session and put the document's text in it with [`Driver.Build.replace`], with the modules
+-- the stage lists served as stubs, once [`build.lsp.check`] is rebuilt on the driver (the next piece of the `cosmic lsp` port,
+-- doc/plans/strict-teal.md, "the switch"): a program made for each check lowers the library's declarations again each time. A check
+-- of a 17-line document that requires cosmic.fs and cosmic.json takes ~350 ms in the new grammar (the fork's ~7 ms), ~150 ms of it
+-- the program lowering the globals (~70 ms) and the two modules; the stubs and `replace` of the next piece take it to ~70 ms.
+local function program_of(checker: Checker, built: compiler, name: string, text: string, path: string,
+                          kind: string): Pipeline.Built
+  local options = options_of(checker)
+  local provider = provider_of(checker, built)
+  local index = Driver.index({ { name, text, path } }, false, function(_: string): boolean
+    return false
+  end,
+    function(_: string, _: string): Driver.Extra return { tests = kind == "test", mend = nil } end)
+  return {
+    build = TreeProgram.build(index, options.globals, true, nil, provider),
+    ceilings = options.ceilings, index = index, globals = options.globals, standard = provider, types = true,
+    given = {}, stubs = nil, stubbed = nil,
+  }
+end
+
+--- What a build refuses of `text` before it checks it ([`plan.of`]), as the checker of the session reads it.
+local function planned_of(checker: Checker, built: compiler, name: string, text: string, path: string, kind: string,
+                          own_tree: boolean, generated: boolean): plan.Planned
+  if checker.grammar == "new" then
+    return syntax_read.plan_of(name, text, path, kind, own_tree, generated)
+  end
+  return plan.of(built, name, text, path, kind, own_tree, generated)
+end
+
+--- Checks `document` in `env`, as a build checks it; in the new grammar `env` is nil, and a program of the new checker
+--- ([`program_of`]) is the environment.
+local function checked_of(checker: Checker, built: compiler, env: compiler.Env | nil,
                           document: Document): Checked
   local none: {shape_specs.Splice} = {}
   local found: {compiler.Error} = {}
   local generated = document.name:match("%.tmpl$") ~= nil
   local text = document.text
   if generated then
-    local compiled, trouble = Template.compile(document.text, document.name)
+    -- A project is held to the new grammar with no ceiling to excuse the fork's: a template of the new checker writes it.
+    local compiled, trouble = Template.compile(document.text, document.name, { dialects = nil, new_grammar = checker.grammar == "new" })
     if compiled == nil then
       return { errors = found, refusals = { plan.refusal_of(trouble) }, source = text, text = text,
         splices = none, refused = {}, generated = false }
@@ -366,7 +474,7 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
   local listed = source.module(checker.source, document.name)
   if listed ~= nil then path, kind = listed.path, listed.kind end
   local own_tree = source.own_tree(checker.source)
-  local planned = plan.of(built, document.name, text, path, kind, own_tree, generated)
+  local planned = planned_of(checker, built, document.name, text, path, kind, own_tree, generated)
   remember(checker, document, planned.requires)
   local refusals = planned.refusals
   local subject = planned.plan
@@ -379,7 +487,28 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
     if #placed > 0 then return checked(placed, text, none, {}) end
   end
   if planned.halted then return checked(refusals, text, none, {}) end
-  local resolution = splice.found(built, env, document.name, text, path, checker.source.tally)
+  if checker.grammar == "new" then
+    -- A text that does not parse halts the plan, so there is one here.
+    local program = program_of(checker, built, document.name, text, path, kind)
+    local tally = checker.source.tally
+    local resolution = syntax_read.splices(program.build, document.name, text, path, function()
+      tally.whole_splices = tally.whole_splices + 1
+    end)
+    if resolution.refusal ~= "" then
+      local refused = plan.refusal_of(resolution.refusal)
+      refusals[#refusals + 1] = { line = resolution.line, column = refused.column, message = refused.message }
+      return checked(refusals, text, none, {})
+    end
+    local splices = resolution.splices
+    local spliced = syntax_read.applied(text, splices)
+    -- The program splices the same calls again when it writes the module ([`Pipeline.generate`]), to the same text.
+    local compiled = syntax_read.generated(assert(subject), program, checker.hints, planned.requires,
+      function(name: string): boolean return checker.source.modules[name] ~= nil end)
+    for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
+    return checked(refusals, spliced, splices, {})
+  end
+  local fork = assert(env, "the fork's checker has no environment")
+  local resolution = splice.found(built, fork, document.name, text, path, checker.source.tally)
   if resolution.refusal ~= "" then
     local refused = plan.refusal_of(resolution.refusal)
     refused.line = resolution.line
@@ -390,9 +519,9 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env,
   local spliced = shape_specs.spliced(text, splices)
   local result: compiler.Result | nil = nil
   if subject == nil or subject.kind == "decl" then
-    result = built.check_string(spliced, env, document.name, "tl")
+    result = built.check_string(spliced, fork, document.name, "tl")
   else
-    local compiled = plan.compiled(subject, built, env, assert(checker.typed), own_tree, spliced)
+    local compiled = plan.compiled(subject, built, fork, assert(checker.typed), own_tree, spliced)
     result = compiled.result
     for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
   end
@@ -419,7 +548,12 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     document.published = none
     return none
   end
-  local built, env = prepared(checker)
+  local built = compiler_of(checker)
+  local env: compiler.Env | nil = nil
+  if checker.grammar ~= "new" then
+    local _, made = prepared(checker)
+    env = made
+  end
   local outside = source.outside(checker.source)
   source.refresh(checker.source, built)
   if source.outside(checker.source) or apart(checker, document.name) then
@@ -442,13 +576,16 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   -- What the check adds to `loaded` is dropped after it, its results'
   -- trees with it: a module's type stays in `modules`, which is what a
   -- later check reads, and a text read again is checked again.
-  local order = env.loaded_order
+  local order: {string} = {}
+  if env ~= nil then order = env.loaded_order end
   local before = #order
   local ok, outcome = pcall(checked_of, checker, built, env, document)
-  for i = #order, before + 1, -1 do
-    local name = order[i]
-    if name ~= nil then env.loaded[name] = nil end
-    table.remove(order, i)
+  if env ~= nil then
+    for i = #order, before + 1, -1 do
+      local name = order[i]
+      if name ~= nil then env.loaded[name] = nil end
+      table.remove(order, i)
+    end
   end
   if not ok then error(tostring(outcome), 0) end
   local checked: Checked = outcome

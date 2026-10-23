@@ -92,6 +92,19 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
   end
 end
 
+--- A `COSMIC_GRAMMAR` that names no checker stops the verb, naming the ones there are: it is not read as the fork's.
+local function test_a_grammar_that_is_none_stops_the_server_and_names_the_ones_there_are(tmp: string)
+  local env = this_program.environment()
+  env["COSMIC_GRAMMAR"] = "bogus"
+  local started = this_program.program({ "lsp" }, { cwd = tmp, env = env, stdout = "capture", stderr = "capture",
+    input = initialize(tmp) .. SHUTDOWN .. EXIT, timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 1 and (result.stdout or "") == "", tostring(result.code) .. " " .. (result.stderr or ""))
+  local said = result.stderr or ""
+  assert(said:find("COSMIC_GRAMMAR=bogus", 1, true) ~= nil and said:find("`teal`", 1, true) ~= nil and
+      said:find("`new`", 1, true) ~= nil, said)
+end
+
 local function test_one_editor_over_standard_input_and_output(tmp: string)
   local ran = cosmic(tmp, { "lsp" }, initialize(tmp) .. SHUTDOWN .. EXIT)
   assert(ran.code == 0, ran.err)
