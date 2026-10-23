@@ -11,6 +11,7 @@ local Programs = require("lang.scopes_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+local Truthy = require("lang.truthy")
 local compile = require("build.compile")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
@@ -383,7 +384,7 @@ local function agrees(input: string): boolean, string
     Fuzz.label("refused by the fork")
     return true, ""
   end
-  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "p.tl", {}), Translate.never_false)
+  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "p.tl", {}), Truthy.never_false)
   if #ours.errors > 0 then
     return false, "the generator refused: " .. ours.errors[1].msg
   end

@@ -1870,6 +1870,8 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(not Fs.exists(placed), "the earlier fixture's placement was kept")
 end
 
+local type Orch = require("cosmic_ci.orchestration")
+
 --- A bound for a group that should end at once: only a hang reaches it.
 local lane_hang_guard = Clock.seconds(20)
 
@@ -1878,8 +1880,8 @@ local lane_hang_guard = Clock.seconds(20)
 local record LaneRig
   events: {string}
   sink: integer
-  group: function(name: string, script: string, timeout_ns?: integer): Orchestration.Group
-  serial: function(name: string, status: integer): Orchestration.Group
+  group: function(name: string, script: string, timeout_ns?: integer): Orch.Group
+  serial: function(name: string, status: integer): Orch.Group
 end
 
 local function lane_rig(tmp: string): LaneRig
@@ -1890,7 +1892,7 @@ local function lane_rig(tmp: string): LaneRig
   local c: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   local rig: LaneRig = { events = {}, sink = assert(Fs.open_write(tmp .. "/sink")) } as LaneRig
-  rig.group = function(name: string, script: string, timeout_ns?: integer): Orchestration.Group
+  rig.group = function(name: string, script: string, timeout_ns?: integer): Orch.Group
     local out, err = tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"
     return {
       name = name,
@@ -1914,13 +1916,18 @@ local function lane_rig(tmp: string): LaneRig
       end,
     }
   end
-  rig.serial = function(name: string, status: integer): Orchestration.Group
+  rig.serial = function(name: string, status: integer): Orch.Group
     local group = rig.group(name, "exit 0")
-    group.run = function(): integer
-      table.insert(rig.events, "run:" .. name)
-      return status
-    end
-    return group
+    return {
+      name = name,
+      run = function(): integer
+        table.insert(rig.events, "run:" .. name)
+        return status
+      end,
+      start = group.start,
+      finish = group.finish,
+      abandon = group.abandon,
+    }
   end
   return rig
 end

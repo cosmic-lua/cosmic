@@ -4,25 +4,13 @@
 # how many errors of that code the file has. The rewrites that bring the
 # tree to the grammar remove them, and a pin falls as its form does; none
 # is raised. The counts outside [`checker/tl.tl`] (the fork, which goes) are
-# the grammar draft's: `goto` 5 and its 5 labels, `;` 1, long comments 27 and
-# `_` in a number 4; its one hexadecimal float is written in decimal.
-build/declared_key.tl label_or_goto 2
-
-build/fuzz/init.tl label_or_goto 2
-
-build/json_query.tl label_or_goto 2
-
-build/test.tl label_or_goto 2
-
+# the grammar draft's: long comments 27 and `_` in a number 4; its `goto` and
+# its labels, its `;` and its one hexadecimal float are written out.
 checker/stdlib.d.tl long_comment 27
 
 checker/tl.tl long_comment 1
 
 checker/tl.tl semicolon 1
-
-ci/cosmic_ci/orchestration.tl semicolon 1
-
-cosmic/internal/relay_server.tl label_or_goto 2
 
 cosmic/removed_example.tl digit_separator 2
 
@@ -37,8 +25,6 @@ test/digit_separators_test.tl digit_separator 2
 # the tree's apart from [`checker/tl.tl`], the fork, which goes.
 # a tuple type `{A, B}`, which the draft counts once, in the tour: write a record with a field for each
 # position, or `{A | B}` for an array of either. What is left is the example that teaches the form
-ci/cosmic_ci/orchestration.tl tuple_type 1
-
 cosmic/removed_example.tl tuple_type 1
 
 # `where`, `is userdata`, `userdata` as a type and a record that implements an array and an interface: the
@@ -79,10 +65,6 @@ cosmic/removed_example.tl unknown_type 2
 lang/ast.tl unknown_type 72
 
 lang/types.tl unknown_type 7
-
-# the fork finds `Orchestration` for the type `Orchestration.Group` of a record field in the local of a function
-# that uses the record: declare `local type Orchestration = require("cosmic_ci.orchestration")` above the record
-ci/cosmic_ci/orchestration_test.tl unknown_type 2
 
 # a local that names a type of a module (`local Seatbelt = Rules.Seatbelt`), used as the head of a type:
 # write `local type Seatbelt = Rules.Seatbelt` (the TODO of `scoped` in build/tree_checks.tl)
@@ -286,11 +268,7 @@ cosmic/json_reader_test.tl interface_disagrees 1
 
 cosmic/net.tl interface_disagrees 2
 
-cosmic/signal.tl interface_disagrees 3
-
 cosmic/stream.tl interface_disagrees 5
-
-cosmic/stream_test.tl interface_disagrees 9
 
 cosmic/tar.tl interface_disagrees 4
 
@@ -319,11 +297,11 @@ cosmic/poll.tl thread_type 3
 [hazards]
 # How many places the translator rewrites that may change what a program means: methods moved into a class that then
 # read another name than they did (a local declared between the record and the method, which the class cannot see or
-# which hides an earlier one) or give other types than the field that declared them (43), and fields that a record is
-# given `mut` on, declared or inherited, which an interface of another file declares without it (12). A ceiling that
-# only falls: hoist the local above the record, or rename it, make the types agree, and give the interface the `mut`,
-# in Teal.
-methods 13
+# which hides an earlier one) or give other types than the field that declared them, and fields that a record is
+# given `mut` on, declared or inherited, which an interface of another file declares without it. The tree has none, and
+# the ceiling stays at zero, so a row `methods <count>` would be a raise: hoist the local above the record, or rename it,
+# make the types agree, and write the interface's fields as methods or build the object with the field set in its
+# literal, in Teal.
 
 [generated]
 # The lines of the Lua of a file that differ from the fork's; none but the three files below, whose class the translator
@@ -341,6 +319,13 @@ cosmic/poll.tl 112
 # function of a record does; the fork leaves the body empty, since it does not mark a local function `never`. The
 # stub is read by no one but the stdlib's own, which has no such function, so the port keeps the right body.
 build/flow.tl 1
+
+# The catalog of the messages a function answers with ([`build.syntax_analyzer`]) holds a `return nil, ...` or a
+# `return false, ...`, and the fork's also holds the `return true, ...` of a function that answers true for what it
+# cannot read: the five of `Orchestration.harness_moved`, which the port leaves out, as a success is no failure.
+#
+# TODO: decide, once the switch deletes the fork's analyzer, whether such a `return true, ...` is cataloged.
+ci/cosmic_ci/orchestration.tl 1
 
 [typed]
 # How many uses of a record's fields ([`build.syntax_receivers`]) the port finds in a file that the fork's build did not: only
@@ -1055,7 +1040,11 @@ checker/facts.tl setmetatable_call 2
 
 ci/cosmic_ci/fuzz_test.tl setmetatable_call 1
 
+ci/cosmic_ci/orchestration.tl condition_type 6
+
 ci/cosmic_ci/rehearsal.tl condition_type 2
+
+ci/cosmic_ci/orchestration.tl field_fixed 1
 
 ci/cosmic_ci/rehearsal.tl field_fixed 1
 
@@ -1063,15 +1052,21 @@ build/fix/read_memo_test.tl nil_not_allowed 8
 
 build/key_parts.tl nil_not_allowed 1
 
+ci/cosmic_ci/orchestration.tl nil_not_allowed 8
+
 ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
 
 build/progress.tl overload_none 1
 
 build/pipeline_check.tl overload_none 1
 
+ci/cosmic_ci/orchestration.tl overload_none 3
+
 ci/cosmic_ci/rehearsal.tl overload_none 1
 
 build/shape_key.tl view_written 2
+
+ci/cosmic_ci/orchestration.tl view_written 28
 
 ci/cosmic_ci/rehearsal.tl view_written 13
 
@@ -1192,6 +1187,8 @@ build/standalone.tl unchecked_binding 1
 build/teal_test.tl unchecked_binding 2
 
 build/test_worker.tl unchecked_binding 1
+
+ci/cosmic_ci/orchestration.tl unchecked_binding 2
 
 cmd/cosmic/main.tl unchecked_binding 1
 
@@ -2450,6 +2447,8 @@ lang/translate_fuzz_test.tl nil_not_allowed 5
 
 lang/translate_test.tl nil_not_allowed 26
 
+lang/truthy_test.tl nil_not_allowed 1
+
 lang/types.tl nil_not_allowed 43
 
 lang/types_programs.tl nil_not_allowed 5
@@ -2982,6 +2981,8 @@ ci/cosmic_ci/github_fake.tl index_may_be_nil 1
 ci/cosmic_ci/github_test.tl index_may_be_nil 7
 
 ci/cosmic_ci/host_id.tl index_may_be_nil 4
+
+ci/cosmic_ci/orchestration.tl index_may_be_nil 1
 
 ci/cosmic_ci/place_tree_test.tl index_may_be_nil 1
 
@@ -5050,6 +5051,8 @@ ci/cosmic_ci/cache_trim.tl view_as_mut 1
 
 ci/cosmic_ci/changed_paths_test.tl view_as_mut 1
 
+ci/cosmic_ci/orchestration.tl view_as_mut 2
+
 ci/cosmic_ci/process_test.tl view_as_mut 2
 
 ci/cosmic_ci/queue_stage.tl view_as_mut 1
@@ -5806,7 +5809,7 @@ lang/scopes.tl field_fixed 19
 
 lang/syntax_codes.tl field_fixed 1
 
-lang/translate.tl field_fixed 3
+lang/translate.tl field_fixed 2
 
 lang/types.tl field_fixed 4
 
@@ -5821,8 +5824,6 @@ test/terminal/pty.tl field_fixed 6
 test/terminal/relay.tl field_fixed 2
 
 build/tree_writer.tl field_fixed 6
-
-build/tree_writer_test.tl field_fixed 1
 
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the fork's standard library the
@@ -5885,8 +5886,6 @@ cosmic/poll_test.tl field_unknown 1
 
 cosmic/stream.tl field_unknown 2
 
-cosmic/stream_test.tl field_unknown 26
-
 lang/ast.tl field_unknown 3
 
 lang/check.tl field_unknown 837
@@ -5937,7 +5936,11 @@ lang/scopes_fuzz_test.tl field_unknown 54
 
 lang/scopes_test.tl field_unknown 5
 
-lang/translate.tl field_unknown 255
+lang/translate.tl field_unknown 242
+
+lang/truthy.tl field_unknown 15
+
+lang/truthy_test.tl field_unknown 2
 
 lang/types.tl field_unknown 169
 
@@ -6296,6 +6299,8 @@ ci/cosmic_ci/images_test.tl map_field 36
 
 ci/cosmic_ci/launcher_fixture.tl map_field 1
 
+ci/cosmic_ci/orchestration.tl map_field 52
+
 ci/cosmic_ci/orchestration_test.tl map_field 117
 
 ci/cosmic_ci/place_tree.tl map_field 5
@@ -6538,7 +6543,7 @@ cosmic/stream.tl map_field 3
 
 cosmic/stream_fd_test.tl map_field 18
 
-cosmic/stream_test.tl map_field 49
+cosmic/stream_test.tl map_field 46
 
 cosmic/tar_test.tl map_field 6
 
@@ -7347,6 +7352,8 @@ build/zig_test.tl return_arity 1
 
 ci/cosmic_ci/github_fake.tl return_arity 5
 
+ci/cosmic_ci/orchestration.tl return_arity 1
+
 ci/cosmic_ci/prerelease_test.tl return_arity 23
 
 ci/cosmic_ci/runner_test.tl return_arity 2
@@ -7517,6 +7524,8 @@ ci/cosmic_ci/fuzz.tl any_use 2
 ci/cosmic_ci/fuzz_test.tl any_use 1
 
 ci/cosmic_ci/github.tl any_use 1
+
+ci/cosmic_ci/orchestration.tl any_use 1
 
 ci/cosmic_ci/prerelease.tl any_use 1
 
@@ -8004,6 +8013,8 @@ ci/cosmic_ci/github_fake.tl cast_refused 2
 ci/cosmic_ci/github_test.tl cast_refused 4
 
 ci/cosmic_ci/host_id_test.tl cast_refused 1
+
+ci/cosmic_ci/orchestration.tl cast_refused 1
 
 ci/cosmic_ci/orchestration_test.tl cast_refused 15
 
@@ -9737,6 +9748,8 @@ ci/cosmic_ci/host_id.tl or_mix 1
 
 ci/cosmic_ci/images_test.tl or_mix 2
 
+ci/cosmic_ci/orchestration.tl or_mix 1
+
 ci/cosmic_ci/orchestration_test.tl or_mix 9
 
 ci/cosmic_ci/place_tree.tl or_mix 1
@@ -10456,6 +10469,8 @@ ci/cosmic_ci/github_test.tl and_ternary 1
 
 ci/cosmic_ci/host_id.tl and_ternary 2
 
+ci/cosmic_ci/orchestration.tl and_ternary 6
+
 ci/cosmic_ci/orchestration_test.tl and_ternary 3
 
 ci/cosmic_ci/plural.tl and_ternary 1
@@ -11154,6 +11169,8 @@ ci/cosmic_ci/github_api.tl concat_type 7
 ci/cosmic_ci/github_api_test.tl concat_type 5
 
 ci/cosmic_ci/host_id_test.tl concat_type 1
+
+ci/cosmic_ci/orchestration.tl concat_type 6
 
 ci/cosmic_ci/orchestration_test.tl concat_type 9
 
@@ -12073,6 +12090,8 @@ ci/cosmic_ci/github_fake.tl literal_missing 1
 
 ci/cosmic_ci/host_id_test.tl literal_missing 1
 
+ci/cosmic_ci/orchestration.tl literal_missing 9
+
 ci/cosmic_ci/orchestration_test.tl literal_missing 1
 
 ci/cosmic_ci/prerelease_test.tl literal_missing 3
@@ -12223,7 +12242,7 @@ cosmic/sqlite.tl literal_missing 2
 
 cosmic/stream.tl literal_missing 6
 
-cosmic/stream_test.tl literal_missing 6
+cosmic/stream_test.tl literal_missing 3
 
 cosmic/tar.tl literal_missing 4
 

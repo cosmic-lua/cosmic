@@ -13,6 +13,7 @@ local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+local Truthy = require("lang.truthy")
 local compile = require("build.compile")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
@@ -42,7 +43,7 @@ local function same(...: string)
   local made = Translate.translate(source, "t.tl")
   assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg .. "\n" .. made.text or "")
   -- The translator writes an `if` expression only where the value is never false, which is what it tells the generator.
-  local ours = generated(made.text, Translate.never_false)
+  local ours = generated(made.text, Truthy.never_false)
   assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
   local theirs = assert(compile.lua(fork(), "t.tl", source))
   assert(Codegen.compared(ours.text) == Codegen.compared(theirs),
@@ -63,7 +64,7 @@ end
 local function run_teal(source: string): any, any, any, any
   local made = Translate.translate(source, "t.tl")
   assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg or "")
-  return run(made.text, Translate.never_false)
+  return run(made.text, Truthy.never_false)
 end
 
 --- Lines as one source.
@@ -948,7 +949,7 @@ local function apart_from_classes(source: string): string, string, Translate.Res
   assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg .. "\n" .. made.text or "")
   local parsed = Parser.parse(Lexer.lex(made.text, "t.tl"), "t.tl", "tl")
   assert(#parsed.errors == 0)
-  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Translate.never_false)
+  local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Truthy.never_false)
   assert(#ours.errors == 0)
   local theirs = assert(compile.lua(fork(), "t.tl", source))
   return Codegen.without_classes(ours.text, parsed.chunk), Codegen.fork_without_classes(theirs, parsed.chunk, made.metatables), made

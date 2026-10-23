@@ -4235,35 +4235,34 @@ local function look_up_verdicts(ctx: Run)
       local id = m.path .. " " .. name
       if unmet ~= nil then
         settle_unmet(rec, m, name, id, unmet, assert(ctx.limits))
-        goto continue
-      end
-      -- A test is keyed by what it is given, and runs unless a verdict
-      -- under that key passed, here or in another checkout -- or it is
-      -- forced, by --all or COSMIC_TEST_ALL, or reaches a
-      -- network beyond loopback, which no key holds. None is assumed.
-      local key = declared_of(rec, m, id)
-      if key ~= nil then keyed_count = keyed_count + 1 end
-      local own = key ~= nil and verdicts[key] or nil
-      local elsewhere: shared_verdicts.Found | nil = nil
-      local rec_shared = rec.shared
-      if key ~= nil and not forced and own == nil and consult and rec_shared ~= nil then
-        local answer, trouble = shared_verdicts.declared(rec_shared, key)
-        if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
-        elsewhere = answer
-        looked[id], looked_count = true, looked_count + 1
-        if previous[id] then ran_here = ran_here + 1 end
-        if answer ~= nil then found_count = found_count + 1 end
-      end
-      if key == nil or forced or (own ~= nil and not own.passed) or
-          (own == nil and elsewhere == nil) then
-        jobs[#jobs + 1] = { m = m, name = name, id = id, declared = key }
-      elseif own ~= nil then
-        rec.shared_keys[key] = key
-        stand(rec, credited, m, name, id, own, assert(key))
       else
-        share(rec, m, name, id, assert(key), assert(elsewhere))
+        -- A test is keyed by what it is given, and runs unless a verdict
+        -- under that key passed, here or in another checkout -- or it is
+        -- forced, by --all or COSMIC_TEST_ALL, or reaches a
+        -- network beyond loopback, which no key holds. None is assumed.
+        local key = declared_of(rec, m, id)
+        if key ~= nil then keyed_count = keyed_count + 1 end
+        local own = key ~= nil and verdicts[key] or nil
+        local elsewhere: shared_verdicts.Found | nil = nil
+        local rec_shared = rec.shared
+        if key ~= nil and not forced and own == nil and consult and rec_shared ~= nil then
+          local answer, trouble = shared_verdicts.declared(rec_shared, key)
+          if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
+          elsewhere = answer
+          looked[id], looked_count = true, looked_count + 1
+          if previous[id] then ran_here = ran_here + 1 end
+          if answer ~= nil then found_count = found_count + 1 end
+        end
+        if key == nil or forced or (own ~= nil and not own.passed) or
+            (own == nil and elsewhere == nil) then
+          jobs[#jobs + 1] = { m = m, name = name, id = id, declared = key }
+        elseif own ~= nil then
+          rec.shared_keys[key] = key
+          stand(rec, credited, m, name, id, own, assert(key))
+        else
+          share(rec, m, name, id, assert(key), assert(elsewhere))
+        end
       end
-      ::continue::
     end
   end
   -- The digests the run's keys hold, which each row it keeps in the

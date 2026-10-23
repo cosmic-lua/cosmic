@@ -138,7 +138,7 @@ end
 
 local draining_reader_mt: metatable<DrainingReader> = { __index = DrainingReader }
 
-function DrainingReader:next(): Archive.Entry | nil, string
+function DrainingReader:next(): Stream.ArchiveEntry | nil, string
   local e, trouble = self.tr:next()
   if e ~= nil then return e, "" end
   if trouble ~= "" then return nil, trouble end
