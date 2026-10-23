@@ -889,6 +889,10 @@ local doing: {string:string} = {
   remake = "is making its working database again",
 }
 
+-- TODO: once ci/cosmic-driver.pin names a release that carries the 15 s
+-- reminder below, `bin/zig build boot` says it as `cosmic test` does;
+-- until then a boot says it every five minutes, whatever this file holds.
+
 --- How long a waiting boot waits in one go before it says it still is.
 local reminder_ns <const> = Clock.seconds(15)
 
