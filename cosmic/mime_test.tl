@@ -50,3 +50,8 @@ local function test_scripted_names_the_types_a_browser_runs_script_from()
     assert(not Mime.scripted(kind), kind)
   end
 end
+
+local function test_scripted_ignores_whitespace_before_the_type()
+  assert(Mime.scripted(" image/svg+xml"))
+  assert(Mime.scripted("\t text/xml ; charset=utf-8"))
+end

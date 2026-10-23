@@ -63,11 +63,12 @@ end
 --- Whether a file of `content_type` can carry script a browser runs when it
 --- is opened as a page: SVG, XML (an XSLT stylesheet or an inline XHTML
 --- namespace runs script) and XHTML. A server sends such a file under a
---- `Content-Security-Policy: sandbox`.
+--- `Content-Security-Policy: sandbox`. Case and the whitespace around the
+--- type are ignored, as a browser ignores them.
 --- @param content_type string A Content-Type, with or without parameters
 --- @return boolean Whether the type needs the sandbox
 function Mime.scripted(content_type: string): boolean
-  local kind = content_type:match("^[^;]*"):lower():gsub("%s+$", "")
+  local kind = content_type:match("^%s*([^;]*)"):lower():gsub("%s+$", "")
   return kind == "image/svg+xml" or kind == "application/xml" or kind == "text/xml" or
     kind == "application/xhtml+xml"
 end
