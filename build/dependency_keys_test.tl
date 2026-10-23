@@ -1,8 +1,9 @@
 --- [`compilation.dependency_keys`] after an edit makes the keys of only the
 --- modules that reach what it changed, and they are the keys a build that
 --- kept nothing makes ([`compilation.full_keys`]), whatever the edit:
---- a body or a comment, what a module requires, a declaration that
---- joins or leaves a module, the file a module is in, the compiler.
+--- a body or a comment, what a module requires (in a cycle too), a
+--- declaration that joins or leaves a module, the file a module is in, a
+--- module added, removed or renamed, the compiler.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compilation = require("build.compilation")
@@ -14,10 +15,10 @@ Test.policy{ grants = { { path = "core", letters = "r" } } }
 
 local built = assert(teal.load())
 
---- How many modules the tree has, and the bit of `edges` that is a module of
---- the standard library, which each may require beside those before it.
+--- How many modules the tree can have, and the bit of `edges` that is a module of
+--- the standard library, which each may require beside the others.
 local count <const> = 14
-local library <const> = 14
+local library <const> = 15
 
 --- A deterministic source of choices, so that a failure names the same edit
 --- on every run: `choose(n)` is in 1 to `n`.
@@ -30,12 +31,13 @@ local function choose(chooser: Chooser, limit: integer): integer
   return chooser.state // 65536 % limit + 1
 end
 
---- The source of module `index`: a require of each module before it whose bit
---- `edges` holds, of the standard library's where the last bit is, and a
---- comment `salt` names, which an edit that moves no edge changes.
+--- The source of module `index`: a require of each module whose bit `edges`
+--- holds (any other, those after it too, so that the requires make cycles, and
+--- itself), of the standard library's where the last bit is, and a comment
+--- `salt` names, which an edit that moves no edge changes.
 local function source_of(index: integer, edges: integer, salt: integer): string
   local text = ""
-  for other = 1, index - 1 do
+  for other = 1, library - 1 do
     if (edges >> (other - 1)) & 1 == 1 then
       text = text .. "local r" .. tostring(other) .. " = require(\"m" .. tostring(other) .. "\")\n"
     end
@@ -60,6 +62,7 @@ local function differing(root: string, tool: string): string
   local full = assert(compilation.full_keys(handle.db, modules, tool))
   work.close(handle)
   local trouble = ""
+  if #modules == 0 then trouble = "no module " end
   for _, m in ipairs(modules) do
     local a, b = kept[m.path], full[m.path]
     if a == nil or b == nil or a.key ~= b.key or a.graph ~= b.graph then
@@ -69,77 +72,152 @@ local function differing(root: string, tool: string): string
   return trouble
 end
 
---- A tree of modules requiring some of those before them, edited in turn: the
---- keys the memo makes agree with those made of nothing at each step.
-local function test_the_keys_made_from_what_changed_are_the_keys_made_of_everything()
+--- What the walk keeps of module `m<index>`: its edges and comment, whether it
+--- stands, whether a declaration stands beside it and whether it is in a
+--- directory of its own. An edit makes another ([`like`]).
+local record Node
+  edges: integer
+  salt: integer
+  present: boolean
+  declared: boolean
+  nested: boolean
+end
+
+--- What an edit changes of a [`Node`]: the fields it names.
+local record Change
+  edges?: integer
+  salt?: integer
+  present?: boolean
+  declared?: boolean
+  nested?: boolean
+end
+
+--- `node` with `change` made, as a node of its own.
+local function like(node: Node, change: Change): Node
+  local present, declared, nested = node.present, node.declared, node.nested
+  if change.present ~= nil then present = change.present end
+  if change.declared ~= nil then declared = change.declared end
+  if change.nested ~= nil then nested = change.nested end
+  return { edges = change.edges or node.edges, salt = change.salt or node.salt,
+    present = present, declared = declared, nested = nested }
+end
+
+--- A tree of modules requiring some of the others, in cycles too, each
+--- required by one that every module requires, edited in turn: a body or a
+--- comment, an edge (a cycle's included), a declaration, the file a module is
+--- in, a module added, removed or renamed, and the compiler. The keys the
+--- memo makes agree with those made of nothing at each step.
+local function walk(seed: integer, steps: integer)
   local root = assert(Fs.mkdtemp("cosmic-dependency-keys-"))
-  local chooser: Chooser = { state = 7 }
-  -- Each module's edges, comment, whether a declaration stands before it and whether it is in
-  -- a directory of its own.
-  local edges: {integer} = {}
-  local salts: {integer} = {}
-  local declared: {boolean} = {}
-  local nested: {boolean} = {}
+  local chooser: Chooser = { state = seed }
+  local nodes: {Node} = {}
+  local function node_at(index: integer): Node
+    return assert(nodes[index])
+  end
+  local function store(index: integer, node: Node)
+    nodes[index] = node
+  end
   for index = 1, count do
-    local held = 0
-    for other = 1, index - 1 do
-      if choose(chooser, 3) == 1 then held = held | (1 << (other - 1)) end
+    -- Every module requires the first, which a comment there reaches them all through.
+    local held = index == 1 and 0 or 1
+    for other = 1, count do
+      if choose(chooser, 4) == 1 then held = held | (1 << (other - 1)) end
     end
     if choose(chooser, 4) == 1 then held = held | (1 << (library - 1)) end
-    edges[index], salts[index], declared[index], nested[index] = held, 0, false, false
+    store(index, { edges = held, salt = 0, present = index <= count - 3, declared = false, nested = false })
   end
   local function path_of(index: integer): string
     local name = "m" .. tostring(index)
-    if nested[index] == true then return root .. "/" .. name .. "/init.tl" end
+    if node_at(index).nested then return root .. "/" .. name .. "/init.tl" end
     return root .. "/" .. name .. ".tl"
   end
+  --- Writes the module's source, with a comment of its own.
   local function write(index: integer)
+    local node = node_at(index)
     assert(Fs.mkdirs(root .. "/m" .. tostring(index)))
-    salts[index] = (salts[index] or 0) + 1
-    assert(Fs.write(path_of(index), source_of(index, edges[index] or 0, salts[index] or 0)))
+    store(index, like(node, { salt = node.salt + 1 }))
+    assert(Fs.write(path_of(index), source_of(index, node.edges, node.salt + 1)))
   end
-  for index = 1, count do write(index) end
+  for index = 1, count do
+    if node_at(index).present then write(index) end
+  end
   assert(differing(root, "tool-one") == "", "the first keys differ")
 
-  chooser.state = 11
-  for step = 1, 24 do
+  for step = 1, steps do
     local index = choose(chooser, count)
+    -- A fourth of the edits are the first module's, which every module reaches.
+    if choose(chooser, 4) == 1 then index = 1 end
     local name = "m" .. tostring(index)
-    local edit = choose(chooser, 6)
+    local node = node_at(index)
+    local edit = choose(chooser, 10)
     local what = "the compiler"
+    if not node.present and (edit <= 5 or edit == 8) then edit = 7 end
     if edit == 1 or edit == 2 then
       what = "a comment in " .. name
       write(index)
-    elseif edit == 3 then
+    elseif edit == 3 or edit == 4 then
       what = "an edge of " .. name
-      -- A module before it, or the standard library's.
-      local bit = choose(chooser, index) - 1
-      if bit == index - 1 then bit = library - 1 end
-      edges[index] = (edges[index] or 0) ~ (1 << bit)
+      -- Another module, itself, or the standard library's.
+      local bit = choose(chooser, library) - 1
+      store(index, like(node, { edges = node.edges ~ (1 << bit) }))
       write(index)
-    elseif edit == 4 then
-      what = "a declaration of " .. name
-      local file = root .. "/" .. name .. ".d.tl"
-      if declared[index] == true then
-        assert(Fs.remove(file))
-      else
-        assert(Fs.write(file, "local record " .. name .. "\n  value: integer\nend\nreturn " .. name .. "\n"))
-      end
-      declared[index] = declared[index] ~= true
     elseif edit == 5 then
       what = "the file of " .. name
       local from = path_of(index)
       local text = assert(Fs.read(from))
       assert(Fs.remove(from))
-      nested[index] = nested[index] ~= true
+      store(index, like(node, { nested = not node.nested }))
       assert(Fs.mkdirs(root .. "/" .. name))
       assert(Fs.write(path_of(index), text))
+    elseif edit == 6 then
+      what = "a declaration of " .. name
+      local file = root .. "/" .. name .. ".d.tl"
+      if node.declared then
+        assert(Fs.remove(file))
+      else
+        assert(Fs.write(file, "local record " .. name .. "\n  value: integer\nend\nreturn " .. name .. "\n"))
+      end
+      store(index, like(node, { declared = not node.declared }))
+    elseif edit == 7 then
+      -- Added, or removed, leaving what requires it with a name that is none.
+      if node.present then
+        what = "the removal of " .. name
+        assert(Fs.remove(path_of(index)))
+        store(index, like(node, { present = false }))
+      else
+        what = "the addition of " .. name
+        store(index, like(node, { present = true }))
+        write(index)
+      end
+    elseif edit == 8 then
+      -- Moved to the name of one that is not there: what required the old
+      -- one now requires none, and what required the new one requires this.
+      local to = choose(chooser, count)
+      local target = node_at(to)
+      assert(Fs.remove(path_of(index)))
+      store(index, like(node, { present = false }))
+      if target.present then
+        what = "the removal of " .. name
+      else
+        what = "the rename of " .. name .. " to m" .. tostring(to)
+        store(to, like(target, { edges = node.edges, present = true }))
+        write(to)
+      end
     end
     local tool = "tool-one"
-    if edit == 6 then tool = "tool-" .. tostring(step) end
+    if edit == 9 then tool = "tool-" .. tostring(step) end
     local trouble = differing(root, tool)
-    assert(trouble == "", "step " .. tostring(step) .. ", " .. what .. ": the keys of " .. trouble .. "differ")
+    assert(trouble == "", "seed " .. tostring(seed) .. " step " .. tostring(step) .. ", " .. what ..
+        ": the keys of " .. trouble .. "differ")
   end
+end
+
+local function test_the_keys_made_from_what_changed_are_the_keys_made_of_everything()
+  walk(11, 60)
+end
+
+local function test_the_keys_made_from_what_changed_are_those_made_of_everything_in_another_walk()
+  walk(2024, 60)
 end
 
 --- Keys kept for one compiler are not another's.
