@@ -1055,7 +1055,7 @@ end
 
 --- What the phases of [`fix_verb`] pass on to each other.
 local record Fix
-  argv: {integer:string}
+  argv: {string}
   started: integer
 
   -- The command line ([`read_command`]).
@@ -1823,9 +1823,9 @@ end
 
 --- `cosmic fix [--check] [path...]`. Each phase above does one part, in
 --- order, and the first to answer an exit code ends the run.
---- @param argv {integer:string} The command line, the verb at slot 1
+--- @param argv {string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
-local function fix_verb(argv: {integer:string}): integer
+local function fix_verb(argv: {string}): integer
   local ctx: Fix = { argv = argv, started = Clock.monotonic_ns() }
   local code = read_command(ctx)
   if code ~= nil then return code end
@@ -1856,7 +1856,7 @@ end
 --- ([`links.Facts`]) from its parse to the end, and rebuilds its tree
 --- meanwhile: the incremental collector traverses all of it again at
 --- each cycle, which costs a whole run more than the rest of the links.
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   collectgarbage("generational")
   local code = fix_verb(argv)
   collectgarbage("incremental")
@@ -1869,7 +1869,7 @@ fix.spec = {
   summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",
   tests = { "build.fix.fix_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

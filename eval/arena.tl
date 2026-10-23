@@ -165,20 +165,22 @@ local function complain(message: string)
   local _, _ = Fs.put(Fs.stderr, "arena: " .. message .. "\n")
 end
 
-function Arena.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
   local task, binary, dir = argv[1], argv[2], argv[3]
   if task == nil or binary == nil or dir == nil or argv[4] ~= nil then
     local _, _ = Fs.put(Fs.stderr, "usage: eval/arena <task> <cosmic-binary> <dir>\n")
     return 2
   end
-  local script, strouble = Fs.absolute(argv[0])
+  local script, strouble = Fs.absolute(program)
   if script == nil then
     complain(strouble)
     return 2
   end
   local eval = script:match("^(.*)/[^/]+%.tl$")
   if eval == nil then
-    complain(argv[0] .. ": expected to run as .../eval/arena.tl")
+    complain(program .. ": expected to run as .../eval/arena.tl")
     return 2
   end
   local laid, trouble = Arena.lay(eval, task, binary, dir)
@@ -188,6 +190,11 @@ function Arena.main(argv: {integer: string}): integer
   end
   local _, _ = Fs.put(Fs.stdout, "arena: " .. laid .. " (task " .. task .. ")\n")
   return 0
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Arena.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "arena: no script path")))
 end
 
 return Arena

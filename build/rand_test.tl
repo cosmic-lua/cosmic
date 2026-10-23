@@ -22,7 +22,7 @@ local record Stand
 end
 
 local function run(words: {string}, stand?: Stand): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "rand" }
+  local argv: {string} = { "rand" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local given: Stand = stand or {}
   local ran: Ran = { code = -1, out = "", err = "" }

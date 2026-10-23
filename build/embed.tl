@@ -529,7 +529,7 @@ end
 --- under one of the paths, when there are any. Prints each executable it
 --- wrote on stdout, a path per line, for a caller to run; its summary on
 --- stderr names them again, or says why nothing was written.
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
   if parsed == nil then
@@ -569,7 +569,7 @@ embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
   tests = { "build.embed_test", "build.embed_tool_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

@@ -93,7 +93,7 @@ end
 --- Reads the command line: the arena, then `--model` (required),
 --- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
-function Solve.parse(argv: {integer: string}): Solve.Options | nil, string
+function Solve.parse(argv: {string}): Solve.Options | nil, string
   local arena: string | nil = nil
   local model: string | nil = nil
   local max_turns, timeout = 150, 600
@@ -270,7 +270,7 @@ local function exists(path: string): boolean
   return there == true
 end
 
-function Solve.main(argv: {integer: string}): integer
+function Solve.main(argv: {string}): integer
   local options, usage_trouble = Solve.parse(argv)
   if options == nil then
     complain(usage_trouble)

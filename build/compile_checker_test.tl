@@ -21,7 +21,7 @@ local function test_the_glob_of_the_checker_gives_the_carried_compiler(tmp: stri
     if name:find("%.tl$") ~= nil then sources[#sources + 1] = "checker/" .. name end
   end
   table.sort(sources)
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "compile", [2] = "-o", [3] = tmp .. "/out" }
+  local argv: {string} = { "compile", "-o", tmp .. "/out" }
   for index, path in ipairs(sources) do argv[index + 3] = path end
   local complaints: {string} = {}
   local code = compile.run(argv, {

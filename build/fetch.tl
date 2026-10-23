@@ -239,7 +239,7 @@ end
 --- `cosmic fetch <url> [options]`: returns the exit code.
 --- @param argv the command line, `fetch` at slot 1
 --- @param io where the body and complaints go; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   -- `shown` is the URL as it may be printed; a complaint that carries
   -- the URL as given in a transport diagnostic is rewritten to it.
@@ -464,7 +464,7 @@ verb.spec = {
   name = "fetch",
   guide = "questions about a data file",
   tests = { "build.fetch_test", "build.fetch_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a URL",
   exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the fetch failed, 2 for a command line or URL it refused.",

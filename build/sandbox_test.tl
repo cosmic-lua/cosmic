@@ -35,7 +35,7 @@ end
 --- Runs the verb on `words`, its start answering `answer` (the program
 --- exits 0 when none is given), and says what it asked to start.
 local function run(words: {string}, answer?: Answer): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
+  local argv: {string} = { "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, err = "", opts = {} }
   local given = answer or { result = finished(0) }
@@ -128,7 +128,7 @@ end
 
 local function test_the_program_is_the_first_word_no_option_claims()
   local function slot(words: {string}): integer | nil
-    local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
+    local argv: {string} = { "sandbox" }
     for index, word in ipairs(words) do argv[index + 1] = word end
     return sandbox.program_slot(argv)
   end
@@ -230,7 +230,7 @@ end
 --- Runs the verb on `words` with the relay's client stood in for: the words
 --- it was given, or nil when it was not run, and the verb's status.
 local function client_of(words: {string}): {string} | nil, integer
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "sandbox" }
+  local argv: {string} = { "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local given = { value = nil as {string} | nil }
   local started = { value = false }

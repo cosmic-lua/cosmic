@@ -114,7 +114,7 @@ local function base_of(path: string): string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): Request | nil, string
+local function arguments(argv: {string}): Request | nil, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
   local request: Request = {
@@ -267,7 +267,7 @@ end
 --- Runs the command line `argv`, `compile` at slot 1, and answers the
 --- exit code. `built` is the compiler to use, or this binary's own when
 --- nil: what a test stands in for.
-function verb.run(argv: {integer:string}, streams?: verb.Io, built?: compiler): integer
+function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
   local to = streams or { out = bare.out, err = bare.err }
   local complain = bare.complainer("compile", to.err)
   local request, trouble = arguments(argv)
@@ -440,7 +440,7 @@ verb.spec = {
   name = "compile",
   guide = "the Lua of a Teal file",
   tests = { "build.compile_test", "build.compile_grammar_test", "build.compile_lang_test", "build.compile_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the .tl files to compile",
   exits = "`compile` prints the Lua of one file, or writes one .lua per file under `-o`, and exits 2 for a syntax error.",

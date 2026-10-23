@@ -91,7 +91,7 @@ local function plain(why: string): string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): verb.Request | nil, string
+local function arguments(argv: {string}): verb.Request | nil, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
   local modes: {string} = {}
@@ -243,7 +243,7 @@ end
 --- text it cannot read.
 --- @param argv the command line, `json` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("json", to.err)
   local function written(ok: boolean, why: string): integer
@@ -383,7 +383,7 @@ verb.spec = {
   name = "json",
   guide = "a quick question about a JSON file",
   tests = { "build.json_test", "build.json_tool_test", "build.json_query_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",
   exits = "`json` prints its value and nothing after, for a pipe, and exits 0 when it found the path, 1 when the path is not there, 2 for a command line or a text it refused.",

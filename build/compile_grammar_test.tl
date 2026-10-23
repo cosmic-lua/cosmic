@@ -26,7 +26,7 @@ local where: {string} = {}
 
 --- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
 local function run(words: {string}): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "compile", [2] = "--root", [3] = where[1] or "" }
+  local argv: {string} = { "compile", "--root", where[1] or "" }
   local at = 4
   local named = false
   for _, word in ipairs(words) do named = named or word == "--grammar" end

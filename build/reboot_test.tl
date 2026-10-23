@@ -50,7 +50,7 @@ end
 --- A boot that fails is reported, not re-entered.
 local function test_boot_into_reports_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
-  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  local trouble = reboot.boot_into(root, { "test" }, {})
   assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
   assert(Fs.read(root .. "/bin/ran") == "build boot\n")
 end
@@ -66,10 +66,10 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(stand_in.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
-  local _ = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  local _ = reboot.boot_into(root, { "test" }, {})
   assert(Fs.read(root .. "/bin/handed") == "[]\n", Fs.read(root .. "/bin/handed"))
   assert(rebuild_lock.take(root, 0, "test") == "held")
-  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  local trouble = reboot.boot_into(root, { "test" }, {})
   rebuild_lock.release()
   assert(trouble:find("bin/zig build boot failed", 1, true), trouble)
   assert(Fs.read(root .. "/bin/handed") == "[" .. layout.lock .. "]\n",
@@ -80,7 +80,7 @@ end
 --- that is not there is reported rather than silently skipped.
 local function test_boot_into_enters_the_booted_tool(tmp: string)
   local root = tree_with_zig(tmp, 0)
-  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" }, {})
+  local trouble = reboot.boot_into(root, { "test" }, {})
   assert(Fs.read(root .. "/bin/ran") == "build boot\n")
   assert(trouble ~= "", "boot_into returned without a reason")
 end
@@ -92,7 +92,7 @@ local function test_boot_into_boots_once(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.write(root .. "/bin/zig", "#!/nonexistent/interpreter\n", 0x1ed))
-  local trouble = reboot.boot_into(root, { [0] = "cosmic", "test" },
+  local trouble = reboot.boot_into(root, { "test" },
     { COSMIC_REBOOTED = "1" })
   assert(trouble == "the tool is still stale after a reboot", trouble)
 end
@@ -132,7 +132,7 @@ end
 --- core change does, and re-enters the tool the boot wrote.
 local function test_rebuild_failed_boots_when_the_compiler_moved(tmp: string)
   local root = tree_with_zig(tmp, 1)
-  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+  local code = reboot.rebuild_failed(root, { "test" },
     "checker: T (unresolved generic)", true, {})
   assert(code == 3, code)
   assert(Fs.read(root .. "/bin/ran") == "build boot\n")
@@ -143,7 +143,7 @@ end
 local function test_rebuild_failed_says_the_compile_failure_of_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
   local code, all = complaints(function(): string
-    return tostring(reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+    return tostring(reboot.rebuild_failed(root, { "test" },
       "checker: T (unresolved generic)", true, {}))
   end)
   assert(code == "3", code)
@@ -155,7 +155,7 @@ end
 --- nothing boots.
 local function test_rebuild_failed_does_not_boot_while_the_compiler_stands(tmp: string)
   local root = tree_with_zig(tmp, 0)
-  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+  local code = reboot.rebuild_failed(root, { "test" },
     "a type error in the tree", false, {})
   assert(code == 3, code)
   assert(Fs.read(root .. "/bin/ran") == nil, "a failure of the tree's own booted")
@@ -164,7 +164,7 @@ end
 --- COSMIC_AUTO_BOOT=0 refuses, exit 3, in place of the boot.
 local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
   local root = tree_with_zig(tmp, 0)
-  local code = reboot.rebuild_failed(root, { [0] = "cosmic", "test" },
+  local code = reboot.rebuild_failed(root, { "test" },
     "checker: T (unresolved generic)", true, { COSMIC_AUTO_BOOT = "0" })
   assert(code == 3, code)
   assert(Fs.read(root .. "/bin/ran") == nil, "booted although told not to")

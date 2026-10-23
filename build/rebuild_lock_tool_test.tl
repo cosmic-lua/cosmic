@@ -404,7 +404,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
   assert(sys.flock(lock, "exclusive"))
   local started = Clock.monotonic_ns()
   local ok, failure = pcall(function()
-    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root,
+    local code = reboot.stale_exit({ "docs", "Fs.read" }, true, root,
       { tool = layout.tool, environment = {}, meta = {} })
     local took = Clock.monotonic_ns() - started
     assert(code == nil, tostring(code))
@@ -460,7 +460,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_fresh_unsettled_tool_an
   local layout = build_paths.resolve(root)
   held_elsewhere(root, function()
     local started = Clock.monotonic_ns()
-    local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, {
+    local code = reboot.stale_exit({ "docs", "Fs.read" }, true, root, {
       tool = layout.tool, environment = {},
       meta = { boot_hash = fingerprint.boot, written_by = "an older writer", writer = "this writer" },
     })
@@ -511,7 +511,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_tool_stale_by_its_teal(
     held_elsewhere(root, function()
       for _ = 1, 2 do
         local started = Clock.monotonic_ns()
-        local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, root, seen)
+        local code = reboot.stale_exit({ "docs", "Fs.read" }, true, root, seen)
         local took = Clock.monotonic_ns() - started
         assert(code == nil, tostring(code))
         assert(took < Clock.seconds(10), tostring(took) .. " ns")
@@ -558,7 +558,7 @@ local function test_todos_in_an_unchecked_tree_writes_nothing(tmp: string)
   local out = captured(1, tmp, function()
     said.err = captured(2, tmp, function()
       held_elsewhere(root, function()
-        assert(todos.run({ [1] = "todos" }, root, seen) == 0)
+        assert(todos.run({ "todos" }, root, seen) == 0)
       end)
     end)
   end)

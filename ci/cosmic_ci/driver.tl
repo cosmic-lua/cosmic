@@ -91,11 +91,10 @@ local function summarize(_argv: {string}): integer
 end
 
 --- Each command: what it does and takes, for `driver.tl --help`, and
---- its handler, which gets the words after the command with the
---- driver's own path at slot 0. A command that takes options names
---- them in `spec` and is run by `options`, given what its line held;
---- the rest take none, so a word that begins with "-" goes after a
---- "--": `run`'s command line does.
+--- its handler, which gets the words after the command. A command that
+--- takes options names them in `spec` and is run by `options`, given what
+--- its line held; the rest take none, so a word that begins with "-" goes
+--- after a "--": `run`'s command line does.
 local record Command
   about: string
   usage: string
@@ -159,7 +158,7 @@ local commands: {string:Command} = {
     usage = "[options]", spec = Report.spec, options = Report.command },
 }
 
-return function(argv: {integer:string}): integer
+return function(argv: {string}): integer
   local dispatched: {string:Flags.Command} = {}
   for name, entry in pairs(commands) do
     local handler = entry.handler
@@ -170,9 +169,7 @@ return function(argv: {integer:string}): integer
       spec = entry.spec,
       run = function(got: Flags.Parsed): integer
         if options then return options(got) end
-        local rest: {integer:string} = { [0] = argv[0] }
-        for i, word in ipairs(got.words) do rest[i] = word end
-        return handler(rest)
+        return handler(got.words)
       end,
     }
   end

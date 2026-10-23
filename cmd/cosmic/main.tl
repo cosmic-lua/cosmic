@@ -9,8 +9,8 @@
 --- the way that runs it.
 
 --- Runs the command line and answers its exit code.
---- @param argv the command line, with the program's own name at slot 0
-local function main(argv: {integer:string}): integer
+--- @param argv the command line, the verb at slot 1
+local function main(argv: {string}): integer
   local mode = argv[2]
   if argv[1] == "test" and (mode == "--worker" or mode == "--worker-no-tool" or
       mode == "--worker-held") then

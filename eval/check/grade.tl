@@ -2348,7 +2348,9 @@ function Grader.grade(name: string, dir: string, testdata: string,
   return 0
 end
 
-function Grader.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+function Grader.run(argv: {string}, program: string): integer
   local name, dir = argv[1], argv[2]
   if name == nil or TASKS[name] == nil or dir == nil or argv[3] ~= nil then
     local names: {string} = {}
@@ -2358,16 +2360,21 @@ function Grader.main(argv: {integer: string}): integer
         table.concat(names, ", ") .. "\n")
     return 2
   end
-  local script, trouble = Fs.absolute(argv[0])
+  local script, trouble = Fs.absolute(program)
   local here = script ~= nil and script:match("^(.*)/[^/]+%.tl$")
   if here == nil then
     local _, _ = Fs.put(Fs.stderr, "grade: " .. (script == nil and trouble or
-      argv[0] .. ": expected to run as .../eval/check/grade.tl") .. "\n")
+      program .. ": expected to run as .../eval/check/grade.tl") .. "\n")
     return 2
   end
   -- The steps run in other directories, and name the arena's files.
   local absolute, _ = Fs.absolute(dir)
   return Grader.grade(name, absolute or dir, here .. "/testdata")
+end
+
+--- The entry point: [`Grader.run`] with this script's path, Lua's `arg[0]`.
+function Grader.main(argv: {string}): integer
+  return Grader.run(argv, (assert(arg[0], "grade: no script path")))
 end
 
 return Grader

@@ -2741,7 +2741,7 @@ end
 
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
 --- words, then its summary on stderr; fails when a word finds nothing.
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("docs: " .. parse_trouble)
@@ -2789,7 +2789,7 @@ end
 --- of the paths, when there are any -- then its summary on stderr. A link is
 --- marked `link`; the symbol may be a file instead, which only links
 --- name ([`doc/writing.md`], `doc/writing.md#every-example-runs`).
-local function run_uses(argv: {integer:string}): integer
+local function run_uses(argv: {string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
@@ -2861,7 +2861,7 @@ docs.spec = {
   summarizes_failure = true,
   guide = "looking up a symbol and where it is used",
   tests = { "build.docs_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   reads = true,
   takes = "words to search for",

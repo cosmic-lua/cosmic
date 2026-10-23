@@ -37,7 +37,7 @@ local where: {string} = {}
 
 --- One run: `words` after `cosmic compile`, its output collected.
 local function run(words: {string}): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "compile" }
+  local argv: {string} = { "compile" }
   local at = 2
   local rooted = false
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end

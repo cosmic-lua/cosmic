@@ -96,7 +96,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     error("invoke: `" .. tostring(args[1]) .. "` runs a file, which loads its " ..
         "modules into the process: start the binary instead", 2)
   end
-  local argv: {integer:string} = { [0] = "cosmic" }
+  local argv: {string} = {}
   for i, word in ipairs(args) do argv[i] = word end
 
   local dir = assert(Fs.mkdtemp("cosmic-invoke-"))

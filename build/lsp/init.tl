@@ -223,7 +223,7 @@ end
 
 --- Runs the command line `argv`, `lsp` at slot 1, and answers the exit
 --- code.
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local complain = bare.complainer("lsp", bare.err)
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then

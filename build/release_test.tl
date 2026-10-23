@@ -90,7 +90,7 @@ local function source(commit: string, d?: string): string
 end
 
 local function run(words: {string}, script: {string}, env?: {string:string}, api?: string): Ran
-  local argv: {integer:string} = { [1] = "release" }
+  local argv: {string} = { "release" }
   for i, word in ipairs(words) do argv[i + 1] = word end
   local scripts: {{string}} = {}
   for i, one in ipairs(script) do scripts[i] = { one } end

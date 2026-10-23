@@ -109,9 +109,9 @@ local NEGATIVE <const> = "\1"
 --- `argv` with each negative integer bound of `int` marked so `Flags`
 --- reads it as a word, not an option: `cosmic rand int -5 5` works
 --- without a `--`. An option's value is left alone.
-local function marked(argv: {integer:string}): {integer:string}
-  local out: {integer:string} = {}
-  for key, word in pairs(argv) do out[key] = word end
+local function marked(argv: {string}): {string}
+  local out: {string} = {}
+  for key, word in ipairs(argv) do out[key] = word end
   if argv[2] ~= "int" then return out end
   local slot = 3
   while argv[slot] ~= nil do
@@ -137,7 +137,7 @@ local allowed: {string:{string:boolean}} = {
 }
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): Request | nil, string
+local function arguments(argv: {string}): Request | nil, string
   local command = argv[2]
   if command == nil then
     return nil, "give a subcommand"
@@ -248,7 +248,7 @@ end
 --- file or a request it refuses, or a standard output that took no write.
 --- @param argv the command line, `rand` at slot 1
 --- @param io where text is read and written and bytes drawn; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("rand", to.err)
   local found, trouble = arguments(argv)
@@ -447,7 +447,7 @@ verb.spec = {
   name = "rand",
   guide = "a random id, token or number",
   tests = { "build.rand_test", "build.rand_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its words",
   exits = "`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its command line or a write fails.",

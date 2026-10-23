@@ -105,8 +105,8 @@ local function owned_root(path: string)
     path .. ": owned root must be a directory, never a symbolic link: " .. tostring(why))
 end
 
-local function execute(argv: {integer:string}): integer
-  local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(argv[0])))))
+local function execute(argv: {string}, program: string): integer
+  local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = Env.all()
   local relaunch = assert(Proc.relaunch())
   local resolver_argv: {string} = {}
@@ -418,15 +418,22 @@ local function execute(argv: {integer:string}): integer
   return 0
 end
 
-function Local.main(argv: {integer:string}): integer
+--- @param argv the phases to run
+--- @param program this script's own path
+function Local.run(argv: {string}, program: string): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
   local _guard <close> = assert(Signal.guard())
-  local ok, answer = pcall(execute, argv)
+  local ok, answer = pcall(execute, argv, program)
   if not ok then
     say(tostring(answer))
     return 2
   end
   return answer
+end
+
+--- The entry point: [`Local.run`] with this script's path, Lua's `arg[0]`.
+function Local.main(argv: {string}): integer
+  return Local.run(argv, (assert(arg[0], "run_local: no script path")))
 end
 
 return Local

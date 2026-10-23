@@ -10,7 +10,7 @@ local function source(path: string, body: string, environment?: boolean)
   assert(Fs.write(path .. "/build/paths.tl", (environment and 'local Env = require("cosmic.env")\n' or "") .. [[
 local Fs = require("cosmic.fs")
 local record Paths end
-function Paths.main(_argv: {integer:string}): integer
+function Paths.main(_argv: {string}): integer
 ]] .. body .. [[
 end
 return Paths

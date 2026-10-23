@@ -39,7 +39,7 @@ end
 --- standard input; `out` replaces the write to standard output.
 local function run(words: {string}, stdin?: string | Stream.Reader,
                    out?: function(text: string): boolean, string): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "hash" }
+  local argv: {string} = { "hash" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = hash.run(argv, {

@@ -21,7 +21,7 @@ end
 
 --- One run of `cosmic time` with `words`, the clock at NOW and Tokyo the host's zone.
 local function run(words: {string}, writes?: boolean): Ran
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "time" }
+  local argv: {string} = { "time" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = time_verb.run(argv, {

@@ -614,7 +614,7 @@ local record Request
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {integer:string}): Request | nil, string
+local function arguments(argv: {string}): Request | nil, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
   local words = parsed.words
@@ -701,7 +701,7 @@ end
 --- code: 0 done, 2 a command line, an input or a write it refused.
 --- @param argv the command line, `codec` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("codec", to.err)
   local request, trouble = arguments(argv)
@@ -777,7 +777,7 @@ verb.spec = {
   name = "codec",
   guide = "bytes to text and back",
   tests = { "build.codec_test", "build.codec_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "an encoding and a file",
   exits = "`codec` prints its text or bytes and nothing after, and exits 0 or 2.",
