@@ -589,7 +589,7 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1500)
 --- runs (COSMIC_CI_CHECKED_SHARD, `I/N`), each on a runner of its own.
 --- build/test.tl's `dealt` deals the tests in turn, so a share holds a Nth
 --- of them and, the slow ones being spread across the modules, about a
---- Nth of the time. The whole suite took 1096 s where no verdict stood
+--- Nth of the time. The whole suite takes 1096 s where no verdict stands
 --- and 1504 s in the slowest of the merge queue's runs of 23 October 2026
 --- (past `checked_suite_timeout_ns`), which a share of four takes in 274
 --- and 376 s. The bound is 600 s, 1.6 times the slowest share seen, where

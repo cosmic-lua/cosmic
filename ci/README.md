@@ -491,13 +491,13 @@ and only from a suite that passed.
 
 ### the checked jobs
 
-The checked core's suite, the whole suite on the sanitized core, ran
-at the end of linux-x86_64's assemble: 178 to 345 s after that leg's
-own suites, which made it the queue's longest leg in 9 of 13 runs
-(2026-09-29). It then ran in one job of its own, which took 12 to 25
-minutes for the suite alone and 1934 to 2326 s with its build and the
-checked narrowing run behind it (the legs took 946 to 1503 s), and once
-passed its bound. It runs now in jobs of their own, beside the legs, on
+The checked core's suite, the whole suite on the sanitized core, takes
+12 to 25 minutes on one runner, and 1934 to 2326 s with its build and
+the checked narrowing run behind it (the legs take 946 to 1503 s in the
+merge queue; the figures here are of its runs on 2026-10-23). Run at
+the end of linux-x86_64's assemble, 178 to 345 s after that leg's own
+suites, it made that the queue's longest leg in 9 of 13 runs
+(2026-09-29). It runs in jobs of their own, beside the legs, on
 that leg's host: its runner, image and builder, and so the same
 `COSMIC_HOST_ID`. Each boots (`platform boot`, the build phase without
 the native suite). Every leg sets `COSMIC_CI_CHECKED_SUITE=skip`, and
@@ -559,7 +559,7 @@ verdicts, which would otherwise ride along whole in each save.
   whole tree. Where a path changed is part of what
   checks each file alone (the layout, the C rules, the compiler, the
   core), or the paths cannot be named, it checks the whole tree. That
-  check took some seven minutes in a fresh build directory, which holds
+  check takes some seven minutes in a fresh build directory, which holds
   no memo of what the check found in each file (build/check_memo.tl,
   `translate-check.db`). So the job restores the newest memo its ref can
   read, `check-memo-v1-<run>` by its prefix (a branch's restore takes

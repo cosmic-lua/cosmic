@@ -1503,10 +1503,10 @@
     # (orchestration.tl's checked_suite), in shares of its tests: one job
     # for each, on linux-x86_64's host, beside the legs and each other
     # (`cosmic test --shard I/N`, as a light run's linux-x86_64 legs run
-    # theirs). The suite took twelve to twenty-five minutes on one
-    # runner, the longest path of a merge queue run and, once, past its
-    # bound; a share of four takes a quarter of that after a build of
-    # three minutes, within the bound the share has of its own
+    # theirs). The suite takes twelve to twenty-five minutes on one
+    # runner, which makes it a merge queue run's longest path and has
+    # passed its bound; a share of four takes a quarter of that after a
+    # build of three minutes, within the bound the share has of its own
     # (orchestration.tl's `checked_shard_timeout_ns`). A share checks no
     # C function is entered, which only a whole run answers: `checked`
     # makes that run, standing on the verdicts the shares keep. So each
@@ -1804,8 +1804,8 @@
     # test, on the release tool and no checked core, so it boots and
     # builds nothing else, and keeps and saves no verdicts. A job of its
     # own on linux-x86_64's host, beside the legs and the checked suite's
-    # shares: run in their job after the suite, it was thirteen to
-    # fifteen minutes of its path. A full run only.
+    # shares: it takes thirteen to fifteen minutes, which the shares' job
+    # would add to its path. A full run only.
     # TODO: run this suite in shares too (`cosmic test --check-types
     # --shard`), as `checked-shard` does the checked core's: its whole
     # run makes the check of the C functions some test enters, which a
@@ -1979,7 +1979,7 @@
     # it found in each file (build/check_memo.tl) that the scheduled run
     # saves, and which a branch finds under main's: the files a branch
     # did not change cost it nothing, where a check of the tree without
-    # one took some seven minutes. The scheduled run makes the whole
+    # one takes some seven minutes. The scheduled run makes the whole
     # tree's check here for that, besides assemble's, and saves what it
     # leaves. A job of a branch push, or of the scheduled run, where
     # `platform` runs.
