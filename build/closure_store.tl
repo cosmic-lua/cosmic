@@ -169,13 +169,19 @@ local function memo_token(whole: string): string | nil
   return table.concat({ "basis-memo-1", Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
+--- Where a read of a kept basis is, and the basis it made.
+local record Reading
+  at: integer
+  basis: closure_store.Basis | nil
+end
+
 --- The basis kept beside `whole` under `token`, or nil where none is, or
 --- it is of another file or another code, or it is not whole.
 local function remembered(whole: string, token: string): closure_store.Basis | nil
   local bytes, _ = Fs.read(memo_path(whole))
   if bytes == nil then return nil end
   local data: string = bytes
-  local reading = { at = 1 }
+  local reading: Reading = { at = 1, basis = nil }
   local function next_string(): string
     local value: string
     value, reading.at = string.unpack("<s4", data, reading.at)
@@ -186,8 +192,10 @@ local function remembered(whole: string, token: string): closure_store.Basis | n
     value, reading.at = string.unpack("<I4", data, reading.at)
     return value
   end
-  local ok, basis = pcall(function(): closure_store.Basis | nil
-    if next_string() ~= token then return nil end
+  -- The reading raises on a truncated file; `pcall`'s own results are all
+  -- that is taken of it, and the basis leaves by `reading`.
+  pcall(function()
+    if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
     }
@@ -204,11 +212,10 @@ local function remembered(whole: string, token: string): closure_store.Basis | n
       for i = 1, next_count() do required[i] = next_string() end
       out.decl_requires[path] = required
     end
-    if reading.at ~= #data + 1 then return nil end
-    return out
+    if reading.at ~= #data + 1 then return end
+    reading.basis = out
   end)
-  if not ok then return nil end
-  return basis
+  return reading.basis
 end
 
 --- Keeps `basis` beside `whole` under `token`, written aside and moved into
@@ -220,29 +227,28 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
   local function put_count(value: integer) parts[#parts + 1] = string.pack("<I4", value) end
   put_string(token)
   put_string(basis.shared)
-  local paths: {string} = {}
-  for path in pairs(basis.modules) do paths[#paths + 1] = path end
-  table.sort(paths)
-  put_count(#paths)
-  for _, path in ipairs(paths) do
+  -- In the order `pairs` has them: a reader takes them by name.
+  local modules = 0
+  for _ in pairs(basis.modules) do modules = modules + 1 end
+  put_count(modules)
+  for path, line in pairs(basis.modules) do
     put_string(path)
-    put_string(basis.modules[path])
+    put_string(line)
     put_string(basis.kinds[path] or "")
   end
   put_count(#basis.pairable)
   for _, path in ipairs(basis.pairable) do put_string(path) end
-  local declared: {string} = {}
-  for path in pairs(basis.decls) do declared[#declared + 1] = path end
-  table.sort(declared)
-  put_count(#declared)
-  for _, path in ipairs(declared) do
+  local declared = 0
+  for _ in pairs(basis.decls) do declared = declared + 1 end
+  put_count(declared)
+  for path, line in pairs(basis.decls) do
     put_string(path)
-    put_string(basis.decls[path])
+    put_string(line)
     local required = basis.decl_requires[path] or {}
     put_count(#required)
     for _, name in ipairs(required) do put_string(name) end
   end
-  local aside = memo_path(whole) .. "." .. Proc.pid() .. ".building"
+  local aside = memo_path(whole) .. "." .. tostring(Proc.pid()) .. ".building"
   local written, _ = Fs.write(aside, table.concat(parts))
   if written then
     local moved, _ = Fs.rename(aside, memo_path(whole))

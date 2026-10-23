@@ -358,17 +358,16 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
   local db = assert(Sqlite.open(":memory:", { writable = true }))
   for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
   for run = 1, 13 do
-    assert(db:exec("INSERT INTO test_runs (ran_at_ns) VALUES (" .. run .. ")"))
-    assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (" .. run ..
-        ", 'a', 1, 1), (" .. run .. ", 'a', 2, 0)"))
+    assert(db:exec("INSERT INTO test_runs (ran_at_ns) VALUES (" .. tostring(run) .. ")"))
+    assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (" .. tostring(run) ..
+        ", 'a', 1, 1), (" .. tostring(run) .. ", 'a', 2, 0)"))
   end
   assert(test.prune_history(db, 100))
-  local kept = assert(Sqlite.text_rows(db,
-    "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))
-  assert(kept[1]:texts()[1] == "4" and kept[1]:texts()[2] == "13" and kept[1]:texts()[3] == "10" and
-      kept[1]:texts()[4] == "20", "coverage kept: " .. table.concat(kept[1]:texts(), " "))
-  local runs = assert(Sqlite.text_rows(db, "SELECT count(*), min(ran_at_ns) FROM test_runs"))
-  assert(runs[1]:texts()[1] == "10" and runs[1]:texts()[2] == "4",
-    "test_runs kept: " .. table.concat(runs[1]:texts(), " "))
+  local kept = assert(assert(Sqlite.text_rows(db,
+    "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))[1]):texts()
+  assert(kept[1] == "4" and kept[2] == "13" and kept[3] == "10" and kept[4] == "20",
+    "coverage kept: " .. table.concat(kept, " "))
+  local runs = assert(assert(Sqlite.text_rows(db, "SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
+  assert(runs[1] == "10" and runs[2] == "4", "test_runs kept: " .. table.concat(runs, " "))
   assert(db:close())
 end

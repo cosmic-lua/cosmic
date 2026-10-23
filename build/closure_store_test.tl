@@ -535,7 +535,7 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
   assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
   local whole = tmp .. "/whole.db"
   local fresh = assert(closure_store.basis(whole))
-  assert(not Fs.exists(whole .. ".basis"), "a basis was kept of a file just written")
+  assert(Fs.exists(whole .. ".basis") ~= true, "a basis was kept of a file just written")
   assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
   local made = assert(closure_store.basis(whole))
   assert(Fs.exists(whole .. ".basis"), "no basis was kept of a file two seconds old")

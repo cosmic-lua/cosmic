@@ -1107,7 +1107,7 @@ local function cached_lua(cache: Cache, key: string): string | nil, string
   local stale = false
   if state == "row" then
     lua = look:bytes(0)
-    stale = (look:integer(1) or 0) < cache.run - refresh_after
+    stale = look:integer(1) < cache.run - refresh_after
   end
   local reset, reset_trouble = look:reset()
   if not reset then

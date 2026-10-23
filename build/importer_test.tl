@@ -381,18 +381,20 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
     ["x.tl"] = "return { value = 1 }\n",
   }))
   assert(compile_fixture(root))
-  local made = asked_of(root, "SELECT seen FROM compiled")
-  assert(#made == 1, "expected one compile")
+  local function seen_of(): integer
+    local rows = asked_of(root, "SELECT seen FROM compiled")
+    assert(#rows == 1, "expected one compile")
+    local row = assert(rows[1])
+    return assert(math.tointeger(tonumber(row[1])))
+  end
+  local made = seen_of()
   assert(compile_fixture(root))
-  assert(asked_of(root, "SELECT seen FROM compiled")[1][1] == made[1][1],
-    "a run that used a recent compile wrote its row again")
+  assert(seen_of() == made, "a run that used a recent compile wrote its row again")
   local handle = assert(work.open(root))
   assert(Sqlite.run(handle.db, "UPDATE compiled SET seen = seen - 50"))
   work.close(handle)
   assert(compile_fixture(root))
-  local after = asked_of(root, "SELECT seen FROM compiled")
-  assert(#after == 1 and after[1][1] ~= tostring(math.tointeger(tonumber(made[1][1])) - 50),
-    "an old compile used by a run kept its old mark")
+  assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
 end
 
 --- Mutually recursive declaration types are valid input to the checker. A

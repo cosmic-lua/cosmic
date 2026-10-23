@@ -290,8 +290,10 @@ local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: stri
       "source_hash, char(10) ORDER BY path, kind, source_hash)))) FROM inputs WHERE kind <> 'vendor'), ''), " ..
       "coalesce((SELECT lower(hex(sha256(group_concat(source_hash || char(1) || ordinal || char(1) || " ..
       "name, char(10) ORDER BY source_hash, ordinal, name)))) FROM requires), '')")
-  if rows == nil or rows[1] == nil then return nil end
-  local parts: {string} = { "keys-memo-1", tool, rows[1]:text(1), rows[1]:text(2) }
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
+  local parts: {string} = { "keys-memo-1", tool, row:text(1), row:text(2) }
   for _, m in ipairs(modules) do
     parts[#parts + 1] = m.path .. "\1" .. m.file .. "\1" .. m.kind .. "\1" .. m.source_hash
   end
@@ -308,10 +310,12 @@ local kept_fingerprints <const> = 4
 local function remembered_keys(db: Sqlite.Handle, fingerprint: string,
                                modules: {Module}): {string:Keys} | nil
   local rows, _ = Sqlite.text_rows(db, "SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
-  if rows == nil or rows[1] == nil then return nil end
+  if rows == nil then return nil end
+  local row = rows[1]
+  if row == nil then return nil end
   local out: {string:Keys} = {}
   local count = 0
-  for path, key, graph in rows[1]:text(1):gmatch("([^\t\n]+)\t([^\t\n]+)\t([^\t\n]+)\n") do
+  for path, key, graph in row:text(1):gmatch("([^\t\n]+)\t([^\t\n]+)\t([^\t\n]+)\n") do
     out[path] = { key = key, graph = graph }
     count = count + 1
   end
