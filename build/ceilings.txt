@@ -513,7 +513,7 @@ cosmic/zip.tl 1
 eval/check/grade.tl 7
 eval/summarize.tl 2
 lang/check.tl 6
-lang/check_programs.tl 6
+lang/check_programs.tl 5
 lang/codegen.tl 1
 lang/declarations.tl 2
 lang/lexer.tl 74
@@ -1703,7 +1703,6 @@ lang/ast_dump.tl index_may_be_nil 3
 lang/check.tl index_may_be_nil 41
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 lang/check_fuzz_test.tl index_may_be_nil 3
-lang/check_programs.tl index_may_be_nil 1
 lang/check_test.tl index_may_be_nil 1
 lang/codegen.tl index_may_be_nil 15
 lang/codegen_fuzz_test.tl index_may_be_nil 2
@@ -3687,7 +3686,7 @@ eval/round_test.tl overload_none 2
 eval/solve_test.tl overload_none 1
 eval/summarize.tl overload_none 2
 lang/check.tl overload_none 5
-lang/check_programs.tl overload_none 4
+lang/check_programs.tl overload_none 3
 lang/check_test.tl overload_none 1
 lang/declarations.tl overload_none 1
 lang/literals_test.tl overload_none 3
@@ -5634,7 +5633,7 @@ build/syntax_stub_test.tl concat_type 2
 build/syntax_typed.tl concat_type 1
 build/teal.tl concat_type 6
 build/teal_catalog_test.tl concat_type 1
-build/teal_test.tl concat_type 16
+build/teal_test.tl concat_type 14
 build/term_filter.tl concat_type 1
 build/term_filter_fuzz_test.tl concat_type 1
 build/term_filter_test.tl concat_type 3

@@ -136,7 +136,7 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
     -- The bindings of C are typed from the declarations the build derives from their headers, as the tree checks have them.
     for _, derivation in ipairs(GenSyscalls.targets) do
       local text = assert(GenSyscalls.declaration(assert(Fs.read(derivation.target.header)), derivation.target))
-      bindings[derivation.path] = text
+      bindings[derivation.path] = Translate.translate(text, derivation.path .. ".tl").text
     end
   end
   local all: {string: string} = {}
@@ -154,7 +154,9 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   local translated: {string: string} = {}
   local key: {string} = {}
   for _, module in ipairs(names) do
-    translated[module] = Translate.translate(all[module], module .. ".tl").text
+    -- A binding of C is held translated: it is the same for every program, and translating each one for each was most
+    -- of what reading a program cost.
+    translated[module] = bindings[module] or Translate.translate(all[module], module .. ".tl").text
     key[#key + 1] = module .. "\n" .. translated[module]
   end
   -- The modules of a session are lowered with the first program, and stay in its program.

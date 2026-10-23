@@ -27,9 +27,10 @@ local function refusals(): {ForkRefusals.Refusal}
   return made.refusals
 end
 
---- The templates the fork's messages for `source` are, in the order it gives them, each once.
-local function templates_of(source: string, list: {ForkRefusals.Refusal}): {string}
-  local loaded = assert(teal.load(true))
+--- The templates the fork's messages for `source` are, in the order it gives them, each once, as `loaded` reads it. A
+--- test loads one compiler for all its programs: loading one builds the checker's standard globals again, and each
+--- program is given an environment of its own.
+local function templates_of(loaded: compiler, source: string, list: {ForkRefusals.Refusal}): {string}
   -- the settings the tool checks under, in which `<close>` is a Lua 5.4 form the target takes
   local env = assert(loaded.new_env({ defaults = teal.defaults() }))
   local _, result = loaded.gen(source, env, nil, "tl")
@@ -64,12 +65,13 @@ end
 local function hold(first: integer, last: integer): integer
   local list = refusals()
   local all = programs()
+  local loaded = assert(teal.load(true))
   local held = 0
   for i, program in ipairs(all) do
     if i >= first and i <= last then
       local id = id_of(list, program.template)
       assert(id ~= nil, "no template of the fork reads: " .. program.template)
-      local found = templates_of(program.source, list)
+      local found = templates_of(loaded, program.source, list)
       local says = false
       for _, each in ipairs(found) do
         says = says or each == id
@@ -143,7 +145,8 @@ local function test_a_program_the_fork_takes_is_not_held_to_a_template()
   local list = refusals()
   local id = id_of(list, "expected a type")
   assert(id ~= nil)
-  assert(#templates_of("local x: integer = 1\nprint(x)\n", list) == 0)
-  local found = templates_of("local x: = 1\n", list)
+  local loaded = assert(teal.load(true))
+  assert(#templates_of(loaded, "local x: integer = 1\nprint(x)\n", list) == 0)
+  local found = templates_of(loaded, "local x: = 1\n", list)
   assert(#found > 0)
 end
