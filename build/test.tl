@@ -536,32 +536,24 @@ local function sorted_lines(set: {integer: any}): {integer}
   return out
 end
 
---- Writes `coverage`'s rows of every one of `modules` for `run_at_ns` with one
---- statement, as [`coverage_report.lines_of`] answers them one module at a
---- time: each executable line, 1 where `hits` has it and else 0. The lines
---- are those the fork's reader found of each source ([`build.coverage.lines`]),
---- kept by its hash in the working database's `executable`, which SQLite
---- spreads into rows (`json_each`) rather than Lua making and sorting a
---- table for each of a thousand modules: some 0.45 s of a run that ran one
---- test. A source the cache does not hold yet is read first, which keeps
---- it. Returns the hit and executable-line counts of what it wrote, and a
---- trouble message.
+--- Writes `coverage`'s rows of every module `each` visits (by path and source
+--- hash) for `run_at_ns` with one statement, as [`coverage_report.lines_of`]
+--- answers them one module at a time: each executable line, 1 where `hits` has
+--- it and else 0. The lines are those the fork's reader found of each source
+--- ([`build.coverage.lines`]), kept by its hash in the working database's
+--- `executable`, which SQLite spreads into rows (`json_each`) rather than Lua
+--- making and sorting a table for each of a thousand modules: some 0.45 s of
+--- a run that ran one test. A module whose source the cache does not hold
+--- yet is read first by `ensure`, which keeps it and answers why it could
+--- not, or "". Returns the hit and executable-line counts of what it wrote,
+--- and a trouble message.
 ---
 --- Only for the fork's reader: the new checker's lines are kept under
 --- other keys ([`build.coverage.syntax_lines`]).
-local function write_module_coverage(handle: Sqlite.Handle, built: compiler, modules: {importer.Module},
+local function write_module_coverage(handle: Sqlite.Handle,
+                                     each: function(function(string, string): boolean, string): boolean, string,
+                                     ensure: function(string): string,
                                      hits: Coverage.Hits, run_at_ns: integer): integer, integer, string
-  local cached, cached_trouble = Sqlite.text_rows(handle, "SELECT source_hash FROM executable")
-  if cached == nil then return 0, 0, cached_trouble end
-  local known: {string: boolean} = {}
-  for _, row in ipairs(cached) do known[row:text(1)] = true end
-  for _, m in ipairs(modules) do
-    if not known[m.source_hash] then
-      local found, trouble = coverage_report.lines_of(handle, built, m, hits)
-      if found == nil then return 0, 0, m.file .. ": " .. trouble end
-      known[m.source_hash] = true
-    end
-  end
   local made, made_trouble = handle:exec(
     "CREATE TEMP TABLE IF NOT EXISTS run_modules (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL) " ..
       "WITHOUT ROWID; CREATE TEMP TABLE IF NOT EXISTS run_hits (path TEXT NOT NULL, line INTEGER NOT NULL, " ..
@@ -577,28 +569,32 @@ local function write_module_coverage(handle: Sqlite.Handle, built: compiler, mod
     return 0, 0, hits_trouble
   end
   local into_hits: Sqlite.Statement = prepared_hits
-  local function fill(): boolean, string
-    for _, m in ipairs(modules) do
-      local ok, trouble = into_modules:bind_text(1, m.path)
-      if ok then ok, trouble = into_modules:bind_text(2, m.source_hash) end
-      if ok then ok, trouble = bind.once(into_modules) end
-      if not ok then return false, trouble end
-      for line, hit in pairs(hits[m.path] or {}) do
-        if hit then
-          ok, trouble = into_hits:bind_text(1, m.path)
-          if ok then ok, trouble = into_hits:bind_integer(2, line) end
-          if ok then ok, trouble = bind.once(into_hits) end
-          if not ok then return false, trouble end
-        end
+  local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
+    local ok, trouble = into_modules:bind_text(1, path)
+    if ok then ok, trouble = into_modules:bind_text(2, hash) end
+    if ok then ok, trouble = bind.once(into_modules) end
+    if not ok then return false, trouble end
+    for line, hit in pairs(hits[path] or {}) do
+      if hit then
+        ok, trouble = into_hits:bind_text(1, path)
+        if ok then ok, trouble = into_hits:bind_integer(2, line) end
+        if ok then ok, trouble = bind.once(into_hits) end
+        if not ok then return false, trouble end
       end
     end
     return true, ""
-  end
-  local called, filled, fill_trouble = pcall(fill)
+  end)
   into_modules:finalize()
   into_hits:finalize()
-  if not called then return 0, 0, tostring(filled) end
   if not filled then return 0, 0, fill_trouble end
+  local missing, missing_trouble = Sqlite.text_rows(handle,
+    "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
+      "WHERE e.source_hash IS NULL ORDER BY m.path")
+  if missing == nil then return 0, 0, missing_trouble end
+  for _, row in ipairs(missing) do
+    local trouble = ensure(row:text(1))
+    if trouble ~= "" then return 0, 0, trouble end
+  end
   local written, write_trouble = Sqlite.run(handle,
     "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
       "SELECT ?1, m.path, j.value, EXISTS (SELECT 1 FROM temp.run_hits h WHERE h.path = m.path AND h.line = j.value) " ..
@@ -615,7 +611,9 @@ local function write_module_coverage(handle: Sqlite.Handle, built: compiler, mod
   local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
   if totals == nil then return 0, 0, totals_trouble end
   if not cleaned then return 0, 0, clean_trouble end
-  return math.tointeger(tonumber(totals[1]:text(2))) or 0, math.tointeger(tonumber(totals[1]:text(1))) or 0, ""
+  local counted = totals[1]
+  if counted == nil then return 0, 0, "the count of the rows written came back empty" end
+  return math.tointeger(tonumber(counted:text(2))) or 0, math.tointeger(tonumber(counted:text(1))) or 0, ""
 end
 
 --- Every line [`build.coverage`] found for every non-vendor module
@@ -696,10 +694,25 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
     -- The fork's reader's modules in one statement; the rest, and every
     -- module of the new checker, one at a time below.
     if not one_by_one then
-      local hit_lines, executable_lines, module_trouble = write_module_coverage(handle, built, modules, hits, run_at_ns)
+      local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
+        function(visit: function(string, string): boolean, string): boolean, string
+          for _, m in ipairs(modules) do
+            local visited, visit_trouble = visit(m.path, m.source_hash)
+            if not visited then return false, visit_trouble end
+          end
+          return true, ""
+        end,
+        function(path: string): string
+          local m = by_source[path]
+          if m == nil then return path .. ": not a module of this run" end
+          local found, trouble = coverage_report.lines_of(handle, built, m, hits)
+          if found == nil then return m.file .. ": " .. trouble end
+          return ""
+        end,
+        hits, run_at_ns)
       if module_trouble ~= "" then return false, module_trouble end
-      totals.hit = totals.hit + hit_lines
-      totals.lines = totals.lines + executable_lines
+      totals["hit"] = (totals["hit"] or 0) + hit_lines
+      totals["lines"] = (totals["lines"] or 0) + executable_lines
     end
     for _, path in ipairs(sorted_paths) do
       local m = by_source[path]
