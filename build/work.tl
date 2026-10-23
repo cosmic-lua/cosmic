@@ -225,6 +225,10 @@ local version <const> = "29"
 --- goes too, so an edit undone is still free and the cache stays
 --- bounded.
 ---
+--- `deflated` is the compressed text of a source, by the source's SHA-256
+--- and the core that compressed it, which [`build.writer`] puts in a
+--- projection beside it instead of compressing every source on each write.
+---
 --- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
@@ -409,6 +413,10 @@ for _, statement in ipairs({
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
+                                         core TEXT NOT NULL,
+                                         data BLOB NOT NULL,
+                                         PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,

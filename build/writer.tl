@@ -60,6 +60,29 @@ local function projected_signature(path: string): string
   return rows[1]:text(1)
 end
 
+--- What names the core whose `deflate` made a row of `deflated`: its image
+--- ([`build.identity`]'s `image_hash`), which holds the zlib it links, so a
+--- core whose compressor moved never serves another's bytes.
+local deflating_core <const> =
+  "coalesce((SELECT lower(hex(value)) FROM meta WHERE key = 'image_hash'), '')"
+
+--- Fills `deflated` with the compressed text of each source a projection
+--- carries that it does not yet hold, and drops what no input names, or
+--- another core compressed. A source is named by its SHA-256, so a row
+--- is never stale: an edited file is another source and is compressed
+--- once, where a projection used to compress all of them, some 0.6 s of
+--- every write for cosmic's own tree.
+local fill_deflated <const> =
+  "INSERT OR IGNORE INTO deflated (source_hash, core, data) " ..
+  "SELECT i.source_hash, " .. deflating_core .. ", deflate(i.source) FROM inputs i " ..
+  "WHERE (i.kind = 'decl' OR i.path IN (SELECT path FROM plan)) AND NOT EXISTS " ..
+  "(SELECT 1 FROM deflated d WHERE d.source_hash = i.source_hash AND d.core = " ..
+  deflating_core .. ") GROUP BY i.source_hash"
+
+local prune_deflated <const> =
+  "DELETE FROM deflated WHERE core <> " .. deflating_core ..
+  " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
 --- a test or example module's own names alongside.
@@ -67,7 +90,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), deflate(i.source), c.bytecode, " ..
+  "CAST(p.key AS BLOB), d.data, c.bytecode, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -75,6 +98,7 @@ local insert_modules =
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
@@ -404,13 +428,16 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(schema.create("out.")) do
     statements[#statements + 1] = statement
   end
+  statements[#statements + 1] = prune_deflated
+  statements[#statements + 1] = fill_deflated
   statements[#statements + 1] = insert_modules
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports
   statements[#statements + 1] = insert_bound
   statements[#statements + 1] =
-    "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
-    "WHERE kind = 'decl' ORDER BY path"
+    "INSERT INTO out.decls (path, source) SELECT i.path, d.data FROM inputs i " ..
+    "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
+    "WHERE i.kind = 'decl' ORDER BY i.path"
   statements[#statements + 1] =
     "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
     "ORDER BY name"
