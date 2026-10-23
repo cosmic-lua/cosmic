@@ -83,6 +83,9 @@ local record Fault
   point: string
   skip?: integer
   headers?: {string: string}
+  --- The roots the request trusts: the default, the minimal ones, reach
+  --- curl as a blob; "mozilla" as the chain `use_roots` installs.
+  roots?: string
 end
 
 --- Every point `open` passes on a scripted request with a header, the
@@ -92,7 +95,9 @@ local faults: {Fault} = {
   { point = "curl_easy_init" },
   { point = "curl_easy_setopt(CURLOPT_URL)" },
   { point = "curl_easy_setopt(CURLOPT_ERRORBUFFER)" },
-  { point = "curl_easy_setopt(CURLOPT_SSL_CTX_FUNCTION)" },
+  { point = "curl_easy_setopt(CURLOPT_CAINFO_BLOB)" },
+  { point = "curl_easy_setopt(CURLOPT_PROXY_CAINFO_BLOB)" },
+  { point = "curl_easy_setopt(CURLOPT_SSL_CTX_FUNCTION)", roots = "mozilla" },
   { point = "curl_easy_setopt(CURLOPT_POSTFIELDS)" },
   { point = "curl_easy_setopt(CURLOPT_HTTPHEADER)" },
   { point = "curl_easy_setopt(CURLOPT_OPENSOCKETFUNCTION)" },
@@ -111,7 +116,7 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
     local what = fault.point .. " (skipping " .. tostring(fault.skip or 0) .. ")"
     testing.fail_at(fault.point, fault.skip)
     local response, trouble = Http.open(url, { method = "POST", body = "payload",
-      headers = { ["X-One"] = "1" }, script = { reply("200 OK", "", "hello") } })
+      headers = { ["X-One"] = "1" }, roots = fault.roots, script = { reply("200 OK", "", "hello") } })
     assert(not testing.fail_at(), what .. " was never reached")
     assert(response == nil, what .. " did not fail the request")
     local call = fault.point:match("^[%w_]+")
