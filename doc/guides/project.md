@@ -429,12 +429,15 @@ named by its path below the working directory. A path is a `.tl` file or a direc
 read apart from hidden directories and `vendor`.
 
 The translation respells what the new grammar cuts. The new checker then holds the translated project to every rule, and
-five of its findings have one mechanical fix, which `migrate` makes where the finding says:
+six of its findings have one mechanical fix, which `migrate` makes where the finding says:
 
 - `view_written`: a collection that is written is declared `mut`, as a local, a parameter or a field of a record the
   project holds (`names: mut {string}`).
 - `field_fixed`: a field that is assigned after its record is made is declared `mut`, in the record and in the interfaces
   it lists and the records that list them.
+- `interface_disagrees`: where a type and an interface it lists declare a field `mut` and fixed, the field is `mut` in the
+  interface, the type and every other type that lists the interface, in whichever file they are. A class that declares the
+  field as a method cannot be `mut`, so that finding is left.
 - `literal_needs_type`: `local seen = {}` gets the type of its first write (`local seen: mut {string: boolean} = {}`).
 - `map_field`: `m.NAME` on a map is written `m["NAME"]`.
 - `and_ternary`: `a and b or c` is written `if a then b else c end`, when `b` can be neither false nor nil.

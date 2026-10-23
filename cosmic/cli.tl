@@ -234,10 +234,11 @@ local record Cli
   --- `T?`, `goto continue` to `continue`, `function R:m` into a `class`,
   --- `c and a or b` to an `if` expression where `a` is plainly a value),
   --- and the project is then checked as `COSMIC_GRAMMAR=new` checks a
-  --- project, which holds it to every rule. For the five findings that
+  --- project, which holds it to every rule. For the six findings that
   --- have one mechanical fix it makes it, from the finding's own place:
   --- `mut` on a collection or a field that is written (`view_written`,
-  --- `field_fixed`), the type of `local seen = {}` from its first write
+  --- `field_fixed`), `mut` on a field of an interface and the types that
+  --- list it where they disagree (`interface_disagrees`), the type of `local seen = {}` from its first write
   --- (`literal_needs_type`), `m["NAME"]` for `m.NAME` on a map
   --- (`map_field`) and `if a then b else c end` for `a and b or c`
   --- where `b` can be neither false nor nil (`and_ternary`). It checks

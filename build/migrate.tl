@@ -3,7 +3,7 @@
 ---
 --- THE TRANSLATION ([`lang.translate`]) is syntactic: it respells what the grammar cuts (`T | nil`, `goto continue`,
 --- `function R:m`, `c and a or b` where `a` is plainly a value) and writes `mut` where the syntax shows a write. It cannot
---- tell what a name is, so its output still has findings the new checker refuses. Five codes of them have one mechanical
+--- tell what a name is, so its output still has findings the new checker refuses. Six codes of them have one mechanical
 --- fix, which the finding's own place names, and this module makes it:
 ---
 --- - `view_written`: a collection that is written is declared `mut`: `local names: {string}` and a parameter `names:
@@ -11,6 +11,9 @@
 ---   A local made from a view (`local copy: {string} = names`) is left, as `mut` would only move the refusal to the
 ---   initial value.
 --- - `field_fixed`: a field of a record the project holds that is assigned after the record is made is declared `mut`.
+--- - [`interface_disagrees`], where a type and an interface it lists declare a field `mut` and fixed: the field is made `mut` in
+---   the interface, the type and every other type that lists the interface, whichever file declares them (the translator
+---   does this within a file). A class that declares the field as a method cannot be `mut`, so the finding is left.
 --- - `literal_needs_type`: `local seen = {}` is declared `local seen: mut {string: boolean} = {}` from the first
 ---   write the program makes to it, when the type of what is written is a plain one (a string, a number, a boolean or a
 ---   type of the same file) and the write appends or keys a string.
@@ -120,6 +123,7 @@ local usage = "cosmic migrate [--check] <path>..."
 --- The codes that have a rewrite.
 local FIXABLE <const>: {string: boolean} = {
   view_written = true, field_fixed = true, literal_needs_type = true, map_field = true, and_ternary = true,
+  interface_disagrees = true,
 }
 
 --- The replacement of the bytes `lo` to `hi - 1` of a file by `text`; an insertion has `hi == lo`.
@@ -174,6 +178,8 @@ local record Ctx
   facts: Facts
   tokens: Lexer.Tokens
   index: Driver.Index
+  --- Every declaration of the program, to find the one that a member belongs to.
+  decls: {Types.Decl}
 end
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -389,9 +395,12 @@ end
 
 --- The declarations that must declare `field` as `decl` does: the interfaces above it that declare it, and the
 --- declarations that list any of those and declare it, since a type that lists an interface declares each field with its
---- type and `mut`, or the checker refuses it (`interface_disagrees`).
+--- type and `mut`, or the checker refuses it ([`interface_disagrees`]).
 local function family(list: {Types.Decl}, decl: Types.Decl, field: string): Family
   local made: Family = { members = { decl }, blocked = "" }
+  if has_method(decl, field) then
+    made.blocked = "`" .. decl.name .. "` declares `" .. field .. "` as a method, which is never `mut`"
+  end
   local held: {Types.Decl: boolean} = { [decl] = true }
   local at = 1
   while at <= #made.members do
@@ -637,9 +646,47 @@ local function literal_needs_type(ctx: Ctx, p: Driver.Problem): Made
   return nothing("the literal is not the value of a local with no type")
 end
 
+--- The `mut` of a field that a type and an interface it lists declare differently: the field is made `mut` in both and in
+--- what else lists the interface ([`family`]), since the interface and every type that lists it declare it alike. A class
+--- that declares the field as a method cannot, and the finding is left.
+local function interface_disagrees(ctx: Ctx, p: Driver.Problem): Made
+  if p.msg:find(" is fixed, but ", 1, true) == nil and p.msg:find(" is mut, but ", 1, true) == nil then
+    return nothing("")
+  end
+  for _, n in ipairs(ctx.facts.at[p.offset] or {}) do
+    local member: Ast.Node | nil = n
+    if n is Ast.Binding then
+      member = ctx.facts.parent[base_of(n).id]
+    end
+    if member is Ast.FieldDecl or member is Ast.Method then
+      local names: {string} = {}
+      local at = ctx.facts.parent[base_of(member).id]
+      while at ~= nil and not (at is Ast.Chunk) do
+        if at is Ast.Record or at is Ast.Class or at is Ast.Interface then
+          table.insert(names, 1, at.name.name)
+        elseif not (at is Ast.Block) then
+          return nothing("the declaration is in the body of a function")
+        end
+        at = ctx.facts.parent[base_of(at).id]
+      end
+      local path = table.concat(names, ".")
+      for _, d in ipairs(ctx.decls) do
+        if d.module == ctx.outcome.module and d.name == path then
+          local request: Request = {
+            code = "interface_disagrees", decl = d, field = member.name.name, collection = false, finding = nil,
+          }
+          return { rewrite = nil, request = request, why = "" }
+        end
+      end
+      return nothing("the checker has no declaration `" .. path .. "`")
+    end
+  end
+  return nothing("no member of a declaration starts here")
+end
+
 local MAKERS <const>: {string: function(ctx: Ctx, p: Driver.Problem): Made} = {
   map_field = map_field, and_ternary = and_ternary, view_written = view_written, field_fixed = field_fixed,
-  literal_needs_type = literal_needs_type,
+  literal_needs_type = literal_needs_type, interface_disagrees = interface_disagrees,
 }
 
 --- Where the offsets of a text that a [`build.syntax_shape_specs`] splice lengthened were in the text it was made from.
@@ -755,7 +802,9 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
       end
       shifts = found
     end
-    local ctx: Ctx = { outcome = outcome, facts = facts_of(outcome.chunk), tokens = outcome.chunk.tokens, index = index }
+    local ctx: Ctx = { outcome = outcome, facts = facts_of(outcome.chunk), tokens = outcome.chunk.tokens, index = index,
+      decls = build.program.store.list,
+    }
     local list: {Rewrite} = {}
     for i, p in ipairs(outcome.errors) do
       local maker = MAKERS[p.code]
@@ -864,7 +913,7 @@ local function resolved(request: Request, path: string, text: string): Rewrite |
         return rewrite_of(request.code, { edit }), ""
       end
       if m.mut then
-        return nil, "the field is already `mut`"
+        return nil, ""
       end
       local at = Lexer.offset(tokens, base_of(m).first)
       return rewrite_of(request.code, { text_edit(at, at, "mut ") }), ""

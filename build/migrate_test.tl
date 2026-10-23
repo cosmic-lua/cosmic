@@ -453,6 +453,114 @@ local function test_a_field_a_class_declares_as_a_method_is_never_declared_mut()
   assert(note:find("`Fixed` lists `Source` and declares `read` as a method", 1, true) ~= nil, note)
 end
 
+local function test_a_field_a_type_declares_mut_and_the_interface_it_lists_fixed_is_made_mut_in_both(tmp: string)
+  -- The two interfaces are both called `Held`, so the translator, which follows the last name of a super within the file,
+  -- cannot carry the `mut` of `Guard.flag` to `A.Held` and to `Other`, as it does for an interface of another file.
+  local result = holds(tmp, table.concat({
+    "local record A",
+    "  interface Held",
+    "    flag: boolean",
+    "  end",
+    "end",
+    "local record B",
+    "  interface Held",
+    "    other: boolean",
+    "  end",
+    "end",
+    "local record Guard is A.Held",
+    "  flag: boolean",
+    "end",
+    "local record Other is A.Held",
+    "  flag: boolean",
+    "end",
+    "return function(b: B.Held | nil): boolean",
+    "  local g: Guard = { flag = false }",
+    "  g.flag = true",
+    "  local o: Other = { flag = true }",
+    "  return g.flag and o.flag and b == nil",
+    "end",
+    "",
+  }, "\n"), "interface_disagrees", true)
+  local text = assert(result.texts["m.tl"])
+  assert(text:find("  interface Held\n    mut flag: boolean\n", 1, true) ~= nil, text)
+  assert(text:find("local record Guard is A.Held\n  mut flag: boolean\n", 1, true) ~= nil, text)
+  assert(text:find("local record Other is A.Held\n  mut flag: boolean\n", 1, true) ~= nil, text)
+  assert(text:find("    other: boolean\n", 1, true) ~= nil and text:find("mut other", 1, true) == nil, text)
+end
+
+local function test_a_record_nested_in_another_is_found_by_its_path(tmp: string)
+  -- Written in the new grammar, which the translator takes as it is: the interface has `mut flag` and the nested record does not.
+  local source = table.concat({
+    "local record A",
+    "  interface Held",
+    "    mut flag: boolean",
+    "  end",
+    "end",
+    "local record Ns",
+    "  record Guard is A.Held",
+    "    flag: boolean",
+    "  end",
+    "end",
+    "return function(): boolean",
+    "  local g: Ns.Guard = { flag = true }",
+    "  return g.flag",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.before.interface_disagrees == 1 and result.after.interface_disagrees == nil and #result.left == 0)
+  local text = assert(result.texts["m.tl"])
+  assert(text:find("  record Guard is A.Held\n    mut flag: boolean\n", 1, true) ~= nil, text)
+  assert(value_of((assert(lua_of(tmp, text, "new")))) == true)
+end
+
+local function test_a_disagreement_of_a_type_is_left_for_a_person()
+  local source = table.concat({
+    "local interface Sized",
+    "  n: integer",
+    "end",
+    "local record Box is Sized",
+    "  n: string",
+    "end",
+    "return function(b: Box)",
+    "  local _ = b",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.interface_disagrees == 1 and next(result.rewrites) == nil)
+  assert(result.texts["m.tl"] == source and assert(result.left[1]).note == "")
+end
+
+local function test_an_interface_field_a_class_declares_as_a_method_stays_in_disagreement()
+  -- [`FdReader.skip`] is assigned, so the translator makes it and [`Reader.skip`] `mut`; `Fake` implements it as a method.
+  local source = table.concat({
+    "local interface Reader",
+    "  skip: function(self: Reader, n: integer): boolean",
+    "end",
+    "local record FdReader is Reader",
+    "  skip: function(self: FdReader, n: integer): boolean",
+    "end",
+    "local record Fake is Reader",
+    "  skip: function(self: Fake, n: integer): boolean",
+    "end",
+    "local function file_skip(_self: FdReader, _n: integer): boolean",
+    "  return true",
+    "end",
+    "function Fake:skip(_n: integer): boolean",
+    "  return false",
+    "end",
+    "return function(r: FdReader)",
+    "  r.skip = file_skip",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after.interface_disagrees == 1 and (result.rewrites.interface_disagrees or 0) == 0)
+  local note = assert(result.left[1]).note
+  assert(note:find("`Fake` declares `skip` as a method, which is never `mut`", 1, true) ~= nil, note)
+end
+
 local function test_a_field_an_interface_already_declares_mut_is_not_declared_twice()
   local source = table.concat({
     "local interface Named",

@@ -923,7 +923,7 @@ test/terminal/pty.tl 1
 
 build/tree_writer.tl 3
 
-build/migrate.tl 4
+build/migrate.tl 5
 
 [checked]
 # The ceilings of [`build.tree_checks`]'s `checked`: how many errors of each code of [`lang.check`] each file of the
@@ -13637,7 +13637,7 @@ build/migrate.tl condition_type 6
 
 build/migrate.tl field_fixed 9
 
-build/migrate.tl field_unknown 114
+build/migrate.tl field_unknown 124
 
 build/migrate.tl literal_missing 1
 
@@ -13651,7 +13651,7 @@ build/migrate.tl not_assignable 2
 
 build/migrate.tl or_mix 2
 
-build/migrate.tl overload_none 4
+build/migrate.tl overload_none 5
 
 build/migrate.tl view_as_mut 2
 
@@ -13659,7 +13659,7 @@ build/migrate.tl view_written 47
 
 build/migrate_test.tl is_on_record 1
 
-build/migrate_test.tl map_field 34
+build/migrate_test.tl map_field 39
 
 build/migrate_test.tl nil_not_allowed 2
 
@@ -13670,6 +13670,8 @@ build/migrate_tool_test.tl nil_not_allowed 1
 build/migrate_tool_test.tl or_mix 6
 
 build/migrate_tool_test.tl view_written 2
+
+build/migrate.tl narrowing_dropped 1
 
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which
