@@ -1315,6 +1315,10 @@ end
 --- that the verdict on its stub ([`compilation.stub_held`]) is given before the modules that reach it ask
 --- for their interface keys, and the pool is not made to compile the many a compile stands in for. An edit
 --- that moves an interface compiles this many here besides, a few tenths of a second each.
+-- TODO: compile the modules that changed in a first wave of the pool, and ask for the interface key of the rest once
+-- their stubs are judged, rather than compile `seeds` here and the rest ahead: once the pool serves a job too small
+-- for two shards (`count < 2` in build/worker.tl's `compile`), an edit of more than `seeds` modules has the pool
+-- compile ahead modules a compile stands in for.
 local seeds <const> = 6
 
 local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string, serving: boolean,
