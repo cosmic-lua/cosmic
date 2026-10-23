@@ -234,6 +234,8 @@ build/flow.tl 1
 build/artifact_test.tl 2
 build/bom_test.tl 1
 build/bridge_cache_test.tl 1
+build/c/init.tl 1
+build/c/inputs.tl 1
 build/c/rules.tl 2
 build/c/rules_test.tl 1
 build/cache_lifetime_test.tl 1
@@ -366,6 +368,8 @@ build/ast/match.tl 1
 build/ast/requires.tl 1
 build/ast/rewrite.tl 4
 build/bom.tl 2
+build/c/init.tl 3
+build/c/inputs.tl 1
 build/c/rules.tl 5
 build/c_functions.tl 2
 build/cache_maintenance.tl 2
@@ -550,11 +554,17 @@ build/compile_lang_test.tl setmetatable_call 1
 build/fact_hook_test.tl setmetatable_call 4
 build/importer_grammar_test.tl cast_refused 1
 build/importer_grammar_test.tl not_assignable 1
+build/c/inputs.tl view_written 28
+build/c/inputs_test.tl view_written 2
+build/c/memo_test.tl view_written 1
 build/importer_grammar_test.tl view_written 9
 build/json_query_test.tl setmetatable_call 1
 build/link_text.tl setmetatable_call 1
 build/pipeline.tl condition_type 1
+build/c/init.tl overload_none 3
+build/c/inputs.tl overload_none 1
 build/pipeline.tl overload_none 2
+build/c/inputs.tl view_as_mut 1
 build/pipeline.tl view_as_mut 2
 build/pipeline_check.tl field_fixed 1
 build/pipeline_test.tl arms_differ 7
@@ -1370,7 +1380,7 @@ build/artifact_test.tl index_may_be_nil 1
 build/ast/match.tl index_may_be_nil 2
 build/ast/match_test.tl index_may_be_nil 1
 build/boot.tl index_may_be_nil 2
-build/c/init.tl index_may_be_nil 16
+build/c/init.tl index_may_be_nil 17
 build/c/rules.tl index_may_be_nil 33
 build/c/rules_test.tl index_may_be_nil 1
 build/c/tree.tl index_may_be_nil 2
@@ -1741,7 +1751,7 @@ build/boot.tl view_written 5
 build/boot_test.tl view_written 2
 build/bootstrap_scratch_test.tl view_written 1
 build/bridge_cache_test.tl view_written 3
-build/c/init.tl view_written 39
+build/c/init.tl view_written 55
 build/c/layout.tl view_written 13
 build/c/rules.tl view_written 31
 build/c/rules_test.tl view_written 10

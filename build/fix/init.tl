@@ -1375,7 +1375,18 @@ local function lay_out_c(ctx: Fix)
     end
     if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
-  for _, outcome in ipairs(c_check.check(root, compiled)) do
+  -- What the checks made of the compile of each file is kept in the build directory, so that a file whose inputs have not
+  -- changed is not compiled again; without the memo every file is.
+  local memo: Sqlite.Handle | nil = nil
+  if #compiled > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
+    memo = opened
+  end
+  local outcomes = c_check.check(root, compiled, nil, nil, memo)
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
+  for _, outcome in ipairs(outcomes) do
     local findings = outcome.findings
     if findings == nil then
       failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
@@ -2057,14 +2068,19 @@ local function fix_verb(argv: {string}): integer
   code = load_compiler(ctx)
   if code ~= nil then return code end
   start_tally(ctx)
+  Memprobe.mark("fix: compiler loaded")
   lay_out_c(ctx)
+  Memprobe.mark("fix: C checked")
   check_templates(ctx)
   lay_out_teal(ctx)
   Memprobe.mark("fix: Teal laid out")
   wrap_asserts(ctx)
+  Memprobe.mark("fix: asserts checked")
   find_unbuilt(ctx)
   run_tree_checks(ctx)
+  Memprobe.mark("fix: tree checks done")
   check_links(ctx)
+  Memprobe.mark("fix: links checked")
   say_notes(ctx)
   return report(ctx)
 end
