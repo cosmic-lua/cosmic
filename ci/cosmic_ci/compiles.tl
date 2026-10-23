@@ -34,7 +34,7 @@ function Compiles.command(argv: {string}, env: {string:string}): integer, string
   local since = CacheTrim.since(argv)
   if since == nil then return 2, "", "compiles-trim: SINCE must be bounded Unix seconds\n" end
   local restored = argv[2]
-  if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true)) then
+  if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true) ~= nil) then
     return 2, "", "compiles-trim: RESTORED must be an absolute path without NUL\n"
   end
   local path = env["COSMIC_BUILD_CACHE"] or ""

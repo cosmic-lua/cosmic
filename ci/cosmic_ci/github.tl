@@ -109,7 +109,8 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     local words: {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
     local result = Child.run(words, { env = env, stdin = "null", stdout = "null", stderr = "null" })
-    return result ~= nil and result.code or nil
+    if result == nil then return nil end
+    return result.code
   end
   local client, absent = GithubApi.live(env, test)
   local fetch, delete: Github.Fetch, Github.Delete

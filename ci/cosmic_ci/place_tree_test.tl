@@ -123,8 +123,10 @@ end
 --- where `declared` is "1", for a checkout at `workspace` where given.
 local function environment(sha: string, leg: string, event?: string, declared?: string,
                            workspace?: string): {string:string}
-  return { GITHUB_SHA = sha, COSMIC_WORKER = leg, GITHUB_EVENT_NAME = event or "push",
-    COSMIC_CI_DECLARED_KEYS = declared or "0", GITHUB_WORKSPACE = workspace }
+  local values: {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
+    GITHUB_EVENT_NAME = event or "push", COSMIC_CI_DECLARED_KEYS = declared or "0" }
+  if workspace ~= nil then values["GITHUB_WORKSPACE"] = workspace end
+  return values
 end
 
 --- The name `--name` prints for the inputs.
@@ -342,7 +344,7 @@ local function test_a_gating_run_keyed_by_declarations_moves_the_tree_to_the_leg
   local root, workspace = checkout()
   local before = layout(root)
   local out = place(workspace, "", "macos-aarch64", "1")
-  assert(out[1]:find(", a gating run keyed by the path)", 1, true), out[1])
+  assert(assert(out[1]):find(", a gating run keyed by the path)", 1, true), out[1])
   assert(Fs.readlink(workspace) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
     layout(root))
   place(workspace, "--restore", "macos-aarch64", "1")

@@ -40,12 +40,15 @@ end
 --- engine's version (nil: it fails).
 local function facts_of(vector: Vector, docker?: string): HostId.Facts
   local files: {string:string} = {}
+  local function put(path: string, content?: string)
+    if content ~= nil then files[path] = content end
+  end
   if vector.sysname == "Darwin" then
-    files["/System/Library/CoreServices/SystemVersion.plist"] = vector.osrelease
+    put("/System/Library/CoreServices/SystemVersion.plist", vector.osrelease)
   else
-    files["/proc/cpuinfo"] = vector.cpuinfo
-    files["/proc/sys/kernel/osrelease"] = vector.osrelease
-    files["/proc/sys/kernel/version"] = vector.version
+    put("/proc/cpuinfo", vector.cpuinfo)
+    put("/proc/sys/kernel/osrelease", vector.osrelease)
+    put("/proc/sys/kernel/version", vector.version)
   end
   return {
     sysname = vector.sysname,

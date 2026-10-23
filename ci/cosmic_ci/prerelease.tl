@@ -397,7 +397,7 @@ local function ensure_tag(p: Prerelease.Publish): boolean
     assert(made ~= nil, why)
     if made.status < 200 or made.status > 299 then
       if made.status == 403 and
-          made.body:find("Resource not accessible by integration", 1, true) and
+          made.body:find("Resource not accessible by integration", 1, true) ~= nil and
           workflows_moved(p) then
         return false
       end
@@ -454,7 +454,8 @@ end
 local function fresh(p: Prerelease.Publish, name: string): string
   local path = p.temp .. "/prerelease/" .. name
   local there, why = Fs.exists(path)
-  assert(there == true == false, there and path .. " exists already" or why)
+  assert(there ~= nil, why)
+  assert(not there, path .. " exists already")
   assert(Fs.mkdirs(path))
   return path
 end

@@ -69,7 +69,7 @@ local function test_a_next_link_to_another_origin_fails_the_listing()
   })
   local pages, why = host.fetch("repos/o/r/actions/caches", true, 30)
   assert(pages == nil and why:find("refusing to send the token to", 1, true) ~= nil and
-      why:find("page 2", 1, true), tostring(why))
+      why:find("page 2", 1, true) ~= nil, tostring(why))
   assert(#sent == 1, "the token was sent on")
 end
 
@@ -152,7 +152,8 @@ local function test_the_harness_moved_is_gits_answer()
     local lines: {string} = {}
     local answer = Github.harness_moved(function(argv: {string}): integer | nil
       lines[#lines + 1] = table.concat(argv, " ")
-      return argv[1] == "cat-file" and known or diff
+      if argv[1] == "cat-file" and known ~= nil then return known end
+      return diff
     end, base)
     return answer, lines
   end

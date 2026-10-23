@@ -276,7 +276,8 @@ local uploads <const> = "https://uploads.test/"
 local blob <const> = "https://blob.test/"
 
 local function reply(status: integer, value: any, headers?: {string:string}): GithubApi.Reply
-  local body = value is string and value or assert(Json.encode(value))
+  local body: string
+  if value is string then body = value else body = assert(Json.encode(value)) end
   return { status = status, headers = headers or {}, body = body }
 end
 
@@ -328,9 +329,9 @@ local function serve_upload(r: Repo, request: GithubApi.Request): GithubApi.Repl
   r.assets = r.assets + 1
   local expected: {string:string} = { ["source.json"] = "application/json",
     SHA256SUMS = "text/plain", cosmic = "application/octet-stream" }
-  assert(request.headers["Content-Type"] == expected[name],
-    name .. " is uploaded as " .. tostring(request.headers["Content-Type"]))
-  r.uploaded[name] = request.headers["Content-Type"]
+  local content_type = request.headers["Content-Type"]
+  assert(content_type == expected[name], name .. " is uploaded as " .. tostring(content_type))
+  if content_type ~= nil then r.uploaded[name] = content_type end
   rel.assets[#rel.assets + 1] = { name = name, id = r.assets, data = assert(request.body) }
   return reply(201, { id = r.assets, name = name, state = "uploaded" })
 end
@@ -358,7 +359,7 @@ end
 local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil, string
   if r.fail["transport"] then return nil, "connection refused" end
   assert(request.headers["Authorization"] == nil, "the fake adds the token itself")
-  if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request) end
+  if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request), "" end
   assert(request.url:sub(1, #api) == api, "a request to " .. request.url)
   local path = request.url:sub(#api + 1)
   local method = request.method
@@ -370,46 +371,46 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
     body = assert(Json.decode_object(request_body))
   end
   if path == "repos/" .. repository then
-    return reply(200, { full_name = repository, default_branch = "main" })
+    return reply(200, { full_name = repository, default_branch = "main" }), ""
   end
   local prefix = "repos/" .. repository .. "/"
   assert(path:sub(1, #prefix) == prefix, "an unexpected path " .. path)
   local rest = path:sub(#prefix + 1)
   if (rest:match("^releases%?per_page=100") and method == "GET") == true then
-    return serve_page(r, rest)
+    return serve_page(r, rest), ""
   end
   local by_tag = rest:match("^releases/tags/(.+)$")
   if by_tag ~= nil and method == "GET" then
-    if r.fail["by-tag"] then return reply(500, { message = "Server Error" }) end
+    if r.fail["by-tag"] then return reply(500, { message = "Server Error" }), "" end
     -- The get-by-tag endpoint answers a published release alone.
     for _, rel in ipairs(r.releases) do
-      if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)) end
+      if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)), "" end
     end
-    return not_found()
+    return not_found(), ""
   end
   local probed = rest:match("^git/ref/tags/(.+)$")
   if (probed and method == "GET") == true then
     if r.fail["ref-transport"] then return nil, "connection reset" end
-    if r.fail["ref"] then return reply(500, { message = "Server Error" }) end
+    if r.fail["ref"] then return reply(500, { message = "Server Error" }), "" end
     local sha = r.tags[assert(probed)]
-    if sha == nil then return not_found() end
+    if sha == nil then return not_found(), "" end
     local object = { sha = sha, type = "commit" }
     local annotated = r.annotated[assert(probed)]
     if annotated ~= nil then
       object = { sha = annotated, type = "tag" }
     end
-    return reply(200, { ref = "refs/tags/" .. assert(probed), object = object })
+    return reply(200, { ref = "refs/tags/" .. assert(probed), object = object }), ""
   end
   local tag_object = rest:match("^git/tags/(.+)$")
   if (tag_object and method == "GET") == true then
     local tagged = r.tag_objects[assert(tag_object)]
-    if tagged == nil then return not_found() end
-    return reply(200, { sha = tag_object, object = { sha = tagged, type = "commit" } })
+    if tagged == nil then return not_found(), "" end
+    return reply(200, { sha = tag_object, object = { sha = tagged, type = "commit" } }), ""
   end
   if (rest:match("^compare/%x+%.%.%.main$") and method == "GET") == true then
     local files: {any} = {}
     for _, name in ipairs(r.compare) do files[#files + 1] = { filename = name } end
-    return reply(200, { status = "ahead", files = Json.array(files) })
+    return reply(200, { status = "ahead", files = Json.array(files) }), ""
   end
   if rest == "git/refs" and method == "POST" then
     local ref, sha = body.ref, body.sha
@@ -417,32 +418,33 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
     local made = assert(ref:match("^refs/tags/(.+)$"))
     local message = r.fail["create-ref"]
     if message then
-      return reply(403, { message = message ~= "" and message or
-          "Resource not accessible by integration" })
+      local said = message
+      if said == "" then said = "Resource not accessible by integration" end
+      return reply(403, { message = said }), ""
     end
-    if r.tags[made] then return reply(422, { message = "Reference already exists" }) end
+    if r.tags[made] then return reply(422, { message = "Reference already exists" }), "" end
     r.tags[made] = sha
-    return reply(201, { ref = ref, object = { sha = sha } })
+    return reply(201, { ref = ref, object = { sha = sha } }), ""
   end
   if rest == "releases" and method == "POST" then
     local name = body.tag_name
     assert(name is string and body.name == name, "a release is named for its tag")
     assert(body.draft == true and body.prerelease == true, "a release is a draft prerelease")
     -- A tag the draft names is made already, as the flow verifies it.
-    if r.tags[name] == nil then return reply(422, { message = "Validation Failed" }) end
+    if r.tags[name] == nil then return reply(422, { message = "Validation Failed" }), "" end
     local rel: Release = { id = #r.releases + 1, tag = name, draft = true, prerelease = true,
       assets = {}, title = name, notes = tostring(body.body) }
     r.releases[#r.releases + 1] = rel
-    return reply(201, release_json(rel))
+    return reply(201, release_json(rel)), ""
   end
   local id = rest:match("^releases/(%d+)$")
   local rel = id and release_by(r, id)
   if (id and method == "GET") == true then
-    if rel == nil then return not_found() end
-    return reply(200, release_json(rel))
+    if rel == nil then return not_found(), "" end
+    return reply(200, release_json(rel)), ""
   end
   if (id and method == "PATCH") == true then
-    if rel == nil then return not_found() end
+    if rel == nil then return not_found(), "" end
     local keys = 0
     for _ in pairs(body) do keys = keys + 1 end
     assert(keys == 2 and body.draft == false and body.prerelease == true,
@@ -452,16 +454,16 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
       local target = rel.target
       -- Publishing a draft whose tag is missing makes the tag, at the
       -- draft's target.
-      if r.tags[rel.tag] == nil and target then r.tags[rel.tag] = target end
+      if r.tags[rel.tag] == nil and target ~= nil then r.tags[rel.tag] = target end
     end
     rel.prerelease = true
-    return reply(200, release_json(rel))
+    return reply(200, release_json(rel)), ""
   end
   local asset_id = rest:match("^releases/assets/(%d+)$")
   if (asset_id and method == "GET") == true then
     assert(request.headers["Accept"] == "application/octet-stream", "an asset is asked for as bytes")
-    if asset_by(r, assert(asset_id)) == nil then return not_found() end
-    return reply(302, "", { location = blob .. assert(asset_id) })
+    if asset_by(r, assert(asset_id)) == nil then return not_found(), "" end
+    return reply(302, "", { location = blob .. assert(asset_id) }), ""
   end
   error("an unexpected request " .. method .. " " .. path)
 end
@@ -542,7 +544,7 @@ local function test_publish_creates_tag_and_release(tmp: string)
   -- Other commits' releases, two pages of them: the published ones end
   -- the drafts on the first, so the second is never asked for.
   for id = 1, 150 do
-    r.releases[id] = { id = id, tag = string.format("next-%040x", id), draft = false,
+    r.releases[#r.releases + 1] = { id = id, tag = string.format("next-%040x", id), draft = false,
       prerelease = true, assets = {}, title = "", notes = "" }
   end
   assert(publish(r) == "prerelease published and verified: " .. tag)
@@ -775,7 +777,7 @@ local function test_publish_fails_an_upload_the_release_refuses(tmp: string)
   local send = r.client.send
   r.client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
     -- Another run uploads SHA256SUMS just before this one does.
-    if request.upload == true and request.url:find("name=SHA256SUMS", 1, true) and
+    if request.upload == true and request.url:find("name=SHA256SUMS", 1, true) ~= nil and
         #rel.assets == 1 then
       rel.assets[#rel.assets + 1] = { name = "SHA256SUMS", id = 999, data = "x" }
     end

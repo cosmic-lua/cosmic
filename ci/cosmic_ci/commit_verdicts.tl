@@ -140,7 +140,8 @@ local function prune(host: Github.Host, repository: string, call: integer, age: 
       end
       if go then
         local raw = (item as {string:any}).id
-        local id = raw is number and math.tointeger(raw) or nil
+        local id: integer | nil = nil
+        if raw is number then id = math.tointeger(raw) end
         if id == nil then
           listed = false
           break

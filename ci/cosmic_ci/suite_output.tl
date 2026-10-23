@@ -21,6 +21,12 @@
 local State = require("cosmic_ci.state")
 
 local record SuiteOutput
+  --- A reason tests were skipped for, and how many were.
+  record Skip
+    reason: string
+    count: integer
+  end
+
   record Figures
     --- "pass" or "fail", from the summary line; nil without one.
     verdict?: string
@@ -64,7 +70,7 @@ local function parts_of(list: string): {string:string}
   local parts: {string:string} = {}
   for item in (list .. ", "):gmatch("(.-), ") do
     local name, value = item:match("^(.-) (%S*)$")
-    if (name and name ~= "") == true then parts[assert(name)] = value end
+    if name ~= nil and name ~= "" and value ~= nil then parts[name] = value end
   end
   return parts
 end
@@ -104,9 +110,11 @@ function SuiteOutput.held(list: string): {SuiteOutput.Held}
   local out: {SuiteOutput.Held} = {}
   for group in (list .. "; "):gmatch("(.-); ") do
     local rows, named = group:match("^(%d+) rows? under (.*)$")
-    if rows then
-      out[#out + 1] = { rows = number(rows),
-        parts = named == "no parts named" and {} or parts_of(assert(named)) }
+    local count = number(rows)
+    if count ~= nil and named ~= nil then
+      local parts: {string:string} = {}
+      if named ~= "no parts named" then parts = parts_of(named) end
+      out[#out + 1] = { rows = count, parts = parts }
     end
   end
   return out
@@ -184,9 +192,16 @@ local function cell(value: any): string
 end
 
 --- The part names the suites table shows, by its column heading.
-local shown_parts: {{string}} = { { "Runtime", "runtime" }, { "Harness", "harness" },
-  { "Compiler", "compiler" }, { "Store", "store" }, { "Host", "host" },
-  { "System", "system" }, { "Host features", "host features" } }
+local record Shown
+  heading: string
+  part: string
+end
+
+local shown_parts: {Shown} = { { heading = "Runtime", part = "runtime" },
+  { heading = "Harness", part = "harness" }, { heading = "Compiler", part = "compiler" },
+  { heading = "Store", part = "store" }, { heading = "Host", part = "host" },
+  { heading = "System", part = "system" },
+  { heading = "Host features", part = "host features" } }
 
 --- `rows` as the step summary's markdown table of suites: one line each,
 --- its counts, its stood share and its key parts.
@@ -196,7 +211,7 @@ function SuiteOutput.markdown(rows: {State.SuiteRun}): string
   local align: {string} = { "---", "---", "---", "---", "---:", "---:", "---:",
     "---:", "---:", "---:", "---:" }
   for _, part in ipairs(shown_parts) do
-    headings[#headings + 1] = part[1]
+    headings[#headings + 1] = part.heading
     align[#align + 1] = "---"
   end
   local lines: {string} = { "| " .. table.concat(headings, " | ") .. " |\n",
@@ -207,7 +222,7 @@ function SuiteOutput.markdown(rows: {State.SuiteRun}): string
       cell(row.stood), SuiteOutput.stood_percent(row), cell(row.shared),
       cell(row.elapsed_ms) }
     local parts = row.parts or {}
-    for _, part in ipairs(shown_parts) do cells[#cells + 1] = cell(parts[assert(part[2])]) end
+    for _, part in ipairs(shown_parts) do cells[#cells + 1] = cell(parts[part.part]) end
     lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
   end
   return table.concat(lines)
@@ -223,7 +238,7 @@ end
 --- Each reason a skipped test gave in `text`, a suite's stdout (its
 --- `test: SKIP  <module> <test>: <reason>` lines), with how many gave it,
 --- the most first, ties by reason.
-function SuiteOutput.skips(text: string): {{string | integer}}
+function SuiteOutput.skips(text: string): {SuiteOutput.Skip}
   local counts: {string:integer} = {}
   for raw in text:gmatch("[^\n]+") do
     local line = raw:gsub("\r$", "")
@@ -233,11 +248,11 @@ function SuiteOutput.skips(text: string): {{string | integer}}
       counts[key] = (counts[key] or 0) + 1
     end
   end
-  local out: {{string | integer}} = {}
-  for reason, count in pairs(counts) do out[#out + 1] = { reason, count } end
-  table.sort(out, function(a: {string | integer}, b: {string | integer}): boolean
-    if a[2] ~= b[2] then return (a[2] as integer) > (b[2] as integer) end
-    return (a[1] as string) < (b[1] as string)
+  local out: {SuiteOutput.Skip} = {}
+  for reason, count in pairs(counts) do out[#out + 1] = { reason = reason, count = count } end
+  table.sort(out, function(a: SuiteOutput.Skip, b: SuiteOutput.Skip): boolean
+    if a.count ~= b.count then return a.count > b.count end
+    return a.reason < b.reason
   end)
   return out
 end
@@ -250,12 +265,12 @@ function SuiteOutput.skip_report(name: string, text: string): string
   local reasons = SuiteOutput.skips(text)
   if #reasons == 0 then return "" end
   local total = 0
-  for _, row in ipairs(reasons) do total = total + (row[2] as integer) end
+  for _, row in ipairs(reasons) do total = total + row.count end
   local lines: {string} = { "### Skipped tests: " .. name .. " (" .. tostring(total) .. ")\n\n",
     "| tests | reason |\n| ---: | --- |\n" }
   for _, row in ipairs(reasons) do
-    local escaped = ((row[1] as string):gsub("[|`*<>]", "\\%0"))
-    lines[#lines + 1] = "| " .. tostring(row[2]) .. " | " .. escaped .. " |\n"
+    local escaped = (row.reason:gsub("[|`*<>]", "\\%0"))
+    lines[#lines + 1] = "| " .. tostring(row.count) .. " | " .. escaped .. " |\n"
   end
   lines[#lines + 1] = "\n"
   return table.concat(lines)

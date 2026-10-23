@@ -34,7 +34,7 @@ local function expected_hashes(product: string): {string:string}
   local hashes: {string:string} = {}
   for line in Fixture.read(product .. "/hashes.sha256"):gmatch("[^\n]+") do
     local digest, name = line:match("^([0-9a-f]+)  (.+)$")
-    assert((digest and #digest == 64) == true and name and hashes[name] == nil,
+    assert(digest ~= nil and #digest == 64 and name ~= nil and hashes[name] == nil,
       "invalid product hash record: " .. line)
     hashes[name] = digest
   end

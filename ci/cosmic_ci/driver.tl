@@ -35,7 +35,10 @@ local function run(argv: {string}): integer
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
   local command: {string} = { executable }
-  for i = 4, #argv do command[#command + 1] = argv[i] end
+  for i = 4, #argv do
+    local argument = argv[i]
+    if argument ~= nil then command[#command + 1] = argument end
+  end
   local runner: Runner.Context = { database = context.db, worker = context.worker,
     run = context.run, attempt = context.attempt, candidate = context.root }
   return Runner.operation(runner, phase, { argv = command, cwd = context.root,
@@ -98,7 +101,7 @@ end
 local record Command
   about: string
   usage: string
-  handler: function({string}): integer
+  handler?: function({string}): integer
   spec?: {string:boolean | Flags.Option}
   options?: function(Flags.Parsed): integer
 end
@@ -169,14 +172,19 @@ return function(argv: {string}): integer
       spec = entry.spec,
       run = function(got: Flags.Parsed): integer
         if options then return options(got) end
-        return handler(got.words)
+        local run_words = assert(handler, "a command names a handler or options")
+        return run_words(got.words)
       end,
     }
   end
   local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
   if ran == nil then
-    local named = argv[1] ~= nil and commands[assert(argv[1])] or nil
-    local usage = named ~= nil and "; usage: driver.tl " .. assert(argv[1]) .. " " .. named.usage or ""
+    local first = argv[1]
+    local usage = ""
+    if first ~= nil then
+      local named = commands[first]
+      if named ~= nil then usage = "; usage: driver.tl " .. first .. " " .. named.usage end
+    end
     local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. usage .. "\n")
     return 2
   end

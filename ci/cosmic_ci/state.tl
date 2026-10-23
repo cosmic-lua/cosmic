@@ -29,7 +29,12 @@ local record State
     --- said it ([`SuiteOutput.held`] reads it); nil where it said none.
     held?: string
   end
-  key_parts: {{string}}
+  --- A key part: the name `cosmic test` says it by and its column.
+  record KeyPart
+    said: string
+    column: string
+  end
+  key_parts: {State.KeyPart}
   suite_columns: {string}
 end
 
@@ -100,7 +105,7 @@ function State.open(path: string): Sqlite.Handle
   -- A table written before a key part or `held` was gains its column.
   local present = suite_columns_of(db)
   local wanted: {string} = { "held" }
-  for _, part in ipairs(State.key_parts) do wanted[#wanted + 1] = part[2] end
+  for _, part in ipairs(State.key_parts) do wanted[#wanted + 1] = part.column end
   for _, name in ipairs(wanted) do
     if present[name] ~= true then
       assert(db:exec("ALTER TABLE suite_runs ADD COLUMN " .. name .. " TEXT"))
@@ -140,9 +145,11 @@ end
 --- The key parts `suite_runs` keeps, by the name `cosmic test` says each
 --- by, beside its column.
 State.key_parts = {
-  { "host features", "host_features" }, { "host", "host" }, { "system", "system" },
-  { "runtime", "runtime" }, { "compiler", "compiler" }, { "harness", "harness" },
-  { "launcher", "launcher" }, { "program", "program" }, { "store", "store" },
+  { said = "host features", column = "host_features" }, { said = "host", column = "host" },
+  { said = "system", column = "system" }, { said = "runtime", column = "runtime" },
+  { said = "compiler", column = "compiler" }, { said = "harness", column = "harness" },
+  { said = "launcher", column = "launcher" }, { said = "program", column = "program" },
+  { said = "store", column = "store" },
 }
 
 --- `suite_runs`' columns before its key parts, in order.
@@ -167,10 +174,17 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   -- An operations database written before a column was lacks it.
   local columns = suite_columns_of(db)
   for _, part in ipairs(State.key_parts) do
-    selected[#selected + 1] = columns[assert(part[2])] == true and
-      (assert(part[2]) .. " IS NULL, COALESCE(" .. assert(part[2]) .. ", '')") or "1, ''"
+    if columns[part.column] == true then
+      selected[#selected + 1] = part.column .. " IS NULL, COALESCE(" .. part.column .. ", '')"
+    else
+      selected[#selected + 1] = "1, ''"
+    end
   end
-  selected[#selected + 1] = columns["held"] and "held IS NULL, COALESCE(held, '')" or "1, ''"
+  if columns["held"] == true then
+    selected[#selected + 1] = "held IS NULL, COALESCE(held, '')"
+  else
+    selected[#selected + 1] = "1, ''"
+  end
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
   local out: {State.SuiteRun} = {}
@@ -180,13 +194,15 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
     for _, name in ipairs(State.suite_columns) do
       if cells:text(column) ~= "1" then
         local value = cells:text(column + 1)
-        row[name] = integer_columns[name] == true and math.tointeger(tonumber(value)) or value
+        local count: integer | nil
+        if integer_columns[name] == true then count = math.tointeger(tonumber(value)) end
+        if count ~= nil then row[name] = count else row[name] = value end
       end
       column = column + 2
     end
     local parts: {string:string} = {}
     for _, part in ipairs(State.key_parts) do
-      if cells:text(column) ~= "1" then parts[assert(part[1])] = cells:text(column + 1) end
+      if cells:text(column) ~= "1" then parts[part.said] = cells:text(column + 1) end
       column = column + 2
     end
     row.parts = parts
@@ -214,8 +230,8 @@ function State.suite(path: string, row: State.SuiteRun)
     maybe_integer(row.elapsed_ms), maybe_text(row.sandbox) }
   local parts = row.parts or {}
   for _, part in ipairs(State.key_parts) do
-    columns[#columns + 1] = part[2]
-    values[#values + 1] = maybe_text(parts[assert(part[1])])
+    columns[#columns + 1] = part.column
+    values[#values + 1] = maybe_text(parts[part.said])
   end
   columns[#columns + 1] = "held"
   values[#values + 1] = maybe_text(row.held)

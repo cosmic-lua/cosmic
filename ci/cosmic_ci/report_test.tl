@@ -49,7 +49,7 @@ local function test_an_answer_of_another_shape_is_refused_by_path()
   -- The nulls GitHub writes for what it has not got are nothing.
   local runs = Report.runs('{"workflow_runs":[{"id":7,"event":"push","head_sha":"s",' ..
       '"head_branch":null,"conclusion":null,"run_attempt":null}]}')
-  assert(runs[1].id == "7" and assert(runs[1]).branch == "" and assert(runs[1]).conclusion == "" and
+  assert(assert(runs[1]).id == "7" and assert(runs[1]).branch == "" and assert(runs[1]).conclusion == "" and
       assert(runs[1]).attempt == "", assert(runs[1]).branch)
   assert(#Report.jobs('{"jobs":[{"name":"a","started_at":null,"completed_at":null}]}') == 1)
 end
@@ -111,14 +111,14 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
     run("10", "h9"),
   }
   Report.qualify(runs, 4)
-  assert(runs[1].qualifies, assert(runs[1]).why)
-  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's " ..
+  assert(assert(runs[1]).qualifies, assert(runs[1]).why)
+  assert(assert(runs[1]).why == "runtime and harness epoch and timeout among the restored cache's " ..
       "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", assert(runs[1]).why)
   assert(not assert(runs[2]).qualifies and assert(runs[2]).why == "linux-x86_64 checked: runtime or harness " ..
       "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
       "among the restored cache's (12 rows)", assert(runs[2]).why)
   assert(not assert(runs[3]).qualifies and
-      assert(runs[3]).why:find("linux-x86_64 local: the restored cache held no rows", 1, true), assert(runs[3]).why)
+      assert(runs[3]).why:find("linux-x86_64 local: the restored cache held no rows", 1, true) ~= nil, assert(runs[3]).why)
   assert(not assert(runs[4]).qualifies and assert(runs[4]).why:find("harness moved", 1, true) ~= nil, assert(runs[4]).why)
   -- Restored rows that name no parts (a cache kept from before rows
   -- named them) tell nothing: the earlier run decides, and the reason
@@ -126,10 +126,10 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
   local unnamed = "7 rows under no parts named"
   runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
   Report.qualify(runs, 3)
-  assert(runs[1].qualifies and assert(runs[1]).why == "restored rows name no parts; runtime and " ..
+  assert(assert(runs[1]).qualifies and assert(runs[1]).why == "restored rows name no parts; runtime and " ..
       "harness epoch and timeout held since run 60", assert(runs[1]).why)
   assert(not assert(runs[3]).qualifies and assert(runs[3]).why:find("linux-x86_64 local: restored rows name " ..
-      "no parts, harness moved", 1, true), assert(runs[3]).why)
+      "no parts, harness moved", 1, true) ~= nil, assert(runs[3]).why)
 end
 
 --- A fake GitHub: a `Send` answering from `answers`, by the path it was
@@ -219,8 +219,9 @@ end
 
 --- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
 local function artifacts(f: Fake, run: string, listed: {{string:any}})
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100",
-    { artifacts = #listed > 0 and listed or Json.array() })
+  local body: {string:any} = { artifacts = listed }
+  if #listed == 0 then body["artifacts"] = Json.array() end
+  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100", body)
 end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.
@@ -292,7 +293,7 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   })
   local result, said = report(f, { "--runs", "4", "--repo", repository })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   local function has(needle: string)
     assert(text:find(needle, 1, true), "the report lacks " .. needle .. ":\n" .. text)
   end
@@ -343,7 +344,7 @@ local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp
     { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   assert(text:find("- Not read: ci-driver-linux-x86_64: GET " ..
       "repos/cosmic-lua/cosmic/actions/artifacts/9/zip: HTTP 404: Not Found", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)

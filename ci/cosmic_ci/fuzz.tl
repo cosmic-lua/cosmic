@@ -280,14 +280,13 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
             wait = math.min(wait, math.max(0, deadline - Clock.monotonic_ns()))
             if wait == 0 then return "fuzz output remained open after the child exited" end
           end
-          local drained = handle:drain{ stdout = sink, timeout_ns = wait, max_bytes = drain_bytes }
+          local drained = handle:drain{ stdout = sink, stderr = nil, timeout_ns = wait, max_bytes = drain_bytes }
           if drained.kind == "failed" then return drained.reason end
           eof = drained.kind == "eof"
           -- limit, timeout and interrupted all resume supervision. A failed
           -- sink may have saved more than it logged; its chunk is never replayed.
         end
       end
-      return ""
     end
     local ran, reason = pcall(supervise)
     if not ran then

@@ -342,7 +342,8 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   -- that cannot tell, stands on nothing; a push's is not asked.
   for _, moved in ipairs({ "1", "" }) do
     local harness: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1",
-      COSMIC_CI_EVENT = "merge_group", COSMIC_CI_HARNESS_MOVED = moved ~= "" and moved or nil }
+      COSMIC_CI_EVENT = "merge_group" }
+    if moved ~= "" then harness["COSMIC_CI_HARNESS_MOVED"] = moved end
     assert(not Orchestration.stands(harness) and words(harness) == "test --all --bail",
       "the merge queue, the harness moved: " .. moved)
   end
@@ -636,7 +637,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       local host = declared_reads(name)
       if name == "performance" then
         assert(host["o/fixtures/performance/program"] == true and
-            host["o/fixtures/performance/perf.tl"],
+            host["o/fixtures/performance/perf.tl"] == true,
           "performance fixture must key the full candidate and controller source")
       else
         assert(host["o/fixtures/product/prefix"],
@@ -659,7 +660,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       local env = assert(policy:match("env%s*=%s*(%b{})"), name .. ": no env")
       local declared: {string:boolean} = {}
       for variable in env:gmatch('"([^"]*)"') do
-        assert(variable ~= "*" and variable:match("^[%a][%w_]*$"),
+        assert(variable ~= "*" and variable:match("^[%a][%w_]*$") ~= nil,
           name .. ": an unsandboxed fixture declares the variable " .. variable)
         declared[variable] = true
       end
@@ -740,7 +741,7 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
     local outcome = Fixture.call("format-changed-" .. assert(case["name"]), append(base, { "platform", "format" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
-        COSMIC_CI_FORMAT_CHANGED = case["changed"],
+        COSMIC_CI_FORMAT_CHANGED = assert(case["changed"]),
       }))
     assert(outcome.result.ok, assert(case["name"]) .. ": the format phase failed")
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
@@ -963,7 +964,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     if case.argv ~= nil then
       assert(#rows == 1, case.name .. ": " .. tostring(#rows) .. " suite rows")
       local row = rows[1]
-      assert(row.worker == "worker" and row.phase == "checked" and row.suite == "checked")
+      assert(assert(row).worker == "worker" and row.phase == "checked" and row.suite == "checked")
       assert(row.status == "pass" and row.exit_code == 0 and row.tests == 7)
       assert(row.ran == 3 and row.stood == 4 and row.elapsed_ms == 55)
       local parts = assert(row.parts)
@@ -1052,13 +1053,13 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     local db = assert(Sqlite.open(database))
     if case.broken then
       local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
-      assert(count[1]:text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
+      assert(assert(count[1]):text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
       assert(#rows == 1, case.name .. ": " .. tostring(#rows) .. " suite rows")
       local row = rows[1]
-      assert(row.suite == "local" and row.phase == "build" and row.status == "pass")
+      assert(assert(row).suite == "local" and row.phase == "build" and row.status == "pass")
       assert(row.exit_code == 0 and row.tests == 9 and row.ran == 5 and row.stood == 4)
       assert(row.elapsed_ms == 77 and row.sandbox == "sandboxed")
       local parts = assert(row.parts)
@@ -1177,10 +1178,10 @@ local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_sched
   local value = assert(env["COSMIC_CI_SELF_REBUILD"], "ci.yml's platform job sets no COSMIC_CI_SELF_REBUILD")
   local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
-  assert(one and two and one ~= two and legs[one] and legs[two],
+  assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,
     "the self-rebuild fixture runs on no two legs of the matrix, " ..
       "or not on every leg of the scheduled run: " .. value)
-  assert(legs[one]["runner"]:sub(1, 5) == "macos" or assert(legs[two])["runner"]:sub(1, 5) == "macos",
+  assert(assert(assert(legs[one])["runner"]):sub(1, 5) == "macos" or assert(assert(legs[two])["runner"]):sub(1, 5) == "macos",
     "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
 
@@ -1195,15 +1196,15 @@ local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_o
       "github%.event_name != 'merge_group'%) || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
       "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
-  assert(one and two and one ~= two and legs[one] and legs[two],
+  assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,
     "the portable suite runs on no two legs of a push to main, on more than " ..
       "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
-  assert(legs[one]["target"]:sub(1, 7) == "x86_64-" and assert(legs[two])["target"]:sub(1, 7) == "x86_64-",
+  assert(assert(assert(legs[one])["target"]):sub(1, 7) == "x86_64-" and assert(assert(legs[two])["target"]):sub(1, 7) == "x86_64-",
     "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
   -- Both Linux legs, the queue's in the Alpine (musl) image, the other
   -- not (glibc).
-  assert(legs[one]["image"] ~= "" and assert(legs[one])["image"]:find("alpine", 1, true) == nil and
-      assert(legs[two])["image"]:find("alpine", 1, true) ~= nil,
+  assert(assert(legs[one])["image"] ~= "" and assert(assert(legs[one])["image"]):find("alpine", 1, true) == nil and
+      assert(assert(legs[two])["image"]):find("alpine", 1, true) ~= nil,
     "the portable suite's gating legs are not a glibc host and, in the queue too, a musl one: " .. value)
 end
 
@@ -1293,7 +1294,7 @@ chmod 755 o/bin/cosmic
   local env: {string:string} = {}
   for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
     local name, value = line:match("^([^=]+)=(.*)$")
-    if name then env[name] = value end
+    if name ~= nil and value ~= nil then env[name] = value end
   end
   for name in pairs(env) do
     assert(not (name:match("^GITHUB_") or name:match("^RUNNER_") or
@@ -1346,7 +1347,7 @@ chmod 755 o/bin/cosmic
         TARGET = "x86_64-linux-musl", SEEN = seen,
         COSMIC_CI_SCOPE = "light", COSMIC_CI_EVENT = "push",
         COSMIC_CI_CHECKED_SUITE = "skip", COSMIC_CI_REQUIRE_SANDBOX = "1",
-        COSMIC_CI_SHARD = case["shard"], XDG_CACHE_HOME = tmp .. "/cache",
+        COSMIC_CI_SHARD = assert(case["shard"]), XDG_CACHE_HOME = tmp .. "/cache",
       }))
     assert(outcome.result.ok, assert(case["name"]) .. ": the build failed: " .. Fixture.read(outcome.err))
     local words = assert(Fs.read(seen .. ".words"))
@@ -1404,7 +1405,7 @@ exit 0
     local env: {string:string} = {}
     for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
       local name, value = line:match("^([^=]+)=(.*)$")
-      if name then env[name] = value end
+      if name ~= nil and value ~= nil then env[name] = value end
     end
     assert(env["COSMIC_VERDICT_CACHE"] == runner_temp .. "/verdicts/verdicts.db",
       case.event .. ": " .. tostring(env["COSMIC_VERDICT_CACHE"]))
@@ -2053,8 +2054,10 @@ local function test_a_failing_group_stops_the_other_lane_and_starts_nothing_afte
     local rig = lane_rig(dir)
     local hang = "echo $$ > " .. dir .. "/hung.pid; (sleep 30) & wait"
     local fail = "sleep 0.3; exit 7"
-    local high = rig.group("high", high_fails and fail or hang)
-    local first = rig.group("first", high_fails and hang or fail)
+    local high_command, first_command = hang, fail
+    if high_fails then high_command, first_command = fail, hang end
+    local high = rig.group("high", high_command)
+    local first = rig.group("first", first_command)
     local after = rig.group("after", "touch " .. dir .. "/after.ran")
     local started = Clock.monotonic_ns()
     local status = Orchestration.run_groups(high, { first, after }, true)

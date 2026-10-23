@@ -11,7 +11,7 @@ local function cache(path: string, used: {integer})
       "used_ns INTEGER NOT NULL)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO compiled_v2 VALUES (?1, zeroblob(65536), x'', x'', 'd', 65536, ?2)",
-      { { text = "k" .. i }, { integer = at * 1000000000 } }))
+      { { text = "k" .. tostring(i) }, { integer = at * 1000000000 } }))
   end
   assert(db:close())
 end
@@ -76,7 +76,8 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   assert(code == 0 and err ~= "")
   assert(Fs.stat(tmp .. "/output") == nil)
   db = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))[1]:text(1) == "future")
+  local future = assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))
+  assert(assert(future[1]):text(1) == "future")
   assert(db:close())
 end
 
@@ -90,7 +91,7 @@ local function test_digest_ignores_usage_stamps_and_snapshot_absence_counts_fres
       { COSMIC_BUILD_CACHE = dir .. "/cache.db", GITHUB_OUTPUT = dir .. "/output" })
     assert(code == 0 and err == "", out .. err)
     local output = assert(Fs.read(dir .. "/output"))
-    digests[i] = output:match("^digest=([0-9a-f]+)\n")
+    digests[i] = assert(output:match("^digest=([0-9a-f]+)\n"))
     assert(output:find("fresh=" .. tostring((#used - 1)) .. "\n", 1, true), output)
   end
   assert(digests[1] == digests[2] and digests[1] ~= digests[3])

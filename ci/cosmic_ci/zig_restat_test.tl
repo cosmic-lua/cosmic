@@ -10,8 +10,8 @@ local name <const> = string.rep("a", 32)
 --- with the stat and digest the file at `file` has now.
 local function record(file: string, prefix: integer, path: string, flags?: integer): string
   local stat = assert(sys.stat(file))
-  local digest = stat.kind == "dir" and string.rep("\0", 16) or
-    ZigPrune.siphash128(ZigPrune.key, (assert(Fs.read(file))))
+  local digest = string.rep("\0", 16)
+  if stat.kind ~= "dir" then digest = ZigPrune.siphash128(ZigPrune.key, (assert(Fs.read(file)))) end
   return string.pack("<i8i8i8", stat.size, stat.ino, stat.mtime * 1000000000 + stat.mtime_ns) ..
     digest .. string.char((prefix << 2) | (flags or 0)) .. path .. "\0"
 end
@@ -75,12 +75,12 @@ local function test_a_restored_file_takes_its_new_inode(tmp: string)
   local records = assert(ZigPrune.records(after))
   for i, path in ipairs({ project .. "/o/1/a.c", tree .. "/b.c" }) do
     local stat = assert(sys.stat(path))
-    assert(records[i].inode == stat.ino and assert(records[i]).size == stat.size and
+    assert(assert(records[i]).inode == stat.ino and assert(records[i]).size == stat.size and
         assert(records[i]).mtime == stat.mtime * 1000000000 + stat.mtime_ns, path)
   end
   local old = assert(ZigPrune.records(text))
   for i = 3, 5 do
-    assert(records[i].inode == assert(old[i]).inode and assert(records[i]).mtime == assert(old[i]).mtime, tostring(i))
+    assert(assert(records[i]).inode == assert(old[i]).inode and assert(records[i]).mtime == assert(old[i]).mtime, tostring(i))
   end
 
   -- What holds already is left as it is: a second pass rewrites nothing.
@@ -97,7 +97,8 @@ local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
   local files: {string} = {}
   local pieces: {string} = {}
   for prefix = 0, 4 do
-    local root = prefix == 2 and project or roots[prefix]
+    local root = project
+    if prefix ~= 2 then root = assert(roots[prefix]) end
     local path = "input" .. tostring(prefix) .. ".c"
     local file = root .. "/" .. path
     assert(Fs.write(file, "int a;"))
@@ -121,7 +122,7 @@ local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
   local after = assert(Fs.read(project .. "/h/" .. name))
   assert(after:sub(1, #text - #assert(pieces[7]) - 1) == text:sub(1, #text - #assert(pieces[7]) - 1))
   local records = assert(ZigPrune.records(after))
-  assert(records[7].inode == (assert(sys.stat(unchanged))).ino)
+  assert(assert(records[7]).inode == (assert(sys.stat(unchanged))).ino)
 end
 
 --- A path's cached digest is compared to each record: manifests from
@@ -148,7 +149,7 @@ local function test_a_cached_digest_is_compared_to_each_manifest(tmp: string)
   assert(result.records == 2 and result.adopted == 1 and result.left == 1 and result.manifests == 1)
   assert(Fs.read(project .. "/h/" .. name) == first)
   local records = assert(ZigPrune.records((assert(Fs.read(project .. "/h/" .. other)))))
-  assert(records[1].inode == (assert(sys.stat(file))).ino)
+  assert(assert(records[1]).inode == (assert(sys.stat(file))).ino)
 end
 
 --- A file under a prefix no root is named for, zig's lib directory here,

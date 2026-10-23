@@ -200,7 +200,7 @@ local function test_the_maker_goes_with_its_manifest(tmp: string)
   table.sort(want)
   assert(table.concat(plan.outputs, " ") == table.concat(want, " "), table.concat(plan.outputs, " "))
   assert(ZigPrune.apply(plan))
-  assert(Fs.exists(g .. "/o/" .. libc .. "/libc.a") == true and Fs.exists(g .. "/h/" .. hex("c")))
+  assert(Fs.exists(g .. "/o/" .. libc .. "/libc.a") == true and Fs.exists(g .. "/h/" .. hex("c")) == true)
 end
 
 --- `zig build`'s configuration is a file of the cache's `c/`, which its
@@ -259,7 +259,7 @@ local function test_an_older_zigs_manifests_go_before_their_outputs(tmp: string)
   assert(plan.manifests_seen == 2, tostring(plan.manifests_seen))
   assert(ZigPrune.apply(plan))
   assert(Fs.exists(older) ~= true and Fs.exists(p .. "/o/" .. older_object) ~= true)
-  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") == true and Fs.exists(p .. "/h/" .. hex("a")))
+  assert(Fs.exists(p .. "/o/" .. object .. "/a.o") == true and Fs.exists(p .. "/h/" .. hex("a")) == true)
 end
 
 --- A manifest not read as zig's, or one whose output is not there, says
@@ -286,7 +286,7 @@ local function test_nothing_is_removed_where_a_manifest_is_not_understood(tmp: s
     local code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = root,
       COSMIC_ZIG_GLOBAL_CACHE = shared.path })
     assert(code == 0 and out == "" and err:find("^zig%-prune: kept whole: ") ~= nil, err)
-    assert(Fs.exists(p .. "/o/" .. old_copies) == true and Fs.exists(p .. "/o/" .. old_object))
+    assert(Fs.exists(p .. "/o/" .. old_copies) == true and Fs.exists(p .. "/o/" .. old_object) == true)
   end
 end
 

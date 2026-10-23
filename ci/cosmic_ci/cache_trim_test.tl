@@ -48,7 +48,7 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
   Json.array(bad.files)
   cases[#cases + 1] = bad
   bad = encoded(path)
-  bad.files = { encoded(path).files[1], encoded(path).files[1] }
+  bad.files = { assert(encoded(path).files[1]), assert(encoded(path).files[1]) }
   Json.array(bad.files)
   cases[#cases + 1] = bad
   bad = encoded(path)
@@ -193,7 +193,7 @@ local function test_report_file_order_must_match_the_whole_requested_set(tmp: st
   local a, b = tmp .. "/a.db", tmp .. "/b.db"
   local request: CacheTrim.Request = { family = "verdicts", paths = { a, b }, since_ns = 1, whole = false }
   local value = encoded(a)
-  value.files = { encoded(b).files[1], encoded(a).files[1] }
+  value.files = { assert(encoded(b).files[1]), assert(encoded(a).files[1]) }
   Json.array(value.files)
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, (assert(Json.encode(value))))
   assert(err:find("another file set", 1, true) and Fs.stat(tmp .. "/output") == nil)

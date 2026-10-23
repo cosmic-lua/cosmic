@@ -37,6 +37,11 @@ local Plural = require("cosmic_ci.plural")
 local record Verdicts
 end
 
+--- Whether the merge attached the run ahead's database, kept where the function that runs it can read it.
+local record Attached
+  attached: boolean
+end
+
 --- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`;
 --- `stores_v<n>`, the digest of each closure store's bytes by its
 --- address, which a run stamps as it keys a test by it, so a leg that
@@ -144,7 +149,7 @@ local function merge_file(from: string, into: string): string, string
   local skipped: {string} = {}
   local added: {string} = {}
   local differing: {string} = {}
-  local session = { attached = false }
+  local session: Attached = { attached = false }
   local function work(): boolean, string
     local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))
     if not timed then return false, time_trouble end
@@ -197,7 +202,7 @@ local function merge_file(from: string, into: string): string, string
         -- `stores`): one address names one store's bytes, so a digest
         -- the run ahead kept for an address ours holds otherwise says
         -- a store's writer made two stores of it. Ours is kept.
-        if #ours > 0 and name:match("^stores_v%d+$") then
+        if #ours > 0 and name:match("^stores_v%d+$") ~= nil then
           local other, other_trouble = counted(db, "SELECT count(*) FROM main." .. q ..
               " AS m JOIN ahead." .. q .. " AS a ON a.address = m.address " ..
               "WHERE a.digest <> m.digest")
@@ -239,7 +244,8 @@ local function merge_file(from: string, into: string): string, string
       "holds, and this cache's is kept: a store's bytes must follow from its address " ..
       "alone (build/closure_store.tl's `address`), so a writer made two stores of one\n"
   end
-  local what = #added > 0 and table.concat(added, ", ") or "no table of the tool's"
+  local what = "no table of the tool's"
+  if #added > 0 then what = table.concat(added, ", ") end
   return "verdicts-merge: added " .. what .. "; " .. from .. " -> " .. into .. "\n", err
 end
 

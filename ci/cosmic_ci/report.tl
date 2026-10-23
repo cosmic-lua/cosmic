@@ -76,6 +76,19 @@ local record Report
   spec: {string:Flags.Option}
 end
 
+--- What one suite reported in the runs a report compares: each figure's values, a value a run.
+local record Series
+  ms: {number}
+  stood: {number}
+  ran: {number}
+end
+
+--- `count` as text, "" where there is none.
+local function count_text(count: integer | nil): string
+  if count == nil then return "" end
+  return tostring(count)
+end
+
 --- The join job of ci.yml (`ci`): every other job of a run but `reuse`
 --- and `seed`'s legs is a leg of the platform matrix, named by its leg,
 --- or a job of the checked suite (`linux-x86_64-checked`, its shares, its
@@ -188,7 +201,7 @@ function Report.runs(text: string): {Report.Run}
   for _, run in ipairs(answer.workflow_runs) do
     out[#out + 1] = { id = tostring(run.id), event = run.event,
       branch = run.head_branch or "", sha = run.head_sha,
-      conclusion = run.conclusion or "", attempt = tostring(run.run_attempt or ""),
+      conclusion = run.conclusion or "", attempt = count_text(run.run_attempt),
       jobs = {}, suites = {}, missing = {}, qualifies = false, why = "" }
   end
   return out
@@ -236,7 +249,10 @@ function Report.driver_artifacts(text: string): {Report.Artifact}
   end
   table.sort(names)
   local out: {Report.Artifact} = {}
-  for _, name in ipairs(names) do out[#out + 1] = newest[name] end
+  for _, name in ipairs(names) do
+    local artifact = newest[name]
+    if artifact ~= nil then out[#out + 1] = artifact end
+  end
   return out
 end
 
@@ -349,7 +365,8 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
       local verdict, detail = "none", ""
       if held ~= nil then verdict, detail = matched_restored(now, held) end
       -- Said of a row compared with the earlier run for want of a census.
-      local unnamed = verdict == "unnamed" and "restored rows name no parts, " or ""
+      local unnamed = ""
+      if verdict == "unnamed" then unnamed = "restored rows name no parts, " end
       if (now["runtime"] or "") == "" or (now["harness"] or "") == "" then
         moved[#moved + 1] = key .. ": no key parts"
       elseif verdict == "matched" then
@@ -357,8 +374,8 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
       elseif verdict == "moved" then
         moved[#moved + 1] = key .. ": " .. detail
       elseif earlier == nil then
-        moved[#moved + 1] = key .. ": " .. (unnamed ~= "" and unnamed or "no census, ") ..
-          "and no earlier run with suite rows listed to compare"
+        if unnamed == "" then unnamed = "no census, " end
+        moved[#moved + 1] = key .. ": " .. unnamed .. "and no earlier run with suite rows listed to compare"
       else
         local was = deciding_rows(earlier)[key]
         if was == nil then
@@ -419,9 +436,9 @@ local function suite_table(rows: {State.SuiteRun}): string
     "|---|---|---|---:|---:|---:|---:|---:|\n" }
   for _, row in ipairs(rows) do
     lines[#lines + 1] = string.format("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-      row.worker or "", row.suite or "", row.status or "", tostring(row.tests or ""),
-      tostring(row.ran or ""), tostring(row.stood or ""), SuiteOutput.stood_percent(row),
-      tostring(row.elapsed_ms or ""))
+      row.worker, row.suite, row.status, count_text(row.tests),
+      count_text(row.ran), count_text(row.stood), SuiteOutput.stood_percent(row),
+      count_text(row.elapsed_ms))
   end
   return table.concat(lines)
 end
@@ -475,11 +492,14 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   local runner: {number} = {}
   local legs: {string:{number}} = {}
   local leg_names: {string} = {}
-  local suites: {string:{string:{number}}} = {}
+  local suites: {string:Series} = {}
   local suite_names: {string} = {}
   for _, run in ipairs(qualifying) do
     local slowest = Report.slowest(run)
-    if slowest then walls[#walls + 1] = slowest.seconds end
+    if slowest ~= nil then
+      local wall = slowest.seconds
+      if wall ~= nil then walls[#walls + 1] = wall end
+    end
     runner[#runner + 1] = Report.runner_seconds(run)
     for _, job in ipairs(platform_jobs(run)) do
       local seconds = job.seconds
@@ -493,16 +513,18 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     end
     for _, row in ipairs(run.suites) do
       local key = row.worker .. " | " .. row.suite
-      if not suites[key] then
-        suites[key] = { ms = {}, stood = {}, ran = {} }
+      local series = suites[key]
+      if series == nil then
+        series = { ms = {}, stood = {}, ran = {} }
+        suites[key] = series
         suite_names[#suite_names + 1] = key
       end
       local elapsed_ms = row.elapsed_ms
-      if elapsed_ms then table.insert(assert(suites[key])["ms"], elapsed_ms) end
+      if elapsed_ms then table.insert(series.ms, elapsed_ms) end
       local row_ran = row.ran
-      if row_ran then table.insert(assert(suites[key])["ran"], row_ran) end
+      if row_ran then table.insert(series.ran, row_ran) end
       local percent = tonumber(SuiteOutput.stood_percent(row))
-      if percent then table.insert(assert(suites[key])["stood"], percent) end
+      if percent then table.insert(series.stood, percent) end
     end
   end
   table.sort(leg_names)
@@ -515,11 +537,11 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   end
   out[#out + 1] = "\n| Leg | Suite | Ran | Stood % | ms |\n|---|---|---:|---:|---:|\n"
   for _, key in ipairs(suite_names) do
-    local figures = suites[key]
-    local stood = Report.median(assert(figures)["stood"])
-    out[#out + 1] = "| " .. key .. " | " .. tostring(whole(Report.median(assert(figures)["ran"])) or "") ..
+    local series = assert(suites[key])
+    local stood = Report.median(series.stood)
+    out[#out + 1] = "| " .. key .. " | " .. count_text(whole(Report.median(series.ran))) ..
       " | " .. (stood and string.format("%.1f", stood) or "") ..
-      " | " .. tostring(whole(Report.median(assert(figures)["ms"])) or "") .. " |\n"
+      " | " .. count_text(whole(Report.median(series.ms))) .. " |\n"
   end
   return table.concat(out)
 end
@@ -613,7 +635,10 @@ function Report.report(o: Report.Options): string
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
       o.workflow .. "/runs?" .. query))
   local shown: {Report.Run} = {}
-  for i = 1, math.min(o.runs, #runs) do shown[i] = runs[i] end
+  for i = 1, math.min(o.runs, #runs) do
+    local run = runs[i]
+    if run ~= nil then shown[#shown + 1] = run end
+  end
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean
     for _, run in ipairs(shown) do

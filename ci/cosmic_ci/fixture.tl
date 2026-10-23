@@ -243,7 +243,8 @@ function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
   local environment: {string:string} = {}
   for _, name in ipairs(Fixture.inherited) do
-    if base[name] ~= nil then environment[name] = base[name] end
+    local inherited = base[name]
+    if inherited ~= nil then environment[name] = inherited end
   end
   local home = builds.home
   if home ~= nil then environment["COSMIC_BUILD_HOME"] = home end

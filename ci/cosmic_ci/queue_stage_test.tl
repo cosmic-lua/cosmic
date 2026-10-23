@@ -332,7 +332,6 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
     ["github.run_attempt"] = "1",
     ["steps.host-id.outputs.prefix"] = host,
     ["steps.host-id.outputs.verdicts"] = host .. "bfd3e88dc72aaf8f-",
-    ["steps.names.outputs.image"] = IMAGES[leg],
     ["steps.names.outputs.vendor"] = "zig-build-" .. leg .. "-" .. HEX64 .. "-",
     ["steps.names.outputs.core"] = HEX64,
     ["steps.verdicts-trim.outputs.digest"] = HEX64,
@@ -341,10 +340,13 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
     ["steps.compiles-restore.outputs.cache-matched-key"] = "",
     ["steps.zig-cache-restore.outputs.cache-matched-key"] = "",
   }
+  local image = IMAGES[leg]
+  if image ~= nil then values["steps.names.outputs.image"] = image end
   return (template:gsub("%${{ (.-) }}", function(expression: string): string
     if expression:match("^hashFiles%(") then return HEX64 end
     if expression == "matrix.image && 'container' || steps.names.outputs.image" then
-      return in_container(leg) and "container" or IMAGES[leg]
+      if in_container(leg) then return "container" end
+      return assert(image)
     end
     if expression == "steps.zig-cache-restore.outputs.cache-primary-key" then
       return expand((step_of(steps, "zig-cache-restore").with as {string: string}).key, leg, steps)

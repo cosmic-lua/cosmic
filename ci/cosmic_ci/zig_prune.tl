@@ -127,8 +127,9 @@ function ZigPrune.records(text: string): {ZigPrune.Record} | nil, string
     if ends == nil then return nil, "a path with no end at byte " .. tostring(at) end
     local size, inode, mtime = string.unpack("<i8i8i8", text, at)
     local flags = text:byte(at + 40)
+    if flags == nil then return nil, "a file cut short at byte " .. tostring(at) end
     records[#records + 1] = { at = at, size = size, inode = inode, mtime = mtime,
-      digest = text:sub(at + 24, at + 39), flags = flags, prefix = assert(flags) >> 2,
+      digest = text:sub(at + 24, at + 39), flags = flags, prefix = flags >> 2,
       path = text:sub(at + 41, ends - 1) }
     at = ends + 1
   end
@@ -141,7 +142,8 @@ end
 --- zig's ([`ZigPrune.records`]). A file's prefix 2 is the manifest's own
 --- cache (see [`Cache`]), and 3 the global one.
 local function read(name: string, text: string, prefix: integer): Manifest | nil, string
-  local named = #name == 32 and name:match("^%x+$") and Codec.unhex(name) or nil
+  local named: string | nil = nil
+  if #name == 32 and name:match("^%x+$") ~= nil then named = Codec.unhex(name) end
   if named == nil then return nil, "not named as a manifest" end
   local records, trouble = ZigPrune.records(text)
   if records == nil then return nil, trouble end
@@ -193,8 +195,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     if walked == nil then return nil, cache.path .. "/o: " .. walk_trouble end
     for _, path in ipairs(walked) do
       local dir, under = path:match("^([^/]+)/(.+)$")
-      local list = dir and files[tostring(cache.prefix) .. "/" .. dir] or nil
-      if list then list[#list + 1] = under end
+      if dir ~= nil and under ~= nil then
+        local list = files[tostring(cache.prefix) .. "/" .. dir]
+        if list ~= nil then list[#list + 1] = under end
+      end
     end
   end
   -- The manifests an older zig wrote (`<name>.txt`), in a cache restored
@@ -325,7 +329,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     plan.manifests_seen = plan.manifests_seen + 1
     plan.manifests[#plan.manifests + 1] = path
   end
-  for output in pairs(removed) do plan.outputs[#plan.outputs + 1] = outputs[output] end
+  for output in pairs(removed) do
+    local name = outputs[output]
+    if name ~= nil then plan.outputs[#plan.outputs + 1] = name end
+  end
   table.sort(plan.manifests)
   table.sort(plan.outputs)
   return plan, ""

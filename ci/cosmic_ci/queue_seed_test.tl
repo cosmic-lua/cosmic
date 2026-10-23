@@ -92,7 +92,7 @@ local function serve(spec: Spec): GithubFake.Fake
       end
       kept[id] = (kept[id] or 0) + 1
       local held = spec.artifacts
-      local answer = held and (held[id .. "-" .. assert(kept[id])] or held[id])
+      local answer = held and (held[id .. "-" .. tostring(assert(kept[id]))] or held[id])
       return answer or artifacts({}, {})
     end
     id = path:match("/runs/(%d+)/jobs")
@@ -165,7 +165,7 @@ local function test_no_passing_seeded_queue_run_is_none()
     { runs = listed(run("45", "completed", "success", SHA, QUEUE)), why = "a run whose seed expired" },
   }
   for _, case in ipairs(cases) do
-    local fake, code = find({ runs = { case["runs"] }, artifacts = {
+    local fake, code = find({ runs = { assert(case["runs"]) }, artifacts = {
       ["42"] = SEEDED, ["43"] = artifacts({ "portable-product-a" }, {}),
       ["44"] = artifacts({ "seed-a", "portable-product-b" }, {}),
       ["45"] = artifacts({ "seed-a", "seed-b" }, { ["seed-b"] = true }),
@@ -310,7 +310,7 @@ local function test_a_run_ahead_done_without_its_verdicts_is_none_at_once()
     { runs = listed(run("44", "completed", "success", SHA, QUEUE)), why = "an expired artifact" },
   }
   for _, case in ipairs(cases) do
-    local fake, code = ahead(SHA, { runs = { case["runs"] },
+    local fake, code = ahead(SHA, { runs = { assert(case["runs"]) },
       artifacts = { ["43"] = artifacts({ "verdicts-b" }, {}), ["44"] = artifacts({ "verdicts-a" }, { ["verdicts-a"] = true }) },
       jobs = { ["43"] = jobs("in_progress b", "completed a") } })
     assert(code == 0 and outputs(fake) == "run=\n", assert(case["why"]) .. ": " .. outputs(fake) .. said(fake))

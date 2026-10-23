@@ -156,7 +156,7 @@ local function test_a_failed_delete_leaves_the_rest_deleted()
   local fake, said = prune({}, pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 30),
     entry(2, "verdicts-leg-h-f-sha-" .. BASE, 30))), { "1" })
   assert(deleted(fake) == "1 2" and said:find("pruned 1 commit-keyed verdict entry older", 1, true) ~= nil and
-      said:find("(1 failed)", 1, true), table.concat(fake.calls, "\n") .. said)
+      said:find("(1 failed)", 1, true) ~= nil, table.concat(fake.calls, "\n") .. said)
 end
 
 --- A listing or a delete that fails fails nothing: the rest go on.

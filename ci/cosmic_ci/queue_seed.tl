@@ -359,7 +359,8 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
             pending = true
             -- A job with none listed has not started: nor reached its suite.
             local reached = mine ~= nil and mine.reached
-            local started = mine ~= nil and mine.started or nil
+            local started: integer | nil = nil
+            if mine ~= nil then started = mine.started end
             if suite ~= "" and not reached then
               said = job .. " of the run ahead, " .. run .. ", has not begun '" .. suite ..
                 "' (not started, building, or waiting on its own run ahead): nothing taken from the run ahead."

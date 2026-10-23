@@ -36,7 +36,7 @@ local function test_a_get_sends_the_token_and_the_headers_github_requires()
   local body, why = GithubApi.get(client, "repos/o/r/actions/runs?status=completed&per_page=2")
   assert(body == '{"a":1}', why)
   assert(#sent == 1)
-  assert(sent[1]:find("GET /repos/o/r/actions/runs?status=completed&per_page=2 HTTP/1.1\r\n", 1, true) == 1, sent[1])
+  assert(assert(sent[1]):find("GET /repos/o/r/actions/runs?status=completed&per_page=2 HTTP/1.1\r\n", 1, true) == 1, sent[1])
   has(assert(sent[1]), "\r\nHost: api.test\r\n")
   has(assert(sent[1]), "\r\nAuthorization: Bearer " .. token .. "\r\n")
   has(assert(sent[1]), "\r\nAccept: application/vnd.github+json\r\n")
@@ -178,7 +178,7 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
     tmp .. "/z")
   Http.download_result = real
   assert(called, tostring(got))
-  ok, why = got as boolean, trouble
+  ok, why = got as boolean, trouble or ""
   -- The signed URL stays out of the message.
   assert(not ok and why == "GET repos/o/r/artifacts/3/zip: HTTP 403", why)
 end
@@ -453,5 +453,5 @@ local function test_pages_that_are_each_timely_fail_once_the_total_runs_out()
   assert(pages == nil, "succeeded past the budget")
   assert(why:find("page 4", 1, true) and why:find("ran out", 1, true), why)
   assert(#timeouts == 3, "a request began after the deadline: " .. tostring(#timeouts))
-  assert(timeouts[1] > timeouts[2] and assert(timeouts[2]) > timeouts[3])
+  assert(assert(timeouts[1]) > assert(timeouts[2]) and assert(timeouts[2]) > assert(timeouts[3]))
 end

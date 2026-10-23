@@ -141,7 +141,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       { "relative-cache", "relative", home, "must be an absolute path" },
   }) do
     local values = environment(case[2])
-    values["HOME"] = case[3]
+    values["HOME"] = assert(case[3])
     local answer = Fixture.call_with_environment(assert(case[1]),
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
@@ -153,8 +153,13 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     Fixture.mkdir(temp)
     local values = environment()
     values["COSMIC_PORTABLE_CACHE"] = nil
-    values["XDG_CACHE_HOME"] = name == "relative-home" and "relative" or nil
-    values["HOME"] = name == "relative-home" and "relative" or nil
+    if name == "relative-home" then
+      values["XDG_CACHE_HOME"] = "relative"
+      values["HOME"] = "relative"
+    else
+      values["XDG_CACHE_HOME"] = nil
+      values["HOME"] = nil
+    end
     values["TMPDIR"] = temp
     outcome_ok(Fixture.call_with_environment(name,
       { ctx.artifact }, ctx.work,
@@ -447,7 +452,7 @@ exit "$result"
     local guard = ctx.work .. "/" .. assert(one[1]) .. ".guard"
     local err = ctx.work .. "/" .. assert(one[1]) .. ".err"
     local answer = Fixture.call_with_environment(assert(one[1]),
-      { "/bin/sh", "-c", one[2], "sh",
+      { "/bin/sh", "-c", assert(one[2]), "sh",
         ctx.artifact, guard, err }, ctx.work, ctx.diagnostics,
       environment(ctx.work .. "/" .. assert(one[1]) .. "-cache"))
     assert(not answer.result.ok, assert(one[1]) .. " unexpectedly succeeded")

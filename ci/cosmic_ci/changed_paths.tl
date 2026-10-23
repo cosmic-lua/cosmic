@@ -63,8 +63,10 @@ function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
     if git == nil then return false, "" end
     local words: {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
+    local timeout_ns: integer | nil = nil
+    if seconds > 0 then timeout_ns = Time.seconds(seconds) end
     local result = Child.run(words, { env = env, stdin = "null", stdout = "capture",
-      timeout_ns = seconds > 0 and Time.seconds(seconds) or nil })
+      timeout_ns = timeout_ns })
     if result == nil or not result.ok then return false, "" end
     return true, result.stdout or ""
   end

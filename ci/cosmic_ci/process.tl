@@ -31,6 +31,11 @@ local record Process
   end
 end
 
+--- Whether the child exited before the reader did, kept where the function that waits can read it.
+local record Early
+  exited: boolean
+end
+
 function Process.chmod(path: string, mode: integer)
   assert(Fs.chmod(path, mode))
 end
@@ -143,7 +148,7 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   local deadline = Clock.monotonic_ns() + bound
   local reader = Process.start("ready-" .. label,
     { "/usr/bin/env", "cat", path }, work, Fixture.environment(), diagnostics)
-  local early = { exited = false }
+  local early: Early = { exited = false }
   local called, failure = pcall(function(): boolean
     local first, trouble = Child.wait_any({ reader.handle, child.handle }, bound)
     if first == nil then

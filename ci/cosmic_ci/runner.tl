@@ -322,15 +322,22 @@ end
 --- as `operation` records a command: "success" when it returns true, and
 --- "error" with its message when it returns false or raises.
 function Runner.step(c: Runner.Context, phase: string,
-                     work: function(): boolean, string): Runner.Outcome
+                     work: function(): boolean, string | nil): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     local started = Clock.monotonic_ns()
     local ok, trouble = work()
     local elapsed = Clock.monotonic_ns() - started
     if ok then return { status = "success", code = 0, elapsed_ns = elapsed } end
+    local reason = trouble or ""
+    if reason == "" then reason = "failed" end
     return { status = "error", code = 1, elapsed_ns = elapsed,
-      trouble = limited((trouble or "") ~= "" and trouble or "failed") }
+      trouble = limited(reason) }
   end)
+end
+
+--- The status a phase's action answered, kept where the function that runs it under `pcall` can set it.
+local record Reached
+  code: integer
 end
 
 --- Records a phase's integer exit status, including its nested operations.
@@ -339,8 +346,11 @@ end
 function Runner.phase(c: Runner.Context, phase: string,
                       action: function(): integer): integer
   local recording = start(c, phase, Clock.monotonic_ns())
-  local called, answer = pcall(action)
-  local code = called and answer or 1
+  local reached: Reached = { code = 1 }
+  local called, answer = pcall(function()
+    reached.code = action()
+  end)
+  local code = reached.code
   local status = code == 0 and "success" or (called and "exit" or "error")
   local detail: string | nil = nil
   if not called then detail = tostring(answer) end

@@ -105,8 +105,8 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(status == "pass" and figures.stood == 1994)
   local held = SuiteOutput.held(assert(figures.held))
   assert(#held == 2 and assert(held[1]).rows == 1990 and assert(held[2]).rows == 1)
-  assert(held[1].parts["runtime"] == "bbbbbbbbbbbb" and assert(held[1]).parts["harness"] == "e8-072f7458-t60000")
-  assert(held[1].parts["host features"] == "01" and next(assert(held[2]).parts) == nil)
+  assert(assert(held[1]).parts["runtime"] == "bbbbbbbbbbbb" and assert(held[1]).parts["harness"] == "e8-072f7458-t60000")
+  assert(assert(held[1]).parts["host features"] == "01" and next(assert(held[2]).parts) == nil)
   -- An empty cache, said so; a run that said nothing has none.
   local empty = SuiteOutput.parse("test: census: no rows\n")
   local empty_held = empty.held
@@ -120,7 +120,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   State.suite(path, { worker = "w", run = "1", attempt = "1", phase = "build",
     suite = "local", status = "pass", held = figures.held })
   local db = assert(Sqlite.open(path))
-  assert(State.suite_rows(db)[1].held == figures.held)
+  assert(assert(State.suite_rows(db)[1]).held == figures.held)
   assert(db:close())
   local old = tmp .. "/old.db"
   local handle = assert(Sqlite.open(old, { writable = true }))
@@ -134,7 +134,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
       "runtime) VALUES ('w', '1', '1', 'build', 'local', 'pass', 'r')"))
   local rows = State.suite_rows(handle)
   assert(#rows == 1 and assert(rows[1]).held == nil)
-  local old_parts = assert(rows[1].parts)
+  local old_parts = assert(assert(rows[1]).parts)
   assert(old_parts["runtime"] == "r" and old_parts["store"] == nil)
   assert(handle:close())
   -- Written to again, it gains the columns it lacks.
@@ -143,7 +143,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   handle = assert(Sqlite.open(old))
   rows = State.suite_rows(handle)
   assert(#rows == 2)
-  assert(assert(rows[2].parts)["store"] == "s")
+  assert(assert(assert(rows[2]).parts)["store"] == "s")
   assert(handle:close())
 end
 
@@ -212,11 +212,11 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   local rows = State.suite_rows(db)
   assert(db:close())
   assert(#rows == 2)
-  assert(rows[1].ran == 1 and assert(rows[1]).stood == 199 and assert(rows[1]).elapsed_ms == 2385)
-  local first_parts, second_parts = assert(rows[1].parts), assert(rows[2].parts)
+  assert(assert(rows[1]).ran == 1 and assert(rows[1]).stood == 199 and assert(rows[1]).elapsed_ms == 2385)
+  local first_parts, second_parts = assert(assert(rows[1]).parts), assert(assert(rows[2]).parts)
   assert(first_parts["runtime"] == "bbbbbbbbbbbb" and first_parts["system"] == "" and
       first_parts["store"] == "eeeeeeeeeeee")
-  assert(rows[2].tests == nil and assert(rows[2]).exit_code == 124 and second_parts["runtime"] == nil)
+  assert(assert(rows[2]).tests == nil and assert(rows[2]).exit_code == 124 and second_parts["runtime"] == nil)
   local text = SuiteOutput.markdown(rows)
   assert(text:find("| linux-x86_64 | build | local | pass | 0 | 200 | 1 | 199 | 99.5 | 0 | " ..
       "2385 | bbbbbbbbbbbb | dddddddddddd | cccccccccccc | eeeeeeeeeeee | aaaaaaaaaaaa |  | " ..
@@ -242,7 +242,7 @@ local function test_skips_are_grouped_by_reason_for_the_summary()
     "test: 5 tests passed in 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed",
   }, "\n") .. "\n"
   local skips = SuiteOutput.skips(text)
-  assert(#skips == 2 and assert(skips[1])[2] == 2 and assert(skips[1])[1] == "no socket (<dir>: denied)")
+  assert(#skips == 2 and assert(skips[1]).count == 2 and assert(skips[1]).reason == "no socket (<dir>: denied)")
   local report = SuiteOutput.skip_report("local", text)
   assert(report:find("### Skipped tests: local (3)", 1, true), report)
   assert(report:find("| 2 | no socket (\\<dir\\>: denied) |", 1, true), report)

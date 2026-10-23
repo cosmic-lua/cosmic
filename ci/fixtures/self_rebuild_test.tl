@@ -127,8 +127,8 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
       local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
           "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
-      total.value = total.value + math.tointeger(tonumber(assert(counts[1]):text(1)))
-      used.value = used.value + math.tointeger(tonumber(assert(counts[1]):text(2)))
+      total.value = total.value + assert(math.tointeger(tonumber(assert(counts[1]):text(1))))
+      used.value = used.value + assert(math.tointeger(tonumber(assert(counts[1]):text(2))))
     end
     return true
   end)

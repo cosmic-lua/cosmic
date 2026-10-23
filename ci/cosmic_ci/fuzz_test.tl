@@ -208,7 +208,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   assert(read(temp .. "/fuzz.status") == "3\n")
   assert(#summary == 2 and summary[1] == Fuzz.header("9", "5") and
       summary[2] == Fuzz.failure(pieces(out, 65536), "9"), table.concat(summary))
-  assert(summary[2]:find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
+  assert(assert(summary[2]):find("~~~~\ntest: FAIL ./build/a_fuzz_test.tl\n\n", 1, true))
 end
 
 local function test_execute_passes_and_says_so_briefly(tmp: string)
@@ -253,16 +253,16 @@ end
 
 --- The driver's commands read their context from the environment: the
 --- driver runs in a project of its own, as orchestration_test's do.
-local function driver_project(tmp: string): {string}, string
+local function driver_project(tmp: string): string, string, string
   local here = assert(Fs.absolute("."))
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project })).ok)
-  return { assert(Proc.executable()), project .. "/cosmic_ci/driver.tl" }, project
+  return assert(Proc.executable()), project .. "/cosmic_ci/driver.tl", project
 end
 
 local function test_driver_commands_read_the_environment(tmp: string)
-  local driver, project = driver_project(tmp)
+  local executable, script, project = driver_project(tmp)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "1")
   assert(Fs.mkdirs(temp))
@@ -272,20 +272,20 @@ local function test_driver_commands_read_the_environment(tmp: string)
   env["GITHUB_WORKSPACE"], env["RUNNER_TEMP"] = root, temp
   env["GITHUB_STEP_SUMMARY"] = summary
   env["FUZZ_SEED"], env["FUZZ_ITERS"] = "11", "2"
-  local fuzz = assert(Child.run({ driver[1], driver[2], "fuzz" },
+  local fuzz = assert(Child.run({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
   assert((fuzz.stdout or ""):find("env: 11 2 0 1200 ", 1, true), fuzz.stdout)
   local text = read(summary)
   assert(text:sub(1, #Fuzz.header("11", "2")) == Fuzz.header("11", "2"))
   assert(text:find("fuzz-inputs-11 artifact", 1, true), text)
-  local cancelled = assert(Child.run({ driver[1], driver[2], "fuzz-cancelled" },
+  local cancelled = assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(cancelled.ok, (cancelled.stdout or "") .. (cancelled.stderr or ""))
   assert(read(summary) == text ..
       Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out")))
   assert(Fs.remove(temp .. "/fuzz.out"))
-  assert(assert(Child.run({ driver[1], driver[2], "fuzz-cancelled" },
+  assert(assert(Child.run({ executable, script, "fuzz-cancelled" },
     { cwd = project, env = env, stdout = "null", stderr = "null" })).ok,
     "fuzz-cancelled refused a run that kept no output")
 end
@@ -305,7 +305,7 @@ end
 --- stdout (the job's log) in `<tmp>/log`.
 local function start_fuzz(tmp: string, body: {string},
                           extra?: {string:string}): Child.Handle, string, string
-  local driver, project = driver_project(tmp)
+  local executable, script, project = driver_project(tmp)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
@@ -316,7 +316,7 @@ local function start_fuzz(tmp: string, body: {string},
     for name, value in pairs(extra) do env[name] = value end
   end
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local handle, trouble = Child.start({ driver[1], driver[2], "fuzz" },
+  local handle, trouble = Child.start({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })
   assert(Fs.close(log_fd))
   assert(handle, trouble)
@@ -499,8 +499,9 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
 end
 
 local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
-  local setsid = Proc.find("setsid")
-  if setsid == nil then Test.skip("this host has no setsid") end
+  local found = Proc.find("setsid")
+  if found == nil then Test.skip("this host has no setsid") end
+  local setsid = assert(found)
   local pid_file = tmp .. "/escaped-pid"
   with_fuzz(tmp, {
     "#!/bin/sh",

@@ -66,6 +66,12 @@ local function mkdir(path: string) assert(Fs.mkdirs(path)) end
 local exists = Predicate.exists
 local is_dir = Predicate.is_dir
 local function read(path: string): string return (assert(Fs.read(path))) end
+
+--- The file at `path`, "" where there is none.
+local function read_or_empty(path: string): string
+  if exists(path) then return read(path) end
+  return ""
+end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 --- The events whose run a suite may stand on verdicts in (`stands`): a
@@ -267,10 +273,11 @@ end
 --- leg's (the provenance join, fuzz.yml) promises nothing, and a
 --- variable the environment already sets is the caller's.
 function Orchestration.promise(env: {string:string})
-  local promised = (Capabilities.legs as {string:{string}})[env["COSMIC_WORKER"] or ""]
+  local worker = env["COSMIC_WORKER"] or ""
+  local promised = (Capabilities.legs as {string:{string}})[worker]
   if promised == nil or env["COSMIC_TEST_PROMISES"] ~= nil then return end
   env["COSMIC_TEST_PROMISES"] = table.concat(promised, ",")
-  env["COSMIC_TEST_LEG"] = env["COSMIC_WORKER"]
+  env["COSMIC_TEST_LEG"] = worker
 end
 
 --- The promised names the pinned release (ci/cosmic-driver.pin) does not know. A
@@ -508,7 +515,7 @@ end
 --- suite's own status decides the leg.
 local function record_suite(c: Context, name: string, code: integer, out: string)
   local called, trouble = pcall(function(): boolean
-    local said = exists(out) and read(out) or ""
+    local said = read_or_empty(out)
     local figures, status = SuiteOutput.read(said, code)
     State.suite(State.external_path(c.db, c.root), {
       worker = c.worker, run = c.run, attempt = c.attempt,
@@ -1223,6 +1230,11 @@ local function checked_suite(c: Context, target: string, work: string,
   return s
 end
 
+--- The status of a snapshot, kept where the function that takes it under `pcall` can set it.
+local record Snapped
+  status: integer
+end
+
 local function snapshot(c: Context, diagnostics: string, label: string,
                         cosmic: string): integer
   assert(label:match("^[%w-]+$"), "invalid snapshot label")
@@ -1296,9 +1308,11 @@ local function suite(c: Context, name: string, executable: string,
     suite_timeout_ns, c.root, values)
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
-  local snap_called, snap_answer = pcall(snapshot, c, diagnostics,
-    name .. "-immediate", executable)
-  local snapshot_status = snap_called and snap_answer or 1
+  local snapped: Snapped = { status = 1 }
+  local snap_called, snap_answer = pcall(function()
+    snapped.status = snapshot(c, diagnostics, name .. "-immediate", executable)
+  end)
+  local snapshot_status = snapped.status
   if not snap_called then Fs.put(Fs.stderr, tostring(snap_answer) .. "\n") end
   if status == 124 then
     Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
@@ -1608,11 +1622,11 @@ local function phase_rehearsal(p: PlatformContext): integer
     Fs.put(Fs.stderr, "rehearsal: " .. trouble .. "\n")
     return 1
   end
-  local failed = Rehearsal.failures(exists(out) and read(out) or "")
+  local failed = Rehearsal.failures(read_or_empty(out))
   local problems = Rehearsal.judge(allowed, failed)
   -- The suite ran on the tool the rehearsal booted with the new checker, not on one built again for the run.
   local errors = p.local_diagnostics .. "/rehearsal-test.err"
-  for _, line in ipairs(Rehearsal.judge_tool(exists(out) and read(out) or "", exists(errors) and read(errors) or "")) do
+  for _, line in ipairs(Rehearsal.judge_tool(read_or_empty(out), read_or_empty(errors))) do
     problems[#problems + 1] = line
   end
   if status == 1 and #failed == 0 then
@@ -2072,7 +2086,8 @@ function Orchestration.seed_compiles(env: {string:string},
   end
   local held: {sys.Kind} = { "dir", "file" }
   for _, kind in ipairs(held) do
-    local path = kind == "dir" and Fs.dirname(source) or source
+    local path = source
+    if kind == "dir" then path = Fs.dirname(source) end
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
     local st, stat_trouble: sys.Stat | nil, string = nil, ""
@@ -2113,6 +2128,13 @@ function Orchestration.fixture_lanes(env: {string:string}, cpus: integer): integ
   return cpus - 1, 1
 end
 
+--- Where the lanes of [`Orchestration.run_groups`] stand: the last group's
+--- status and the index of the next low group to start.
+local record Progress
+  status: integer
+  next_low: integer
+end
+
 --- Runs `high`, then each of `low`, one after another, and returns the first
 --- nonzero status (0 for all well), the rest not started. With `lanes`, `high`
 --- runs beside the low groups, which run in turn: whichever of the two
@@ -2144,11 +2166,12 @@ function Orchestration.run_groups(high: Orchestration.Group,
     owner[running] = group
     in_low[running] = is_low
   end
-  local run = { status = 0, next_low = 1 }
+  local run: Progress = { status = 0, next_low = 1 }
   local ran, failure = pcall(function(): boolean
     begin(high, false)
-    if low[1] then
-      begin(assert(low[1]), true)
+    local first = low[1]
+    if first ~= nil then
+      begin(first, true)
       run.next_low = 2
     end
     while #active > 0 and run.status == 0 do
@@ -2161,10 +2184,10 @@ function Orchestration.run_groups(high: Orchestration.Group,
       end
       local group = owner[done]
       run.status = assert(group).finish(Runner.reap(done))
-      if run.status == 0 and in_low[done] and low[run.next_low] then
-        local following = low[run.next_low]
+      local following = low[run.next_low]
+      if run.status == 0 and in_low[done] == true and following ~= nil then
         run.next_low = run.next_low + 1
-        begin(assert(following), true)
+        begin(following, true)
       end
     end
     return true
@@ -2389,7 +2412,7 @@ local function provenance_impl(c: Context, products: string): integer
   assert(expected ~= nil, "no product to compare")
   assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
   return step(c, "provenance comparison", function(): boolean, string
-    return true
+    return true, ""
   end)
 end
 
