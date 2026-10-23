@@ -1894,6 +1894,41 @@ function importer.checked_tool(tool: string, wraps?: boolean): string
   return Hash.hex_sha256(tool .. (wraps == true and "\0fact-wraps" or "\0run-time-checks"))
 end
 
+--- What a compile that asked to be reused stood on, and what it made.
+local record Standing
+  root: string
+  tool: string
+  unjudged: boolean
+  checks: boolean
+  grammar: string
+  --- [`tree_state`] as the compile left it.
+  state: string
+  result: importer.Result
+end
+
+--- What this process holds of it, if anything.
+local record Held
+  standing: Standing | nil
+end
+
+local kept: Held = {}
+
+--- A digest of what a compile reads of the working database and leaves in
+--- it: each staged file by its hash, each derived source, and the plan of
+--- modules and keys it wrote. Nil where the database will not say.
+local function tree_state(db: Sqlite.Handle): string | nil
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT lower(hex(sha256(" ..
+      "coalesce((SELECT group_concat(path || char(0) || sha256, char(10)) FROM " ..
+      "(SELECT path, sha256 FROM files ORDER BY path)), '') || char(1) || " ..
+      "coalesce((SELECT group_concat(file || char(0) || path || char(0) || kind || char(0) || source_hash, " ..
+      "char(10)) FROM (SELECT file, path, kind, source_hash FROM derived ORDER BY file, path)), '') || char(1) || " ..
+      "coalesce((SELECT group_concat(path || char(0) || key || char(0) || ordinal, char(10)) FROM " ..
+      "(SELECT path, key, ordinal FROM plan ORDER BY path)), ''))))")
+  if rows == nil or rows[1] == nil then return nil end
+  return rows[1]:text(1)
+end
+
 --- Compiles every module, in import order, into Lua and bytecode --
 --- or finds it already compiled under the same key. The keys and the
 --- compiles land in the working database inside the run's
@@ -1946,7 +1981,8 @@ function importer.compile(handle: work.Handle, built: compiler,
                           shared?: importer.Shared,
                           pool?: importer.Workers,
                           checks?: boolean,
-                          grammar?: GrammarMode.Mode): importer.Result | nil, string
+                          grammar?: GrammarMode.Mode,
+                          again?: boolean): importer.Result | nil, string
   if grammar == "new" then
     -- The new checker reads the tree in this process.
     if pool ~= nil then
@@ -1970,7 +2006,32 @@ function importer.compile(handle: work.Handle, built: compiler,
     -- `__cosmic_tc`: each is another program, keyed apart from the other and from none.
     tool = importer.checked_tool(tool, grammar == "new")
   end
-  return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks, nil, grammar)
+  if again ~= true then
+    return consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks, nil, grammar)
+  end
+  -- The caller built this tree already, in this process, and asks for that
+  -- build where nothing it stands on has moved.
+  local before = kept.standing
+  if before ~= nil and before.root == handle.root and before.tool == tool and before.unjudged == (unjudged == true) and
+      before.checks == (checks == true) and before.grammar == (grammar or "teal") and before.state == tree_state(handle.db) then
+    if shared ~= nil then shared.finish() end
+    if pool ~= nil then pool.close() end
+    local was = before.result
+    local again_result: importer.Result = {
+      modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, left_out = was.left_out,
+      compiled = 0, cached = #was.modules, shared = 0, worked = 0, parses = was.parses, catalog = was.catalog,
+    }
+    return again_result, ""
+  end
+  local result, trouble = consuming_compile(handle, built, tool, unjudged, shared, pool, nil, checks, nil, grammar)
+  kept.standing = nil
+  if result == nil then return nil, trouble end
+  local state = tree_state(handle.db)
+  if state ~= nil then
+    kept.standing = { root = handle.root, tool = tool, unjudged = unjudged == true, checks = checks == true,
+      grammar = grammar or "teal", state = state, result = result }
+  end
+  return result, ""
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run
