@@ -119,6 +119,10 @@ local record link_index
     --- Whether `memo` is one an earlier call kept, which every answer of
     --- it was asked of the disk again and found the same.
     remembered: boolean
+    --- What the links of `rows` are resolved from, beside the disk's
+    --- answers and the projection's symbols: their rows, the root and
+    --- the code that resolves them. Nil where the caller named no code.
+    fingerprint: string | nil
   end
 
   --- A library of nothing: links name the projection's own symbols alone.
@@ -433,7 +437,8 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   end
   local signed = library ~= nil and asking.asked and library.identity or nil
   return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
-    digest = digest_of(root, memo, rows, signed), remembered = recalled_memo ~= nil }
+    digest = digest_of(root, memo, rows, signed), remembered = recalled_memo ~= nil,
+    fingerprint = fingerprint }
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
@@ -512,10 +517,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
 end
 
 --- Resolves `pending`'s links against the `docs` of the projection
---- under `qualifier` (`"out."`) and writes those that name one thing to
---- its `links`, in key order.
-function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
-                         qualifier: string): boolean, string
+--- under `qualifier` and writes those that name one thing to its `links`:
+--- [`link_index.fill`] without the memory of its last answer.
+local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
+                                 qualifier: string): boolean, string
   local held: {string: boolean} = {}
   local indexed, index_trouble = index_of(db, qualifier, held)
   if indexed == nil then
@@ -639,6 +644,92 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     if not ok then
       return false, trouble
     end
+  end
+  return true, ""
+end
+
+--- The columns of a `links` row, in the order [`resolve_and_write`] and the
+--- copy kept of its rows name them.
+local link_columns <const> =
+  "module, symbol, path, anchor, from_file, line, column, from_module, kind, form, source, text"
+
+--- One digest of everything [`resolve_and_write`] reads of the projection
+--- under `qualifier` to know which symbols there are: the modules and
+--- declarations that answer for a name, each doc row's names, kind and
+--- signature (not its text or line, which no link reads), and the names
+--- each module binds. Quoted by type as [`build.closure_store`] quotes a row, so
+--- no two rows spell one line.
+local function symbols_digest(db: Sqlite.Handle, qualifier: string): string | nil
+  local function quoted(columns: {string}): string
+    local out: {string} = {}
+    for i, column in ipairs(columns) do
+      out[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
+        ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
+    end
+    return table.concat(out, " || ',' || ")
+  end
+  local function digest(columns: {string}, from: string, order: string): string
+    return "coalesce((SELECT lower(hex(sha256(group_concat(" .. quoted(columns) ..
+      ", char(10) ORDER BY " .. order .. ")))) FROM " .. qualifier .. from .. "), '')"
+  end
+  local rows, _ = Sqlite.text_rows(db, "SELECT " .. table.concat({
+    digest({ "path" }, "modules", "path"),
+    digest({ "path" }, "decls", "path"),
+    digest({ "module", "symbol", "source_symbol", "file", "kind", "signature", "exported", "id" },
+      "docs", "id"),
+    digest({ "path", "name", "requires" }, "bound", "path, name"),
+  }, ", "))
+  if rows == nil or rows[1] == nil then return nil end
+  return Hash.hex_sha256(table.concat({ "link-fill-1", rows[1]:text(1), rows[1]:text(2),
+    rows[1]:text(3), rows[1]:text(4) }, "\n"))
+end
+
+--- How many answers `memo` holds, which only grows.
+local function answers(memo: link_index.Memo): integer
+  local n = 0
+  for _ in pairs(memo.kinds) do n = n + 1 end
+  for _ in pairs(memo.reads) do n = n + 1 end
+  for _ in pairs(memo.reals) do n = n + 1 end
+  return n
+end
+
+--- Resolves `pending`'s links against the `docs` of the projection
+--- under `qualifier` (`"out."`) and writes those that name one thing to
+--- its `links`, in key order.
+---
+--- What it writes is a function of the links, the code and the disk's
+--- answers `pending` holds, of the library's docs, and of the symbols the
+--- projection documents ([`symbols_digest`]) alone, so the rows it wrote
+--- last are kept in the working database under a fingerprint of those and
+--- copied where they are the same: an edit that adds, drops or renames no
+--- symbol and moves no link writes the same rows. Rows are kept only of a
+--- resolution that asked the disk nothing `pending` had not.
+function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
+                         qualifier: string): boolean, string
+  local fingerprint: string | nil = nil
+  local symbols_key = pending.fingerprint ~= nil and symbols_digest(db, qualifier) or nil
+  local library = pending.library
+  if pending.fingerprint ~= nil and symbols_key ~= nil then
+    fingerprint = Hash.hex_sha256(table.concat({ "link-fill-key-1", pending.fingerprint,
+      pending.digest, symbols_key, library ~= nil and library.identity or "-" }, "\n"))
+  end
+  if fingerprint ~= nil then
+    local kept, _ = Sqlite.text_rows(db, "SELECT 1 FROM link_fill WHERE fingerprint = ?1",
+      { text(fingerprint) })
+    if kept ~= nil and kept[1] ~= nil then
+      return Sqlite.run(db, "INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
+          "SELECT " .. link_columns .. " FROM link_fill_rows")
+    end
+  end
+  local before = answers(pending.memo)
+  local ok, trouble = resolve_and_write(db, pending, qualifier)
+  if not ok then return false, trouble end
+  if fingerprint ~= nil and answers(pending.memo) == before then
+    local _, _ = db:exec("DELETE FROM link_fill")
+    local _, _ = db:exec("DELETE FROM link_fill_rows")
+    local _, _ = Sqlite.run(db, "INSERT INTO link_fill_rows (" .. link_columns .. ") SELECT " ..
+        link_columns .. " FROM " .. qualifier .. "links")
+    local _, _ = Sqlite.run(db, "INSERT INTO link_fill (fingerprint) VALUES (?1)", { text(fingerprint) })
   end
   return true, ""
 end

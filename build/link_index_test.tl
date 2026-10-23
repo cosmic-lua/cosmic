@@ -511,6 +511,86 @@ local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: st
   assert(work.close(handle))
 end
 
+--- The rows a projection's links resolved to are kept, and copied by a
+--- projection whose links, code, disk answers and symbols are the same: an
+--- edit to a body writes the rows it wrote. An edit that renames a symbol,
+--- a link that moves and a file that goes each make them again, to what
+--- a resolution that kept nothing makes. (The kept rows are poisoned to
+--- tell a copy from a resolution.)
+local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_moved(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/project"
+  write_project(root, "greet.hello", "bye")
+  assert(Fs.write(root .. "/notes.md", source("# Usage")))
+  local handle = assert(work.open(root))
+  local out = build_dir(root) .. "/cosmic.db"
+  local function texts(): string
+    local db = assert(Sqlite.open(out))
+    local found = rows(db, "SELECT DISTINCT text FROM links ORDER BY text")
+    assert(db:close())
+    return table.concat(found, "|")
+  end
+  --- Marks the rows kept, as there must be some.
+  local function poison(where: string)
+    local kept = rows(handle.db, "SELECT count(*) FROM link_fill")[1]
+    assert(kept == "1", where .. ": nothing was kept to poison, " .. kept)
+    assert(handle.db:exec("UPDATE link_fill_rows SET text = 'poison'"))
+  end
+  --- The rows a resolution that kept nothing makes now: the projection is
+  --- written again, since one the same as the file's is not.
+  local function fresh(): {string}
+    assert(handle.db:exec("DELETE FROM link_fill"))
+    assert(Fs.remove(out))
+    return build_links(handle, out)
+  end
+  local first = build_links(handle, out)
+  assert(texts() ~= "poison")
+  poison("first")
+
+  -- A body edit moves no symbol and no link.
+  local greet = assert(Fs.read(root .. "/greet.tl"))
+  assert(Fs.write(root .. "/greet.tl", (greet:gsub('return "hello"', 'return "hello, there"'))))
+  same(build_links(handle, out), first)
+  assert(texts() == "poison", "the rows were made again where nothing moved: " .. texts())
+
+  -- A symbol is renamed under a link that still names the old: nothing
+  -- else moved, and the link names nothing.
+  write_project(root, "greet.hello", "ciao")
+  local broken = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a symbol moved")
+  same(broken, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage" })
+
+  -- A symbol is renamed, and the link that names it with it.
+  write_project(root, "greet.hello", "ciao")
+  assert(Fs.write(root .. "/wave.tl", source(
+    "local greet = require(\"greet\")",
+    "-- Waves as [`greet.ciao`] does.",
+    "return greet.hello")))
+  local renamed = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a symbol moved")
+  same(renamed, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol ciao #" })
+  same(fresh(), renamed)
+  poison("renamed")
+
+  -- A link moves.
+  assert(Fs.write(root .. "/wave.tl", source(
+    "local greet = require(\"greet\")",
+    "-- Waves as [`greet.hello`] does.",
+    "return greet.hello")))
+  local moved = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after a link moved")
+  same(moved, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol hello #" })
+  same(fresh(), moved)
+  poison("moved")
+
+  -- A file a link names goes: its link is no row.
+  assert(Fs.remove(root .. "/notes.md"))
+  local gone = build_links(handle, out)
+  assert(texts() ~= "poison", "kept rows were served after the disk moved")
+  assert(#gone < #moved)
+  same(fresh(), gone)
+  assert(work.close(handle))
+end
+
 --- A file that goes, or is renamed, takes its rows with it, and moves
 --- the signature.
 local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)

@@ -234,6 +234,10 @@ local version <const> = "29"
 --- fingerprint of the links and the code that resolves them, so a run
 --- that finds every answer the same does not resolve them again.
 ---
+--- `link_fill` and `link_fill_rows` are the `links` rows the last
+--- `fill` wrote, with a fingerprint of what they were written from, so a
+--- projection whose symbols and links did not move copies them.
+---
 --- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
@@ -427,6 +431,22 @@ for _, statement in ipairs({
                                           value TEXT NOT NULL,
                                           found INTEGER NOT NULL,
                                           PRIMARY KEY (kind, path)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS link_fill (fingerprint TEXT NOT NULL)]],
+    [[CREATE TABLE IF NOT EXISTS link_fill_rows (module TEXT NOT NULL,
+                                               symbol TEXT NOT NULL,
+                                               path TEXT NOT NULL,
+                                               anchor TEXT NOT NULL,
+                                               from_file TEXT NOT NULL,
+                                               line INTEGER NOT NULL,
+                                               column INTEGER NOT NULL,
+                                               from_module TEXT NOT NULL,
+                                               kind TEXT NOT NULL,
+                                               form TEXT NOT NULL,
+                                               source TEXT NOT NULL,
+                                               text TEXT NOT NULL,
+                                               PRIMARY KEY (module, symbol, path, anchor,
+                                                            from_file, line, column))
+                                              WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
                                               stub TEXT NOT NULL,
                                               held INTEGER NOT NULL,
