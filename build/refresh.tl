@@ -41,6 +41,7 @@ local Vendor = require("build.vendor")
 local artifact = require("build.artifact")
 local bind = require("build.bind")
 local clock = require("build.clock")
+local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local work = require("build.work")
 
@@ -114,6 +115,11 @@ local github_headers <const>: {string:string} = {
   ["User-Agent"] = "cosmic-refresh",
 }
 local nss_certdata <const> = "https://raw.githubusercontent.com/nss-dev/nss/%s/lib/ckfw/builtins/certdata.txt"
+
+--- Mozilla's OneCRL, as its remote settings changeset: the newest state,
+--- and the same URL asking for one state by its timestamp.
+local onecrl_feed <const> =
+  "https://firefox.settings.services.mozilla.com/v1/buckets/security-state/collections/onecrl/changeset"
 
 --- PyPI's description of the `tzdata` package, whose sdist carries the
 --- IANA database compiled to TZif files.
@@ -347,6 +353,49 @@ local cacert: refresh.Dataset = {
   end,
 }
 
+local revocations: refresh.Dataset = {
+  name = "onecrl",
+  fetch = function(scratch: string): refresh.Source | nil, string
+    local text, trouble = fetch_text(onecrl_feed .. "?_expected=0")
+    if text == nil then
+      return nil, trouble
+    end
+    local timestamp = onecrl.timestamp(text)
+    if timestamp == nil then
+      return nil, onecrl_feed .. ": names no timestamp for its state"
+    end
+    local path = scratch .. "/onecrl.json"
+    local written, write_trouble = Fs.write(path, text)
+    if not written then
+      return nil, write_trouble
+    end
+    return { path = path, url = onecrl_feed .. "?_expected=" .. timestamp, version = timestamp,
+      sha256 = Hash.hex_sha256(text) }, ""
+  end,
+  read = function(path: string, _scratch: string): refresh.Release | nil, string
+    local text, trouble = Fs.read(path)
+    if text == nil then
+      return nil, trouble
+    end
+    local found, parse_trouble = onecrl.parse(text)
+    if found == nil then
+      return nil, path .. ": " .. parse_trouble
+    end
+    return {
+      version = onecrl.timestamp(text) or "",
+      count = #found,
+      left_out = {},
+      write = function(db: Sqlite.Handle): boolean, string
+        local cleared, clear_trouble = db:exec("DELETE FROM ca_revoked")
+        if not cleared then
+          return false, clear_trouble
+        end
+        return onecrl.put(db, "", found)
+      end,
+    }, ""
+  end,
+}
+
 local tzdata: refresh.Dataset = {
   name = "tzdata",
   fetch = function(scratch: string): refresh.Source | nil, string
@@ -393,7 +442,7 @@ local tzdata: refresh.Dataset = {
       return nil, path .. ": not a tzdata sdist: no tzdata-<version>/src/tzdata/zoneinfo/"
     end
     local rules = refresh.tzdata_rules
-    local files, keep_trouble = Vendor.kept({ url = "", sha256 = "", sha3_256 = "", file = "",
+    local files, keep_trouble = Vendor.kept({ url = "", sha256 = "", sha3_256 = "", file = "", feed = "",
       strip = rules.strip:format(version), keep = rules.keep, drop = rules.drop }, entries)
     if files == nil then
       return nil, path .. ": " .. keep_trouble
@@ -436,7 +485,7 @@ local tzdata: refresh.Dataset = {
   end,
 }
 
-refresh.datasets = { cacert, tzdata }
+refresh.datasets = { cacert, revocations, tzdata }
 
 --- What the binary records of the release it carries of `name`.
 local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
@@ -446,7 +495,8 @@ local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
     return nil, trouble
   end
   if #rows == 0 then
-    return nil, "the binary records no " .. name .. " component"
+    return nil, "the binary records no " .. name .. " component: it was built before cosmic carried one, " ..
+      "and its core reads none"
   end
   -- A release as upstream publishes it would lose what cosmic changed.
   if rows[1]:text(4) ~= "" then
@@ -518,9 +568,11 @@ end
 --- The executable at `binary` with each dataset of `chosen` replaced from its
 --- source (`sources[name]`, a file, or fetched upstream when that is
 --- nil), written to `out`. Answers a line per dataset saying what
---- changed.
+--- changed. With `every`, a dataset the binary records no component for
+--- -- one built before cosmic carried it, whose core reads none -- is
+--- passed over, saying so; else that refuses the refresh.
 function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
-                        sources: {string:string}): {string} | nil, string
+                        sources: {string:string}, every?: boolean): {string} | nil, string
   local bytes, trouble = Fs.read(binary)
   if bytes == nil then
     return nil, trouble
@@ -556,7 +608,27 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       local _, _ = db:close()
       return why
     end
+    local skipped: {string:boolean} = {}
+    if every == true then
+      for _, dataset in ipairs(chosen) do
+        local has, has_trouble = Sqlite.text_rows(db, "SELECT 1 FROM components WHERE name = ?1",
+          { bind.text(dataset.name) })
+        if has == nil then
+          return done(has_trouble)
+        end
+        if #has == 0 then
+          skipped[dataset.name] = true
+          lines[#lines + 1] = dataset.name .. ": none: the binary was built before cosmic carried one"
+        end
+      end
+    end
+    local applying: {refresh.Dataset} = {}
     for _, dataset in ipairs(chosen) do
+      if skipped[dataset.name] == nil then
+        applying[#applying + 1] = dataset
+      end
+    end
+    for _, dataset in ipairs(applying) do
       local source: refresh.Source
       local given = sources[dataset.name]
       if given ~= nil then
@@ -689,7 +761,7 @@ local function run(argv: {integer:string}): integer
     log:complain("refresh: " .. out .. " is the binary it refreshes, which is never written")
     return 1
   end
-  local lines, trouble = refresh.binary(binary, out, chosen, sources)
+  local lines, trouble = refresh.binary(binary, out, chosen, sources, next(wanted) == nil)
   if lines == nil then
     log:complain("refresh: " .. trouble)
     return 1

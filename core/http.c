@@ -47,6 +47,7 @@
 #include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
 
 #include "fail.h"
 #include "fault.h"
@@ -120,6 +121,9 @@ struct transfer {
   /* The root whose distrust date refused the server's certificate, as
    * [`cosmic_tls_distrust`] found it; NULL when none did. */
   const struct distrusted *distrusted;
+  /* The subject of the certificate OneCRL revokes that
+   * [`cosmic_tls_distrust`] found in the chain; empty when none. */
+  char revoked[160];
   int chosen; /* trusts the roots `open`'s ca_blob gave, not the store's */
   CURLcode result;
 };
@@ -164,6 +168,23 @@ struct distrusted {
   char label[96];
   char after[15];
 };
+
+/* A certificate Mozilla's OneCRL revokes (`ca_revoked`, build/onecrl.tl):
+ * by its issuer's DER Name and its serial number's bytes, or, `by_key`,
+ * by its subject's DER Name and the SHA-256 of its SubjectPublicKeyInfo,
+ * which catches every certificate of that name and key. */
+struct revoked {
+  bool by_key;
+  unsigned char *name;
+  size_t name_len;
+  unsigned char *value;
+  size_t value_len;
+};
+
+/* Every certificate OneCRL revokes, read with the trust store and kept
+ * with it. */
+static struct revoked *revoked;
+static size_t revoked_count;
 
 /* Every carried root with a distrust date, read with the rest of the
  * trust store and kept with it. */
@@ -240,6 +261,54 @@ static const char *keep_distrusted (sqlite3_stmt *stmt, const unsigned char *der
   return NULL;
 }
 
+/* Fills `revoked` from the `ca_revoked` rows of `db`, the binary's own
+ * database. Returns NULL, or why not: there is no such table, a row is
+ * of a kind this does not know, or there was no memory. */
+static const char *load_revoked (sqlite3 *db) {
+  sqlite3_stmt *stmt = NULL;
+  if (sqlite3_prepare_v2(db, "SELECT kind, name, value FROM main.ca_revoked", -1, &stmt,
+                         NULL) != SQLITE_OK) {
+    sqlite3_finalize(stmt);
+    return "no revoked certificates: the binary's database has no ca_revoked table";
+  }
+  const char *trouble = NULL;
+  int rc = SQLITE_DONE;
+  while (trouble == NULL && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const char *kind = (const char *)sqlite3_column_text(stmt, 0);
+    const unsigned char *name = sqlite3_column_blob(stmt, 1);
+    int name_len = sqlite3_column_bytes(stmt, 1);
+    const unsigned char *value = sqlite3_column_blob(stmt, 2);
+    int value_len = sqlite3_column_bytes(stmt, 2);
+    bool by_key = kind != NULL && strcmp(kind, "key") == 0;
+    if (kind == NULL || (!by_key && strcmp(kind, "serial") != 0) || name == NULL ||
+        name_len <= 0 || value == NULL || value_len <= 0) {
+      trouble = "no revoked certificates: a row of ca_revoked is of no kind this reads";
+      break;
+    }
+    struct revoked *grown = cosmic_realloc(revoked, (revoked_count + 1) * sizeof *grown);
+    if (grown == NULL) {
+      trouble = "no memory for the revoked certificates";
+      break;
+    }
+    revoked = grown;
+    unsigned char *bytes = cosmic_malloc((size_t)name_len + (size_t)value_len);
+    if (bytes == NULL) {
+      trouble = "no memory for the revoked certificates";
+      break;
+    }
+    memcpy(bytes, name, (size_t)name_len);
+    memcpy(bytes + name_len, value, (size_t)value_len);
+    revoked[revoked_count] = (struct revoked){by_key, bytes, (size_t)name_len,
+      bytes + name_len, (size_t)value_len};
+    revoked_count++;
+  }
+  if (trouble == NULL && rc != SQLITE_DONE) {
+    trouble = "no CA roots: reading the binary's database failed";
+  }
+  sqlite3_finalize(stmt);
+  return trouble;
+}
+
 /* Fills `roots` from the `ca_roots` rows of the last database the store
  * searches, which is always the binary's own, so a project's database
  * never adds a root, and `distrusted` from those of them with a distrust
@@ -288,6 +357,7 @@ static const char *load_roots (lua_State *L) {
       "--binary <this program> -o <copy>` writes a copy that has them";
   }
   carried_roots = trusted;
+  if (trouble == NULL) trouble = load_revoked(db);
   if (trouble == NULL && !add_cert_file()) {
     trouble = "no memory for $SSL_CERT_FILE";
   }
@@ -297,6 +367,10 @@ static const char *load_roots (lua_State *L) {
     cosmic_free(distrusted);
     distrusted = NULL;
     distrusted_count = 0;
+    for (size_t i = 0; i < revoked_count; i++) cosmic_free(revoked[i].name);
+    cosmic_free(revoked);
+    revoked = NULL;
+    revoked_count = 0;
     return trouble;
   }
   roots_ready = 1;
@@ -766,14 +840,67 @@ static const char *transfer_error (struct transfer *t) {
  * held until the server's own certificate ends the chain. */
 static const struct distrusted *chain_root;
 
+/* Whether OneCRL revokes `crt`: by its issuer and serial number, or by
+ * its subject and the SHA-256 of its SubjectPublicKeyInfo, which is
+ * hashed only once a subject matches. A key that cannot be hashed counts
+ * as revoked, so a failure refuses rather than trusts. */
+static bool is_revoked (const mbedtls_x509_crt *crt) {
+  unsigned char hash[32];
+  bool hashed = false;
+  for (size_t i = 0; i < revoked_count; i++) {
+    const struct revoked *one = &revoked[i];
+    if (!one->by_key) {
+      if (crt->issuer_raw.len == one->name_len && crt->serial.len == one->value_len &&
+          memcmp(crt->issuer_raw.p, one->name, one->name_len) == 0 &&
+          memcmp(crt->serial.p, one->value, one->value_len) == 0) {
+        return true;
+      }
+    } else if (crt->subject_raw.len == one->name_len &&
+               memcmp(crt->subject_raw.p, one->name, one->name_len) == 0) {
+      if (!hashed) {
+        size_t got = 0;
+        if (psa_hash_compute(PSA_ALG_SHA_256, crt->pk_raw.p, crt->pk_raw.len, hash,
+                             sizeof hash, &got) != PSA_SUCCESS || got != sizeof hash) {
+          return true;
+        }
+        hashed = true;
+      }
+      if (one->value_len == sizeof hash && memcmp(hash, one->value, sizeof hash) == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/* The transfer whose handshake `easy` is, or NULL. */
+static struct transfer *transfer_of (CURL *easy) {
+  struct transfer *t = NULL;
+  if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, (char **)&t) != CURLE_OK) return NULL;
+  return t;
+}
+
 /* What curl's mbedtls verify callback (patch/curl/05-distrust-after.txt)
  * adds to the flags of `crt`, at `depth` of a chain `easy`'s handshake
- * verifies: MBEDTLS_X509_BADCERT_OTHER for the server's certificate
- * (depth 0) when the chain's root is one Mozilla trusts for no server
- * certificate issued after a date and this one's notBefore is past it,
- * recorded on the transfer for its message; 0 otherwise. A root the
- * server presents as its own certificate is held to its own date. */
+ * verifies, from Mozilla's root store and OneCRL, recording on the
+ * transfer what it refused for its message:
+ * - MBEDTLS_X509_BADCERT_REVOKED for any certificate of the chain OneCRL
+ *   revokes ([`is_revoked`]);
+ * - MBEDTLS_X509_BADCERT_OTHER for the server's certificate (depth 0)
+ *   when the chain's root is one Mozilla trusts for no server
+ *   certificate issued after a date and this one's notBefore is past
+ *   it. A root the server presents as its own certificate is held to its
+ *   own date. */
 uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth) {
+  uint32_t flags = 0;
+  if (revoked_count > 0 && is_revoked(crt)) {
+    struct transfer *t = transfer_of(easy);
+    if (t != NULL && t->revoked[0] == '\0' &&
+        mbedtls_x509_dn_gets(t->revoked, sizeof t->revoked, &crt->subject) < 0) {
+      snprintf(t->revoked, sizeof t->revoked, "%s", "(a subject mbedtls cannot word)");
+    }
+    flags |= MBEDTLS_X509_BADCERT_REVOKED;
+  }
   const struct distrusted *met = NULL;
   for (size_t i = 0; i < distrusted_count && met == NULL; i++) {
     if (crt->raw.len == distrusted[i].len &&
@@ -783,21 +910,19 @@ uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth
   }
   if (depth > 0) {
     if (met != NULL) chain_root = met;
-    return 0;
+    return flags;
   }
   const struct distrusted *root = met != NULL ? met : chain_root;
   chain_root = NULL;
-  if (root == NULL) return 0;
+  if (root == NULL) return flags;
   const mbedtls_x509_time *from = &crt->valid_from;
   char issued[64];
   snprintf(issued, sizeof issued, "%04d%02d%02d%02d%02d%02d", from->year, from->mon,
            from->day, from->hour, from->min, from->sec);
-  if (strcmp(issued, root->after) <= 0) return 0;
-  struct transfer *t = NULL;
-  if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, (char **)&t) == CURLE_OK && t != NULL) {
-    t->distrusted = root;
-  }
-  return MBEDTLS_X509_BADCERT_OTHER;
+  if (strcmp(issued, root->after) <= 0) return flags;
+  struct transfer *t = transfer_of(easy);
+  if (t != NULL) t->distrusted = root;
+  return flags | MBEDTLS_X509_BADCERT_OTHER;
 }
 
 /* Pushes `t`'s failure: curl's message, and for a peer whose chain
@@ -814,7 +939,10 @@ uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
   const struct distrusted *root = t->distrusted;
-  if (t->result == CURLE_PEER_FAILED_VERIFICATION && root != NULL) {
+  if (t->result == CURLE_PEER_FAILED_VERIFICATION && t->revoked[0] != '\0') {
+    lua_pushfstring(L, "%s; the certificate %s is revoked by Mozilla's OneCRL", message,
+                    t->revoked);
+  } else if (t->result == CURLE_PEER_FAILED_VERIFICATION && root != NULL) {
     lua_pushfstring(L, "%s; the CA root \"%s\" is trusted for no server certificate "
                     "issued after %s UTC, as Mozilla's root store says, and this one was",
                     message, root->label, root->after);

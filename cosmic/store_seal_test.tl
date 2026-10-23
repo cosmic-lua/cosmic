@@ -202,6 +202,8 @@ local function test_seal_carries_zones_and_roots_only_for_their_modules(tmp: str
   local trusting = tmp .. "/trusting.db"
   assert(Store.seal({ "cosmic.http" }, trusting))
   assert(count_of(trusting, "ca_roots") > 0 and count_of(trusting, "zoneinfo") == 0)
+  -- And with the roots, the certificates OneCRL revokes, which it refuses.
+  assert(count_of(trusting, "ca_revoked") > 0 and count_of(zoned, "ca_revoked") == 0)
   assert(count_of(zoned, "web_assets") == 0 and count_of(trusting, "web_assets") == 0)
 end
 
@@ -344,7 +346,7 @@ local function test_seal_schema_is_the_builds(tmp: string)
   end
   local sealed = assert(Sqlite.open(path))
   for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
-      "ca_roots", "web_assets" }) do
+      "ca_roots", "ca_revoked", "web_assets" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
     local want = assert(Sqlite.text_rows(reference, query))
     local got = assert(Sqlite.text_rows(sealed, query))

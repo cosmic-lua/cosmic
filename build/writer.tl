@@ -26,6 +26,7 @@ local identity = require("build.identity")
 local type importer = require("build.importer")
 local bom = require("build.bom")
 local link_index = require("build.link_index")
+local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local schema = require("build.schema")
 local symbols = require("build.symbols")
@@ -475,9 +476,10 @@ local function project(handle: work.Handle,
   end
   -- cosmic's own tree describes the binary it builds: its bill of
   -- materials ([`build.bom`]), read from the pins and records beside the
-  -- code, and the CA roots it trusts ([`build.roots`]). A change to
-  -- either comes with a pin's, a tool file, so `boot_hash`, which the
-  -- signature covers, moves when one does. It also carries its standard
+  -- code, the CA roots it trusts ([`build.roots`]) and the certificates
+  -- OneCRL revokes ([`build.onecrl`]). A change to any comes with a
+  -- pin's, a tool file, so `boot_hash`, which the signature covers,
+  -- moves when one does. It also carries its standard
   -- library's stubs (`insert_stubs`): a stub is a function of its
   -- module's source, which the module's key holds, and of [`build.stub`],
   -- which the compiler's identity in `meta` holds. A project's tables
@@ -494,6 +496,10 @@ local function project(handle: work.Handle,
     local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
     if not trusted then
       return false, trust_trouble
+    end
+    local revoked, revoke_trouble = onecrl.fill(db, handle.root, "out.")
+    if not revoked then
+      return false, revoke_trouble
     end
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
@@ -811,6 +817,7 @@ local carry: {string} = {
   "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
   "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",
+  "INSERT INTO main.ca_revoked SELECT * FROM whole.ca_revoked ORDER BY rowid",
   -- Outside cosmic's own tree, `cosmic docs`, `cosmic uses` and a
   -- compile's hints read the tool's rows only for the public standard
   -- library ([`symbols.public_only`]). Inside it they read the tree's own

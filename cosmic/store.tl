@@ -358,6 +358,7 @@ local seal_schema: {string} = {
     sha256 TEXT NOT NULL, sha384 TEXT NOT NULL, version TEXT NOT NULL) WITHOUT ROWID]],
   "CREATE TABLE ca_roots (sha256 BLOB NOT NULL, label TEXT NOT NULL, der BLOB NOT NULL, " ..
     "distrust_after TEXT NOT NULL)",
+  "CREATE TABLE ca_revoked (kind TEXT NOT NULL, name BLOB NOT NULL, value BLOB NOT NULL)",
 }
 
 local module_columns <const> = { "path", "file", "kind", "source_hash", "key",
@@ -494,6 +495,11 @@ local function write_database(names: {string}, file: string, main: string | nil,
         local copied, why = copy_rows(binary_db, db, "ca_roots",
           { "sha256", "label", "der", "distrust_after" },
           "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
+        if not copied then
+          return false, why
+        end
+        copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" },
+          "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
         if not copied then
           return false, why
         end

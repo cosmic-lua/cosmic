@@ -36,6 +36,15 @@
 --- [`cosmic.archive`] cannot read is an error, never a single file.
 ---
 --- Everything else in the tree but PIN is removed.
+---
+--- A PIN with a `feed <url>` line vendors a snapshot of a feed whose
+--- newest state is all its URL serves (Mozilla's OneCRL, say), so its
+--- `url` cannot be fetched again to the same bytes. Unnamed, such a tree
+--- is kept as it is once its file matches the PIN's digests. Named
+--- (`bin/vendor onecrl`), the feed's newest state is fetched, written as
+--- the file, and the PIN's `version`, `url` and `sha256` rewritten to
+--- name it ([`Vendor.feed_pin`]): the state's timestamp, and the feed's
+--- URL asking for that timestamp.
 local Archive = require("cosmic.archive")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
@@ -55,8 +64,19 @@ local record Vendor
     --- The name a single-file PIN vendors its download as; empty for
     --- an archive.
     file: string
+    --- A feed's URL, whose newest state the PIN's file is a snapshot of;
+    --- empty for an ordinary download.
+    feed: string
     keep: {string}
     drop: {string}
+  end
+
+  --- A feed PIN rewritten to name a snapshot ([`Vendor.feed_pin`]).
+  record Rewrite
+    --- The PIN's new text; "" when it could not be rewritten.
+    text: string
+    --- Why not; "" when it was.
+    why: string
   end
 
   --- A digest a download is checked against.
@@ -73,7 +93,7 @@ local log = Log.new("vendor")
 --- of it; `keep` and `drop` accumulate, and for every other key the
 --- first line naming it wins.
 function Vendor.read_pin(text: string): Vendor.Pin
-  local pin: Vendor.Pin = { url = "", sha256 = "", sha3_256 = "", strip = "", file = "",
+  local pin: Vendor.Pin = { url = "", sha256 = "", sha3_256 = "", strip = "", file = "", feed = "",
     keep = {}, drop = {} }
   local seen: {string:boolean} = {}
   for line in text:gmatch("[^\n]+") do
@@ -94,6 +114,8 @@ function Vendor.read_pin(text: string): Vendor.Pin
         pin.strip = value
       elseif key == "file" then
         pin.file = value
+      elseif key == "feed" then
+        pin.feed = value
       end
     end
   end
@@ -404,21 +426,121 @@ local function rewrite(tree: string, path: string): integer | nil, string
   return from_archive(tree, pin, path)
 end
 
+--- `text`, a feed PIN, naming the snapshot `body` of the feed's state at
+--- `timestamp`: its `version` that timestamp, its `url` the feed's with
+--- `_expected` asking for it, its `sha256` the body's. No text, and why,
+--- when the PIN names no feed, or no `version`, `url` or `sha256` to
+--- rewrite.
+function Vendor.feed_pin(text: string, timestamp: string, body: string): Vendor.Rewrite
+  local feed = text:match("\nfeed%s+(%S+)") or text:match("^feed%s+(%S+)")
+  if feed == nil then
+    return { text = "", why = "names no feed" }
+  end
+  local url, replaced = feed:gsub("([?&]_expected=)[^&]*", "%1" .. timestamp)
+  if replaced == 0 then
+    local separator = "?"
+    if feed:find("?", 1, true) ~= nil then separator = "&" end
+    url = feed .. separator .. "_expected=" .. timestamp
+  end
+  local values: {string:string} = { version = timestamp, url = url, sha256 = Hash.hex_sha256(body) }
+  local seen: {string:boolean} = {}
+  local lines: {string} = {}
+  for line in text:gmatch("[^\n]+") do
+    local key = line:match("^(%S+)") or ""
+    local value = values[key] or ""
+    if value ~= "" and seen[key] == nil then
+      seen[key] = true
+      lines[#lines + 1] = key .. " " .. value
+    else
+      lines[#lines + 1] = line
+    end
+  end
+  for _, key in ipairs({ "version", "url", "sha256" }) do
+    if seen[key] == nil then
+      return { text = "", why = "names no " .. key }
+    end
+  end
+  return { text = table.concat(lines, "\n") .. "\n", why = "" }
+end
+
+--- A feed tree (`pin.feed`): with `newest`, its file and PIN rewritten
+--- from the feed's newest state; without, kept as it is when its file
+--- matches the PIN's digests, and refused when it does not. The count of
+--- files written and "", or 0 and why. `cache_dir` answers the cache
+--- directory and "", or "" and why.
+local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
+                         cache_dir: function(): (string, string), newest: boolean): integer, string
+  if pin.file == "" then
+    return 0, tree .. "/PIN: a feed's snapshot needs a file line"
+  end
+  local digests = Vendor.digests(pin)
+  if not newest then
+    if pin.file ~= "" and Vendor.matches(tree .. "/" .. pin.file, digests) then
+      return 1, ""
+    end
+    return 0, tree .. "/" .. pin.file .. " does not match its PIN; name the tree to take the feed's newest"
+  end
+  local cache, cache_trouble = cache_dir()
+  if cache == "" then
+    return 0, cache_trouble
+  end
+  local path = cache .. "/" .. pin.file
+  local _, _ = Fs.remove(path)
+  local ok, trouble = Http.download(pin.feed, path)
+  if not ok then
+    return 0, pin.feed .. ": " .. trouble
+  end
+  local body, read_trouble = Fs.read(path)
+  if body == nil then
+    return 0, read_trouble
+  end
+  local timestamp = body:match('"timestamp"%s*:%s*(%d+)%s*,%s*"changes"')
+  if timestamp == nil then
+    return 0, pin.feed .. ": names no timestamp for its state"
+  end
+  local rewritten = Vendor.feed_pin(text, timestamp, body)
+  if rewritten.text == "" then
+    return 0, tree .. "/PIN " .. rewritten.why
+  end
+  local count, rewrite_trouble = as_single_file(tree, pin, path)
+  if count == nil then
+    return 0, rewrite_trouble
+  end
+  local written, write_trouble = Fs.write(tree .. "/PIN", rewritten.text)
+  if not written then
+    return 0, write_trouble
+  end
+  return count, ""
+end
+
 --- Fetches `name`'s PIN's download into `cache` (reusing it when its
---- digests still match) and rewrites `vendor/<name>` from it.
-local function fetch_and_rewrite(root: string, cache: string, name: string): integer | nil, string
+--- digests still match) and rewrites `vendor/<name>` from it; a feed's
+--- tree as [`feed_tree`] does, from the feed's newest state when `named`.
+local function fetch_and_rewrite(root: string, cache_dir: function(): (string, string), name: string,
+                                 named: boolean): integer | nil, string
   local tree = root .. "/vendor/" .. name
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
     return nil, pin_trouble
   end
   local pin = Vendor.read_pin(text)
+  if pin.feed ~= "" then
+    local count, trouble = feed_tree(tree, text, pin, cache_dir, named)
+    if trouble ~= "" then
+      return nil, trouble
+    end
+    return count, ""
+  end
   if pin.url == "" then
     return nil, tree .. "/PIN names no url"
   end
   local digests = Vendor.digests(pin)
   if #digests == 0 then
     return nil, tree .. "/PIN names no sha256 or sha3-256"
+  end
+  local cache, cache_trouble = cache_dir()
+  if cache == "" then
+    return nil, cache_trouble
   end
   local base = pin.url:match("([^/]+)$") or name
   local fetched, ftrouble = Vendor.fetch(pin.url, cache .. "/" .. base, digests)
@@ -432,7 +554,9 @@ end
 local usage = "bin/vendor [name... | vendor/<name> <archive>]"
 local about = "Rewrites each vendor/<name> tree -- every one by default -- from the\n" ..
   "archive its PIN names, keeping only what the build reads. Given a tree\n" ..
-  "and an archive already on disk, rewrites that tree from it."
+  "and an archive already on disk, rewrites that tree from it. A feed's\n" ..
+  "snapshot (a PIN with a feed line) is kept unless the tree is named, which\n" ..
+  "takes the feed's newest state."
 local spec: {string:boolean | Flags.Option} = {
   ["--help"] = { about = "show this help" },
   ["-h"] = { about = "show this help" },
@@ -481,15 +605,25 @@ function Vendor.main(argv: {integer:string}): integer
     names = found
   end
 
-  local cache, ctrouble = Fs.cache_dir("vendor")
-  if cache == nil then
-    log:complain(ctrouble)
-    return 1
+  -- Asked for once a tree needs it: keeping a feed's snapshot needs none.
+  local repo: string = root
+  local held: {string:string} = {}
+  local function cache_dir(): string, string
+    local cache = held["cache"]
+    if cache == nil then
+      local made, trouble = Fs.cache_dir("vendor")
+      if made == nil then
+        return "", trouble
+      end
+      held["cache"] = made
+      cache = made
+    end
+    return cache, ""
   end
 
   local failed = false
   for _, name in ipairs(names) do
-    local count, trouble = fetch_and_rewrite(root, cache, name)
+    local count, trouble = fetch_and_rewrite(repo, cache_dir, name, #words > 0)
     if count == nil then
       log:complain(name .. ": " .. trouble)
       failed = true
