@@ -525,135 +525,6 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
   return ""
 end
 
---- Reuses `coverage`'s statement for the many rows in a snapshot,
---- checking every operation.
-local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
-                               path: string, line: integer,
-                               last: integer | string): boolean, string
-  local ok, trouble = statement:bind_integer(1, run_at_ns)
-  if not ok then
-    return false, trouble
-  end
-  ok, trouble = statement:bind_text(2, path)
-  if not ok then
-    return false, trouble
-  end
-  ok, trouble = statement:bind_integer(3, line)
-  if not ok then
-    return false, trouble
-  end
-  if last is integer then
-    ok, trouble = statement:bind_integer(4, last)
-  else
-    ok, trouble = statement:bind_text(4, last)
-  end
-  if not ok then
-    return false, trouble
-  end
-  return bind.once(statement)
-end
-
---- How many rows one multi-row INSERT carries before it steps. Modest
---- on purpose: SQLite's parameter ceiling is far higher, but a longer
---- statement costs its own parse time, and the win is already in
---- trading six Lua-to-C calls per row for a fraction of one.
-local insert_batch = 100
-
---- `n` value groups `(<run_at_ns>, ?, ?, ?)`, indexed contiguously from
---- 1, for a batch insert into `coverage`. `ran_at_ns` is the same for
---- every row one run writes, so it is a literal rather than a parameter
---- rebound once per row for nothing.
-local function batch_values(run_at_ns: integer, n: integer): string
-  local groups: {string} = {}
-  for row = 0, n - 1 do
-    groups[row + 1] = string.format("(%d, ?%d, ?%d, ?%d)",
-      run_at_ns, row * 3 + 1, row * 3 + 2, row * 3 + 3)
-  end
-  return table.concat(groups, ", ")
-end
-
---- Rows waiting for `coverage`: a full `insert_batch` of them goes in
---- one step of `whole`, and whatever is left when the caller is done
---- goes through `single`, one row at a time.
-local record Batch
-  whole: Sqlite.Statement
-  single: Sqlite.Statement
-  run_at_ns: integer
-  paths: {string}
-  lines: {integer}
-  lasts: {integer | string}
-  pending: integer
-end
-
-local function batch_for(handle: Sqlite.Handle, single: Sqlite.Statement,
-                         run_at_ns: integer, into: string,
-                         last_column: string): Batch | nil, string
-  local whole, trouble = handle:prepare("INSERT INTO " .. into ..
-      " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
-      batch_values(run_at_ns, insert_batch))
-  if whole == nil then
-    return nil, trouble
-  end
-  return { whole = whole, single = single, run_at_ns = run_at_ns,
-    paths = {}, lines = {}, lasts = {}, pending = 0 }
-end
-
---- Steps `whole` once over a full batch, then empties it.
-local function flush(batch: Batch): boolean, string
-  local statement = batch.whole
-  for row = 1, batch.pending do
-    local base = (row - 1) * 3
-    local ok, trouble = statement:bind_text(base + 1, batch.paths[row])
-    if ok then
-      ok, trouble = statement:bind_integer(base + 2, batch.lines[row])
-    end
-    if ok then
-      local last = batch.lasts[row]
-      if last is integer then
-        ok, trouble = statement:bind_integer(base + 3, last)
-      else
-        ok, trouble = statement:bind_text(base + 3, last)
-      end
-    end
-    if not ok then
-      return false, trouble
-    end
-  end
-  local state, failure = statement:step()
-  if state == nil then
-    return false, failure
-  end
-  batch.pending = 0
-  return statement:reset()
-end
-
---- Queues one row, writing the batch out when it fills.
-local function add(batch: Batch, path: string, line: integer,
-                   last: integer | string): boolean, string
-  local n = batch.pending + 1
-  batch.paths[n] = path
-  batch.lines[n] = line
-  batch.lasts[n] = last
-  batch.pending = n
-  if n == insert_batch then
-    return flush(batch)
-  end
-  return true, ""
-end
-
---- Writes the rows short of a full batch, one at a time.
-local function drain(batch: Batch): boolean, string
-  for row = 1, batch.pending do
-    local ok, trouble = insert_coverage(batch.single, batch.run_at_ns,
-      batch.paths[row], batch.lines[row], batch.lasts[row])
-    if not ok then
-      return false, trouble
-    end
-  end
-  batch.pending = 0
-  return true, ""
-end
-
 --- The keys of `set`, ascending.
 local function sorted_lines(set: {integer: any}): {integer}
   local out: {integer} = {}
@@ -697,8 +568,13 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   if not recorded then
     return 0, 0, run_trouble
   end
+  -- One statement a module: its lines as a JSON array, ascending, and
+  -- whether each was hit as a string of 0s and 1s, which SQLite spreads into
+  -- rows in a loop of its own (`json_each`) rather than Lua binding four
+  -- values and stepping for each of some two hundred thousand.
   local coverage, prepare_trouble = handle:prepare(
-    "INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (?1, ?2, ?3, ?4)")
+    "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
+      "SELECT ?1, ?2, j.value, CAST(substr(?4, j.key + 1, 1) AS INTEGER) FROM json_each(?3) j")
   if coverage == nil then
     return 0, 0, prepare_trouble
   end
@@ -707,13 +583,6 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   if per_test == nil then
     coverage:finalize()
     return 0, 0, test_trouble
-  end
-  local coverage_rows, coverage_batch_trouble =
-    batch_for(handle, coverage, run_at_ns, "coverage", "hit")
-  if coverage_rows == nil then
-    coverage:finalize()
-    per_test:finalize()
-    return 0, 0, coverage_batch_trouble
   end
   -- The core's own C sits among the modules by path: a core that
   -- observes it answers every line a block begins on, and a line is hit
@@ -756,21 +625,36 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
           per_line[line] = hit_here[line] == true
         end
       end
-      for _, line in ipairs(sorted_lines(per_line)) do
-        local was_hit = per_line[line]
-        local ok, write_trouble = add(coverage_rows, path, line, was_hit and 1 or 0)
+      local lines = sorted_lines(per_line)
+      if #lines > 0 then
+        local flags: {string} = {}
+        for i, line in ipairs(lines) do
+          if per_line[line] then
+            flags[i] = "1"
+            totals.hit = totals.hit + 1
+          else
+            flags[i] = "0"
+          end
+        end
+        totals.lines = totals.lines + #lines
+        local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
+        if ok then ok, write_trouble = coverage:bind_text(2, path) end
+        if ok then
+          ok, write_trouble = coverage:bind_text(3, "[" .. table.concat(lines, ",") .. "]")
+        end
+        if ok then ok, write_trouble = coverage:bind_text(4, table.concat(flags)) end
         if not ok then
           return false, write_trouble
         end
-        totals.lines = totals.lines + 1
-        if was_hit then
-          totals.hit = totals.hit + 1
+        local state, failure = coverage:step()
+        if state == nil then
+          return false, failure
+        end
+        ok, write_trouble = coverage:reset()
+        if not ok then
+          return false, write_trouble
         end
       end
-    end
-    local drained, drain_trouble = drain(coverage_rows)
-    if not drained then
-      return false, drain_trouble
     end
     for _, test_name in ipairs(test_names) do
       local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
@@ -801,7 +685,6 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   local called, made, trouble = pcall(write_rows)
   coverage:finalize()
   per_test:finalize()
-  coverage_rows.whole:finalize()
   if not called then
     return 0, 0, tostring(made)
   end

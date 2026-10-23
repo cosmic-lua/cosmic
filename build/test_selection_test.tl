@@ -114,6 +114,43 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
   assert(credits[1]:text(2):find("suite.helper\t", 1, true), credits[1]:text(2))
 end
 
+--- A snapshot holds every executable line of a module, ascending, with
+--- whether the run hit it: the lines of a function the test called are 1, those
+--- of one it did not are 0, each an integer.
+local function test_a_snapshot_holds_each_line_with_whether_it_was_hit(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/helper.tl", [[
+local record helper
+  answer: integer
+end
+function helper.used(): integer
+  local a = 1
+  return a
+end
+function helper.unused(): integer
+  local b = 2
+  return b
+end
+helper.answer = helper.used() + 41
+return helper
+]]))
+  local output = tmp .. "/lines.out"
+  local result = invoke(root, output, "suite/selected_test.tl")
+  assert(result.ok, assert(Fs.read(output)))
+  local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT group_concat(line || ':' || hit, ' ') FROM (SELECT line, hit FROM coverage " ..
+      "WHERE path = 'suite.helper' ORDER BY line)"))
+  local kinds = assert(Sqlite.text_rows(db,
+    "SELECT DISTINCT typeof(line) || typeof(hit) FROM coverage WHERE path = 'suite.helper'"))
+  local distinct = assert(Sqlite.text_rows(db,
+    "SELECT count(*), count(DISTINCT line) FROM coverage WHERE path = 'suite.helper'"))
+  assert(db:close())
+  assert(rows[1]:text(1) == "4:1 5:1 6:1 8:1 9:0 10:0 12:1 13:1", rows[1]:text(1))
+  assert(#kinds == 1 and kinds[1]:text(1) == "integerinteger", "a cell was not an integer")
+  assert(distinct[1]:text(1) == distinct[1]:text(2), "a line was written twice")
+end
+
 local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/selected_test.tl", [[
