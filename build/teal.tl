@@ -324,7 +324,7 @@ end
 ---
 --- `stubbed` answers the text a module of the tree is read from in place of
 --- its source, by module name: the stub of a module whose stub a compile
---- has held to its source's type ([`build.compilation`]'s `verified_stub`),
+--- has held to its source's type ([`build.compilation`]'s `stub_lookup`),
 --- else nil.
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
                               root: string, checks?: boolean,

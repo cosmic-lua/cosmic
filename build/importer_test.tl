@@ -1259,7 +1259,7 @@ end
 
 --- A module of cosmic's own tree that requires another is checked against
 --- the other's stub once a compile has held the stub to its source's type
---- ([`compilation.verified_stub`]): what that serves must never be a type
+--- ([`compilation.stub_lookup`]): what that serves must never be a type
 --- the source no longer has. A dependency whose exported type changes
 --- reaches its dependent's check, and a stub that is not the one verified
 --- is not served.
@@ -1320,9 +1320,9 @@ local function test_a_verdict_is_kept_under_the_key_of_the_source_it_judged()
   local modules = assert(compilation.collect(handle.db))
   local keys = assert(compilation.dependency_keys(handle.db, modules, "declaration-cache-test"))
   local named = assert(keys["build.e"])
-  assert(compilation.verified_stub(handle.db, keys, "build.e") ~= nil, "a held stub was not served")
+  assert(compilation.stub_lookup(handle.db, keys, true)("build.e") ~= nil, "a held stub was not served")
   local moved: {string:compilation.Keys} = { ["build.e"] = { key = named.key .. "-moved", graph = named.graph } }
-  assert(compilation.verified_stub(handle.db, moved, "build.e") == nil,
+  assert(compilation.stub_lookup(handle.db, moved, true)("build.e") == nil,
     "a verdict was served under a key it was not kept for")
   work.close(handle)
 
@@ -1338,7 +1338,7 @@ local function test_a_verdict_is_kept_under_the_key_of_the_source_it_judged()
   local after_modules = assert(compilation.collect(after.db))
   local after_keys = assert(compilation.dependency_keys(after.db, after_modules, "declaration-cache-test"))
   assert(assert(after_keys["build.e"]).key ~= named.key, "the key of e did not move")
-  assert(compilation.verified_stub(after.db, after_keys, "build.e") == nil,
+  assert(compilation.stub_lookup(after.db, after_keys, true)("build.e") == nil,
     "the stub of e was served under a new key it was never judged under")
   work.close(after)
 end

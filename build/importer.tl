@@ -1363,7 +1363,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   end
   -- In cosmic's own tree, a module that requires one whose stub has been
   -- held to its source's type is checked against the stub, which the
-  -- checker reads in a fraction of the time ([`compilation.verified_stub`]).
+  -- checker reads in a fraction of the time ([`compilation.stub_lookup`]).
   --
   -- TODO: serve the new checker's compile ([`build.pipeline`]) the verified stubs too: it
   -- reads every module of the tree from source whatever it checks, and waits on

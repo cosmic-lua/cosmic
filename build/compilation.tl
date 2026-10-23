@@ -513,7 +513,7 @@ end
 --- statement that type needs none of, with the modules those statements
 --- require.
 --- @param keys each module's [`compilation.Keys`], by path
-function compilation.verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string | nil
+local function verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string | nil
   local named = keys[path]
   if named == nil then
     return nil
@@ -523,10 +523,14 @@ function compilation.verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path:
       "WHERE i.kind = 'module' AND i.path = ?1 " ..
       "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
     { text(path) })
-  if rows == nil or rows[1] == nil then
+  if rows == nil then
     return nil
   end
-  local stub_text = rows[1]:text(1)
+  local first = rows[1]
+  if first == nil then
+    return nil
+  end
+  local stub_text = first:text(1)
   local held, _ = Sqlite.text_rows(db,
     "SELECT key FROM stub_holds WHERE key = ?1 AND stub = ?2 AND held = 1",
     { text(named.key), text(stub_hash(stub_text)) })
@@ -536,9 +540,10 @@ function compilation.verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path:
   return stub_text
 end
 
---- [`compilation.verified_stub`] as a function of the path alone, for
---- [`build.teal`]'s `environment_for`: one that answers nil for every path unless
---- `serving`.
+--- What [`build.teal`]'s `environment_for` reads of a module in place of its
+--- source, as a function of its path: its stub if a compile has held that
+--- to the source's type under the module's key now ([`verified_stub`]), else
+--- nil, and nil for every path unless `serving`.
 --- @param keys each module's [`compilation.Keys`], by path
 function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
                                  serving: boolean): function(string): string | nil
@@ -546,7 +551,7 @@ function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
     if not serving then
       return nil
     end
-    return compilation.verified_stub(db, keys, path)
+    return verified_stub(db, keys, path)
   end
 end
 
