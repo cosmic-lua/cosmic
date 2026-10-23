@@ -97,6 +97,8 @@ local record links
     at: function(line: integer): link_text.Declared
     module_level: {string: boolean}
     parsed: boolean
+    --- What every line sees ([`link_text.Declarations`]'s `everywhere`), where the reader keeps it.
+    everywhere?: {string: boolean}
   end
 
   --- What `check` and `rewrite` read of a Teal file, taken from a
@@ -234,7 +236,7 @@ function links.facts(parsed: ast.Parsed, source: string): links.Facts
   return {
     source = source,
     blocks = link_text.blocks_of(link_text.comments_of(parsed.tokens, source)),
-    known = { at = found.at, module_level = found.module_level, parsed = true },
+    known = { at = found.at, module_level = found.module_level, parsed = true, everywhere = found.everywhere },
   }
 end
 

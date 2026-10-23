@@ -16,6 +16,7 @@ local String = require("cosmic.string")
 local logger = require("build.logger")
 local TreeProgram = require("build.tree_program")
 local check_memo = require("build.check_memo")
+local Hash = require("cosmic.hash")
 
 local record PipelineCheck
   --- A file of the tree to compare, as the checks of the tree lower it.
@@ -24,9 +25,21 @@ local record PipelineCheck
     module: string
     --- Whether the file is read as the fork's Teal (`tl`) or as a declaration file (`decl`).
     dialect: string
-    --- What the pipeline's answer for the file is kept under in the memo: the file's source and everything it requires.
+    --- What the pipeline's answer for the file is kept under in the memo: the file's source and everything it requires. The
+    --- ceilings that hold it are added to it ([`PipelineCheck.keyed`]).
     key: string
+    --- Whether the file is a source of the tree as it is written, and not one the build writes from another file: its ceilings
+    --- are then the ones kept under its own name.
+    plain: boolean
   end
+
+  --- The key of a row's answer in the memo: `key` and the ceilings that hold the file. A module is held by the ceilings
+  --- kept under its own name alone ([`Pipeline.pinned`]: `digests` holds, by file, a digest of them), so that a pin of another
+  --- file does not change its answer; a file that is `plain` is keyed so, and any other by `whole`, a digest of every ceiling,
+  --- since the name its ceilings are kept under is not its own.
+  keyed: function(key: string, plain: boolean, file: string, digests: {string: string}, whole: string): string
+  --- A digest of every ceiling of `digests` ([`PipelineCheck.keyed`]'s `whole`) and of whether the tree has none.
+  whole: function(digests: {string: string}, none: boolean | nil): string
 
   --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` answers by position.
   --- `declared` and `checked` are the lines the checks of the tree answer ([`tree_checks.declared`], [`tree_checks.checked`]).
@@ -42,6 +55,27 @@ local record PipelineCheck
     declared: {string},
     checked: {string}
   ): {string}
+end
+
+function PipelineCheck.keyed(key: string, plain: boolean, file: string, digests: {string: string}, whole: string): string
+  local held = whole
+  if plain then
+    held = digests[file] or ""
+  end
+  return Hash.hex_sha256(key .. "\0" .. held)
+end
+
+function PipelineCheck.whole(digests: {string: string}, none: boolean | nil): string
+  local files: {string} = {}
+  for file in pairs(digests) do
+    files[#files + 1] = file
+  end
+  table.sort(files, function(a: string, b: string): boolean return a < b end)
+  local parts: {string} = { none == true and "none" or "pinned" }
+  for _, file in ipairs(files) do
+    parts[#parts + 1] = file .. "=" .. (digests[file] or "")
+  end
+  return Hash.hex_sha256(table.concat(parts, "\0"))
 end
 
 --- The file a line that refuses a count over its ceiling ([`build.ceilings.over`]) is about, if the line is one about declarations
@@ -168,9 +202,13 @@ function PipelineCheck.compare(
       end
     end
   end
+  local digests = Pipeline.pinned(options.ceilings)
+  local all = PipelineCheck.whole(digests, options.ceilings.none)
   local rows: {PipelineCheck.Row} = {}
   for index = 1, count do
-    rows[index] = row_at(index)
+    local row = row_at(index)
+    row.key = PipelineCheck.keyed(row.key, row.plain, row.file, digests, all)
+    rows[index] = row
   end
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "pipeline")
