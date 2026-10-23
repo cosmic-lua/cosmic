@@ -11,6 +11,9 @@
 --- `examples` is the check of the examples a reader copies ([`build.example_checks`]), held in the new mode alone: a key is an
 --- example file or a guide and a code of any stage, and a count is the findings of that code in all of its examples.
 ---
+--- `testdata` is the check of the Teal under `ci/testdata` ([`build.tree_checks`]'s `ci_testdata`), held in the new mode alone:
+--- a key is a file and a code of any stage, and a count is the findings of that code in the file.
+---
 --- A ceiling is read at the start of a run, from the file or from a database the file filled; a caller that has neither
 --- passes a table of its own.
 local Check = require("lang.check")
@@ -35,6 +38,7 @@ local record Ceilings
     "untyped"
     "checked"
     "examples"
+    "testdata"
   end
 
   --- An error of a file, as a check lists it.
@@ -111,10 +115,10 @@ end
 
 --- Why `key`, a ceiling of `stage`, can never be met, or "" where it can.
 local function unmeetable(stage: string, key: string): string
-  if stage == "examples" then
-    -- A finding of an example is of any stage's code, so the shape is all that can be held.
+  if stage == "examples" or stage == "testdata" then
+    -- A finding of an example or of a file of ci/testdata is of any stage's code, so the shape is all that can be held.
     if key:match("^%S+ %S+$") == nil then
-      return "a ceiling of [examples] is a file and a code, not `" .. key .. "`"
+      return "a ceiling of [" .. stage .. "] is a file and a code, not `" .. key .. "`"
     end
     return ""
   end
@@ -139,7 +143,7 @@ end
 
 local STAGES <const>: {string: boolean} = {
   lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, read = true,
-  typed = true, untyped = true, checked = true, examples = true,
+  typed = true, untyped = true, checked = true, examples = true, testdata = true,
 }
 
 function Ceilings.parse(text: string): Ceilings.Table | nil, string

@@ -7,7 +7,7 @@
 --- a file requires, the lines of its global declarations, the references through an alias and what is in scope at the
 --- first token of each line, the lines its stub keeps and whether the stub is declaration-only, its executable lines,
 --- and each row of its analysis (its tests, policy, catalog, docs, references, bound names, examples and the links of
---- its comments, [`build.syntax_compared_analysis`]). [`Shape.record_of`] needs the checker's types of a whole project, so [`build.syntax_shape_specs`]'s tests hold it
+--- its comments, [`build.syntax_compared_analysis`]) and the places a literal plural follows a number ([`build.plural_sites`]). [`Shape.record_of`] needs the checker's types of a whole project, so [`build.syntax_shape_specs`]'s tests hold it
 --- to the fork's results instead.
 ---
 -- TODO: compare a stub's identifier words line by line, with `nil`, `mut`, `local` and `type` set aside, and compare the
@@ -23,6 +23,7 @@ local Lexer = require("lang.lexer")
 local Globals = require("build.syntax_globals")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
+local PluralSites = require("build.plural_sites")
 local Rewrite = require("build.syntax_rewrite")
 local Lexical = require("build.syntax_scopes")
 local Stub = require("build.syntax_stub")
@@ -53,7 +54,11 @@ local record Compared
   dimensions: {string}
 end
 
-Compared.dimensions = Analysis.dimensions
+Compared.dimensions = {}
+for _, dimension in ipairs(Analysis.dimensions) do
+  Compared.dimensions[#Compared.dimensions + 1] = dimension
+end
+Compared.dimensions[#Compared.dimensions + 1] = "plurals"
 
 --- A source in the fork's Teal read as the ports read it: through [`lang.translate`], which writes it in the new grammar
 --- with its lines where they were.
@@ -361,10 +366,18 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
   elseif placed and line_set(without_labels(parsed, old_lines)) ~= line_set(new_lines) then
     differ("lines", "executable " .. first_difference(words(line_set(old_lines)), words(line_set(new_lines))))
   end
+  -- The sites where a literal plural follows a number, in order, with their lines where the translation keeps them.
+  local old_plurals = PluralSites.lines(PluralSites.of_fork(parsed), placed)
+  local new_plurals = PluralSites.lines(PluralSites.of_chunk(chunk), placed)
+  if joined(old_plurals) ~= joined(new_plurals) then
+    differ("plurals", first_difference(old_plurals, new_plurals))
+  end
+
   local analysed = Analysis.file(built, file, source, parsed, read.text, chunk, scoped, read.moved)
   for _, line in ipairs(analysed.differences) do
     differences[#differences + 1] = line
   end
+  analysed.counts["plurals"] = #old_plurals
   return { skipped = "", differences = differences, counts = analysed.counts }
 end
 

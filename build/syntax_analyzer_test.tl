@@ -361,10 +361,10 @@ local function test_a_signature_is_the_head_on_one_line()
   assert(found.docs[3].signature == "local function g()", found.docs[3].signature)
 end
 
-local function test_the_dimensions_of_the_comparison_are_the_rows_of_an_analysis()
+local function test_the_dimensions_of_the_comparison_are_the_rows_of_an_analysis_and_the_plurals()
   assert(table.concat(Compared.dimensions, ",") ==
       "analyzer tests,analyzer export,analyzer inputs,analyzer catalog,analyzer docs,analyzer references," ..
-      "analyzer bound,analyzer examples,link_text")
+      "analyzer bound,analyzer examples,link_text,plurals")
 end
 
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.

@@ -7,6 +7,7 @@ local Globals = require("build.syntax_globals")
 local LinkText = require("build.link_text")
 local Lexical = require("build.syntax_scopes")
 local Match = require("build.syntax_match")
+local PluralSites = require("build.plural_sites")
 local Node = require("build.syntax_node")
 local Rewrite = require("build.syntax_rewrite")
 local Scopes = require("lang.scopes")
@@ -68,6 +69,10 @@ local ANALYSIS_FILE <const> = source(
   "",
   "function Example.open()",
   '  assert(Fs.read("x") == nil)',
+  "end",
+  "",
+  "local function describe(rows: {string}): string",
+  '  return #rows .. " tests"',
   "end",
   "return open")
 
@@ -224,6 +229,18 @@ local function analysis_plant(change: function(found: Analyzer.Analysis)): funct
   end
 end
 
+--- A plant in the sites the port finds: `change` is given the first site the port finds and answers the sites it finds
+--- instead, which the comparison then finds differ from the fork's.
+local function plurals_plant(change: function(first: {string}): {{string}}): function(): function()
+  return function(): function()
+    local held = PluralSites.of_chunk
+    PluralSites.of_chunk = function(chunk: Ast.Chunk): {{string}}
+      return change(assert(held(chunk)[1]))
+    end
+    return function() PluralSites.of_chunk = held end
+  end
+end
+
 --- One plant: a reader of the ports answers otherwise, and the comparison names it.
 local record Plant
   reader: string
@@ -344,6 +361,16 @@ local function test_every_dimension_of_the_comparison_reports_a_difference_in_it
       end
       return function() SyntaxLinkText.found = held end
     end },
+    { reader = "plurals", file = "a_test.tl", text = ANALYSIS_FILE, plant = plurals_plant(
+      function(_first: {string}): {{string}} return {} end) },
+    { reader = "plurals", file = "a_test.tl", text = ANALYSIS_FILE, plant = plurals_plant(
+      function(first: {string}): {{string}}
+        return { { assert(first[1]), "planted", assert(first[3]), assert(first[4]) } }
+      end) },
+    { reader = "plurals", file = "a_test.tl", text = ANALYSIS_FILE, plant = plurals_plant(
+      function(first: {string}): {{string}}
+        return { { "9" .. assert(first[1]), assert(first[2]), assert(first[3]), assert(first[4]) } }
+      end) },
     { reader = "lines", file = "m.tl", text = TREE_FILE, plant = function(): function()
       local held = coverage.syntax_executable
       coverage.syntax_executable = function(_source: string, _name: string): {integer: boolean} | nil, string

@@ -745,6 +745,9 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
+--- The checkers that read the sources for the plurals.
+local MODES: {GrammarMode.Mode} = { "teal", "new" }
+
 --- A literal plural after a number is refused -- joined by `..` to a
 --- length, `tostring(...)` or a literal, or after a `%d` -- with the fix;
 --- [`plural.count`], a verb after a number, a label (`at byte %d`), a
@@ -788,20 +791,32 @@ local function test_a_literal_plural_after_a_number_is_refused(dir: string)
       "end"),
   })
   local built = assert(teal.load())
-  local found = tree_checks.plurals(db, built, {}, {})
-  local text = table.concat(found, "\n")
-  assert(#found == 5, text)
-  assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
-  assert(found[2]:find("^build/count%.tl:8: .*`files`") ~= nil, text)
-  assert(found[3]:find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
-  assert(found[4]:find("^build/count%.tl:14: .*`rows`") ~= nil, text)
-  assert(found[5]:find("^build/count%.tl:17: .*`stores`") ~= nil, text)
-  found = tree_checks.plurals(db, built, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
-    ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
-    ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
-    ["build/fine.tl:tests"] = "unneeded" })
-  assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil and
-      found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+  for _, mode in ipairs(MODES) do
+    local found = tree_checks.plurals(db, built, {}, {}, nil, mode)
+    local text = table.concat(found, "\n")
+    assert(#found == 5, text)
+    assert(found[1]:find("^build/count%.tl:4: .*`tests`.*plural%.count") ~= nil, text)
+    assert(found[2]:find("^build/count%.tl:8: .*`files`") ~= nil, text)
+    assert(found[3]:find("^build/count%.tl:11: .*`tests`.*plural%.noun") ~= nil, text)
+    assert(found[4]:find("^build/count%.tl:14: .*`rows`") ~= nil, text)
+    assert(found[5]:find("^build/count%.tl:17: .*`stores`") ~= nil, text)
+    found = tree_checks.plurals(db, built, { { "ci/x.tl", "return #arg .. \" arguments\"\n" } }, {
+      ["build/count.tl:tests"] = "always many", ["build/count.tl:files"] = "always many",
+      ["build/count.tl:rows"] = "always many", ["build/count.tl:stores"] = "always many",
+      ["build/fine.tl:tests"] = "unneeded" }, nil, mode)
+    assert(#found == 2 and found[1]:find("^ci/x%.tl:1: .*`arguments`") ~= nil and
+        found[2]:find("^build/fine%.tl:tests: exempt, but nothing") ~= nil, table.concat(found, "\n"))
+    -- A source only the new checker's reader takes (an optional type) is read by it alone.
+    local newer = { { "ci/cosmic_ci/x.tl", "local function f(rows: {string}, x: string?): string\n" ..
+        "  return #rows .. \" tests\"\nend\nreturn f\n" } }
+    local second = tree_checks.plurals(db, built, newer, {}, nil, mode)
+    local last = assert(second[#second])
+    if mode == "new" then
+      assert(last:find("^ci/cosmic_ci/x%.tl:2: .*`tests`") ~= nil, table.concat(second, "\n"))
+    else
+      assert(last:find("^ci/cosmic_ci/x%.tl: cannot read it to check its plurals: ") ~= nil, table.concat(second, "\n"))
+    end
+  end
 end
 
 --- The plurals a parse already found stand for a file's only while its
@@ -832,6 +847,40 @@ local function test_plurals_found_before_stand_for_the_same_text(dir: string)
   assert(found[2]:find("^build/moved%.tl:2: .*`rows`") ~= nil, all)
 end
 
+--- The plurals the new checker's reading found before the checks stand for a file's text as the fork's do, and a source
+--- its translation does not parse is found nothing in and is named by the check.
+local function test_the_new_readers_plurals_found_before_stand_for_the_same_text(dir: string)
+  local text = source("local n = 2", "return n .. \" tests\"")
+  local db = fixture.database(dir, {
+    ["build/count.tl"] = text,
+    ["build/moved.tl"] = source("local n = 2", "return n .. \" rows\""),
+  })
+  assert(tree_checks.syntax_plurals_in("build/count_test.tl", text) == nil)
+  assert(tree_checks.syntax_plurals_in("examples/count.tl", text) == nil)
+  assert(tree_checks.syntax_plurals_in("build/count.tl", "if x then\n") == nil)
+  local counted = assert(tree_checks.syntax_plurals_in("build/count.tl", text))
+  assert(counted.source == text and #counted.sites == 1)
+  local site = assert(counted.sites[1])
+  assert(site[1] == "2" and site[2] == "tests", table.concat(site, "|"))
+  local read: {string: tree_checks.Plurals} = {
+    ["build/count.tl"] = counted,
+    ["build/moved.tl"] = { source = "return 1\n", sites = {} },
+  }
+  site[2] = "kept"
+  local found = tree_checks.plurals(db, assert(teal.load()), {}, {}, read, "new")
+  local all = table.concat(found, "\n")
+  assert(#found == 2, all)
+  assert(assert(found[1]):find("^build/count%.tl:2: .*`kept`") ~= nil, all)
+  assert(assert(found[2]):find("^build/moved%.tl:2: .*`rows`") ~= nil, all)
+  local unread = tree_checks.plurals(db, assert(teal.load()), { { "ci/cosmic_ci/bad.tl", "if x then\n" } }, {}, nil, "new")
+  assert(assert(unread[#unread]):find("^ci/cosmic_ci/bad%.tl: cannot read it to check its plurals: ") ~= nil,
+    table.concat(unread, "\n"))
+  -- A source the translation does not parse (a tuple type) is read by the fork's reader.
+  local tuple = source("local pair: {string, integer} = { \"a\", 1 }", "return #pair .. \" tests\"")
+  local rest = tree_checks.plurals(db, assert(teal.load()), { { "ci/cosmic_ci/tuple.tl", tuple } }, {}, nil, "new")
+  assert(assert(rest[#rest]):find("^ci/cosmic_ci/tuple%.tl:2: .*`tests`") ~= nil, table.concat(rest, "\n"))
+end
+
 --- The `ci/` sources the plural check reads are the modules of
 --- `ci/cosmic_ci`, tests left out; `ci/fixtures` are all tests.
 local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string)
@@ -859,13 +908,13 @@ local function test_ci_testdata_type_errors_are_named(dir: string)
   assert(Fs.write(base .. "/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
   assert(Fs.write(base .. "/loose.tl", "local function helper() end\nreturn 1\n"))
   assert(Fs.write(base .. "/foreign.tl", "local m = require(\"cosmic_ci.nowhere\")\nreturn m\n"))
-  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())))
+  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())), "teal")
   local all = table.concat(found, "\n")
   assert(found[1] ~= nil and found[1]:find("^ci/testdata/sub/bad%.tl:1:") ~= nil, all)
   assert(all:find("ci/testdata/sub/foreign.tl", 1, true) ~= nil, all)
   assert(all:find("good_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/loose.tl:1:", 1, true) ~= nil, all)
-  assert(#tree_checks.ci_testdata(dir .. "/nowhere", (assert(teal.load()))) == 0)
+  assert(#tree_checks.ci_testdata(dir .. "/nowhere", (assert(teal.load())), "teal") == 0)
 end
 
 --- A guide under doc/guides that is neither a user guide nor named
@@ -897,7 +946,7 @@ local function test_an_unused_local_in_ci_testdata_follows_the_unused_rule(dir: 
   assert(Fs.mkdirs(base))
   assert(Fs.write(base .. "/zz_test.tl", "local function test_x()\n  local lonely = 1\n  assert(true)\nend\n"))
   assert(Fs.write(base .. "/label.tl", "do\n  local lonely = 1\nend\nreturn 1\n"))
-  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())))
+  local found = tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())), "teal")
   local all = table.concat(found, "\n")
   assert(all:find("zz_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/label.tl:2:", 1, true) ~= nil, all)
@@ -1665,6 +1714,7 @@ local function test_a_dimension_of_the_analysis_that_compared_nothing_is_named_c
   assert(joined:find("analyzer docs: no row compared", 1, true) ~= nil and
       joined:find("analyzer inputs: no row compared", 1, true) ~= nil and
       joined:find("analyzer export: no row compared", 1, true) == nil, joined)
+  assert(joined:find("plurals: no row compared in 12 files", 1, true) ~= nil, joined)
   -- One file with a row of each kind is enough.
   assert(Fs.write(root .. "/build/rich_test.tl", source(
     'local Test = require("cosmic.test")',
@@ -1676,6 +1726,7 @@ local function test_a_dimension_of_the_analysis_that_compared_nothing_is_named_c
     "end",
     "local function test_it() assert(Fs.read(\"x\") == nil) end",
     "function Example.open() assert(Fs.read(\"x\") == nil) end",
+    "local function many(rows: {string}): string return #rows .. \" tests\" end",
     "return open")))
   local rich = tree_checks.read(root, {}, memo)
   assert(#rich == 0, table.concat(rich, "\n"))
