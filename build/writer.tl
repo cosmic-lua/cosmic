@@ -547,14 +547,19 @@ local function vendored_digest(root: string): string | nil
   return bundle .. " " .. snapshot
 end
 
---- Whether the first column of the first row of `rows` is `1`: the answer
---- of a `SELECT` of a condition, false where there was none.
-local function holds(rows: Sqlite.Rows | nil): boolean
+--- Whether the first column of the first row of `rows` is `answer`.
+local function says(rows: Sqlite.Rows | nil, answer: string): boolean
   if rows == nil then
     return false
   end
   local row = rows[1]
-  return row ~= nil and row:text(1) == "1"
+  return row ~= nil and row:text(1) == answer
+end
+
+--- Whether the first column of the first row of `rows` is `1`: the answer
+--- of a `SELECT` of a condition, false where there was none.
+local function holds(rows: Sqlite.Rows | nil): boolean
+  return says(rows, "1")
 end
 
 --- Whether the base's CA tables were made of the files `digest` names: the
@@ -963,8 +968,7 @@ function writer.write_result(handle: work.Handle, out: string,
       -- A base that passed [`usable_base`] yet cannot be read to its end (a page of it damaged) would fail every
       -- write after this one the same way, since only a write that fills the rows whole replaces it.
       local checked, _ = Sqlite.text_rows(db, "PRAGMA prev.quick_check(1)")
-      local first = checked ~= nil and checked[1] or nil
-      local intact = first ~= nil and first:text(1) == "ok"
+      local intact = says(checked, "ok")
       local _, _ = db:exec("DETACH prev")
       if not intact then
         local _, _ = Fs.remove(out)
