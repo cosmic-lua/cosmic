@@ -654,8 +654,9 @@ function Zig.changed(before: {string:string}, after: {string:string}): {string}
 end
 
 --- The line that says a build raced an edit: the first five paths that
---- moved, then how many more.
-function Zig.race_report(paths: {string}): string
+--- moved, then how many more, and what happens next: the build is made
+--- again (`again`) or left to the caller.
+function Zig.race_report(paths: {string}, again?: boolean): string
   local named: {string} = {}
   for i = 1, math.min(#paths, 5) do
     named[i] = paths[i]
@@ -664,7 +665,8 @@ function Zig.race_report(paths: {string}): string
   if #paths > 5 then
     list = list .. " and " .. tostring(#paths - 5) .. " more"
   end
-  return "sources changed during the build: " .. list .. "; run it again"
+  return "sources changed during the build: " .. list ..
+    (again == true and "; building again" or "; run it again")
 end
 
 local MS <const> = Clock.ms(1)
@@ -780,33 +782,55 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   return Child.shell_status(result)
 end
 
+--- How many times a build runs in all when a source moves while it
+--- runs: the first, and one more for each time it did. An edit made
+--- while a boot ran leaves the build unfinished, not its work: what zig
+--- and the shared compiles kept makes the next run take the files that
+--- did not move as they were, so it costs what the edit did.
+local MOST_BUILDS <const> = 3
+
 --- `build` between two snapshots of `root`: zig's own status, unless
---- a source moved while it ran. A snapshot that cannot be taken first
---- leaves the build unwatched rather than stopped. zig runs in `env`,
---- this process's environment unless given.
-local function watched_build(root: string, env: {string:string} | nil,
-                             command: function(): {string} | nil): integer
-  local before, _ = Zig.snapshot(root)
-  local argv = command()
-  if argv == nil then
-    return 1
+--- a source moved while it ran, which runs it again, up to
+--- [`MOST_BUILDS`] runs in all, and then says so and fails. A snapshot
+--- that cannot be taken first leaves the build unwatched rather than
+--- stopped. `command` makes the command line for each run, and `run` runs
+--- it and answers its status ([`Zig.run`] in zig's own environment).
+---
+-- TODO: bin/zig runs this on the pinned bootstrap release, so it runs a
+-- boot again only once ci/cosmic-driver.pin names a release that carries
+-- this function; the release before it still fails the boot an edit moved.
+function Zig.watched_build(root: string, command: function(): {string} | nil,
+                           run: function({string}): integer): integer
+  local runs = 0
+  while true do
+    runs = runs + 1
+    local before, _ = Zig.snapshot(root)
+    local argv = command()
+    if argv == nil then
+      return 1
+    end
+    local status = run(argv)
+    if before == nil or status > 128 then
+      return status
+    end
+    local after, trouble = Zig.snapshot(root)
+    local moved: {string}
+    if after == nil then
+      moved = { trouble }
+    else
+      moved = Zig.changed(before, after)
+    end
+    if #moved == 0 then
+      return status
+    end
+    -- A build that failed is reported as it failed, not run again for
+    -- an edit that may be what it failed on.
+    local again = status == 0 and runs < MOST_BUILDS
+    log:complain(Zig.race_report(moved, again))
+    if not again then
+      return status ~= 0 and status or 1
+    end
   end
-  local status = Zig.run(argv, env)
-  if before == nil or status > 128 then
-    return status
-  end
-  local after, trouble = Zig.snapshot(root)
-  local moved: {string}
-  if after == nil then
-    moved = { trouble }
-  else
-    moved = Zig.changed(before, after)
-  end
-  if #moved == 0 then
-    return status
-  end
-  log:complain(Zig.race_report(moved))
-  return status ~= 0 and status or 1
 end
 
 --- Writes every vendored tree with its patch records applied, as
@@ -1103,7 +1127,7 @@ function Zig.enter(argv: {string}, script: string): integer
     -- vendored file edited while they are is caught as any source is.
     local function build(env?: {string:string}): integer
       local zig_env = Zig.build_environment(shared, env or environment)
-      return watched_build(root, zig_env, function(): {string} | nil
+      return Zig.watched_build(root, function(): {string} | nil
         local manifest, patch_trouble = patch(root, project)
         if manifest == nil then
           log:complain(patch_trouble)
@@ -1116,6 +1140,8 @@ function Zig.enter(argv: {string}, script: string): integer
           build_argv[#build_argv + 1] = a
         end
         return build_argv
+      end, function(words: {string}): integer
+        return Zig.run(words, zig_env)
       end)
     end
     if Zig.boots(given) then

@@ -68,7 +68,7 @@ local islands: Islands = {
     ["build/paths.tl"] = { nil_union = 4 },
     ["build/perf.tl"] = { nil_union = 9 },
     ["build/vendor.tl"] = { nil_union = 11 },
-    ["build/zig.tl"] = { metamethod = 1, nil_union = 21 },
+    ["build/zig.tl"] = { metamethod = 1, nil_union = 20 },
   },
 }
 
