@@ -2188,6 +2188,18 @@ function tree_checks.lexed(root: string, pinned?: {string: integer}, memo?: Sqli
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
   end
+  -- The tree's own file is held to its layout here, once for the run: a ceiling with a neighbour conflicts with every change
+  -- to it ([`Ceilings.crowded`]).
+  if pinned == nil then
+    local text, _ = Fs.read(root .. "/" .. Ceilings.path)
+    local crowded = Ceilings.crowded(text or "")
+    if crowded ~= "" then
+      local _, count = crowded:gsub("\n", "\n")
+      local first = crowded:match("^[^\n]*\n[^\n]*\n[^\n]*\n") or crowded
+      return { "reading the ceilings: " .. tostring(count) .. " of them have a neighbour, the first of which are\n" ..
+          first:gsub("\n$", "") }
+    end
+  end
   pinned = ceilings
   local files, trouble = lexable(root)
   if files == nil then

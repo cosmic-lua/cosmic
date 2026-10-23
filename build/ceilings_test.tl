@@ -131,27 +131,38 @@ local function test_a_ceiling_for_a_file_the_tree_lacks_is_dead(dir: string)
   assert(dead[2]:find("build/nothing.tl shadows: pinned in [scoped]", 1, true), dead[2])
 end
 
+--- Whether `text` holds `needle`.
+local function says(text: string, needle: string): boolean
+  return text:find(needle, 1, true) ~= nil
+end
+
+--- How many lines `text` has.
+local function lines_of(text: string): integer
+  local _, count = text:gsub("\n", "\n")
+  return count
+end
+
 local function test_a_ceiling_with_a_neighbour_is_named_with_its_place()
   -- Alone between blank lines, under a comment or a stage line, and last in the file: all fine.
-  assert(#Ceilings.crowded("[checked]\n# why\nbuild/a.tl nil_not_allowed 3\n\nbuild/b.tl view_written 12\n") == 0)
-  assert(#Ceilings.crowded("[checked]\nbuild/a.tl nil_not_allowed 3\n\n[generated]\n\nbuild/c.tl 4") == 0)
-  assert(#Ceilings.crowded("") == 0)
+  assert(Ceilings.crowded("[checked]\n# why\nbuild/a.tl nil_not_allowed 3\n\nbuild/b.tl view_written 12\n") == "")
+  assert(Ceilings.crowded("[checked]\nbuild/a.tl nil_not_allowed 3\n\n[generated]\n\nbuild/c.tl 4") == "")
+  assert(Ceilings.crowded("") == "")
   -- Another ceiling directly after, or a comment, or a stage line, is not.
   local pair = Ceilings.crowded("[checked]\nbuild/a.tl nil_not_allowed 3\nbuild/b.tl view_written 12\n")
-  assert(#pair == 1 and pair[1]:find("build/ceilings.txt:2: `build/a.tl nil_not_allowed 3` is followed directly by another line", 1, true),
-    table.concat(pair, "\n"))
+  assert(lines_of(pair) == 1 and says(pair, "build/ceilings.txt:2: `build/a.tl nil_not_allowed 3` is followed directly by another line"),
+    pair)
   local commented = Ceilings.crowded("[checked]\nbuild/a.tl nil_not_allowed 3\n# why\nbuild/b.tl view_written 12\n")
-  assert(#commented == 1 and commented[1]:find(":2:", 1, true), table.concat(commented, "\n"))
+  assert(lines_of(commented) == 1 and says(commented, ":2:"), commented)
   local staged = Ceilings.crowded("[checked]\nbuild/a.tl nil_not_allowed 3\n[generated]\nbuild/c.tl 4\nbuild/d.tl 5\n")
-  assert(#staged == 2 and staged[1]:find(":2:", 1, true) and staged[2]:find(":5:", 1, true) == nil and staged[2]:find(":4:", 1, true), table.concat(staged, "\n"))
+  assert(lines_of(staged) == 2 and says(staged, ":2:") and says(staged, ":4:"), staged)
   -- Every crowded line is named, not the first alone.
-  assert(#Ceilings.crowded("[checked]\nbuild/a.tl x 1\nbuild/b.tl x 1\nbuild/c.tl x 1\n\nbuild/d.tl x 1\n") == 2)
+  assert(lines_of(Ceilings.crowded("[checked]\nbuild/a.tl x 1\nbuild/b.tl x 1\nbuild/c.tl x 1\n\nbuild/d.tl x 1\n")) == 2)
 end
 
 local function test_the_file_of_the_tree_keeps_each_ceiling_alone_between_blank_lines()
   local text, why = Fs.read("build/ceilings.txt")
   assert(text ~= nil, why)
   local crowded = Ceilings.crowded(text)
-  assert(#crowded == 0, #crowded .. " ceilings have a neighbour, so a change to a neighbouring pin conflicts with a change " ..
-      "to them; put a blank line after each ceiling:\n" .. table.concat(crowded, "\n", 1, math.min(#crowded, 10)))
+  assert(crowded == "", tostring(lines_of(crowded)) .. " ceilings have a neighbour, so a change to a neighbouring pin " ..
+      "conflicts with a change to them; put a blank line after each ceiling:\n" .. crowded:sub(1, 600))
 end

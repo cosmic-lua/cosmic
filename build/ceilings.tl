@@ -70,11 +70,11 @@ local record Ceilings
   --- The ceilings of the tree at `root` ([`Ceilings.path`]).
   read: function(root: string): Table | nil, string
 
-  --- The ceiling lines of `text` that a line follows directly, one message each with its place. A ceiling stands alone
-  --- between blank lines (a comment may sit directly above the one it explains, and a `[stage]` line above its first):
-  --- git merges two changes only where an unchanged line lies between them, so a ceiling that has a neighbour conflicts
-  --- with every change to that neighbour, and most pull requests move some pin.
-  crowded: function(text: string): {string}
+  --- The ceiling lines of `text` that a line follows directly, one line of message each with its place, or "" where there
+  --- are none. A ceiling stands alone between blank lines (a comment may sit directly above the one it explains, and a
+  --- `[stage]` line above its first): git merges two changes only where an unchanged line lies between them, so a
+  --- ceiling that has a neighbour conflicts with every change to that neighbour, and most pull requests move some pin.
+  crowded: function(text: string): string
 
   --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
   --- the tree finds no error in a file that is not there. `hazards` names none.
@@ -194,19 +194,22 @@ function Ceilings.parse(text: string): Ceilings.Table | nil, string
   return out, ""
 end
 
-function Ceilings.crowded(text: string): {string}
-  local out: {string} = {}
-  local lines: {string} = {}
+function Ceilings.crowded(text: string): string
+  local out = ""
+  local number = 0
+  -- The line before the one being read where it is a ceiling, else "".
+  local before = ""
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    lines[#lines + 1] = line
-  end
-  for number, line in ipairs(lines) do
-    local following = lines[number + 1]
-    local is_ceiling = line ~= "" and line:sub(1, 1) ~= "#" and line:match("^%[[a-z]+%]$") == nil
-    if is_ceiling and following ~= nil and following ~= "" then
-      out[#out + 1] = Ceilings.path .. ":" .. tostring(number) .. ": `" .. line ..
+    number = number + 1
+    if before ~= "" and line ~= "" then
+      out = out .. Ceilings.path .. ":" .. tostring(number - 1) .. ": `" .. before ..
         "` is followed directly by another line: a ceiling stands alone between blank lines, " ..
-        "so that a change to its neighbour merges with a change to it"
+        "so that a change to its neighbour merges with a change to it\n"
+    end
+    if line ~= "" and line:sub(1, 1) ~= "#" and line:match("^%[[a-z]+%]$") == nil then
+      before = line
+    else
+      before = ""
     end
   end
   return out
