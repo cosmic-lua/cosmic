@@ -806,14 +806,18 @@ local carried_alias_signatures <const> =
 --- raw_http.Options`), whose page lists them, through the name its
 --- module binds `d`'s to ([`build.analyzer.Bound`]). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
---- resolution ([`build.docs`]) reads them.
+--- resolution ([`build.docs`]) reads them. Written as a join, which
+--- looks each doc row's module up among the aliases once: an `EXISTS` that
+--- scans them for each of the several hundred internal rows took most of a
+--- second of every tool rebuild.
 local carried_internal_types =
-  "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "d.id IN (SELECT d.id FROM whole.docs d " ..
+  "JOIN alias_signatures a ON a.requires = d.module WHERE " ..
+  "d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
-  "EXISTS (SELECT 1 FROM alias_signatures a WHERE a.requires = d.module AND " ..
   "(a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " OR " ..
-  "a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " || ',*')))"
+  "a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " || ',*'))"
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
@@ -856,6 +860,10 @@ local carry: {string} = {
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
+  --
+  -- The catalog's rows are looked up as a set (`IN`), not by a correlated
+  -- `EXISTS`, which SQLite answers here by scanning the catalog for each of
+  -- the thirty thousand doc rows: most of a second of every tool rebuild.
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) SELECT module, symbol, " ..
@@ -863,8 +871,8 @@ local carry: {string} = {
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
-    " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
-    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ")) ORDER BY id",
+    " OR (d.module, d.source_symbol) IN (SELECT module, symbol FROM whole.catalog) OR " ..
+    carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
     symbols.public_only("u.module", true) .. " AND " ..
