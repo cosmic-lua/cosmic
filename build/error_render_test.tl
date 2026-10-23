@@ -20,7 +20,7 @@ end
 local function result_of(text: string, translate?: boolean, stubs?: {string: string}): Driver.Outcome
   local index = Driver.index({ { "m.tl", text } }, translate == true, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library .. "\n", false, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library .. "\n", false, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))

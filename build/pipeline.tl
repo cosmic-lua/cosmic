@@ -247,8 +247,7 @@ end
 
 function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
   return {
-    globals = TreeProgram.globals(texts.prelude, Driver.source(CheckerDeclarations.stdlib_module(), "checker/stdlib.d.tl",
-      texts.stdlib, "decl")),
+    globals = TreeProgram.globals(texts.prelude, texts.stdlib),
     ceilings = { stages = {}, none = true }, types = true, standard = nil, project = true,
   }
 end
@@ -281,7 +280,11 @@ function Pipeline.options(root: string): Pipeline.Options | nil, string
   if not own then
     return Pipeline.alone()
   end
-  local stdlib, stdlib_why = Fs.read(root .. "/checker/stdlib.d.tl")
+  local prelude, prelude_why = Fs.read(root .. "/" .. CheckerDeclarations.prelude_file())
+  if prelude == nil then
+    return nil, prelude_why
+  end
+  local stdlib, stdlib_why = Fs.read(root .. "/" .. CheckerDeclarations.stdlib_file())
   if stdlib == nil then
     return nil, stdlib_why
   end
@@ -290,7 +293,7 @@ function Pipeline.options(root: string): Pipeline.Options | nil, string
     return nil, ceilings_why
   end
   return {
-    globals = TreeProgram.fork_globals(root, Driver.source("checker.stdlib", "checker/stdlib.d.tl", stdlib, "decl")),
+    globals = TreeProgram.globals(prelude, stdlib),
     ceilings = ceilings, types = true, standard = nil, project = nil,
   }, ""
 end

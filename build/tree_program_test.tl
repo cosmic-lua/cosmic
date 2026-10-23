@@ -10,7 +10,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ grants = {
-  { path = "checker/stdlib.d.tl", letters = "r" }, { path = "checker/tl.tl", letters = "r" },
+  { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" },
   { path = "core/socket.h", letters = "r" }, { path = "core", letters = "r" },
 } }
@@ -28,7 +28,7 @@ end
 
 local function test_the_fork_checker_and_the_programs_of_testdata_are_left_out_of_the_program()
   local index = TreeProgram.index({
-    { "checker/tl.tl", "return 1\n" }, { "testdata/t.tl", "return 2\n" }, { "ci/testdata/b/c.tl", "return 3\n" },
+    { "checker/tl.tl", "return 1\n" }, { "checker/stdlib.d.tl", "do\nend\n" }, { "testdata/t.tl", "return 2\n" }, { "ci/testdata/b/c.tl", "return 3\n" },
     { "x/testdata/y.tl", "return 4\n" }, { "checker/flow.tl", "return 5\n" }, { "mytestdata/a.tl", "return 6\n" },
     { "lang/a.tl", "local x = 1\nreturn x\n" },
     { "doc/guides/g.md", "return 7\n", "doc.guides.g" }, { "gen/s.d.tl", "return 8\n", "cosmic.s", "core/s.h" },
@@ -40,52 +40,53 @@ local function test_the_fork_checker_and_the_programs_of_testdata_are_left_out_o
   assert(assert(index.by_module["cosmic.s"]).pinned == "core/s.h")
 end
 
---- A project's `checker/` is its own, so its file of the fork's name is a module of it; only cosmic's own tree leaves it out.
+--- A project's `checker/` is its own, so its files of the fork's names are modules of it; only cosmic's own tree leaves them out.
 local function test_a_project_keeps_a_file_of_the_forks_name()
-  local entries = { { "checker/tl.tl", "return 1\n" }, { "testdata/t.tl", "return 2\n" }, { "m.tl", "return 3\n" } }
+  local entries = { { "checker/tl.tl", "return 1\n" }, { "checker/stdlib.d.tl", "do\nend\n" }, { "testdata/t.tl", "return 2\n" },
+    { "m.tl", "return 3\n" } }
   local kept = files_of(TreeProgram.index(entries, false, {}))
-  assert(kept == "checker/tl.tl m.tl", kept)
+  assert(kept == "checker/tl.tl checker/stdlib.d.tl m.tl", kept)
   local own = files_of(TreeProgram.index(entries, true, {}))
   assert(own == "m.tl", own)
 end
 
 local function test_the_globals_are_the_prelude_and_the_library_less_what_the_runtime_withholds()
-  local stdlib = Driver.source("checker.stdlib", "checker/stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl"))), "decl")
-  local made = TreeProgram.fork_globals(".", stdlib)
-  assert(#made.sources == 2 and made.sources[1].module == "checker.prelude" and made.sources[2].module == "checker.stdlib")
-  assert(made.sources[2].translate and made.sources[2].corrections and not made.sources[1].translate)
-  -- the prelude is what the fork keeps between the marks
-  local prelude = made.sources[1].text
-  assert(prelude:find("global record metatable<T>", 1, true) ~= nil and #prelude < 4000 and prelude:sub(1, 3) == "do\n")
+  local made = TreeProgram.tree_globals(".")
+  assert(#made.sources == 2)
+  local prelude, stdlib = assert(made.sources[1]), assert(made.sources[2])
+  assert(prelude.module == "checker.prelude" and stdlib.module == "checker.stdlib")
+  assert(prelude.filename == "lang/prelude.d.tl" and stdlib.filename == "lang/stdlib.d.tl")
+  -- both are in the new grammar already
+  assert(not prelude.translate and not stdlib.translate)
+  assert(prelude.text == assert(Fs.read("lang/prelude.d.tl")) and stdlib.text == assert(Fs.read("lang/stdlib.d.tl")))
   local globals = Driver.globals(made.sources, made.adjust)
-  for _, kept in ipairs({ "string", "table", "math", "metatable", "_G", "userdata", "print" }) do
+  for _, kept in ipairs({ "string", "table", "math", "metatable", "Coroutine", "_G", "print" }) do
     assert(globals[kept] ~= nil, kept .. " is no global")
   end
   for _, withheld in ipairs(teal.withheld) do
     assert(globals[withheld] == nil, withheld .. " is a global")
   end
-  assert(globals["interface"] == nil, "the prelude's `interface userdata` declares no `interface`")
-  assert(assert(globals["userdata"]).space == "type")
+  -- `userdata` marks a record in the new grammar and is no type, and the prelude declares no `interface`
+  assert(globals["userdata"] == nil and globals["interface"] == nil)
 end
 
-local function test_a_tree_without_the_fork_checker_has_the_library_alone_and_nothing_withdrawn_from_it(tmp: string)
-  local stdlib = Driver.source("checker.stdlib", "checker/stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl"))), "decl")
-  assert(Fs.mkdirs(tmp .. "/checker"))
-  assert(Fs.write(tmp .. "/checker/tl.tl", "return 1\n"))
-  for _, root in ipairs({ tmp, tmp .. "/none" }) do
-    local alone = TreeProgram.fork_globals(root, stdlib)
-    assert(#alone.sources == 1 and alone.sources[1].module == "checker.stdlib")
-    local only = Driver.globals(alone.sources, alone.adjust)
-    assert(only["string"] ~= nil and only["metatable"] == nil and only["userdata"] == nil and only["_G"] ~= nil)
-  end
+local function test_a_tree_without_the_prelude_has_the_library_alone_and_nothing_withdrawn_from_it(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  assert(Fs.write(tmp .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  local alone = TreeProgram.tree_globals(tmp)
+  assert(#alone.sources == 1 and assert(alone.sources[1]).module == "checker.stdlib")
+  local only = Driver.globals(alone.sources, alone.adjust)
+  assert(only["string"] ~= nil and only["metatable"] == nil and only["_G"] ~= nil)
   -- and with no library either, only what the runtime adds
-  local none = TreeProgram.fork_globals(tmp, nil)
+  local none = TreeProgram.tree_globals(tmp .. "/none")
   assert(#none.sources == 0 and Driver.globals(none.sources, none.adjust)["_G"] ~= nil)
+  -- the texts alone make the same globals
+  local texts = TreeProgram.globals(nil, "do\n  global record Seen\n  end\nend\n")
+  assert(#texts.sources == 1 and Driver.globals(texts.sources, texts.adjust)["Seen"] ~= nil)
 end
 
 local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyped_where_nothing_does()
-  local stdlib = Driver.source("checker.stdlib", "checker/stdlib.d.tl", (assert(Fs.read("checker/stdlib.d.tl"))), "decl")
-  local globals = TreeProgram.fork_globals(".", stdlib)
+  local globals = TreeProgram.tree_globals(".")
   local none = TreeProgram.build(TreeProgram.index({}, false, {}), globals)
   for _, name in ipairs({ "cosmic.sys", "cosmic.internal.process", "cosmic.internal.socket" }) do
     assert(none.program.external[name] == true, name)
@@ -102,7 +103,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   end
   -- a provider that answers one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, false, {}), globals, false, nil, function(module: string): Driver.Source | nil
-    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", false, false, {}) or nil
+    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", false, {}) or nil
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
   -- the declarations the headers give have no error of their own: no ceiling holds them

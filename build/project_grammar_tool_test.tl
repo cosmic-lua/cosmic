@@ -14,8 +14,8 @@ local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the two projects it builds.
 Test.policy{ profiles = { "cosmic" }, grants = {
-  { path = "o/bin", letters = "rx" }, { path = "testdata/rehearsal", letters = "r" }, { path = "checker/stdlib.d.tl", letters = "r" },
-  { path = "checker/tl.tl", letters = "r" },
+  { path = "o/bin", letters = "rx" }, { path = "testdata/rehearsal", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
+  { path = "lang/prelude.d.tl", letters = "r" },
 } }
 
 --- A copy of the project `name` of testdata/rehearsal under `tmp`, a tree of its own for a run in `grammar`.
@@ -82,9 +82,9 @@ local function project_of(tmp: string, name: string, files: {string: string}): s
   return root
 end
 
---- A project is judged by the standard library the tool carries with its corrections ([`lang.stdlib_corrections`]), not by
---- the raw declarations: `tonumber` answers nil for text that is no number, which the fork's declaration lets a sum take.
-local function test_a_project_is_judged_by_the_corrected_standard_library(tmp: string)
+--- A project is judged by the standard library the tool carries ([`lang/stdlib.d.tl`]), not by the fork's: `tonumber` answers nil
+--- for text that is no number, which the fork's declaration lets a sum take.
+local function test_a_project_is_judged_by_the_new_checkers_standard_library(tmp: string)
   local files: {string: string} = {
     ["inc.tl"] = "local function inc(s: string): number\n  return tonumber(s) + 1\nend\nreturn inc\n",
     ["inc_test.tl"] = "local inc = require(\"inc\")\n\nlocal function test_inc()\n  assert(inc(\"1\") == 2)\nend\n",
@@ -111,10 +111,10 @@ local function carried(module: string): string
 end
 
 --- The tool carries the declarations a project is typed against, as its projection carries the bindings of C: the files of
---- the tree it was built from, which a project has no `checker/` to read.
+--- the tree it was built from, which a project has no `lang/` of cosmic's to read.
 local function test_the_tool_carries_the_declarations_it_types_a_project_against()
-  local stdlib = assert(Fs.read("checker/stdlib.d.tl"))
+  local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
   assert(carried(CheckerDeclarations.stdlib_module()) == tostring(#stdlib) .. "\t" .. Hash.hex_sha256(stdlib) .. "\n")
-  local prelude = assert(CheckerDeclarations.prelude_of((assert(Fs.read("checker/tl.tl")))))
+  local prelude = assert(Fs.read("lang/prelude.d.tl"))
   assert(carried(CheckerDeclarations.prelude_module()) == tostring(#prelude) .. "\t" .. Hash.hex_sha256(prelude) .. "\n")
 end

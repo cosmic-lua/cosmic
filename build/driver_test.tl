@@ -1,6 +1,6 @@
 --- Tests of [`build.driver`]: the names a tree's files answer to, one program over a module graph through its
---- providers, the corrections of the standard library made where the library is read (and their drift reported), each
---- module's errors and warnings and type report, a test module's functions, and a module held to its ceilings.
+--- providers, each module's errors and warnings and type report, a test module's functions, and a module held to its
+--- ceilings.
 local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
@@ -23,7 +23,7 @@ end
 local function build_of(files: {{string}}): Driver.Build, Driver.Index
   local index = Driver.index(files, false, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
     adjust = nil, external = { "cosmic.sys" },
     types = true,
   })
@@ -149,27 +149,9 @@ local function test_a_declaration_file_in_the_tree_is_a_module_whose_types_other
   assert(decl.checked == nil and #decl.bodies == 0)
 end
 
-local function test_the_corrections_of_the_standard_library_are_made_where_it_is_read_and_what_they_could_not_apply_is_reported()
-  local text = "do\n  global record string\n    byte: function(string, ? integer): integer\n" ..
-    "    byte: function(string, integer, ? integer): integer...\n  end\nend\n"
-  local build = Driver.new({ globals = { Driver.declarations("lib", "lib.d.tl", text, true, true, {}) }, adjust = nil, external = {}, types = false })
-  build:provide(Driver.files(Driver.index({ { "m.tl", "local b: integer = (\"a\"):byte(1)\nreturn b\n" } }, false, nothing)))
-  local result = assert(build:result("m", true))
-  -- `string.byte` answers nil for a position out of range, which the correction says and the file does not
-  assert(codes_of(result.errors) == "nil_not_allowed", codes_of(result.errors))
-  local mentioned = table.concat(build.problems, "\n")
-  assert(mentioned:find("string.find: the file declares it 0 times", 1, true) and
-      mentioned:find("lib.d.tl: StandardLibrary.assert: the file has no record StandardLibrary", 1, true) and
-      mentioned:find("(lang/stdlib_corrections.tl)", 1, true) and not mentioned:find("string.byte", 1, true), mentioned)
-  -- a file the corrections do not name is left as it is
-  local plain = Driver.new({ globals = { Driver.declarations("lib", "lib.d.tl", text, true, false, {}) }, adjust = nil, external = {}, types = false })
-  plain:provide(Driver.files(Driver.index({ { "m.tl", "local b: integer = (\"a\"):byte(1)\nreturn b\n" } }, false, nothing)))
-  assert(#assert(plain:result("m", true)).errors == 0 and #plain.problems == 0)
-end
-
 local function test_the_globals_are_what_the_declaration_files_declare_less_what_the_host_withholds()
   local text = "global record Seen\n  n: integer\nend\nglobal record Withheld\n  n: integer\nend\n"
-  local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, false, false, {}) },
+  local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, false, {}) },
     function(names: {string: Scopes.Global})
       names["Withheld"] = nil
       names["Added"] = { space = "type", const = false }
@@ -243,7 +225,7 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   assert(#took(6).tparams == 1)
   local literal = took(7).params[1].type
   assert(literal is Types.Fn and #literal.params == 1)
-  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) }, adjust = nil, external = {}, types = false })
+  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
   lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, false, nothing)))
   assert(next(assert(lean:result("m", true)).callees) == nil)
 end
@@ -262,13 +244,13 @@ local function test_the_type_report_is_by_the_id_of_each_node_when_asked_for_and
     end
   end
   assert(counted >= 8 and named >= 2, "typed " .. tostring(counted))
-  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) }, adjust = nil, external = {}, types = false })
+  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
   lean:provide(Driver.files(Driver.index(files, false, nothing)))
   assert(next(assert(lean:result("m", true)).types) == nil)
   -- the hint that reads the type of what a method is called on does not wait for the report
   local method = "local record R\n  get: function(self: R): integer\nend\nlocal r: R = { get = function(self: R): integer return 1 end }\n" ..
     "return r.get(r)\n"
-  local hinted = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) }, adjust = nil, external = {}, types = false })
+  local hinted = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
   hinted:provide(Driver.files(Driver.index({ { "h.tl", method } }, false, nothing)))
   local warned = assert(hinted:result("h", true))
   assert(#warned.warnings == 1 and warned.warnings[1].code == "method_dot", codes_of(warned.warnings))
@@ -281,7 +263,7 @@ local function test_the_test_functions_of_a_test_module_are_called_from_outside_
   local index = Driver.index({ { "w_test.tl", text }, { "w.tl", text } }, false, nothing)
   local test_source = assert(index.by_module["w_test"])
   test_source.tests = true
-  local tested = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) }, adjust = nil, external = {}, types = false })
+  local tested = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
   tested:provide(Driver.files(index))
   local discounted = assert(tested:result("w_test", true))
   assert(#discounted.warnings == 1, codes_of(discounted.warnings))
@@ -362,7 +344,7 @@ local function test_a_declaration_is_read_ahead_of_its_source_under_every_name_w
     for _, asked in ipairs(pairs_asked) do
       local one, other = asked[1], asked[2]
       assert(one ~= nil and other ~= nil)
-      local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
+      local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
         adjust = nil, external = {}, types = false })
       build:provide(Driver.files(index))
       local first = assert(build:parsed(one))
@@ -428,16 +410,6 @@ local function test_a_module_of_the_forks_teal_is_held_to_what_the_tree_counts_o
   new:provide(Driver.files(Driver.index({ { "broken.tl", "local t: {{string, integer}}\nreturn t\n" } }, false, nothing)))
   local still = assert(new:result("broken", true))
   assert(still.broken and #new:held(still, ceilings("[translated]\nbroken.tl tuple_type 1\n")) >= 1)
-end
-
-local function test_a_declaration_file_the_driver_corrects_is_held_by_the_tree_as_written_and_by_no_ceiling_here()
-  -- the corrected text may have forms the file as written does not: its errors are not what a ceiling counts
-  local text = "do\n  global record string\n    byte: function(string, ? integer): integer\n  end\nend\n"
-  local build = Driver.new({ globals = { Driver.declarations("lib", "lib.d.tl", text, true, true, {}) }, adjust = nil, external = {},
-    types = false })
-  build:provide(Driver.files(Driver.index({}, false, nothing)))
-  local lib = assert(build:parsed("lib"))
-  assert(#build:held(lib, pins({}, {}, {})) == 0)
 end
 
 local function test_a_source_written_from_another_file_is_the_module_it_says_and_is_pinned_under_the_name_it_gives()

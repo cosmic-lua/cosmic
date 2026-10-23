@@ -350,6 +350,23 @@ local function test_a_file_whose_translation_has_errors_is_refused_unless_it_is_
   assert(TreeWriter.permits({ paths = { "bad/*" }, pins = {} }, "bad/x.tl", { tuple_type = 1 }))
 end
 
+local function test_a_file_in_the_new_grammar_is_written_as_it_is(tmp: string)
+  local root = tmp .. "/tree"
+  -- The translator reads the fork's Teal, so a file already in the new grammar is not given to it.
+  local text = "do\n  global record Seen\n    userdata\n    mut n: {integer}\n  end\nend\n"
+  put(root, "lang/stdlib.d.tl", text)
+  put(root, "lang/prelude.d.tl", text)
+  -- the same text under another name goes through the translator, which refuses a tuple type
+  put(root, "lang/other.d.tl", "local pair: {integer, string} = {1, \"a\"}\nreturn pair\n")
+  local nothing_allowed: TreeWriter.Allowance = { paths = {}, pins = {} }
+  local report = assert(TreeWriter.write(root, { "lang/other.d.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl" }, tmp .. "/out",
+    { allowance = nothing_allowed, again = true, translator = nil }))
+  assert(#report.clean == 2 and report.clean[1] == "lang/prelude.d.tl" and report.clean[2] == "lang/stdlib.d.tl",
+    table.concat(TreeWriter.summary(report), "\n"))
+  assert(report.changed == 0 and #report.unstable == 0 and #report.refused == 1 and assert(report.refused[1]).path == "lang/other.d.tl")
+  assert(Fs.read(tmp .. "/out/lang/stdlib.d.tl") == text)
+end
+
 local function test_the_allow_list_is_the_decided_files_and_what_the_ceilings_still_pin()
   local allowance = assert(TreeWriter.allowance("."))
   local decided = { "lang/ast.tl", "lang/types.tl", "checker/stdlib.d.tl", "cosmic/removed_example.tl", "doc/guides/project.md" }
@@ -396,7 +413,7 @@ local function lua_of(text: string, translate: boolean): string
     return false
   end)
   local globals = Driver.declarations("globals", "globals.d.tl", "global function print(...: any)\nglobal function ipairs(t: any): any, any, any\n",
-    false, false, {})
+    false, {})
   local build = Driver.new({ globals = { globals }, adjust = nil, external = {}, types = false })
   build:provide(Driver.files(index))
   build:lower({ "m" })

@@ -36,7 +36,7 @@ local SHAPE <const>: {string: string} = {
 local function options(): Pipeline.Options
   return {
     globals = {
-      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
+      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
     ceilings = assert(Ceilings.parse("")), types = true, standard = Driver.stubs(SHAPE), project = nil,

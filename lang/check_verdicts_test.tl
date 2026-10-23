@@ -11,8 +11,8 @@ local Verdicts = require("lang.check_verdicts")
 
 Test.policy{
   grants = {
-    { path = "checker/stdlib.d.tl", letters = "r" },
-    { path = "checker/tl.tl", letters = "r" },
+    { path = "lang/stdlib.d.tl", letters = "r" },
+    { path = "lang/prelude.d.tl", letters = "r" },
     { path = "testdata/gate", letters = "r" },
     { path = "testdata/fuzz/checker-total", letters = "r" },
     { path = "testdata/fuzz/checker-sound", letters = "r" },
@@ -60,10 +60,7 @@ local function refusals(): {Verdicts.Refusal}
 end
 
 local function judge(): function(source: string, new_grammar?: boolean): Verdicts.Verdict
-  local tl = read("checker/tl.tl")
-  local prelude = tl:match("%[=====%[\n(.-)%]=====%]")
-  assert(prelude ~= nil, "checker/tl.tl has no prelude")
-  return Verdicts.judge(prelude, read("checker/stdlib.d.tl"))
+  return Verdicts.judge(read("lang/prelude.d.tl"), read("lang/stdlib.d.tl"))
 end
 
 local function count(list: {Verdicts.Row}, fork: string, new: string): integer

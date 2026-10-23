@@ -1,29 +1,22 @@
---- The standard library's declarations as the new checker reads them ([`lang.stdlib_corrections`] and
---- [`checker/stdlib.d.tl`]): a function that answers nil where Lua does is declared so, a use of its result is held to
---- that, and a callback of `string.gsub` is typed by its arity. The fork's own reading is pinned by
---- [`build/stdlib_declarations_test.tl`].
-local Corrections = require("lang.stdlib_corrections")
+--- The standard library's declarations as the new checker reads them ([`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]): a
+--- function that answers nil where Lua does is declared so, a use of its result is held to that, and a callback of
+--- `string.gsub` is typed by its arity. The fork's own reading is pinned by [`build/stdlib_declarations_test.tl`].
 local Fs = require("cosmic.fs")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
 Test.policy{
-  grants = { { path = "checker/stdlib.d.tl", letters = "r" }, { path = "checker/tl.tl", letters = "r" } },
+  grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+    { path = "testdata/stdlib/globals.txt", letters = "r" } },
 }
 
-local function has(text: string, part: string): boolean
-  return text:find(part, 1, true) ~= nil
-end
-
 local function stdlib(): string
-  return (assert(Fs.read("checker/stdlib.d.tl")))
+  return (assert(Fs.read("lang/stdlib.d.tl")))
 end
 
---- The prelude of the fork's checker, the string of checker/tl.tl between the five-bracket marks.
 local function prelude(): string
-  local tl = assert(Fs.read("checker/tl.tl"))
-  return (assert(tl:match("%[=====%[\n(.-)%]=====%]"), "checker/tl.tl has no prelude"))
+  return (assert(Fs.read("lang/prelude.d.tl")))
 end
 
 --- Checks `source` against the real standard library.
@@ -33,70 +26,7 @@ local function run(source: string): Programs.Run
   return r
 end
 
-local function lines_of(text: string): {string}
-  local out: {string} = {}
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    out[#out + 1] = line
-  end
-  return out
-end
-
-local function test_every_correction_replaces_the_lines_the_file_declares_and_moves_no_other_line()
-  local source = stdlib()
-  local applied = Corrections.apply(source)
-  assert(#applied.problems == 0, table.concat(applied.problems, "\n"))
-  local before, after = lines_of(source), lines_of(applied.text)
-  -- A correction may write one line as several (overloads) and the file gets the declarations it lacks; no other line
-  -- changes.
-  local extra = #Corrections.added
-  local wanted = 0
-  for _, c in ipairs(Corrections.list) do
-    assert(#c.was == #c.now and c.why ~= "", c.owner .. "." .. c.name)
-    for i = 1, #c.was do
-      assert(c.was[i] ~= c.now[i] or c.name == "byte", c.owner .. "." .. c.name .. " corrects nothing")
-      if c.was[i] ~= c.now[i] then
-        wanted = wanted + 1
-      end
-      local _, breaks = c.now[i]:gsub("\n", "")
-      extra = extra + breaks
-    end
-  end
-  assert(#after == #before + extra, "a correction moved a line it does not name")
-  -- Every line no correction replaces is still there, in its order.
-  local replaced: {string: boolean} = {}
-  for _, c in ipairs(Corrections.list) do
-    for _, line in ipairs(c.was) do
-      replaced[line] = true
-    end
-  end
-  local at = 1
-  for _, line in ipairs(before) do
-    if not replaced[(line:gsub("^%s+", ""))] then
-      while at <= #after and after[at] ~= line do
-        at = at + 1
-      end
-      assert(at <= #after, "a correction lost the line " .. line)
-      at = at + 1
-    end
-  end
-  assert(wanted > 0)
-end
-
-local function test_a_declaration_the_file_has_changed_or_lost_is_reported_and_left_as_it_is()
-  local source = stdlib()
-  local changed = source:gsub("find: function%(string, string, %? integer, %? boolean%): integer, integer",
-    "find: function(string, string, ? integer, ? boolean): integer")
-  local applied = Corrections.apply(changed)
-  assert(#applied.problems == 1 and has(applied.problems[1], "string.find: the file declares it otherwise"), applied.problems[1])
-  assert(has(applied.text, "? boolean): integer, string... --[[special_function]]"))
-  local cut = source:gsub("[ ]*remove: function<A>%({A}, %? integer%): A\n", "")
-  local missing = Corrections.apply(cut)
-  assert(#missing.problems == 1 and has(missing.problems[1], "table.remove: the file declares it 0 times"), missing.problems[1])
-  local nothing = Corrections.apply("do\nend\n")
-  assert(#nothing.problems == #Corrections.list and has(nothing.problems[1], "the file has no record string"), nothing.problems[1])
-end
-
--- what the corrected declarations say --------------------------------------------------------------------------
+-- what the declarations say --------------------------------------------------------------------------
 
 --- The display of each declaration of `owner.name` (a library's field) in `r`, in order.
 local function declared(r: Programs.Run, owner: string, name: string): {string}
@@ -167,19 +97,31 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("os", "execute", "function(string): boolean?, string, integer")
   same("os", "rename", "function(string, string): boolean?, string?, integer?")
   same("package", "searchpath", "function(string, string, p3?: string, p4?: string): string?, string?")
-  same("package", "loadlib", "function(string, string): ((function())?, string?, string?)")
-  -- an invalid thread is `thread_type`, which the declarations report until coroutines are typed
-  same("debug", "getinfo", "function(invalid, (function(...: any): any...), p3?: string): debug.GetInfoTable",
-    "function(invalid, integer, p3?: string): debug.GetInfoTable?", "function((function(...: any): any...), p2?: string): debug.GetInfoTable",
-    "function(integer, p2?: string): debug.GetInfoTable?")
-  same("debug", "getlocal", "function(invalid, (function(...: any): any...), integer): string?",
-    "function(invalid, integer, integer): string?, any", "function((function(...: any): any...), integer): string?",
+  same("package", "loadlib", "function(string, string): ((function(...: any): any...)?, string?, string?)")
+  -- a function of `debug` that takes a coroutine takes the typed one
+  same("debug", "getinfo", "function<T, U, V>(Coroutine<T, U, V>, (function(...: any): any...), p3?: string): debug.GetInfoTable",
+    "function<T, U, V>(Coroutine<T, U, V>, integer, p3?: string): debug.GetInfoTable?",
+    "function((function(...: any): any...), p2?: string): debug.GetInfoTable", "function(integer, p2?: string): debug.GetInfoTable?")
+  same("debug", "getlocal", "function<T, U, V>(Coroutine<T, U, V>, (function(...: any): any...), integer): string?",
+    "function<T, U, V>(Coroutine<T, U, V>, integer, integer): string?, any", "function((function(...: any): any...), integer): string?",
     "function(integer, integer): string?, any")
-  same("debug", "gethook", "function(p1?: invalid): ((function(debug.HookEvent, integer))?, integer)")
+  same("debug", "gethook", "function<T, U, V>(p1?: Coroutine<T, U, V>): ((function(debug.HookEvent, integer))?, integer)")
+  same("debug", "sethook", "function<T, U, V>(Coroutine<T, U, V>, (function(debug.HookEvent, integer)), string, p4?: integer)",
+    "function((function(debug.HookEvent, integer)), string, p3?: integer)")
+  same("debug", "setlocal", "function<T, U, V>(Coroutine<T, U, V>, integer, integer, any): string?",
+    "function(integer, integer, any): string?")
+  same("debug", "traceback", "function<T, U, V>(Coroutine<T, U, V>, p2?: string, p3?: integer): string",
+    "function(p1?: string, p2?: integer): string", "function(any): any")
+  -- no type of the language names a userdata, so the functions that take or answer one say `debug.Userdata`
+  same("debug", "getuservalue", "function(debug.Userdata, p2?: integer): any, boolean")
+  same("debug", "setuservalue", "function(debug.Userdata, any, integer): debug.Userdata")
+  same("debug", "upvalueid", "function((function(...: any): any...), integer): debug.Userdata?")
   same("debug", "getmetatable", "function<T>(T): metatable<T>?")
   same("StandardLibrary", "getmetatable", "function<T>(T): metatable<T>?")
-  same("StandardLibrary", "loadfile", "function(p1?: string, p2?: StandardLibrary.LoadMode, p3?: invalid): ((function())?, string?)",
-    "function(p1?: string, p2?: string, p3?: invalid): ((function())?, string?)")
+  same("StandardLibrary", "loadfile", "function(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: any}): ((function(...: any): any...)?, string?)",
+    "function(p1?: string, p2?: string, p3?: {string: any}): ((function(...: any): any...)?, string?)",
+    "function<T>(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: T}): ((function(...: any): any...)?, string?)",
+    "function<T>(p1?: string, p2?: string, p3?: {string: T}): ((function(...: any): any...)?, string?)")
   same("StandardLibrary", "collectgarbage", "function(p1?: StandardLibrary.CollectGarbageCommand): number",
     "function(StandardLibrary.CollectGarbageStep, p2?: integer): boolean",
     "function(StandardLibrary.CollectGarbageMode, p2?: integer, p3?: integer, p4?: integer): string",
@@ -193,9 +135,15 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("FILE", "seek", "function(FILE, p2?: FILE.SeekWhence, p3?: integer): integer?, string?, integer?")
   same("StandardLibrary", "tonumber", "function(any): number?", "function(any, integer): integer?")
   same("StandardLibrary", "load", "function(string | (function(): string?), p2?: string, p3?: StandardLibrary.LoadMode, " ..
-      "p4?: invalid): ((function(...: any): any...)?, string?)", "function(string | (function(): string?), p2?: string, " ..
-      "p3?: string, p4?: invalid): ((function(...: any): any...)?, string?)")
-  same("StandardLibrary", "rawget", "function<T, U>({T: U}, T): U?", "function(invalid, any): any", "function(any, any): any")
+      "p4?: {string: any}): ((function(...: any): any...)?, string?)", "function(string | (function(): string?), p2?: string, " ..
+      "p3?: string, p4?: {string: any}): ((function(...: any): any...)?, string?)",
+    "function<T>(string | (function(): string?), p2?: string, p3?: StandardLibrary.LoadMode, " ..
+      "p4?: {string: T}): ((function(...: any): any...)?, string?)", "function<T>(string | (function(): string?), p2?: string, " ..
+      "p3?: string, p4?: {string: T}): ((function(...: any): any...)?, string?)")
+  same("StandardLibrary", "rawget", "function<T, U>({T: U}, T): U?", "function(any, any): any")
+  -- the array of the values `table.pack` packs, and `table.unpack` of an array
+  same("table", "pack", "function<T>(...: T): table.PackTable<T>", "function(...: any): table.PackTable<any>")
+  same("table", "unpack", "function<T>({T}, p2?: number, p3?: number): T...")
   -- unchanged: the values past the first of a `select` and the captures of a match are tails, read `T?` as one value
   same("StandardLibrary", "select", "function<T>(integer, ...: T): T...", "function(integer, ...: any): any...",
     "function(string, ...: any): integer")
@@ -359,4 +307,88 @@ local function test_the_typed_coroutine_records_can_be_written_against_the_real_
     { source = "local co: Coroutine<integer, string, nil> = coroutine.create(body)", codes = "" },
   })
   assert(#r.before == 0, table.concat(r.before, " "))
+end
+
+local function test_the_declaration_files_have_no_error_of_their_own()
+  local found = Programs.declared(prelude(), stdlib())
+  assert(#found == 0, table.concat(found, "\n"))
+  -- a program checked against them never sees an error of a declaration, so the check must: it names one planted in the file
+  local planted = Programs.declared(prelude(), stdlib() .. "\nglobal record Planted\n  n: {number: integer}\nend\n")
+  assert(#planted == 1 and planted[1] == "lang/stdlib.d.tl: float_key", table.concat(planted, "\n"))
+  local broken = Programs.declared("do\n  global record Seen\n    n: {number: integer}\n  end\nend\n", stdlib())
+  assert(broken[1] == "lang/prelude.d.tl: float_key", table.concat(broken, "\n"))
+end
+
+local function test_a_file_is_a_userdata_record_and_a_debug_function_takes_a_typed_coroutine()
+  local _ = lines_have({
+    { source = "local made: FILE = {}", codes = "literal_shape" },
+    { source = "local co = coroutine.create(function() end)", codes = "" },
+    { source = "local trace: string = debug.traceback(co)", codes = "" },
+    { source = "local info = debug.getinfo(co, 1, \"l\")", codes = "" },
+    { source = "local function f(...: any): any... return ... end local id = debug.upvalueid(f, 1)", codes = "" },
+    { source = "local value = debug.getuservalue(id)", codes = "nil_not_allowed" },
+    { source = "local other = debug.getuservalue(5)", codes = "not_assignable" },
+  })
+end
+
+local function test_load_takes_a_table_as_the_environment_of_the_chunk_and_an_empty_literal_is_typed_by_it()
+  local _ = lines_have({
+    { source = "local made, why = load(\"return 1\", \"=chunk\", \"t\", {})", codes = "" },
+    { source = "local env: {string: any} = {}", codes = "" },
+    { source = "local again = load(\"return 1\", \"=chunk\", \"t\", env)", codes = "" },
+    { source = "local bare = load(\"return 1\")", codes = "" },
+    -- a table of a value type that is none is the environment of a chunk too
+    { source = "local counts: {string: integer} = { answer = 40 }", codes = "" },
+    { source = "local counted = load(\"return answer\", \"=chunk\", \"t\", counts)", codes = "" },
+    { source = "local words: {string: string} = { name = \"x\" }", codes = "" },
+    { source = "local named = loadfile(\"chunk.lua\", \"t\", words)", codes = "" },
+    -- a value that is no table faults at run time, and no overload takes it
+    { source = "local five = load(\"return 1\", \"=chunk\", \"t\", 5)", codes = "overload_none" },
+    { source = "local oops = load(\"return 1\", \"=chunk\", \"t\", \"oops\")", codes = "overload_none" },
+    { source = "local file_five = loadfile(\"chunk.lua\", \"t\", 5)", codes = "overload_none" },
+  })
+end
+
+--- The Lua of an accepted `load` with an environment runs and reads the environment it was given.
+local function test_a_chunk_loaded_with_a_table_environment_runs_in_it()
+  local r = run("local env: {string: integer} = { answer = 40 }\n" ..
+      "local chunk = load(\"return answer + 2\", \"=chunk\", \"t\", env)\n" ..
+      "assert(chunk ~= nil)\n" ..
+      "assert(tostring(chunk()) == \"42\")\n")
+  assert(#r.errors == 0, Programs.codes(r))
+  -- the program raises where the chunk did not read the environment it was given
+  local program = assert(load(Programs.lua(r), "=t"))
+  program()
+end
+
+local function test_a_table_unpacks_to_its_element_type_and_packs_to_the_array_of_what_it_was_given()
+  local r = lines_have({
+    { source = "local ns: {integer} = { 1, 2 }", codes = "" },
+    { source = "local first, second = table.unpack(ns)", codes = "" },
+    { source = "local packed = table.pack(1, 2)", codes = "" },
+    { source = "local count: integer = packed.n", codes = "" },
+  })
+  assert(Types.display(Programs.var(r, "first")) == "integer?" and Types.display(Programs.var(r, "packed")) == "table.PackTable<integer>")
+end
+
+--- Every global and library member with its type is held to testdata/stdlib/globals.txt, so that an edit of a declaration shows
+--- as a diff, a widening to `any` included, which no program of the tree contradicts. Refresh it, after reading the diff, with
+--- `bin/cosmic lang/stdlib_golden.tl`.
+local function test_the_lowered_declarations_are_the_golden_ones()
+  local golden = assert(Fs.read("testdata/stdlib/globals.txt"))
+  local now = Programs.dump(prelude(), stdlib())
+  assert(#golden > 15000, "the golden holds too little to hold the declarations to")
+  local wanted = golden:gmatch("[^\n]+")
+  local at = 0
+  for line in now:gmatch("[^\n]+") do
+    at = at + 1
+    local want = wanted()
+    assert(want == line, "line " .. tostring(at) .. " of the declarations is `" .. line .. "`, the golden's `" .. tostring(want) ..
+        "`: refresh testdata/stdlib/globals.txt with `bin/cosmic lang/stdlib_golden.tl` after reading the diff")
+  end
+  local more = 0
+  for _ in wanted do
+    more = more + 1
+  end
+  assert(more == 0, "the golden has " .. tostring(more) .. " more lines than the declarations: refresh it with `bin/cosmic lang/stdlib_golden.tl`")
 end

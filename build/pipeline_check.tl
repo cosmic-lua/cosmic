@@ -281,11 +281,10 @@ function PipelineCheck.compare(
       end
     end
   end
-  -- The working database stages every module of the tree but the trees of `ci/` and the fork's `checker/`, whose
-  -- declarations of the standard library it stages.
+  -- The working database stages every module of the tree but the trees of `ci/` and the fork's `checker/`.
   local expected = 0
   for _, row in ipairs(rows) do
-    if row.file:find("^ci/") == nil and (row.file:find("^checker/") == nil or row.file == "checker/stdlib.d.tl") then
+    if row.file:find("^ci/") == nil and row.file:find("^checker/") == nil then
       expected = expected + 1
     end
   end

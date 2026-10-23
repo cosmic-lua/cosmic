@@ -245,6 +245,35 @@ local function test_the_checker_is_held_out_when_named_as_a_file(tmp: string)
     "another tree's checker/ is its own source")
 end
 
+--- The declarations of the new checker's globals are written in the new grammar, which the layout does not read: they are not laid
+--- out, however they are named, in cosmic's own tree. Another tree's files of those names are its own source.
+local function test_the_declarations_of_the_new_checkers_globals_are_held_out_when_named_as_files(tmp: string)
+  local own = tmp .. "/heldnew"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/lang"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/lang/prelude.d.tl", "do\nend\n"))
+  assert(Fs.write(own .. "/lang/stdlib.d.tl", "do\nend\n"))
+  assert(Fs.write(own .. "/lang/other.tl", "return {}\n"))
+  local nothing: {string} = {}
+  for _, named in ipairs({ nothing, { own }, { own .. "/lang" }, { own .. "/lang/stdlib.d.tl" },
+      { own .. "/build/../lang/prelude.d.tl" } }) do
+    local picked = assert(fix.chosen(own, named))
+    for _, file in ipairs(picked.files) do
+      assert(not file:find(".d.tl", 1, true), "laid out " .. file)
+    end
+  end
+  local mixed = assert(fix.chosen(own, { own .. "/lang/stdlib.d.tl", own .. "/lang/other.tl" }))
+  assert(#mixed.files == 1 and #mixed.refused == 0, "a declaration file named beside another file")
+  local other = tmp .. "/elsewhere"
+  assert(Fs.mkdirs(other .. "/lang"))
+  assert(Fs.write(other .. "/lang/stdlib.d.tl", "do\nend\n"))
+  local alone = assert(fix.chosen(other, { other .. "/lang/stdlib.d.tl" }))
+  assert(#alone.files == 1, "another tree's lang/stdlib.d.tl is its own source")
+end
+
 --- The tree-wide checks run only over every Teal source of cosmic's own
 --- tree, however it is named: not over a part of it, nor over a tree
 --- of another's.

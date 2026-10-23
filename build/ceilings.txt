@@ -26,21 +26,12 @@ test/digit_separators_test.tl digit_separator 2
 # rewrites that remove them lower a pin, and none is raised. The counts are
 # the tree's apart from [`checker/tl.tl`], the fork, which goes.
 # a tuple type `{A, B}`, which the draft counts once, in the tour: write a record with a field for each
-# position, or `{A | B}` for an array of either. What is left is the fork's own `unpack` (`{A1, A2}` is its
-# parameter) and the example that teaches the form
-checker/stdlib.d.tl tuple_type 4
+# position, or `{A | B}` for an array of either. What is left is the example that teaches the form
 ci/cosmic_ci/orchestration.tl tuple_type 1
 cosmic/removed_example.tl tuple_type 1
-# a bare `function` type: write the signature. The fork's own declarations of the standard library take
-# the bare type for the functions they leave open, which a signature would narrow
-checker/stdlib.d.tl bare_function_type 5
 # `where`, `is userdata`, `userdata` as a type and a record that implements an array and an interface: the
 # draft drops them, and the tagged unions and declarations that replace them are written by hand. What is
-# left is the fork's standard library, which goes with the fork, the example that teaches `where`, and the
-# checker's own two modules, which the switch writes as tagged unions
-checker/stdlib.d.tl expected_name 3
-checker/stdlib.d.tl expected_token 1
-checker/stdlib.d.tl expected_type 2
+# left is the example that teaches `where`, and the checker's own two modules, which the switch writes as tagged unions
 cosmic/removed_example.tl expected_name 2
 cosmic/removed_example.tl expected_token 2
 lang/ast.tl expected_name 72
@@ -63,7 +54,6 @@ testdata/rehearsal/fork_only/cache.tl function_path 1
 # removes it and a pin falls with it, and none is raised. The fork's [`checker/captures.tl`] is compiled by the seed, which
 # warns of a shadow where the fork refuses it.
 # the parser reads the `self` of a `where` clause, which the grammar drops, as a type
-checker/stdlib.d.tl unknown_type 1
 cosmic/removed_example.tl unknown_type 2
 lang/ast.tl unknown_type 72
 lang/types.tl unknown_type 7
@@ -463,7 +453,7 @@ build/test_sandbox.tl 1
 build/test_worker.tl 20
 build/todo_scan.tl 2
 build/todos.tl 4
-build/tree_checks.tl 32
+build/tree_checks.tl 31
 build/tree_shard.tl 1
 build/udp_fixture.tl 2
 build/unix_socket.tl 2
@@ -523,7 +513,6 @@ lang/parser.tl 1
 lang/parser_cover.tl 1
 lang/relation.tl 1
 lang/scopes.tl 4
-lang/stdlib_corrections.tl 11
 lang/translate.tl 12
 lang/types.tl 5
 lang/warnings.tl 1
@@ -959,9 +948,9 @@ build/todo_scan.tl nil_not_allowed 7
 build/todos.tl nil_not_allowed 13
 build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
-build/tree_checks.tl nil_not_allowed 115
+build/tree_checks.tl nil_not_allowed 114
 build/tree_checks_test.tl nil_not_allowed 91
-build/tree_program_test.tl nil_not_allowed 21
+build/tree_program_test.tl nil_not_allowed 14
 build/tree_root.tl nil_not_allowed 8
 build/vendor.tl nil_not_allowed 13
 build/vendor_test.tl nil_not_allowed 1
@@ -1295,8 +1284,7 @@ lang/scopes_cover.tl nil_not_allowed 5
 lang/scopes_fuzz_test.tl nil_not_allowed 4
 lang/scopes_programs.tl nil_not_allowed 3
 lang/scopes_test.tl nil_not_allowed 25
-lang/stdlib_corrections.tl nil_not_allowed 2
-lang/stdlib_corrections_test.tl nil_not_allowed 4
+lang/stdlib_test.tl nil_not_allowed 3
 lang/translate.tl nil_not_allowed 91
 lang/translate_fuzz_test.tl nil_not_allowed 5
 lang/translate_test.tl nil_not_allowed 26
@@ -1732,8 +1720,6 @@ lang/scopes_fuzz_test.tl index_may_be_nil 2
 lang/scopes_oracle_test.tl index_may_be_nil 1
 lang/scopes_programs.tl index_may_be_nil 4
 lang/scopes_test.tl index_may_be_nil 2
-lang/stdlib_corrections.tl index_may_be_nil 8
-lang/stdlib_corrections_test.tl index_may_be_nil 3
 lang/translate.tl index_may_be_nil 10
 lang/types.tl index_may_be_nil 7
 lang/types_fuzz_test.tl index_may_be_nil 3
@@ -1857,7 +1843,7 @@ build/docs_test.tl view_written 28
 build/doctest/generate.tl view_written 37
 build/doctest/generate_test.tl view_written 1
 build/doctest/markdown.tl view_written 5
-build/driver.tl view_written 42
+build/driver.tl view_written 41
 build/driver_test.tl view_written 5
 build/embed.tl view_written 9
 build/embed_tool_test.tl view_written 4
@@ -2523,8 +2509,7 @@ lang/scopes_oracle_test.tl view_written 22
 lang/scopes_programs.tl view_written 1
 lang/scopes_speed_test.tl view_written 3
 lang/scopes_test.tl view_written 6
-lang/stdlib_corrections.tl view_written 21
-lang/stdlib_corrections_test.tl view_written 10
+lang/stdlib_test.tl view_written 8
 lang/translate.tl view_written 171
 lang/translate_fuzz_test.tl view_written 16
 lang/translate_speed_test.tl view_written 4
@@ -2565,7 +2550,7 @@ build/declared_key_fuzz_test.tl view_as_mut 2
 build/derivation.tl view_as_mut 1
 build/dispatch.tl view_as_mut 1
 build/doctest/generate.tl view_as_mut 2
-build/driver.tl view_as_mut 5
+build/driver.tl view_as_mut 1
 build/fix/fix_test.tl view_as_mut 5
 build/fix/init.tl view_as_mut 8
 build/fix/notes_test.tl view_as_mut 4
@@ -2986,7 +2971,6 @@ lang/relation.tl field_fixed 5
 lang/relation_programs.tl field_fixed 19
 lang/relation_test.tl field_fixed 1
 lang/scopes.tl field_fixed 19
-lang/stdlib_corrections.tl field_fixed 2
 lang/syntax_codes.tl field_fixed 1
 lang/translate.tl field_fixed 3
 lang/types.tl field_fixed 4
@@ -3584,7 +3568,7 @@ build/test_worker.tl overload_none 6
 build/time_input_fuzz_test.tl overload_none 1
 build/todos.tl overload_none 4
 build/todos_test.tl overload_none 1
-build/tree_checks.tl overload_none 28
+build/tree_checks.tl overload_none 27
 build/tree_program_test.tl overload_none 1
 build/tree_shard.tl overload_none 1
 build/unix_socket.tl overload_none 1
@@ -3699,7 +3683,6 @@ lang/parser_fuzz_test.tl overload_none 1
 lang/scopes.tl overload_none 4
 lang/scopes_fuzz_test.tl overload_none 2
 lang/scopes_oracle_test.tl overload_none 5
-lang/stdlib_corrections.tl overload_none 10
 lang/translate.tl overload_none 6
 lang/translate_fuzz_test.tl overload_none 4
 lang/translate_test.tl overload_none 2
@@ -3780,7 +3763,6 @@ cosmic/web/htmx.tl return_arity 8
 cosmic/web/input.tl return_arity 1
 lang/check.tl return_arity 22
 lang/scopes.tl return_arity 1
-lang/stdlib_corrections.tl return_arity 2
 lang/types.tl return_arity 1
 test/portable/init.tl return_arity 1
 test/sqlite_json_test.tl return_arity 1
@@ -4805,7 +4787,6 @@ lang/scopes_cover.tl condition_type 4
 lang/scopes_fuzz_test.tl condition_type 2
 lang/scopes_oracle_test.tl condition_type 2
 lang/scopes_programs.tl condition_type 1
-lang/stdlib_corrections_test.tl condition_type 1
 lang/translate.tl condition_type 14
 lang/translate_fuzz_test.tl condition_type 1
 lang/types.tl condition_type 25
@@ -5478,7 +5459,7 @@ lang/scopes_cover.tl and_ternary 1
 lang/scopes_fuzz_test.tl and_ternary 1
 lang/scopes_programs.tl and_ternary 1
 lang/scopes_test.tl and_ternary 2
-lang/stdlib_corrections_test.tl and_ternary 1
+lang/stdlib_test.tl and_ternary 1
 lang/translate.tl and_ternary 19
 lang/types.tl and_ternary 7
 lang/types_fuzz_test.tl and_ternary 2
@@ -5895,7 +5876,6 @@ lang/scopes_oracle_test.tl concat_type 16
 lang/scopes_speed_test.tl concat_type 6
 lang/scopes_test.tl concat_type 6
 lang/speed.tl concat_type 3
-lang/stdlib_corrections.tl concat_type 7
 lang/translate.tl concat_type 1
 lang/translate_fuzz_test.tl concat_type 53
 lang/translate_speed_test.tl concat_type 7
@@ -6432,7 +6412,7 @@ eval/summarize.tl literal_needs_type 1
 lang/check.tl literal_needs_type 1
 lang/declarations.tl literal_needs_type 2
 lang/literals_test.tl literal_needs_type 1
-lang/stdlib_corrections_test.tl literal_needs_type 2
+lang/stdlib_test.tl literal_needs_type 2
 lang/translate.tl literal_needs_type 1
 test/sqlite_parameter_test.tl literal_needs_type 11
 test/sqlite_result_test.tl literal_needs_type 4
@@ -6604,7 +6584,6 @@ eval/result_test.tl arms_differ 1
 eval/round_test.tl arms_differ 1
 eval/summarize_test.tl arms_differ 4
 lang/relation_test.tl arms_differ 1
-lang/stdlib_corrections.tl arms_differ 9
 test/sqlite_parameter_test.tl arms_differ 1
 # an array or map literal whose elements or values may be nil
 build/c/rules.tl array_of_optional 1

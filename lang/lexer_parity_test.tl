@@ -4,7 +4,8 @@
 --- them. What the tree reads of a token today therefore reads the new
 --- tokens. They differ in two ways only: the `$EOF$` token's text, which the
 --- fork spells `$EOF$`, and a word the grammar reserves ([`lang.lexer`]'s
---- `added`), which is a `keyword` here and an `identifier` in the fork.
+--- `added`, and `global` in the two declaration files of the new checker's globals), which is a `keyword` here and an
+--- `identifier` in the fork.
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local teal = require("build.teal")
@@ -22,10 +23,23 @@ Test.policy{
 
 local built = assert(teal.load())
 
-local ADDED: {string: boolean} = {}
-for _, word in ipairs(Lexer.added) do
-  ADDED[word] = true
+--- The words that are keywords here and names in the fork: the grammar's own and `extra`.
+local function reserved(extra: {string}): {string: boolean}
+  local out: {string: boolean} = {}
+  for _, words in ipairs({ Lexer.added, extra }) do
+    for _, word in ipairs(words) do
+      out[word] = true
+    end
+  end
+  return out
 end
+
+local ADDED = reserved({})
+
+-- Lua 5.5 reserves `global`, and the fork reads it as a name: the two declaration files of the new checker's globals begin with
+-- it, and no other file of the directories compared uses it.
+local DECLARATIONS = reserved({ "global" })
+local DECLARATION_FILES: {string: boolean} = { ["lang/prelude.d.tl"] = true, ["lang/stdlib.d.tl"] = true }
 
 --- The first way the new lexer's answer for `source` differs from the
 --- fork's, or "".
@@ -35,6 +49,10 @@ local function difference(source: string, path: string): string
     return ""
   end
   local theirs = built.lex(source, path)
+  local excused = ADDED
+  if DECLARATION_FILES[path] == true then
+    excused = DECLARATIONS
+  end
   if Lexer.count(mine.tokens) ~= #theirs then
     return path .. ": " .. Lexer.count(mine.tokens) .. " tokens, the fork's " .. #theirs
   end
@@ -45,7 +63,7 @@ local function difference(source: string, path: string): string
       return path .. ": token " .. i .. " is `" .. token.text .. "`, the fork's `" .. other.tk .. "`"
     end
     local kind = tostring(token.kind)
-    if kind ~= other.kind and not (kind == "keyword" and other.kind == "identifier" and ADDED[token.text]) then
+    if kind ~= other.kind and not (kind == "keyword" and other.kind == "identifier" and excused[token.text]) then
       return path .. ": token " .. i .. " (`" .. token.text .. "`) is " .. kind .. ", the fork's " .. other.kind
     end
     if token.y ~= other.y or token.x ~= other.x then

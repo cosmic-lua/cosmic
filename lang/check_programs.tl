@@ -4,13 +4,11 @@ local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Codegen = require("lang.codegen")
 local Codes = require("lang.check_codes")
-local Corrections = require("lang.stdlib_corrections")
 local Declarations = require("lang.declarations")
 local FactWraps = require("lang.fact_wraps")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
-local Translate = require("lang.translate")
 local Types = require("lang.types")
 
 local record Programs
@@ -40,9 +38,8 @@ local record Programs
   --- of its own, so name them apart.
   runner: function(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Run
 
-  --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of the
-  --- fork's prelude (between the `[=====[` marks of checker/tl.tl), and `stdlib`, the text of checker/stdlib.d.tl, which
-  --- [`lang.stdlib_corrections`] corrects and [`lang.translate`] writes in the new grammar.
+  --- Checks `source` as the module `t` against the declarations the tree's checks read: `prelude`, the text of
+  --- lang/prelude.d.tl, and `stdlib`, the text of lang/stdlib.d.tl.
   standard: function(prelude: string, stdlib: string, source: string, modules?: {string: string}): Run
 
   --- The declarations of [`Programs.standard`] lowered once: a function that checks a source as the module `module`
@@ -50,6 +47,18 @@ local record Programs
   --- apart; a program that declares a global would show it to the next, and the translated programs do not. `external` names
   --- the modules that are bindings of C whose types the program does not read ([`cosmic.sys`] by default).
   session: function(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Run
+
+  --- The codes of the errors the declaration files themselves have, `prelude` first and then `stdlib`, each as `<file>: <code>`:
+  --- of the parser, the scope builder and the lowering. None for declarations that are whole, which a program checked against
+  --- them cannot tell, since an error of a global's declaration is not one of the program's.
+  declared: function(prelude: string, stdlib: string): {string}
+
+  --- The declarations `prelude` and `stdlib` lower to, one line each in the order of their names: a global with its kind, each
+  --- field and method of it with its type, then each value a global binds, so that an edit of either file shows in a diff.
+  dump: function(prelude: string, stdlib: string): string
+
+  --- The Lua the code generator writes for the program of `run`, which the checker took.
+  lua: function(run: Run): string
 
   --- The codes of the errors of `run`, space separated, in order.
   codes: function(run: Run): string
@@ -125,12 +134,39 @@ do
     run: function(function(string): string)
     run: function(function(string, string): string)
   end
-]] .. "  global record coroutine\n    " .. table.concat(Corrections.lines("coroutine", "create"), "\n    ") .. "\n    " ..
-  table.concat(Corrections.lines("coroutine", "wrap"), "\n    ") .. "\n    " ..
-  table.concat(Corrections.lines("coroutine", "resume"), "\n    ") .. "\n    " ..
-  table.concat(Corrections.lines("coroutine", "close"), "\n    ") .. "\n    " ..
-  table.concat(Corrections.lines("coroutine", "status"), "\n    ") .. "\n  end\n  " ..
-  table.concat(Corrections.added, "\n  ") .. "\n" .. [[
+  global record coroutine
+    close: function<Y, R, S>(Coroutine<Y, R, S>): (true) | (false, any)
+    create: function<Y, S>(function(Yielder<Y, S>, S)): Coroutine<Y, nil, S>
+    create: function<Y, R, S>(function(Yielder<Y, S>, S): R): Coroutine<Y, R, S>
+    create: function<Y>(function(Yielder<Y, nil>)): Coroutine<Y, nil, nil>
+    create: function<Y, R>(function(Yielder<Y, nil>): R): Coroutine<Y, R, nil>
+    create: function(function()): Coroutine<never, nil, nil>
+    create: function<R>(function(): R): Coroutine<never, R, nil>
+    resume: function<Y, R>(Coroutine<Y, R, nil>): (true, Y | R) | (false, any)
+    resume: function<Y, R, S>(Coroutine<Y, R, S>, S): (true, Y | R) | (false, any)
+    enum Status
+      "suspended"
+      "running"
+      "normal"
+      "dead"
+    end
+    status: function<Y, R, S>(Coroutine<Y, R, S>): Status
+    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
+    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
+    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
+    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
+    wrap: function(function()): function()
+    wrap: function<R>(function(): R): function(): R
+  end
+  global record Yielder<Y, S>
+    userdata
+
+    yield: function(Yielder<Y, S>, Y): S
+  end
+
+  global record Coroutine<Y, R, S>
+    userdata
+  end
   global record table
     insert: function<A>(mut {A}, integer, A)
     insert: function<A>(mut {A}, A)
@@ -158,8 +194,27 @@ do
     assert: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never
     require: function(string): any
-]] .. "    " .. table.concat(Corrections.protected("pcall", 3, 2), "\n    ") .. "\n    " ..
-  table.concat(Corrections.protected("xpcall", 2, 2), "\n    ") .. "\n" .. [[
+    pcall: function((function())): (true) | (false, any)
+    pcall: function<R1>((function(): R1)): (true, R1) | (false, any)
+    pcall: function<R1, R2>((function(): (R1, R2))): (true, R1, R2) | (false, any)
+    pcall: function<A1>((function(A1)), A1): (true) | (false, any)
+    pcall: function<A1, R1>((function(A1): R1), A1): (true, R1) | (false, any)
+    pcall: function<A1, R1, R2>((function(A1): (R1, R2)), A1): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2>((function(A1, A2)), A1, A2): (true) | (false, any)
+    pcall: function<A1, A2, R1>((function(A1, A2): R1), A1, A2): (true, R1) | (false, any)
+    pcall: function<A1, A2, R1, R2>((function(A1, A2): (R1, R2)), A1, A2): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, A3>((function(A1, A2, A3)), A1, A2, A3): (true) | (false, any)
+    pcall: function<A1, A2, A3, R1>((function(A1, A2, A3): R1), A1, A2, A3): (true, R1) | (false, any)
+    pcall: function<A1, A2, A3, R1, R2>((function(A1, A2, A3): (R1, R2)), A1, A2, A3): (true, R1, R2) | (false, any)
+    xpcall: function<H>((function()), (function(any): H)): (true) | (false, H | string)
+    xpcall: function<R1, H>((function(): R1), (function(any): H)): (true, R1) | (false, H | string)
+    xpcall: function<R1, R2, H>((function(): (R1, R2)), (function(any): H)): (true, R1, R2) | (false, H | string)
+    xpcall: function<A1, H>((function(A1)), (function(any): H), A1): (true) | (false, H | string)
+    xpcall: function<A1, R1, H>((function(A1): R1), (function(any): H), A1): (true, R1) | (false, H | string)
+    xpcall: function<A1, R1, R2, H>((function(A1): (R1, R2)), (function(any): H), A1): (true, R1, R2) | (false, H | string)
+    xpcall: function<A1, A2, H>((function(A1, A2)), (function(any): H), A1, A2): (true) | (false, H | string)
+    xpcall: function<A1, A2, R1, H>((function(A1, A2): R1), (function(any): H), A1, A2): (true, R1) | (false, H | string)
+    xpcall: function<A1, A2, R1, R2, H>((function(A1, A2): (R1, R2)), (function(any): H), A1, A2): (true, R1, R2) | (false, H | string)
     type: function(any): string
     setmetatable: function<A>(A, any): A
   end
@@ -211,7 +266,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
 end
 
 --- The names of `named`, in order.
-local function sorted_names(named: {string: string}): {string}
+local function sorted_names<V>(named: {string: V}): {string}
   local names: {string} = {}
   for name in pairs(named) do
     names[#names + 1] = name
@@ -257,7 +312,9 @@ function Programs.run(source: string, modules?: {string: string}, declared?: {st
   return Programs.runner()(source, "t", modules, declared)
 end
 
-function Programs.session(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Programs.Run
+--- The program the declarations `prelude` and `stdlib` make, with the globals they declare and what lowering each gave.
+local function standard_program(prelude: string, stdlib: string, external?: {string}):
+    Declarations.Program, {string: Scopes.Global}, Programs.Run, Programs.Run
   local program = Declarations.new()
   for _, name in ipairs(external or { "cosmic.sys" }) do
     program.external[name] = true
@@ -268,16 +325,15 @@ function Programs.session(prelude: string, stdlib: string, external?: {string}):
       globals[name] = g
     end
   end
-  add("prelude.d.tl", prelude)
-  -- The prelude declares `interface userdata is userdata`, which the new parser reads as the declaration of `interface`.
-  globals["interface"] = nil
-  globals["userdata"] = { space = "type", const = false }
-  add("checker/stdlib.d.tl", stdlib)
-  add("lang/stdlib_corrections.tl", table.concat(Corrections.added, "\n"))
-  local _ = lower(program, "checker.prelude", prelude, "decl", {})
-  local corrected = Corrections.apply(stdlib)
-  assert(#corrected.problems == 0, table.concat(corrected.problems, "\n"))
-  local _ = lower(program, "checker.stdlib", Translate.translate(corrected.text, "checker/stdlib.d.tl").text, "decl", globals)
+  add("lang/prelude.d.tl", prelude)
+  add("lang/stdlib.d.tl", stdlib)
+  local first = lower(program, "checker.prelude", prelude, "decl", {})
+  local second = lower(program, "checker.stdlib", stdlib, "decl", globals)
+  return program, globals, first, second
+end
+
+function Programs.session(prelude: string, stdlib: string, external?: {string}): function(source: string, module?: string, modules?: {string: string}): Programs.Run
+  local program, globals, _, _ = standard_program(prelude, stdlib, external)
   return function(source: string, module?: string, modules?: {string: string}): Programs.Run
     local sources = modules or {}
     for _, name in ipairs(sorted_names(sources)) do
@@ -285,6 +341,46 @@ function Programs.session(prelude: string, stdlib: string, external?: {string}):
     end
     return lower(program, module or "t", source, "tl", globals)
   end
+end
+
+function Programs.declared(prelude: string, stdlib: string): {string}
+  local _, _, first, second = standard_program(prelude, stdlib)
+  local out: {string} = {}
+  for _, code in ipairs(first.before) do
+    out[#out + 1] = "lang/prelude.d.tl: " .. code
+  end
+  for _, code in ipairs(second.before) do
+    out[#out + 1] = "lang/stdlib.d.tl: " .. code
+  end
+  return out
+end
+
+function Programs.dump(prelude: string, stdlib: string): string
+  local program, _, _, _ = standard_program(prelude, stdlib)
+  local text = ""
+  for _, name in ipairs(sorted_names(program.globals)) do
+    local decl = assert(program.globals[name]).decl
+    if decl == nil then
+      text = text .. "global " .. name .. " none\n"
+    else
+      text = text .. "global " .. name .. " " .. decl.kind .. "\n"
+      local body = decl.body
+      if body ~= nil then
+        for _, f in ipairs(body.fields) do
+          text = text .. "  field " .. f.name .. ": " .. Types.display(f.type) .. "\n"
+        end
+        for _, m in ipairs(body.methods) do
+          text = text .. "  method " .. m.name .. ": " .. Types.display(m.type) .. "\n"
+        end
+      end
+    end
+  end
+  for _, name in ipairs(sorted_names(program.values)) do
+    for _, t in ipairs(assert(program.values[name])) do
+      text = text .. "value " .. name .. ": " .. Types.display(t) .. "\n"
+    end
+  end
+  return text
 end
 
 function Programs.standard(prelude: string, stdlib: string, source: string, modules?: {string: string}): Programs.Run
@@ -311,12 +407,12 @@ local record Co
   status: function(): string
 end
 
---- The typed `coroutine` library the declarations of [`lang.stdlib_corrections`] describe, over Lua's: a body is called
+--- The typed `coroutine` library the declarations of [`lang/stdlib.d.tl`] describe, over Lua's: a body is called
 --- with the handle that yields and the value the first `resume` sent, `resume` answers `true` and what was yielded or
 --- returned or `false` and the error, and a handle yields only for the coroutine it was made for.
 --
 -- TODO: drop this library, and run the Lua against the runtime's, once the runtime provides the typed `coroutine`
--- (the TODO of [`lang.stdlib_corrections`]).
+-- (the TODO above `coroutine` in [`lang/stdlib.d.tl`]).
 local function typed_coroutines(): {string: any}
   local library: {string: any} = {}
   local function create(body: function(...: any): any...): Co
@@ -356,11 +452,11 @@ local function typed_coroutines(): {string: any}
   library.wrap = function(body: function(...: any): any...): function(...: any): any
     local co = create(body)
     return function(...: any): any
-      local results = table.pack(co.resume(...))
-      if not results[1] then
-        error(results[2], 0)
+      local ok, value = co.resume(...)
+      if not ok then
+        error(value, 0)
       end
-      return results[2]
+      return value
     end
   end
   return library
@@ -411,6 +507,10 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
     classes[id] = decl.name
   end
   return Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+end
+
+function Programs.lua(run: Programs.Run): string
+  return generated(run, {}, nil)
 end
 
 function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean,

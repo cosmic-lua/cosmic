@@ -20,7 +20,7 @@ local LIBRARY <const> = Programs.library .. "\nglobal record package\n  loaded: 
 local function problems_of(text: string, stubs?: {string: string}): {Driver.Problem}
   local index = Driver.index({ { "m.tl", text } }, false, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))
@@ -36,7 +36,7 @@ local function problems_of_each(texts: {string}, stubs?: {string: string}): {{Dr
   end
   local index = Driver.index(files, false, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))

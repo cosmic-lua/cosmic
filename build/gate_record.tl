@@ -314,10 +314,7 @@ local function main(fork: boolean)
     rows, missed = with_fork(rows, ask_fork(), made.refusals)
     assert(#missed == 0, "the fork says what no template reads:\n" .. table.concat(missed, "\n"))
   end
-  local tl = assert(Fs.read("checker/tl.tl"))
-  local prelude = tl:match("%[=====%[\n(.-)%]=====%]")
-  assert(prelude ~= nil, "checker/tl.tl has no prelude")
-  local judge = Verdicts.judge(prelude, (assert(Fs.read("checker/stdlib.d.tl"))))
+  local judge = Verdicts.judge((assert(Fs.read("lang/prelude.d.tl"))), (assert(Fs.read("lang/stdlib.d.tl"))))
   local judged: {Verdicts.Row} = {}
   local counts: {string: integer} = {}
   for i, row in ipairs(rows) do

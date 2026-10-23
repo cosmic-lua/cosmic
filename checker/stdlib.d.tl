@@ -1,6 +1,6 @@
 do
-   -- The new checker reads some of these declarations as lang/stdlib_corrections.tl has them: a result that may be nil
-   -- is declared so there, where the fork's own check of the tree lets the old one pass. Edit those lines there too.
+   -- The new checker reads lang/stdlib.d.tl, which declares some of these differently: a result that may be nil is
+   -- declared so there, where the fork's own check of the tree lets the old one pass.
 
    local enum FileStringMode
       "a" "l" "L" "*a" "*l" "*L"
@@ -17,7 +17,7 @@ do
    global record coroutine
       type Function = function(any...): any...
 
-      -- The new checker reads these as lang/stdlib_corrections.tl declares them, over a typed `Coroutine<Y, R, S>`.
+      -- The new checker reads these as lang/stdlib.d.tl declares them, over a typed `Coroutine<Y, R, S>`.
       close: function(thread): boolean, string
       create: function(Function): thread
       isyieldable: function(): boolean

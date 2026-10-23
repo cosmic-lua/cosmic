@@ -126,8 +126,9 @@ local record TreeWriter
   main: function(argv: {string}): integer
 end
 
---- The files whose translation may keep errors, by the owner's decision: the checker's own two modules and the
---- standard library's declarations, which the switch writes as tagged unions and by hand, the tour (which teaches
+--- The files whose translation may keep errors, by the owner's decision: the checker's own two modules and the fork's copy of
+--- the standard library's declarations (the new checker's own, [`lang/stdlib.d.tl`], is written by hand already, and the copy goes
+--- with the fork), the tour (which teaches
 --- forms the new grammar cuts), a guide's example of a generic method, and the fork-only fixtures.
 local ALLOWED <const>: {string} = {
   "lang/ast.tl", "lang/types.tl", "checker/stdlib.d.tl", "cosmic/removed_example.tl", "doc/guides/project.md",
@@ -350,8 +351,19 @@ local record Done
   left: integer
 end
 
---- `text`, the file `path`, translated: a guide through [`TreeWriter.guide`], any other file as a module.
+--- The files of the tree already written in the new grammar ([`lang/prelude.d.tl`], [`lang/stdlib.d.tl`]): they are written as
+--- they are, since the translator reads the fork's Teal.
+local NEW_GRAMMAR <const>: {string: boolean} = {
+  ["lang/prelude.d.tl"] = true,
+  ["lang/stdlib.d.tl"] = true,
+}
+
+--- `text`, the file `path`, translated: a guide through [`TreeWriter.guide`], a file already in the new grammar as it is, any
+--- other file as a module.
 local function translated(path: string, text: string, translator: TreeWriter.Translator | nil): Done
+  if NEW_GRAMMAR[path] == true then
+    return { text = text, errors = {}, codes = {}, counts = {}, hazards = {}, left = 0 }
+  end
   if path:sub(-3) == ".md" then
     local g = TreeWriter.guide(text, path, translator)
     return { text = g.text, errors = g.errors, codes = g.codes, counts = g.counts, hazards = g.hazards, left = g.left }

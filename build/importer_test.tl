@@ -659,6 +659,45 @@ local function test_compiler_identity_follows_the_standard_library_declarations(
   assert(after[4] ~= original[4], "an edit to a standard library declaration did not move the boot hash")
 end
 
+--- The declarations the new checker types a program against, [`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`], are carried as
+--- text, so an edit to one moves what every compile is a function of and the tool's boot hash, but not the core's image: no
+--- boot compiles them. They are the new grammar's, so the fork, which compiles every declaration file, never reads them.
+local function test_compiler_identity_follows_the_new_checkers_declarations()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-new-declarations-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang", "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", "do\nend\n"))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", "do\n   global record Seen\n      n?: integer\n   end\nend\n"))
+  assert(Fs.write(root .. "/build/teal.tl", "local record teal\nend\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
+      "importer.teal = teal\nreturn importer\n"))
+  local function hashes(): {string}, boolean
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
+    local found = assert(identity.record_identities(handle.db))
+    local fingerprint = assert(identity.record_fingerprint(handle.db))
+    local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
+    work.close(handle)
+    return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }, assert(rows[1]):text(1) == "0"
+  end
+  local original, none_is_input = hashes()
+  assert(none_is_input, "a declaration file of the new checker is an input of the build")
+  for _, file in ipairs({ "lang/stdlib.d.tl", "lang/prelude.d.tl" }) do
+    local before = hashes()
+    assert(Fs.write(root .. "/" .. file, "do\n   global record Other\n   end\nend\n"))
+    local after = hashes()
+    assert(after[1] ~= before[1], "an edit to " .. file .. " did not move the compiler identity")
+    assert(after[2] ~= before[2], "an edit to " .. file .. " did not move the runtime basis")
+    assert(after[4] ~= before[4], "an edit to " .. file .. " did not move the boot hash")
+    assert(after[3] == before[3], "an edit to " .. file .. " moved the image hash, which no boot is needed for")
+  end
+  assert(hashes()[1] ~= original[1])
+end
+
 --- An edit to anything the tool is built from moves its boot hash: its
 --- Teal, examples and C, build.zig, bin/zig and their pins. A vendored
 --- tree counts through its pin and the records that patch it: it is

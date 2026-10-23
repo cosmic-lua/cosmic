@@ -25,8 +25,8 @@ local work = require("build.work")
 
 Test.policy{ grants = {
   { path = "core", letters = "r" }, { path = "lang/ast.tl", letters = "r" }, { path = "lang/types.tl", letters = "r" },
-  { path = "cosmic/removed_example.tl", letters = "r" }, { path = "checker/stdlib.d.tl", letters = "r" },
-  { path = "checker/tl.tl", letters = "r" }, { path = "build/ceilings.txt", letters = "r" },
+  { path = "cosmic/removed_example.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
+  { path = "lang/prelude.d.tl", letters = "r" }, { path = "build/ceilings.txt", letters = "r" },
   { path = "build/importer.tl", letters = "r" }, { path = "build/plural.tl", letters = "r" },
   { path = "build/bind.tl", letters = "r" }, { path = "build/digest.tl", letters = "r" },
   { path = "build/clock.tl", letters = "r" }, { path = "build/assertions.tl", letters = "r" },
@@ -56,7 +56,7 @@ end
 local function options(pins: string): Pipeline.Options
   return {
     globals = {
-      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
+      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
     ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD), project = nil,
@@ -352,7 +352,7 @@ local function test_the_options_of_a_project_are_the_texts_it_is_given_and_no_ce
   assert(next(project.ceilings.stages) == nil, "a project has no ceilings")
   assert(#project.globals.sources == 2)
   local stdlib = assert(project.globals.sources[2])
-  assert(stdlib.filename == "checker/stdlib.d.tl" and stdlib.module == "checker.stdlib")
+  assert(stdlib.filename == "lang/stdlib.d.tl" and stdlib.module == "checker.stdlib")
 end
 
 local function test_a_lone_file_takes_the_declarations_the_tool_carries_and_no_ceiling()

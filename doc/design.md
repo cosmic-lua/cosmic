@@ -447,8 +447,8 @@ input to the build, never to the runtime. one database holds:
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires. Two rows are no module: `checker.prelude` and
-  `checker.stdlib`, the text of [`checker/tl.tl`]'s prelude and of
-  [`checker/stdlib.d.tl`], which are the globals the new checker types a
+  `checker.stdlib`, the text of [`lang/prelude.d.tl`] and of
+  [`lang/stdlib.d.tl`], which are the globals the new checker types a
   project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal
   `return nil, ...` or `return false, ...` message under a top-level
@@ -1270,7 +1270,11 @@ stays in the checker: its names are the language's, and the checker's
 logic reads them. `cosmic docs` does not show these declarations: it
 indexes the tree's modules and their declarations, and this file is
 neither. [`build/stdlib_declarations_test.tl`] pins how the checker
-prints representative names.
+prints representative names. the new checker reads its own copy, written
+in the new grammar: [`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]. the
+fork cannot read them, so they are tool files and no inputs of the build
+([`build/identity.tl`]), carried as text for the projects the new checker
+types.
 
 an error the checker reports carries a `code` and the places and values it
 is about (an argument's position, the types shown, the key and the record's
@@ -1696,6 +1700,8 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`doc/plans/strict-teal.md`]: plans/strict-teal.md
+[`lang/prelude.d.tl`]: ../lang/prelude.d.tl
+[`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [hidden-code rule]: plans/strict-teal.md#no-implicit-conversion-or-hidden-code
 [no casts]: plans/strict-teal.md#no-casts
 [tagged unions]: plans/strict-teal.md#tagged-unions

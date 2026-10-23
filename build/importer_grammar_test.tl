@@ -13,7 +13,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ grants = {
-  { path = "core", letters = "r" }, { path = "checker/stdlib.d.tl", letters = "r" }, { path = "checker/tl.tl", letters = "r" },
+  { path = "core", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
   { path = "build/ceilings.txt", letters = "r" }, { path = "build/importer.tl", letters = "r" },
   { path = "build/plural.tl", letters = "r" }, { path = "build/bind.tl", letters = "r" },
   { path = "build/digest.tl", letters = "r" }, { path = "build/clock.tl", letters = "r" },
@@ -160,7 +160,7 @@ local function lua_of(result: importer.Result, path: string): string
 end
 
 --- The files of a tree that is cosmic's own as far as the build asks: the directories and the importer, and ceilings of its own;
---- and stand-ins for the standard library's declarations and the prelude of the fork it reads, which come late: the real ones
+--- and stand-ins for the standard library's declarations and the prelude it reads, which come late: the real ones
 --- take seconds to lower, and what these tests ask of the build does not read them.
 local function own_tree(files: {string: string}, ceilings: string): {string: string}
   local out: {string: string} = {}
@@ -174,8 +174,8 @@ end
 
 local function late_files(): {string: string}
   return {
-    ["checker/stdlib.d.tl"] = "",
-    ["checker/tl.tl"] = "return {}\n",
+    ["lang/stdlib.d.tl"] = "",
+    ["lang/prelude.d.tl"] = "",
     ["build/importer.tl"] = "return {}\n",
   }
 end

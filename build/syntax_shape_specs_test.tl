@@ -36,7 +36,7 @@ local function build_of(files: {string: string}): Driver.Build
     return false
   end)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))
