@@ -958,6 +958,25 @@ local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
   return held, ""
 end
 
+--- Keeps the verdict that the stub of `m` is held to its source's type under
+--- its key, for a compile of it made in another process, which has no checker
+--- environment here to judge it by ([`compilation.hold_stubs`]). A compile
+--- of a standard-library module holds its stub to the type its source has
+--- in the process that makes it, and refuses it where it does not
+--- ([`held_to_stub`], in [`compilation.generate`]): so a compile that was
+--- not refused is a verdict, on the stub the module carries. A module with
+--- no stub, or one that is not a standard-library module, has none to keep.
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.note_held(db: Sqlite.Handle, keys: {string:Keys}, m: Module): boolean, string
+  local made, named = m.stub, keys[m.path]
+  if made == nil or named == nil or m.kind ~= "module" or m.path:sub(1, 7) ~= "cosmic." then
+    return true, ""
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, 1)",
+    { text(named.key), text(stub_hash(made.text)) })
+end
+
 --- Compares, for each module of the tree that `env` holds the type of
 --- and that has no verdict under its key yet, the stub
 --- ([`build.stub`]) with the source's type ([`stub.difference`]), and
