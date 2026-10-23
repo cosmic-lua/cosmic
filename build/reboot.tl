@@ -181,7 +181,7 @@ end
 
 --- `argv` from slot 1 on, led by `program`, the path to exec, as the
 --- list [`Proc.exec`] takes.
-local function reentry(program: string, argv: {integer:string}): {string}
+local function reentry(program: string, argv: {string}): {string}
   local arguments: {string} = { program }
   local at = 1
   while argv[at] ~= nil do
@@ -312,7 +312,7 @@ end
 --- which a rebuild may enter; anything else refuses once a reboot has
 --- entered this process.
 local function into(handle: work.Handle, built: compiler,
-                    argv: {integer:string}, settle: boolean): string, boolean
+                    argv: {string}, settle: boolean): string, boolean
   local refused = refusal(settle)
   if refused ~= nil then
     return closing(handle, refused), false
@@ -571,7 +571,7 @@ end
 --- running `argv` again in this process's environment, its `marker`
 --- as it was. Answers the exit code when it cannot.
 local function reenter(handle: work.Handle, out: string,
-                       argv: {integer:string}): integer
+                       argv: {string}): integer
   local closed, close_trouble = work.close(handle)
   if not closed then
     log:complain(close_trouble)
@@ -609,7 +609,7 @@ end
 --- ([`rebuild_lock.tell_not_waiting`]) and answers `read_on`, going on
 --- with its own code.
 local function serialize(handle: work.Handle, root: string,
-                         argv: {integer:string}, reads: boolean): integer | nil
+                         argv: {string}, reads: boolean): integer | nil
   -- Tried at once, while this run holds the working database: a run
   -- holding the lock may be waiting for that database, so this run
   -- waits for the lock only once it has closed it.
@@ -663,7 +663,7 @@ end
 --- first, since the boot writes it ([`reboot.guard`] does).
 --- `environment` is what both run in, this process's by default.
 --- Returns only when it cannot, saying why.
-function reboot.boot_into(root: string, argv: {integer:string},
+function reboot.boot_into(root: string, argv: {string},
                           environment?: {string:string}): string
   environment = environment or sys.environ()
   if environment[marker] ~= nil then
@@ -706,7 +706,7 @@ end
 --- The caller has closed its working database ([`reboot.boot_into`]).
 --- `environment` is what the boot runs in, this process's by default.
 --- A boot that starts re-enters `argv` and does not return here.
-function reboot.rebuild_failed(root: string, argv: {integer:string},
+function reboot.rebuild_failed(root: string, argv: {string},
                                trouble: string, moved: boolean,
                                environment?: {string:string}): integer
   if not moved then
@@ -760,7 +760,7 @@ end
 --- `seen` is [`reboot.Seen`].
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
-                      argv: {integer:string}, reads?: boolean, seen?: reboot.Seen): integer | nil
+                      argv: {string}, reads?: boolean, seen?: reboot.Seen): integer | nil
   local state, state_trouble = state_of(handle, seen)
   if state == nil then
     log:complain(closing(handle, state_trouble))
@@ -917,7 +917,7 @@ end
 --- why.
 --- @param argv the command line, re-entered after a rebuild
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
-function reboot.stale_exit(argv: {integer:string}, reads?: boolean, root?: string,
+function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
                            seen?: reboot.Seen): integer | nil
   local at = root
   if at == nil then

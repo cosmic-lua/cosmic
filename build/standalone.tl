@@ -258,13 +258,13 @@ function standalone.entry(produced: any): standalone.Main | nil
   return nil
 end
 
---- Runs `argv[2]` standalone: `argv` is the whole command line, `cosmic`
---- at slot 0 and `--standalone` at slot 1, so the file sees what follows
---- its own path, and its path at `argv[0]`. `why`, where given, says what
---- made this run standalone, which a file that does not compile is told
---- beside its refusal: a require of a module that is not `cosmic.*` is
---- refused here and not in the run the caller may have meant.
-function standalone.run(argv: {integer:string}, why?: string): integer
+--- Runs `argv[2]` standalone: `argv` is the whole command line, `--standalone`
+--- at slot 1, so the file sees what follows its own path, and its path at
+--- `argv[0]`. `why`, where given, says what made this run standalone, which
+--- a file that does not compile is told beside its refusal: a require of a
+--- module that is not `cosmic.*` is refused here and not in the run the
+--- caller may have meant.
+function standalone.run(argv: {string}, why?: string): integer
   local file = argv[2]
   if file == nil then
     log:complain("usage: cosmic --standalone <file.tl> [args...]")
@@ -283,12 +283,8 @@ function standalone.run(argv: {integer:string}, why?: string): integer
     end
     return 1
   end
-  local arguments: {integer:string} = { [0] = file }
-  local slot = 3
-  while argv[slot] ~= nil do
-    arguments[slot - 2] = argv[slot]
-    slot = slot + 1
-  end
+  local arguments: {string} = { table.unpack(argv, 3) }
+  arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments)
   local main = standalone.entry(chunk())

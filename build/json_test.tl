@@ -16,8 +16,8 @@ local record Ran
   err: string
 end
 
-local function argv_of(words: {string}): {integer:string}
-  local argv: {integer:string} = { [0] = "cosmic", [1] = "json" }
+local function argv_of(words: {string}): {string}
+  local argv: {string} = { "json" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   return argv
 end

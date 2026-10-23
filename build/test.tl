@@ -3275,7 +3275,7 @@ end
 local record Run
   run_at_ns: integer
   --- The command line, which a stale tool re-enters after rebuilding itself.
-  argv: {integer:string}
+  argv: {string}
 
   -- The command line ([`read_command`]).
   root?: string
@@ -4686,7 +4686,7 @@ end
 --- and the first to answer an exit code ends the run.
 --- @param argv the command line, which a stale tool re-enters after
 ---   rebuilding itself
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
@@ -4722,7 +4722,7 @@ test.spec = {
   name = "test",
   guide = "none: the verb is for the tree's own checks and is described by `cosmic help test`; the quickstart is about reading data and writing programs, not running a tree's suite",
   tests = { "build.test_test", "build.test_selection_test" },
-  run = function(argv: {integer:string}): integer
+  run = function(argv: {string}): integer
     local code = run(argv)
     rebuild_lock.release()
     return code

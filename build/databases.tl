@@ -262,7 +262,7 @@ end
 --- the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of [`build.databases`] itself -- see [`build.reboot.stale_exit`]
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then

@@ -45,7 +45,7 @@ local verb_spec = require("build.verb_spec")
 local record todos
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
-  run: function(argv: {integer:string}, at?: string, seen?: reboot.Seen): integer
+  run: function(argv: {string}, at?: string, seen?: reboot.Seen): integer
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
@@ -686,7 +686,7 @@ end
 ---   stale copy of [`build.todos`] itself -- see [`build.reboot.stale_exit`]
 --- @param at the tree, the working directory by default
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
-function todos.run(argv: {integer:string}, at?: string, seen?: reboot.Seen): integer
+function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local started = Time.monotonic_ns()
   local found_root, root_trouble = Fs.absolute(at or ".")
   if found_root == nil then
@@ -888,7 +888,7 @@ todos.spec = {
   summarizes_failure = true,
   guide = "none: lists the tree's TODO comments for its maintainers, described by `cosmic help todos`",
   tests = { "build.todos_test", "build.todos_git_test" },
-  run = function(argv: {integer:string}): integer return todos.run(argv) end,
+  run = function(argv: {string}): integer return todos.run(argv) end,
   bare = false,
   reads = true,
   recheck_on_refusal = false,

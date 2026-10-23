@@ -28,7 +28,7 @@ local function checkout(tmp: string): string, {string:string}
   assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {integer:string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   assert(Fs.write(root .. "/tracked", "old\n"))
   assert(Fs.write(root .. "/ci/run_local.tl", "fixture entry\n"))
   assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
@@ -71,9 +71,7 @@ local function invoke(root: string, env: {string:string}, phases: {string}, uid?
     end
     return put(fd, bytes)
   end
-  local argv: {integer:string} = { [0] = root .. "/ci/run_local.tl" }
-  for i, phase in ipairs(phases) do argv[i] = phase end
-  local called, result = pcall(Local.main, argv)
+  local called, result = pcall(Local.run, phases, root .. "/ci/run_local.tl")
   Env.all, sys.getuid, Fs.put = all, getuid, put
   assert(called, tostring(result))
   return result, table.concat(messages)

@@ -127,7 +127,7 @@ end
 --- the rest. Everything from the program on is the program's own.
 --- @param argv the command line, the verb at slot 1
 --- @return the program's slot, or nil
-function verb.program_slot(argv: {integer:string}): integer | nil
+function verb.program_slot(argv: {string}): integer | nil
   local slot = 2
   while argv[slot] ~= nil do
     local word = argv[slot]
@@ -261,17 +261,17 @@ local function table_of(parsed: Flags.Parsed): {string:any} | nil, string
 end
 
 --- The last slot of `argv` that holds a word, the verb's own at slot 1.
-local function last_slot(argv: {integer:string}): integer
+local function last_slot(argv: {string}): integer
   local slot = 1
   while argv[slot + 1] ~= nil do slot = slot + 1 end
   return slot
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function request_of(argv: {integer:string}): Request | nil, string
+local function request_of(argv: {string}): Request | nil, string
   local at = verb.program_slot(argv)
   local last = at ~= nil and at - 1 or last_slot(argv)
-  local words: {integer:string} = {}
+  local words: {string} = {}
   for slot = 2, last do words[slot - 1] = argv[slot] end
   local parsed, trouble = Flags.parse(words, 1, spec)
   if parsed == nil then return nil, trouble end
@@ -594,7 +594,7 @@ local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
 --- in `held`.
-local function execute(argv: {integer:string}, io: verb.Io | nil, held: {string}): integer
+local function execute(argv: {string}, io: verb.Io | nil, held: {string}): integer
   local to = io or standard
   local complain = bare.complainer("sandbox", to.err)
   -- The word right after the verb is the relay's client, the command ssh's
@@ -677,7 +677,7 @@ end
 --- @param argv the command line
 --- @param io where it complains and starts, or the process's own
 --- @return the exit status
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
   local held: {string} = {}
@@ -694,7 +694,7 @@ verb.spec = {
   tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",
     "build.sandbox_connect_tool_test", "build.sandbox_seal_tool_test",
     "build.sandbox_closure_tool_test", "build.sandbox_refusal_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   program_slot = verb.program_slot,
   takes = "options, then a program and its arguments",

@@ -310,7 +310,7 @@ end
 --- @param compiler_source the Lua the compiler running this was compiled
 --- to from the checker, [`checker/tl.tl`] (core/bridge.lua's `bootstrap`): the
 --- compiler the tool carries
-local function boot(root: string, argv: {integer:string},
+local function boot(root: string, argv: {string},
                     compiler_source: string): integer
   if argv[4] == "--worker" then
     return worker.serve(compiler)

@@ -101,8 +101,8 @@ local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 --- A negative duration or epoch begins with "-", which `Flags` reads as an
 --- option; these forms are set aside under a name no option has and put
 --- back.
-local function protect(argv: {integer:string}): {integer:string}, {string:string}
-  local out: {integer:string} = { [0] = argv[0] }
+local function protect(argv: {string}): {string}, {string:string}
+  local out: {string} = {}
   local kept: {string:string} = {}
   local slot = 1
   local ended = false
@@ -125,7 +125,7 @@ local function protect(argv: {integer:string}): {integer:string}, {string:string
 end
 
 --- The words and options `argv` holds, or nil and why.
-local function arguments(argv: {integer:string}): Flags.Parsed | nil, string
+local function arguments(argv: {string}): Flags.Parsed | nil, string
   local safe, kept = protect(argv)
   local parsed, trouble = Flags.parse(safe, 2, spec)
   if parsed == nil then return nil, trouble end
@@ -314,7 +314,7 @@ end
 --- cannot read.
 --- @param argv the command line, `time` at slot 1
 --- @param io where the text is written and the clock read; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to: verb.Io = io or {
     out = bare.out,
     err = bare.err,
@@ -502,7 +502,7 @@ verb.spec = {
   name = "time",
   guide = "a quick question about a time",
   tests = { "build.time_test", "build.time_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its times",
   exits = "`time` prints its answer and nothing after, exiting 1 when an `add` has none.",

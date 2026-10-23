@@ -496,7 +496,7 @@ end
 --- [`build/dispatch.tl`] has a tool older than cosmic's own tree rebuild
 --- itself first, since [`build.reboot`] requires this module through
 --- [`build.writer`].
-local function run(argv: {integer:string}): integer
+local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   -- A failure's complaint says why; only a run that passed is summarized.
   local function passed(detail: string): integer
@@ -560,7 +560,7 @@ bom.spec = {
   name = "bom",
   guide = "none: lists the components a binary carries, described by `cosmic help bom`; the quickstart does not cover it",
   tests = { "build.bom_test", "build.bom_verb_test" },
-  run = function(argv: {integer:string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "nothing",
   fresh = true,

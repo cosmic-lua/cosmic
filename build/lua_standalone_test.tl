@@ -58,7 +58,7 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   local good = tmp .. "/good.tl"
   assert(Fs.write(good, "local Child = require(\"cosmic.child\")\n" ..
       "local ok = type(Child.run) == \"function\"\n" ..
-      "return function(argv: {integer:string}): integer\n" ..
+      "return function(argv: {string}): integer\n" ..
       "  print(ok, argv[1])\n  return 0\nend\n"))
   local ok, out, err = run({ "--standalone", good, "word" })
   assert(ok and out == "true\tword\n", out .. err)

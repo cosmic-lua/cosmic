@@ -103,7 +103,7 @@ local function test_a_fetch_checksum_fragment_is_as_declared()
     local url = "http://cosmic.test/data"
     local hex = string.rep("0", 64)
     local function run(words: {string}, script: {string}): integer
-      local argv: {integer:string} = { "fetch" }
+      local argv: {string} = { "fetch" }
       for _, word in ipairs(words) do argv[#argv + 1] = word end
       return fetch.run(argv, {
         script = script,

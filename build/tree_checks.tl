@@ -61,10 +61,13 @@ local Driver = require("build.driver")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local PipelineCheck = require("build.pipeline_check")
+local PluralSites = require("build.plural_sites")
 local Scopes = require("lang.scopes")
+local SyntaxNode = require("build.syntax_node")
 local ScopesCover = require("lang.scopes_cover")
 local teal = require("build.teal")
 local Translate = require("lang.translate")
+local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
 local shared_compiles = require("build.shared_compiles")
 local standalone = require("build.standalone")
@@ -74,8 +77,6 @@ local writer = require("build.writer")
 local type compiler = require("build.compiler")
 local String = require("cosmic.string")
 local Hash = require("cosmic.hash")
-
-local type Node = ast.Node
 
 local record tree_checks
   --- What [`plurals`] finds in one text of a file, read off a parse made
@@ -120,7 +121,7 @@ local function allow(names: {string}, why: string)
 end
 
 allow({
-  "build.syntax_analyzer.analyze", "build.syntax_analyzer.docs",
+  "build.syntax_analyzer.analyze",
   "build.syntax_derivation.rows_of", "build.syntax_links.check",
   "build.syntax_links.facts", "build.syntax_links.rewrite", "build.syntax_match.matches", "build.syntax_match.text",
   "build.syntax_rewrite.rewrite",
@@ -1716,150 +1717,30 @@ plural_exempt["build/patch.tl:matches"] = "runs on the bootstrap release " ..
 plural_exempt["build/zig_fetch.tl:attempts"] = "runs on the bootstrap release " ..
   "(bin/zig), which cannot require build.plural"
 
---- Words after a number that are verbs or particles, not nouns:
---- `at byte %d needs`, `n .. " and files"`.
-local NOT_NOUNS: {string: boolean} = {}
-for word in ([[does needs names leaves takes lacks gives holds reads starts ends makes returns
-  wants uses sets means comes always perhaps sometimes towards whereas afterwards
-  is was are were has have had must cannot can not no will would and or but in on at of to for
-  by from with the a an as if than that which when while so then after before until once now
-  also only never still both either]]):gmatch("%S+") do
-  NOT_NOUNS[word] = true
-end
-
---- The words before a `%d` that make it a position or a name, not a
---- count: `at byte %d`, `line %d`.
-local LABELS: {string: boolean} = {}
-for word in ([[byte offset line column index position transition version entry step char
-  character field row type code number errno signal exit status port pid]]):gmatch("%S+") do
-  LABELS[word] = true
-end
-
---- The nouns a count is taken of, which a plural after a bare name
---- (`n .. " files"`) must be one of: a name in front of any other plural
---- is as likely a subject in front of its verb (`name .. " lists"`).
-local UNITS: {string: boolean} = {}
-for word in ([[bytes files lines rows tests modules entries paths words comments sources targets
-  builds attempts assets products releases digests digits seconds minutes hours milliseconds values
-  fields stores compilers verbs components patches tables keys columns caches databases
-  instructions inputs iters draws tries arguments errors failures directories members
-  functions symbols steps bits chunks pieces sites hits results workers processes
-  threads children hosts addresses tokens labels parts jobs items]]):gmatch("%S+") do
-  UNITS[word] = true
-end
-
---- Whether `word` reads as a plural noun: lowercase, an `s` at its end,
---- and none of the words that end so and are not.
-local function is_plural_noun(word: string): boolean
-  return #word >= 4 and word:match("^%l+$") ~= nil and word:sub(-1) == "s" and
-    not word:match("ss$") and not word:match("[iu]s$") and not NOT_NOUNS[word]
-end
-
---- The plural noun `text` leads with, after one space: its first word,
---- or its second when the first is not a particle or verb (` closure
---- stores`); nil when it leads with neither.
-local function plural_after_space(text: string, counted: boolean): string | nil
-  local first, rest = text:match("^ (%a+)(.*)$")
-  if first == nil then return nil end
-  if is_plural_noun(first) then
-    if counted or UNITS[first] then return first end
-    return nil
-  end
-  if not first:match("^%l+$") or NOT_NOUNS[first] then return nil end
-  local second = rest:match("^ (%l+)%f[^%a]")
-  if second ~= nil and is_plural_noun(second) and (counted or UNITS[second]) then return second end
-  return nil
-end
-
---- The plural noun the format `text` puts after a `%d` (`%d files`),
---- and where in `text` the number is, for each place it does. A `%d`
---- that follows a label (`at byte %d`) or a noun followed by `=` is a
---- name, not a count.
-local function format_plurals(text: string): {string}
-  local found: {string} = {}
-  local at = 1
-  while true do
-    local first, last = string.find(text, "%d ", at, true)
-    if first == nil then break end
-    at = last
-    local noun = plural_after_space(text:sub(last, last + 60), true)
-    local label = text:sub(math.max(1, first - 12), first - 1):match("(%l+) $")
-    if noun ~= nil and not LABELS[label or ""] then
-      local after = text:sub(last + 1):match("^.-" .. noun .. "(.?)")
-      if after ~= "=" then found[#found + 1] = noun end
-    end
-  end
-  return found
-end
-
---- Whether `node` is a number by its shape: a length, `tostring(...)`, a
---- literal, or arithmetic (parenthesized or not).
-local function counted(node: Node): boolean
-  local inner = node
-  local e1 = node.e1
-  if node.kind == "paren" and e1 ~= nil then inner = e1 end
-  local info = inner.op
-  if inner.kind == "integer" or inner.kind == "number" then return true end
-  if inner.kind ~= "op" or info == nil then return false end
-  if info.op == "#" then return true end
-  if info.op == "@funcall" then
-    local callee = inner.e1
-    return callee ~= nil and callee.tk == "tostring"
-  end
-  return info.op == "+" or info.op == "-" or info.op == "*" or info.op == "//" or
-    info.op == "%" or info.op == "/"
-end
-
---- Whether `node` is a `..`.
-local function is_concat(node: Node): boolean
-  local info = node.op
-  return node.kind == "op" and info ~= nil and info.op == ".."
-end
-
---- The literal string a concatenation starts with, whether its
---- operand is that string or a chain of `..` that begins with one.
-local function leading_literal(node: Node): string | nil
-  if node.kind == "string" then return node.conststr end
-  local e1 = node.e1
-  if is_concat(node) and e1 ~= nil then return leading_literal(e1) end
-  return nil
-end
-
---- Every literal plural noun `source` puts after a number, as
---- `{line, noun, snippet, fix}`: after a value that is not provably a
---- string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
---- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a
---- literal.
-local function sites_in(parsed: ast.Parsed): {{string}}
-  local sites: {{string}} = {}
-  ast.walk(parsed.node, function(node: Node)
-    local left, right = node.e1, node.e2
-    local conststr = node.conststr
-    if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string" and
-        not is_concat(left) then
-      local literal = leading_literal(right)
-      local noun = literal ~= nil and plural_after_space(literal, counted(left)) or nil
-      if literal ~= nil and noun ~= nil then
-        sites[#sites + 1] = { tostring(right.y), noun, "... .. \"" .. literal:sub(1, 24),
-          "write `plural.count(n, singular)` (with the plural as a third argument when it is " ..
-            "not the singular and an `s`)" }
-      end
-    elseif node.kind == "string" and conststr ~= nil and conststr:find("%%d ") then
-      for _, noun in ipairs(format_plurals(conststr)) do
-        sites[#sites + 1] = { tostring(node.y), noun, "%d " .. noun,
-          "print `plural.noun(n, singular)` beside the number" }
-      end
-    end
-  end)
-  return sites
-end
-
---- [`sites_in`] of `source`, parsed by `built`.
-local function plural_sites(built: compiler, source: string, file: string):
+--- [`PluralSites.of_fork`] of `source`, parsed by `built`.
+local function fork_plural_sites(built: compiler, source: string, file: string):
     {{string}} | nil, string
   local parsed, trouble = ast.parse(built, source, file)
   if parsed == nil then return nil, trouble end
-  return sites_in(parsed)
+  return PluralSites.of_fork(parsed), ""
+end
+
+-- TODO: read `source` as written, with no translation, once the switch commits the tree in the new grammar
+-- (doc/plans/strict-teal.md, "the switch"): the lines of a file whose translation makes a class are the translation's.
+
+--- [`PluralSites.of_chunk`] of `source`, translated ([`lang.translate`]) and parsed as the new checker reads it.
+local function syntax_plural_sites(source: string, file: string): {{string}} | nil, string
+  local chunk, trouble = SyntaxNode.parse(Translate.translate(source, file).text, file)
+  if chunk == nil then return nil, trouble end
+  return PluralSites.of_chunk(chunk), ""
+end
+
+--- Whether the plural check reads `file`, a path from the tree's root: a Teal source under `build/`, `cmd/`, `cosmic/` or
+--- `ci/cosmic_ci/` that is no test or declaration file.
+local function plural_file(file: string): boolean
+  return file:match("%.tl$") ~= nil and file:match("_test%.tl$") == nil and file:match("%.d%.tl$") == nil and
+    (file:match("^build/") ~= nil or file:match("^cmd/") ~= nil or file:match("^cosmic/") ~= nil or
+      file:match("^ci/cosmic_ci/") ~= nil)
 end
 
 --- What [`plurals`] finds in `source`, the text of `file` (its path from
@@ -1867,12 +1748,17 @@ end
 --- the checks need not parse it again; nil for a file they do not read.
 function tree_checks.plurals_in(file: string, source: string, parsed: ast.Parsed):
     tree_checks.Plurals | nil
-  if not file:match("%.tl$") or file:match("_test%.tl$") or file:match("%.d%.tl$") or
-      not (file:match("^build/") or file:match("^cmd/") or file:match("^cosmic/") or
-          file:match("^ci/cosmic_ci/")) then
-    return nil
-  end
-  return { source = source, sites = sites_in(parsed) }
+  if not plural_file(file) then return nil end
+  return { source = source, sites = PluralSites.of_fork(parsed) }
+end
+
+--- [`plurals_in`] for the new checker's reading ([`build.plural_sites`]): `source` is parsed here, so that a run in that
+--- mode need not parse it with the fork's parser. nil too for a file it cannot read, which [`plurals`] then says.
+function tree_checks.syntax_plurals_in(file: string, source: string): tree_checks.Plurals | nil
+  if not plural_file(file) then return nil end
+  local sites, _ = syntax_plural_sites(source, file)
+  if sites == nil then return nil end
+  return { source = source, sites = sites }
 end
 
 --- Every place in the Teal sources under `build/`, `cmd/` and
@@ -1880,7 +1766,7 @@ end
 --- source}` pairs, [`ci_sources`]'s), that puts a literal plural noun
 --- after a number, as `<file>:<line>: ...` with the fix, and then each
 --- name in `excused` (by default `plural_exempt`) that nothing answers
---- to any more. `built` parses the sources.
+--- to any more. `built` parses the sources, or the new checker does where `grammar` is `new`.
 ---
 --- The two spellings refused are a value that is not provably a string
 --- joined to a literal by `..` (`#rows .. " tests"`, `tostring(n) ..
@@ -1895,10 +1781,17 @@ end
 --- goes in `plural_exempt` with the reason.
 --- @param read what [`plurals_in`] found before the checks, by file: a
 ---   file whose text is the one read there is not parsed again
+--- @param grammar the checker that reads the sources: the one `COSMIC_GRAMMAR` names where not given
 function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{string}},
-                             excused?: {string: string}, read?: {string: tree_checks.Plurals}):
-    {string}
+                             excused?: {string: string}, read?: {string: tree_checks.Plurals},
+                             grammar?: GrammarMode.Mode): {string}
   excused = excused or plural_exempt
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then return { chosen_trouble } end
+    mode = chosen
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
       "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
@@ -1913,11 +1806,21 @@ function tree_checks.plurals(db: Sqlite.Handle, built: compiler, extra?: {{strin
   local found: {string: boolean} = {}
   for _, row in ipairs(sources) do
     local known = read ~= nil and read[row[1]] or nil
-    local sites, parse_trouble: {{string}}, string | nil
+    local sites: {{string}} | nil
+    local parse_trouble: string | nil
     if known ~= nil and known.source == row[2] then
       sites = known.sites
     else
-      sites, parse_trouble = plural_sites(built, row[2], row[1])
+      local text, name = assert(row[2]), assert(row[1])
+      if mode == "new" then
+        sites, parse_trouble = syntax_plural_sites(text, name)
+      end
+      -- TODO: drop this fallback with the fork, once the switch has every file read in the new grammar
+      -- (doc/plans/strict-teal.md, "the switch"): a few files do not translate to it yet ([translated] in
+      -- build/ceilings.txt), and the fork's reading of them is what the default mode checks.
+      if sites == nil then
+        sites, parse_trouble = fork_plural_sites(built, text, name)
+      end
     end
     if sites == nil then
       out[#out + 1] = row[1] .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
@@ -1961,6 +1864,33 @@ function tree_checks.ci_sources(root: string): {{string}}
   return out
 end
 
+--- The ceilings of `stage` for the tree at `root`: `given` where a caller passes its own, else [`Ceilings.path`]'s.
+local function ceilings_for(root: string, stage: Ceilings.Stage, given: {string: integer} | nil): {string: integer} | nil, string
+  if given ~= nil then
+    return given, ""
+  end
+  local read, why = Ceilings.read(root)
+  if read == nil then
+    return nil, why
+  end
+  local dead = Ceilings.dead(root, read)
+  if #dead > 0 then
+    return nil, Ceilings.path .. " holds ceilings for files that are gone, which no check would ever lower: " ..
+      table.concat(dead, "; ")
+  end
+  return Ceilings.of(read, stage), ""
+end
+
+--- Whether `line`, a finding of the new checker, is a warning of an unused name: it ends its message with the code.
+local function unused_warning(line: string): boolean
+  for _, code in ipairs(Warnings.codes) do
+    if Warnings.kind_of(code) == "unused" and line:find("(" .. code .. "): ", 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
 --- The Teal under `ci/testdata` that fails to type-check in
 --- [`build.standalone`]'s environment, one line per complaint. No leg runs
 --- these with `--standalone`: they are copied into fixture directories and
@@ -1974,8 +1904,35 @@ end
 --- [`standalone.environment`] points its search at this binary's sources.
 --- A test module's unused functions are no complaint (a test runner
 --- calls them); any other file's unused locals are.
-function tree_checks.ci_testdata(root: string, built: compiler): {string}
+--- @param grammar the checker that reads them: the one `COSMIC_GRAMMAR` names where not given. The new one
+---   ([`build.pipeline`]) reads each file translated ([`lang.translate`]), holds it to the declarations the tool carries
+---   and tells the complaints in its own words, `built` unused.
+function tree_checks.ci_testdata(root: string, built: compiler, grammar?: GrammarMode.Mode): {string}
   local out: {string} = {}
+  local mode = grammar
+  if mode == nil then
+    local chosen, chosen_trouble = GrammarMode.mode()
+    if chosen == nil then return { chosen_trouble } end
+    mode = chosen
+  end
+  local options: Pipeline.Options | nil = nil
+  -- What the new checker finds in a file is held to the ceilings of [`Ceilings.Stage`] `testdata`: none in a tree without
+  -- ceilings, where every finding is told.
+  local pins: {string: integer} = {}
+  local unpinned = true
+  local found_pins: {string: integer} = {}
+  if mode == "new" then
+    local made, made_trouble = Pipeline.alone()
+    if made == nil then return { made_trouble } end
+    options = made
+    local there, _ = Fs.exists(root .. "/" .. Ceilings.path)
+    if there == true then
+      local given, why = ceilings_for(root, "testdata", nil)
+      if given == nil then return { why } end
+      pins = given
+      unpinned = false
+    end
+  end
   local listed, _ = Fs.walk(root .. "/ci/testdata")
   local names: {string} = {}
   for _, name in ipairs(listed or {}) do
@@ -1987,6 +1944,42 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
     local source, read_trouble = Fs.read(root .. "/" .. file)
     if source == nil then
       out[#out + 1] = read_trouble
+    elseif options ~= nil then
+      -- TODO: read `source` as written, with no translation, once the switch has the tool the candidate builds compile
+      -- `ci/testdata` in the new grammar (doc/plans/strict-teal.md, "the switch"): the files are the fork's Teal until then,
+      -- and `ci/` stays an island for the pinned driver.
+      --
+      -- Checked under its path below `ci/testdata`, which the build leaves out of a tree as no module of it (any
+      -- `testdata/` directory), and told under its own.
+      local testy = name:match("_test%.tl$") ~= nil
+      local made = Pipeline.checked_alone(name, Translate.translate(source, file).text, options, testy)
+      local findings: {Ceilings.Finding} = {}
+      local codes: {string} = {}
+      local seen: {string: boolean} = {}
+      for _, line in ipairs(made.lines) do
+        if not (testy and unused_warning(line)) then
+          local y, x, msg, code, fix = line:match("^[^:]+:(%d+):(%d+): (.-) %(([%a_]+)%): (.*)$")
+          if code == nil then
+            -- The checker's own count of a code ("2 errors of x in its bodies") is told again, against the ceiling, below.
+            if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+; follow the fix above$") == nil then
+              out[#out + 1] = line:sub(1, #name + 1) == name .. ":" and file .. line:sub(#name + 1) or line
+            end
+          else
+            findings[#findings + 1] = { code = code, y = math.tointeger(tonumber(y)) or 0,
+              x = math.tointeger(tonumber(x)) or 0, msg = msg, fix = fix }
+            if not seen[code] then
+              seen[code] = true
+              codes[#codes + 1] = code
+            end
+          end
+        end
+      end
+      local held = Ceilings.over(file, findings, codes, pins, "bodies", unpinned)
+      for _, line in ipairs(held.lines) do out[#out + 1] = line end
+      for key, count in pairs(held.found) do found_pins[key] = count end
+      if made.code == nil and #made.lines == 0 then
+        out[#out + 1] = file .. ": the compiler refused it"
+      end
     else
       local env, env_trouble = standalone.environment(built)
       if env == nil then
@@ -2012,24 +2005,10 @@ function tree_checks.ci_testdata(root: string, built: compiler): {string}
       end
     end
   end
+  for _, line in ipairs(Ceilings.fallen(found_pins, pins, Ceilings.path .. "'s [testdata]")) do
+    out[#out + 1] = line
+  end
   return out
-end
-
---- The ceilings of `stage` for the tree at `root`: `given` where a caller passes its own, else [`Ceilings.path`]'s.
-local function ceilings_for(root: string, stage: Ceilings.Stage, given: {string: integer} | nil): {string: integer} | nil, string
-  if given ~= nil then
-    return given, ""
-  end
-  local read, why = Ceilings.read(root)
-  if read == nil then
-    return nil, why
-  end
-  local dead = Ceilings.dead(root, read)
-  if #dead > 0 then
-    return nil, Ceilings.path .. " holds ceilings for files that are gone, which no check would ever lower: " ..
-      table.concat(dead, "; ")
-  end
-  return Ceilings.of(read, stage), ""
 end
 
 --- Every `.tl` file under `root` as `{file, source}` pairs, read from disk:
@@ -3389,7 +3368,7 @@ function tree_checks.read(root: string, pinned?: {string: integer}, memo?: Sqlit
     "build/stub.tl", "build/coverage/lines.tl", "checker/tl.tl", "build/check_memo.tl",
     "build/syntax_compared_analysis.tl", "build/syntax_analyzer.tl", "build/syntax_link_text.tl",
     "build/policy_rules.tl", "build/analyzer.tl", "build/link_text.tl", "build/cache_names.tl",
-    "build/host_names.tl" }, "read 3")
+    "build/host_names.tl", "build/plural_sites.tl" }, "read 4")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "read")
   end

@@ -1229,7 +1229,7 @@ end
 --- test's. `--worker-held` holds it by a ruleset that forbids running
 --- nothing: one whose module declares `tool` but not `nests`, which may
 --- confine no process in a root of its own ([`Hold`]).
-function worker.run(argv: {integer:string}): integer
+function worker.run(argv: {string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   local children_path = argv[7]
   local expected_needs = argv[8] or ""

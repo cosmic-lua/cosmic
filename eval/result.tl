@@ -250,7 +250,9 @@ function Result.git_head(repo: string, path?: string): string | nil
   return sha
 end
 
-function Result.main(argv: {integer: string}): integer
+--- @param argv the words after the script's path
+--- @param program this script's own path
+local function run(argv: {string}, program: string): integer
   local arena: string | nil = nil
   local grade: Result.Grade = {}
   local meta: Result.Meta = {}
@@ -306,7 +308,7 @@ function Result.main(argv: {integer: string}): integer
   end
   -- A copy the checker knows is not nil: a closure below reads it.
   local directory: string = absolute
-  local script, strouble = Fs.absolute(argv[0])
+  local script, strouble = Fs.absolute(program)
   if script == nil then
     complain(strouble)
     return 2
@@ -333,6 +335,11 @@ function Result.main(argv: {integer: string}): integer
   end
   local _, _ = Fs.put(Fs.stdout, "result: " .. directory .. "/result.json\n")
   return 0
+end
+
+--- The entry point: [`run`] with this script's path, Lua's `arg[0]`.
+function Result.main(argv: {string}): integer
+  return run(argv, (assert(arg[0], "result: no script path")))
 end
 
 return Result

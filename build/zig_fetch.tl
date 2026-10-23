@@ -308,7 +308,7 @@ end
 
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: the words build/zig.tl starts it with (see above).
-function ZigFetch.main(argv: {integer:string}): integer
+function ZigFetch.main(argv: {string}): integer
   local cache, install, version, host = argv[1], argv[2], argv[3], argv[4]
   if cache == nil or install == nil or version == nil or host == nil then
     local _, _ = Fs.put(Fs.stdout,

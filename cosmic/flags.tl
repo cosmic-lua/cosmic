@@ -7,6 +7,12 @@
 --- "report" for the file. `cosmic docs Flags.dispatch` shows such a
 --- program whole.
 ---
+--- The command line is the plain `{string}` a program's entry point is handed
+--- (`return function(argv: {string}): integer`): the words after the
+--- program's name. Slot 0, where the runtime puts the name, is not read; a
+--- function that prints the name, as [`Flags.dispatch`] does in help, takes it
+--- as an argument of its own.
+---
 ---     local got, why = Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true })
 ---     -- cosmic fix --check a.tl  => got.set["--check"], got.words = { "a.tl" }
 ---
@@ -114,12 +120,12 @@ end
 --- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
 --- not an option ("x", "-", "--"), or that holds an "=" no word could
 --- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line: the words after the program's name, as typed
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} Each option, and whether it takes a value
 --- @return Parsed | nil What the line held
 --- @return string Why it was refused, or "" when it was not
-function Flags.parse(argv: {integer:string}, from: integer,
+function Flags.parse(argv: {string}, from: integer,
                      spec: {string:boolean | Flags.Option}): Flags.Parsed | nil, string
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
@@ -350,11 +356,11 @@ end
 --- an option's value would go, which [`Flags.parse`] refuses anyway. For
 --- a program that reads its own line, as [`Flags.dispatch`] does not:
 --- its refusals and its help are then the same rule's.
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} The options the command names
 --- @return boolean Whether help was asked for
-function Flags.asks_help(argv: {integer:string}, from: integer,
+function Flags.asks_help(argv: {string}, from: integer,
                          spec: {string:boolean | Flags.Option}): boolean
   local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
@@ -390,22 +396,21 @@ end
 ---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
 ---     if ran.help ~= "" then print(ran.help) end
 ---     return ran.code
---- @param argv {integer:string} The command line
+--- @param argv {string} The command line
 --- @param from integer The slot holding the command
 --- @param commands {string:Command} Each command, by the word that names it
---- @param program string | nil What help calls the program: by default
----   the last part of `argv[0]`'s path ("/" or "\\" apart), or
----   "program" without one
+--- @param program string What help calls the program ("prog" in `prog build
+---   --help`): not read from `argv`, which holds the words after the program's
+---   name
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
-function Flags.dispatch(argv: {integer:string}, from: integer,
-                        commands: {string:Flags.Command}, program?: string): Flags.Dispatched | nil, string
+function Flags.dispatch(argv: {string}, from: integer,
+                        commands: {string:Flags.Command}, program: string): Flags.Dispatched | nil, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
-  if program == nil then
-    local last = argv[0] ~= nil and argv[0]:match("([^/\\]*)$") or ""
-    program = last ~= "" and last or "program"
+  if type(program) ~= "string" then
+    error("flags: dispatch needs the program's name, as its fourth argument", 2)
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then

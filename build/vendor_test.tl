@@ -50,7 +50,7 @@ local function run(dir: string, pin: string, files: {string:string},
   write_all(dir .. "/tree", { ["PIN"] = pin, ["old/gone.c"] = "stale" })
   local archive = dir .. "/archive.tar"
   write_tar(archive, files, modes)
-  return Vendor.main({ [1] = dir .. "/tree", [2] = archive })
+  return Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl")
 end
 
 --- Nothing but the tree itself is left beside it: no scratch directory.
@@ -88,7 +88,7 @@ local function test_a_link_to_a_directory_is_removed_not_followed(dir: string)
   write_all(dir .. "/tree", { ["PIN"] = "strip pkg/\nkeep src/*.c\n" })
   assert(Fs.symlink("../outside", dir .. "/tree/linked"))
   write_tar(dir .. "/archive.tar", { ["pkg/src/one.c"] = "one" })
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = dir .. "/archive.tar" }) == 0)
+  assert(Vendor.run({ dir .. "/tree", dir .. "/archive.tar" }, "build/vendor.tl") == 0)
   assert(Fs.readlink(dir .. "/tree/linked") == nil, "the link was left")
   assert(Fs.read(dir .. "/outside/kept.c") == "not the tree's", "the link was followed")
 end
@@ -136,7 +136,7 @@ local function test_keeps_from_a_zip_archive_too(dir: string)
     ["pkg/src/one.c"] = "one",
     ["pkg/doc/readme.txt"] = "prose",
   })
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = archive }) == 0)
+  assert(Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/src/one.c") == "one")
   assert(not Fs.exists(dir .. "/tree/doc"))
 end
@@ -148,7 +148,7 @@ local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: stri
   })
   local download = dir .. "/upstream-name.pem"
   assert(Fs.write(download, "cert bytes"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 0)
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 0)
   assert(Fs.read(dir .. "/tree/cacert.pem") == "cert bytes")
   assert(not Fs.exists(dir .. "/tree/old"), "the stale tree was not pruned")
 end
@@ -157,7 +157,7 @@ local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir:
   write_all(dir .. "/tree", { ["PIN"] = "file cacert.pem\nkeep other.pem\n" })
   local download = dir .. "/cacert.pem"
   assert(Fs.write(download, "cert bytes"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 1)
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
   assert(not Fs.exists(dir .. "/tree/cacert.pem"))
 end
 
@@ -171,7 +171,7 @@ local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: s
   })
   local download = dir .. "/pkg.tar.gz"
   assert(Fs.write(download, "not an archive at all"))
-  assert(Vendor.main({ [1] = dir .. "/tree", [2] = download }) == 1)
+  assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
   assert(Fs.read(dir .. "/tree/src/kept.c") == "the tree as it was")
   assert(not Fs.exists(dir .. "/tree/pkg.tar.gz"))
 end
@@ -187,9 +187,9 @@ local function test_read_pin_takes_the_first_word_and_the_first_line()
 end
 
 local function test_is_direct_rewrite_needs_a_slash_in_the_first_argument()
-  assert(Vendor.is_direct_rewrite({ [1] = "vendor/curl", [2] = "/tmp/curl.tar.gz" }))
-  assert(not Vendor.is_direct_rewrite({ [1] = "curl" }))
-  assert(not Vendor.is_direct_rewrite({ [1] = "curl", [2] = "mbedtls" }))
+  assert(Vendor.is_direct_rewrite({ "vendor/curl", "/tmp/curl.tar.gz" }))
+  assert(not Vendor.is_direct_rewrite({ "curl" }))
+  assert(not Vendor.is_direct_rewrite({ "curl", "mbedtls" }))
   assert(not Vendor.is_direct_rewrite({}))
 end
 
@@ -262,7 +262,7 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   local tree = dir .. "/vendor/thing"
   assert(Fs.mkdirs(tree))
   assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
-  assert(Vendor.main({ [1] = tree, [2] = fetched }) == 0)
+  assert(Vendor.run({ tree, fetched }, "build/vendor.tl") == 0)
   assert(Fs.read(tree .. "/src/one.c") == "one")
   assert(not Fs.exists(tree .. "/doc"))
 end
@@ -273,14 +273,14 @@ local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: str
   -- and fails with 1.
   assert(Fs.mkdirs(dir .. "/repo/build"))
   assert(Fs.write(dir .. "/repo/build/vendor.tl", ""))
-  assert(Vendor.main({ [0] = dir .. "/repo/build/vendor.tl", [1] = "--dry-run" }) == 2)
+  assert(Vendor.run({ "--dry-run" }, dir .. "/repo/build/vendor.tl") == 2)
 end
 
 local function test_help_is_answered_before_anything_is_fetched()
-  -- No script path at slot 0: without help first, this is exit 2 for a
+  -- No script path: without help first, this is exit 2 for a
   -- repository it cannot find.
-  assert(Vendor.main({ [1] = "--help" }) == 0)
-  assert(Vendor.main({ [1] = "curl", [2] = "-h" }) == 0)
+  assert(Vendor.run({ "--help" }, "build/vendor.tl") == 0)
+  assert(Vendor.run({ "curl", "-h" }, "build/vendor.tl") == 0)
 end
 
 --- A feed's PIN is rewritten to name the snapshot: its version the
@@ -313,8 +313,8 @@ local function test_an_unnamed_feed_tree_is_kept_or_refused(dir: string)
   assert(Fs.mkdirs(root .. "/build"))
   local script = root .. "/build/vendor.tl"
   assert(Fs.write(script, ""))
-  assert(Vendor.main({ [0] = script }) == 0)
+  assert(Vendor.run({}, script) == 0)
   assert(Fs.read(root .. "/vendor/feedy/f.json") == "snapshot")
   assert(Fs.write(root .. "/vendor/feedy/f.json", "changed by hand"))
-  assert(Vendor.main({ [0] = script }) == 1)
+  assert(Vendor.run({}, script) == 1)
 end

@@ -398,9 +398,9 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
     if name == "COSMIC_ZIG" then return "tool" end
     return nil
   end
-  local denied = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  local denied = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   reply = { kind = "not_found", reason = "tool: not executable" }
-  local missing = Zig.main({ [0] = tmp .. "/build/zig.tl", "version" })
+  local missing = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   Proc.find_result, Env.get = real_find, real_get
   assert(denied == 126 and missing == 127 and calls.value == 2)
 end

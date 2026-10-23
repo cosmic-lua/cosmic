@@ -141,7 +141,7 @@ function Zig.host(sysname: string, machine: string): string | nil, string
   return arch .. "-" .. os, ""
 end
 
---- The repository root, from this script's own path, `argv[0]`.
+--- The repository root, from this script's own path, Lua's `arg[0]`.
 function Zig.repo_root(script_path: string): string | nil, string
   if script_path == nil then
     return nil, "expected to run as .../build/zig.tl"
@@ -1023,10 +1023,10 @@ function Zig.with_lock(output: string, environment: {string:string},
   return run(env)
 end
 
---- The whole entry point, over `argv` as the entry-point contract
---- hands it: `argv[0]` is this script's own path.
-function Zig.main(argv: {integer:string}): integer
-  local found_root, root_trouble = Zig.repo_root(argv[0])
+--- The whole entry point over `argv`, the words after this script's own
+--- path, `script`.
+function Zig.enter(argv: {string}, script: string): integer
+  local found_root, root_trouble = Zig.repo_root(script)
   if found_root == nil then
     log:complain(root_trouble)
     return 2
@@ -1132,6 +1132,11 @@ function Zig.main(argv: {integer:string}): integer
     Zig.passthrough_environment(output, environment))
   log:complain(program .. ": " .. tostring(trouble))
   return Zig.exec_status(math.tointeger(number) or 0)
+end
+
+--- The entry point: [`Zig.enter`] with this script's path, Lua's `arg[0]`.
+function Zig.main(argv: {string}): integer
+  return Zig.enter(argv, (assert(arg[0], "zig: no script path")))
 end
 
 return Zig

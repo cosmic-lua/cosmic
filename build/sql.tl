@@ -869,7 +869,7 @@ end
 ---   stderr when nil
 --- @param stdin the whole of standard input for `--from -`, or nil and
 ---   why; the process's own when nil
-function sql.run(argv: {integer:string}, root?: string, output?: sql.Output,
+function sql.run(argv: {string}, root?: string, output?: sql.Output,
                  stdin?: function(): string | nil, string): integer
   local started = Clock.monotonic_ns()
   local to = output or standard
@@ -983,7 +983,7 @@ sql.spec = {
   name = "sql",
   guide = "questions about a data file",
   tests = { "build.sql_test", "build.sql_tool_test", "build.sql_store_test" },
-  run = function(argv: {integer:string}): integer return sql.run(argv) end,
+  run = function(argv: {string}): integer return sql.run(argv) end,
   bare = false,
   reads = true,
   recheck_on_refusal = false,

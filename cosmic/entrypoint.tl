@@ -22,7 +22,9 @@ local record Entrypoint
   --- to 255, or text naming one, exits 2. argv[0] holds the program's
   --- own name -- the file's path under `cosmic <file.tl>`, the name a
   --- built binary was run by -- but nothing ordinary reaches it: no
-  --- length or loop starts before 1
+  --- length or loop starts before 1, and [`cosmic.flags`] reads the words
+  --- from 1 and takes the name as an argument of its own. A program that
+  --- needs its own path reads `arg[0]`, which holds the same name
   argv: string
   --- a binary is cmd/<name>/main.tl, its own directory under cmd/.
   --- `cosmic build` writes bin/<name> in the tree's build directory for each one a tree holds,

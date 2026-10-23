@@ -851,7 +851,7 @@ local standard: verb.Io = {
 --- overwritten, 2 a command line or an archive it cannot read or unpack.
 --- @param argv the command line, `archive` at slot 1
 --- @param io where the text is read and written; the process's own when nil
-function verb.run(argv: {integer:string}, io?: verb.Io): integer
+function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("archive", to.err)
   local parsed, trouble = Flags.parse(argv, 2, spec)
@@ -922,7 +922,7 @@ verb.spec = {
   name = "archive",
   guide = "a quick look inside an archive",
   tests = { "build.archive_test", "build.archive_tool_test" },
-  run = function(argv: {integer:string}): integer return verb.run(argv) end,
+  run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its paths",
   exits = "`archive` prints its listing or the paths it wrote, and exits 0, 1 or 2 as `json` does.",

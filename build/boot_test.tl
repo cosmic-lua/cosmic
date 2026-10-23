@@ -67,7 +67,7 @@ end
 
 local function run(mode: string, records_path: string, build_directory: string,
                    extra?: {string}): integer
-  local argv: {integer:string} = { [0] = "cosmic-core", "--boot", "/nonexistent-tree",
+  local argv: {string} = { "--boot", "/nonexistent-tree",
     "/nonexistent-tl", mode, "x86", records_path, build_directory }
   for _, argument in ipairs(extra or {}) do
     argv[#argv + 1] = argument
@@ -116,7 +116,7 @@ end
 
 local function test_assemble_refuses_a_host_the_records_do_not_name(tmp: string)
   local build_directory, records_path = directory(tmp)
-  local argv: {integer:string} = { [0] = "cosmic-core", "--boot", "/nonexistent-tree",
+  local argv: {string} = { "--boot", "/nonexistent-tree",
     "/nonexistent-tl", "--assemble", "riscv", records_path, build_directory }
   assert(boot("/nonexistent-tree", argv, "") == 1)
   assert(tool_of(build_directory) == "previous tool")
