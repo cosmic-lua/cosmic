@@ -16,6 +16,9 @@
 --- - `portable`: this run is a portable artifact, not a native start;
 --- - `checked`: this core is the checked (sanitized) build, whose instruments
 ---   refuse an allocation or fire a fault on demand (core/testing.h);
+--- - `all_cores`: this tool carries a core for every release target, not the
+---   host's alone (`bin/zig build boot -Dboot-cores=all`), which a test of
+---   the portable programs it makes needs;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket;
 --- - `path:<absolute path>`: a file or directory of the host;
@@ -83,6 +86,7 @@ local shapes: {string:Shape} = {
   proc = { class = "platform", argument = false, optional = false },
   portable = { class = "platform", argument = false, optional = false },
   checked = { class = "platform", argument = false, optional = false },
+  all_cores = { class = "host", argument = false, optional = false },
   root = { class = "host", argument = false, optional = false },
   path = { class = "host", argument = true, optional = false },
   program = { class = "host", argument = true, optional = false },

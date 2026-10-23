@@ -254,6 +254,29 @@ function Orchestration.promise(env: {string:string})
   env.COSMIC_TEST_LEG = env.COSMIC_WORKER
 end
 
+--- The promised names the pinned release (ci/cosmic-driver.pin) does not know. A
+--- fixture's `cosmic test` runs on that release ([`Proc.executable()`]), not the
+--- tree's tool, and a release refuses a promised name it lacks as a typo, so a
+--- name the tree added since is not handed to it. No fixture requires one: a
+--- fixture is no module of the tree's suites.
+-- TODO: drop `all_cores` once ci/cosmic-driver.pin names a release that knows it.
+local newer_than_pin: {string} = { "all_cores" }
+
+--- Removes from `env`'s COSMIC_TEST_PROMISES the names of
+--- `newer_than_pin`, where it has any, for a run on the pinned
+--- release. Every other name, an unknown one among them, is left for it to judge.
+function Orchestration.pinned_promises(env: {string:string})
+  local given = env.COSMIC_TEST_PROMISES
+  if given == nil then return end
+  local newer: {string:boolean} = {}
+  for _, name in ipairs(newer_than_pin) do newer[name] = true end
+  local kept: {string} = {}
+  for name in given:gmatch("[^,]+") do
+    if not newer[name] then kept[#kept + 1] = name end
+  end
+  env.COSMIC_TEST_PROMISES = table.concat(kept, ",")
+end
+
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
@@ -778,7 +801,9 @@ function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir:
   local sandboxed = Orchestration.sandboxed_fixtures[source] == true
   local verdicts: string | nil = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
-  return Orchestration.fixture(env, tmpdir, compiles, verdicts)
+  local run = Orchestration.fixture(env, tmpdir, compiles, verdicts)
+  Orchestration.pinned_promises(run)
+  return run
 end
 
 --- What a sandboxed fixture reads of a setup's output, `from` (the
@@ -1289,7 +1314,9 @@ local function boot(p: PlatformContext): integer
     local _, out, err = ZigRestat.run(root, project, named("COSMIC_ZIG_GLOBAL_CACHE"))
     Fs.put(Fs.stderr, out .. err)
   end
-  return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
+  -- Every core: what CI verifies is the tool that carries them all, the one
+  -- a release is made of; a bare `boot` writes a tool of the host's core alone.
+  return checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot", "-Dboot-cores=all" }, 0)
 end
 
 --- The list, in the checkout, of the test modules whose code takes a
@@ -1536,7 +1563,7 @@ end
 local BUILT_BY <const> = "local S = require('cosmic.store'); print(S.meta('compiled_by') ~= S.meta('compiler')); " ..
   "print(S.source('checker.stdlib') ~= nil and S.source('checker.prelude') ~= nil)"
 
---- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot`) over the one `boot`
+--- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`) over the one `boot`
 --- made in the same build directory: the tree is compiled in one process by the new pipeline, and the tool carries the Lua
 --- the new generator wrote, under the tool string that says so, so that a run that asks for the fork's builds it again and one
 --- that asks for the new checker's does not. `rehearsal` runs the suite on it. On the linux-x86_64 target alone.
@@ -1544,7 +1571,7 @@ local function phase_rehearsal_boot(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
   mkdir(p.local_diagnostics)
-  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot" },
+  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot", "-Dboot-cores=all" },
     rehearsal_boot_timeout_ns, c.root, environment({ COSMIC_GRAMMAR = "new" }))
   if booted ~= 0 then return booted end
   local said = p.local_diagnostics .. "/rehearsal-built-by.out"

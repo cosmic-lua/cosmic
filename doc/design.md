@@ -587,7 +587,8 @@ the build is a cosmic program reading the tree by position into the
 database: compile, check, record, embed. `build.zig` owns the C.
 `bin/zig build` patches the vendored trees first, in Teal (below),
 and `zig build` installs them under the build directory's `vendor/` and produces the core
-for each target. `zig build boot`
+for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
+and puts a placeholder script where each other core goes). `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler built from the checker, [`checker/tl.tl`], in two
 stages (below), writes `cosmic.db`, and writes one

@@ -53,15 +53,16 @@ for _, dataset in ipairs(refresh.datasets) do
   datasets[dataset.name] = dataset
 end
 
---- A program `cosmic build` wrote under `tmp`, which prints "ok": a
---- portable one, or with `host` one of this host's alone
---- (`cosmic build --host`), which a test runs with nothing of the
---- system's.
-local function program(tmp: string, host?: boolean): string
+--- A program `cosmic build` wrote under `tmp`, which prints "ok": one of this
+--- host's alone (`cosmic build --host`), which a test runs with nothing of the
+--- system's, or with `portable` a portable one, which only a tool of every
+--- core writes ([`build.embed_portable_tool_test`] refreshes one). A refresh
+--- reads and writes either layout alike ([`artifact.split`]).
+local function program(tmp: string, portable?: boolean): string
   local tree = tmp .. "/tree"
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
-  assert(embed.tree(tree, host))
+  assert(embed.tree(tree, portable ~= true))
   return build_dir(tree) .. "/bin/ok"
 end
 
@@ -131,7 +132,7 @@ end
 --- A different bundle replaces the roots, records the release it came
 --- from, and leaves a program that still runs.
 local function test_a_new_bundle_replaces_the_roots(tmp: string)
-  local path = program(tmp, true)
+  local path = program(tmp)
   local text = assert(Fs.read(bundle))
   -- The root store less one root: its last server trust made one that
   -- only says to verify, as Mozilla's is for a root it no longer trusts.

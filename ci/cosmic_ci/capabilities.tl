@@ -28,7 +28,9 @@ local env, passwd = "path:/usr/bin/env", "path:/etc/passwd"
 -- children in /proc, CONFIG_PROC_CHILDREN.
 local children = "path:/proc/thread-self/children"
 local cat = "path:/bin/cat"
-local linux = { "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", shell, cat, children,
+-- Every leg boots every core (`-Dboot-cores=all`, cosmic_ci.orchestration), so
+-- the modules that need a tool of the portable programs run on all of them.
+local linux = { "all_cores", "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "unix_socket", shell, cat, children,
   env, passwd }
 
 local with_curl = {}
@@ -52,6 +54,6 @@ return {
     ["alpine-x86_64"] = linux,
     -- No macOS run is held (it has no sandbox), so a name it lacks is
     -- skipped there rather than failed: these say what it gives.
-    ["macos-aarch64"] = { shell, "unix_socket", env, passwd, "program:cc" },
+    ["macos-aarch64"] = { "all_cores", shell, "unix_socket", env, passwd, "program:cc" },
   },
 }

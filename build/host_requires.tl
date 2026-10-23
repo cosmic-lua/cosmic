@@ -29,6 +29,12 @@
 --- - `checked`: this core is the checked build (`checked`, which the runner
 ---   reads from [`cosmic.internal.testing`]'s `configuration`): another
 ---   core has none of the instruments such a test uses, so it is n/a there;
+--- - `all_cores`: the tool carries a core for every release target, which
+---   `bin/zig build boot -Dboot-cores=all` gives it and a bare boot does not
+---   (a placeholder stands where each other core goes: `host_only`, which the
+---   runner answers from the tool's prefix): only such a tool makes a
+---   portable program. What tests one is skipped where it is not, saying
+---   so, and a leg that promises `all_cores` fails the run that skips;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket,
 ---   without asserting permission to bind a path or connect to a peer;
@@ -147,6 +153,12 @@ local record host_requires
     --- Whether this core is the checked build, which the runner reads from
     --- `configuration` ("sanitized"); nil is no.
     checked?: boolean
+    --- Whether the tool carries no core for some target, as a boot without
+    --- `-Dboot-cores=all` leaves it, or no portable prefix at all: asked only
+    --- of a module that requires `all_cores`, since the answer reads the
+    --- whole prefix, which this module cannot reach. Nil is a tool of every
+    --- core.
+    host_only?: function(): boolean
     --- Whether the platform is Linux, which is the platform's own answer
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
@@ -508,6 +520,14 @@ local table_of: {string:Entry} = {
   end,
     probe = function(_: string, _: host_requires.Host): Found
       return present("checked")
+    end },
+  all_cores = { platform_has = function(_: host_requires.Host): boolean return true end,
+    probe = function(_: string, host: host_requires.Host): Found
+      local only = host.context.host_only
+      if only ~= nil and only() then
+        return absent("this tool carries the host's core alone; boot it with bin/zig build boot -Dboot-cores=all")
+      end
+      return present("all")
     end },
   root = {
     probe = function(_: string, _: host_requires.Host): Found

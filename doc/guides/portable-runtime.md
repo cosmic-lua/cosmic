@@ -321,7 +321,7 @@ identity that digest is part of, and reports none if the manifest names another
 digest: the kernel ran these bytes, so a check at startup would prove nothing a
 changed image could not also claim. A host program runs only where its core
 does, and cannot supply the portable prefix, so `cosmic build` from one writes
-host programs only.
+host programs only (`--host`), and refuses to write a portable one.
 
 ## rebuild without replacing cores
 
@@ -344,6 +344,21 @@ prefix, so the tool runs `bin/zig build boot` itself and re-enters the command
 database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
+
+`bin/zig build boot -Dboot-cores=all` writes the portable artifact above,
+every release core behind the launcher, which is what CI verifies and what a
+release is. A bare `bin/zig build boot` builds the host's core alone and
+writes the same layout with a placeholder where each other core goes: a
+script that says the tool was booted for its host alone and exits 1
+([`artifact.placeholder`]), an entry of the manifest like any, so the core
+accepts it (it requires a core for every target) and runs as it does from any
+artifact. It runs every verb the same, and a rebuild reuses its prefix, so it
+stays what it is, and a boot it starts is a bare one when its prefix holds a
+placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What
+needs another target's core refuses and names that boot: `cosmic build` of a
+portable program, which would run on this host alone and say nothing of it
+(`--host` is all such a tool writes), and the tests of one, which declare
+`all_cores` and are skipped, saying so.
 
 ## test identity and transport
 
@@ -472,6 +487,8 @@ print("manifest: names the running core")
 manifest: names the running core
 ```
 
+[`artifact.host_only`]: ../../build/artifact.tl
+[`artifact.placeholder`]: ../../build/artifact.tl
 [`artifact.program`]: ../../build/artifact.tl
 [`build.artifact.trusted_prefix`]: ../../build/artifact.tl
 [`Child.start`]: ../../cosmic/child.tl

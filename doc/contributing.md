@@ -31,7 +31,9 @@ conflict with the parent's squash.
    work from that worktree's root by absolute path, and keep `<branch>`
    the PR's branch name so `git push -u origin <branch>` pushes this
    worktree's commits.
-4. `bin/zig build boot` there. zig's caches and the Teal compile cache
+4. `bin/zig build boot` there: the host's core and the tree, which is
+   all the loop below runs ([`AGENTS.md`] says what that host-only tool
+   leaves to `bin/zig build boot -Dboot-cores=all`). zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
    every checkout, so a fresh worktree compiles little, and what it
    does compile it compiles in worker processes, one fewer than the
@@ -49,6 +51,10 @@ conflict with the parent's squash.
   checks read. it takes 5 to 11 minutes (`timeout 2400`), and says which
   of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
+- a change to the artifact format, the launcher or `cosmic build`:
+  `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
+  every core and the tests that need one (`all_cores`) run rather than
+  skip, which a host-only tool reports.
 - a change to C, `ci/`, the launcher, startup, the artifact format or a
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
   fixtures), and for C the checklist in [`doc/c.md`]. a change to `ci/`
