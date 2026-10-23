@@ -6,6 +6,7 @@ local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local test = require("build.test")
+local work = require("build.work")
 local worker = require("build.test_worker")
 
 local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_files_it_names_alone()
@@ -349,4 +350,25 @@ local function test_the_harness_walks_the_key_code_by_value()
   for _, name in ipairs(found.names) do named[name] = true end
   assert(named["build.artifact"] and named["cosmic.sqlite"] and named["cosmic.child"])
   assert(not named["cosmic.stream"] and not named["cosmic.time"])
+end
+
+--- A run keeps the coverage of the newest ten runs and drops that of the
+--- rest, with the `test_runs` row nothing refers to any more.
+local function test_coverage_is_kept_for_the_newest_ten_runs_only()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
+  for run = 1, 13 do
+    assert(db:exec("INSERT INTO test_runs (ran_at_ns) VALUES (" .. run .. ")"))
+    assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (" .. run ..
+        ", 'a', 1, 1), (" .. run .. ", 'a', 2, 0)"))
+  end
+  assert(test.prune_history(db, 100))
+  local kept = assert(Sqlite.text_rows(db,
+    "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))
+  assert(kept[1]:texts()[1] == "4" and kept[1]:texts()[2] == "13" and kept[1]:texts()[3] == "10" and
+      kept[1]:texts()[4] == "20", "coverage kept: " .. table.concat(kept[1]:texts(), " "))
+  local runs = assert(Sqlite.text_rows(db, "SELECT count(*), min(ran_at_ns) FROM test_runs"))
+  assert(runs[1]:texts()[1] == "10" and runs[1]:texts()[2] == "4",
+    "test_runs kept: " .. table.concat(runs[1]:texts(), " "))
+  assert(db:close())
 end
