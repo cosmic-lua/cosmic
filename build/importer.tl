@@ -1349,6 +1349,10 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
           "SELECT ?1, stub, held FROM stub_holds WHERE key = ?2", { text(key), text(old) })
     end
     if not copied then return nil end
+    -- The next edit reaches this compile, which stands this run, and not the
+    -- older one a cache that is not used for a while drops.
+    local _, _ = Sqlite.run(db, "INSERT OR REPLACE INTO compiled_interface (ikey, key) VALUES (?1, ?2)",
+      { text(interface), text(key) })
     local found: Reuse = { lua = first:text(2), bytecode = first:bytes(3) }
     return found
   end

@@ -1483,17 +1483,16 @@ end
 --- What a tree's compile holds for each planned module: its Lua, its
 --- bytecode and the record-field uses found, which a compile made fresh
 --- in another root must hold the same of.
-local function compile_outputs(root: string): {string}
+local function compile_outputs(root: string): string
   local handle = assert(work.open(root))
   local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT p.path || char(10) || c.lua || char(10) || hex(c.bytecode) || char(10) || " ..
+    "SELECT group_concat(one, char(10) || '====' || char(10)) FROM (SELECT p.path || char(10) || c.lua || " ..
+      "char(10) || hex(c.bytecode) || char(10) || " ..
       "coalesce((SELECT group_concat(module || '|' || member || '|' || line, ';') FROM " ..
-      "(SELECT module, member, line FROM typed_refs t WHERE t.key = p.key ORDER BY ordinal)), '') " ..
-      "FROM plan p JOIN compiled c ON c.key = p.key ORDER BY p.path"))
+      "(SELECT module, member, line FROM typed_refs t WHERE t.key = p.key ORDER BY ordinal)), '') AS one " ..
+      "FROM plan p JOIN compiled c ON c.key = p.key ORDER BY p.path)"))
   work.close(handle)
-  local out: {string} = {}
-  for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
-  return out
+  return assert(rows[1]):text(1)
 end
 
 --- Writes `files` (`build/<name>`) under a fresh own-tree root.
@@ -1519,22 +1518,37 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
     "  top: function(): integer\nend\nfunction mid.top(): integer\n  return lim.MAX\nend\nreturn mid\n"
   local user = "local mid = require(\"build.mid\")\nlocal lim = require(\"build.lim\")\n" ..
     "local limit <const> = lim.MAX\nlocal chosen: lim.Mode = \"a\"\n" ..
-    "local function f(m: mid): integer\n  return limit + mid.top() + #lim.name() + #chosen + (m.m == \"a\" and 1 or 0)\nend\nreturn f\n"
+    "local function f(m: mid): integer\n  return limit + mid.top() + #lim.name() + #chosen + " ..
+    "(m.m == \"a\" and 1 or 0)\nend\nreturn f\n"
   local decl = "local record lim\n  enum Mode\n    \"a\"\n    \"b\"\n  end\n  MAX: integer\n" ..
     "  name: function(): string\nend\nreturn lim\n"
-  local steps: {{string, {string:string}}} = {
-    { "a body", { ["lim.tl"] = lim:gsub("return \"x\"", "return \"yy\"") } },
-    { "a comment", { ["lim.tl"] = lim .. "-- noted\n" } },
-    { "a constant the stub keeps", { ["lim.tl"] = lim:gsub("lim.MAX = 5", "lim.MAX = 6") } },
-    { "an enum", { ["lim.tl"] = lim:gsub("\"b\"\n", "\"b\"\n    \"c\"\n") } },
-    { "a declaration in front", { ["lim.tl"] = lim, ["lim.d.tl"] = decl } },
-    { "the module's body, with the declaration", { ["lim.tl"] = lim:gsub("return \"x\"", "return \"zzz\"") } },
-    { "the declaration gone", { ["lim.tl"] = lim, ["lim.d.tl"] = false as string } },
-    { "a body of mid", { ["mid.tl"] = mid:gsub("return lim.MAX", "return lim.MAX + 0") } },
+  local record Step
+    name: string
+    --- Every file of the tree after the edit.
+    files: {string:string}
+  end
+  local steps: {Step} = {
+    { name = "a body",
+      files = { ["lim.tl"] = lim:gsub("return \"x\"", "return \"yy\""), ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a comment",
+      files = { ["lim.tl"] = lim .. "-- noted\n", ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a constant the stub keeps",
+      files = { ["lim.tl"] = lim:gsub("lim.MAX = 5", "lim.MAX = 6"), ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "an enum",
+      files = { ["lim.tl"] = lim:gsub("\"b\"\n", "\"b\"\n    \"c\"\n"), ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a declaration in front",
+      files = { ["lim.tl"] = lim, ["lim.d.tl"] = decl, ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "the module's body, with the declaration",
+      files = { ["lim.tl"] = lim:gsub("return \"x\"", "return \"zzz\""), ["lim.d.tl"] = decl,
+        ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "the declaration gone",
+      files = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user } },
+    { name = "a body of mid",
+      files = { ["lim.tl"] = lim, ["mid.tl"] = mid:gsub("return lim.MAX", "return lim.MAX + 0"), ["user.tl"] = user } },
   }
   for _, checks in ipairs({ false, true }) do
-    local files: {string:string} = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user }
-    local root = write_tree_files("reused-" .. tostring(checks), files)
+    local before: {string:string} = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user }
+    local root = write_tree_files("reused-" .. tostring(checks), before)
     local function compile_with_checks(at: string): importer.Result | nil, string
       local handle = assert(work.open(at))
       assert(work.stage(handle, false))
@@ -1544,28 +1558,28 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
     end
     assert(compile_with_checks(root))
     for _, step in ipairs(steps) do
-      for name, source in pairs(step[2]) do
-        if source == (false as string) then
-          files[name] = nil
-          assert(Fs.remove(root .. "/build/" .. name))
-        else
-          files[name] = source
-          assert(Fs.write(root .. "/build/" .. name, source))
-        end
+      for name in pairs(before) do
+        if step.files[name] == nil then assert(Fs.remove(root .. "/build/" .. name)) end
       end
+      for name, source in pairs(step.files) do
+        assert(Fs.write(root .. "/build/" .. name, source))
+      end
+      before = step.files
       local made, trouble = compile_with_checks(root)
-      if made ~= nil and (step[1] == "a body" or step[1] == "a comment") then
-        assert(made.compiled == 1, step[1] .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
+      if made ~= nil and (step.name == "a body" or step.name == "a comment") then
+        assert(made.compiled == 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
+        local handle = assert(work.open(root))
+        local named = assert(Sqlite.text_rows(handle.db,
+          "SELECT count(*) FROM plan p JOIN compiled_interface i ON i.key = p.key WHERE p.path = 'build.user'"))
+        work.close(handle)
+        assert(assert(named[1]):text(1) == "1", step.name .. ": the interface key names a compile the run did not keep")
       end
-      local fresh_root = write_tree_files("fresh-" .. tostring(checks), files)
+      local fresh_root = write_tree_files("fresh-" .. tostring(checks), step.files)
       local fresh, fresh_trouble = compile_with_checks(fresh_root)
-      assert((made == nil) == (fresh == nil), step[1] .. ": " .. tostring(trouble) .. " / " .. tostring(fresh_trouble))
+      assert((made == nil) == (fresh == nil), step.name .. ": " .. tostring(trouble) .. " / " .. tostring(fresh_trouble))
       if made ~= nil then
-        local had, wanted = compile_outputs(root), compile_outputs(fresh_root)
-        assert(#had == #wanted, step[1])
-        for i, row in ipairs(had) do
-          assert(row == wanted[i], "checks=" .. tostring(checks) .. ", " .. step[1] .. ": " .. row .. "\n---\n" .. wanted[i])
-        end
+        assert(compile_outputs(root) == compile_outputs(fresh_root),
+          "checks=" .. tostring(checks) .. ", " .. step.name .. ": a reused compile is not a fresh one")
       end
     end
   end
