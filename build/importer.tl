@@ -184,6 +184,10 @@ local record importer
   --- `compiled` no longer holds, run at the end of each compile.
   prune_references: string
 
+  --- The statement that drops the stub verdicts of every compile
+  --- `compiled` no longer holds, run beside it.
+  prune_stub_holds: string
+
   --- The worked examples a checker diagnostic points its reader to
   --- (`cosmic docs <name>`), by the kind of diagnostic:
   --- [`build.tree_checks`] holds the tree to answering each.
@@ -210,6 +214,10 @@ importer.diagnostic_queries = {
 -- WITHOUT ROWID primary key), so `NOT IN` meets no NULL.
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
+
+-- Spelt as `prune_references` is, for the reason given there.
+importer.prune_stub_holds =
+  "DELETE FROM stub_holds WHERE key NOT IN (SELECT +key FROM compiled)"
 
 --- The derivation and the extractors, generators and parser it calls:
 --- the roots of
@@ -1355,6 +1363,22 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   if keys == nil then
     return nil, keys_trouble
   end
+  -- In cosmic's own tree, a module that requires one whose stub has been
+  -- held to its source's type is checked against the stub, which the
+  -- checker reads in a fraction of the time ([`compilation.verified_stubs`]).
+  --
+  -- TODO: serve the new checker's compile ([`build.pipeline`]) the verified stubs too: it
+  -- reads every module of the tree from source whatever it checks, and waits on
+  -- a verdict that a stub has the type its source has under that checker, which
+  -- `stub_holds` does not record.
+  local stubbed: {string:string} | nil = nil
+  if own_tree and grammar ~= "new" then
+    local found, stubbed_trouble = compilation.verified_stubs(handle.db, keys)
+    if found == nil then
+      return nil, stubbed_trouble
+    end
+    stubbed = found
+  end
   -- The new checker's compile: what it is made over ([`build.pipeline`]), read once the first module needs it. A module is
   -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
   local reading: Reading = { options = nil, built = nil }
@@ -1558,7 +1582,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
               made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), checks, judged, hints)
             else
               if progress.env == nil then
-                local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks)
+                local made_env, env_trouble = teal.environment_for(built, handle.db, handle.root, checks, stubbed)
                 if made_env == nil then
                   progress.failure = env_trouble
                   break
@@ -1630,12 +1654,26 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       end
     end
     finish_cache(cache)
+    -- What this run read of the tree's modules from their source, and what it
+    -- compiled, are the types a stub is held to, and the next run reads
+    -- those stubs instead.
+    local compiled_env = progress.env
+    if own_tree and compiled_env ~= nil and progress.failure == "" then
+      local held, hold_trouble = compilation.hold_stubs(db, built, compiled_env, keys)
+      if not held then
+        return false, hold_trouble
+      end
+    end
     local pruned, prune_trouble = Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
         (judged and " OR seen < 0" or ""),
       { text(tool), { integer = handle.run - kept_runs } })
     if not pruned then
       return false, prune_trouble
+    end
+    local forgotten_verdicts, forgotten_trouble = db:exec(importer.prune_stub_holds)
+    if not forgotten_verdicts then
+      return false, forgotten_trouble
     end
     -- Run whether or not the prune above dropped anything: a run that
     -- failed between a compile's [`compilation.keep_references`] and its `remember`

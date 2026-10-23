@@ -244,8 +244,12 @@ end
 --- compiler's own search of the filesystem: a name neither holds is not
 --- found, however a file of that name sits on disk, so a module reaches
 --- a build only by being staged.
-local function serve(built: compiler, db: Sqlite.Handle, root: string)
+local function serve(built: compiler, db: Sqlite.Handle, root: string, stubbed?: {string:string})
   built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+    local stub_text = stubbed ~= nil and stubbed[name] or nil
+    if stub_text ~= nil then
+      return root .. "/" .. name:gsub("%.", "/") .. ".tl", served(stub_text)
+    end
     local rows, _ = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
         "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
@@ -315,9 +319,14 @@ end
 --- With `checks`, the Lua its compiles write checks a value against the
 --- kind of its declared type at each declared parameter, return value and
 --- record field write ([`importer.compile`]'s `checks`).
+---
+--- `stubbed` is the text a module of the tree is read from in place of its
+--- source, by module name: the stub of each one whose stub a compile has
+--- held to its source's type ([`build.compilation`]'s `verified_stubs`).
 function teal.environment_for(built: compiler, db: Sqlite.Handle,
-                              root: string, checks?: boolean): compiler.Env | nil, string
-  serve(built, db, root)
+                              root: string, checks?: boolean,
+                              stubbed?: {string:string}): compiler.Env | nil, string
+  serve(built, db, root, stubbed)
   local env, trouble = built.new_env({ defaults = teal.defaults(checks == true) })
   if env == nil then
     return nil, trouble

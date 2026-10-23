@@ -494,6 +494,107 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   return true, ""
 end
 
+--- What a verdict on a stub is kept under beside the module's compile key:
+--- the hash of the stub's own text, so that a stub derived again differently
+--- is judged again whatever the key says.
+local function stub_hash(stub_text: string): string
+  return Hash.hex_sha256(stub_text)
+end
+
+--- The stub ([`build.stub`]) of each module of the tree whose type a
+--- compile has held to the source's ([`compilation.hold_stubs`]) under
+--- the module's key now, by path: what a compile of a module that requires
+--- one reads in place of its source ([`teal.environment_for`]). A module
+--- whose stub was never compared, or differs, is read from its source, as
+--- is one a declaration stands in front of. Typing a module's whole source
+--- is most of what a compile costs when a module it requires changed, and
+--- a stub leaves every body out and, of a module that returns a named type,
+--- every statement that type needs none of, with the modules those
+--- statements require.
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.verified_stubs(db: Sqlite.Handle,
+                                    keys: {string:Keys}): {string:string} | nil, string
+  local held_rows, held_trouble = Sqlite.text_rows(db,
+    "SELECT key || stub FROM stub_holds WHERE held = 1")
+  if held_rows == nil then
+    return nil, held_trouble
+  end
+  local held: {string:boolean} = {}
+  for _, row in ipairs(held_rows) do
+    held[row:text(1)] = true
+  end
+  local out: {string:string} = {}
+  if next(held) == nil then
+    return out, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND i.path NOT IN (SELECT path FROM inputs WHERE kind = 'decl') " ..
+      "ORDER BY i.path")
+  if rows == nil then
+    return nil, trouble
+  end
+  for _, row in ipairs(rows) do
+    local named = keys[row:text(1)]
+    if named ~= nil and held[named.key .. stub_hash(row:text(2))] then
+      out[row:text(1)] = row:text(2)
+    end
+  end
+  return out, ""
+end
+
+--- Compares, for each module of the tree that `env` holds the type of
+--- and that has no verdict under its key yet, the stub
+--- ([`build.stub`]) with the source's type ([`stub.difference`]), and
+--- keeps the answer in `stub_holds` under the module's key and the stub's text. The key names
+--- the module's source and its whole import graph and the compiler: the
+--- stub types the module as its source does, or it does not, for as long as
+--- the key stands. The type `env` holds is the source's, whether the
+--- module was compiled in this run or read from its source by the checker
+--- for one that requires it: a module read from its stub has a verdict
+--- already, and is not compared with itself. A module a declaration
+--- stands in front of is not compared. A stub that is a type error, or
+--- not the same type, only goes unheld, never refuses the module:
+--- [`compilation.generate`] refuses a standard-library module for that.
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.hold_stubs(db: Sqlite.Handle, built: compiler, env: compiler.Env,
+                                keys: {string:Keys}): boolean, string
+  local decided_rows, decided_trouble = Sqlite.text_rows(db, "SELECT key || stub FROM stub_holds")
+  if decided_rows == nil then
+    return false, decided_trouble
+  end
+  local decided: {string:boolean} = {}
+  for _, row in ipairs(decided_rows) do
+    decided[row:text(1)] = true
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT i.path, i.file, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
+      "WHERE i.kind = 'module' AND i.path NOT IN (SELECT path FROM inputs WHERE kind = 'decl') " ..
+      "ORDER BY i.path")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do
+    local path = row:text(1)
+    local named = keys[path]
+    local source_type = env.modules[path]
+    local verdict = named ~= nil and named.key .. stub_hash(row:text(3)) or ""
+    if named ~= nil and source_type ~= nil and not decided[verdict] then
+      local stubbed = built.check_string(row:text(3), env, row:text(2) .. " (stub)", "tl")
+      local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
+      local held = refusal == nil and stub.difference(source_type, stubbed.type) == nil
+      local ok, why = Sqlite.run(db,
+        "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
+        { text(named.key), text(stub_hash(row:text(3))), { integer = held and 1 or 0 } })
+      if not ok then
+        return false, why
+      end
+      decided[verdict] = true
+    end
+  end
+  return true, ""
+end
+
 --- Why a cosmic build refuses a global declared at `at` (`file:line:column`).
 function compilation.global_refusal(at: string): string
   return at .. ": a global is not allowed in a cosmic build: it reaches other modules by no " ..

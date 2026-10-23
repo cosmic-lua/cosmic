@@ -1223,6 +1223,64 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
+--- Writes the smallest tree [`tree.is_own`] takes for cosmic's own, with
+--- the modules `files` names under `build/`.
+local function write_own_tree(case: string, files: {string:string}): string
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-" .. case .. "-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+      "patch/lua", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
+  for name, source in pairs(files) do
+    assert(Fs.write(root .. "/build/" .. name .. ".tl", source))
+  end
+  return root
+end
+
+--- How many stub verdicts of the fixture at `root` hold.
+local function held_stubs(root: string): integer
+  local handle = assert(work.open(root))
+  local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM stub_holds WHERE held = 1"))
+  work.close(handle)
+  return math.tointeger(rows[1]:text(1)) or 0
+end
+
+--- A module of cosmic's own tree that requires another is checked against
+--- the other's stub once a compile has held the stub to its source's type
+--- ([`compilation.verified_stubs`]): what that serves must never be a type
+--- the source no longer has. A dependency whose exported type changes
+--- reaches its dependent's check, and a stub that is not the one verified
+--- is not served.
+local function test_a_stale_stub_is_not_served_to_a_dependent_check()
+  local dep = "local record dep\n  value: number\n  size: function(): integer\nend\n" ..
+    "dep.value = 1\nfunction dep.size(): integer return 1 end\nreturn dep\n"
+  local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
+  local root = write_own_tree("stub-verdict", { dep = dep, user = user })
+  assert(compile_fixture(root))
+  assert(held_stubs(root) >= 1, "no stub was held to its source's type")
+
+  -- Another type the dependency exports: the dependent must see it.
+  local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
+  assert(Fs.write(root .. "/build/dep.tl", changed))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "the dependent was checked against the type the dependency had")
+  assert(trouble:find("string", 1, true) ~= nil, "the new type did not reach the check: " .. trouble)
+
+  -- The dependency as it was, and its stub made to say another type: the
+  -- verdict was of the stub's text before, so the dependent is checked
+  -- against the source, which it passes.
+  assert(Fs.write(root .. "/build/dep.tl", dep))
+  assert(compile_fixture(root))
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE stubs SET text = replace(text, 'value: number', 'value: string')"))
+  work.close(handle)
+  assert(Fs.write(root .. "/build/user.tl", user .. "-- edited\n"))
+  local again, again_trouble = compile_fixture(root)
+  assert(again ~= nil, "a stub no verdict was given for was served: " .. tostring(again_trouble))
+end
+
 --- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
