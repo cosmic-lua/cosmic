@@ -186,8 +186,9 @@ local record Cli
   --- and its requests trust the minimal ones ([`Http.default_roots`])
   --- unless `--roots mozilla` makes it all of them, as COSMIC_CA_ROOTS
   --- does when it runs. Either
-  --- carries this binary's CA roots and time zones: `cosmic refresh
-  --- --binary <path> -o <copy>` writes a copy with newer ones
+  --- carries this binary's CA roots, the certificates it refuses as
+  --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
+  --- writes a copy with newer ones
   --- later. The tree is found as `test` finds it
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
@@ -595,10 +596,10 @@ local record Cli
   bom: string
   --- `cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...]
   --- [dataset...]`: the way to update the CA certificates a binary
-  --- trusts and the time zone database it carries when they go out of
-  --- date, with no rebuild. It writes to path a copy of this binary -- or
-  --- of the
-  --- one --binary names, a program `cosmic build` wrote, say -- whose
+  --- trusts, the certificates it refuses as revoked, and the time zone
+  --- database it carries when they go out of date, with no rebuild. It
+  --- writes to path a copy of this binary -- or of the one --binary
+  --- names, a program `cosmic build` wrote, say -- whose
   --- data is replaced with a newer release: the CA roots it trusts
   --- (cacert, Mozilla's root store as NSS's newest release holds it in
   --- certdata.txt, with the dates after which it trusts a root for no
@@ -1028,7 +1029,7 @@ local module: Module = {
       },
     },
     refresh = {
-      about = "update a binary's CA roots and time zones",
+      about = "update a binary's CA roots, revoked certificates and time zones",
       usage = "-o <path>",
       spec = {
         ["-o"] = { value = "path", about = "write the refreshed binary here" },
