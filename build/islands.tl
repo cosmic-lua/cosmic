@@ -3,7 +3,9 @@
 --- switch. The list itself is [`ci/islands.txt`], which the CI driver's `check-islands` reads to type-check them
 --- on that release; this module holds what the tree knows of them. `ci/` is compiled by the CI driver on that
 --- release; the bootstrap scripts are run standalone on it by [`bin/cosmic-bootstrap`] ([`bin/zig`], [`bin/vendor`],
---- [`bin/verify-codesign`], [`bin/perf`], and [`bin/cosmic`] for [`build/paths.tl`]). The new checker's own source is not one: `cosmic compile --grammar new`
+--- [`bin/verify-codesign`], [`bin/perf`], and [`bin/cosmic`] for [`build/paths.tl`]), and the two [`build/zig.tl`] runs on the same
+--- binary ([`build/patch.tl`] and [`build/zig_fetch.tl`]); a release that reads `COSMIC_GRAMMAR` reads any other of them in the
+--- new grammar, with no ceiling to hold its findings. The new checker's own source is not one: `cosmic compile --grammar new`
 --- ([`build/compile.tl`]) reads the new grammar, so the pin moves before the switch.
 ---
 --- `ci/` is a project of its own that nothing outside it requires, so only the pinned release reads it. The
@@ -65,10 +67,12 @@ end
 local islands: Islands = {
   holds = holds,
   blocked = {
+    ["build/patch.tl"] = { nil_union = 8 },
     ["build/paths.tl"] = { nil_union = 4 },
     ["build/perf.tl"] = { nil_union = 9 },
     ["build/vendor.tl"] = { nil_union = 11 },
-    ["build/zig.tl"] = { metamethod = 1, nil_union = 21 },
+    ["build/zig.tl"] = { metamethod = 1, nil_union = 20 },
+    ["build/zig_fetch.tl"] = { nil_union = 4 },
   },
 }
 

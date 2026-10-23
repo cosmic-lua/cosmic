@@ -1077,8 +1077,6 @@ local function test_every_variable_of_type_invalid_comes_with_an_error_in_the_st
   assert(#problems == 0, table.concat(problems, "\n"))
 end
 
--- TODO: close the generic `for` whose last expression is a call of unknown arity (`for x in f, g()` where `g` answers several
--- lists): the fourth value is known only when the call answers one list, which `iterator_extra` reads.
 local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_takes_three_expressions()
   local head = "local function it(): function(): integer\n  return function(): integer return 1 end\nend\nlocal f = it()\n"
   local step = "local type Step = function(): integer\n"
@@ -1105,6 +1103,74 @@ local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_take
         "  return function(): (true, integer) return true, 1 end\nend\nfor a, b, c, d in more() do\n  print(a, b, c, d)\nend\n"),
   }
   assert(table.concat(said, " | ") == " |  | iterator_extra |  |  |  |  | iterator_variables", table.concat(said, " | "))
+end
+
+--- An iterator that ends after two values, and a function that answers it with `values` after it.
+local COUNTED <const> = "local type Step = function(state: nil, control: integer?): integer?\n" ..
+  "local function st(_state: nil, control: integer?): integer?\n  if control == nil then\n    return 1\n  elseif control == 1 then\n" ..
+  "    return 0\n  end\n  return nil\nend\n"
+
+--- A loop over `explist`, where `mk` answers `answer` as `values`.
+local record Looped
+  values: string
+  answer: string
+  explist: string
+end
+
+--- The program that loops over what `looped` says, with the iterator `st` that ends after two values.
+local function loop_over(looped: Looped): string
+  return COUNTED .. "local function mk(): " .. looped.values .. "\n  return " .. looped.answer .. "\nend\nfor x in " ..
+    looped.explist .. " do\n  print(x)\nend\n"
+end
+
+local function test_a_generic_for_over_values_that_may_include_a_fourth_is_refused_and_the_fourth_would_be_closed()
+  -- The values after the third are any number, and the fourth is the value Lua closes when the loop ends.
+  local tails: {Looped} = {
+    { values = "(Step, nil, nil, integer...)", answer = "st, nil, nil, 5", explist = "mk()" },
+    { values = "(Step, nil, integer...)", answer = "st, nil, 1, 5", explist = "mk()" },
+    { values = "(nil, nil, integer...)", answer = "nil, nil, 5", explist = "st, mk()" },
+  }
+  for _, looped in ipairs(tails) do
+    local source = loop_over(looped)
+    assert(codes_of(source) == "iterator_extra", looped.values .. ": " .. codes_of(source))
+    local x = Programs.execute(source, false, nil, nil, nil, true)
+    local fault = x.fault or ""
+    assert(x.ran and fault:find("closable", 1, true) ~= nil, looped.values .. ": " .. fault)
+  end
+  local refused = Programs.run(loop_over({ values = "(Step, nil, nil, integer...)", answer = "st, nil, nil", explist = "mk()" }))
+  local message = refused.errors[1]
+  assert(message ~= nil, "no error")
+  assert(message.msg:find("`mk()` answers any number of `integer` values after those it lists", 1, true) ~= nil, message.msg)
+  assert(message.fix:find("name the three values first", 1, true) ~= nil, message.fix)
+  -- a tail of a type the checker refused is told once, by the type
+  local unknown = Programs.run(loop_over({ values = "(Step, nil, nil, Nowhere...)", answer = "st, nil, nil", explist = "mk()" }))
+  assert(table.concat(unknown.before, " ") == "unknown_type" and Programs.codes(unknown) == "", Programs.codes(unknown))
+  -- the rest parameter of the function is any number of values as well
+  assert(codes_of(COUNTED .. "local function each(...: Step)\n  for x in ... do\n    print(x)\n  end\nend\nprint(each)\n") ==
+      "iterator_extra")
+end
+
+local function test_a_generic_for_over_the_three_values_it_takes_runs_and_closes_nothing()
+  local taken: {Looped} = {
+    -- exactly an iterator, a state and a control value
+    { values = "(Step, nil, nil)", answer = "st, nil, nil", explist = "mk()" },
+    -- a tail of nil gives none
+    { values = "(Step, nil...)", answer = "st", explist = "mk()" },
+    -- the three expressions after `in`
+    { values = "(Step, nil, nil)", answer = "st, nil, nil", explist = "st, nil, nil" },
+  }
+  for _, looped in ipairs(taken) do
+    local source = loop_over(looped)
+    assert(codes_of(source) == "", looped.values .. ": " .. codes_of(source))
+    local x = Programs.execute(source, false)
+    assert(x.ran and x.fault == nil and table.concat(x.printed, ",") == "1,0", looped.values .. ": " .. tostring(x.fault))
+  end
+  -- the first three values of any number, named first, are an iterator, a state and a control value
+  local named = COUNTED .. "local function mk(): (Step, nil, nil, integer...)\n  return st, nil, nil, 5\nend\n" ..
+    "local iterator, state, control = mk()\nfor x in iterator, state, control do\n  print(x)\nend\n"
+  assert(codes_of(named) == "", codes_of(named))
+  local x = Programs.execute(named, false)
+  assert(x.fault == nil and table.concat(x.printed, ",") == "1,0", tostring(x.fault))
 end
 
 local function test_a_literal_of_the_string_library_is_read_only_where_the_call_is_the_librarys()

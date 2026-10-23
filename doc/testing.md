@@ -12,8 +12,12 @@ A test is a top-level `local function test_*` in a `*_test.tl` file
 Write small regression cases that fail for the reported bug. Do not
 pin incidental implementation.
 
-Run the suite with `timeout 30 bin/cosmic test`. A run after a small
-edit takes seconds, because most tests stand (below).
+Run the tests of what you changed with `bin/cosmic test <files>`: seconds
+to half a minute. Run the suite, `timeout 2700 bin/cosmic test`, before
+pushing. Most tests stand (below), so it takes about half a minute where
+nothing has changed, and about 8 minutes in a fresh worktree, where few
+verdicts stand. A run over ten seconds says `test: running n/m tests`
+as it goes.
 
 A parser that reads untrusted bytes also gets a fuzz test (below). An
 example (`*_example.tl`) shows use and is held to fewer rules.

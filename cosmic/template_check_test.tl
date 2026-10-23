@@ -259,6 +259,25 @@ local function render(tmp: string, case: string, template: string, page: {string
   return out
 end
 
+--- What the module built from `template` renders for each page of `pages`.
+local function renders(tmp: string, case: string, template: string, pages: {{string: any}}): {string}
+  local lua, trouble = project(tmp, case, template)
+  assert(lua ~= nil, trouble)
+  local mod = load_module(lua, "page")
+  assert(mod is Loaded, "page exports no render")
+  local outs: {string} = {}
+  for _, page in ipairs(pages) do
+    local out = mod.render(page)
+    if out is Html.SafeHtml then
+      outs[#outs + 1] = Html.raw(out)
+    else
+      assert(out is string, "render answered a " .. type(out))
+      outs[#outs + 1] = out
+    end
+  end
+  return outs
+end
+
 --- What building `template` refuses with, which it must.
 local function refused(tmp: string, case: string, template: string): string
   local lua, trouble = project(tmp, case, template)
@@ -467,32 +486,40 @@ end
 --- A test inside a test of a prefix of its path: each path is bound to its own
 --- local, and a read of a path reads the local of the longest prefix bound.
 local function test_guards_on_nested_prefixes_build_and_render(tmp: string)
-  local function shown(case: string, template: string, page: {string: any}): string
-    return (render(tmp, case, HEAD .. template, page):gsub("^%s+", ""))
+  -- Each template is built once and rendered for the pages its cases give.
+  local function shown(case: string, template: string, pages: {{string: any}}): {string}
+    return renders(tmp, case, HEAD .. template, pages)
+  end
+  local function trimmed(out: string | nil): string
+    return (assert(out):gsub("^%s+", ""))
   end
   local full = { nest = { b = { c = "B", e = { x = "X" } }, c = "C", s = "S" } }
   -- Two deep, and a sibling path read inside the inner block.
-  local two = "{{if .nest}}{{if .nest.b}}{{.nest.b.c}}{{.nest.c}}{{end}}{{end}}"
-  assert(shown("nest-two", two, full) == "BC", "two")
-  assert(shown("nest-two-nob", two, { nest = { c = "C" } }) == "", "two, no b")
-  assert(shown("nest-two-none", two, {}) == "", "two, none")
+  local two = shown("nest-two", "{{if .nest}}{{if .nest.b}}{{.nest.b.c}}{{.nest.c}}{{end}}{{end}}",
+    { full, { nest = { c = "C" } }, {} })
+  assert(trimmed(two[1]) == "BC", "two")
+  assert(trimmed(two[2]) == "", "two, no b")
+  assert(trimmed(two[3]) == "", "two, none")
   -- Three deep.
-  local three = "{{if .nest}}{{if .nest.b}}{{if .nest.b.e}}{{.nest.b.e.x}}{{end}}{{end}}{{end}}"
-  assert(shown("nest-three", three, full) == "X", "three")
-  assert(shown("nest-three-noe", three, { nest = { b = { c = "B" }, c = "C" } }) == "", "three, no e")
+  local three = shown("nest-three", "{{if .nest}}{{if .nest.b}}{{if .nest.b.e}}{{.nest.b.e.x}}{{end}}{{end}}{{end}}",
+    { full, { nest = { b = { c = "B" }, c = "C" } } })
+  assert(trimmed(three[1]) == "X", "three")
+  assert(trimmed(three[2]) == "", "three, no e")
   -- The tested path read again under the same name.
-  local same = "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}"
-  assert(shown("nest-same", same, full) == "S", "same")
-  assert(shown("nest-same-nos", same, { nest = { c = "C" } }) == "", "same, no s")
+  local same = shown("nest-same", "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}", { full, { nest = { c = "C" } } })
+  assert(trimmed(same[1]) == "S", "same")
+  assert(trimmed(same[2]) == "", "same, no s")
   -- An inner test of a path already bound, with an `else`.
-  local twice = "{{if .nest}}x{{if .nest.s}}{{.nest.s}}{{else}}-{{end}}{{end}}"
-  assert(shown("nest-twice", twice, full) == "xS", "twice")
-  assert(shown("nest-twice-nos", twice, { nest = { c = "C" } }) == "x-", "twice, no s")
+  local twice = shown("nest-twice", "{{if .nest}}x{{if .nest.s}}{{.nest.s}}{{else}}-{{end}}{{end}}", { full, { nest = { c = "C" } } })
+  assert(trimmed(twice[1]) == "xS", "twice")
+  assert(trimmed(twice[2]) == "x-", "twice, no s")
   -- In an arm of a chain, and a range over a bound path's field.
-  local chain = "{{if .flag}}F{{else if .nest}}{{if .nest.b}}{{.nest.b.c}}{{else}}-{{end}}{{.nest.c}}{{else}}none{{end}}"
-  assert(shown("nest-chain", chain, full) == "BC", "chain")
-  assert(shown("nest-chain-nob", chain, { nest = { c = "C" } }) == "-C", "chain, no b")
-  assert(shown("nest-chain-none", chain, {}) == "none", "chain, none")
+  local chain = shown("nest-chain",
+    "{{if .flag}}F{{else if .nest}}{{if .nest.b}}{{.nest.b.c}}{{else}}-{{end}}{{.nest.c}}{{else}}none{{end}}",
+    { full, { nest = { c = "C" } }, {} })
+  assert(trimmed(chain[1]) == "BC", "chain")
+  assert(trimmed(chain[2]) == "-C", "chain, no b")
+  assert(trimmed(chain[3]) == "none", "chain, none")
 end
 
 --- A chain of many arms builds: it is flat, so what the checker nests grows
@@ -504,10 +531,11 @@ local function test_a_chain_of_three_hundred_arms_builds_and_renders(tmp: string
   end
   arms[#arms + 1] = "{{else}}none{{end}}"
   local template = HEAD .. table.concat(arms)
-  assert((render(tmp, "arms-none", template, {}):gsub("^%s+", "")) == "none", "none")
-  assert((render(tmp, "arms-flag", template, { flag = true }):gsub("^%s+", "")) == "F", "flag")
-  assert((render(tmp, "arms-owner", template, { owner = { name = "n" } }):gsub("^%s+", "")) == "o1", "owner")
-  assert((render(tmp, "arms-error", template, { error = "x" }):gsub("^%s+", "")) == "e2", "error")
+  local outs = renders(tmp, "arms", template, { {}, { flag = true }, { owner = { name = "n" } }, { error = "x" } })
+  assert((assert(outs[1]):gsub("^%s+", "")) == "none", "none")
+  assert((assert(outs[2]):gsub("^%s+", "")) == "F", "flag")
+  assert((assert(outs[3]):gsub("^%s+", "")) == "o1", "owner")
+  assert((assert(outs[4]):gsub("^%s+", "")) == "e2", "error")
 end
 
 local function test_a_template_with_no_action_builds_without_a_warning(tmp: string)
@@ -766,25 +794,6 @@ local function test_a_stage_is_given_one_value_when_the_one_before_answers_more(
   assert(out == "a|none A|none", out)
 end
 
---- What the module built from `template` renders for each page of `pages`.
-local function renders(tmp: string, case: string, template: string, pages: {{string: any}}): {string}
-  local lua, trouble = project(tmp, case, template)
-  assert(lua ~= nil, trouble)
-  local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
-  local outs: {string} = {}
-  for _, page in ipairs(pages) do
-    local out = mod.render(page)
-    if out is Html.SafeHtml then
-      outs[#outs + 1] = Html.raw(out)
-    else
-      assert(out is string, "render answered a " .. type(out))
-      outs[#outs + 1] = out
-    end
-  end
-  return outs
-end
-
 local function test_an_item_loop_reads_the_root_and_a_1_based_index(tmp: string)
   local page: {string: any} = { title = "<t>", items = { { name = "a", n = 1 }, { name = "b&", n = 2 } } }
   local out = render(tmp, "root-index", HEAD ..
@@ -852,20 +861,24 @@ end
 --- Whatever the suite asks for, the new checker builds each form of a template, with no ceiling: ranges and `with`, a stage of
 --- another module, a condition on a boolean or an optional, and every context a slot can stand in.
 local function test_every_form_of_a_template_builds_with_the_new_checker(tmp: string)
-  local forms: {string} = {
-    "<ul>{{range .items}}<li>{{.name}}</li>{{end}}</ul>",
-    "{{range $i, $x := .list}}{{$i}}{{$x}}{{else}}none{{end}}",
-    "{{with .owner}}<p>{{.name}}</p>{{else}}none{{end}}",
-    "<p>{{.title | fmt.upper | fmt.bracket}}</p>",
-    '<a href="{{.u}}">x</a><a href="/p/{{.n}}?q={{.url}}">y</a>',
-    '<a class="{{.cls}}" title="{{.a}}">{{.title}}</a>',
-    "{{if .flag}}y{{else if .error}}{{.error}}{{else}}n{{end}}",
-    "{{if .nest}}{{.nest.c}}{{with .nest.b}}{{.c}}{{end}}{{end}}",
+  -- One project holds a template for each form, so that the standard library is read once for all of them: each is a module
+  -- of its own, and the new checker names every one it refuses.
+  local files: {string: string} = { ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL, ["multi.tl"] = MULTI,
+    ["form1.tmpl"] = HEAD .. "<ul>{{range .items}}<li>{{.name}}</li>{{end}}</ul>\n",
+    ["form2.tmpl"] = HEAD .. "{{range $i, $x := .list}}{{$i}}{{$x}}{{else}}none{{end}}\n",
+    ["form3.tmpl"] = HEAD .. "{{with .owner}}<p>{{.name}}</p>{{else}}none{{end}}\n",
+    ["form4.tmpl"] = HEAD .. "<p>{{.title | fmt.upper | fmt.bracket}}</p>\n",
+    ["form5.tmpl"] = HEAD .. '<a href="{{.u}}">x</a><a href="/p/{{.n}}?q={{.url}}">y</a>\n',
+    ["form6.tmpl"] = HEAD .. '<a class="{{.cls}}" title="{{.a}}">{{.title}}</a>\n',
+    ["form7.tmpl"] = HEAD .. "{{if .flag}}y{{else if .error}}{{.error}}{{else}}n{{end}}\n",
+    ["form8.tmpl"] = HEAD .. "{{if .nest}}{{.nest.c}}{{with .nest.b}}{{.c}}{{end}}{{end}}\n",
   }
-  for at, form in ipairs(forms) do
-    local lua, trouble = project(tmp, "form" .. tostring(at), HEAD .. form .. "\n", "new")
-    assert(lua ~= nil, form .. ": " .. tostring(trouble))
-    assert(lua["page"] ~= nil, form)
+  local lua, trouble = build(tmp, "forms", files, "new")
+  assert(lua ~= nil, tostring(trouble))
+  for name, text in pairs(files) do
+    if name:find("^form") ~= nil then
+      assert(lua[(name:gsub("%.tmpl$", ""))] ~= nil, text)
+    end
   end
 end
 

@@ -316,6 +316,39 @@ local function test_race_report_names_five_paths_then_counts_the_rest()
     Zig.race_report(many))
 end
 
+local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often(tmp: string)
+  local root = sources(tmp)
+  local record Held
+    runs: integer
+    edits: integer
+  end
+  local held: Held = { runs = 0, edits = 0 }
+  -- Each of the first `racing` runs is made to race an edit, as the
+  -- command of one does in passing.
+  local function build(racing: integer, status: integer): integer, integer
+    held.runs, held.edits = 0, 0
+    local result = Zig.watched_build(root, function(): {string} | nil
+      held.edits = held.edits + 1
+      if held.edits <= racing then
+        assert(Fs.write(root .. "/core/a.c", "edit " .. tostring(held.edits)))
+      end
+      return { "zig" }
+    end, function(_argv: {string}): integer
+      held.runs = held.runs + 1
+      return status
+    end)
+    return result, held.runs
+  end
+  local status, ran = build(0, 0)
+  assert(status == 0 and ran == 1, "an undisturbed build ran " .. tostring(ran))
+  status, ran = build(1, 0)
+  assert(status == 0 and ran == 2, "a build disturbed once ran " .. tostring(ran))
+  status, ran = build(9, 0)
+  assert(status ~= 0 and ran == 3, "a build always disturbed ran " .. tostring(ran))
+  status, ran = build(9, 7)
+  assert(status == 7 and ran == 1, "a build that failed ran " .. tostring(ran))
+end
+
 local function test_run_answers_as_the_child_did(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Zig.run({ probe, "exit 0" }) == 0)

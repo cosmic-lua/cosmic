@@ -411,18 +411,98 @@ local function test_a_function_stored_into_a_table_of_c_bindings_keeps_the_bindi
       "  return false, p, 1\nend\nuse(t)\n" })
 end
 
---- Deliberate differences of what a function is: an overloaded callee is judged by the overload taken (but for `assert`,
---- which answers what it is given), and a field written as a name of a function type is a callback and no function the module
---- defines.
+--- Deliberate difference of what a function is: an overloaded callee is judged by the overload taken (but for `assert`, which
+--- answers what it is given).
 local function test_an_overloaded_callee_is_judged_by_the_overload_taken_but_assert_is_never_a_failure_of_its_own()
   local found = Fixture.port(Fixture.PRELUDE .. "assert(put())\nassert(get())\n", LOG_MODULES)
   assert(#found.problems == 0, table.concat(found.problems, "\n"))
-  local callback = Fixture.port(Fixture.PRELUDE .. "local record M\n  type Hint = function(string): string, string\n" ..
-      "  hint: Hint\nend\nreturn M\n", LOG_MODULES)
-  assert(#callback.problems == 0, table.concat(callback.problems, "\n"))
-  local defined = Fixture.port(Fixture.PRELUDE .. "local record M\n  hint: function(string): string, string\nend\nreturn M\n", LOG_MODULES)
-  assert(#defined.problems == 1 and defined.problems[1]:find("an exported function answers one result", 1, true) ~= nil,
-    table.concat(defined.problems, "\n"))
+end
+
+local ONE_RESULT <const> = "an exported function answers one result"
+
+--- The first problem of `found`, "" where there is none.
+local function first_problem(found: Fixture.Said): string
+  return found.problems[1] or ""
+end
+
+--- What the port says of a module whose record `M` has the field `field` after `before`.
+local function exported(before: string, field: string, modules?: {string: string}, given?: Contracts.Exemptions): Fixture.Said
+  return Fixture.port(Fixture.PRELUDE .. before .. "local record M\n  " .. field .. "\nend\nreturn M\n", modules or LOG_MODULES, given)
+end
+
+--- A field of a record `M`, and the text before the record that its type names.
+local record Form
+  before: string
+  field: string
+end
+
+--- A field of a function type is a function the module exports, written as the type or as a name that stands for it: a type
+--- of the module, of the record, one that names another, or one of another module's record. The fork reads the written type
+--- only, so the port is stricter than the fork here, and no comparison with it is made.
+local function test_an_exported_field_is_judged_by_its_function_type_however_the_type_is_written()
+  local inline = exported("", "spread: function(string): string, string")
+  assert(#inline.problems == 1 and first_problem(inline):find("M.spread: " .. ONE_RESULT, 1, true) ~= nil,
+    table.concat(inline.problems, "\n"))
+  local named: {Form} = {
+    { before = "local type Spread = function(string): string, string\n", field = "spread: Spread" },
+    { before = "local type Spread = function(string): string, string\nlocal type Other = Spread\n", field = "spread: Other" },
+    { before = "", field = "type Spread = function(string): string, string\n  spread: Spread" },
+    { before = "", field = "type Spread = function(string): string...\n  spread: Spread" },
+  }
+  for _, form in ipairs(named) do
+    local found = exported(form.before, form.field)
+    assert(#found.problems == 1 and first_problem(found):find("M.spread: " .. ONE_RESULT, 1, true) ~= nil,
+      form.field .. "\n" .. table.concat(found.problems, "\n"))
+  end
+  local modules: {string: string} = {
+    ["cosmic.log"] = Fixture.LOG,
+    spreads = "local record Spreads\n  type Spread = function(string): string, string\nend\nreturn Spreads\n",
+  }
+  local imported = exported("local type Spreads = require('spreads')\n", "spread: Spreads.Spread", modules)
+  assert(#imported.problems == 1 and first_problem(imported):find("M.spread: " .. ONE_RESULT, 1, true) ~= nil,
+    table.concat(imported.problems, "\n"))
+  -- the exemption of the field covers it, and is used
+  local exempt = exported("local type Spread = function(string): string, string\n", "spread: Spread", nil,
+    exempting("exempt", { "x.tl:M.spread" }))
+  assert(#exempt.problems == 0 and #exempt.used == 1, table.concat(exempt.problems, "\n") .. tostring(#exempt.used))
+end
+
+local function test_an_exported_field_that_may_be_any_of_several_function_types_is_judged_by_each()
+  local before = "local type Spread = function(string): string, string\nlocal type One = function(string): string\n"
+  for _, field in ipairs({ "either: Spread | One", "either: One | Spread" }) do
+    local found = exported(before, field)
+    assert(#found.problems == 1 and first_problem(found):find("M.either: " .. ONE_RESULT, 1, true) ~= nil,
+      field .. "\n" .. table.concat(found.problems, "\n"))
+  end
+  -- two members that answer several results are one problem
+  local twice = exported(before .. "local type Third = function(string): integer, integer\n", "either: Spread | Third")
+  assert(#twice.problems == 1, table.concat(twice.problems, "\n"))
+  local kept = exported(before .. "local type Other = function(string): string | nil, string\n", "either: One | Other")
+  assert(#kept.problems == 0, table.concat(kept.problems, "\n"))
+  -- a function of one of them is judged as a function of its own
+  assert(#exported(before, "either?: Spread").problems == 1)
+end
+
+local function test_an_exported_field_of_a_function_type_that_answers_one_result_or_a_failure_is_allowed_by_any_name()
+  local allowed: {Form} = {
+    { before = "local type One = function(string): string\n", field = "one: One" },
+    { before = "local type Pair = function(string): string | nil, string\n", field = "pair: Pair" },
+    { before = "local type Effect = function(string): boolean, string\n", field = "effect: Effect" },
+    { before = "local type Nothing = function(string)\n", field = "nothing: Nothing" },
+    { before = "", field = "type Hint = function(string): string\n  hint: Hint" },
+    -- a name that is no function type
+    { before = "local record Other\n  n: integer\nend\n", field = "other: Other" },
+    { before = "local type Names = {string}\n", field = "names: Names" },
+    -- the function it answers is a value: its definition is judged where it is written, by the rules of any function
+    { before = "local type Pair = function(): string, string\n", field = "make: function(): Pair" },
+  }
+  for _, form in ipairs(allowed) do
+    local found = exported(form.before, form.field)
+    assert(#found.problems == 0, form.field .. "\n" .. table.concat(found.problems, "\n"))
+  end
+  -- every rule judged the field: a place for rule 10 for each
+  local judged = exported("local type One = function(string): string\n", "one: One")
+  assert((judged.sites["exports"] or 0) == 1, tostring(judged.sites["exports"]))
 end
 
 --- A result typed by a binding of C's record is a fallible function's, and an `invalid` one (a type that failed to lower) is

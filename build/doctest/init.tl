@@ -10,6 +10,7 @@ local generate = require("build.doctest.generate")
 
 local record doctest
   type Entry = generate.Entry
+  type Block = markdown.Block
 end
 
 --- @param source string the doc's own markdown text
@@ -40,6 +41,15 @@ function doctest.entries(source: string): {generate.Entry} | nil, string
     return nil, block_trouble
   end
   return generate.entries(blocks)
+end
+
+--- The fenced blocks of a doc, in document order, each with the line of its opening fence: what a tool that rewrites a
+--- block in place needs, and what `extract` and `entries` read.
+--- @param source string the doc's own markdown text
+--- @return {markdown.Block} | nil nil on a grammar error, as `extract`
+--- @return string why
+function doctest.blocks(source: string): {markdown.Block} | nil, string
+  return markdown.parse_blocks(source)
 end
 
 return doctest

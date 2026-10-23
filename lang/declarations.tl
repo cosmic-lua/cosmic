@@ -324,6 +324,9 @@ local record Declarations
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
 
+  --- The fields `decl`, an interface, has from the interfaces it lists ([`Declarations.inherited`]).
+  inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
+
   --- Every [`Code`], in the order the enum lists them.
   codes: {Code}
 
@@ -345,7 +348,8 @@ Declarations.catalog = {
     why = "a type conforms to an interface only by listing it with `is`, and the listing is checked once, where " ..
       "the type is declared: so each field of the interface has to be there, of exactly the interface's type " ..
       "(the receiver of a function field is the implementing type) and `mut` exactly where the interface is, " ..
-      "or a value of the type could not stand for the interface",
+      "or a value of the type could not stand for the interface; an interface may leave a field out, and has it " ..
+      "from the interfaces it lists, which must declare it alike",
     fix = "declare <field> in <type> as <interface> declares it: <type of the field>",
   },
   {
@@ -2165,6 +2169,39 @@ local function supplies(body: Types.Body, name: string): {Supply}
   return out
 end
 
+--- The type of a field of `x`, an interface that `self_type` lists, as `self_type` has it: `x`'s arguments put in and the
+--- receiver of a function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
+local function as_listed(store: Store, x: Named, field_type: Type, self_type: Type): Type | nil
+  local instance: Type | nil = field_type
+  if #x.args > 0 then
+    instance = Relation.instantiate(store, field_type, x.args)
+  end
+  if instance == nil then
+    return nil
+  end
+  -- An omittable function field is `function(...)?`: the receiver is the function's.
+  local optional = instance is Types.Union and instance.nilable
+  local callable: Type = optional and store:non_nil(instance) or instance
+  if callable is Types.Fn and #callable.params > 0 and #callable.tparams == 0 and callable.params[1].type == x then
+    local replaced = with_receiver(store, callable, self_type)
+    return optional and store:optional(replaced) or replaced
+  end
+  return instance
+end
+
+--- What an interface has of a field from an interface it lists.
+local record Inherited
+  from: Named
+  type: Type
+  mut: boolean
+  omittable: boolean
+end
+
+--- How a field of `held` is written, to say how two declarations of one name differ.
+local function inherited_text(display: function(Type): string, held: Inherited): string
+  return (held.mut and "mut " or "") .. display(held.type) .. (held.omittable and " (omittable)" or "")
+end
+
 --- Whether the program's judge raised because a declaration it reads has no body yet.
 local function undefined_message(why: any): boolean
   return tostring(why):find("relation: .* is not defined") ~= nil
@@ -2209,24 +2246,17 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   local function display(t: Type): string
     return Types.display(t, names)
   end
+  -- The field an interface has from the first interface it lists that declares it, by name, and the names listed ones
+  -- declare differently.
+  local inherited: {string: Inherited} = {}
+  local conflicted: {string: boolean} = {}
   for _, x in ipairs(listing.types) do
     local xbody = x is Named and x.decl.body or nil
     if x is Named and xbody ~= nil then
       for _, f in ipairs(xbody.fields) do
-        local expected: Type = f.type
-        local instance: Type | nil = expected
-        if #x.args > 0 then
-          instance = Relation.instantiate(store, f.type, x.args)
-        end
+        local instance = as_listed(store, x, f.type, self_type)
         if instance ~= nil then
-          expected = instance
-          -- An omittable function field is `function(...)?`: the receiver is the function's.
-          local optional = expected is Types.Union and expected.nilable
-          local callable: Type = optional and store:non_nil(expected) or expected
-          if callable is Types.Fn and #callable.params > 0 and #callable.tparams == 0 and callable.params[1].type == x then
-            local replaced = with_receiver(store, callable, self_type)
-            expected = optional and store:optional(replaced) or replaced
-          end
+          local expected: Type = instance
           local found = supplies(body, f.name)
           local at = build.first_of[f.name]
           local where = at ~= nil and at or node
@@ -2255,6 +2285,35 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
                     ", as " .. xname .. " declares it" ..
                     (is_class and expected is Types.Fn and not f.mut and " (or write the method `function " .. f.name .. "(self, ...)` of that type)" or ""),
                   tainted(ctx, expected) and {} or { display(expected) })
+              else
+                -- An interface that leaves a field out has it from the interfaces it lists, so they must say it alike.
+                local held = inherited[f.name]
+                if held == nil then
+                  inherited[f.name] = { from = x, type = expected, mut = f.mut or false, omittable = f.omittable or false }
+                elseif not (held.type == expected or tainted(ctx, held.type) or tainted(ctx, expected)) or
+                    held.mut ~= (f.mut or false) or held.omittable ~= (f.omittable or false) then
+                  -- One that lists the other has said so where it declares the field.
+                  local chained = false
+                  for _, above in ipairs(program.judge:listed(x).types) do
+                    chained = chained or above == held.from
+                  end
+                  for _, above in ipairs(program.judge:listed(held.from).types) do
+                    chained = chained or above == x
+                  end
+                  if conflicted[f.name] ~= true and not chained then
+                    conflicted[f.name] = true
+                    local one = quoted(display(held.from) .. "." .. f.name)
+                    local other = quoted(display(x) .. "." .. f.name)
+                    report(ctx, "interface_disagrees", first, last, quoted(decl.name) .. " lists " ..
+                        quoted(display(held.from)) .. " and " .. xname .. ", which declare " .. quoted(f.name) ..
+                        " differently, as " .. quoted(inherited_text(display, held)) .. " and " ..
+                        quoted(inherited_text(display, { from = x, type = expected, mut = f.mut or false,
+                          omittable = f.omittable or false })) .. ", so " .. quoted(decl.name .. "." .. f.name) .. " has no single type",
+                      "change " .. other .. " to " .. quoted(inherited_text(display, held)) .. " to match " .. one ..
+                        ", or change " .. one .. " to match it, or list only one of the two in " .. quoted(decl.name),
+                      tainted(ctx, held.type) and {} or { display(held.type), display(expected) })
+                  end
+                end
               end
             elseif not (s.type == expected or tainted(ctx, s.type) or tainted(ctx, expected)) then
               report_at(ctx, "interface_disagrees", where, mine .. " is " .. quoted(display(s.type)) .. ", but " ..
@@ -2876,6 +2935,42 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
     module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
     export = ctx.info.export, entries = ctx.by_binding,
   }
+end
+
+--- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
+--- (doc/plans/new-checker-types.md, "interface agreement"): each from the first interface of its closure that declares
+--- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
+--- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
+--- given. Nothing for another kind: a record or class must declare every field it lists.
+function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
+  local out: {Types.Field} = {}
+  local body = decl.body
+  if decl.kind ~= "interface" or body == nil or #body.supers == 0 then
+    return out
+  end
+  local self_type = store:named(decl, identity(store, #body.tparams))
+  if not (self_type is Named) then
+    return out
+  end
+  local held: {string: boolean} = {}
+  for _, f in ipairs(body.fields) do
+    held[f.name] = true
+  end
+  for _, x in ipairs(judge:listed(self_type).types) do
+    local xbody = x is Named and x.decl.body or nil
+    if x is Named and xbody ~= nil then
+      for _, f in ipairs(xbody.fields) do
+        if held[f.name] ~= true then
+          local made = as_listed(store, x, f.type, self_type)
+          if made ~= nil then
+            held[f.name] = true
+            out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
+          end
+        end
+      end
+    end
+  end
+  return out
 end
 
 Declarations.Program.alias = function(self: Program, name: string, module: string)

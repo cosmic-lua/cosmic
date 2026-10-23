@@ -97,14 +97,21 @@ local record rules
     variants?: {string}
   end
 
+  --- Where a declaration is: the file it is written in and its line (0 where the dump gives none), so that a unit
+  --- can be kept as text and read back without the tree it was read from.
+  record Place
+    file: string
+    line: integer
+  end
+
   --- What one translation unit defines that a header declares, and
   --- every function it refers to: what "single-file" is read from, once
   --- every unit of the tree has been.
   record Unit
     file: string
     --- The functions it defines that a header declares, neither static
-    --- nor inline, to that declaration.
-    defines: {string: tree.Node}
+    --- nor inline, to where that declaration is.
+    defines: {string: rules.Place}
     --- The names of the functions it refers to anywhere.
     refers: {string: boolean}
   end
@@ -1357,7 +1364,8 @@ function rules.unit(decls: {Node}, file: string,
     local call = fn.name:match("^cosmic_sys_(.+)$")
     local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
     if fn.prototype ~= nil and not fn.static and not fn.inline and not binding then
-      u.defines[fn.name] = fn.prototype
+      local at = tree.placed(fn.prototype)
+      u.defines[fn.name] = { file = at ~= nil and at.file or file, line = at ~= nil and at.line or 0 }
     end
   end
   local function refer(n: Node)
@@ -1384,12 +1392,10 @@ function rules.single_file(units: {rules.Unit}): {rules.Finding}
           break
         end
       end
-      local at = tree.placed(prototype)
-      local file = at ~= nil and at.file or u.file
-      local line = at ~= nil and at.line or nil
+      local file, line = prototype.file, prototype.line
       if not elsewhere and exempt[file .. " " .. name .. " single-file"] == nil then
         out[#out + 1] = {
-          file = file, line = line or 0, rule = "single-file", within = name,
+          file = file, line = line, rule = "single-file", within = name,
           message = name .. " is used only by " .. u.file .. ", which defines it: " ..
             "make it static there and take it out of the header",
         }

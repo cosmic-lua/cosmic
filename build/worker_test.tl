@@ -27,10 +27,15 @@ local built = assert(teal.load())
 
 --- A library, six modules that each use a record of it, and a test of
 --- each: the tests do not import one another, so that sharing them
---- among processes pays ([`build.shards`]).
+--- among processes pays ([`build.shards`]). The library quotes a line
+--- led by the word `global` and declares none, as the checker's own
+--- sources do: the pool takes the build all the same.
 local function project(): {string:string}
   local files: {string:string} = {
     ["lib.tl"] = [[
+--[=[
+global G: integer = 1
+]=]
 local record lib
   record Box
     value: integer
@@ -538,8 +543,9 @@ local function test_a_signal_to_the_builds_group_ends_its_workers()
 end
 
 --- `pool` as a build is given it, and how many times it handed back
---- compiled modules for the build to take.
-local function counted(pool: importer.Workers): importer.Workers, {integer}
+--- compiled modules for the build to take. `before` is run on the working
+--- database just before each ask.
+local function counted(pool: importer.Workers, before?: function(Sqlite.Handle)): importer.Workers, {integer}
   local taken = { 0 }
   return {
     ready = pool.ready,
@@ -547,6 +553,7 @@ local function counted(pool: importer.Workers): importer.Workers, {integer}
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own: boolean,
                        judged: boolean): importer.Ahead | nil, string
+      if before ~= nil then before(db) end
       local ahead, trouble = pool.compile(db, root, order, wanted, own, judged)
       if ahead ~= nil then taken[1] = taken[1] + 1 end
       return ahead, trouble
@@ -578,6 +585,21 @@ local function test_a_build_that_declares_a_global_compiles_alone_as_it_would_ha
     assert(taken[1] == 0, case .. ": the pool compiled a build that declares a global")
   end
   assert(build_with("global-clash", clash).result == nil, "a clashing global compiled")
+end
+
+local function test_a_pool_leaves_a_build_whose_parse_found_a_global_to_one_process()
+  -- importer.compile refuses a declared global before it asks a pool, so
+  -- the pool's own answer is held here: given the parse's row of one, it
+  -- takes no part, and without one it does.
+  local clean, taken_clean = counted(pool_of())
+  build_with("no-global-row", project(), clean)
+  assert(taken_clean[1] == 1, "the pool took no part in a build with no global")
+  local recorded, taken_recorded = counted(pool_of(), function(db: Sqlite.Handle)
+    assert(Sqlite.run(db, "INSERT INTO globals (source_hash, ordinal, line, column) " ..
+        "SELECT source_hash, 1, 1, 1 FROM inputs WHERE kind <> 'vendor' LIMIT 1", {}))
+  end)
+  build_with("global-row", project(), recorded)
+  assert(taken_recorded[1] == 0, "the pool compiled a build the parse found a global in")
 end
 
 local function test_a_pool_refuses_a_scratch_parent_that_is_a_link()

@@ -37,7 +37,6 @@ local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local publish = require("build.lsp.publish")
 local source = require("build.lsp.source")
-local type importer = require("build.importer")
 
 local record session
   --- What a session is given beyond its root: what a test stands in for.
@@ -85,12 +84,12 @@ local WATCH_REQUEST <const> = 1
 
 --- The databases a message's hint looks a name up in: the docs
 --- databases of the session `held` holds.
-local function hints_of(held: {Session}): importer.Hints
-  return function(): {Sqlite.Handle}, {boolean}
+local function hints_of(held: {Session}): function(): check.Hinted
+  return function(): check.Hinted
     local s = held[1]
-    if s == nil then return {}, {} end
+    if s == nil then return { databases = {}, public = {} } end
     local sources = hover.sources(s.docs)
-    return sources.handles, sources.public
+    return { databases = sources.handles, public = sources.public }
   end
 end
 

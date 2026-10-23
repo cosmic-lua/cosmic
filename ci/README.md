@@ -26,8 +26,9 @@ bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
 `islands.txt` lists the files that stay Teal until the pin moves past
-the switch (doc/plans/strict-teal.md): `ci/` and the scripts
-`bin/cosmic-bootstrap` runs. CI's `check-islands` command
+the switch (doc/plans/strict-teal.md): `ci/`, the scripts
+`bin/cosmic-bootstrap` runs and the ones `build/zig.tl` runs on that
+release's binary (`build/patch.tl`, `build/zig_fetch.tl`). CI's `check-islands` command
 (`cosmic-driver cosmic_ci/driver.tl check-islands`) gives each file of the
 list to the running driver's `compile`, which parses and type-checks it
 and runs nothing, and fails on a syntax error or any type error. A

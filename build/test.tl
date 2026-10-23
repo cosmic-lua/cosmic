@@ -122,6 +122,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
+local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
@@ -2945,6 +2946,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
   -- A failure recorded before any job starts (an unmet requirement, say)
   -- stops a bailing run as one a job makes does: baseline 0.
   local failures_before = 0
+  local phase = progress.phase("test", "running", "test")
   while next_job <= #jobs or #running > 0 do
     while #running < limits.jobs and next_job <= #jobs and
         not (bail and #rec.failures > failures_before) do
@@ -3032,6 +3034,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
       sweep(rec, running)
     end
     running = still
+    phase.tick(next_job - 1 - #running, #jobs)
   end
   if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
   for _, job in ipairs(running) do

@@ -100,6 +100,8 @@ local flow = require("build.flow")
 local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
+local laid = require("build.fix.laid")
+local read_memo = require("build.fix.read_memo")
 local near = require("build.fix.near")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
@@ -124,6 +126,7 @@ local type compiler = require("build.compiler")
 local Sqlite = require("cosmic.sqlite")
 
 local logger = require("build.logger")
+local progress = require("build.progress")
 local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -1375,7 +1378,18 @@ local function lay_out_c(ctx: Fix)
     end
     if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
-  for _, outcome in ipairs(c_check.check(root, compiled)) do
+  -- What the checks made of the compile of each file is kept in the build directory, so that a file whose inputs have not
+  -- changed is not compiled again; without the memo every file is.
+  local memo: Sqlite.Handle | nil = nil
+  if #compiled > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
+    memo = opened
+  end
+  local outcomes = c_check.check(root, compiled, nil, nil, memo)
+  if memo ~= nil then
+    local _, _ = memo:close()
+  end
+  for _, outcome in ipairs(outcomes) do
     local findings = outcome.findings
     if findings == nil then
       failures[#failures + 1] = outcome.file .. ": " .. assert(outcome.trouble)
@@ -1414,43 +1428,106 @@ local function lay_out_teal(ctx: Fix)
   local plurals: {string: tree_checks.Plurals} | nil = nil
   if picked.whole then plurals = {} end
   local new_grammar: {string: boolean} = {}
+  -- A file left as it was by the layout of this code is not laid out again while its text stays: the memo holds that it
+  -- was, so that all the run does with it is parse it.
+  local memo: Sqlite.Handle | nil = nil
+  local kept: laid.Kept | nil = nil
+  if #files > 0 then
+    local opened, _ = Sqlite.open(build_paths.resolve(assert(ctx.root)).translate_check, { writable = true })
+    memo = opened
+    if memo ~= nil then
+      kept = laid.begin(memo)
+    end
+  end
+  -- What a parse of such a file gave the phases after this one is kept as well, so that it is not parsed at all: in a run
+  -- over the whole tree, which is the one that looks for plurals, so that a row made by another kind of run is not read in
+  -- one that needs more of it. The new grammar reads notes and plurals off another tree, so its runs neither read nor make a
+  -- row.
+  local read_salt: string | nil = nil
+  if kept ~= nil and plurals ~= nil and grammar ~= "new" then
+    read_salt = read_memo.salt()
+  end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
       failures[#failures + 1] = read_trouble
     else
-      local result, trouble = fix.source(built, source, file)
-      -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
-      -- new parser's words.
-      local chunk: Ast.Chunk | nil = nil
-      local refusal = ""
-      if result == nil and grammar == "new" then
-        local forked, _ = ast.parse(built, source, file)
-        if forked == nil then
-          chunk, refusal = SyntaxNode.parse(source, file)
+      local plural_key = file
+      while plural_key:sub(1, 2) == "./" do plural_key = plural_key:sub(3) end
+      local laid_before = kept ~= nil and laid.holds(kept, file, source)
+      local from_memo: read_memo.Read | nil = nil
+      if laid_before and memo ~= nil and read_salt ~= nil then
+        from_memo = read_memo.get(memo, read_salt, built, file, source)
+        -- A row that lacks what the file is read for is not one of this kind of run.
+        if from_memo ~= nil and compared(file) and from_memo.ready == nil then
+          from_memo = nil
         end
       end
-      if chunk ~= nil then
-        new_grammar[file] = true
-        fix.read_off_written(file, chunk, source, facts, ready, plurals)
-      elseif result == nil and refusal ~= "" then
-        failures[#failures + 1] = refusal
-      elseif result == nil then
-        failures[#failures + 1] = file .. ": " .. trouble
-      elseif result.changed then
-        changed[#changed + 1] = file
-        if not checking then
-          local written, write_trouble = Fs.write(file, result.source)
-          if not written then
-            failures[#failures + 1] = write_trouble
-          else
-            fix.read_off(file, result, grammar, facts, ready, plurals)
+      if from_memo ~= nil and plurals ~= nil then
+        facts[file] = from_memo.facts
+        local candidates = from_memo.ready
+        if candidates ~= nil then ready[file] = candidates end
+        local found = from_memo.plurals
+        if found ~= nil then plurals[plural_key] = found end
+      else
+        local result: fix.Fixed | nil = nil
+        local trouble = ""
+        if laid_before then
+          local parsed, _ = ast.parse(built, source, file)
+          if parsed ~= nil then
+            result = { source = source, changed = false, parsed = parsed }
           end
         end
-      else
-        fix.read_off(file, result, grammar, facts, ready, plurals)
+        if result == nil then
+          result, trouble = fix.source(built, source, file)
+        end
+        -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
+        -- new parser's words.
+        local chunk: Ast.Chunk | nil = nil
+        local refusal = ""
+        if result == nil and grammar == "new" then
+          local forked, _ = ast.parse(built, source, file)
+          if forked == nil then
+            chunk, refusal = SyntaxNode.parse(source, file)
+          end
+        end
+        if chunk ~= nil then
+          new_grammar[file] = true
+          fix.read_off_written(file, chunk, source, facts, ready, plurals)
+        elseif result == nil and refusal ~= "" then
+          failures[#failures + 1] = refusal
+        elseif result == nil then
+          failures[#failures + 1] = file .. ": " .. trouble
+        elseif result.changed then
+          changed[#changed + 1] = file
+          if not checking then
+            local written, write_trouble = Fs.write(file, result.source)
+            if not written then
+              failures[#failures + 1] = write_trouble
+            else
+              fix.read_off(file, result, grammar, facts, ready, plurals)
+            end
+          end
+        else
+          if kept ~= nil then
+            laid.keep(kept, file, source)
+          end
+          fix.read_off(file, result, grammar, facts, ready, plurals)
+          local made = facts[file]
+          if memo ~= nil and read_salt ~= nil and made ~= nil then
+            read_memo.put(memo, read_salt, file, source,
+              { facts = made, ready = ready[file], plurals = plurals ~= nil and plurals[plural_key] or nil },
+              result.parsed)
+          end
+        end
       end
     end
+  end
+  if kept ~= nil then
+    laid.finish(kept, picked.whole == true and #failures == 0)
+  end
+  if memo ~= nil then
+    local _, _ = memo:close()
   end
   ctx.facts = facts
   ctx.ready = ready
@@ -1654,9 +1731,19 @@ local function tree_say(line: string)
   log:say("fix: tree checks: " .. line)
 end
 
---- When the check being run began, in nanoseconds of the monotonic clock.
+--- When the check being run began, in nanoseconds of the monotonic clock,
+--- and when the tree checks did.
 local record TreeTiming
   began: integer
+  run_began: integer
+end
+
+--- Says on stderr which part of the tree checks begins and how long they
+--- have run, so that a part that takes minutes is not silent: [`tree_took`]
+--- speaks only once it is over. `step` is "n of m" for the memoed checks.
+local function tree_begin(timing: TreeTiming, name: string, step?: string)
+  local _, _ = logger.summary("fix", "tree checks: " .. name .. (step ~= nil and " (" .. step .. ")" or "") ..
+      ", " .. progress.elapsed(Clock.monotonic_ns() - timing.run_began) .. " in")
 end
 
 --- Says how long the check `name` took, where that is long enough to wait on, so that a run that is slow says where, and
@@ -1678,6 +1765,8 @@ local function run_tree_checks(ctx: Fix)
   local findings: {string} = {}
   ctx.findings = findings
   if picked.whole then
+    local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
+    tree_begin(timing, "making the projection")
     -- TODO: build this projection with the new checker, once the switch deletes the fork's compiler (doc/plans/strict-teal.md,
     -- "the switch"): the fork refuses a file in the new grammar, so a whole run of cosmic's own tree with one ends here with
     -- one syntax error and never reaches the plurals read off its syntax tree ([`fix.read_off_written`]).
@@ -1698,6 +1787,7 @@ local function run_tree_checks(ctx: Fix)
       if help == nil then
         findings[#findings + 1] = "tree checks: " .. help_trouble
       end
+      tree_begin(timing, "the checks of the projection, docs and examples")
       local found = tree_checks.run(db, guide, built, tree_checks.ci_sources(root), carried, help,
         ctx.plurals)
       for _, line in ipairs(found) do
@@ -1725,47 +1815,56 @@ local function run_tree_checks(ctx: Fix)
       Memprobe.mark("tree checks: before the memoed checks")
       -- The processors' worth of workers the per-file checks share, started where a check has files enough to need them.
       local pool = workers.checking(workers.tree_spec(), tree_say)
-      local timing: TreeTiming = { began = Clock.monotonic_ns() }
+      timing.began = Clock.monotonic_ns()
+      tree_begin(timing, "lexer", "1 of 9")
       for _, line in ipairs(tree_checks.lexed(root, nil, memo)) do
         findings[#findings + 1] = "lexer: " .. line
       end
       tree_took(timing, "lexer")
       Memprobe.mark("tree checks: lexer")
+      tree_begin(timing, "translator", "2 of 9")
       for _, line in ipairs(tree_checks.translated(root, nil, nil, memo)) do
         findings[#findings + 1] = "translator: " .. line
       end
       tree_took(timing, "translator")
       Memprobe.mark("tree checks: translator")
+      tree_begin(timing, "scopes", "3 of 9")
       for _, line in ipairs(tree_checks.scoped(root, nil, memo)) do
         findings[#findings + 1] = "scopes: " .. line
       end
       tree_took(timing, "scopes")
       Memprobe.mark("tree checks: scopes")
+      tree_begin(timing, "declarations", "4 of 9")
       for _, line in ipairs(tree_checks.declared(root, nil, memo)) do
         findings[#findings + 1] = "declarations: " .. line
       end
       tree_took(timing, "declarations")
       Memprobe.mark("tree checks: declarations")
+      tree_begin(timing, "generator", "5 of 9")
       for _, line in ipairs(tree_checks.generated(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "generator: " .. line
       end
       tree_took(timing, "generator")
       Memprobe.mark("tree checks: generator")
+      tree_begin(timing, "readers", "6 of 9")
       for _, line in ipairs(tree_checks.read(root, nil, memo, pool.shards)) do
         findings[#findings + 1] = "readers: " .. line
       end
       tree_took(timing, "readers")
       Memprobe.mark("tree checks: readers")
+      tree_begin(timing, "typed", "7 of 9")
       for _, line in ipairs(typed_findings(root, memo)) do
         findings[#findings + 1] = "typed: " .. line
       end
       tree_took(timing, "typed")
       Memprobe.mark("tree checks: typed")
+      tree_begin(timing, "checker", "8 of 9")
       for _, line in ipairs(tree_checks.checked(root, nil, memo)) do
         findings[#findings + 1] = "checker: " .. line
       end
       tree_took(timing, "checker")
       Memprobe.mark("tree checks: checker")
+      tree_begin(timing, "pipeline", "9 of 9")
       for _, line in ipairs(pipeline_findings(root, memo)) do
         findings[#findings + 1] = "pipeline: " .. line
       end
@@ -2057,14 +2156,19 @@ local function fix_verb(argv: {string}): integer
   code = load_compiler(ctx)
   if code ~= nil then return code end
   start_tally(ctx)
+  Memprobe.mark("fix: compiler loaded")
   lay_out_c(ctx)
+  Memprobe.mark("fix: C checked")
   check_templates(ctx)
   lay_out_teal(ctx)
   Memprobe.mark("fix: Teal laid out")
   wrap_asserts(ctx)
+  Memprobe.mark("fix: asserts checked")
   find_unbuilt(ctx)
   run_tree_checks(ctx)
+  Memprobe.mark("fix: tree checks done")
   check_links(ctx)
+  Memprobe.mark("fix: links checked")
   say_notes(ctx)
   return report(ctx)
 end

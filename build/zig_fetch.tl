@@ -146,13 +146,12 @@ end
 --- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
                          timeout_ns?: integer): Http.Options
-  -- TODO: add `roots = "mozilla"` once ci/cosmic-driver.pin names a
-  -- release whose cosmic.http trusts the minimal roots by default: a
-  -- community mirror's certificate may come from any CA Mozilla trusts,
-  -- and the download is held to its sha256 whoever serves it; the pinned
-  -- release, which runs this, has no `roots` to give.
+  -- A community mirror's certificate may come from any CA Mozilla trusts,
+  -- and the download is held to its sha256 whoever serves it, so it
+  -- trusts every root rather than the minimal set a request trusts by
+  -- default.
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
-    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns }
+    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla" }
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
