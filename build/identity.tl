@@ -384,14 +384,34 @@ local pins <const> =
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
 --- [`identity.writer_modules`] take over it.
 local function requires_in(db: Sqlite.Handle): function(string): {string} | nil, string
+  -- Every module's names are read at the first walk's first step: a query
+  -- for each of the some three hundred modules a walk reaches took a tenth
+  -- of a second a build.
+  local held: {{string:{string}}} = {}
   return function(name: string): {string} | nil, string
-    local rows, rows_trouble = Sqlite.text_rows(db,
-      "SELECT DISTINCT r.name FROM inputs i " ..
-        "JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = ?1 " ..
-        "ORDER BY r.name", { text(name) })
-    if rows == nil then return nil, rows_trouble end
+    local all = held[1]
+    if all == nil then
+      local rows, rows_trouble = Sqlite.text_rows(db,
+        "SELECT DISTINCT i.path, r.name FROM inputs i " ..
+          "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
+      if rows == nil then return nil, rows_trouble end
+      local read: {string:{string}} = {}
+      for _, row in ipairs(rows) do
+        local list = read[row:text(1)]
+        if list == nil then
+          list = {}
+          read[row:text(1)] = list
+        end
+        list[#list + 1] = row:text(2)
+      end
+      held[1] = read
+      all = read
+    end
+    local found = all[name]
     local required: {string} = {}
-    for _, row in ipairs(rows) do required[#required + 1] = row:text(1) end
+    if found ~= nil then
+      for i, item in ipairs(found) do required[i] = item end
+    end
     return required, ""
   end
 end

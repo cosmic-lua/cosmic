@@ -60,6 +60,29 @@ local function projected_signature(path: string): string
   return rows[1]:text(1)
 end
 
+--- What names the core whose `deflate` made a row of `deflated`: its image
+--- ([`build.identity`]'s `image_hash`), which holds the zlib it links, so a
+--- core whose compressor moved never serves another's bytes.
+local deflating_core <const> =
+  "coalesce((SELECT lower(hex(value)) FROM meta WHERE key = 'image_hash'), '')"
+
+--- Fills `deflated` with the compressed text of each source a projection
+--- carries that it does not yet hold, and drops what no input names, or
+--- another core compressed. A source is named by its SHA-256, so a row
+--- is never stale: an edited file is another source and is compressed
+--- once, where a projection used to compress all of them, some 0.6 s of
+--- every write for cosmic's own tree.
+local fill_deflated <const> =
+  "INSERT OR IGNORE INTO deflated (source_hash, core, data) " ..
+  "SELECT i.source_hash, " .. deflating_core .. ", deflate(i.source) FROM inputs i " ..
+  "WHERE (i.kind = 'decl' OR i.path IN (SELECT path FROM plan)) AND NOT EXISTS " ..
+  "(SELECT 1 FROM deflated d WHERE d.source_hash = i.source_hash AND d.core = " ..
+  deflating_core .. ") GROUP BY i.source_hash"
+
+local prune_deflated <const> =
+  "DELETE FROM deflated WHERE core <> " .. deflating_core ..
+  " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
 --- a test or example module's own names alongside.
@@ -67,7 +90,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), deflate(i.source), c.bytecode, " ..
+  "CAST(p.key AS BLOB), d.data, c.bytecode, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -75,6 +98,7 @@ local insert_modules =
   "char(10) ORDER BY ordinal) FROM examples e " ..
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
@@ -329,13 +353,13 @@ end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
-local function pending_links(handle: work.Handle, given: link_index.Library | nil):
+local function pending_links(handle: work.Handle, given: link_index.Library | nil, by: string):
     link_index.Pending | nil, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
   end
-  return link_index.pending(handle.db, handle.root, library)
+  return link_index.pending(handle.db, handle.root, library, by)
 end
 
 --- The signature of `result`'s projection as the writer whose identity
@@ -344,7 +368,7 @@ end
 --- name, in place of the running binary's ([`link_index.running`])
 function writer.signature(handle: work.Handle, result: importer.Result,
                           binary: string, library?: link_index.Library): string | nil, string
-  local pending, trouble = pending_links(handle, library)
+  local pending, trouble = pending_links(handle, library, binary)
   if pending == nil then
     return nil, trouble
   end
@@ -404,13 +428,16 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(schema.create("out.")) do
     statements[#statements + 1] = statement
   end
+  statements[#statements + 1] = prune_deflated
+  statements[#statements + 1] = fill_deflated
   statements[#statements + 1] = insert_modules
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports
   statements[#statements + 1] = insert_bound
   statements[#statements + 1] =
-    "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
-    "WHERE kind = 'decl' ORDER BY path"
+    "INSERT INTO out.decls (path, source) SELECT i.path, d.data FROM inputs i " ..
+    "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
+    "WHERE i.kind = 'decl' ORDER BY i.path"
   statements[#statements + 1] =
     "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
     "ORDER BY name"
@@ -642,7 +669,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if by == nil then
     return false, by_trouble
   end
-  local pending, pending_trouble = pending_links(handle, library)
+  local pending, pending_trouble = pending_links(handle, library, by)
   if pending == nil then
     return false, pending_trouble
   end
@@ -779,14 +806,18 @@ local carried_alias_signatures <const> =
 --- raw_http.Options`), whose page lists them, through the name its
 --- module binds `d`'s to ([`build.analyzer.Bound`]). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
---- resolution ([`build.docs`]) reads them.
+--- resolution ([`build.docs`]) reads them. Written as a join, which
+--- looks each doc row's module up among the aliases once: an `EXISTS` that
+--- scans them for each of the several hundred internal rows took most of a
+--- second of every tool rebuild.
 local carried_internal_types =
-  "(d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "d.id IN (SELECT d.id FROM whole.docs d " ..
+  "JOIN alias_signatures a ON a.requires = d.module WHERE " ..
+  "d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
-  "EXISTS (SELECT 1 FROM alias_signatures a WHERE a.requires = d.module AND " ..
   "(a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " OR " ..
-  "a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " || ',*')))"
+  "a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " || ',*'))"
 
 --- Copies a projection's rows into a fresh schema of the same shape,
 --- leaving out each row `dropped_modules` names. Both schemas come from
@@ -829,6 +860,10 @@ local carry: {string} = {
   -- A user guide ([`symbols.guide_module`]) is a generated test module, so
   -- `dropped` names it, but its own row -- the guide's prose -- is what
   -- `cosmic docs quickstart` answers with.
+  --
+  -- The catalog's rows are looked up as a set (`IN`), not by a correlated
+  -- `EXISTS`, which SQLite answers here by scanning the catalog for each of
+  -- the thirty thousand doc rows: most of a second of every tool rebuild.
   dropped_modules .. carried_alias_signatures ..
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, " ..
     "kind, signature, text, file, line) SELECT module, symbol, " ..
@@ -836,8 +871,8 @@ local carry: {string} = {
     "FROM whole.docs d WHERE (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. ") OR (module NOT IN dropped AND (" ..
     symbols.public_only("d.module", true) ..
-    " OR EXISTS (SELECT 1 FROM whole.catalog c WHERE c.module = d.module " ..
-    "AND c.symbol = d.source_symbol) OR " .. carried_internal_types .. ")) ORDER BY id",
+    " OR (d.module, d.source_symbol) IN (SELECT module, symbol FROM whole.catalog) OR " ..
+    carried_internal_types .. ")) ORDER BY id",
   dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses u " ..
     "WHERE module NOT IN dropped AND from_module NOT IN dropped AND " ..
     symbols.public_only("u.module", true) .. " AND " ..

@@ -116,6 +116,13 @@ local record link_index
     --- own. So an edit to a file that moves none of its links and none
     --- of the headings a link names leaves it as it was.
     digest: string
+    --- Whether `memo` is one an earlier call kept, which every answer of
+    --- it was asked of the disk again and found the same.
+    remembered: boolean
+    --- What the links of `rows` are resolved from, beside the disk's
+    --- answers and the projection's symbols: their rows, the root and
+    --- the code that resolves them. Nil where the caller named no code.
+    fingerprint: string | nil
   end
 
   --- A library of nothing: links name the projection's own symbols alone.
@@ -291,12 +298,104 @@ local function digest_of(root: string, memo: link_index.Memo, rows: {link_index.
   return Hash.hex_sha256(table.concat(lines, "\n"))
 end
 
+--- What a resolution of `rows` under the code `code` is a function of beside
+--- the disk's answers: the rows themselves, the root they are resolved
+--- from, and the code that resolves them.
+local function memo_fingerprint(code: string, root: string, rows: {link_index.Raw}): string
+  local parts: {string} = { "link-memo-1", code, root }
+  for _, raw in ipairs(rows) do
+    parts[#parts + 1] = table.concat({ raw.from_module, raw.from_file, tostring(raw.line),
+      tostring(raw.column), raw.form, raw.source, raw.text, raw.target,
+      raw.own and "1" or "0", raw.alias }, "\0")
+  end
+  return Hash.hex_sha256(table.concat(parts, "\n"))
+end
+
+--- What a row of `link_answers` says the disk answered: `value` where it
+--- answered, nil where it did not.
+local function kept_answer(found: boolean, value: string): string | nil
+  if found then return value end
+  return nil
+end
+
+--- The memo an earlier [`link_index.pending`] kept under `fingerprint`, and
+--- whether a link asked for a symbol, when the disk still answers each
+--- question it holds as it did: a path's kind, a path's real path, a
+--- file's text, each asked again. The resolution is a function of the rows
+--- and these answers alone, so one that is given the same answers to the
+--- same questions asks the same ones in turn and makes the same memo:
+--- nothing a file's mtime or size could miss is trusted. Nil where none
+--- is kept, it is another's, or the disk answers any question differently.
+local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo | nil, boolean
+  local kept, _ = Sqlite.text_rows(db,
+    "SELECT kind, path, value, found FROM link_answers ORDER BY kind, path")
+  if kept == nil then return nil, false end
+  local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
+  local matched, asked = false, false
+  for _, row in ipairs(kept) do
+    local what, path, value, found = row:text(1), row:text(2), row:text(3), row:text(4) == "1"
+    if what == "fingerprint" then
+      if value ~= fingerprint then return nil, false end
+      matched = true
+    elseif what == "asked" then
+      asked = value == "1"
+    elseif what == "kind" then
+      local st, _ = Fs.stat(path)
+      if (st == nil and "" or (st.kind == "dir" and "dir" or "file")) ~= value then
+        return nil, false
+      end
+      memo.kinds[path] = value
+    elseif what == "real" then
+      local now, _ = Fs.absolute(path)
+      if now ~= kept_answer(found, value) then return nil, false end
+      memo.reals[path] = found and { value } or {}
+    elseif what == "read" then
+      local now, _ = Fs.read(path)
+      if now ~= kept_answer(found, value) then return nil, false end
+      memo.reads[path] = found and { value } or {}
+    else
+      return nil, false
+    end
+  end
+  if not matched then return nil, false end
+  return memo, asked
+end
+
+--- Keeps `memo` under `fingerprint` for [`recalled`], in the working
+--- transaction, replacing any other. A failure to keep it costs a later
+--- call its resolution and nothing else.
+local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index.Memo, asked: boolean)
+  local prepared, _ = db:prepare(
+    "INSERT INTO link_answers (kind, path, value, found) VALUES (?1, ?2, ?3, ?4)")
+  if prepared == nil then return end
+  local put: Sqlite.Statement = prepared
+  local function add(what: string, path: string, value: string | nil)
+    local ok, _ = put:bind_text(1, what)
+    if ok then ok, _ = put:bind_text(2, path) end
+    if ok then ok, _ = put:bind_text(3, value or "") end
+    if ok then ok, _ = put:bind_integer(4, value ~= nil and 1 or 0) end
+    if ok then ok, _ = bind.once(put) end
+  end
+  local cleared, _ = db:exec("DELETE FROM link_answers")
+  if cleared then
+    add("fingerprint", "", fingerprint)
+    add("asked", "", asked and "1" or "0")
+    for path, kind in pairs(memo.kinds) do add("kind", path, kind) end
+    for path, answer in pairs(memo.reals) do add("real", path, answer[1]) end
+    for path, answer in pairs(memo.reads) do add("read", path, answer[1]) end
+  end
+  put:finalize()
+end
+
 --- The links the parse recorded in `db`'s planned modules and the stage
 --- in its files that are none, resolved as far as the tree at `root`
 --- goes, with a digest of what it said; `library` is what they may name
---- beside `db`'s own symbols, nil for none.
+--- beside `db`'s own symbols, nil for none. `code` names the code that
+--- resolves them, the writer's identity ([`build.identity`]): given, the
+--- disk's answers are kept in `link_answers` and, where the disk still gives
+--- every one, not worked out again ([`recalled`]).
 function link_index.pending(db: Sqlite.Handle, root: string,
-                            library: link_index.Library | nil): link_index.Pending | nil, string
+                            library: link_index.Library | nil, code?: string): link_index.Pending | nil, string
   local absolute, _ = Fs.absolute(root)
   root = absolute or root
   local found, trouble = Sqlite.text_rows(db, raw_links)
@@ -312,11 +411,18 @@ function link_index.pending(db: Sqlite.Handle, root: string,
       own = row:text(9) == "1", alias = row:text(10),
     }
   end
-  local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
+  local fingerprint: string | nil = nil
+  if code ~= nil then fingerprint = memo_fingerprint(code, root, rows) end
+  local recalled_memo: link_index.Memo | nil = nil
+  local recalled_asked = false
+  if fingerprint ~= nil then
+    recalled_memo, recalled_asked = recalled(db, fingerprint)
+  end
+  local memo: link_index.Memo = recalled_memo or { kinds = {}, reads = {}, reals = {} }
   -- No symbol is known yet: every name reads as naming none.
   local unknown = "no symbols until the projection's docs are in"
   -- A link that asks for none reads nothing of the library.
-  local asking = { asked = false }
+  local asking = { asked = recalled_asked }
   local function none(_: string): {link_resolve.Symbol} | nil, string
     asking.asked = true
     return nil, unknown
@@ -325,18 +431,22 @@ function link_index.pending(db: Sqlite.Handle, root: string,
     asking.asked = true
     return nil, unknown
   end
-  local resolver = link_resolve.resolver(remembering(root, memo, none, no_member))
-  for _, raw in ipairs(rows) do
-    local from = root .. "/" .. raw.from_file
-    local _, _ = link_resolve.resolve(resolver, from, raw.target, declared_for(raw), raw.form ~= "shortcut")
-    local label = label_of(raw)
-    if label ~= nil then
-      local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
+  if recalled_memo == nil then
+    local resolver = link_resolve.resolver(remembering(root, memo, none, no_member))
+    for _, raw in ipairs(rows) do
+      local from = root .. "/" .. raw.from_file
+      local _, _ = link_resolve.resolve(resolver, from, raw.target, declared_for(raw), raw.form ~= "shortcut")
+      local label = label_of(raw)
+      if label ~= nil then
+        local _, _ = link_resolve.resolve(resolver, from, label, nothing_declared, false)
+      end
     end
+    if fingerprint ~= nil then remember(db, fingerprint, memo, asking["asked"] == true) end
   end
   local signed = library ~= nil and asking.asked and library.identity or nil
   return { root = root, rows = rows, memo = memo, library = asking.asked and library or nil,
-    digest = digest_of(root, memo, rows, signed) }
+    digest = digest_of(root, memo, rows, signed), remembered = recalled_memo ~= nil,
+    fingerprint = fingerprint }
 end
 
 --- The `docs` of the projection under `qualifier`, held in memory, with
@@ -415,10 +525,10 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
 end
 
 --- Resolves `pending`'s links against the `docs` of the projection
---- under `qualifier` (`"out."`) and writes those that name one thing to
---- its `links`, in key order.
-function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
-                         qualifier: string): boolean, string
+--- under `qualifier` and writes those that name one thing to its `links`:
+--- [`link_index.fill`] without the memory of its last answer.
+local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
+                                 qualifier: string): boolean, string
   local held: {string: boolean} = {}
   local indexed, index_trouble = index_of(db, qualifier, held)
   if indexed == nil then
@@ -542,6 +652,98 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     if not ok then
       return false, trouble
     end
+  end
+  return true, ""
+end
+
+--- The columns of a `links` row, in the order [`resolve_and_write`] and the
+--- copy kept of its rows name them.
+local link_columns <const> =
+  "module, symbol, path, anchor, from_file, line, column, from_module, kind, form, source, text"
+
+--- One digest of everything [`resolve_and_write`] reads of the projection
+--- under `qualifier` to know which symbols there are: the modules and
+--- declarations that answer for a name, each doc row's names, kind and
+--- signature (not its text or line, which no link reads), and the names
+--- each module binds. Quoted by type as [`build.closure_store`] quotes a row, so
+--- no two rows spell one line.
+local function symbols_digest(db: Sqlite.Handle, qualifier: string): string | nil
+  local function quoted(columns: {string}): string
+    local out: {string} = {}
+    for i, column in ipairs(columns) do
+      out[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
+        ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
+    end
+    return table.concat(out, " || ',' || ")
+  end
+  local function digest(columns: {string}, from: string, order: string): string
+    return "coalesce((SELECT lower(hex(sha256(group_concat(" .. quoted(columns) ..
+      ", char(10) ORDER BY " .. order .. ")))) FROM " .. qualifier .. from .. "), '')"
+  end
+  local rows, _ = Sqlite.text_rows(db, "SELECT " .. table.concat({
+    digest({ "path" }, "modules", "path"),
+    digest({ "path" }, "decls", "path"),
+    digest({ "module", "symbol", "source_symbol", "file", "kind", "signature", "exported", "id" },
+      "docs", "id"),
+    digest({ "path", "name", "requires" }, "bound", "path, name"),
+  }, ", "))
+  local row: Sqlite.Row | nil = nil
+  if rows ~= nil then row = rows[1] end
+  if row == nil then return nil end
+  return Hash.hex_sha256(table.concat({ "link-fill-1", row:text(1), row:text(2),
+    row:text(3), row:text(4) }, "\n"))
+end
+
+--- How many answers `memo` holds, which only grows.
+local function answers(memo: link_index.Memo): integer
+  local n = 0
+  for _ in pairs(memo.kinds) do n = n + 1 end
+  for _ in pairs(memo.reads) do n = n + 1 end
+  for _ in pairs(memo.reals) do n = n + 1 end
+  return n
+end
+
+--- Resolves `pending`'s links against the `docs` of the projection
+--- under `qualifier` (`"out."`) and writes those that name one thing to
+--- its `links`, in key order.
+---
+--- What it writes is a function of the links, the code and the disk's
+--- answers `pending` holds, of the library's docs, and of the symbols the
+--- projection documents ([`symbols_digest`]) alone, so the rows it wrote
+--- last are kept in the working database under a fingerprint of those and
+--- copied where they are the same: an edit that adds, drops or renames no
+--- symbol and moves no link writes the same rows. Rows are kept only of a
+--- resolution that asked the disk nothing `pending` had not.
+function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
+                         qualifier: string): boolean, string
+  local fingerprint: string | nil = nil
+  local symbols_key: string | nil = nil
+  local pended = pending.fingerprint
+  if pended ~= nil then symbols_key = symbols_digest(db, qualifier) end
+  local library = pending.library
+  local library_named = "-"
+  if library ~= nil then library_named = library.identity end
+  if pended ~= nil and symbols_key ~= nil then
+    fingerprint = Hash.hex_sha256(table.concat({ "link-fill-key-1", pended,
+      pending.digest, symbols_key, library_named }, "\n"))
+  end
+  if fingerprint ~= nil then
+    local kept, _ = Sqlite.text_rows(db, "SELECT 1 FROM link_fill WHERE fingerprint = ?1",
+      { text(fingerprint) })
+    if kept ~= nil and kept[1] ~= nil then
+      return Sqlite.run(db, "INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
+          "SELECT " .. link_columns .. " FROM link_fill_rows")
+    end
+  end
+  local before = answers(pending.memo)
+  local ok, trouble = resolve_and_write(db, pending, qualifier)
+  if not ok then return false, trouble end
+  if fingerprint ~= nil and answers(pending.memo) == before then
+    local _, _ = db:exec("DELETE FROM link_fill")
+    local _, _ = db:exec("DELETE FROM link_fill_rows")
+    local _, _ = Sqlite.run(db, "INSERT INTO link_fill_rows (" .. link_columns .. ") SELECT " ..
+        link_columns .. " FROM " .. qualifier .. "links")
+    local _, _ = Sqlite.run(db, "INSERT INTO link_fill (fingerprint) VALUES (?1)", { text(fingerprint) })
   end
   return true, ""
 end
