@@ -61,6 +61,32 @@ function artifact.trusted_core(): raw_store.Core | nil, string
   return trusted_store.trusted_core()
 end
 
+-- What every placeholder core begins with, which [`artifact.host_only`]
+-- looks for: the shebang and a comment no core of C holds.
+local placeholder_head = "#!/bin/sh\n# cosmic-host-only-placeholder-v1\n"
+
+--- The bytes a host-only boot puts in the artifact where the core of
+--- `target` goes, which it did not build: a script that says so and exits 1,
+--- so that the tool, copied to a host of that target, tells what it is
+--- instead of failing in some other way. It is an entry of the manifest
+--- like any, so the artifact is the portable layout the core accepts (which
+--- holds a core for every required target); [`artifact.host_only`] tells the
+--- tool it makes from one that is no portable program for that target.
+function artifact.placeholder(target: string): string
+  return placeholder_head ..
+    "echo 'cosmic: this tool was booted for the host it was built on alone, so it carries " ..
+    "no core for " .. target .. "; run bin/zig build boot -Dboot-cores=all in its checkout' >&2\n" ..
+    "exit 1\n"
+end
+
+--- Whether `prefix`, an artifact's bytes ahead of its database
+--- ([`artifact.trusted_prefix`]), holds a placeholder
+--- ([`artifact.placeholder`]) for some target's core: the tool it is of was
+--- booted for the host's core alone.
+function artifact.host_only(prefix: string): boolean
+  return prefix:find(placeholder_head, 1, true) ~= nil
+end
+
 local version = 1
 local shell_length = 16384
 local core_alignment = 16384

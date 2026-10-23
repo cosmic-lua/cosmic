@@ -11,11 +11,12 @@ local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 
 --- A run's probes with a stand-in for the runner's sandbox probe.
-local function host_with(answer: host_requires.Sandbox, path?: string, system?: {string}): host_requires.Host
+local function host_with(answer: host_requires.Sandbox, path?: string, system?: {string},
+                         host_only?: function(): boolean): host_requires.Host
   local given = system
   if given == nil and path ~= nil then given = { path, (Fs.absolute(path)) } end
   return host_requires.new({ sandbox = function(): host_requires.Sandbox return answer end,
-    path = path, system = given })
+    path = path, system = given, host_only = host_only })
 end
 
 --- The one answer for `name` of `host`.
@@ -116,7 +117,7 @@ local function test_classes()
       "portable", "checked" }) do
     assert(host_names.class(name) == "platform", name)
   end
-  for _, name in ipairs({ "root", "path:/etc", "program:sh" }) do
+  for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores" }) do
     assert(host_names.class(name) == "host", name)
   end
 end
@@ -148,7 +149,7 @@ end
 --- absent carries a reason and no key.
 local function test_present_has_a_key_and_absent_a_reason()
   local host = host_with({ ok = true, why = "", broken = false })
-  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "checked", "root",
+  for _, name in ipairs({ "sandbox", "landlock", "userns", "nest", "own_proc", "proc", "portable", "checked", "all_cores", "root",
       "path:/proc/self" }) do
     local answer = ask(host, name)
     if answer.kind == "present" then
@@ -461,6 +462,19 @@ local function test_a_platform_that_is_not_linux_is_not_applicable()
     assert(answers[i].kind == "na" and answers[i].class == "platform", answers[i].name)
   end
   assert(answers[4].class == "host" and answers[4].kind ~= "na")
+end
+
+--- `all_cores` is present unless the runner says the tool lacks a core, which
+--- is skipped, never n/a and never silently present: a test of what needs
+--- every core must not pass on a tool that has one.
+local function test_all_cores_follows_the_cores_the_tool_carries()
+  local sandbox: host_requires.Sandbox = { ok = true, why = "", broken = false }
+  local every = ask(host_with(sandbox, nil, nil, function(): boolean return false end), "all_cores")
+  assert(every.kind == "present" and every.key == "all", every.why)
+  assert(ask(host_requires.new(), "all_cores").kind == "present")
+  local only = ask(host_with(sandbox, nil, nil, function(): boolean return true end), "all_cores")
+  assert(only.kind == "skipped", only.kind .. only.why)
+  assert(only.why:find("-Dboot-cores=all", 1, true) ~= nil, only.why)
 end
 
 --- `checked` is present on the checked core the runner says it is, and not

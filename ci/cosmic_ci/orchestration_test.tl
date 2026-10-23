@@ -908,7 +908,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
   -- bin/zig logs each build, and leaves what it names.
   Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o\nprintf '%s\\n' \"$*\" >> o/zig.ran\n" ..
       "case \"$*\" in\n" ..
-      "'build cores boot') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
+      "'build cores boot -Dboot-cores=all') mkdir -p o/bin && printf '#!/bin/sh\\necho ran >> \"$0.ran\"\\n' > o/bin/cosmic && " ..
       "chmod 755 o/bin/cosmic ;;\n" ..
       "'build sanitized') mkdir -p o/sanitized/bin ;;\n" ..
       "'build portable-format-" .. target .. "') mkdir -p o/portable-fixture/format && " ..
@@ -920,7 +920,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
       project, tmp .. "/logs", env)
     assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
   end
-  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot\nbuild sanitized\n" ..
+  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot -Dboot-cores=all\nbuild sanitized\n" ..
       "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
   assert(Fs.read(fake .. "/o/bin/cosmic.ran") == nil, "boot ran the native suite")
   local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
@@ -1526,7 +1526,7 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
   local base, project = command(tmp)
   -- The checked job's leg promises these and `checked`, which the run's
   -- core does not have: the phase leaves that one out.
-  local promised = "sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
+  local promised = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
     "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
   local cases = {
     { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
@@ -1726,7 +1726,7 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
     local boots = Fs.read(fake .. "/o.boots")
     if case.ran then
       -- the second boot is the plain `boot` with the new checker asked for, the first the legs' with the mode unset
-      assert(boots ~= nil and boots:find("\nbuild boot|new\n", 1, true) ~= nil and boots:find("build cores boot|\n", 1, true) == 1,
+      assert(boots ~= nil and boots:find("\nbuild boot -Dboot-cores=all|new\n", 1, true) ~= nil and boots:find("build cores boot -Dboot-cores=all|\n", 1, true) == 1,
         case.name .. ": " .. tostring(boots))
       local projects = Fs.read(fake .. "/o/bin/cosmic.projects")
       assert(projects == "new|0\n", case.name .. ": " .. tostring(projects))
@@ -1817,8 +1817,9 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
 end
 
---- A fixture runner is given its leg's promises whole, as a candidate
---- suite is, Unix sockets among them.
+--- A fixture runner is given its leg's promises as a candidate
+--- suite is, Unix sockets among them, but for the names the pinned release it
+--- runs on lacks (`all_cores`), which it would refuse as unknown.
 local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, source in ipairs({ "format", "runtime" }) do
@@ -1832,7 +1833,8 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
     local given = "," .. fixture.COSMIC_TEST_PROMISES .. ","
-    assert(given == candidate, given)
+    assert(candidate:find(",all_cores,", 1, true), candidate)
+    assert(given == candidate:gsub(",all_cores,", ","), "the pinned release is given a name it lacks: " .. given)
     assert(fixture.COSMIC_TEST_LEG == "linux-x86_64-checked")
     assert(fixture.COSMIC_SANDBOX == "must", "fixture confinement is no longer held")
     assert(fixture.COSMIC_TEST_SANDBOX == (source == "runtime" and "1" or "0"))
@@ -1846,6 +1848,9 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   }, tmp .. "/tmp", tmp .. "/c.db")
   assert(unknown.COSMIC_TEST_PROMISES == "proc, unix_socket ,future_requirement,checked",
     "the fixture changed the promises it was given")
+  local newer = Orchestration.fixture_run("format", { COSMIC_TEST_PROMISES = "all_cores,proc" },
+    tmp .. "/tmp", tmp .. "/c.db")
+  assert(newer["COSMIC_TEST_PROMISES"] == "proc", newer["COSMIC_TEST_PROMISES"])
 end
 
 --- A fixture project made again at the same path starts with no build

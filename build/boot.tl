@@ -305,6 +305,14 @@ end
 --- records the stamp does not name, so the step graph is not all that
 --- pairs the two, and its `boot: ` summary reports the whole boot.
 --- Neither takes a checked core.
+--- A leading `--host-only` (before `--stage` or `--assemble`, or alone
+--- before the host target of a whole boot) says the tool carries the
+--- host's raw core alone: the assembly reads no other, and puts
+--- [`artifact.placeholder`] where each other target's core goes, in the
+--- same portable layout the core accepts, so the tool runs as one of every
+--- core does. `cosmic build` of a portable program refuses such a tool
+--- ([`build.embed`]). Without it every raw core is read and the tool is the
+--- one CI verifies, byte for byte as it has been.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
 --- @param compiler_source the Lua the compiler running this was compiled
@@ -318,9 +326,14 @@ local function boot(root: string, argv: {string},
   local started = Clock.monotonic_ns()
   local first = 4
   local mode = "boot"
-  if argv[4] == "--stage" or argv[4] == "--assemble" then
-    mode = argv[4]:sub(3)
-    first = 5
+  local host_only = false
+  if argv[first] == "--host-only" then
+    host_only = true
+    first = first + 1
+  end
+  if argv[first] == "--stage" or argv[first] == "--assemble" then
+    mode = argv[first]:sub(3)
+    first = first + 1
   end
   --- The command line's slot `n`, counted as a whole boot's.
   local function slot(n: integer): string | nil
@@ -370,8 +383,13 @@ local function boot(root: string, argv: {string},
     -- The staging half never reads a raw core: it is the point of
     -- running it before the cores other than this process's own exist.
     if mode ~= "stage" then
-      local path = build_paths.core(working, target)
-      local image, failure = Fs.read(path)
+      local image: string | nil
+      local failure = ""
+      if host_only and target ~= host then
+        image = artifact.placeholder(target)
+      else
+        image, failure = Fs.read(build_paths.core(working, target))
+      end
       if image == nil then
         log:complain("boot: " .. failure)
         return 1
@@ -482,7 +500,8 @@ local function boot(root: string, argv: {string},
   -- stamp, and which may have run while other cores linked) and this run's.
   local total_ms = clock.elapsed_ms(started)
   if mode == "assemble" then total_ms = total_ms + staged.elapsed_ms end
-  local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") .. ", " ..
+  local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") ..
+      (host_only and " (the host's core only)" or "") .. ", " ..
       describe(staged) .. ", " ..
       plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms\n")
   return 0

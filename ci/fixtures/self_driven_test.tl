@@ -76,7 +76,7 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
   Fixture.source_tree(tree)
 
   Fixture.succeeded("self-driven-boot", Fixture.call_with_environment(
-    "self-driven-boot", { tree .. "/bin/zig", "build", "boot" }, tree,
+    "self-driven-boot", { tree .. "/bin/zig", "build", "boot", "-Dboot-cores=all" }, tree,
     diagnostics, Fixture.environment({
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",

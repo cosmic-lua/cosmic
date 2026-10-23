@@ -3996,12 +3996,17 @@ local function require_of_host(ctx: Run): integer | nil
         local linux: boolean | nil = nil
         local portable = Store.meta("runtime_context") == "portable-v1"
         local checked = testing.configuration == "sanitized"
+        local function host_only(): boolean
+          local prefix, _ = artifact.trusted_prefix()
+          return prefix == nil or artifact.host_only(prefix)
+        end
         if Env.get("COSMIC_TEST_PLATFORM") == "other" then
           linux, portable, checked = false, false, false
         end
         host = host_requires.new({
           portable = portable,
           checked = checked,
+          host_only = host_only,
           linux = linux,
           sandbox = function(): host_requires.Sandbox
             local answer = ctx.sandbox_answer or sandbox_here()

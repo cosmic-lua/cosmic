@@ -123,6 +123,30 @@ local function name_of(main: string): string | nil
   return main:match("^cmd%.([^%.]+)%.main$")
 end
 
+-- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
+-- place of refusing; it waits on the tool knowing the checkout it was
+-- booted from, which its database does not record, so that a project's
+-- `cosmic build` can find the tree to run zig in.
+
+--- The prefix a portable program is made of: the running tool's own, which
+--- carries a core for every target it runs on. A tool booted for the host's
+--- alone (`bin/zig build boot` without `-Dboot-cores=all`) carries a
+--- placeholder for each other target's ([`artifact.placeholder`]), and has no
+--- such prefix to give: a program made of it would run on this host only, and
+--- say nothing of it, so it refuses and names the boot that renews it.
+--- `--host` needs no other core.
+--- @param prefix what [`artifact.trusted_prefix`] answered, or nil
+--- @param trouble and why not, where it answered none
+function embed.portable_prefix(prefix: string | nil, trouble: string): string | nil, string
+  if prefix == nil then return nil, trouble end
+  if artifact.host_only(prefix) then
+    return nil, "this tool carries the host's core alone, so a portable program made " ..
+      "of it would run nowhere else; run bin/zig build boot -Dboot-cores=all in " ..
+      "cosmic's checkout to carry every core, or build with --host for this host"
+  end
+  return prefix, ""
+end
+
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
@@ -483,7 +507,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   if host then
     core, source_trouble = artifact.trusted_core()
   else
-    prefix, source_trouble = artifact.trusted_prefix()
+    prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())
   end
   if prefix == nil and core == nil then
     return nil, source_trouble
@@ -568,7 +592,7 @@ end
 embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
-  tests = { "build.embed_test", "build.embed_tool_test" },
+  tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
   run = function(argv: {string}): integer return run(argv) end,
   bare = false,
   takes = "the files or directories to act on",

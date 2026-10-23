@@ -74,23 +74,6 @@ local function rows_of(path: string, sql: string): Sqlite.Rows
   return rows
 end
 
-local function test_a_project_becomes_an_executable(tmp: string)
-  write_project(tmp)
-  local names, trouble = embed.tree(tmp)
-  assert(names ~= nil, trouble)
-  assert(#names == 1 and names[1] == "hello")
-
-  local out = build_dir(tmp) .. "/bin/hello"
-  local st = assert(Fs.stat(out))
-  assert(st.mode & 0x49 == 0x49, "the executable bit is set for everyone")
-  local bytes = assert(Fs.read(out))
-  local prefix = assert(artifact.trusted_prefix())
-  assert(bytes:sub(1, 10) == "#!/bin/sh\n",
-    "the portable file has its script entry")
-  assert(String.starts_with(bytes, prefix),
-    "the portable file reuses the exact retained prefix")
-end
-
 --- `cosmic build` prints each program it wrote, its bare path on a line of
 --- its own, for a caller to run.
 local function test_build_prints_the_path_of_each_program(tmp: string)
@@ -110,7 +93,7 @@ end
 
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   write_project(tmp)
-  assert(embed.tree(tmp))
+  assert(embed.tree(tmp, true))
   local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
@@ -202,7 +185,7 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
     "return Example",
     "",
   }, "\n")))
-  assert(embed.tree(tmp))
+  assert(embed.tree(tmp, true))
   local projected = rows_of(build_dir(tmp) .. "/cosmic.db",
     "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
   assert(projected[1]:text(1) == "2", "the project's own projection keeps both")
@@ -249,7 +232,7 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     'return { greeting = "hi" }',
     "",
   }, "\n")))
-  assert(embed.tree(tmp))
+  assert(embed.tree(tmp, true))
   local database = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
@@ -428,7 +411,7 @@ end
 --- assigns the same rowids and writes the same bytes on every build.
 local function test_the_embedded_database_is_reproducible(tmp: string)
   write_project(tmp)
-  assert(embed.tree(tmp))
+  assert(embed.tree(tmp, true))
   local one = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   local two = assert(embed.database(build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
   assert(one == two, "repeating the embed changed its database")

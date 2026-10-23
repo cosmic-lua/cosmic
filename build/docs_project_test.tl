@@ -42,7 +42,7 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
     return "--- " .. word .. " words.\nlocal record Thing\nend\nreturn Thing\n"
   end
   assert(Fs.write(project .. "/thing.tl", module("First")))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local first = docs_in(project, "thing")
   assert(first:find("First words.", 1, true), first)
@@ -95,7 +95,7 @@ local function test_a_listed_function_module_answers_its_name(tmp: string)
   assert(Fs.write(project .. "/cmd/greet/main.tl",
     "--- Says hello.\nlocal function main(_argv: {string}): integer\n" ..
       "  return 0\nend\nreturn main\n"))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local index = docs_in(project)
   assert(index:find("cmd.greet.main", 1, true), index)
@@ -115,7 +115,7 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
       "--- Says hello.\nfunction greet.hello(): string\n" ..
       "  return (Fs.read(\"hello\")) or \"hello\"\nend\n\nreturn greet\n"))
   assert(Fs.write(project .. "/README.md", "# Greet\n\nIt reads with [`cosmic.fs.read`].\n"))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   local result = cosmic(project, { "uses", "cosmic.fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
@@ -144,7 +144,7 @@ local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
       "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
   end
   assert(Fs.write(project .. "/thing.tl", module("First")))
-  local built = cosmic(project, { "build" })
+  local built = cosmic(project, { "build", "--host" })
   assert(built.code == 0, built.stdout .. built.stderr)
   assert(Fs.write(project .. "/thing.tl", module("Second")))
   local held = assert(Sqlite.open(build_paths.required(project) .. "/build.db", { writable = true }))

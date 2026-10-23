@@ -316,6 +316,8 @@ allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
   "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
 allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
   "whose bin/zig is a stand-in, which no stale tool can reach"
+allow({ "build.reboot.boot_command" }, "tested directly: the test hands it each kind of tool, " ..
+    "where the running one is only one of them")
 allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " ..
   "identities, where a stale tool's compiler can only be had by building one"
 allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
