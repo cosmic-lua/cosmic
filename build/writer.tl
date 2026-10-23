@@ -292,11 +292,18 @@ local make_reused <const> = {
     "WHERE NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = p.path AND d.kind = 'decl')",
 }
 
+--- The modules of a write that starts from a base. The rows a module that
+--- stands does not take from the base are looked up by subquery, where
+--- a join would look up every module's: a search of `compiled` by key reads
+--- each row it compares whole, the Lua and the bytecode among it, some
+--- 0.2 s for cosmic's own tree.
 local insert_modules_reusing <const> =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
-  "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), coalesce(r.source, d.data), coalesce(r.bytecode, c.bytecode), " ..
+  "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
+  "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
+  "AND d.core = " .. deflating_core .. ")), " ..
+  "coalesce(r.bytecode, (SELECT c.bytecode FROM compiled c WHERE c.key = p.key)), " ..
   "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
   "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
@@ -307,10 +314,9 @@ local insert_modules_reusing <const> =
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
   "LEFT JOIN temp.reused u ON u.path = p.path " ..
   "LEFT JOIN prev.modules r ON r.path = u.path " ..
-  "LEFT JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
-  " AND u.path IS NULL " ..
-  "LEFT JOIN compiled c ON c.key = p.key AND u.path IS NULL " ..
-  "WHERE u.path IS NOT NULL OR (d.source_hash IS NOT NULL AND c.key IS NOT NULL) " ..
+  "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
+  "WHERE d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
+  ") AND EXISTS (SELECT 1 FROM compiled c WHERE c.key = p.key)) " ..
   "ORDER BY p.path"
 
 local insert_docs_reusing <const> =
