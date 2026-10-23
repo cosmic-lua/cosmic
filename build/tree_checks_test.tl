@@ -1254,7 +1254,7 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'declared'"))
   assert(count[1]:integer(1) == 5, "the four files and the code")
   -- Plant another answer under every key: a run that finds it did not lower.
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.declared(root, {}, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) and not hit:find("float_key", 1, true), hit)
   -- A module far below changed: the files that require it, through others, are lowered again; one that does not is not.
@@ -1262,6 +1262,30 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   local again = table.concat(tree_checks.declared(root, {}, memo), "\n")
   assert(again:find("build/top.tl:2:", 1, true) and again:find("build/mid.tl", 1, true) == nil, again)
   assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
+  assert(memo:close())
+end
+
+--- What a file reads of a module it requires is its tokens, not its comments or its blank lines: an edit to either of a
+--- module misses the module's own answer alone, and an edit to a token misses the files that require it as well.
+local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_file_of_the_declaration_check(dir: string)
+  local root = dir .. "/declareshape"
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "end", "return Base")))
+  assert(Fs.write(root .. "/build/mid.tl", source("local type Base = require(\"build.base\")", "local record Mid", "  b: Base", "end", "return Mid")))
+  assert(Fs.write(root .. "/build/top.tl", source("local type Mid = require(\"build.mid\")", "local x: {number: Mid}", "return x")))
+  local memo = assert(Sqlite.memory())
+  local plain = table.concat(tree_checks.declared(root, {}, memo), "\n")
+  assert(plain:find("build/top.tl:2:", 1, true), plain)
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+  -- A comment, a doc comment and blank lines in the module far below: only its own file is lowered again.
+  assert(Fs.write(root .. "/build/base.tl", source("-- a comment", "local record Base", "  --- the count", "  n: integer -- here", "end", "", "", "return Base")))
+  local commented = table.concat(tree_checks.declared(root, {}, memo), "\n")
+  assert(commented:find("build/top.tl:7:9: planted", 1, true) and commented:find("build/mid.tl:7:9: planted", 1, true), commented)
+  assert(commented:find("build/base.tl", 1, true) == nil, "the module itself was answered from the memo: " .. commented)
+  -- A token of it changed: the files that require it, through another, are lowered again.
+  assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
+  local changed = table.concat(tree_checks.declared(root, {}, memo), "\n")
+  assert(changed:find("build/top.tl:2:", 1, true) and not changed:find("planted", 1, true), changed)
   assert(memo:close())
 end
 
@@ -1357,7 +1381,7 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
   local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
   assert(count[1]:integer(1) == 3, "the three files: " .. count[1]:integer(1))
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
+  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, {}, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))

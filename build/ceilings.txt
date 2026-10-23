@@ -418,6 +418,7 @@ build/lsp/publish.tl 1
 build/paths.tl 1
 build/perf.tl 1
 build/pipeline.tl 5
+build/pipeline_check.tl 1
 build/policy_rules.tl 7
 build/positions.tl 1
 build/rand.tl 2
@@ -569,8 +570,8 @@ build/pipeline.tl overload_none 2
 build/c/inputs.tl view_as_mut 1
 build/fix/laid_test.tl view_as_mut 1
 build/pipeline.tl view_as_mut 2
-build/pipeline_check.tl field_fixed 1
 build/fix/laid.tl field_fixed 1
+build/pipeline_check.tl field_fixed 2
 build/pipeline_test.tl arms_differ 7
 build/pipeline_test.tl concat_type 1
 build/pipeline_test.tl field_fixed 1
@@ -592,7 +593,9 @@ ci/cosmic_ci/rehearsal.tl condition_type 2
 ci/cosmic_ci/rehearsal.tl field_fixed 1
 build/key_parts.tl nil_not_allowed 1
 ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
+build/pipeline_check.tl overload_none 1
 ci/cosmic_ci/rehearsal.tl overload_none 1
+build/shape_key.tl view_written 2
 ci/cosmic_ci/rehearsal.tl view_written 13
 ci/cosmic_ci/rehearsal_test.tl nil_not_allowed 4
 ci/cosmic_ci/rehearsal_test.tl view_written 1
@@ -944,7 +947,7 @@ build/todo_scan.tl nil_not_allowed 7
 build/todos.tl nil_not_allowed 13
 build/todos_git_test.tl nil_not_allowed 31
 build/todos_test.tl nil_not_allowed 63
-build/tree_checks.tl nil_not_allowed 116
+build/tree_checks.tl nil_not_allowed 119
 build/tree_checks_test.tl nil_not_allowed 91
 build/tree_program_test.tl nil_not_allowed 21
 build/tree_root.tl nil_not_allowed 8
@@ -1962,7 +1965,7 @@ build/perf.tl view_written 35
 build/perf_test.tl view_written 11
 build/perf_validation.tl view_written 17
 build/pipeline.tl view_written 31
-build/pipeline_check.tl view_written 20
+build/pipeline_check.tl view_written 22
 build/pipeline_memory_test.tl view_written 21
 build/pipeline_test.tl view_written 6
 build/plural_sites.tl view_written 9
@@ -2102,7 +2105,7 @@ build/todos.tl view_written 27
 build/todos_git_test.tl view_written 1
 build/todos_test.tl view_written 10
 build/tree_checks.tl view_written 321
-build/tree_checks_test.tl view_written 26
+build/tree_checks_test.tl view_written 25
 build/tree_program.tl view_written 14
 build/tree_program_test.tl view_written 4
 build/tree_root.tl view_written 2
@@ -5297,7 +5300,7 @@ build/this_program_test.tl and_ternary 1
 build/time.tl and_ternary 3
 build/todo_scan.tl and_ternary 2
 build/todos.tl and_ternary 7
-build/tree_checks.tl and_ternary 19
+build/tree_checks.tl and_ternary 23
 build/tree_program_test.tl and_ternary 1
 build/vendor.tl and_ternary 2
 build/vendor_test.tl and_ternary 1
