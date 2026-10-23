@@ -351,7 +351,8 @@ Codes.catalog = {
   {
     code = "static_before_definition", rule = "compiler-written classes",
     why = "a `function R.m(...)` statement gives the table of R its function when it runs, in the order of the module, so a " ..
-      "read of `R.m` or a call `v:m(...)` of a class that runs while the module loads, above that statement, finds nil",
+      "read of `R.m` or a call `v:m(...)` of a class that runs while the module loads, above that statement, finds nil: " ..
+      "so does a function that reads it when the module calls that function, or hands it to code that may, as it loads",
     fix = "move the statement above the use, or use the function in a function that runs after the module has loaded",
   },
   {
@@ -616,9 +617,10 @@ Codes.catalog = {
   },
   {
     code = "iterator_extra", rule = "calls take the arguments the function declares",
-    why = "a generic `for` calls its iterator with a state and a control value; a fourth expression after `in` is the " ..
-      "value Lua closes when the loop ends, and it raises when that value has no `__close`",
-    fix = "write at most three expressions after `in`",
+    why = "a generic `for` calls its iterator with a state and a control value; a fourth value after `in`, whether it is a " ..
+      "fourth expression or one a call answers (any number of them, when it answers `T...`), is the value Lua closes when " ..
+      "the loop ends, and it raises when that value has no `__close`",
+    fix = "write at most three expressions after `in`, and name the values a call answers before the loop if it answers more",
   },
   {
     code = "iterator_variables", rule = "calls take the arguments the function declares",

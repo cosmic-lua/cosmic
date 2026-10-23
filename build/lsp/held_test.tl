@@ -4,7 +4,6 @@
 --- short one. Every session here asks for the new checker, whatever the mode of the suite.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local check = require("build.lsp.check")
@@ -35,8 +34,8 @@ end
 
 --- A checker of the new grammar at `root`, and the document `name` of it with `text`.
 local function checker_at(root: string): check.Checker
-  return check.new(root, function(_line: string) end, function(): {Sqlite.Handle}, {boolean}
-    return {}, {}
+  return check.new(root, function(_line: string) end, function(): check.Hinted
+    return { databases = {}, public = {} }
   end, "new")
 end
 

@@ -905,7 +905,7 @@ build/syntax_analyzer_test.tl nil_not_allowed 26
 build/syntax_compared.tl nil_not_allowed 6
 build/syntax_compared_test.tl nil_not_allowed 11
 build/syntax_contracts.tl nil_not_allowed 39
-build/syntax_contracts_test.tl nil_not_allowed 6
+build/syntax_contracts_test.tl nil_not_allowed 5
 build/syntax_derivation_test.tl nil_not_allowed 20
 build/syntax_link_text.tl nil_not_allowed 1
 build/syntax_links_test.tl nil_not_allowed 14
@@ -1253,7 +1253,7 @@ eval/summarize.tl nil_not_allowed 14
 eval/summarize_test.tl nil_not_allowed 2
 lang/ast.tl nil_not_allowed 12
 lang/ast_dump.tl nil_not_allowed 5
-lang/check.tl nil_not_allowed 105
+lang/check.tl nil_not_allowed 106
 lang/check_class_test.tl nil_not_allowed 30
 lang/check_expressions_test.tl nil_not_allowed 6
 lang/check_flow_fuzz_test.tl nil_not_allowed 4
@@ -2047,7 +2047,7 @@ build/syntax_analyzer_test.tl view_written 5
 build/syntax_compared.tl view_written 29
 build/syntax_compared_analysis.tl view_written 34
 build/syntax_compared_test.tl view_written 3
-build/syntax_contracts.tl view_written 67
+build/syntax_contracts.tl view_written 69
 build/syntax_contracts_test.tl view_written 1
 build/syntax_derivation.tl view_written 5
 build/syntax_derivation_test.tl view_written 4
@@ -2472,7 +2472,7 @@ eval/solve_test.tl view_written 2
 eval/summarize.tl view_written 37
 eval/summarize_test.tl view_written 1
 lang/ast.tl view_written 7
-lang/check.tl view_written 146
+lang/check.tl view_written 150
 lang/check_assigned_fuzz_test.tl view_written 4
 lang/check_class_test.tl view_written 2
 lang/check_flow_fuzz_test.tl view_written 4
@@ -2501,6 +2501,7 @@ lang/lexer_parity_test.tl view_written 1
 lang/lexer_test.tl view_written 5
 lang/literals.tl view_written 13
 lang/literals_test.tl view_written 6
+lang/load_order.tl view_written 13
 lang/parser.tl view_written 60
 lang/parser_cover.tl view_written 1
 lang/parser_error_test.tl view_written 7
@@ -2639,13 +2640,15 @@ eval/round.tl view_as_mut 2
 eval/summarize.tl view_as_mut 2
 lang/ast.tl view_as_mut 1
 lang/ast_dump.tl view_as_mut 1
-lang/check.tl view_as_mut 1
+lang/check.tl view_as_mut 2
 lang/check_assigned_fuzz_test.tl view_as_mut 1
 lang/check_flow_fuzz_test.tl view_as_mut 4
 lang/codegen.tl view_as_mut 5
 lang/declarations.tl view_as_mut 4
 lang/lexer.tl view_as_mut 13
 lang/literals.tl view_as_mut 1
+lang/load_order.tl view_as_mut 3
+lang/load_order_test.tl view_as_mut 5
 lang/parser.tl view_as_mut 6
 lang/parser_fuzz_test.tl view_as_mut 97
 lang/relation.tl view_as_mut 1
@@ -2961,7 +2964,7 @@ eval/check/grade.tl field_fixed 2
 eval/result.tl field_fixed 7
 eval/round.tl field_fixed 1
 lang/ast.tl field_fixed 2
-lang/check.tl field_fixed 6
+lang/check.tl field_fixed 8
 lang/check_codes.tl field_fixed 2
 lang/check_programs.tl field_fixed 5
 lang/codegen.tl field_fixed 1
@@ -2995,7 +2998,7 @@ build/lang_proof.tl field_unknown 7
 build/plural_sites.tl field_unknown 24
 build/syntax_analyzer.tl field_unknown 152
 build/syntax_compared.tl field_unknown 3
-build/syntax_contracts.tl field_unknown 315
+build/syntax_contracts.tl field_unknown 318
 build/syntax_globals.tl field_unknown 2
 build/syntax_link_text.tl field_unknown 37
 build/syntax_match.tl field_unknown 6
@@ -3019,7 +3022,7 @@ cosmic/poll_test.tl field_unknown 1
 cosmic/stream.tl field_unknown 2
 cosmic/stream_test.tl field_unknown 26
 lang/ast.tl field_unknown 3
-lang/check.tl field_unknown 816
+lang/check.tl field_unknown 837
 lang/check_class_test.tl field_unknown 6
 lang/check_generics_test.tl field_unknown 1
 lang/check_programs.tl field_unknown 2
@@ -3029,6 +3032,7 @@ lang/codegen_test.tl field_unknown 3
 lang/declarations.tl field_unknown 228
 lang/declarations_test.tl field_unknown 14
 lang/generics.tl field_unknown 84
+lang/load_order.tl field_unknown 6
 lang/parser.tl field_unknown 42
 lang/parser_cover.tl field_unknown 13
 lang/parser_error_test.tl field_unknown 1
@@ -4764,7 +4768,7 @@ eval/solve.tl condition_type 1
 eval/solve_test.tl condition_type 2
 eval/summarize.tl condition_type 6
 eval/summarize_test.tl condition_type 1
-lang/check.tl condition_type 30
+lang/check.tl condition_type 31
 lang/check_fuzz_test.tl condition_type 1
 lang/check_programs.tl condition_type 1
 lang/check_test.tl condition_type 1

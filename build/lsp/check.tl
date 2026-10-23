@@ -49,6 +49,7 @@ local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Pipeline = require("build.pipeline")
+local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
 local Translate = require("lang.translate")
 local analysis_schema = require("build.analysis_schema")
@@ -88,6 +89,12 @@ local record check
     requires: {string} | nil
   end
 
+  --- The databases a message's hint looks a name up in, and whether each is read as the public standard library's.
+  record Hinted
+    databases: {Sqlite.Handle}
+    public: {boolean}
+  end
+
   --- One session's checker.
   record Checker
     root: string
@@ -116,7 +123,7 @@ local record check
     --- The open documents, by name.
     open: {string:Document}
     --- The databases a message's hint looks a name up in.
-    hints: importer.Hints
+    hints: function(): Hinted
     --- Whether a check found a document requiring other modules than
     --- before, since [`check.moved`] last asked: a cycle of imports
     --- through another open document may have closed or opened.
@@ -130,9 +137,17 @@ end
 local type Checker = check.Checker
 local type Document = check.Document
 
+--- The hints of `checker` as the importer asks for them.
+local function importer_hints(checker: Checker): importer.Hints
+  return function(): {Sqlite.Handle}, {boolean}
+    local hinted = checker.hints()
+    return hinted.databases, hinted.public
+  end
+end
+
 --- A checker of the tree at `root`, made ready on its first check, that checks with the checker `grammar` names: the one
 --- `COSMIC_GRAMMAR` asks for where none is given.
-function check.new(root: string, err: function(line: string), hints: importer.Hints, grammar?: GrammarMode.Mode): Checker
+function check.new(root: string, err: function(line: string), hints: function(): check.Hinted, grammar?: GrammarMode.Mode): Checker
   local view = source.new(root, err, grammar)
   return {
     root = root,
@@ -566,7 +581,7 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env |
     local spliced = syntax_read.applied(text, splices)
     if #splices > 0 then held.respell(program, spliced) end
     local reading = held.built(program, document.name, spliced, path, kind == "test")
-    local compiled = syntax_read.generated(assert(subject), reading, checker.hints, planned.requires,
+    local compiled = syntax_read.generated(assert(subject), reading, importer_hints(checker), planned.requires,
       function(name: string): boolean return checker.source.modules[name] ~= nil end)
     for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
     return checked(refusals, spliced, splices, {})
@@ -681,7 +696,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   for _, e in ipairs(checked.errors) do
     local code: string | nil = e.code
     if code == nil then code = e.tag end
-    add(e.y, e.x, importer.said(e, document.name, checked.source, checked.refused, checker.hints), code)
+    add(e.y, e.x, importer.said(e, document.name, checked.source, checked.refused, importer_hints(checker)), code)
   end
   document.published = out
   document.published_text = document.text

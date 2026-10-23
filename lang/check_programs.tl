@@ -80,7 +80,10 @@ local record Programs
   --- fork does, a test for the kind, to show that the checks see what that lets through. `hook` is the `__fact` to run
   --- the wraps with, in place of this module's own: the one the tool's worker defines ([`build.test_worker`]'s
   --- `install_checks`) can be run on the programs a test draws.
-  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean, hook?: FactHook): Execution
+  --- With `anyway` the Lua of a program the checker refuses (but for a syntax error) runs as well, which shows the fault the
+  --- refusal keeps from a program.
+  execute: function(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean, hook?: FactHook,
+                    anyway?: boolean): Execution
 
   --- The type of the first variable called `name`.
   var: function(run: Run, name: string): Types.Type
@@ -401,10 +404,10 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
 end
 
 function Programs.execute(source: string, facts: boolean, modules?: {string: string}, kind_only?: boolean,
-                          hook?: Programs.FactHook): Programs.Execution
+                          hook?: Programs.FactHook, anyway?: boolean): Programs.Execution
   local run = Programs.run(source, modules)
   local done: Programs.Execution = { run = run, ran = false, lua = "", printed = {}, fault = nil }
-  if not taken(run) then
+  if not taken(run) and not (anyway == true and #run.before == 0) then
     return done
   end
   local wraps: {integer: string} = {}
