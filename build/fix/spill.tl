@@ -106,7 +106,7 @@ function spill.check(root: string): spill.Built | nil, string
   end
   local built = teal.lazy()
   local result, compile_trouble = importer.compile(handle, built,
-    Store.meta("compiler") or "", false, shared_compiles.for_build())
+    Store.meta("compiler") or "", false, shared_compiles.for_build(), nil, nil, nil, true)
   local closed, close_trouble = work.close(handle)
   if not closed then return nil, close_trouble end
   local refused = compile_trouble

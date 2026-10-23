@@ -397,6 +397,76 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
   assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
 end
 
+--- The test above sets `seen` below zero, which marks a compile never
+--- reused, so it is compiled again whether or not a use of the old one
+--- marks it. This one ages the compile by the runs that went by instead:
+--- one standing, used by a run many runs after its mark, is marked again
+--- and not compiled.
+local function test_a_standing_compile_used_many_runs_later_is_marked_not_compiled()
+  local root = assert(write_fixture("seen-by-runs", {
+    ["x.tl"] = "return { value = 1 }\n",
+  }))
+  assert(compile_fixture(root))
+  local function seen_of(): integer
+    local rows = asked_of(root, "SELECT seen FROM compiled")
+    assert(#rows == 1, "expected one compile")
+    local row = assert(rows[1])
+    return assert(math.tointeger(tonumber(row[1])))
+  end
+  local made = seen_of()
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "UPDATE meta SET value = value + 40 WHERE key = 'run'"))
+  work.close(handle)
+  local result = assert(compile_fixture(root))
+  assert(result.compiled == 0 and result.cached == 1, "a standing compile was made again")
+  assert(seen_of() >= made + 40, "a compile used 40 runs after its mark kept its mark")
+end
+
+--- Stages and compiles the fixture at `root` as `cosmic fix` does, asking for
+--- the build it made a moment ago where nothing has moved since.
+local function compile_again(root: string): importer.Result
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test", false, nil, nil, nil, nil, true))
+  work.close(handle)
+  return result
+end
+
+--- A build asked for again is the one before while the files and the plan it
+--- left are as they were, not compiled but handed back with nothing made; an
+--- edit, a file gone, or a plan another run replaced is built afresh.
+local function test_a_build_asked_for_again_is_the_one_before_only_while_nothing_moved()
+  local root = assert(write_fixture("again", {
+    ["x.tl"] = "return { value = 1 }\n",
+    ["y.tl"] = "local x = require(\"x\")\nreturn { value = x.value }\n",
+  }))
+  local first = compile_again(root)
+  assert(first.compiled == 2, "the first build compiled " .. tostring(first.compiled))
+  local again = compile_again(root)
+  assert(again.compiled == 0 and again.cached == 2, "a build nothing moved was made again")
+  assert(again.modules == first.modules, "the build before was not handed back")
+
+  assert(Fs.write(root .. "/x.tl", "return { value = 2 }\n"))
+  local edited = compile_again(root)
+  assert(edited.compiled >= 1, "an edit was not built")
+  assert(compile_again(root).compiled == 0, "the build after an edit was not handed back")
+
+  local handle = assert(work.open(root))
+  assert(Sqlite.run(handle.db, "DELETE FROM plan WHERE path = 'y'"))
+  work.close(handle)
+  local replanned = compile_again(root)
+  assert(replanned.compiled == 0 and replanned.cached == 2 and replanned.modules ~= edited.modules,
+    "a plan another run replaced was served")
+  local handle_after = assert(work.open(root))
+  local planned = assert(Sqlite.text_rows(handle_after.db, "SELECT count(*) FROM plan"))
+  work.close(handle_after)
+  assert(assert(planned[1]):text(1) == "2", "the plan was not written again")
+
+  assert(Fs.remove(root .. "/y.tl"))
+  local gone = compile_again(root)
+  assert(#gone.modules == 1, "a file gone was served")
+end
+
 --- Mutually recursive declaration types are valid input to the checker. A
 --- cache key closes over the graph without rejecting that cycle itself.
 local function test_declaration_dependency_keys_allow_cycles()

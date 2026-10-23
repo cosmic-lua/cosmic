@@ -34,6 +34,11 @@ local record compilation
     key: string
     graph: string
   end
+
+  --- The keys of `modules` made from nothing kept ([`compilation.dependency_keys`]
+  --- without its memos): what each is a function of, which a test holds the
+  --- memos to.
+  full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys} | nil, string
 end
 
 local type Keys = compilation.Keys
@@ -309,6 +314,248 @@ local function compute_keys(db: Sqlite.Handle, modules: {Module},
   return out, ""
 end
 
+--- What one node of the graph adds to the digest of every module that reaches
+--- it: its own lines -- its kind and source, and an edge to each node it
+--- requires that there is one of (`requires`, and `loads` where a
+--- declaration's implementation is loaded beside it) -- sorted and joined as
+--- [`identify_in`] joins them, with their digest, and the nodes it leads to.
+local record Fragment
+  text: string
+  digest: string
+  children: {string}
+end
+
+--- `a < b` over bytes, which orders strings as `table.sort` does with none.
+local function by_bytes(a: string, b: string): boolean
+  return a < b
+end
+
+--- `list` sorted by bytes, as a list of its own.
+local function sorted(list: {string}): {string}
+  local out: {string} = {}
+  for _, one in ipairs(list) do out[#out + 1] = one end
+  table.sort(out, by_bytes)
+  return out
+end
+
+--- The [`Fragment`] of each slot of `known`, as [`identify_in`] walks them
+--- (`line_of` is its way of spelling a node), made when first asked for and
+--- kept. Nil and why where a name cannot be resolved, "" for no node.
+local function fragments_in(known: Graph, line_of: function(string, Dependency): string):
+    function(string): Fragment | nil, string
+  local made: {string:Fragment} = {}
+  return function(slot: string): Fragment | nil, string
+    local kept = made[slot]
+    if kept ~= nil then return kept, "" end
+    -- `visit`'s display name: the slot less the mark of an implementation.
+    local display = slot
+    if slot:sub(1, 1) == "\0" then display = slot:sub(2) end
+    local dependency, resolve_trouble = known.resolve(slot, display)
+    if dependency == nil then return nil, resolve_trouble end
+    local lines: {string} = { line_of(slot, dependency) }
+    local children: {string} = {}
+    for _, required in ipairs(dependency.requires) do
+      local child, child_trouble = known.resolve(required, required)
+      if child == nil and child_trouble ~= "" then return nil, child_trouble end
+      if child ~= nil then
+        lines[#lines + 1] = slot .. "\nrequires\n" .. required
+        children[#children + 1] = required
+        if child.kind == "decl" and known.dependencies["\0" .. required] ~= nil then
+          lines[#lines + 1] = slot .. "\nloads\n" .. required
+          children[#children + 1] = "\0" .. required
+        end
+      end
+    end
+    local text_of = table.concat(sorted(lines), "\n\0\n")
+    local fragment: Fragment = { text = text_of, digest = Hash.hex_sha256(text_of), children = children }
+    made[slot] = fragment
+    return fragment, ""
+  end
+end
+
+--- What a module's compile was keyed by the last time [`fast_keys`] made
+--- it, and under which compiler.
+local record KeptKeys
+  file: string
+  key: string
+  graph: string
+end
+
+--- What the last [`fast_keys`] kept under `tool`: each module's keys by path
+--- and each node's fragment digest by slot, or nil where it kept none. Both
+--- are written together and replaced together, in one transaction.
+local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys} | nil, {string:string} | nil
+  local modules, _ = Sqlite.text_rows(db,
+    "SELECT path, file, key, graph FROM key_memo WHERE tool = ?1", { text(tool) })
+  local slots, _ = Sqlite.text_rows(db,
+    "SELECT slot, digest FROM key_frags WHERE tool = ?1", { text(tool) })
+  if modules == nil or slots == nil or #modules == 0 or #slots == 0 then return nil, nil end
+  local keys: {string:KeptKeys} = {}
+  for _, row in ipairs(modules) do
+    keys[row:text(1)] = { file = row:text(2), key = row:text(3), graph = row:text(4) }
+  end
+  local digests: {string:string} = {}
+  for _, row in ipairs(slots) do digests[row:text(1)] = row:text(2) end
+  return keys, digests
+end
+
+--- Replaces what [`kept_graph`] answers with `out` and `fragments`, under
+--- `tool`. A failure costs only the next run's compute.
+local function keep_graph(db: Sqlite.Handle, tool: string, modules: {Module}, out: {string:Keys},
+                          fragments: {string:Fragment})
+  local cleared, _ = db:exec("DELETE FROM key_memo; DELETE FROM key_frags")
+  if not cleared then return end
+  local put_module, _ = db:prepare(
+    "INSERT INTO key_memo (path, tool, file, key, graph) VALUES (?1, ?2, ?3, ?4, ?5)")
+  local put_slot, _ = db:prepare("INSERT INTO key_frags (slot, tool, digest) VALUES (?1, ?2, ?3)")
+  if put_module == nil or put_slot == nil then
+    if put_module ~= nil then put_module:finalize() end
+    if put_slot ~= nil then put_slot:finalize() end
+    return
+  end
+  local module_put: Sqlite.Statement = put_module
+  local slot_put: Sqlite.Statement = put_slot
+  --- Binds `values` in order and runs the statement once.
+  local function put(statement: Sqlite.Statement, values: {string}): boolean
+    for index, value in ipairs(values) do
+      local bound, _ = statement:bind_text(index, value)
+      if not bound then return false end
+    end
+    local done, _ = bind.once(statement)
+    return done
+  end
+  for _, m in ipairs(modules) do
+    local one = out[m.path]
+    if one == nil or not put(module_put, { m.path, tool, m.file, one.key, one.graph }) then
+      break
+    end
+  end
+  for slot, fragment in pairs(fragments) do
+    if not put(slot_put, { slot, tool, fragment.digest }) then break end
+  end
+  module_put:finalize()
+  slot_put:finalize()
+end
+
+--- The keys [`compute_keys`] makes, from what changed since the last
+--- ones this made under `tool` rather than every module's whole graph: each
+--- node's [`Fragment`] is made once, a module's graph is its reachable
+--- nodes' fragments in the order of their slots, and a module that
+--- reaches no node whose fragment differs from the kept one, and has the
+--- same file, keeps the keys it had. That is the same as making them: the
+--- lines of the nodes a module reaches are the whole of what its key is a
+--- function of (its file and `tool` beside), and a node it no longer reaches
+--- is one an edge of a node it does reach has dropped, whose fragment names
+--- that edge. The lines sort as their fragments do because a slot's lines
+--- all start with it and a newline, which sorts below every byte a name
+--- has, so that one slot that begins another has its lines first.
+---
+--- Nil, to be made by [`compute_keys`], where a name has a byte
+--- that does not hold to that, or the tree cannot be read as it reads it,
+--- which it then says in its own words.
+local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys} | nil
+  local graph, _ = dependency_graph(db, modules)
+  if graph == nil then return nil end
+  local fragment_of = fragments_in(graph, source_line)
+  local made: {string:Fragment} = {}
+  local pending: {string} = {}
+  for _, m in ipairs(modules) do pending[#pending + 1] = "\0" .. m.path end
+  local head = 1
+  while head <= #pending do
+    local slot = pending[head]
+    head = head + 1
+    if slot ~= nil and made[slot] == nil then
+      local fragment, _ = fragment_of(slot)
+      if fragment == nil then return nil end
+      made[slot] = fragment
+      for _, child in ipairs(fragment.children) do
+        if made[child] == nil then pending[#pending + 1] = child end
+      end
+    end
+  end
+  -- A name with a byte below a newline after its first is not one the order of the slots holds for.
+  local slots: {string} = {}
+  for slot, _ in pairs(made) do
+    if slot:find("[\0-\10]", 2) ~= nil then return nil end
+    slots[#slots + 1] = slot
+  end
+  local ordered = sorted(slots)
+
+  local kept, digests = kept_graph(db, tool)
+  -- The nodes that differ from the kept ones, and each that reaches one.
+  local affected: {string:boolean} = {}
+  if kept ~= nil and digests ~= nil then
+    local leading: {string:{string}} = {}
+    local queue: {string} = {}
+    for slot, fragment in pairs(made) do
+      for _, child in ipairs(fragment.children) do
+        local list = leading[child]
+        if list == nil then
+          list = {}
+          leading[child] = list
+        end
+        list[#list + 1] = slot
+      end
+      if digests[slot] ~= fragment.digest then
+        affected[slot] = true
+        queue[#queue + 1] = slot
+      end
+    end
+    local front = 1
+    while front <= #queue do
+      local slot = queue[front]
+      front = front + 1
+      if slot ~= nil then
+        for _, parent in ipairs(leading[slot] or {}) do
+          if affected[parent] ~= true then
+            affected[parent] = true
+            queue[#queue + 1] = parent
+          end
+        end
+      end
+    end
+  end
+
+  local out: {string:Keys} = {}
+  local made_any = kept == nil
+  for _, m in ipairs(modules) do
+    local root = "\0" .. m.path
+    local before: KeptKeys | nil = nil
+    if kept ~= nil then before = kept[m.path] end
+    if before ~= nil and affected[root] ~= true and before.file == m.file then
+      out[m.path] = { key = before.key, graph = before.graph }
+    else
+      made_any = true
+      local seen: {string:boolean} = {}
+      local stack: {string} = { root }
+      local top = 1
+      while top <= #stack do
+        local slot = stack[top]
+        top = top + 1
+        if slot ~= nil and seen[slot] ~= true then
+          seen[slot] = true
+          local fragment = made[slot]
+          if fragment ~= nil then
+            for _, child in ipairs(fragment.children) do
+              if seen[child] ~= true then stack[#stack + 1] = child end
+            end
+          end
+        end
+      end
+      local texts: {string} = {}
+      for _, slot in ipairs(ordered) do
+        local fragment = made[slot]
+        if seen[slot] == true and fragment ~= nil then texts[#texts + 1] = fragment.text end
+      end
+      local sources = table.concat(texts, "\n\0\n")
+      out[m.path] = { key = Hash.hex_sha256(sources .. "\n\0\nfile\n" .. m.file .. "\n" .. tool),
+        graph = Hash.hex_sha256(sources) }
+    end
+  end
+  if made_any or digests == nil then keep_graph(db, tool, modules, out, made) end
+  return out
+end
+
 --- Everything [`compute_keys`] reads, as one digest: the compiler's
 --- `tool`, every `inputs` row but the compiler's (a module's kind,
 --- path and source hash decide the graph it is in), every `requires`
@@ -385,11 +632,20 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
     local kept = remembered_keys(db, fingerprint, modules)
     if kept ~= nil then return kept, "" end
   end
-  local keys, trouble = compute_keys(db, modules, tool)
-  if keys == nil then return nil, trouble end
+  local keys: {string:Keys}
+  local fast = fast_keys(db, modules, tool)
+  if fast ~= nil then
+    keys = fast
+  else
+    local full, trouble = compute_keys(db, modules, tool)
+    if full == nil then return nil, trouble end
+    keys = full
+  end
   if fingerprint ~= nil then keep_keys(db, fingerprint, modules, keys) end
   return keys, ""
 end
+
+compilation.full_keys = compute_keys
 
 --- Why a build refuses the module `file` of `kind` that declares what
 --- its tests read (`inputs`, [`Test.policy`]), or nil when it does not:

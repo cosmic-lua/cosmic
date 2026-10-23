@@ -192,7 +192,7 @@ local function project(root: string, verb: string, start: boolean): boolean, str
   local pool: importer.Workers | nil = nil
   if grammar ~= "new" then pool = workers.pool(workers.tool_spec()) end
   local result, compile_trouble = importer.compile(handle, teal.lazy(),
-    GrammarMode.tool(own_compiler(), grammar), false, shared_compiles.for_build(), pool, nil, grammar)
+    GrammarMode.tool(own_compiler(), grammar), false, shared_compiles.for_build(), pool, nil, grammar, start)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

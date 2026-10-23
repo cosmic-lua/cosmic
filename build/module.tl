@@ -35,8 +35,10 @@ local record module
     --- holds in `key`'s place ([`build.declared_key`]), since what the
     --- compiler made of that graph it holds by the bytes it made.
     graph_key?: string
-    --- The compiled Lua, once [`build.importer.compile`] has it: made
-    --- this run or read back from the cache under the same key.
+    --- The compiled Lua of a module [`build.importer.compile`] made this
+    --- run, or copied from another checkout's compile or from one made
+    --- under another key for the same interfaces; none for a compile
+    --- that stood in the cache, whose Lua it does not read back.
     lua?: string
     --- Its source's stub ([`build.stub`]), which cosmic's own build holds
     --- to the source's type, and whether it is declaration-only; none for
