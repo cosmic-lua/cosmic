@@ -554,4 +554,12 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
   local changed = assert(closure_store.basis(whole))
   assert(changed.modules["greet"] ~= fresh.modules["greet"],
     "a basis kept of the file before an edit in place answered after it")
+  -- Once the edited file is older than the tick too, a basis is kept and
+  -- looked for again: only its token says it is of the file before the edit.
+  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
+  assert(Fs.exists(whole .. ".basis"))
+  local old_token = assert(closure_store.basis(whole))
+  assert(old_token.modules["greet"] == changed.modules["greet"],
+    "a basis kept of the file before an edit in place answered after it, once the file was old")
+  assert(old_token.modules["greet"] ~= fresh.modules["greet"], "the edit is not in the kept basis")
 end
