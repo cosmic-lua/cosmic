@@ -1033,7 +1033,6 @@ end
 local record Cache
   run: integer
   tool: string
-  peek: Sqlite.Statement
   look: Sqlite.Statement
   touch: Sqlite.Statement
   put: Sqlite.Statement
@@ -1058,19 +1057,12 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
     look:finalize()
     return nil, touch_trouble
   end
-  local peek, peek_trouble = db:prepare("SELECT 1 FROM compiled WHERE key = ?1 AND seen >= 0")
-  if peek == nil then
-    look:finalize()
-    touch:finalize()
-    return nil, peek_trouble
-  end
   local put, put_trouble = db:prepare(
     "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
     touch:finalize()
-    peek:finalize()
     return nil, put_trouble
   end
   local plan, plan_trouble = db:prepare(
@@ -1078,18 +1070,16 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache | nil, st
   if plan == nil then
     look:finalize()
     touch:finalize()
-    peek:finalize()
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, tool = tool, peek = peek, look = look, touch = touch,
+  return { run = handle.run, tool = tool, look = look, touch = touch,
     put = put, plan = plan }
 end
 
 local function finish_cache(cache: Cache)
   cache.look:finalize()
   cache.touch:finalize()
-  cache.peek:finalize()
   cache.put:finalize()
   cache.plan:finalize()
 end
@@ -1143,25 +1133,6 @@ local function cached_lua(cache: Cache, key: string): string | nil, string
     end
   end
   return lua, ""
-end
-
---- Whether a compile stands under `key`, as [`cached_lua`] would find it,
---- without marking it used by this run.
-local function cached(cache: Cache, key: string): boolean, string
-  local peek = cache.peek
-  local bound, bind_trouble = peek:bind_text(1, key)
-  if not bound then
-    return false, bind_trouble
-  end
-  local state, trouble = peek:step()
-  if state == nil then
-    return false, trouble
-  end
-  local reset, reset_trouble = peek:reset()
-  if not reset then
-    return false, reset_trouble
-  end
-  return state == "row", ""
 end
 
 --- Puts one compile in the cache under its key, and the module in
@@ -1565,17 +1536,20 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       -- them together, and the loop below takes each result in order.
       local wanted: {string:boolean} = {}
       local bytes = 0
+      -- Which compiles stand, asked once rather than for each module.
+      local standing, standing_trouble = Sqlite.text_rows(db, "SELECT key FROM compiled WHERE seen >= 0")
+      if standing == nil then
+        finish_cache(cache)
+        return false, standing_trouble
+      end
+      local stands_by: {string:boolean} = {}
+      for _, row in ipairs(standing) do stands_by[row:text(1)] = true end
       for _, m in ipairs(order) do
         local key = keys[m.path].key
         m.key = key
         m.graph_key = keys[m.path].graph
         if compilation.refusal(m) == nil then
-          local stands, stands_trouble = cached(cache, key)
-          if stands_trouble ~= "" then
-            finish_cache(cache)
-            return false, stands_trouble
-          end
-          if not stands then
+          if not stands_by[key] then
             local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
             if elsewhere ~= nil then
               looked[m.path] = elsewhere
