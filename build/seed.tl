@@ -19,6 +19,10 @@
 --- and a type import that is never read as a value is not loaded (`served`). The type errors of a module are not
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
+-- TODO: lower the `view_written` pins of build/seed.tl, build/seed_proof.tl and build/seed_test.tl (40 writes to a local the
+-- checker takes for a view: each list and map these files build) by declaring those locals `mut` once the files are read in the
+-- new grammar alone, which `cosmic migrate` writes (doc/plans/strict-teal.md, "the switch"): the fork's Teal has no spelling of it.
+
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
@@ -108,10 +112,11 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   --- The Lua of `name`, its file; nil and why.
   local function module(name: string): Seed.Module | nil, string
     local found = build:parsed(name)
-    if found == nil or found.source.dialect == "decl" then
+    if found == nil then
       return nil, ""
     end
     local file = found.source.filename
+    -- A declaration file that does not parse is reported too: it has no Lua, but the modules that require it are typed by it.
     if found.broken then
       local said = ""
       for _, p in ipairs(found.syntax) do
@@ -119,10 +124,13 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
       end
       return nil, said
     end
+    if found.source.dialect == "decl" then
+      return nil, ""
+    end
     build:lower({ name })
     local result = build:result(name, true)
     if result == nil then
-      return nil, file .. ": the build has no module " .. name
+      return nil, file .. ": the build refused the module " .. name .. " (a require cycle?)"
     end
     local emitted = CompileGrammar.emit(build, result, false, true, true)
     -- What is written is all that a boot needs of the module: its syntax and scopes are not held while the rest load.

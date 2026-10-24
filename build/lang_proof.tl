@@ -426,6 +426,11 @@ function LangProof.listed(text: string): {string}
   local out: {string} = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
     local name = line:match("^%s*(.-)%s*$") or ""
+    -- The bridge of the new checker (core/bridge_new.lua) names a file by its source path, [`lang/codegen.tl`]; either spelling is read.
+    local stem = name:match("^lang/([^/]+)%.tl$")
+    if stem ~= nil then
+      name = stem .. ".lua"
+    end
     if name ~= "" then
       out[#out + 1] = name
     end

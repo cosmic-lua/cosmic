@@ -87,6 +87,12 @@ local function test_the_names_of_the_seed_differs_file_are_one_bare_name_a_line(
   assert(#names == 3 and names[1] == "codegen.lua" and names[2] == "lexer.lua" and names[3] == "parser.lua")
 end
 
+--- The bridge of the new checker reads the same file with a source path on each line.
+local function test_a_source_path_is_read_as_the_output_name_it_is_compiled_to()
+  local names = LangProof.listed("lang/codegen.tl\nlexer.lua\n")
+  assert(#names == 2 and names[1] == "codegen.lua" and names[2] == "lexer.lua")
+end
+
 local function test_files_whose_lua_differs_are_named_in_the_order_given_and_a_missing_one_differs(tmp: string)
   for _, side in ipairs({ "a", "b" }) do
     assert(Fs.mkdirs(tmp .. "/" .. side))

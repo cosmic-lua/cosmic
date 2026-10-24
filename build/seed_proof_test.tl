@@ -4,6 +4,7 @@
 --- itself (`bin/cosmic build/seed_proof_main.tl prove <dir>`) compiles it with the pinned release and boots the whole tree.
 
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local SeedProof = require("build.seed_proof")
 local Test = require("cosmic.test")
 local artifact = require("build.artifact")
@@ -12,7 +13,7 @@ Test.policy{ grants = {
   { path = "build/", letters = "r" },
   { path = "lang/", letters = "r" },
   { path = "cosmic/", letters = "r" },
-  { path = "core/bridge_new.lua", letters = "r" },
+  { path = "core/", letters = "r" },
 } }
 
 --- A stand-in for [`build.boot`] that reaches the seed's code through the bridge, and for [`build.gen_syscalls`], which
@@ -42,7 +43,7 @@ local function prepared(tmp: string): {string}
   local declarations = assert(SeedProof.translate(".", { "lang/prelude.d.tl", "lang/stdlib.d.tl" }, tmp .. "/tree"))
   assert(#report.refused == 0 and #declarations.refused == 0, "the translation refused a file of the seed")
   local tree = tmp .. "/tree"
-  assert(Fs.write(tree .. "/build/seed.txt", (assert(Fs.read("build/seed.txt")))))
+  assert(SeedProof.carry(".", tree))
   assert(Fs.mkdirs(tree .. "/core"))
   assert(Fs.write(tree .. "/core/bridge.lua", SeedProof.shim()))
   assert(Fs.write(tree .. "/core/bridge_new.lua", (assert(Fs.read("core/bridge_new.lua")))))
@@ -75,7 +76,7 @@ local function test_the_seed_boots_a_tree_through_the_bridge_and_agrees_with_its
 end
 
 --- A change to what the generator writes that the pin lacks shows as a file whose seed differs from stage two: the boot
---- refuses it unless the tree names the file.
+--- refuses it unless lang/SEED_DIFFERS names the file, and the proof carries that file into the tree it boots.
 local function test_a_file_the_seed_writes_otherwise_than_the_tree_does_is_named(tmp: string)
   prepared(tmp)
   local text = assert(Fs.read(tmp .. "/seed/truthy.lua"))
@@ -83,7 +84,29 @@ local function test_a_file_the_seed_writes_otherwise_than_the_tree_does_is_named
   local booted = boot(tmp, "0")
   assert(booted.code == 1, "exit " .. tostring(booted.code))
   assert(booted.stderr:find("differs from the build compiled by itself in lang/truthy.tl", 1, true), booted.stderr)
-  assert(Fs.write(tmp .. "/tree/lang/SEED_DIFFERS", "lang/truthy.tl\n"))
+  -- The checkout the proof runs in names it; the translated tree has no such file until the proof carries it there.
+  assert(Fs.mkdirs(tmp .. "/root/lang"))
+  assert(Fs.mkdirs(tmp .. "/root/core"))
+  assert(Fs.mkdirs(tmp .. "/root/build"))
+  assert(Fs.write(tmp .. "/root/lang/SEED_DIFFERS", "lang/truthy.tl\n"))
+  assert(Fs.write(tmp .. "/root/build/seed.txt", (assert(Fs.read("build/seed.txt")))))
+  assert(Fs.write(tmp .. "/root/core/syscalls.h", "/* header */\n"))
+  assert(Fs.exists(tmp .. "/tree/lang/SEED_DIFFERS") ~= true)
+  assert(SeedProof.carry(tmp .. "/root", tmp .. "/tree"))
+  assert(Fs.read(tmp .. "/tree/lang/SEED_DIFFERS") == "lang/truthy.tl\n")
+  assert(Fs.read(tmp .. "/tree/core/syscalls.h") == "/* header */\n")
   local declared = boot(tmp, "0")
   assert(declared.code == 7, "exit " .. tostring(declared.code) .. ": " .. declared.stderr)
+end
+
+local function test_the_lua_the_bridge_dumps_is_compared_with_the_pipelines(tmp: string)
+  local db = assert(Sqlite.open(tmp .. "/cache.db", { writable = true, create = true }))
+  assert(Sqlite.run(db, "CREATE TABLE compiled_v2 (key TEXT PRIMARY KEY, lua BLOB NOT NULL)"))
+  assert(Sqlite.run(db, "INSERT INTO compiled_v2 VALUES ('a', deflate('return 1\n'))"))
+  assert(db:close())
+  assert(Fs.mkdirs(tmp .. "/dump"))
+  assert(Fs.write(tmp .. "/dump/a.lua", "return 1\n"))
+  assert(Fs.write(tmp .. "/dump/b.lua", "return 2\n"))
+  local compared = assert(SeedProof.unequal(tmp .. "/dump", tmp .. "/cache.db"))
+  assert(compared.held == 2 and #compared.differ == 1 and compared.differ[1] == "b.lua")
 end

@@ -491,7 +491,7 @@ local function complain(file, result)
 end
 
 -- The key of the compiler's row and the base of the modules' rows: the digests of the seed's Lua and of the sources of
--- each file of `list` (`seed` and `sources`, by path), of the list itself and of this file. The seed's Lua is what
+-- each file of `list` (`seed` and `sources`, by path), each with its path and in the order of the list, and of this file. The seed's Lua is what
 -- stage one runs, so the key names the compiler that made the row, not the release it came from. Nil when one cannot
 -- be read or when the cache is off.
 --
@@ -507,8 +507,7 @@ local function make_compiler_key(list, seed, sources, variables)
   for index, relative in ipairs(list) do
     parts[index] = sha256(relative .. '\0' .. seed[relative]) .. sha256(sources[relative])
   end
-  return hex(sha256(format .. '\ncompiler\n' .. table.concat(list, '\n') .. '\n' ..
-    table.concat(parts) .. bridge))
+  return hex(sha256(format .. '\ncompiler\n' .. table.concat(parts) .. bridge))
 end
 
 -- Set by `bootstrap` for [`searcher_for`], which keys its modules by it.
@@ -549,9 +548,8 @@ local function differing(list, a, b)
   return out
 end
 
--- TODO: make build/lang_proof.tl and doc/contributing.md say that `lang/SEED_DIFFERS` names source paths ([`lang/codegen.tl`]) as
--- this does, not the bare output names (`codegen.lua`) the proof of lang/ holds it to, once the switch deletes
--- build/lang_proof.tl (doc/plans/strict-teal.md, "the switch").
+-- The file names a source path a line ([`lang/codegen.tl`]); build/lang_proof.tl, which holds the same file to the proof of lang/, reads
+-- that spelling and its older bare output names (`codegen.lua`) both.
 
 -- Holds the files whose Lua stage two writes otherwise than the seed does to `lang/SEED_DIFFERS`, both ways. Raises
 -- the complaint, naming the files, for a seed that miscompiles or a change to the generator the file does not declare,

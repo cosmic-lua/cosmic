@@ -25,7 +25,9 @@ local Clock = require("cosmic.clock")
 local CompileGrammar = require("build.compile_grammar")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local TreeWriter = require("build.tree_writer")
 local artifact = require("build.artifact")
@@ -48,6 +50,20 @@ local record SeedProof
 
   --- The files of the seed list below `root`, in order.
   listed: function(root: string): {string} | nil, string
+
+  --- Copies into the translated `tree` what a boot of it reads that is no `.tl`: build/seed.txt, lang/SEED_DIFFERS where `root` has
+  --- one, and the headers boot derives the syscall declarations from (core/*.h).
+  carry: function(root: string, tree: string): boolean, string
+
+  --- What [`SeedProof.unequal`] found: the files that differ, and how many files there are.
+  record Compared
+    differ: {string}
+    held: integer
+  end
+
+  --- The modules among the files of `dump` (`<module>.lua`, what the bridge compiled) whose Lua is not among the Lua of the
+  --- pipeline kept in the compile cache `cache` (a `compiled_v2` table), and how many files `dump` holds.
+  unequal: function(dump: string, cache: string): Compared | nil, string
 
   --- Writes `paths` of the tree at `root` translated, as the switch commits them, below `out`.
   translate: function(root: string, paths: {string}, out: string): TreeWriter.Report | nil, string
@@ -91,7 +107,8 @@ return {
 
 -- TODO: drop this shim, the fork's seed it needs and the copy's stop of [`build.new_declarations`]'s edits once the switch
 -- (doc/plans/strict-teal.md, "the switch") deletes build/teal.tl and writes those lines into place: the boot then asks the
--- bridge for nothing but stage two, and the proof's bridge is [`SeedProof.shim`].
+-- bridge for nothing but stage two, and the proof's bridge is [`SeedProof.shim`]. Until then the bridge, which reads the written
+-- text, and the pipeline, whose strict edit refuses the same text, disagree on the types of cosmic/json and cosmic/web.
 
 --- The shim for a boot that still needs the fork's compiler ([`build.compiler`]) besides the new checker: the fork's bridge,
 --- kept as core/bridge_fork.lua, makes the compiler from the fork's seed, and the new bridge's stage two, from the seed `COSMIC_SEED_NEW`
@@ -139,6 +156,61 @@ local function split_trace(text: string): {string}, string
     end
   end
   return trace, table.concat(rest, "\n")
+end
+
+function SeedProof.carry(root: string, tree: string): boolean, string
+  local names, names_why = Fs.list(root .. "/core")
+  if names == nil then
+    return false, names_why
+  end
+  local files: {string} = { "build/seed.txt", "lang/SEED_DIFFERS" }
+  for _, name in ipairs(names) do
+    if name:match("%.h$") ~= nil then
+      files[#files + 1] = "core/" .. name
+    end
+  end
+  for _, file in ipairs(files) do
+    local text, _ = Fs.read(root .. "/" .. file)
+    -- lang/SEED_DIFFERS is there only while a pin lags the generator; build/seed.txt and the headers always.
+    if text == nil and file ~= "lang/SEED_DIFFERS" then
+      return false, root .. "/" .. file .. " is unreadable"
+    end
+    if text ~= nil then
+      assert(Fs.mkdirs(Fs.dirname(tree .. "/" .. file)))
+      local written, why = Fs.write(tree .. "/" .. file, text)
+      if not written then
+        return false, why
+      end
+    end
+  end
+  return true, ""
+end
+
+function SeedProof.unequal(dump: string, cache: string): SeedProof.Compared | nil, string
+  local db, open_why = Sqlite.open(cache, { immutable = true })
+  if db == nil then
+    return nil, open_why
+  end
+  local rows, rows_why = Sqlite.text_rows(db, "SELECT inflate(lua) FROM compiled_v2")
+  if rows == nil then
+    return nil, rows_why
+  end
+  local kept: {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    kept[Hash.hex_sha256(row:text(1))] = true
+  end
+  local files, files_why = Fs.list(dump)
+  if files == nil then
+    return nil, files_why
+  end
+  local differ: {string} = {}
+  for _, file in ipairs(files) do
+    local text, _ = Fs.read(dump .. "/" .. file)
+    if text == nil or kept[Hash.hex_sha256(text)] ~= true then
+      differ[#differ + 1] = file
+    end
+  end
+  return { differ = differ, held = #files }, ""
 end
 
 function SeedProof.shim(): string
@@ -327,16 +399,7 @@ end
 --- Step 3: the closure check. Answers the failures.
 local function closure_check(root: string, dir: string, seed: string, core: string): {string}
   local tree = dir .. "/tree"
-  -- The headers boot derives the syscall declarations from, and the bridge that loads the new one.
-  local names, names_why = Fs.list(root .. "/core")
-  if names == nil then
-    return { names_why }
-  end
-  for _, name in ipairs(names) do
-    if name:match("%.h$") ~= nil then
-      assert(Fs.write(tree .. "/core/" .. name, (assert(Fs.read(root .. "/core/" .. name)))))
-    end
-  end
+  -- The bridge that loads the new one; the headers, build/seed.txt and lang/SEED_DIFFERS are carried ([`SeedProof.carry`]).
   assert(Fs.write(tree .. "/core/bridge.lua", SeedProof.shim()))
   assert(Fs.write(tree .. "/core/bridge_new.lua", (assert(Fs.read(root .. "/core/bridge_new.lua")))))
   local started = Clock.monotonic_ns()
@@ -354,6 +417,11 @@ local function closure_check(root: string, dir: string, seed: string, core: stri
   end
   if not loaded then
     failures[#failures + 1] = "the bridge did not reach build.boot"
+  end
+  -- The build.boot the bridge compiled ran: it is the one that refuses a command line with no host target.
+  if booted.code ~= 1 or booted.stderr:find("the command line names no working directory", 1, true) == nil then
+    failures[#failures + 1] = "the build.boot the bridge compiled did not answer as the tree's does (exit " .. tostring(booted.code) .. "): " ..
+      tail(booted.stderr, 6)
   end
   return failures
 end
@@ -474,6 +542,24 @@ local function tool_check(root: string, dir: string, core: string, cosmic: strin
   if staged.code ~= 0 then
     return { "--stage failed" }
   end
+  local failures: {string} = {}
+  local bridged = false
+  for _, line in ipairs(staged.trace) do
+    bridged = bridged or line:find("stage two: ", 1, true) ~= nil
+  end
+  if not bridged then
+    failures[#failures + 1] = "--stage did not go through the new bridge's stage two"
+  end
+  -- The tool must run the Lua the checks of the tree tested: what the bridge compiled of each module is what the pipeline wrote.
+  local compared, compared_why = SeedProof.unequal(dump, dir .. "/cache.db")
+  if compared == nil then
+    failures[#failures + 1] = "comparing the bridge's Lua with the pipeline's: " .. compared_why
+  elseif compared.held == 0 or #compared.differ > 0 then
+    failures[#failures + 1] = "the Lua the bridge compiled differs from the pipeline's in " .. tostring(#compared.differ) .. " of " ..
+      String.counted(compared.held, "module") .. ": " .. table.concat(compared.differ, ", ", 1, math.min(#compared.differ, 8))
+  else
+    print("   the Lua of all " .. String.counted(compared.held, "module") .. " the bridge compiled equals the pipeline's")
+  end
   started = Clock.monotonic_ns()
   local assembled, assembled_why = SeedProof.boot(core, copy, dir .. "/seed_fork", { "--host-only", "--assemble", host, working .. "/targets.tsv", working }, env)
   if assembled == nil then
@@ -486,7 +572,6 @@ local function tool_check(root: string, dir: string, core: string, cosmic: strin
   end
 
   -- The tool: it boots (it runs a chunk), tests a small module, and checks a file.
-  local failures: {string} = {}
   local tool = working .. "/bin/cosmic"
   local smoke: {{string}} = {
     { tool, "-e", "print(1 + 1)" },
@@ -565,7 +650,11 @@ function SeedProof.main(argv: {string}): integer
     return 1
   end
   print("1. translated " .. String.counted(#written.clean + #written.allowed, "file") .. " to " .. dir .. "/tree: " .. took(started))
-  assert(Fs.write(dir .. "/tree/build/seed.txt", (assert(Fs.read(root .. "/build/seed.txt")))))
+  local carried, carried_why = SeedProof.carry(root, dir .. "/tree")
+  if not carried then
+    print(carried_why)
+    return 1
+  end
 
   started = Clock.monotonic_ns()
   local cosmic: string = seed_cosmic or (root .. "/bin/cosmic-bootstrap")

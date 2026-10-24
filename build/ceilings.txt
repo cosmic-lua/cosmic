@@ -3726,7 +3726,7 @@ build/sealed_nests_worker_test.tl view_written 4
 
 build/seed.tl view_written 3
 
-build/seed_proof.tl view_written 24
+build/seed_proof.tl view_written 31
 
 build/seed_test.tl view_written 6
 

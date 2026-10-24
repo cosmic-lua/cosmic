@@ -2,6 +2,10 @@
 --- files [`build/seed.tl`] really requires. A file the entry reaches that the list lacks fails a boot at its first
 --- `require`, and a file the list carries that nothing reaches is compiled by every boot for nothing.
 
+--- It sees what the parser records: a literal `require("x")` anywhere in a file. A `require(name)` of a computed name, or one
+--- under `pcall`, is not seen, and a module given as both `x.d.tl` and `x.tl` is taken as the `.tl` where `Seed.program`
+--- reads the declaration first; none is in the closure today.
+
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")

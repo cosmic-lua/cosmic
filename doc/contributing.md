@@ -203,7 +203,7 @@ the seed the switch boots from is [`build/seed.txt`] (the files of the entry [`b
 by the pinned release, and the bridge that loads it is [`core/bridge_new.lua`]; neither boots anything yet.
 `bin/cosmic build/seed_proof_main.tl prove <dir>` writes the translated tree, compiles the seed with the pinned release,
 and boots the tree through that bridge up to [`build.boot`]; with `--tool` it boots a copy of the tree and leaves a tool to
-test. there `lang/SEED_DIFFERS` names source paths ([`lang/codegen.tl`]), not output names.
+test. for the bridge `lang/SEED_DIFFERS` names source paths ([`lang/codegen.tl`]); the proof of lang/ reads those too.
 `COSMIC_BOOTSTRAP` names another cosmic for the seed too. with it pointing
 at the tree's own tool, the seed is always what the checker compiles itself
 to, so a standing entry fails the boot saying to remove it: boot with the
