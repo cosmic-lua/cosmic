@@ -10,7 +10,7 @@ local TreeProgram = require("build.tree_program")
 local TreeWriter = require("build.tree_writer")
 
 Test.policy{ grants = {
-  { path = "build/ceilings.txt", letters = "r" }, { path = "lang/", letters = "r" }, { path = "cosmic/", letters = "r" },
+  { path = "build/ceilings.txt", letters = "r" }, { path = "cosmic/web/response.tl", letters = "r" },
 } }
 
 --- A module that uses many of the rows the translator rewrites, in the fork's Teal.
@@ -496,23 +496,67 @@ local function test_the_forks_checker_and_the_fork_only_fixtures_are_kept_unread
   assert(Fs.exists(tmp .. "/out/checkers/m.tl") == true and Fs.exists(tmp .. "/out/testdata/rehearsal/other.tl") == true)
 end
 
---- The file `path` of the tree as an entry of the program [`TreeProgram.index`] makes.
-local function entry(path: string): {string}
-  return { path, (assert(Fs.read(path))) }
-end
+--- The modules that hold the `where` clauses, in the fork's Teal.
+local AST <const> = table.concat({
+  "local record Ast",
+  "  record Local is Base",
+  "    where self.kind == \"Local\"",
+  "  end",
+  "  record Name is Base",
+  "    where self.kind == \"Name\"",
+  "  end",
+  "  type Exp = Local |",
+  "    Name",
+  "end",
+  "return Ast",
+  "",
+}, "\n")
+
+local TYPES <const> = table.concat({
+  "local record Types",
+  "  record Atom is Base",
+  "    where self.atom",
+  "  end",
+  "end",
+  "return Types",
+  "",
+}, "\n")
+
+--- A module that tests the records their clauses told apart.
+local USER <const> = table.concat({
+  "local Ast = require(\"lang.ast\")",
+  "local function f(node: any, xs: {any}): boolean",
+  "  local a = node is Ast.Local",
+  "  local b = xs[1] is Ast.Exp",
+  "  return a and b",
+  "end",
+  "return f",
+  "",
+}, "\n")
+
+--- A module with a `where` clause, as the tour has.
+local TOUR <const> = "local record Shape\n  where self.kind == \"x\"\n  kind: string\nend\nreturn Shape\n"
 
 local function test_the_text_written_is_the_text_the_pipeline_reads_for_the_file(tmp: string)
-  -- The two modules that hold the `where` clauses, a file that tests their records, the tour, files with edits of the new
-  -- declarations, and a plain module: each takes another step.
-  local entries = { entry("lang/ast.tl"), entry("lang/types.tl"), entry("lang/check.tl"), entry("cosmic/removed_example.tl"),
-    entry("cosmic/json.tl"), entry("cosmic/web/init.tl"), entry("cosmic/fs.tl") }
-  local paths = { "lang/ast.tl", "lang/types.tl", "lang/check.tl", "cosmic/removed_example.tl", "cosmic/json.tl",
-    "cosmic/web/init.tl", "cosmic/fs.tl" }
-  local report = assert(TreeWriter.write(".", paths, tmp .. "/out", { allowance = assert(TreeWriter.allowance(".")), again = true,
+  -- Small modules with the forms each step takes (the `where` modules, a test of their records, a blanked tour), and the
+  -- smallest file with an edit of the new declarations, whole.
+  local root = tmp .. "/tree"
+  put(root, "lang/ast.tl", AST)
+  put(root, "lang/types.tl", TYPES)
+  put(root, "lang/user.tl", USER)
+  put(root, "cosmic/removed_example.tl", TOUR)
+  put(root, "cosmic/web/response.tl", (assert(Fs.read("cosmic/web/response.tl"))))
+  local paths = { "lang/ast.tl", "lang/types.tl", "lang/user.tl", "cosmic/removed_example.tl", "cosmic/web/response.tl" }
+  local entries = {
+    { "lang/ast.tl", AST }, { "lang/types.tl", TYPES }, { "lang/user.tl", USER }, { "cosmic/removed_example.tl", TOUR },
+    { "cosmic/web/response.tl", (assert(Fs.read(root .. "/cosmic/web/response.tl"))) },
+  }
+  local allow: TreeWriter.Allowance = { paths = { "lang/ast.tl", "lang/types.tl", "cosmic/removed_example.tl" }, pins = {} }
+  local report = assert(TreeWriter.write(root, paths, tmp .. "/out", { allowance = allow, again = true,
     translator = nil, raw = nil }))
   assert(report.files == #paths and #report.refused == 0 and #report.unstable == 0, table.concat(TreeWriter.summary(report), "\n"))
-  local raw_report = assert(TreeWriter.write(".", paths, tmp .. "/raw", { allowance = assert(TreeWriter.allowance(".")),
-    again = false, translator = nil, raw = true }))
+  local raw_report = assert(TreeWriter.write(root, paths, tmp .. "/raw", { allowance = allow, again = false,
+    translator = nil, raw = true }))
   assert(raw_report.files == #paths)
   local index = TreeProgram.index(entries, true, {})
   assert(#index.sources == #paths, "a file of the sample is left out of the program")
@@ -522,7 +566,7 @@ local function test_the_text_written_is_the_text_the_pipeline_reads_for_the_file
     assert(source.filename == path, source.filename)
     local expected = Driver.parse(source).text
     local written = assert(Fs.read(tmp .. "/out/" .. path))
-    assert(#written > 100, path)
+    assert(#written > 50, path)
     -- Read with the translation off, the written file is the text the pipeline reads: the same tokens to the checker.
     local alone = Driver.index({ { path, written } }, false, function(_file: string): boolean
       return false
@@ -534,5 +578,5 @@ local function test_the_text_written_is_the_text_the_pipeline_reads_for_the_file
       stepped = stepped + 1
     end
   end
-  assert(stepped >= 5, "the steps changed " .. tostring(stepped) .. " of " .. tostring(#paths) .. " files")
+  assert(stepped == 5, "the steps changed " .. tostring(stepped) .. " of " .. tostring(#paths) .. " files")
 end
