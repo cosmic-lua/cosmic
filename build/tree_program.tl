@@ -18,6 +18,7 @@ local Memprobe = require("build.memprobe")
 local LangProof = require("build.lang_proof")
 local NewDeclarations = require("build.new_declarations")
 local Scopes = require("lang.scopes")
+local Translate = require("lang.translate")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
@@ -41,6 +42,26 @@ local record TreeProgram
   --- ([`build.lang_proof`]'s steps): the program the pipeline checks. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
+
+  --- The tags the rewrite of [`build.lang_proof`] needs, read from lang/ast.tl and lang/types.tl among `entries`: none where
+  --- either is missing.
+  tags_of: function(entries: {{string}}): {string: LangProof.Tags}
+
+  --- What the pipeline reads for a file: the text, and the translation it was made from.
+  record Read
+    --- The translation's text with the steps done that the file needs: its `where` clauses blanked, the tests of their records
+    --- written as the tests of their tags, the lines the new checker reads otherwise replaced. [`TreeProgram.index`] hands the
+    --- same steps to the driver as the file's mend.
+    text: string
+    --- The translation, whose `text` is the text before the steps.
+    translation: Translate.Result
+  end
+
+  --- The text the pipeline reads for the file `file` of cosmic's own tree, whose text in the fork's Teal is `text`: its
+  --- translation ([`lang.translate`], or `translator`'s) and then the steps of the program. [`build.tree_writer`] writes this
+  --- text, so what the tree commits is what the pipeline read.
+  read: function(file: string, text: string, tags: {string: LangProof.Tags},
+    translator?: function(source: string, name: string): Translate.Result): TreeProgram.Read
 
   --- Whether the file `file` of cosmic's own tree uses `where`, which its translation has blanked before it is read
   --- ([`build.lang_proof`]'s `blank_where`).
@@ -159,11 +180,29 @@ local function mended(file: string, text: string, tags: {string: LangProof.Tags}
   end
 end
 
-function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
+function TreeProgram.tags_of(entries: {{string}}): {string: LangProof.Tags}
   local ast_text, types_text = text_of(entries, "lang/ast.tl"), text_of(entries, "lang/types.tl")
+  if ast_text ~= nil and types_text ~= nil then
+    return LangProof.tags(ast_text, types_text)
+  end
+  return {}
+end
+
+function TreeProgram.read(file: string, text: string, tags: {string: LangProof.Tags},
+                          translator?: function(source: string, name: string): Translate.Result): TreeProgram.Read
+  local translate = translator or Translate.translate
+  local result = translate(text, file)
+  local mend = mended(file, text, tags)
+  if mend == nil then
+    return { text = result.text, translation = result }
+  end
+  return { text = mend(result.text), translation = result }
+end
+
+function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: string}): Driver.Index
   local tags: {string: LangProof.Tags} = {}
-  if steps and ast_text ~= nil and types_text ~= nil then
-    tags = LangProof.tags(ast_text, types_text)
+  if steps then
+    tags = TreeProgram.tags_of(entries)
   end
   local skip = skipped
   if steps then
