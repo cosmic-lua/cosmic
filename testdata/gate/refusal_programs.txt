@@ -722,3 +722,89 @@ local s = "x"
 print(s.format("%d", "x"))
 === got %s, expected %s => not_assignable
 print(string["format"]("%d", "x"))
+=== expected a type definition => expected_token
+local record R
+  type 1
+end
+=== expected a type definition => expected_type
+local record R
+  type X = 1
+end
+=== expected a type definition => retired
+local record R
+  type X = require("m")
+end
+=== %s is not a resolved type => member_missing
+local record R
+  type S = R.Missing
+end
+local x: R.S = nil
+=== types do not have the same array interface => literal_shape
+local record Box<T>
+  v: T
+end
+local function mk<T>(v: T): Box<T>
+  return { v = v }
+end
+local a = mk({1, x = 1})
+local c = mk({x = 1})
+a = c
+=== different number of input arguments: method and non-method are not the same type => duplicate_field
+local record R
+  m: function(integer)
+end
+function R:m(x: integer)
+end
+=== incompatible length, expected maximum length of %s, got %s => tuple_type
+local function f<T>(x: T, y: T)
+end
+local t: {integer, integer} = {1, 2}
+f(t, {1, 2, 3})
+=== cannot determine table literal type => arms_differ
+local a = { {[true] = 1}, {x = 1} }
+=== cannot determine type of tuple elements => retired
+local function none()
+end
+local t = {none()}
+=== fields '%s' of '%s' are read-only => record_index
+local enum K
+  "a"
+  "b"
+end
+local record R
+  readonly a: integer
+  readonly b: integer
+end
+local function f(r: R, k: K)
+  r[k] = 1
+end
+=== cannot resolve polymorphic function given arguments => duplicate_field
+local record R
+  it: function(integer, integer): integer
+  it: function(string, string): string
+end
+local r: R = {}
+for x in r.it, true, 0 do
+end
+=== could not resolve type of self => method_in_record
+local record B
+end
+local record A
+  f: B
+end
+function A.f:m()
+end
+=== userdata is not a record => expected_name
+local record U is userdata
+  x: integer
+end
+local function f(u: U)
+  local t = {x = 1}
+  t = u
+end
+=== record is not a userdata => expected_name
+local record U is userdata
+  x: integer
+end
+local t = {x = 1}
+local u: U = t

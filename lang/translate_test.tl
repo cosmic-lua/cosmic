@@ -6,7 +6,11 @@
 local Cover = require("lang.lexer_cover")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Programs = require("lang.check_programs")
+local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+
+Test.policy{}
 
 --- The lines joined, each ended by a line break.
 local function lines(...: string): string
@@ -1222,6 +1226,90 @@ local function test_a_method_takes_optional_marks_and_leaves_a_generic_field_alo
     "end"), "t.tl")
   assert(result.hazards[1].kind == "signature" and result.hazards[1].name == "generic" and
       result.text:find("function g(self, x)", 1, true), result.text)
+end
+
+-- A field that declares a method's type and the `function R:m` that defines it agree on the parameters, or the program is refused.
+
+local function test_a_field_and_a_method_that_give_other_numbers_of_parameters_leave_the_class_declaring_the_name_twice()
+  -- the fork reads `function(integer)` as a function that takes an integer, and the method as one that takes `self` too
+  local result = Translate.translate(lines(
+    "local record R",
+    "  m: function(integer)",
+    "end",
+    "function R:m(x: integer)",
+    "end"), "t.tl")
+  local first = result.errors[1]
+  assert(first ~= nil and first.code == "duplicate_field" and first.msg:find("`m`", 1, true) ~= nil and
+      first.fix:find("make the method give the same parameters", 1, true) ~= nil and #result.errors == 1,
+    "errors: " .. tostring(#result.errors) .. " in\n" .. result.text)
+  assert(result.text == lines(
+    "local class R",
+    "  m: function(integer)",
+    "",
+    "  function m(self, x: integer)",
+    "  end",
+    "end"), result.text)
+  -- the field with more parameters than the method, and a method that takes none
+  local more = Translate.translate(lines(
+    "local record R",
+    "  m: function(R, integer, string)",
+    "end",
+    "function R:m(x)",
+    "end"), "t.tl")
+  local more_first = more.errors[1]
+  assert(more_first ~= nil and more_first.code == "duplicate_field", more.text)
+  local none = Translate.translate(lines(
+    "local record R",
+    "  m: function()",
+    "end",
+    "function R:m()",
+    "end"), "t.tl")
+  local none_first = none.errors[1]
+  assert(none_first ~= nil and none_first.code == "duplicate_field", none.text)
+end
+
+local function test_a_field_and_a_method_that_give_the_same_parameters_are_one_method_with_the_types_of_the_field()
+  local result = clean(lines(
+    "local record R",
+    "  total: integer",
+    "  m: function(R, integer): integer",
+    "end",
+    "function R:m(x)",
+    "  return x + self.total",
+    "end"))
+  assert(result.text == lines(
+    "local class R",
+    "  total: integer",
+    "",
+    "  function m(self, x: integer): integer",
+    "    return x + self.total",
+    "  end",
+    "end"), result.text)
+  -- a variadic or a type parameter of the field leaves the count to the checker
+  clean(lines(
+    "local record V",
+    "  m: function(V, integer...)",
+    "end",
+    "function V:m(...)",
+    "end"))
+end
+
+local function test_the_method_of_a_field_that_agrees_runs_with_the_declared_types()
+  local result = clean(lines(
+    "local record R",
+    "  total: integer",
+    "  m: function(R, integer): integer",
+    "end",
+    "function R:m(x)",
+    "  return x + self.total",
+    "end",
+    "local r: R = { total = 3 }",
+    "print(r:m(4))"))
+  local x = Programs.execute(result.text, true)
+  assert(x.ran and x.fault == nil and x.printed[1] == "7", tostring(x.fault) .. " in\n" .. x.lua)
+  -- the types of the field are the method's: a call with another type is refused
+  local wrong = Programs.run((result.text:gsub("print%(r:m%(4%)%)", "print(r:m('a'))")))
+  assert(Programs.codes(wrong) == "not_assignable", Programs.codes(wrong))
 end
 
 local function test_a_translation_with_a_carried_collection_type_is_its_own_translation()

@@ -58,7 +58,9 @@
 ---   `__close`. A record with an array part or
 ---   `userdata` stays a record. A method that reads a name declared between its
 ---   record and where it was written, or gives types that differ from its
----   field's, is a [`Hazard`].
+---   field's, is a [`Hazard`]. A field of the method's name that is a function
+---   type with another number of parameters (the receiver counted) stays in the
+---   class beside the method, which the parser refuses as a name declared twice.
 --- - `class_literal`: `setmetatable(T, mt)` is `T` where `T` is a table literal, `mt` is the metatable of a class of
 ---   the file (`local mt: metatable<R> = { __index = R }`, or the literal `{ __index = R }`) and the place gives the
 ---   class as the type of the literal: the only value of a local declared `R`, which is declared `R` where it had no
@@ -859,6 +861,25 @@ local function closer_of(tokens: Lexer.Tokens, open: integer): integer
   return open
 end
 
+--- Whether the field type `declared` and the method `f` give different numbers of parameters, the field's first being
+--- the receiver. A variadic on either side or a type parameter of the field leaves the count to the checker.
+local function arity_differs(declared: Ast.TypeFunction, f: Ast.Function): boolean
+  if #declared.typeparams > 0 then
+    return false
+  end
+  for _, p in ipairs(declared.params) do
+    if p.variadic then
+      return false
+    end
+  end
+  for _, p in ipairs(f.fn.params) do
+    if p.variadic then
+      return false
+    end
+  end
+  return #declared.params ~= #f.fn.params + 1
+end
+
 --- The types of the field `field` that declared method `f`, which the method
 --- leaves out: a parameter without a type, and the return list. A type that
 --- both write and that differs is a `signature` hazard. The field's first
@@ -1209,8 +1230,13 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     local header = "function " .. name .. "(self" .. (#params > 0 and ", " or "")
     local head_lo, head_hi = tokens.offset[first], stop_of(tokens, open)
     local field = fields[name]
-    local carried: {Insertion} = {}
     local declared_type = field ~= nil and field.type or nil
+    if declared_type ~= nil and declared_type is Ast.TypeFunction and arity_differs(declared_type, f) then
+      -- The field stays beside the method, so the class declares the name twice and the parser refuses it.
+      field = nil
+      declared_type = nil
+    end
+    local carried: {Insertion} = {}
     if declared_type ~= nil and declared_type is Ast.TypeFunction then
       carried = carried_types(source, tokens, f, declared_type, found)
     end

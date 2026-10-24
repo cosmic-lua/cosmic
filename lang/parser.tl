@@ -1612,7 +1612,8 @@ local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
   if name.name ~= "" then
     if seen[name.name] ~= nil then
       report("duplicate_field", name.first, "the name `" .. name.name .. "` is declared twice in the class",
-        "rename or delete one; a method and a field, or two methods, cannot share a name")
+        "rename or delete one; a method and a field, or two methods, cannot share a name. If the field declares the " ..
+          "method's type, make the method give the same parameters and delete the field")
     end
     seen[name.name] = false
   end

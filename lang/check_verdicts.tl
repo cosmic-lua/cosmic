@@ -86,9 +86,10 @@ local record RefusalData
   --- Where the fork's source spells it, each as `file:line`, separated by spaces.
   sites: string
   --- "" where a row names it in `fork_templates`; else why no program does: "internal" (an assertion of the checker's own
-  --- walk, no message about a program), "unreachable" (no source reaches the line, and `why` says how the code shows it, and
-  --- in what environment), "unfound" (no program was found, and `why` says what was tried and, for a form the plan cuts, which
-  --- rule: a reviewer may find one) or "needs_module" (only a program of two modules does, and a gate row is one). A form the
+  --- walk, no message about a program), "unreachable" (no source reaches the line, and `why` says the guard or invariant
+  --- that shows it, and in what environment), "unproven" (no program was found and no guard shows there is none, and `why`
+  --- says what was tried: a reviewer may find one, which then takes the reason away) or "needs_module" (only a program of
+  --- two modules does, and a gate row is one). A form the
   --- plan retires that a program reaches is a row, taken or refused, with its entry in retired.json or open.json
   --- ([`Verdicts.program_problems`]), never a reason.
   reason: string
@@ -576,7 +577,7 @@ function Verdicts.program_problems(programs: {Verdicts.Program}, rows: {Verdicts
   return out
 end
 
-local REASONS <const>: {string: boolean} = { internal = true, unreachable = true, unfound = true, needs_module = true }
+local REASONS <const>: {string: boolean} = { internal = true, unreachable = true, unproven = true, needs_module = true }
 
 function Verdicts.refusal_problems(rows: {Verdicts.Row}, refusals: {Verdicts.Refusal}): {string}
   local out: {string} = {}

@@ -92,13 +92,13 @@ local function test_the_counts_of_the_table_are_the_gates()
   local list = rows()
   -- The programs the fork's tests pin and the corpora, by what each checker says. A change to the table or to the
   -- checker that moves these is meant, and moves them here.
-  assert(#list == 956, tostring(#list))
-  assert(count(list, "refused", "refused") == 688, "refused by both: " .. tostring(count(list, "refused", "refused")))
-  assert(count(list, "refused", "accepted") == 34, "retired or open: " .. tostring(count(list, "refused", "accepted")))
+  assert(#list == 970, tostring(#list))
+  assert(count(list, "refused", "refused") == 700, "refused by both: " .. tostring(count(list, "refused", "refused")))
+  assert(count(list, "refused", "accepted") == 36, "retired or open: " .. tostring(count(list, "refused", "accepted")))
   assert(count(list, "accepted", "refused") == 122,
     "refused only by the new checker: " .. tostring(count(list, "accepted", "refused")))
   assert(count(list, "accepted", "accepted") == 112, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
-  assert(#retired() == 34)
+  assert(#retired() == 36)
   -- what the fork refuses and the new checker takes is either explained by a rule or open, and nothing is both
   assert(#retired() + #open_programs() == count(list, "refused", "accepted"))
 end
@@ -536,11 +536,11 @@ local function test_the_counts_of_the_refusals_are_the_gates()
   for _ in pairs(covered) do
     n_covered = n_covered + 1
   end
-  assert(n_covered == 238, "templates a row covers: " .. tostring(n_covered))
-  assert((with_reason["internal"] or 0) == 8 and (with_reason["unreachable"] or 0) == 13 and
-      (with_reason["unfound"] or 0) == 22 and (with_reason["needs_module"] or 0) == 6,
+  assert(n_covered == 250, "templates a row covers: " .. tostring(n_covered))
+  assert((with_reason["internal"] or 0) == 8 and (with_reason["unreachable"] or 0) == 20 and
+      (with_reason["unproven"] or 0) == 3 and (with_reason["needs_module"] or 0) == 6,
     "reasons differ")
-  assert(n_covered + 49 == #list, "a template is covered or has a reason, never both or neither")
+  assert(n_covered + 37 == #list, "a template is covered or has a reason, never both or neither")
 end
 
 local function test_a_template_no_row_covers_is_a_problem_unless_it_says_why()
@@ -604,6 +604,33 @@ local function test_a_reason_that_is_none_of_the_reasons_or_says_nothing_is_a_pr
   end
   assert(change_one("because", "a reason"):find("is none of the reasons", 1, true) ~= nil)
   assert(change_one("internal", ""):find("does not say it", 1, true) ~= nil)
+end
+
+local function test_no_refusal_of_the_fork_is_left_unfound()
+  local unproven = 0
+  for _, each in ipairs(refusals()) do
+    assert(each.reason ~= "unfound", each.template .. " (" .. each.sites .. ") is left unfound")
+    if each.reason == "unproven" then
+      unproven = unproven + 1
+      assert(each.why:find("no program found: ", 1, true) == 1 and each.why:find("tried", 1, true) ~= nil,
+        "unproven, and not saying what was tried: " .. each.template)
+    end
+  end
+  assert(unproven == 3, tostring(unproven) .. " unproven")
+  -- a reason that is none of the reasons is a problem, "unfound" among them
+  local one: Verdicts.Refusal | nil = nil
+  for _, each in ipairs(refusals()) do
+    if one == nil and each.reason == "unproven" then
+      one = each
+    end
+  end
+  assert(one ~= nil)
+  local told = Verdicts.refusal_problems(rows(), { reasoned(one, "unfound", one.why) })
+  local found = false
+  for _, line in ipairs(told) do
+    found = found or line:find("`unfound` is none of the reasons", 1, true) ~= nil
+  end
+  assert(found, table.concat(told, "\n", 1, math.min(#told, 3)))
 end
 
 local function test_a_row_that_names_a_template_the_list_lacks_or_names_none_is_a_problem()
@@ -743,8 +770,8 @@ local function test_every_refusal_program_is_refused_for_the_rule_it_expects_or_
     end
     by[kind] = (by[kind] or 0) + 1
   end
-  assert(#made == 186, tostring(#made))
-  assert(by["code"] == 176 and by["retired"] == 10 and by["open"] == nil, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
+  assert(#made == 200, tostring(#made))
+  assert(by["code"] == 188 and by["retired"] == 12 and by["open"] == nil, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
       " " .. tostring(by["open"]))
 end
 
