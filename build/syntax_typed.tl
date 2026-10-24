@@ -21,7 +21,7 @@
 --
 -- TODO: delete this module with the fork's [`build.receivers`] and [`build.contracts`] at the switch, when the build compiles
 -- with the new checker and nothing is set against the fork (doc/plans/strict-teal.md, "the switch").
-local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Driver = require("build.driver")
 local Receivers = require("build.syntax_receivers")
 local Report = require("build.syntax_report")
@@ -458,7 +458,7 @@ end
 
 function Typed.used(rows: {string: Typed.Row}, fork: Typed.Fork): Typed.Outcome
   local out: Typed.Outcome = { differences = {}, pinnable = 0, counts = {} }
-  local own = Contracts.own_exemptions()
+  local own = Rules.own_exemptions()
   local expected: {string} = {}
   local function need(name: string, table_of: {string: string})
     for key in pairs(table_of) do

@@ -36,7 +36,7 @@ local check_memo = require("build.check_memo")
 local closure_store = require("build.closure_store")
 local compile = require("build.compile")
 local Cover = require("lang.lexer_cover")
-local contracts = require("build.contracts")
+local ContractRules = require("build.contract_rules")
 local declared_key = require("build.declared_key")
 local ast = require("build.ast")
 local docs = require("build.docs")
@@ -954,7 +954,7 @@ end
 --- `<module> <symbol>`, that no module of `db` declares.
 function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   local out: {string} = {}
-  for _, name in ipairs(names or contracts.quieted_names()) do
+  for _, name in ipairs(names or ContractRules.quieted_names()) do
     local module, symbol = name:match("^(%S+) (%S+)$")
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM docs WHERE module = ?1 AND symbol = ?2 LIMIT 1",
@@ -3574,7 +3574,7 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
-    "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "build/contracts.tl", "build/contract_rules.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h", "build/new_declarations.tl" }, "typed 4")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true, shaping_of(root, memo))
   if memo ~= nil then

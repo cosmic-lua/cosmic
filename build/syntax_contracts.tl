@@ -38,7 +38,7 @@
 -- deleted at the switch (doc/plans/strict-teal.md, "the switch").
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
-local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")
 local String = require("cosmic.string")
@@ -63,7 +63,7 @@ local record SyntaxContracts
 
   --- The breaches of the discipline in `subject`, a module of cosmic's own tree that was checked with its types kept.
   --- `given` is the exemptions to hold it to in place of the tree's own.
-  check: function(subject: Subject, given?: Contracts.Exemptions): Result
+  check: function(subject: Subject, given?: Rules.Exemptions): Result
 
   --- The kind of module a file of the tree is, as the importer stages it: `test`, `example`, `main`, `decl` or `module`.
   kind_of: function(file: string): string
@@ -92,7 +92,7 @@ end
 
 function SyntaxContracts.applies(file: string): boolean
   local kind = SyntaxContracts.kind_of(file)
-  return Contracts.applies(kind, false)
+  return Rules.applies(kind, false)
 end
 
 -- Types ------------------------------------------------------------------------------------------------------------
@@ -464,7 +464,7 @@ end
 local record Run
   subject: Subject
   index: Index
-  exemptions: Contracts.Exemptions
+  exemptions: Rules.Exemptions
   used: Used
   problems: {string}
   sites: {string: integer}
@@ -684,7 +684,7 @@ local function is_quiet(run: Run, call: Ast.Node): boolean
   if owner == nil then
     return false
   end
-  local entry = Contracts.quiet_entries()[owner.module .. " " .. owner.path]
+  local entry = Rules.quiet_entries()[owner.module .. " " .. owner.path]
   return entry ~= nil and entry.methods[name] == true
 end
 
@@ -692,7 +692,7 @@ end
 --- name: the tables the new checker types from the declarations the build derives from their headers.
 local function binding_tables(run: Run): {Types.Decl: string}
   local out: {Types.Decl: string} = {}
-  for _, module in ipairs(Contracts.binding_names()) do
+  for _, module in ipairs(Rules.binding_names()) do
     local root = Report.root_of(run.subject.program, module)
     if root ~= nil then
       out[root] = module
@@ -1700,9 +1700,9 @@ local function problem_line(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
 
-function SyntaxContracts.check(subject: Subject, given?: Contracts.Exemptions): SyntaxContracts.Result
+function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions): SyntaxContracts.Result
   local run: Run = {
-    subject = subject, index = index_of(subject), exemptions = given or Contracts.own_exemptions(),
+    subject = subject, index = index_of(subject), exemptions = given or Rules.own_exemptions(),
     used = { exempt = {}, parsing = {}, casts = {}, modes = {} }, problems = {}, sites = {}, scopes = {}, static_lines = {},
   }
   run.scopes = scope_names(run.index, bound_names(subject))

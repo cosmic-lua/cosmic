@@ -6,6 +6,7 @@
 --- checker reads its translation ([`lang.translate`]) against the real standard library's declarations. A test that uses
 --- this module grants [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] for reading.
 local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Fs = require("cosmic.fs")
 local GenSyscalls = require("build.gen_syscalls")
 local Programs = require("lang.check_programs")
@@ -41,13 +42,13 @@ local record Fixture
 
   --- The fork's reader of `source`, with the `modules` (by name, in the fork's Teal) it may require. `given` is the
   --- exemptions to hold it to.
-  fork: function(source: string, modules?: {string: string}, given?: Contracts.Exemptions): Said
+  fork: function(source: string, modules?: {string: string}, given?: Rules.Exemptions): Said
 
   --- The new checker's subject for the same program, translated first: the tree, the names and the type report.
   subject: function(source: string, modules?: {string: string}): Report.Subject
 
   --- The new checker's reader of the same program; the fork's `source` is translated first.
-  port: function(source: string, modules?: {string: string}, given?: Contracts.Exemptions): Said
+  port: function(source: string, modules?: {string: string}, given?: Rules.Exemptions): Said
 
   --- The functions the programs may call: `get` fails with a value, `put` with an effect, `name` cannot fail.
   PRELUDE: string
@@ -90,7 +91,7 @@ Fixture.LOG = table.concat({
 
 local built = teal.lazy()
 
-function Fixture.fork(source: string, modules?: {string: string}, given?: Contracts.Exemptions): Fixture.Said
+function Fixture.fork(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   teal.serve_standard(built)
   local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
   local names: {string} = {}
@@ -184,7 +185,7 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   }
 end
 
-function Fixture.port(source: string, modules?: {string: string}, given?: Contracts.Exemptions): Fixture.Said
+function Fixture.port(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   local subject = Fixture.subject(source, modules)
   local uses: {Fixture.Use} = {}
   for _, r in ipairs(Receivers.references(subject)) do

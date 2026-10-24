@@ -629,7 +629,9 @@ build/compilation.tl 2
 
 build/confine.tl 2
 
-build/contracts.tl 4
+build/contract_rules.tl 1
+
+build/contracts.tl 3
 
 build/coverage/lines.tl 1
 
@@ -3322,7 +3324,9 @@ build/confine_test.tl view_written 3
 
 build/confine_tool_test.tl view_written 4
 
-build/contracts.tl view_written 55
+build/contract_rules.tl view_written 2
+
+build/contracts.tl view_written 53
 
 build/contracts_test.tl view_written 2
 
@@ -6525,7 +6529,9 @@ build/compile_lang_test.tl overload_none 1
 
 build/confine.tl overload_none 2
 
-build/contracts.tl overload_none 4
+build/contract_rules.tl overload_none 1
+
+build/contracts.tl overload_none 3
 
 build/coverage/lines.tl overload_none 1
 
@@ -8379,7 +8385,9 @@ build/compile.tl condition_type 1
 
 build/confine.tl condition_type 8
 
-build/contracts.tl condition_type 14
+build/contract_rules.tl condition_type 1
+
+build/contracts.tl condition_type 13
 
 build/coverage/lines.tl condition_type 1
 

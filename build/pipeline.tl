@@ -34,7 +34,7 @@ local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
-local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Memprobe = require("build.memprobe")
@@ -695,7 +695,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     end
     refused = trouble ~= ""
   end
-  if Contracts.applies(m.kind, m.generated) then
+  if Rules.applies(m.kind, m.generated) then
     local read = SyntaxContracts.check(subject)
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
