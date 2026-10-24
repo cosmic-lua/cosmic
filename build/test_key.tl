@@ -47,6 +47,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local importer = require("build.importer")
+local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
@@ -150,8 +151,8 @@ local record test_key
     records: Sqlite.Handle
     records_path: string
     --- Every module of the tree, and those the run selected.
-    modules: {importer.Module}
-    selected: {importer.Module}
+    modules: {Module}
+    selected: {Module}
     --- The projection the closure stores are derived from, the tree's root
     --- and whether it is cosmic's own.
     database: string
@@ -190,6 +191,29 @@ local record test_key
     --- checkout's own passing verdict, or "share" another checkout's.
     outcome: Outcome
   end
+
+  --- How a finished job's worker was judged ([`test_key.judge`]), with what
+  --- its verdict turns on: whether it passed, and whether it checked.
+  record Judged
+    --- What its worker reported, nil where there is no report to go by.
+    report: worker.Report | nil
+    --- Whether it passed: a worker's pass that made no call to `assert`
+    --- is a failure under a held run.
+    passed: boolean
+    message: string
+    --- Why it checked nothing, where it passed having said so
+    --- ([`Test.skip`], or a host that cannot check it), else "": the first
+    --- line of what it gave.
+    skipped: string
+    --- Whether it passed, and was not skipped, without one call to
+    --- `assert` ([`worker.Judgement.unchecked`]).
+    unchecked: boolean
+    --- What it said it deliberately did not check for, "" for none.
+    deliberate: string
+    --- Whether it checked something: neither skipped nor unchecked. A
+    --- verdict is kept only of a test that did ([`test_key.keep`]).
+    checked: boolean
+  end
 end
 
 local type Recording = State.Recording
@@ -197,7 +221,6 @@ local type Job = State.Job
 local type Unmet = State.Unmet
 local type Sealing = State.Sealing
 local type Verdict = State.Verdict
-local type Limits = State.Limits
 local type Harness = test_key.Harness
 local type Compiler = test_key.Compiler
 local type Prepared = test_key.Prepared
@@ -206,6 +229,7 @@ local type Begin = test_key.Begin
 local type Gather = test_key.Gather
 local type Outcome = test_key.Outcome
 local type Lookup = test_key.Lookup
+local type Judged = test_key.Judged
 
 local text = bind.text
 
@@ -614,7 +638,7 @@ end
 --- ([`test_sandbox.environment`]), TMPDIR its scratch directory; one
 --- unsandboxed has the host's cores cache in place of the sandbox's own
 --- ([`test_sandbox.unenforced_view`]), as it is given.
-local function view_of(rec: Recording, m: importer.Module): {string:string}
+local function view_of(rec: Recording, m: Module): {string:string}
   local view = rec.views[m.path]
   if view == nil then
     local effective = rec.effective[m.path]
@@ -635,7 +659,7 @@ end
 --- Why `m`'s `host` paths cannot all be given to its workers
 --- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
-local function unresolved(rec: Recording, m: importer.Module): string
+local function unresolved(rec: Recording, m: Module): string
   local effective = rec.effective ~= nil and rec.effective[m.path] or nil
   if effective ~= nil then return effective.unresolved or "" end
   local inputs = m.inputs
@@ -649,7 +673,7 @@ end
 --- Where the host caches `m` declares are ([`build.caches`]), as every
 --- worker's environment locates them: what its test may read and write
 --- that no key holds.
-local function caches_of(rec: Recording, m: importer.Module): {string}
+local function caches_of(rec: Recording, m: Module): {string}
   local found = rec.caches[m.path]
   if found == nil then
     local declared = m.inputs
@@ -714,7 +738,7 @@ end
 --- core is, are none of them: a worker that declares the `bootstrap`
 --- cache has cores of its own ([`test_sandbox.cache_writes`]). Such a
 --- worker is keyed as if it declared `tool` instead.
-local function can_forbid(rec: Recording, m: importer.Module): boolean
+local function can_forbid(rec: Recording, m: Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
   found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path],
@@ -735,7 +759,7 @@ end
 --- carrying `nest` beside the `database`. Its key holds the
 --- core in place of the launcher ([`declared_of`]), which no such worker
 --- runs. Every other worker runs the program.
-function test_key.seals(rec: Recording, m: importer.Module): boolean
+function test_key.seals(rec: Recording, m: Module): boolean
   local effective = rec.effective[m.path]
   if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
       effective == nil or effective.store or effective.tool then
@@ -763,7 +787,7 @@ local enum ToolUse
   "allowed"
 end
 
-local function tool_use(rec: Recording, m: importer.Module): ToolUse
+local function tool_use(rec: Recording, m: Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
   if effective.lua or effective.nests then return seals(rec, m) and "sealed" or "allowed" end
@@ -777,7 +801,7 @@ end
 --- ([`tool_use`]); and otherwise to running anything, which holds it to
 --- making no root of its own, since the kernel refuses every mount under
 --- a ruleset.
-local function hold_of(rec: Recording, m: importer.Module): worker.Hold
+local function hold_of(rec: Recording, m: Module): worker.Hold
   if not rec.sandbox or rec.effective[m.path].nests then return "none" end
   return tool_use(rec, m) == "forbidden" and "forbid" or "mounts"
 end
@@ -787,7 +811,7 @@ end
 --- not one given the whole projection, which carries its own and is
 --- keyed by its contents; nor one whose closure holds a reader only by
 --- what `lua` adds to it ([`test_inputs.compiler_sought`]).
-local function reads_compiler(rec: Recording, m: importer.Module): boolean
+local function reads_compiler(rec: Recording, m: Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
     rec.effective[m.path].lua))
@@ -833,7 +857,7 @@ end
 
 --- The digest of the store `m`'s workers are given, which its key holds
 --- (defined with the stores, below).
-local store_digest: function(rec: Recording, m: importer.Module): string | nil, string
+local store_digest: function(rec: Recording, m: Module): string | nil, string
 
 --- The program a test that runs this program runs
 --- ([`Recording.program`]), worked out the first time a key holds it.
@@ -867,7 +891,7 @@ local program_of = test_key.program_of
 -- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
-local function declared_of(rec: Recording, m: importer.Module, id: string): string | nil
+local function declared_of(rec: Recording, m: Module, id: string): string | nil
   local effective = rec.effective[m.path]
   local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
@@ -897,7 +921,7 @@ end
 
 --- The set of the names of `m`'s import closure (`closures`), made
 --- once a run.
-local function closure_set(rec: Recording, m: importer.Module): {string:boolean}
+local function closure_set(rec: Recording, m: Module): {string:boolean}
   local set = rec.closure_sets[m.path]
   if set == nil then
     set = {}
@@ -1032,8 +1056,8 @@ end
 --- projection `rec.projection` ([`closure_store.basis`]): every one the tree
 --- has, selected or not, so a run that selects some leaves the others'
 --- stores, and [`sweep_stores`] takes out only what no module names.
-local function address_stores(rec: Recording, modules: {importer.Module},
-                              by_path: {string:importer.Module},
+local function address_stores(rec: Recording, modules: {Module},
+                              by_path: {string:Module},
                               declarations: {string:string}): boolean, string
   local basis, trouble = closure_store.basis(projection_of(rec))
   if basis == nil then return false, trouble end
@@ -1140,7 +1164,7 @@ end
 --- The path of the closure store a worker of `m`'s tests is given
 --- ([`store_at`]), or nil where `m` declares `store` and is given the
 --- whole projection; nil and why where it could not be made.
-local function given_store(rec: Recording, m: importer.Module): string | nil, string
+local function given_store(rec: Recording, m: Module): string | nil, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return store_at(rec, address, rec.closures[m.path])
@@ -1439,7 +1463,7 @@ end
 --- worker or of a process it starts reaches a module its key does not hold.
 --- Nil where `m`'s worker is not sealed ([`seals`]), and nil and why where
 --- its database could not be made.
-local function sealed_for(rec: Recording, m: importer.Module): string | nil, string
+local function sealed_for(rec: Recording, m: Module): string | nil, string
   if not seals(rec, m) then return nil, "" end
   local with_compiler = reads_compiler(rec, m)
   -- A worker whose key holds the compiler's identity reads it, so its
@@ -1629,7 +1653,7 @@ end
 --- The digest of the bytes of the closure store a worker of `m`'s tests
 --- is given ([`address_digest`]), which its key holds. Nil where `m`
 --- declares `store`; nil and why where it could not be made.
-store_digest = function(rec: Recording, m: importer.Module): string | nil, string
+store_digest = function(rec: Recording, m: Module): string | nil, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return address_digest(rec, address, rec.closures[m.path], false)
@@ -1665,7 +1689,7 @@ local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 
 
 --- The names a module requires of its host, as its policy declares them
 --- ([`host_names.check`]), sorted.
-local function requirements_of(m: importer.Module): {string}
+local function requirements_of(m: Module): {string}
   local names: {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
@@ -1687,7 +1711,7 @@ end
 --- one it does not promise fails nothing. `sandbox` answers whether a
 --- worker can be sandboxed here, which a requirement of it asks. The host
 --- asked, or nil where no module requires anything.
-function test_key.ask_host(rec: Recording, modules: {importer.Module},
+function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
                            promises: {string}, leg: string): host_requires.Host | nil
   local host: host_requires.Host | nil = nil
@@ -1766,7 +1790,7 @@ end
 function test_key.gather(rec: Recording, from: Gather): string | nil
   local records, records_path, selected_modules = from.records, from.records_path, from.selected
   local identity = from.identity
-  local by_path: {string:importer.Module} = {}
+  local by_path: {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
     "SELECT path, file FROM inputs WHERE kind = 'decl'")
@@ -1961,30 +1985,64 @@ end
 --- what it is given, and runs unless a verdict under that key passed, here
 --- (`verdicts`, by key) or in another checkout -- or it is `forced`, by
 --- --all or COSMIC_TEST_ALL, or reaches a network beyond loopback, which no
---- key holds. None is assumed. The shared verdicts are asked only where
---- the run `consult`s them and nothing here answers.
-function test_key.lookup(rec: Recording, m: importer.Module, id: string,
+--- key holds. A checked run is forced too: a verdict that stands runs no
+--- worker, and a worker is what reports. None is assumed. The shared
+--- verdicts are asked only where the run `consult`s them and nothing here
+--- answers.
+function test_key.lookup(rec: Recording, m: Module, id: string,
                          verdicts: {string:Verdict}, forced: boolean | nil,
                          consult: boolean | nil): Lookup
+  local force: boolean = forced == true or rec.checks
   local key = declared_of(rec, m, id)
   local own = key ~= nil and verdicts[key] or nil
   local elsewhere: shared_verdicts.Found | nil = nil
   local asked = false
   local rec_shared = rec.shared
-  if key ~= nil and not forced and own == nil and consult and rec_shared ~= nil then
+  if key ~= nil and not force and own == nil and consult and rec_shared ~= nil then
     local answer, trouble = shared_verdicts.declared(rec_shared, key)
     if answer == nil and trouble ~= "" then drop_shared(rec, trouble) end
     elsewhere = answer
     asked = true
   end
   local outcome: Outcome = "share"
-  if key == nil or forced or (own ~= nil and not own.passed) or
+  if key == nil or force or (own ~= nil and not own.passed) or
       (own == nil and elsewhere == nil) then
     outcome = "run"
   elseif own ~= nil then
     outcome = "stand"
   end
   return { key = key, own = own, elsewhere = elsewhere, asked = asked, outcome = outcome }
+end
+
+--- The job of a test whose `found` lookup says to run it. It is keyed by
+--- what the lookup keyed it by, and no other key: its verdict is kept
+--- under that ([`test_key.keep`]).
+function test_key.job_of(found: Lookup, m: Module, name: string, id: string): Job
+  assert(found.outcome == "run", "a job is made of a lookup that says to run it")
+  return { m = m, name = name, id = id, declared = found.key }
+end
+
+--- Keeps, as this run's own, the passing verdict this checkout held under
+--- the key of a test whose `found` lookup says it stands. True where it
+--- did, or false and why.
+function test_key.stand_verdict(rec: Recording, found: Lookup): boolean, string
+  assert(found.outcome == "stand", "a verdict stands only where its lookup says so")
+  local key, stood = assert(found.key), assert(found.own)
+  rec.owed.used[#rec.owed.used + 1] = key
+  return test_key.record_verdict(rec.records, key, true, stood.run_at_ns, rec.run,
+    stood.elapsed_ns)
+end
+
+--- Keeps, as this run's own, the passing verdict another checkout reached
+--- under the key of a test whose `found` lookup says to share it, so a
+--- later run of this checkout stands on it without the shared cache. True
+--- where it did, or false and why.
+function test_key.share_verdict(rec: Recording, found: Lookup): boolean, string
+  assert(found.outcome == "share", "a verdict is shared only where its lookup says so")
+  local key, elsewhere = assert(found.key), assert(found.elsewhere)
+  rec.owed.used[#rec.owed.used + 1] = key
+  return test_key.record_verdict(rec.records, key, true, rec.run_at_ns, rec.run,
+    elsewhere.elapsed_ns)
 end
 
 --- How a finished job's worker is judged ([`build.test_worker`]'s
@@ -1995,41 +2053,72 @@ end
 --- holds what a worker runs by [`worker.loads`] and the test's closure, so
 --- a worker that ran a module of the tree the tool carries beyond both
 --- fails its test.
+---
+--- A pass the test said it could not check ([`Test.skip`]) is a skip, and
+--- one that made no call to `assert` is unchecked, which a held run fails
+--- (an example, `*_example.tl`, shows how code is used and is not held to
+--- it: it passes by running). Neither is kept as a verdict, pass or fail,
+--- so it runs again on the next run -- and on a host that can check it,
+--- whose key differs, as its own.
 function test_key.judge(rec: Recording, job: Job, result: Child.Result | nil,
-                        trouble: string, limits: Limits, refused: boolean | nil,
-                        unavailable: string | nil): worker.Judgement
+                        trouble: string, refused: boolean | nil,
+                        unavailable: string | nil): Judged
+  local judgement: worker.Judgement
   if unavailable ~= nil then
-    return { passed = true, skipped = unavailable, message = "" }
+    judgement = { passed = true, skipped = unavailable, message = "" }
+  else
+    judgement = worker.judge({
+      result = result, trouble = trouble, timeout_ns = rec.timeout_ns,
+      sandboxed = rec.sandbox, refused = refused == true,
+      carried = rec.carried,
+      closure = closure_set(rec, job.m),
+    })
   end
-  return worker.judge({
-    result = result, trouble = trouble, timeout_ns = limits.timeout_ns,
-    sandboxed = rec.sandbox, refused = refused == true,
-    carried = rec.carried,
-    closure = closure_set(rec, job.m),
-  })
+  local passed, message = judgement.passed, judgement.message
+  local skipped = ""
+  if passed and judgement.skipped ~= nil then skipped = judgement.skipped end
+  if skipped ~= "" then
+    -- A reason may carry what a failed start printed: the report lists
+    -- one line each.
+    skipped = skipped:match("^[^\n]+") or "the host refused what the test is about"
+    message = "skipped: " .. skipped
+  end
+  local unchecked = passed and judgement.unchecked == true and job.m.kind == "test"
+  if unchecked and rec.held then
+    passed = false
+    message = "made no call to assert, so its pass shows only that it did not raise" ..
+      " (a held run fails that)\n  to fix: assert what it exists to show, a helper that" ..
+      " checks through error or pcall calling assert; where this host cannot check it," ..
+      " declare `requires` or call Test.skip(reason)"
+  end
+  return { report = judgement.report, passed = passed, message = message, skipped = skipped,
+    unchecked = unchecked, deliberate = judgement.deliberate or "",
+    checked = skipped == "" and not unchecked }
 end
 
 --- Whether the test `id` of `m` still reaches `key`, the one it was
 --- keyed by before it started: its declared inputs must be as they were,
 --- or the verdict describes no one state of them, and is not kept.
-function test_key.holds(rec: Recording, m: importer.Module, id: string,
-                        key: string | nil): boolean
+local function holds(rec: Recording, m: Module, id: string,
+                     key: string | nil): boolean
   return key ~= nil and declared_of(rec, m, id) == key
 end
 
---- Keeps what one finished test reached under its `key` (nil for one with
---- none, which is kept under none and runs every time): `passed` is what
---- its verdict is, `checked` whether it checked something -- it neither
---- skipped ([`Test.skip`]) nor made no call to `assert` -- and `held`
---- whether its inputs still reach the key ([`test_key.holds`]). A verdict is
---- kept only for a test that checked, under a key it still reaches. One
---- that failed with its inputs moved while it ran describes no one state
---- of them, but may be of the one it started from, and a pass kept under
---- that key would stand for it: gone. `reported` says its worker reported,
---- which a pass kept for the shared verdicts needs; `elapsed` is its time.
-function test_key.keep(rec: Recording, id: string, key: string | nil, held: boolean,
-                       passed: boolean, checked: boolean, reported: boolean,
-                       elapsed: integer)
+--- Keeps what one finished `job` reached under its key (`job.declared`,
+--- [`test_key.job_of`]; nil for one with none, which is kept under none and
+--- runs every time), as it was `judged`: `judged.passed` is what its
+--- verdict is, `judged.checked` whether it checked something, and the
+--- worker's report, which a pass kept for the shared verdicts needs.
+--- `elapsed` is its time. A verdict is kept only for a test that checked,
+--- under a key it still reaches: its declared inputs must be as they were
+--- before it started ([`holds`]), or the verdict describes no one state of
+--- them. One that failed with its inputs moved while it ran describes no
+--- one state of them, but may be of the one it started from, and a pass
+--- kept under that key would stand for it: gone.
+function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
+  local id, key = job.id, job.declared
+  local passed, checked = judged.passed, judged.checked
+  local held = holds(rec, job.m, id, key)
   if key ~= nil and held and checked then
     local saved, save_trouble = test_key.record_verdict(rec.records, key, passed,
       rec.run_at_ns, rec.run, elapsed)
@@ -2049,7 +2138,7 @@ function test_key.keep(rec: Recording, id: string, key: string | nil, held: bool
   -- A pass another run shared under its key goes too where it failed.
   if key ~= nil and not passed then
     rec.owed.failed[#rec.owed.failed + 1] = key
-  elseif passed and checked and held and reported then
+  elseif passed and checked and held and judged.report ~= nil then
     rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
       elapsed_ns = elapsed }
   end
@@ -2096,10 +2185,15 @@ end
 --- What a job's worker is given, and the command that starts it: its
 --- directory, the sandbox's plan of its paths and environment, how it is
 --- held, the policy it is started under and the sealed database it runs
---- on, as [`worker.invocation`] takes them. The job's `started_ns` is set
---- before it is called, since a failure is reckoned from it.
-function test_key.prepare(rec: Recording, job: Job, start: Proc.Relaunch,
-                          limits: Limits): Prepared
+--- on, as [`worker.invocation`] takes them. The program it starts is
+--- [`worker.program`]'s and its deadline the run's timeout, which every
+--- key holds (`rec.timeout_ns`). The job's `started_ns` is set before it is
+--- called, since a failure is reckoned from it.
+function test_key.prepare(rec: Recording, job: Job): Prepared
+  local start, start_trouble = worker.program()
+  if start == nil then
+    return cannot("the test runner cannot find itself: " .. start_trouble, false, nil)
+  end
   local scratch, tmp_trouble = test_key.scratch()
   if scratch == nil then
     return cannot("could not make a temporary directory: " .. tmp_trouble, false, nil)
@@ -2231,7 +2325,7 @@ function test_key.prepare(rec: Recording, job: Job, start: Proc.Relaunch,
   end
   local started_ns = Clock.monotonic_ns()
   job.started_ns = started_ns
-  job.deadline_ns = started_ns + limits.timeout_ns
+  job.deadline_ns = started_ns + rec.timeout_ns
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not

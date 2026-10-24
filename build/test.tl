@@ -128,6 +128,7 @@ local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
@@ -562,7 +563,7 @@ end
 --- overall hit and executable-line counts, over every module written
 --- for this run, for the run's own summary, and a trouble message.
 local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: GrammarMode.Mode,
-                              modules: {importer.Module},
+                              modules: {Module},
                               native_lines: Coverage.Hits,
                               hits: Coverage.Hits,
                               by_test: {string: string},
@@ -593,7 +594,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   -- The core's own C sits among the modules by path: a core that
   -- observes it answers every line a block begins on, and a line is hit
   -- when some window's hits name it (see [`Coverage.native_lines`]).
-  local by_source: {string: importer.Module} = {}
+  local by_source: {string: Module} = {}
   local sorted_paths: {string} = {}
   -- TODO: write the new checker's modules with the statement of [`write_module_coverage`] too, once
   -- [`build.coverage.syntax_lines`] keeps their lines in `executable` under the source hash, as the fork's reader does
@@ -758,9 +759,11 @@ local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer
   return made
 end
 
---- Records one test answered from its standing verdict.
-local function stand(rec: Recording, credited: test.Credited, m: importer.Module,
-                     name: string, id: string, stood: State.Verdict, key: string)
+--- Records one test answered from its standing verdict (`found`, whose
+--- lookup says it stands: [`test_key.lookup`]).
+local function stand(rec: Recording, credited: test.Credited, m: Module,
+                     name: string, id: string, found: test_key.Lookup)
+  local key, stood = assert(found.key), assert(found.own)
   rec.tally.cached = rec.tally.cached + 1
   local owed = credited[stood.run_at_ns]
   if owed == nil then
@@ -773,42 +776,38 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
-  kept, keep_trouble = test_key.record_verdict(rec.records, key, true, stood.run_at_ns, rec.run,
-    stood.elapsed_ns)
+  kept, keep_trouble = test_key.stand_verdict(rec, found)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
-  local shared_key = rec.shared_keys[key]
-  if shared_key ~= nil then rec.owed.used[#rec.owed.used + 1] = shared_key end
 end
 
 --- Records one sandboxed test answered from the verdict another
---- checkout reached under its declared `key` (`found`): as this run's
---- own, with the lines that run hit, so a later run of this checkout
---- stands on it without the shared cache.
-local function share(rec: Recording, m: importer.Module, name: string, id: string,
-                     key: string, found: shared_verdicts.Found)
+--- checkout reached under its declared key (`found`, whose lookup says to
+--- share it: [`test_key.lookup`]): as this run's own, with the lines that
+--- run hit, so a later run of this checkout stands on it without the
+--- shared cache.
+local function share(rec: Recording, m: Module, name: string, id: string,
+                     found: test_key.Lookup)
+  local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
   local hit: Coverage.Hits = {}
-  decode_hits(found.hits, hit)
+  decode_hits(elsewhere.hits, hit)
   for path in pairs(rec.unowned) do
     hit[path] = nil
   end
   merge_hits(rec.hits, hit)
   rec.by_test[id] = encode_hits(hit)
-  local elapsed = found.elapsed_ns
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Clock.now_ns(), run_key(key, key), rec.run_at_ns, elapsed)
+    Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
-  kept, keep_trouble = test_key.record_verdict(rec.records, key, true, rec.run_at_ns, rec.run,
-    elapsed)
+  kept, keep_trouble = test_key.share_verdict(rec, found)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
   end
-  rec.owed.used[#rec.owed.used + 1] = key
 end
 
 --- A module's hit lines as a row of `coverage_by_test` holds them
@@ -889,48 +888,32 @@ end
 
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
---- ([`test_key.judge`]).
+--- ([`test_key.judge`], which also says whether it checked, and
+--- [`test_key.keep`], which keeps its verdict).
 local function finish(rec: Recording, job: Job, result: Child.Result | nil,
-                      trouble: string, limits: State.Limits, refused?: boolean, unavailable?: string)
+                      trouble: string, refused?: boolean, unavailable?: string)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
-  local judged = test_key.judge(rec, job, result, trouble, limits, refused, unavailable)
+  local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
   local reported, passed, message = judged.report, judged.passed, judged.message
-  -- A pass the test said it could not check ([`Test.skip`]) is kept as no
-  -- verdict, pass or fail, so it runs again on the next run -- and on a
-  -- host that can check it, whose key differs, as its own.
-  local skipped = judged.passed and judged.skipped or ""
+  local skipped, unchecked = judged.skipped, judged.unchecked
   if skipped ~= "" then
-    -- A reason may carry what a failed start printed: the report lists
-    -- one line each.
-    skipped = skipped:match("^[^\n]+") or "the host refused what the test is about"
     rec.tally.skipped = rec.tally.skipped + 1
     rec.skips[#rec.skips + 1] = id .. ": " .. skipped
-    message = "skipped: " .. skipped
   end
-  -- A pass that made no call to `assert` is listed, a
-  -- held run fails it, and no run keeps a verdict of it, so it is met again
-  -- every run -- a standing verdict would hide it from the summary and from
-  -- a held run that did not run it.
-  -- An example (`*_example.tl`) shows how code is used and is not held to it:
-  -- it passes by running.
-  local unchecked = passed and judged.unchecked == true and job.m.kind == "test"
+  -- A pass that made no call to `assert` is listed, a held run fails it,
+  -- and no run keeps a verdict of it, so it is met again every run -- a
+  -- standing verdict would hide it from the summary and from a held run
+  -- that did not run it.
   if unchecked then
     rec.tally.unchecked = rec.tally.unchecked + 1
     rec.unchecked[#rec.unchecked + 1] = id
-    if rec.held then
-      passed = false
-      message = "made no call to assert, so its pass shows only that it did not raise" ..
-        " (a held run fails that)\n  to fix: assert what it exists to show, a helper that" ..
-        " checks through error or pcall calling assert; where this host cannot check it," ..
-        " declare `requires` or call Test.skip(reason)"
-    end
   end
   local deliberate = judged.deliberate
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
-  if passed and deliberate ~= nil and deliberate ~= "" then
+  if passed and deliberate ~= "" then
     rec.deliberate[#rec.deliberate + 1] = deliberate:match("^[^\n]+") or deliberate
   end
   -- What the records keep: a skip is no pass, nor is a pass that made no call to `assert`.
@@ -952,14 +935,12 @@ local function finish(rec: Recording, job: Job, result: Child.Result | nil,
   -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
   if key == nil and not job.unrun then rec.tally.every = rec.tally.every + 1 end
-  local held = test_key.holds(rec, job.m, id, key)
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
     message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
   end
-  test_key.keep(rec, id, key, held, passed, skipped == "" and not unchecked,
-    reported ~= nil, elapsed)
+  test_key.keep(rec, job, judged, elapsed)
   job.passed = passed
   if not passed then
     local scratch = job.scratch
@@ -1007,19 +988,18 @@ end
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure. What the worker is given is
 --- [`test_key.prepare`]'s.
-local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
-                      limits: State.Limits): boolean
+local function launch(rec: Recording, job: Job): boolean
   -- Set before anything can fail, since `finish` reckons the time from it.
   job.started_ns = Clock.monotonic_ns()
-  local prepared = test_key.prepare(rec, job, start, limits)
+  local prepared = test_key.prepare(rec, job)
   local command = prepared.command
   if command == nil then
-    finish(rec, job, nil, prepared.trouble, limits, prepared.refused, prepared.unavailable)
+    finish(rec, job, nil, prepared.trouble, prepared.refused, prepared.unavailable)
     return false
   end
   local handle, start_trouble = Child.start(command.argv, command.options)
   if handle == nil then
-    finish(rec, job, nil, start_trouble, limits)
+    finish(rec, job, nil, start_trouble)
     return false
   end
   job.handle = handle
@@ -1039,9 +1019,9 @@ end
 local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
                         guard: Signal.Guard | nil, bail?: boolean): integer
   if #jobs == 0 then return 0 end
-  local start, start_trouble = worker.program()
-  if start == nil then
-    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
+  local program, program_trouble = worker.program()
+  if program == nil then
+    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. program_trouble
     return 0
   end
   local running: {Job} = {}
@@ -1056,7 +1036,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         not (bail and #rec.failures > failures_before) do
       local job = jobs[next_job]
       next_job = next_job + 1
-      if launch(rec, job, start, limits) then
+      if launch(rec, job) then
         running[#running + 1] = job
       end
     end
@@ -1082,11 +1062,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         -- Settled already, so this answers at once; the trouble
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = handle:wait()
-        finish(rec, job, result, trouble, limits)
+        finish(rec, job, result, trouble)
       elseif done == nil and trouble ~= Poll.TIMEOUT then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = handle:close()
-        finish(rec, job, nil, trouble, limits)
+        finish(rec, job, nil, trouble)
       elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
@@ -1097,7 +1077,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           -- the workers the cancelled run ended, reported on by none.
           still[#still + 1] = job
         else
-          finish(rec, job, result, stop_trouble, limits)
+          finish(rec, job, result, stop_trouble)
         end
       else
         still[#still + 1] = job
@@ -1326,7 +1306,7 @@ local record Run
   result?: importer.Result
 
   -- The tests chosen ([`select_tests`]).
-  selected_modules?: {importer.Module}
+  selected_modules?: {Module}
   selected_tests?: {string:{string}}
   whole?: boolean
   share_summary?: string
@@ -1428,8 +1408,6 @@ local function read_command(ctx: Run): integer | nil
   -- compare it with: it waits on a way for a test to read the tree's
   -- projection and the binary's own modules in a checked run.
   ctx.checks = parsed.set["--check-types"] == true or Env.get("COSMIC_TEST_CHECK_TYPES") == "1"
-  -- A verdict that stands runs no worker, and a worker is what reports.
-  if ctx.checks then ctx.forced = true end
   ctx.bail = parsed.set["--bail"] == true or Env.get("COSMIC_TEST_BAIL") == "1"
   return nil
 end
@@ -1675,13 +1653,13 @@ local function select_tests(ctx: Run): integer | nil
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word, and
   -- one naming a test must find it there.
-  local selected_modules: {importer.Module} = {}
+  local selected_modules: {Module} = {}
   -- The tests each selected module runs, by its module name.
   local selected_tests: {string:{string}} = {}
   local matched: {string:boolean} = {}
   local found: {string:boolean} = {}
   -- The module each selector matched, for a named test it lacks.
-  local module_of: {string:importer.Module} = {}
+  local module_of: {string:Module} = {}
   for _, m in ipairs(result.modules) do
     if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
       local chosen: {string} = {}
@@ -1746,7 +1724,7 @@ local function select_tests(ctx: Run): integer | nil
       for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end
     end
     local dealt = test.dealt(ids, shard)
-    local kept: {importer.Module} = {}
+    local kept: {Module} = {}
     for _, m in ipairs(selected_modules) do
       local names: {string} = {}
       for _, name in ipairs(selected_tests[m.path]) do
@@ -1961,8 +1939,8 @@ end
 --- present ([`require_of_host`]) without starting a worker or keying it,
 --- and keeps no verdict: a refused name fails it, an absence this host has
 --- skips it, and one the platform never lacks marks it not applicable.
-local function settle_unmet(rec: Recording, m: importer.Module, name: string, id: string,
-                            unmet: Unmet, limits: State.Limits)
+local function settle_unmet(rec: Recording, m: Module, name: string, id: string,
+                            unmet: Unmet)
   if unmet.kind == "na" then
     rec.tally.na = rec.tally.na + 1
     rec.nas[#rec.nas + 1] = id .. ": " .. unmet.why
@@ -1973,9 +1951,9 @@ local function settle_unmet(rec: Recording, m: importer.Module, name: string, id
   end
   local job: Job = { m = m, name = name, id = id, unrun = true, started_ns = Clock.monotonic_ns() }
   if unmet.kind == "skipped" then
-    finish(rec, job, nil, "", limits, false, unmet.why)
+    finish(rec, job, nil, "", false, unmet.why)
   else
-    finish(rec, job, nil, unmet.why, limits)
+    finish(rec, job, nil, unmet.why)
   end
 end
 
@@ -1999,7 +1977,7 @@ local function look_up_verdicts(ctx: Run)
     for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
       if unmet ~= nil then
-        settle_unmet(rec, m, name, id, unmet, assert(ctx.limits))
+        settle_unmet(rec, m, name, id, unmet)
       else
         -- Keyed, and looked up under its key ([`test_key.lookup`]): it
         -- runs, stands on this checkout's verdict, or on another's.
@@ -2012,12 +1990,12 @@ local function look_up_verdicts(ctx: Run)
           if found.elsewhere ~= nil then found_count = found_count + 1 end
         end
         if found.outcome == "run" then
-          jobs[#jobs + 1] = { m = m, name = name, id = id, declared = key }
+          jobs[#jobs + 1] = test_key.job_of(found, m, name, id)
         elseif found.outcome == "stand" then
           rec.shared_keys[assert(key)] = key
-          stand(rec, credited, m, name, id, assert(found.own), assert(key))
+          stand(rec, credited, m, name, id, found)
         else
-          share(rec, m, name, id, assert(key), assert(found.elsewhere))
+          share(rec, m, name, id, found)
         end
       end
     end
