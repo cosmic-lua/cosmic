@@ -593,8 +593,10 @@ test/coverage_children_test.tl 1
 [untyped]
 # How many calls of a file the discipline holds ([`build.syntax_contracts`]) the checker gave no function, so that no rule
 # judged them: a call through a value an error already reported left `invalid`, or of a function an error refused (`table.sort`
-# of a view, `setmetatable`), `require` apart. The fork judged them; the switch waits on these reaching 0, which they do as
-# the `[checked]` pins of the files do.
+# of a view, `setmetatable`), `require` apart. The fork judged them. The switch does not wait on these reaching 0: every one
+# follows from a pinned `[checked]` error of the same file (a triage of all 591 calls found none that is a gap of its own, and none
+# that is a binding of C), so the count is bookkeeping of those pins. The pins hold the counts, and each later pull request lowers
+# the row of every file whose `[checked]` errors it removes.
 build/analyzer.tl 5
 
 build/archive.tl 2

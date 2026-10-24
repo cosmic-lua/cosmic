@@ -22,12 +22,14 @@
 --- binding (rule 5's exception), by the type of the field's owner. A program checked without them (`external` in
 --- [`lang.declarations`]) has their calls untyped, and so unjudged.
 --
--- TODO: the switch waits on judging the calls the checker could not type (a call has no callee in [`Checked.callees`] where its
--- callee is `invalid`: a value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count
--- them per file, and the build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling): the
--- build's compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so
--- their calls are judged. build/receivers.tl and build/contracts.tl judge the calls no rule here does, and must not be
--- deleted before the `[untyped]` ceilings reach 0, which they do as the files' `[checked]` pins do.
+-- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
+-- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
+-- build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling), once the `[checked]` pins that
+-- leave them untyped reach 0. The switch does not wait on it: each of these calls follows from a pinned `[checked]` error, so the
+-- count is bookkeeping of those pins and no gap of its own. The pins hold the
+-- counts, and each later pull request that lowers a `[checked]` row lowers the `[untyped]` row of its file with it. The build's
+-- compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so their calls are
+-- judged.
 --
 -- TODO: say what the discipline is for a function that answers one of several lists of values (`(true, R) | (false, E)`), which
 -- no rule reads here as the fork could not write one, once the new grammar's convention for a failure is settled
