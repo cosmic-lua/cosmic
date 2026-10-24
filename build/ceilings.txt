@@ -773,7 +773,7 @@ build/syntax_typed_fixture.tl 2
 
 build/teal.tl 9
 
-build/term_filter.tl 2
+build/term_filter.tl 1
 
 build/term_relay.tl 2
 
@@ -789,7 +789,7 @@ build/test_report.tl 1
 
 build/test_sandbox.tl 1
 
-build/test_worker.tl 20
+build/test_worker.tl 9
 
 build/todo_scan.tl 2
 
@@ -859,7 +859,7 @@ cosmic/template/parse.tl 1
 
 cosmic/test.tl 4
 
-cosmic/time.tl 9
+cosmic/time.tl 8
 
 cosmic/web/app.tl 2
 
@@ -900,10 +900,6 @@ lang/check_programs.tl 5
 lang/codegen.tl 1
 
 lang/declarations.tl 2
-
-lang/lexer.tl 74
-
-lang/lexer_cover.tl 3
 
 lang/parser.tl 1
 
@@ -1727,7 +1723,7 @@ build/test_skip_tool_test.tl nil_not_allowed 1
 
 build/test_test.tl nil_not_allowed 9
 
-build/test_worker.tl nil_not_allowed 31
+build/test_worker.tl nil_not_allowed 27
 
 build/test_worker_test.tl nil_not_allowed 12
 
@@ -2303,7 +2299,7 @@ lang/declarations_speed_test.tl nil_not_allowed 2
 
 lang/declarations_test.tl nil_not_allowed 46
 
-lang/lexer.tl nil_not_allowed 20
+lang/lexer.tl nil_not_allowed 17
 
 lang/lexer_cover.tl nil_not_allowed 3
 
@@ -6444,7 +6440,7 @@ lang/codegen_fuzz_test.tl overload_value 1
 
 lang/codegen_test.tl overload_value 4
 
-lang/lexer.tl overload_value 2
+lang/lexer.tl overload_value 1
 
 lang/lexer_cover.tl overload_value 1
 
@@ -12399,8 +12395,6 @@ cosmic/time.tl float_key 1
 lang/ast.tl float_key 3
 
 lang/declarations.tl float_key 2
-
-lang/lexer.tl float_key 3
 
 # a module that returns something no declaration describes
 build/dispatch.tl export_not_declared 1

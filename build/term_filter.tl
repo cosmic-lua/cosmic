@@ -55,7 +55,7 @@
 --- UTF-8 character or a sequence cut by the end of a chunk, which waits
 --- for the next.
 
-local byte <const> = string.byte
+local byte: function(string, integer): integer = string.byte
 local find <const> = string.find
 local sub <const> = string.sub
 local char <const> = string.char

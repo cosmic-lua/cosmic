@@ -419,7 +419,7 @@ local function cursor(text: string): Cursor
   return { text = text, at = 1 }
 end
 
-local byte <const> = string.byte
+local byte: function(string, integer): integer | nil = string.byte
 local sub <const> = string.sub
 
 --- What ends a borrowing: the text is let go, so a large one is not held

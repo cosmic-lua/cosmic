@@ -37,8 +37,11 @@
 --- `fix` as it reads the fork's `msg` today.
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
-local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
-local tonumber, math_type = tonumber, math.type
+local find, sub, capture, concat = string.find, string.sub, string.match, table.concat
+-- `string.byte` is overloaded in the library, and the lexer reads a byte in its hottest loop, so it stays a local, declared with the
+-- one signature the lexer calls it by, `integer`; a read that tests for the end of the source calls `string.byte`, which answers nil there.
+local byte: function(string, ? integer): integer = string.byte
+local math_type = math.type
 
 local record Lexer
   --- The kind of a token. A bracket, `,`, `:`, `.`, `?` and `...` are their
@@ -449,7 +452,7 @@ end
 --- Where the escape that begins at the backslash `s` of `source` ends, and
 --- what is wrong with it: "" for a good escape, else the fix for it.
 local function check_escape(source: string, s: integer): integer, string
-  local c = byte(source, s + 1)
+  local c = string.byte(source, s + 1)
   if c == nil then
     return s, ""
   end
@@ -468,7 +471,7 @@ local function check_escape(source: string, s: integer): integer, string
     return e, "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`"
   elseif c >= 48 and c <= 57 then
     local _, e = find(source, "^%d%d?%d?", s + 1)
-    if tonumber(sub(source, s + 1, e)) > 255 then
+    if assert(tonumber(sub(source, s + 1, e))) > 255 then
       return e, "a decimal escape is at most `\\255`: write a character past 255 as `\\u{...}`, as `\\u{100}`"
     end
     return e, ""
@@ -476,7 +479,7 @@ local function check_escape(source: string, s: integer): integer, string
     local _, e, digits = find(source, "^{(%x+)}", s + 2)
     if e then
       local significant = digits:gsub("^0+", "")
-      if #significant <= 8 and (significant == "" or tonumber(significant, 16) <= 0x7FFFFFFF) then
+      if #significant <= 8 and (significant == "" or assert(tonumber(significant, 16)) <= 0x7FFFFFFF) then
         return e, ""
       end
       return e, "a code point in `\\u{...}` is at most `7FFFFFFF`: write `\\u{20AC}` for the euro sign"
@@ -510,7 +513,7 @@ local function read_string(source: string, pos: integer, quote: integer
     elseif c == NEWLINE or c == CARRIAGE_RETURN then
       return 0, s - 1, bad_at, bad_length, bad_fix
     end
-    if byte(source, s + 1) == nil then
+    if string.byte(source, s + 1) == nil then
       return 0, s, bad_at, bad_length, bad_fix
     end
     local e, fix = check_escape(source, s)
@@ -551,15 +554,15 @@ local function decode(inner: string): string
       text = ""
       e = ze
     elseif c == byte("x") then
-      text = string.char(math.tointeger(tonumber(sub(inner, s + 2, s + 3), 16)))
+      text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 2, s + 3), 16)))))
       e = s + 3
     elseif c == byte("u") then
       local _, ue, digits = find(inner, "^{(%x+)}", s + 2)
-      text = utf8.char(math.tointeger(tonumber(digits, 16)))
+      text = utf8.char(assert(math.tointeger(assert(tonumber(digits, 16)))))
       e = ue
     else
       local _, de = find(inner, "^%d%d?%d?", s + 1)
-      text = string.char(math.tointeger(tonumber(sub(inner, s + 1, de))))
+      text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 1, de))))))
       e = de
     end
     n = n + 1
@@ -576,7 +579,7 @@ local function numeral_end(source: string, pos: integer): integer
   local hex = byte(source, pos) == 48 and (byte(source, pos + 1) == 120 or byte(source, pos + 1) == 88)
   local i = hex and pos + 2 or pos
   while true do
-    local c = byte(source, i)
+    local c = string.byte(source, i)
     if c == nil then
       break
     end
@@ -775,7 +778,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         end
         line, line_start = yend, yend_start
       end
-    elseif c == 5 or (c == 9 and (byte(source, pos + 1) or 0) >= 48 and (byte(source, pos + 1) or 0) <= 57) then
+    elseif c == 5 or (c == 9 and (string.byte(source, pos + 1) or 0) >= 48 and (string.byte(source, pos + 1) or 0) <= 57) then
       local ne = numeral_end(source, pos)
       local number_text = sub(source, pos, ne)
       local x = pos - line_start + 1
