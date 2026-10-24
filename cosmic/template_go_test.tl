@@ -68,9 +68,9 @@
 --- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 --- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+local CompileGrammar = require("build.compile_grammar")
 local Html = require("cosmic.html")
 local Template = require("cosmic.template")
-local teal = require("build.teal")
 
 local HEAD <const> = "{{type T from m.t}}\n"
 
@@ -682,15 +682,15 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_raw_text_slots_a
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
-local built = assert(teal.load(true))
-
---- What `body`, an html template, renders to for `page`: the generated
---- module with its types struck out, run against the real [`cosmic.html`].
+--- What `body`, an html template, renders to for `page`: the module generated
+--- in the new grammar, written as Lua by [`build.compile_grammar`] (which writes it
+--- whether or not the checker likes what it reads), run against the real [`cosmic.html`].
 local function render(body: string, page: {string: any}): string
-  local out, why = Template.compile(HEAD .. body, "t.tmpl")
+  local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil, new_grammar = true })
   assert(out ~= nil, why)
-  local code, result = built.gen(out, nil, nil, "tl")
-  assert(code ~= nil and #result.syntax_errors == 0, "no Lua for " .. body)
+  local compiled = assert(CompileGrammar.compile({ { path = "t.tl", relative = "t.tl", text = out, declaration = false } })[1])
+  local code = compiled.code
+  assert(code ~= nil and #compiled.syntax_errors == 0, "no Lua for " .. body)
   local env: {string: any} = setmetatable({}, { __index = _G })
   env.require = function(name: string): any
     return name == "cosmic.html" and Html or {}

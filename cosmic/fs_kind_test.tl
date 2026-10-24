@@ -2,91 +2,74 @@
 --- comparing a `Stat`'s `kind`, or one a walk's `skip` is told, with a
 --- name no path has (`"directory"`) does not compile, and one naming
 --- the kinds there are does.
-local Fs = require("cosmic.fs")
-local importer = require("build.importer")
-local teal = require("build.teal")
-local work = require("build.work")
+local Snippet = require("build.snippet_fixture")
+local Test = require("cosmic.test")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 -- A fixture reads the `cosmic.*` modules it requires out of the store,
 -- which holds a test to its import closure: these are the ones the
 -- fixtures name.
+local type _fs = require("cosmic.fs")
 local type _sys = require("cosmic.sys")
 
-local built = assert(teal.load())
-
---- Compiles `source` as the one module of a fresh fixture project:
---- true, or false and what the compile refused.
-local function compiles(tmp: string, case: string, source: string): boolean, string
-  local root = tmp .. "/" .. case
-  assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/main.tl", source))
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return false, open_trouble
-  end
-  local staged, stage_trouble = work.stage(handle, false)
-  if staged == nil then
-    work.close(handle)
-    return false, stage_trouble
-  end
-  local result, trouble = importer.compile(handle, built, "fs-kind-test")
-  work.close(handle)
-  if result == nil then
-    return false, trouble
-  end
-  return true, ""
+--- Compiles `source` as a module of its own: true, or false and what the
+--- checker refused.
+local function compiles(source: string): boolean, string
+  return Snippet.compiles(source)
 end
 
-local function test_a_kind_no_path_has_does_not_compile(tmp: string)
-  local ok, trouble = compiles(tmp, "stat", [[
+local function test_a_kind_no_path_has_does_not_compile()
+  local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
 local st = assert(Fs.stat("."))
 return st.kind == "directory"
 ]])
   assert(not ok, "a comparison with \"directory\" compiled")
-  assert(trouble:find('"directory" is not a member of', 1, true), trouble)
+  assert(trouble:find('`"directory"` is not a member of `sys.Kind`', 1, true), trouble)
 end
 
-local function test_fs_kind_is_the_enum(tmp: string)
-  local ok, trouble = compiles(tmp, "walk", [[
+local function test_fs_kind_is_the_enum()
+  local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
 return Fs.walk(".", function(_: string, _: string, kind: Fs.Kind): boolean
   return kind == "directory"
 end)
 ]])
   assert(not ok, "a comparison with \"directory\" compiled")
-  assert(trouble:find('"directory" is not a member of', 1, true), trouble)
+  assert(trouble:find('`"directory"` is not a member of `sys.Kind`', 1, true), trouble)
 end
 
 -- A function literal's untyped parameter is the type its callee
 -- declares, so a `skip` is held to the enum without naming
 -- [`Fs.Kind`].
-local function test_an_untyped_skip_is_told_a_kind(tmp: string)
-  local ok, trouble = compiles(tmp, "walk-untyped", [[
+local function test_an_untyped_skip_is_told_a_kind()
+  local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
 return Fs.walk(".", function(_, _, kind)
   return kind == "directory"
 end)
 ]])
   assert(not ok, "a comparison with \"directory\" compiled")
-  assert(trouble:find('"directory" is not a member of', 1, true), trouble)
+  assert(trouble:find('`"directory"` is not a member of `sys.Kind`', 1, true), trouble)
 end
 
-local function test_a_listing_names_kinds(tmp: string)
-  local ok, trouble = compiles(tmp, "readdir", [[
+local function test_a_listing_names_kinds()
+  local ok, trouble = compiles([[
 local sys = require("cosmic.sys")
 local entries = assert(sys.readdir("."))
+local found = false
 for _, kind in pairs(entries) do
-  if kind == "folder" then return true end
+  found = found or kind == "folder"
 end
-return false
+return found
 ]])
   assert(not ok, "a comparison with \"folder\" compiled")
-  assert(trouble:find('"folder" is not a member of', 1, true), trouble)
+  assert(trouble:find('`"folder"` is not a member of `sys.Kind`', 1, true), trouble)
 end
 
-local function test_every_kind_compiles(tmp: string)
-  local ok, trouble = compiles(tmp, "valid", [[
+local function test_every_kind_compiles()
+  local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local kinds: {Fs.Kind} = { "file", "dir", "link", "socket", "fifo", "char", "block", "other" }

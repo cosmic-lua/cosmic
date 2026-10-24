@@ -2,18 +2,16 @@
 --- that matter, that a safe value is opaque at run time and refused by
 --- the type checker in another's place, and that `raw` and `concat`
 --- hold to their types.
-local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
+local Snippet = require("build.snippet_fixture")
+local Test = require("cosmic.test")
 local Url = require("cosmic.url")
-local importer = require("build.importer")
-local teal = require("build.teal")
-local work = require("build.work")
+
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 -- A fixture reads the `cosmic.*` modules it requires out of the store,
 -- which holds a test to its import closure.
 local type _html = require("cosmic.html")
-
-local built = assert(teal.load())
 
 local type Call = function(...: any): any...
 
@@ -286,27 +284,10 @@ local function test_trust_url_keeps_the_string_as_it_is()
   assert(Html.raw_url(Html.trust_url("")) == "")
 end
 
---- Compiles `source` as the one module of a fresh fixture project: true,
---- or false and what the compile refused.
-local function compiles(tmp: string, case: string, source: string): boolean, string
-  local root = tmp .. "/" .. case
-  assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/main.tl", source))
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return false, open_trouble
-  end
-  local staged, stage_trouble = work.stage(handle, false)
-  if staged == nil then
-    work.close(handle)
-    return false, stage_trouble
-  end
-  local result, trouble = importer.compile(handle, built, "html-test")
-  work.close(handle)
-  if result == nil then
-    return false, trouble
-  end
-  return true, ""
+--- Compiles `source` as a module of its own: true, or false and what the
+--- checker refused.
+local function compiles(source: string): boolean, string
+  return Snippet.compiles(source)
 end
 
 local function part_of(s: string | number): string
@@ -637,11 +618,11 @@ local function test_json_has_no_unchecked_door_and_holds_to_its_type()
   assert(not attempt(Html.raw, json) and not attempt(Html.raw_attr, json) and not attempt(Html.raw_url_part, json))
 end
 
-local function test_url_parts_and_json_type_check_where_they_belong(tmp: string)
-  local ok, trouble = compiles(tmp, "part-valid", [[
+local function test_url_parts_and_json_type_check_where_they_belong()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local part: Html.SafeUrlPart = Html.url_part("a")
-local json = (assert(Html.json({})))
+local json = (assert(Html.json({ a = 1 })))
 local as_json: Html.SafeJson = json
 local url: Html.SafeUrl = Html.local_href("/a")
 return Html.raw_url_part(part) .. Html.raw_json(as_json) .. Html.raw_url(url)
@@ -649,24 +630,24 @@ return Html.raw_url_part(part) .. Html.raw_json(as_json) .. Html.raw_url(url)
   assert(ok, trouble)
   local forged_cases: {{string}} = {
     { "part-string", 'local f: Html.SafeUrlPart = "a"\nreturn Html.raw_url_part(f)', "SafeUrlPart" },
-    { "part-table", 'local f: Html.SafeUrlPart = {}\nreturn Html.raw_url_part(f)', "got {}, expected Html.SafeUrlPart" },
+    { "part-table", 'local f: Html.SafeUrlPart = {}\nreturn Html.raw_url_part(f)', "`html.SafeUrlPart`" },
     { "json-string", 'local f: Html.SafeJson = "{}"\nreturn Html.raw_json(f)', "SafeJson" },
-    { "json-table", 'local f: Html.SafeJson = {}\nreturn Html.raw_json(f)', "got {}, expected Html.SafeJson" },
-    { "url-for-part", 'return Html.raw_url_part(Html.href("/a"))', "SafeUrl is not a" },
-    { "part-for-url", 'return Html.raw_url(Html.url_part("a"))', "SafeUrlPart is not a" },
-    { "json-for-attr", 'local j = assert(Html.json({}))\nreturn Html.raw_attr(j)', "SafeJson is not a" },
-    { "json-for-html", 'return Html.raw(Html.escape("a")) .. Html.raw_json(Html.escape("a"))', "SafeHtml is not a" },
-    { "part-concat", 'return Html.url_part("a") .. "b"', "cannot use operator '..'" },
+    { "json-table", 'local f: Html.SafeJson = {}\nreturn Html.raw_json(f)', "`html.SafeJson`" },
+    { "url-for-part", 'return Html.raw_url_part(Html.href("/a"))', "`html.SafeUrl`" },
+    { "part-for-url", 'return Html.raw_url(Html.url_part("a"))', "`html.SafeUrlPart`" },
+    { "json-for-attr", 'local j = assert(Html.json({}))\nreturn Html.raw_attr(j)', "`html.SafeJson`" },
+    { "json-for-html", 'return Html.raw(Html.escape("a")) .. Html.raw_json(Html.escape("a"))', "`html.SafeHtml`" },
+    { "part-concat", 'return Html.url_part("a") .. "b"', "`..` takes strings" },
   }
   for _, case in ipairs(forged_cases) do
-    ok, trouble = compiles(tmp, case[1], 'local Html = require("cosmic.html")\n' .. case[2] .. "\n")
+    ok, trouble = compiles('local Html = require("cosmic.html")\n' .. case[2] .. "\n")
     assert(not ok, case[1] .. " type-checked")
     assert(trouble:find(case[3], 1, true), case[1] .. ": " .. trouble)
   end
 end
 
-local function test_safe_values_type_check_where_they_belong(tmp: string)
-  local ok, trouble = compiles(tmp, "valid", [[
+local function test_safe_values_type_check_where_they_belong()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local text: Html.SafeHtml = Html.escape("a")
 local attr: Html.SafeAttr = Html.escape_attr("a")
@@ -676,32 +657,32 @@ return Html.raw(both) .. Html.raw_attr(attr)
   assert(ok, trouble)
 end
 
-local function test_a_table_literal_is_no_safe_value(tmp: string)
-  local ok, trouble = compiles(tmp, "table-html", [[
+local function test_a_table_literal_is_no_safe_value()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local forged: Html.SafeHtml = { raw = "<script>" }
 return Html.raw(forged)
 ]])
   assert(not ok, "a table literal was taken for a SafeHtml")
-  assert(trouble:find("not a userdata", 1, true), trouble)
-  ok, trouble = compiles(tmp, "table-attr", [[
+  assert(trouble:find("a userdata record (literal_shape)", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local forged: Html.SafeAttr = {}
 return Html.raw_attr(forged)
 ]])
   assert(not ok, "a table literal was taken for a SafeAttr")
-  assert(trouble:find("got {}, expected Html.SafeAttr", 1, true), trouble)
+  assert(trouble:find("`html.SafeAttr`", 1, true), trouble)
 end
 
-local function test_a_string_is_no_safe_value(tmp: string)
-  local ok, trouble = compiles(tmp, "string-html", [[
+local function test_a_string_is_no_safe_value()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local forged: Html.SafeHtml = "<script>"
 return Html.raw(forged)
 ]])
   assert(not ok, "a string was taken for a SafeHtml")
   assert(trouble:find("SafeHtml", 1, true), trouble)
-  ok, trouble = compiles(tmp, "string-arg", [[
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.concat({ "<script>" })
 ]])
@@ -709,39 +690,38 @@ return Html.concat({ "<script>" })
   assert(trouble:find("SafeHtml", 1, true), trouble)
 end
 
-local function test_one_safe_type_is_no_other(tmp: string)
-  local ok, trouble = compiles(tmp, "attr-for-html", [[
+local function test_one_safe_type_is_no_other()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local attr: Html.SafeAttr = Html.escape_attr("a")
 local as_html: Html.SafeHtml = attr
 return Html.raw(as_html)
 ]])
   assert(not ok, "a SafeAttr was taken for a SafeHtml")
-  assert(trouble:find("SafeAttr is not a", 1, true), trouble)
-  ok, trouble = compiles(tmp, "html-for-attr", [[
+  assert(trouble:find("`html.SafeAttr`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.raw_attr(Html.escape("a"))
 ]])
   assert(not ok, "a SafeHtml was taken for a SafeAttr")
-  assert(trouble:find("SafeHtml is not a", 1, true), trouble)
-  ok, trouble = compiles(tmp, "attr-in-concat", [[
+  assert(trouble:find("`html.SafeHtml`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.concat({ Html.escape_attr("a") })
 ]])
   assert(not ok, "a SafeAttr was joined as SafeHtml")
-  assert(trouble:find("SafeAttr", 1, true) and trouble:find("is not a", 1, true) and
-      trouble:find("SafeHtml", 1, true), trouble)
+  assert(trouble:find("`html.SafeAttr`", 1, true) and trouble:find("`html.SafeHtml`", 1, true), trouble)
 end
 
 --- A safe value does not concatenate or print as a string.
-local function test_a_safe_value_is_no_string_to_the_checker(tmp: string)
-  local ok, trouble = compiles(tmp, "concat-operator", [[
+local function test_a_safe_value_is_no_string_to_the_checker()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.escape("a") .. "b"
 ]])
   assert(not ok, "a SafeHtml was concatenated as a string")
-  assert(trouble:find("cannot use operator '..'", 1, true) and trouble:find("SafeHtml", 1, true), trouble)
-  ok, trouble = compiles(tmp, "as-string", [[
+  assert(trouble:find("`..` takes strings", 1, true) and trouble:find("SafeHtml", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local s: string = Html.escape("a")
 return s
@@ -750,51 +730,51 @@ return s
   assert(trouble:find("SafeHtml", 1, true), trouble)
 end
 
-local function test_a_safe_url_is_no_other_safe_type(tmp: string)
-  local ok, trouble = compiles(tmp, "url-valid", [[
+local function test_a_safe_url_is_no_other_safe_type()
+  local ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local url: Html.SafeUrl = Html.href("/a")
 return Html.raw_url(url) .. Html.raw_url(Html.trust_url("b"))
 ]])
   assert(ok, trouble)
-  ok, trouble = compiles(tmp, "url-for-html", [[
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local url: Html.SafeUrl = Html.href("/a")
 local as_html: Html.SafeHtml = url
 return Html.raw(as_html)
 ]])
   assert(not ok, "a SafeUrl was taken for a SafeHtml")
-  assert(trouble:find("SafeUrl is not a", 1, true), trouble)
-  ok, trouble = compiles(tmp, "url-for-attr", [[
+  assert(trouble:find("`html.SafeUrl`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.raw_attr(Html.href("/a"))
 ]])
   assert(not ok, "a SafeUrl was taken for a SafeAttr")
-  assert(trouble:find("SafeUrl is not a", 1, true), trouble)
-  ok, trouble = compiles(tmp, "attr-for-url", [[
+  assert(trouble:find("`html.SafeUrl`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.raw_url(Html.escape_attr("a"))
 ]])
   assert(not ok, "a SafeAttr was taken for a SafeUrl")
-  assert(trouble:find("SafeAttr is not a", 1, true), trouble)
-  ok, trouble = compiles(tmp, "url-table", [[
+  assert(trouble:find("`html.SafeAttr`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local forged: Html.SafeUrl = {}
 return Html.raw_url(forged)
 ]])
   assert(not ok, "a table literal was taken for a SafeUrl")
-  assert(trouble:find("got {}, expected Html.SafeUrl", 1, true), trouble)
-  ok, trouble = compiles(tmp, "url-string", [[
+  assert(trouble:find("`html.SafeUrl`", 1, true), trouble)
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 local forged: Html.SafeUrl = "javascript:x"
 return Html.raw_url(forged)
 ]])
   assert(not ok, "a string was taken for a SafeUrl")
   assert(trouble:find("SafeUrl", 1, true), trouble)
-  ok, trouble = compiles(tmp, "url-concat", [[
+  ok, trouble = compiles([[
 local Html = require("cosmic.html")
 return Html.href("/a") .. "b"
 ]])
   assert(not ok, "a SafeUrl was concatenated as a string")
-  assert(trouble:find("cannot use operator '..'", 1, true) and trouble:find("SafeUrl", 1, true), trouble)
+  assert(trouble:find("`..` takes strings", 1, true) and trouble:find("SafeUrl", 1, true), trouble)
 end

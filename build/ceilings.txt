@@ -2920,7 +2920,7 @@ cosmic/hash_test.tl index_may_be_nil 5
 
 cosmic/html_fuzz_test.tl index_may_be_nil 1
 
-cosmic/html_test.tl index_may_be_nil 2
+cosmic/html_test.tl index_may_be_nil 1
 
 cosmic/http/multipart.tl index_may_be_nil 1
 
