@@ -80,11 +80,11 @@
 ---   `self` in a method. A field is `mut` in the interfaces of the file that
 ---   declare it and in every record that implements them and declares it; a
 ---   super written with a qualifier is the type of the file with its last name.
----   An interface of another file may need the same `mut`, which is reported. What this misses is a write through a name the syntax
----   does not type (a call's result, a field of a field), a collection
----   passed on to a function that changes it, a local written from a closure
----   or through an alias of a `table` function. Both wait on the checker's type
----   report, which resolves every target.
+---   An interface of another file may need the same `mut`, which is reported. `rawset` is a `table`
+---   write for a name of any of these kinds: a field, a parameter or a local. What this misses is a write
+---   through a name the syntax does not type (a call's result, a field of a field), a collection passed on
+---   to a function that changes it, and a local written from a closure or through an alias of a `table`
+---   function. These wait on the checker's type report, which resolves every target.
 ---
 --- A cast, `is`, `T...` as a return, and every other form the grammar keeps
 --- are left as they are. The forms the draft has rewritten by hand first (a

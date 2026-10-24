@@ -877,6 +877,41 @@ local function test_a_field_of_the_standard_library_is_left()
   assert(finding.code == "field_fixed" and finding.note:find("which this run does not write", 1, true) ~= nil, finding.note)
 end
 
+--- The direct shape of the two tests around it: the translator writes `mut` for a write it sees in the function that declares
+--- the local, so the local made from a view is declared `mut` and the finding that stays is the view given to it.
+local function test_a_local_made_from_a_view_and_written_directly_is_declared_mut_and_the_view_is_left_refused()
+  local source = table.concat({
+    "local function copy(names: {string}): {string}",
+    "  local out: {string} = names",
+    "  out[#out + 1] = \"x\"",
+    "  return out",
+    "end",
+    "return copy",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(assert(result.texts["m.tl"]):find("local out: mut {string} = names", 1, true) ~= nil, result.texts["m.tl"])
+  assert(result.after["view_as_mut"] == 1 and result.after["view_written"] == nil, tostring(result.after["view_as_mut"]))
+  assert(#result.left == 1)
+end
+
+local function test_a_local_made_by_a_call_that_answers_several_values_and_written_directly_is_refused_as_a_view()
+  local source = table.concat({
+    "local function two(): {string}, {string}",
+    "  return { \"a\" }, { \"b\" }",
+    "end",
+    "return function(): integer",
+    "  local a, b: {string}, {string} = two()",
+    "  b[#b + 1] = \"x\"",
+    "  return #a + #b",
+    "end",
+    "",
+  }, "\n")
+  local result = migrated({ ["m.tl"] = source })
+  assert(result.after["view_written"] == nil and (result.after["view_as_mut"] or 0) >= 1, tostring(result.after["view_as_mut"]))
+  assert(#result.left >= 1)
+end
+
 local function test_a_local_made_from_a_view_is_left_and_not_declared_mut()
   local source = table.concat({
     "local function copy(names: {string}): {string}",

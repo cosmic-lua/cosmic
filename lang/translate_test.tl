@@ -895,6 +895,64 @@ local function test_a_local_is_mut_only_where_the_call_names_it_in_its_own_funct
   end
 end
 
+local function test_a_local_named_for_a_table_function_or_declared_without_a_type_for_each_name_is_not_credited()
+  -- A local that is called `rawset` is not the library's function, and a `local` with fewer types than names
+  -- says nothing of which name has which.
+  local source = lines(
+    "local function f(rawset: function({integer}, integer, integer), pair: {integer})",
+    "  local xs: {integer} = {}",
+    "  rawset(xs, 1, 2)",
+    "  local a, b: {integer} = pair, pair",
+    "  table.insert(a, 1)",
+    "  table.insert(b, 1)",
+    "end")
+  local got = clean(source).text
+  assert(got:find("local xs: {integer}", 1, true) ~= nil, got)
+  assert(got:find("local a, b: {integer}", 1, true) ~= nil, got)
+  -- the global `rawset` is the library's
+  local library = clean(lines("local function g()", "  local m: {string: boolean} = {}", "  rawset(m, \"k\", true)", "end"))
+  assert(library.counts["mut_local"] == 1, "the library's rawset writes its first argument")
+end
+
+local function test_a_name_in_the_initializer_of_a_local_is_not_that_local()
+  -- `table.insert(xs, 1)` in the initializer reads the `xs` before it, so it does not make the new `xs` `mut`.
+  local got = clean(lines(
+    "local function note(_: any): {integer}",
+    "  return {}",
+    "end",
+    "local function f()",
+    "  local xs: {integer} = note(table.insert(xs, 1))",
+    "  return #xs",
+    "end")).text
+  assert(got:find("local xs: {integer} = note(", 1, true) ~= nil, got)
+end
+
+local function test_every_row_a_translation_counts_is_listed_in_the_rows()
+  local listed: {string: boolean} = {}
+  for _, row in ipairs(Translate.rows) do
+    listed[row] = true
+  end
+  local result = clean(lines(
+    "local record R",
+    "  n: integer",
+    "  items: {integer}",
+    "end",
+    "local function f(r: R, p: {integer})",
+    "  local xs: {integer} = {}",
+    "  table.insert(xs, 1)",
+    "  table.insert(r.items, 1)",
+    "  table.insert(p, 1)",
+    "  r.n = 2",
+    "end"))
+  local seen = 0
+  for row in pairs(result.counts) do
+    assert(listed[row], row .. " is counted and not listed in Translate.rows")
+    seen = seen + 1
+  end
+  assert(seen >= 4 and result.counts["mut_local"] == 1 and result.counts["mut_param"] == 1 and
+      result.counts["mut_collection"] == 1 and result.counts["mut_field"] == 1, tostring(seen))
+end
+
 local function test_a_local_assigned_twice_is_mut_once_and_the_view_given_to_it_is_refused()
   local result = clean(lines(
     "local function f(make: function(): {integer})",
@@ -905,7 +963,7 @@ local function test_a_local_assigned_twice_is_mut_once_and_the_view_given_to_it_
     "  return #xs",
     "end"))
   assert(result.text:find("local xs: mut {integer} = {}", 1, true) ~= nil, result.text)
-  assert(result.counts.mut_local == 1, "one rewrite for the local, not one for each call")
+  assert(result.counts["mut_local"] == 1, "one rewrite for the local, not one for each call")
   -- `mut` only lets the local be written: a view received from elsewhere is
   -- still no `mut {integer}`.
   local refused = Programs.run(clean(lines(

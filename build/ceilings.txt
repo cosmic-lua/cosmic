@@ -5303,7 +5303,7 @@ lang/scopes_test.tl map_field 9
 
 lang/translate.tl map_field 10
 
-lang/translate_test.tl map_field 10
+lang/translate_test.tl map_field 9
 
 lang/types.tl map_field 4
 
