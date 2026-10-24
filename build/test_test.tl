@@ -6,6 +6,7 @@ local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local test = require("build.test")
+local test_key = require("build.test_key")
 local work = require("build.work")
 local worker = require("build.test_worker")
 
@@ -114,11 +115,11 @@ end
 --- part, up to a space: two bumps of the epoch from one count say
 --- a moved harness, as another timeout does.
 local function test_the_census_says_each_bump_of_the_epoch_apart()
-  local word = test.harness_word("8-072f7458", Clock.seconds(30))
+  local word = test_key.harness_word("8-072f7458", Clock.seconds(30))
   assert(word == "e8-072f7458-t" .. Clock.seconds(30), word)
   assert(word:match("^%S+$") and not word:find("[,;]"), word)
-  assert(test.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
-  assert(test.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")
+  assert(test_key.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
+  assert(test_key.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")
 end
 
 local function test_a_selector_can_name_one_test_of_one_module()
@@ -168,13 +169,15 @@ end
 --- what a worker runs and the code that makes and reads a key, each by
 --- its source and bytecode; a closure store's address is salted by what
 --- writes it and what that requires, by source and bytecode. So an edit
---- to the runner, to how a key is computed or to how a verdict is looked
---- up under one moves the digest, a comment's too, and fails
+--- to how a key is computed, to how a verdict is looked up under one or
+--- kept (build.test_key) moves the digest, a comment's too, and fails
 --- build/harness_epoch_test.tl until it is acknowledged or the epoch
 --- bumped; so does one to the worker, to the plan of its sandbox or to
 --- cosmic's main, and one to the store's writer, its schema or a module
 --- they require moves the address. One to a module of none of them
---- moves neither: not one to cosmic.removed, which a test is keyed by
+--- moves neither: not one to the runner (build.test) or the types it
+--- shares with the key's code (build.test_state), nor one to
+--- cosmic.removed, which a test is keyed by
 --- only where its closure holds it, nor one to
 --- build.dispatch, or to what only it requires, since cosmic's main
 --- starts a worker ahead of it (cmd/cosmic/main.tl), nor one to the
@@ -185,13 +188,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local key_code = { "build.test", "build.declared_key", "build.shared_verdicts",
+  local key_code = { "build.test_key", "build.declared_key", "build.shared_verdicts",
     "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
     "build.host_names" }
   local imports: {{string}} = {
     { "build.declared_key", "build.artifact" }, { "build.declared_key", "cosmic.fs" },
-    { "build.shared_verdicts", "build.bind" }, { "build.test", "build.importer" },
-    { "build.test", "build.harness_epoch" }, { "build.test", "build.test_report" },
+    { "build.shared_verdicts", "build.bind" }, { "build.test_key", "build.importer" },
+    { "build.test_key", "build.harness_epoch" }, { "build.test_key", "build.test_report" },
+    { "build.test", "build.test_key" },
     { "build.shared_verdicts", "build.harness_epoch" },
     { "build.closure_store", "build.schema" }, { "build.closure_store", "cosmic.sqlite" },
     { "build.shared_verdicts", "cosmic.sqlite" }, { "cosmic.sqlite", "cosmic.sys" },
@@ -205,9 +209,9 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy",
     "build.closure_store", "build.writer",
     "build.test_report", "build.schema", "build.importer", "build.analyzer", "cosmic.removed",
-    "cosmic.sqlite", "cosmic.sys" }
+    "cosmic.sqlite", "cosmic.sys", "build.test", "build.test_state" }
   -- Each module's bytecode names what it requires, as a require by
-  -- value leaves the name among its constants ([`test.value_imports`]).
+  -- value leaves the name among its constants ([`test_key.value_imports`]).
   local named_in: {string:string} = {}
   for _, row in ipairs(imports) do
     named_in[row[1]] = (named_in[row[1]] or "") .. " " .. row[2]
@@ -230,11 +234,11 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     end
     for name in pairs(modules) do assert(named[name], name .. " is none of `names`") end
   end
-  local before = assert(test.harness(db))
+  local before = assert(test_key.harness(db))
   each_named(before.modules, before.names)
   local function moves(name: string, source: string, bytecode: string): string
     set(name, source, bytecode)
-    local edited = assert(test.harness(db))
+    local edited = assert(test_key.harness(db))
     set(name, "return 'a key'\n", "bytecode")
     each_named(edited.modules, edited.names)
     local moved = false
@@ -249,15 +253,18 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
-  for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
       "cmd.cosmic.main", "build.confine",
       "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
       "build.caches", "build.zig_caches" }) do
     assert(edited(name) == "harness", name .. " moved " .. edited(name))
   end
+  -- The runner is none of it: build.test requires the key's code and the types
+  -- they share, and an edit to it moves no digest.
   for _, name in ipairs({ "build.importer", "build.analyzer", "build.writer",
-      "build.harness_epoch", "build.test_report", "cosmic.removed" }) do
+      "build.harness_epoch", "build.test_report", "cosmic.removed", "build.test",
+      "build.test_state" }) do
     assert(edited(name) == "", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "build.dispatch", "build.clock", "build.exit_status", "cosmic.cli",
@@ -281,28 +288,30 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   -- a compiler whose codegen moved can change what a worker runs.
   local recompiled = moves("cosmic.sqlite", "return 'a key'\n", "other bytecode")
   assert(recompiled == "harnessstore", "a recompile moved " .. recompiled)
-  recompiled = moves("build.test", "return 'a key'\n", "other bytecode")
+  recompiled = moves("build.test_key", "return 'a key'\n", "other bytecode")
   assert(recompiled == "harness", "a recompile moved " .. recompiled)
+  assert(moves("build.test", "return 'a key'\n", "other bytecode") == "")
   assert(moves("build.writer", "return 'a key'\n", "other bytecode") == "")
   assert(moves("build.test_report", "return 'a key'\n", "other bytecode") == "")
   -- The harness's modules are named, and those it runs apart.
   local named: {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
-  assert(named["build.caches"] and named["build.zig_caches"] and named["build.test"] and
+  assert(named["build.caches"] and named["build.zig_caches"] and named["build.test_key"] and
+      named["build.test"] == nil and named["build.test_state"] == nil and
       not named["build.harness_epoch"] and not named["build.test_report"])
   local runs: {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
   assert(runs["build.test_sandbox"] and runs["build.test_policy"] and runs["build.test_worker"] and
-      not runs["build.test"])
+      not runs["build.test_key"])
   -- A module that makes a key and that the binary does not carry fails
   -- the harness, naming it.
   assert(db:exec("DELETE FROM modules WHERE path = 'build.artifact'"))
-  local none, why = test.harness(db)
+  local none, why = test_key.harness(db)
   assert(none == nil and why:find("build.artifact", 1, true), why)
   set("build.artifact", "return 'a key'\n", "bytecode")
   -- So does one the store's writer requires.
   assert(db:exec("DELETE FROM modules WHERE path = 'cosmic.sqlite'"))
-  none, why = test.harness(db)
+  none, why = test_key.harness(db)
   assert(none == nil and why:find("cosmic.sqlite", 1, true), why)
   db:close()
 end
@@ -330,7 +339,7 @@ local function test_the_harness_walks_the_key_code_by_value()
       { blob = string.dump(assert(load(source)), true) } }))
   end
   for _, name in ipairs(worker.loads) do add(name) end
-  for _, name in ipairs({ "build.test", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
       "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
       "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
       "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
@@ -344,7 +353,7 @@ local function test_the_harness_walks_the_key_code_by_value()
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)",
       { { text = row[1] }, { text = row[2] } }))
   end
-  local found = assert(test.harness(db))
+  local found = assert(test_key.harness(db))
   db:close()
   local named: {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end

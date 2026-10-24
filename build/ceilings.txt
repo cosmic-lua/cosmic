@@ -136,7 +136,9 @@ build/teal.tl key_type 3
 
 build/teal_test.tl key_type 1
 
-build/test.tl key_type 5
+build/test.tl key_type 3
+
+build/test_state.tl key_type 2
 
 build/test_test.tl key_type 2
 
@@ -222,11 +224,15 @@ build/shared_compiles.tl member_missing 2
 
 build/shared_parses_test.tl member_missing 1
 
-build/test.tl member_missing 28
+build/test.tl member_missing 1
 
 build/test_inputs.tl member_missing 1
 
 build/test_inputs_test.tl member_missing 1
+
+build/test_key.tl member_missing 1
+
+build/test_state.tl member_missing 1
 
 build/worker.tl member_missing 1
 
@@ -424,9 +430,13 @@ build/teal.tl 1
 
 build/term_relay_seatbelt_test.tl 1
 
+build/test.tl 1
+
 build/test_isolation_fixture.tl 1
 
 build/test_isolation_tool_test.tl 1
+
+build/test_key.tl 4
 
 build/test_sandbox_system_hint_test.tl 1
 
@@ -775,9 +785,11 @@ build/term_filter.tl 2
 
 build/term_relay.tl 2
 
-build/test.tl 17
+build/test.tl 13
 
 build/test_inputs.tl 2
+
+build/test_key.tl 3
 
 build/test_policy.tl 1
 
@@ -1717,7 +1729,7 @@ build/term_filter_fuzz_test.tl nil_not_allowed 5
 
 build/term_relay.tl nil_not_allowed 11
 
-build/test.tl nil_not_allowed 85
+build/test.tl nil_not_allowed 32
 
 build/test_bail_tool_test.tl nil_not_allowed 6
 
@@ -1728,6 +1740,8 @@ build/test_inputs_test.tl nil_not_allowed 3
 build/test_isolation_test.tl nil_not_allowed 2
 
 build/test_isolation_tool_test.tl nil_not_allowed 1
+
+build/test_key.tl nil_not_allowed 50
 
 build/test_no_assert_tool_test.tl nil_not_allowed 1
 
@@ -2531,7 +2545,7 @@ build/syntax_stub.tl not_assigned 1
 
 build/teal.tl not_assigned 1
 
-build/test.tl not_assigned 2
+build/test_key.tl not_assigned 2
 
 build/work.tl not_assigned 1
 
@@ -2894,11 +2908,13 @@ build/teal_test.tl index_may_be_nil 12
 
 build/term_filter.tl index_may_be_nil 1
 
-build/test.tl index_may_be_nil 24
+build/test.tl index_may_be_nil 12
 
 build/test_inputs.tl index_may_be_nil 1
 
 build/test_inputs_test.tl index_may_be_nil 2
+
+build/test_key.tl index_may_be_nil 12
 
 build/test_policy.tl index_may_be_nil 1
 
@@ -4006,7 +4022,7 @@ build/term_filter_test.tl view_written 5
 
 build/term_relay.tl view_written 3
 
-build/test.tl view_written 130
+build/test.tl view_written 111
 
 build/test_bail_tool_test.tl view_written 1
 
@@ -4019,6 +4035,8 @@ build/test_inputs_test.tl view_written 12
 build/test_isolation_fixture.tl view_written 2
 
 build/test_isolation_tool_test.tl view_written 2
+
+build/test_key.tl view_written 69
 
 build/test_no_assert_tool_test.tl view_written 1
 
@@ -5027,9 +5045,11 @@ build/syntax_shape_specs.tl view_as_mut 1
 
 build/syntax_stub.tl view_as_mut 1
 
-build/test.tl view_as_mut 10
+build/test.tl view_as_mut 4
 
 build/test_inputs.tl view_as_mut 1
+
+build/test_key.tl view_as_mut 3
 
 build/test_worker.tl view_as_mut 5
 
@@ -5445,9 +5465,11 @@ build/teal_test.tl field_fixed 42
 
 build/term_relay.tl field_fixed 3
 
-build/test.tl field_fixed 28
+build/test.tl field_fixed 23
 
 build/test_inputs.tl field_fixed 12
+
+build/test_key.tl field_fixed 46
 
 build/test_policy.tl field_fixed 3
 
@@ -6167,7 +6189,7 @@ build/syntax_typed_test.tl map_field 3
 
 build/teal.tl map_field 7
 
-build/test.tl map_field 14
+build/test.tl map_field 8
 
 build/test_bail_tool_test.tl map_field 2
 
@@ -6182,6 +6204,8 @@ build/test_inputs_test.tl map_field 7
 build/test_isolation_fixture.tl map_field 4
 
 build/test_isolation_tool_test.tl map_field 24
+
+build/test_key.tl map_field 6
 
 build/test_no_assert_tool_test.tl map_field 3
 
@@ -6967,13 +6991,15 @@ build/teal_test.tl overload_none 2
 
 build/term_filter.tl overload_none 1
 
-build/test.tl overload_none 15
+build/test.tl overload_none 12
 
 build/test_closure_diagnostic_test.tl overload_none 1
 
 build/test_inputs.tl overload_none 2
 
 build/test_inputs_test.tl overload_none 2
+
+build/test_key.tl overload_none 3
 
 build/test_policy.tl overload_none 1
 
@@ -7332,7 +7358,9 @@ build/teal.tl return_arity 3
 
 build/teal_test.tl return_arity 4
 
-build/test.tl return_arity 2
+build/test.tl return_arity 1
+
+build/test_key.tl return_arity 1
 
 build/todos.tl return_arity 4
 
@@ -7503,7 +7531,9 @@ build/syntax_match.tl any_use 75
 
 build/teal.tl any_use 19
 
-build/test.tl any_use 3
+build/test.tl any_use 2
+
+build/test_key.tl any_use 1
 
 build/test_worker.tl any_use 3
 
@@ -8995,7 +9025,7 @@ build/term_filter_fuzz_test.tl condition_type 1
 
 build/term_relay.tl condition_type 1
 
-build/test.tl condition_type 48
+build/test.tl condition_type 25
 
 build/test_cancelled_verdicts_tool_test.tl condition_type 1
 
@@ -9006,6 +9036,8 @@ build/test_inputs_test.tl condition_type 12
 build/test_isolation_test.tl condition_type 1
 
 build/test_isolation_tool_test.tl condition_type 2
+
+build/test_key.tl condition_type 16
 
 build/test_policy.tl condition_type 4
 
@@ -9660,11 +9692,13 @@ build/teal.tl or_mix 8
 
 build/teal_test.tl or_mix 11
 
-build/test.tl or_mix 7
+build/test.tl or_mix 2
 
 build/test_bail_tool_test.tl or_mix 3
 
 build/test_inputs_test.tl or_mix 1
+
+build/test_key.tl or_mix 4
 
 build/test_parent_tool_test.tl or_mix 5
 
@@ -10403,9 +10437,11 @@ build/term_filter.tl and_ternary 3
 
 build/term_relay.tl and_ternary 10
 
-build/test.tl and_ternary 21
+build/test.tl and_ternary 6
 
 build/test_inputs.tl and_ternary 2
+
+build/test_key.tl and_ternary 14
 
 build/test_policy.tl and_ternary 2
 
@@ -11729,9 +11765,11 @@ build/syntax_typed.tl compare_disjoint 1
 
 build/teal_test.tl compare_disjoint 5
 
-build/test.tl compare_disjoint 5
+build/test.tl compare_disjoint 1
 
 build/test_inputs.tl compare_disjoint 2
+
+build/test_key.tl compare_disjoint 4
 
 build/test_policy_plan_tool_test.tl compare_disjoint 2
 
@@ -12032,7 +12070,9 @@ build/teal_test.tl literal_missing 6
 
 build/term_relay.tl literal_missing 3
 
-build/test.tl literal_missing 7
+build/test.tl literal_missing 3
+
+build/test_key.tl literal_missing 4
 
 build/test_policy_test.tl literal_missing 1
 
@@ -12418,9 +12458,11 @@ build/teal.tl literal_needs_type 8
 
 build/teal_test.tl literal_needs_type 2
 
-build/test.tl literal_needs_type 6
+build/test.tl literal_needs_type 1
 
 build/test_inputs.tl literal_needs_type 4
+
+build/test_key.tl literal_needs_type 5
 
 build/test_requires_tool_test.tl literal_needs_type 4
 

@@ -1,7 +1,7 @@
 --- What a module that declares `lua` ([`cosmic.test`]) and requires
 --- [`build.standalone`] starts: this program running a file `--standalone`,
 --- on a sealed database of the module's import closure
---- ([`build.test`]'s `sealed_for`), which carries what `cosmic -e` loads and
+--- ([`build.test_key`]'s `sealed_for`), which carries what `cosmic -e` loads and
 --- what `cosmic --standalone` loads beyond it (build/test_inputs.tl's
 --- `lua_loads` and `standalone_loads`) -- so a file that reaches for any
 --- other module of the program fails rather than running what no key of

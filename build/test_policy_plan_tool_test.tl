@@ -45,7 +45,7 @@ local function effective(files: {string}): test_inputs.Effective
   return out
 end
 
---- Makes `tmp`/scratch, a scratch directory laid out as build.test's
+--- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
 --- answers it.
 local function scratch_in(tmp: string): string
@@ -195,7 +195,7 @@ end
 --- module of the tree: a plan for the policy grants the real one only where
 --- the module declares `store` (keyed on the whole projection), `tool` has
 --- o/bin anyway, and any other runs on a sealed database
---- ([`build.test`]'s `sealed_for`) and is given no artifact at all.
+--- ([`build.test_key`]'s `sealed_for`) and is given no artifact at all.
 local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
   local launched = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then

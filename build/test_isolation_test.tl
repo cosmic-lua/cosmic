@@ -6,7 +6,7 @@
 
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local test = require("build.test")
+local test_key = require("build.test_key")
 local test_sandbox = require("build.test_sandbox")
 local worker = require("build.test_worker")
 
@@ -22,7 +22,7 @@ local function test_a_test_directory_is_reached_through_a_link(tmp: string)
   local resolved = assert(Fs.absolute(tmp))
   assert(resolved ~= tmp, resolved)
   assert(Fs.is_dir(resolved))
-  local scratch = assert(test.scratch())
+  local scratch = assert(test_key.scratch())
   assert(assert(Fs.absolute(scratch)) == scratch, scratch)
   assert(#scratch >= test_sandbox.scratch_length, scratch)
   assert(assert(Fs.readlink(scratch .. "/tmp")) == "real")

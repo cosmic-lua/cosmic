@@ -1,6 +1,6 @@
 --- What a worker whose module declares neither `store`, `tool` nor `nests`
 --- reads of the program: a sealed database of its module's import
---- closure and the modules every worker loads (build/test.tl's
+--- closure and the modules every worker loads (build/test_key.tl's
 --- `sealed_for`), so a module beyond them is found by no `Store` read, no
 --- searcher called by hand and no `require`, whether the module's own test
 --- makes it or a finalizer does after the hold on `require` is

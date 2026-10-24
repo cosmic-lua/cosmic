@@ -1,5 +1,5 @@
 --- A worker whose module declares `nests` (the promise "nest") and neither `store` nor
---- `tool` runs on a sealed database of its closure like any other (build/test.tl's
+--- `tool` runs on a sealed database of its closure like any other (build/test_key.tl's
 --- `sealed_for`), its policy carrying `nest` beside the `database`: a module
 --- beyond the closure is not in the program it reads, and a process it
 --- confines in a root of its own starts on that same database and reads no

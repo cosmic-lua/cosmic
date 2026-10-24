@@ -6,7 +6,7 @@
 --- verdict of a test never stand for the other mode. It is not part of the compiler's identity ([`build.identity`]), which
 --- decides when the tool is stale: the tool is the same tool whichever mode a run asks for.
 ---
---- A module of its own, because [`build.test`] reads it and a harness module reaches no more of the tree than it must.
+--- A module of its own, because [`build.test_key`] reads it and a harness module reaches no more of the tree than it must.
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 

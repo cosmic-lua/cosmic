@@ -9,7 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
-local test = require("build.test")
+local test_key = require("build.test_key")
 local this_program = require("build.this_program")
 local stand_in = require("build.stand_in")
 local Test = require("cosmic.test")
@@ -276,7 +276,7 @@ end
 --- other of their prefix as it starts), so the filter's case for them
 --- is the second half's. The first holds the rest of the filter end to
 --- end: its suite declares the variables, so the run's own filter
---- ([`test.worker_environment`]), not the declaration, is what drops how
+--- ([`test_key.worker_environment`]), not the declaration, is what drops how
 --- the run was started (OLDPWD, SHLVL).
 local function test_workers_start_without_the_startup_hooks(tmp: string)
   local root = tmp .. "/project"
@@ -297,7 +297,7 @@ end
   local output = tmp .. "/hooks.out"
   local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
-  local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
+  local kept = test_key.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
     COSMIC_PORTABLE_CACHE = "c", PATH = "p", COSMIC_REBOOTED = "1", OLDPWD = "/elsewhere",
     _ = "/usr/bin/timeout", SHLVL = "2", COSMIC_BUILD_CACHE = "/shared/cache.db",
     COSMIC_VERDICT_CACHE = "/shared/verdicts.db", COSMIC_TEST_NO_SHARED = "1", COSMIC_TEST_BAIL = "1",

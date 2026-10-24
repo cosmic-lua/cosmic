@@ -132,7 +132,7 @@ local function test_an_undeclared_file_does_not_move_it(tmp: string)
 end
 
 --- A module that declares `lua` starts a sealed database of its closure in the
---- program's place (build.test's `sealed_for`), so its key holds the program as
+--- program's place (build.test_key's `sealed_for`), so its key holds the program as
 --- a module that declares neither `lua` nor `tool` does: by the closure's
 --- store and the runtime, not by what the program carries -- an edit to a
 --- module the program carries outside its closure, which moves `program`
@@ -516,14 +516,14 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
         "offline worker's own loopback answers",
       lua = declaration .. ", and what it adds to the closure (`lua_loads`) by `files` " ..
         "and `closure_store`: every process it starts runs a sealed database of that " ..
-        "closure (build.test's `sealed_for`)",
+        "closure (build.test_key's `sealed_for`)",
       nests = declaration .. ", and, where the module neither declares `tool` nor runs " ..
-        "on a sealed database, `runs_tool` (build.test's `tool_use`)",
+        "on a sealed database, `runs_tool` (build.test_key's `tool_use`)",
       caches = "content-addressed, which never changes a result (build.caches)",
       cache_paths = "where the host keeps its caches: content-addressed, which never " ..
         "changes a result (build.caches)",
       unresolved = "a module with a host path that cannot be given runs no test to key " ..
-        "(`build.test`'s `unresolved`)",
+        "(`build.test_key`'s `unresolved`)",
     })
 end
 

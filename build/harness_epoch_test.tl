@@ -1,4 +1,4 @@
---- The harness's digests ([`build.test`]'s `harness`: what every worker
+--- The harness's digests ([`build.test_key`]'s `harness`: what every worker
 --- loads, the sandbox's maker and the code that makes and reads a key,
 --- a digest per module by its source and bytecode) are the ones
 --- build/harness_epoch.tl acknowledges, one to a line. No key holds
@@ -15,7 +15,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
-local test = require("build.test")
+local test_key = require("build.test_key")
 local TypeWatch = require("build.type_watch")
 
 --- The harness is read from the projection, in the tree's build
@@ -119,7 +119,7 @@ local function epoch_trouble(epoch: string, retired: {string}): string | nil
 end
 
 --- What differs between the harness's modules as `found` has them (a
---- digest per module, [`build.test`]'s `harness`) and `acknowledged`:
+--- digest per module, [`build.test_key`]'s `harness`) and `acknowledged`:
 --- nil where they agree, or a message naming each module that moved,
 --- that has no entry, and each entry that names no module of the
 --- harness, with the lines that acknowledge the first two.
@@ -165,7 +165,7 @@ local function test_the_harness_is_acknowledged()
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end
   local db = assert(Sqlite.open(projection))
-  local found, trouble = test.harness(db)
+  local found, trouble = test_key.harness(db)
   db:close()
   assert(found ~= nil, trouble)
   local complaint = unacknowledged(found.modules, harness_epoch.acknowledged,
@@ -173,15 +173,86 @@ local function test_the_harness_is_acknowledged()
   assert(complaint == nil, complaint)
 end
 
---- Presentation edits need no acknowledgment; the runner's judgment remains
---- held whole, even though its reporting dependency is not followed.
-local function test_the_runner_is_acknowledged_without_its_reporter()
+--- The tree's projection copied into memory: every module the harness
+--- digests could hold ([`build.test_key`]'s `harness` reads `modules` of
+--- kind module and main, and the `imports` rows), so that `harness` can be
+--- asked of an edited copy, as it is of the binary's. The digests of the
+--- tree as it is come with it.
+local function harness_copy(): Sqlite.Handle, test_key.Harness
   local db = assert(Sqlite.open(projection))
-  local found, trouble = test.harness(db)
-  db:close()
+  local found, trouble = test_key.harness(db)
   assert(found ~= nil, trouble)
-  assert(found.modules["build.test"] ~= nil)
-  assert(found.modules["build.test_report"] == nil)
+  local copy = assert(Sqlite.memory())
+  assert(copy:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
+      "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
+  local rows = assert(Sqlite.rows(db, "SELECT path, kind, source_hash, bytecode FROM modules " ..
+      "WHERE kind IN ('module', 'main')"))
+  for _, row in ipairs(rows) do
+    assert(Sqlite.run(copy, "INSERT INTO modules VALUES (?1, ?2, ?3, ?4)",
+      { { text = row:text(1) }, { text = row:text(2) }, { blob = row:blob(3) },
+        { blob = row:blob(4) } }))
+  end
+  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path, requires FROM imports")))) do
+    assert(Sqlite.run(copy, "INSERT INTO imports VALUES (?1, ?2)",
+      { { text = row:text(1) }, { text = row:text(2) } }))
+  end
+  db:close()
+  return copy, found
+end
+
+--- The digests the harness holds ([`build.test_key`]'s `harness`) of
+--- `copy` with the `column` of `name`'s row edited, its source
+--- (`source_hash`) or its bytecode, and the row put back.
+local function edited_digests(copy: Sqlite.Handle, name: string, column: string): test_key.Harness
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. column ..
+      " || X'00' WHERE path = ?1", { { text = name } }))
+  local found, trouble = test_key.harness(copy)
+  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = substr(" .. column ..
+      ", 1, length(" .. column .. ") - 1) WHERE path = ?1", { { text = name } }))
+  assert(found ~= nil, trouble)
+  return found
+end
+
+--- The modules whose digest is not the same in `edited` as in `whole`,
+--- each after a space: "" where none moved.
+local function moved_between(whole: test_key.Harness, edited: test_key.Harness): string
+  local moved = ""
+  for other, digest in pairs(whole.modules) do
+    if edited.modules[other] ~= digest then moved = moved .. " " .. other end
+  end
+  return moved
+end
+
+--- The code that makes a key is held, and the runner around it is not: an
+--- edit to build/test.tl -- a progress line, the coverage it writes, how it
+--- schedules workers -- moves no digest, whether to its source or its
+--- bytecode, and nor does one to what the two share (build/test_state.tl,
+--- types only) or to the reporter. An edit to build/test_key.tl moves its
+--- own digest alone, and the test that holds the digests to
+--- `acknowledged` names it, so it cannot pass unacknowledged.
+local function test_an_edit_to_the_runner_moves_no_digest_and_one_to_the_key_code_moves_its_own()
+  local copy, whole = harness_copy()
+  assert(whole.modules["build.test_key"] ~= nil, "build.test_key is not held")
+  for _, runner in ipairs({ "build.test", "build.test_state", "build.test_report" }) do
+    assert(whole.modules[runner] == nil, runner .. " is held: its edits would move the " ..
+        "harness's digests")
+    for _, column in ipairs({ "source_hash", "bytecode" }) do
+      local moved = moved_between(whole, edited_digests(copy, runner, column))
+      assert(moved == "", "an edit to " .. runner .. "'s " .. column .. " moved" .. moved)
+    end
+  end
+  for _, column in ipairs({ "source_hash", "bytecode" }) do
+    local edited = edited_digests(copy, "build.test_key", column)
+    local moved = moved_between(whole, edited)
+    assert(moved == " build.test_key", "an edit to build.test_key's " .. column ..
+        " moved" .. moved)
+    -- And what moves it is unacknowledged until a person says so.
+    local complaint = unacknowledged(edited.modules, harness_epoch.acknowledged,
+      harness_epoch.epoch, harness_epoch.retired)
+    local said = assert(complaint, "an edit to build.test_key is acknowledged without a word")
+    assert(said:find("build.test_key", 1, true) ~= nil, said)
+  end
+  copy:close()
 end
 
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
@@ -319,12 +390,12 @@ local unfollowed: {string:{string:boolean}} = {
 --- module: it decides where a declared cache is bound from.
 local function test_the_harness_holds_what_it_runs_requires()
   local db = assert(Sqlite.open(projection))
-  local found, trouble = test.harness(db)
+  local found, trouble = test_key.harness(db)
   assert(found ~= nil, trouble)
   local named: {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   named["build.harness_epoch"] = true
-  local by_value = assert(test.value_imports(db))
+  local by_value = assert(test_key.value_imports(db))
   local tree: {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
     tree[row:text(1)] = true
@@ -340,7 +411,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   end
   db:close()
   assert(#missing == 0, "the harness runs what its digest does not hold -- name each " ..
-      "in build/test.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
+      "in build/test_key.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
       "a worker loads it: " .. table.concat(missing, ", "))
 end
 
@@ -364,9 +435,9 @@ local unheld_split: {string:string} = {
 --- Otherwise an edit to the part split off would move no digest.
 local function test_what_is_split_off_a_module_of_the_harness_is_held()
   local db = assert(Sqlite.open(projection))
-  local found, trouble = test.harness(db)
+  local found, trouble = test_key.harness(db)
   assert(found ~= nil, trouble)
-  local by_value = assert(test.value_imports(db))
+  local by_value = assert(test_key.value_imports(db))
   db:close()
   local named: {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
@@ -385,7 +456,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   end
   table.sort(unheld)
   assert(#unheld == 0, "the harness holds a module and not what is split off it -- name " ..
-      "each in build/test.tl's `harness_alone`: " .. table.concat(unheld, ", "))
+      "each in build/test_key.tl's `harness_alone`: " .. table.concat(unheld, ", "))
   -- An entry of `unheld_split` that no module of the harness requires, or
   -- that the harness now holds, is stale.
   local required: {string:boolean} = {}
@@ -408,7 +479,7 @@ end
 --- rather than passing once its digest is acknowledged.
 local function test_the_harness_names_its_library()
   local db = assert(Sqlite.open(projection))
-  local found, trouble = test.harness(db)
+  local found, trouble = test_key.harness(db)
   db:close()
   assert(found ~= nil, trouble)
   local held: {string:boolean} = {}
@@ -457,7 +528,7 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   end
   -- An importer the table holds no bytecode of is followed as it is.
   assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.y', 'cosmic.time')"))
-  local by_value = assert(test.value_imports(db))
+  local by_value = assert(test_key.value_imports(db))
   db:close()
   local kept: {string:boolean} = {}
   for _, name in ipairs(by_value["build.x"] or {}) do kept[name] = true end
@@ -482,7 +553,7 @@ local function test_type_only_imports_is_what_value_imports_drops()
     assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)",
       { { text = row[1] }, { text = row[2] } }))
   end
-  local erased = assert(test.type_only_imports(db))
+  local erased = assert(test_key.type_only_imports(db))
   db:close()
   assert(erased["build.x"] ~= nil and erased["build.x"]["cosmic.child"], "a type-only edge was kept")
   assert(not erased["build.x"]["cosmic.fs"], "a value edge was dropped")

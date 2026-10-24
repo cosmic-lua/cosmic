@@ -17,7 +17,7 @@ end
 --- writes one reads to find it: a sandboxed worker is given them
 --- ([`build.test_inputs`]). Here rather than in [`build.caches`], whose
 --- lazy require of build/zig.tl would put build/zig.tl and all it
---- requires in the harness's digest ([`build.test`]'s `key_code`), which
+--- requires in the harness's digest ([`build.test_key`]'s `key_code`), which
 --- [`build.test_inputs`] is part of.
 local locating: {string:{string}} = {
   zig = { "HOME", "XDG_CACHE_HOME", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE",

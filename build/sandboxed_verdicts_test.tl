@@ -697,7 +697,7 @@ end
 local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   local root = tmp .. "/root"
   -- The closures' stores, less the store of no module the census names
-  -- (build/test.tl's `base_name`).
+  -- (build/test_key.tl's `base_name`).
   local function closure_stores(): {string}
     local out: {string} = {}
     local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))

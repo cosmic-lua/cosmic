@@ -41,7 +41,7 @@ local function effective(files: {string}): test_inputs.Effective
   return out
 end
 
---- Makes `tmp`/scratch, a scratch directory laid out as build.test's
+--- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
 --- answers it. A plan takes that layout as given: where it runs its
 --- worker as a user of its own, it hands it and `real` to that user.

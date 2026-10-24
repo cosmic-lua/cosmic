@@ -28,7 +28,7 @@
 ---
 --- So its code is left out of the harness's digests. cosmic.child, which
 --- starts the probe, is in them alone, since it applies every worker's
---- sandbox ([`build.test`]'s `harness_alone`).
+--- sandbox ([`build.test_key`]'s `harness_alone`).
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
