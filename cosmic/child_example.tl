@@ -37,7 +37,7 @@ function Example.guard()
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
     argv[#argv + 1] = "return " .. tostring(i)
-    running[i] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
+    running[#running + 1] = assert(Child.start(argv, { env = again.env, fds = again.fds }))
   end
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))

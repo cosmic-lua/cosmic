@@ -67,18 +67,23 @@
 ---   type, or of a `return` in a function that answers `R`. The metatable local goes when every use of its name was
 ---   such a call, and with it every call of it stays when one is not. A row counts one metatable (or one inline
 ---   call) with its calls.
---- - `mut_field`, `mut_collection`, `mut_param`: `mut` on a field that a name
+--- - `mut_field`, `mut_collection`, `mut_param`, `mut_local`: `mut` on a field that a name
 ---   declared as its record assigns, on the array or map a field holds when
----   an index of it is assigned or a `table` function changes it, and on a
----   parameter that is an array or map and is changed the same way. A name
+---   an index of it is assigned or a `table` function changes it, on a
+---   parameter that is an array or map and is changed the same way, and on a
+---   local declared with such a type, in the function that declares it, when an
+---   index of it is assigned or `table.insert`, `remove`, `sort` or `move` (its
+---   target) or `rawset` is given the local itself. A local that holds a view from elsewhere stays
+---   refused (`view_as_mut`): `mut` only lets the local be written. A name
 ---   is credited to a record only where its block binds it once, as a
 ---   parameter or local with that record's plain name as its type, or as
 ---   `self` in a method. A field is `mut` in the interfaces of the file that
 ---   declare it and in every record that implements them and declares it; a
 ---   super written with a qualifier is the type of the file with its last name.
 ---   An interface of another file may need the same `mut`, which is reported. What this misses is a write through a name the syntax
----   does not type (a call's result, a field of a field) and a collection
----   passed on to a function that changes it. Both wait on the checker's type
+---   does not type (a call's result, a field of a field), a collection
+---   passed on to a function that changes it, a local written from a closure
+---   or through an alias of a `table` function. Both wait on the checker's type
 ---   report, which resolves every target.
 ---
 --- A cast, `is`, `T...` as a return, and every other form the grammar keeps
@@ -165,7 +170,7 @@ end
 Translate.rows = {
   "nil_union", "variadic_type", "optional_type", "continue", "semicolon", "long_comment",
   "digit_separator", "hex_float", "type_declaration", "metamethod", "readonly", "ternary", "class", "class_literal",
-  "mut_field", "mut_collection", "mut_param", "unary_power",
+  "mut_field", "mut_collection", "mut_param", "mut_local", "unary_power",
 }
 
 --- One replacement of the bytes `lo` to `hi - 1` of the source by `text`. An
@@ -1705,6 +1710,13 @@ local function last_name(dotted: string): string
   return dotted:match("([^%.]+)$") or dotted
 end
 
+--- A local of a collection type: its written type, and whether a call changed it.
+local record Held
+  entry: Entry
+  type: Ast.Type
+  changed: boolean
+end
+
 --- What a name stands for in a block: the record it is declared as, and the
 --- parameter it is.
 local record Entry
@@ -1721,6 +1733,8 @@ local record MutTracker
 end
 
 local TABLE_WRITES <const>: {string: boolean} = { insert = true, remove = true, sort = true, move = true }
+--- The functions of `table` and the globals that write their first argument, but for `move`, which writes its fifth.
+local GLOBAL_WRITES <const>: {string: boolean} = { rawset = true }
 
 --- The rewrites that write `mut` where the syntax shows a place changed:
 --- a field of a record or class that a name declared as that record assigns,
@@ -1732,15 +1746,25 @@ local TABLE_WRITES <const>: {string: boolean} = { insert = true, remove = true, 
 --- record.
 ---
 -- TODO: write `mut` for the writes that the syntax cannot attribute (a call's
--- result, a field of a field) and for a collection passed on to a function that
--- changes it, once the new checker's type report resolves the record and field
--- of each assignment target and the `mut` parameters of each callee.
+-- result, a field of a field, a local written through an alias of a `table`
+-- function or from a closure) and for a collection
+-- passed on to a function that changes it, once the new checker's type report
+-- resolves the record and field of each assignment target and the `mut`
+-- parameters of each callee.
 local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, interfaces: {Translate.Interface}): MutTracker
   local declared: {string: {string: Ast.FieldDecl}} = {}
   local seen: {string: integer} = {}
   local assigned: {string: boolean} = {}
   local changed: {string: boolean} = {}
   local changed_params: {Ast.Param: boolean} = {}
+  local locals: {Held} = {}
+  -- The collection local a name stands for once its statement is over, and the function that declares it.
+  local held_of: {Entry: Held} = {}
+  local depth_of: {Entry: integer} = {}
+  -- The functions being walked.
+  local nesting = { depth = 0 }
+  -- The entries a `local` statement bound, to give their types when it is over.
+  local pending: {Ast.Local: {Held}} = {}
   -- The blocks being walked, innermost last, each with the names it binds.
   local scopes: {{string: Entry}} = {}
   -- The names a block binds before its statements: a function's parameters,
@@ -1817,6 +1841,12 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
       if param ~= nil then
         changed_params[param] = true
       end
+      -- A local counts only in the function that declares it, and only by
+      -- the entry that sees it, so a shadowing name is another local.
+      local held = entry ~= nil and held_of[entry] or nil
+      if held ~= nil and entry ~= nil and depth_of[entry] == nesting.depth then
+        held.changed = true
+      end
     elseif e is Ast.Field then
       local key = field_key(e)
       if key ~= nil then
@@ -1834,9 +1864,20 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     elseif kind == "Local" then
       if node is Ast.Local then
         local aligned = #node.types == #node.bindings
+        local bound: {Held} = {}
         for i, b in ipairs(node.bindings) do
           bind(b.name, aligned and named_record(node.types[i]) or nil)
+          local scope = scopes[#scopes]
+          local entry = scope ~= nil and scope[b.name] or nil
+          local written = node.types[i]
+          if entry ~= nil and aligned and written ~= nil and collection_of(written) ~= nil then
+            local mark: Held = { entry = entry, type = written, changed = false }
+            bound[#bound + 1] = mark
+            locals[#locals + 1] = mark
+            depth_of[entry] = nesting.depth
+          end
         end
+        pending[node] = bound
       end
     elseif kind == "LocalFunction" then
       if node is Ast.LocalFunction then
@@ -1873,10 +1914,12 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
       end
     elseif kind == "Fn" then
       if node is Ast.Fn then
+        nesting.depth = nesting.depth + 1
         arrive(node.body, param_entries(node.params, nil, owner_of[node]))
       end
     elseif kind == "Method" then
       if node is Ast.Method then
+        nesting.depth = nesting.depth + 1
         arrive(node.body, param_entries(node.params, classes[#classes], nil))
       end
     elseif kind == "Record" or kind == "Class" or kind == "Interface" then
@@ -1928,7 +1971,12 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     elseif kind == "Call" then
       if node is Ast.Call then
         local callee = node.callee
-        if callee is Ast.Field and TABLE_WRITES[callee.name] then
+        if callee is Ast.Name and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
+          local target = node.args[1]
+          if target ~= nil then
+            collection_changed(target)
+          end
+        elseif callee is Ast.Field and TABLE_WRITES[callee.name] then
           local object = callee.object
           if object is Ast.Name and object.text == "table" and binder("table") == nil then
             -- `insert`, `remove` and `sort` change their first argument;
@@ -1953,6 +2001,16 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
       scopes[#scopes] = nil
     elseif kind == "Class" then
       classes[#classes] = nil
+    elseif kind == "Fn" or kind == "Method" then
+      nesting.depth = nesting.depth - 1
+    elseif kind == "Local" then
+      -- The names are the local's only once its initializers are read.
+      local held = node is Ast.Local and pending[node] or nil
+      if held ~= nil then
+        for _, mark in ipairs(held) do
+          held_of[mark.entry] = mark
+        end
+      end
     end
   end
 
@@ -2062,6 +2120,11 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     end
     for param in pairs(changed_params) do
       write(param.type, "mut_param")
+    end
+    for _, local_ in ipairs(locals) do
+      if local_.changed then
+        write(local_.type, "mut_local")
+      end
     end
     -- Tables have no order, and a rewrite that clashes with another is left to
     -- the next read: sort so that the same source always gives the same text.

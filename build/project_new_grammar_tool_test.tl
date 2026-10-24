@@ -110,7 +110,7 @@ end
 local function test_a_view_written_a_nil_not_taken_and_an_unused_name_are_refused_with_their_fixes(tmp: string)
   local root = copy_of(tmp, "views")
   planted(root, "counter.tl", "  return { label = label, count = 0, seen = {} }",
-    "  local unused = 1\n  local seen: {string} = {}\n  seen[#seen + 1] = label\n  return { label = label, count = 0, seen = seen }")
+    "  local unused = 1\n  local seen: {string} = {}\n  local function add() seen[#seen + 1] = label end\n  add()\n  return { label = label, count = 0, seen = seen }")
   local result, text = tested(root, tmp, "new")
   refusal(result, text, { "counter.tl:", "(view_written): declare `seen` `mut {string}` where it is made or received",
     "(unused_variable): name it `_` or `_unused`", "counter_test.tl: not compiled" })

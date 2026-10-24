@@ -230,7 +230,10 @@ local function test_an_example_writing_a_view_is_refused_by_the_new_checker_alon
     "--- Collects words.",
     "function Example.collect()",
     "  local words: {string} = {}",
-    '  words[#words + 1] = "a"',
+    "  local function add()",
+    '    words[#words + 1] = "a"',
+    "  end",
+    "  add()",
     "  print(#words)",
     "end",
     "return Example")
@@ -248,7 +251,10 @@ local function test_a_finding_within_its_pin_is_not_told_and_one_over_it_or_a_pi
     "--- Collects words.",
     "function Example.collect()",
     "  local words: {string} = {}",
-    '  words[#words + 1] = "a"',
+    "  local function add()",
+    '    words[#words + 1] = "a"',
+    "  end",
+    "  add()",
     "  print(#words)",
     "end",
     "return Example")

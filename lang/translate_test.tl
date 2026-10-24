@@ -810,6 +810,122 @@ local function test_a_collection_parameter_the_function_changes_is_mut()
       "end"))
 end
 
+local function test_a_local_the_function_changes_with_a_table_function_is_mut()
+  translates(lines(
+    "local function f(src: {integer})",
+    "  local a: {integer} = {}",
+    "  local b: {integer} = {}",
+    "  local c: {integer} = {}",
+    "  local d: {integer} = {}",
+    "  local dst: {integer} = {}",
+    "  local m: {string: boolean} = {}",
+    "  local o: {integer}? = {}",
+    "  local look: {integer} = {}",
+    "  local read: {integer} = {}",
+    "  table.insert(a, 1)",
+    "  table.remove(b)",
+    "  table.sort(c)",
+    "  table.move(src, 1, 2, 1, d)",
+    "  table.move(src, 1, 2, 1, dst)",
+    "  rawset(m, \"k\", true)",
+    "  table.insert(o, 2)",
+    "  look[1] = 0",
+    "  return #read + #a",
+    "end"), lines(
+      "local function f(src: {integer})",
+      "  local a: mut {integer} = {}",
+      "  local b: mut {integer} = {}",
+      "  local c: mut {integer} = {}",
+      "  local d: mut {integer} = {}",
+      "  local dst: mut {integer} = {}",
+      "  local m: mut {string: boolean} = {}",
+      "  local o: mut {integer}? = {}",
+      "  local look: mut {integer} = {}",
+      "  local read: {integer} = {}",
+      "  table.insert(a, 1)",
+      "  table.remove(b)",
+      "  table.sort(c)",
+      "  table.move(src, 1, 2, 1, d)",
+      "  table.move(src, 1, 2, 1, dst)",
+      "  rawset(m, \"k\", true)",
+      "  table.insert(o, 2)",
+      "  look[1] = 0",
+      "  return #read + #a",
+      "end"))
+end
+
+local function test_a_local_is_mut_only_where_the_call_names_it_in_its_own_function()
+  -- A shadowing local is another name, a local of an enclosing function is
+  -- not credited from a closure, the target of `move` is not its source, a
+  -- local that is not given whole is not changed, a local with no written
+  -- type has nowhere to write, an alias of `table.insert` is no call the
+  -- syntax can attribute, and a `table` that is a local is not the library.
+  local source = lines(
+    "local function f(src: {integer}, make: function(): {integer})",
+    "  local a: {integer} = make()",
+    "  do",
+    "    local a: {integer} = {}",
+    "    table.insert(a, 1)",
+    "  end",
+    "  local outer: {integer} = {}",
+    "  local g = function()",
+    "    table.insert(outer, 1)",
+    "  end",
+    "  local from: {integer} = {}",
+    "  table.move(from, 1, 2, 1, src)",
+    "  local holder = { items = a }",
+    "  table.insert(holder.items, 1)",
+    "  local plain = {}",
+    "  table.insert(plain, 1)",
+    "  local insert = table.insert",
+    "  local aliased: {integer} = {}",
+    "  insert(aliased, 1)",
+    "  return g, #from",
+    "end",
+    "local function h(table: {string: function({integer})})",
+    "  local x: {integer} = {}",
+    "  table.insert(x)",
+    "end")
+  local got = clean(source).text
+  assert(got:find("local a: mut {integer} = make()", 1, true) == nil, got)
+  assert(got:find("    local a: mut {integer} = {}", 1, true) ~= nil, got)
+  for _, kept in ipairs({ "local a: {integer} = make()", "local outer: {integer}", "local from: {integer}",
+      "local aliased: {integer}", "local x: {integer}" }) do
+    assert(got:find(kept, 1, true) ~= nil, kept .. " in\n" .. got)
+  end
+end
+
+local function test_a_local_assigned_twice_is_mut_once_and_the_view_given_to_it_is_refused()
+  local result = clean(lines(
+    "local function f(make: function(): {integer})",
+    "  local xs: {integer} = {}",
+    "  table.insert(xs, 1)",
+    "  xs = make()",
+    "  table.sort(xs)",
+    "  return #xs",
+    "end"))
+  assert(result.text:find("local xs: mut {integer} = {}", 1, true) ~= nil, result.text)
+  assert(result.counts.mut_local == 1, "one rewrite for the local, not one for each call")
+  -- `mut` only lets the local be written: a view received from elsewhere is
+  -- still no `mut {integer}`.
+  local refused = Programs.run(clean(lines(
+    "local function make(): {integer}",
+    "  return {}",
+    "end",
+    "local function g()",
+    "  local xs: {integer} = make()",
+    "  table.insert(xs, 1)",
+    "end")).text)
+  assert(Programs.codes(refused) == "view_as_mut", Programs.codes(refused))
+  local fine = Programs.run(clean(lines(
+    "local function g()",
+    "  local xs: {integer} = {}",
+    "  table.insert(xs, 1)",
+    "  table.sort(xs)",
+    "end")).text)
+  assert(Programs.codes(fine) == "", Programs.codes(fine))
+end
+
 local function test_a_write_is_credited_only_to_the_record_a_name_is_declared_as()
   -- `c` is another type in the callback, a local of another type shadows the
   -- parameter in the block, and `t` is nothing declared.

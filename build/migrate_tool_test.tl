@@ -30,7 +30,10 @@ end
 local WRITTEN <const> = table.concat({
   "return function(): string",
   "  local names: {string} = {}",
-  "  names[#names + 1] = \"a\"",
+  "  local function add()",
+  "    names[#names + 1] = \"a\"",
+  "  end",
+  "  add()",
   "  return table.concat(names, \",\")",
   "end",
   "",
