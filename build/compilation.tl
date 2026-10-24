@@ -8,6 +8,7 @@ local Store = require("cosmic.store")
 local analyzer = require("build.analyzer")
 local ast = require("build.ast")
 local contracts = require("build.contracts")
+local ContractRules = require("build.contract_rules")
 local LuaTail = require("build.lua_tail")
 local receivers = require("build.receivers")
 local shape_specs = require("build.shape_specs")
@@ -1270,7 +1271,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
-  if own_tree and contracts.applies(m.kind, m.generated) then
+  if own_tree and ContractRules.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       contracts.binding_tables(env), nil, result.type)
     if #problems > 0 and judged then

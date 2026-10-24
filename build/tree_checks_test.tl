@@ -1937,15 +1937,17 @@ local function test_a_call_the_checker_could_type_no_function_for_is_held_to_its
   local root = dir .. "/typeduntyped"
   typed_tree(root)
   assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2)", "local y = x.field(1)", "return y")))
-  local fork = typed_fork()
-  fork.files["build/open.tl"] = { kind = "module", refused = false, refs = {} }
-  local found = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
+  local found = table.concat(tree_checks.untyped(root, {}), "\n")
   assert(found:find("build/open.tl: 2 calls the checker gave no function, which no rule of the discipline judged, pinned 0", 1, true) ~=
       nil, found)
-  assert(#tree_checks.typed(root, {}, nil, fork, nil, { ["build/open.tl"] = 2 }) == 0)
-  local fallen = tree_checks.typed(root, {}, nil, fork, nil, { ["build/open.tl"] = 3 })
+  assert(#tree_checks.untyped(root, { ["build/open.tl"] = 2 }) == 0)
+  -- A pin above the count is told to fall by `untyped`, which reads no compile of the fork.
+  local fallen = tree_checks.untyped(root, { ["build/open.tl"] = 3 })
   assert(#fallen == 1 and fallen[1] == "build/open.tl: pinned 3 but 2 found; lower the pin in build/ceilings.txt's [untyped]",
     table.concat(fallen, "\n"))
+  local gone = tree_checks.untyped(root, { ["build/open.tl"] = 2, ["build/gone.tl"] = 1 })
+  assert(#gone == 1 and gone[1] == "build/gone.tl: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [untyped]",
+    table.concat(gone, "\n"))
 end
 
 --- A tree with the headers of the bindings of C declares them from the headers (as the build derives them), so a call of one is
@@ -1957,12 +1959,12 @@ local function test_the_bindings_of_c_are_typed_where_the_tree_has_their_headers
   assert(Fs.write(root .. "/build/uses_sys.tl", user))
   local fork = typed_fork()
   fork.files["build/uses_sys.tl"] = { kind = "module", refused = false, refs = {} }
-  assert(#tree_checks.typed(root, {}, nil, fork, nil, { ["build/uses_sys.tl"] = 1 }) == 0, "untyped: no header, no judgment")
+  assert(#tree_checks.untyped(root, { ["build/uses_sys.tl"] = 1 }) == 0, "untyped: no header, no judgment")
   assert(Fs.mkdirs(root .. "/core"))
   for _, header in ipairs({ "core/syscalls.h", "core/process.h", "core/socket.h" }) do
     assert(Fs.write(root .. "/" .. header, (assert(Fs.read(header)))))
   end
-  local found = table.concat(tree_checks.typed(root, {}, nil, fork, nil, {}), "\n")
+  local found = table.concat(tree_checks.typed(root, {}, nil, fork), "\n")
   assert(found:find("build/uses_sys.tl: contracts: the fork holds it and the port finds 1: build/uses_sys.tl:2: sys.unlink: " ..
       "its failure is ignored", 1, true) ~= nil, found)
 end

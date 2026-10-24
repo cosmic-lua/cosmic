@@ -1891,6 +1891,10 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(pipeline_findings(root, memo)) do
         findings[#findings + 1] = "pipeline: " .. line
       end
+      -- The new checker's own count of the calls no rule judged, which the fork's compile is not read for.
+      for _, line in ipairs(tree_checks.untyped(root, nil, memo)) do
+        findings[#findings + 1] = "untyped: " .. line
+      end
       tree_took(timing, "pipeline")
       Memprobe.mark("tree checks: pipeline")
       pool.close()

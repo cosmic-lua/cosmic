@@ -1,6 +1,6 @@
 --- Tests of [`build.syntax_typed`]: the rows the port reads of a module, how they are kept, and where they differ from what
 --- the fork's build wrote of the same module.
-local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Receivers = require("build.syntax_receivers")
 local Test = require("cosmic.test")
 local Typed = require("build.syntax_typed")
@@ -152,7 +152,7 @@ local function test_a_file_the_build_staged_as_another_kind_than_its_name_says_i
 end
 
 local function test_the_exemptions_the_two_sides_need_are_compared_over_the_tree()
-  local own = Contracts.own_exemptions()
+  local own = Rules.own_exemptions()
   local key = ""
   for k in pairs(own.casts) do
     key = k

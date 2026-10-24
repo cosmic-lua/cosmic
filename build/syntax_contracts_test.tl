@@ -2,7 +2,7 @@
 --- new checker, and the port says what the fork says of it, problem for problem, in order -- the breaches of each rule and
 --- the programs that keep it -- with the places where the new checker's types make the answer differ named in a test of
 --- their own.
-local Contracts = require("build.contracts")
+local Rules = require("build.contract_rules")
 local Fixture = require("build.syntax_typed_fixture")
 local SyntaxContracts = require("build.syntax_contracts")
 local Test = require("cosmic.test")
@@ -17,7 +17,7 @@ Test.policy{
 local LOG_MODULES <const>: {string: string} = { ["cosmic.log"] = Fixture.LOG }
 
 --- What the fork and the port say of `body` after the prelude; the two must say the same. The fork's problems.
-local function same(body: string, given?: Contracts.Exemptions, modules?: {string: string}): {string}
+local function same(body: string, given?: Rules.Exemptions, modules?: {string: string}): {string}
   local source = Fixture.PRELUDE .. body
   local fork = Fixture.fork(source, modules or LOG_MODULES, given)
   local port = Fixture.port(source, modules or LOG_MODULES, given)
@@ -44,8 +44,8 @@ local function keeps(bodies: {string})
   end
 end
 
-local function exempting(which: string, keys: {string}): Contracts.Exemptions
-  local out: Contracts.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
+local function exempting(which: string, keys: {string}): Rules.Exemptions
+  local out: Rules.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
   local named: {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or
     which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do
@@ -426,7 +426,7 @@ local function first_problem(found: Fixture.Said): string
 end
 
 --- What the port says of a module whose record `M` has the field `field` after `before`.
-local function exported(before: string, field: string, modules?: {string: string}, given?: Contracts.Exemptions): Fixture.Said
+local function exported(before: string, field: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   return Fixture.port(Fixture.PRELUDE .. before .. "local record M\n  " .. field .. "\nend\nreturn M\n", modules or LOG_MODULES, given)
 end
 
