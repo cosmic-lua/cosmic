@@ -1296,6 +1296,11 @@ local function test_a_field_that_disagrees_with_its_method_in_anything_stays_and
   -- a generic field against a method that writes types
   refused_as_declared_twice("function<T>(R, T): T", "function R:m(x: integer): integer")
   refused_as_declared_twice("function<T>(R, T, T): T", "function R:m(x: integer): integer")
+  refused_as_declared_twice("function<T>(R, T)", "function R:m(x: integer)")
+  refused_as_declared_twice("function<T>(R): T", "function R:m(): integer")
+  refused_as_declared_twice("function<T>(R, integer)", "function R:m(x: integer)")
+  refused_as_declared_twice("function<T>(R): integer", "function R:m(): integer")
+  refused_as_declared_twice("function(R...)", "function R:m()")
   -- fields that are no function type
   refused_as_declared_twice("integer", "function R:m(x: integer)")
   refused_as_declared_twice("function(R, integer) | nil", "function R:m(x: integer)")
