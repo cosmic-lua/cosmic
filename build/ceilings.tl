@@ -4,7 +4,8 @@
 ---
 --- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stages
 --- `generated`, `read`, `typed` and `untyped` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
---- says what brings them to zero. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
+--- says what brings them to zero. Each ceiling line stands alone between blank lines ([`Ceilings.crowded`]), so two pull
+--- requests that move neighbouring pins merge. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
 --- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module (`scoped`
 --- for a module in the new grammar, `translated` for one that is the fork's Teal, translated): the tree's check of a file and
 --- the build's refuse the same count, with the same words.
@@ -68,6 +69,12 @@ local record Ceilings
 
   --- The ceilings of the tree at `root` ([`Ceilings.path`]).
   read: function(root: string): Table | nil, string
+
+  --- The ceiling lines of `text` that a line follows directly, one line of message each with its place, or "" where there
+  --- are none. A ceiling stands alone between blank lines (a comment may sit directly above the one it explains, and a
+  --- `[stage]` line above its first): git merges two changes only where an unchanged line lies between them, so a
+  --- ceiling that has a neighbour conflicts with every change to that neighbour, and most pull requests move some pin.
+  crowded: function(text: string): string
 
   --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
   --- the tree finds no error in a file that is not there. `hazards` names none.
@@ -185,6 +192,27 @@ function Ceilings.parse(text: string): Ceilings.Table | nil, string
     end
   end
   return out, ""
+end
+
+function Ceilings.crowded(text: string): string
+  local out = ""
+  local number = 0
+  -- The line before the one being read where it is a ceiling, else "".
+  local before = ""
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    number = number + 1
+    if before ~= "" and line ~= "" then
+      out = out .. Ceilings.path .. ":" .. tostring(number - 1) .. ": `" .. before ..
+        "` is followed directly by another line: a ceiling stands alone between blank lines, " ..
+        "so that a change to its neighbour merges with a change to it\n"
+    end
+    if line ~= "" and line:sub(1, 1) ~= "#" and line:match("^%[[a-z]+%]$") == nil then
+      before = line
+    else
+      before = ""
+    end
+  end
+  return out
 end
 
 function Ceilings.read(root: string): Ceilings.Table | nil, string
