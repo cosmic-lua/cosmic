@@ -21,7 +21,10 @@ end
 
 --- [`DataPath.beside`] the running script.
 function DataPath.of(name: string): string
-  return DataPath.beside(arg[0], name)
+  -- A test's worker has no `arg` table to index.
+  local indexed, script = pcall(function(): string | nil return arg[0] end)
+  if indexed and script is string then return DataPath.beside(script, name) end
+  return DataPath.beside(nil, name)
 end
 
 return DataPath
