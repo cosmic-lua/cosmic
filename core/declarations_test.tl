@@ -272,6 +272,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
     return { instances = { Handle = handle },
       release = function() call(members(handle).close, handle) end }
   end,
+  json = function(raw: {string: any}): Made
+    return { instances = { Null = raw["null"] }, release = nothing }
+  end,
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.

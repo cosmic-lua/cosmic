@@ -295,7 +295,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if as_text and leaf is string then
         line = leaf
       elseif as_text then
-        line, why = Json.encode(leaf)
+        line, why = Json.encode_any(leaf)
       else
         line, why = json_query.flat_line(item.steps, leaf)
       end
@@ -369,7 +369,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if request.raw and value is string then
     return written(to.out(value .. "\n"))
   end
-  local encoded, encode_trouble = Json.encode(value, { pretty = not request.compact })
+  local encoded, encode_trouble = Json.encode_any(value, { pretty = not request.compact })
   if encoded == nil then
     complain(place .. ": " .. plain(encode_trouble))
     return bare.failed

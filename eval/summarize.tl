@@ -585,7 +585,7 @@ local function as_text(value: any): string
     return tostring(value)
   end
   -- A value too deep to encode reads as nothing.
-  local encoded, _ = Json.encode(value, { max_depth = max_depth })
+  local encoded, _ = Json.encode_any(value, { max_depth = max_depth })
   return encoded or ""
 end
 
@@ -641,7 +641,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
           if part is {string: any} and part["type"] == "tool_use" then
             local input = part["input"]
             -- Input too deep to encode is given as nothing.
-            local given, _ = Json.encode(input, { max_depth = max_depth })
+            local given, _ = Json.encode_any(input, { max_depth = max_depth })
             calls[#calls + 1] = {
               id = id_key(part["id"]),
               name = as_text(part["name"]),

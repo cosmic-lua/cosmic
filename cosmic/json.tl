@@ -56,7 +56,17 @@
 --- array when every key is an integer from 1 up, and an error when its
 --- keys mix the two or are anything else ([`Json.layout`] says which).
 ---
---- To explore a document whose shape is not known, `Json.encode(v,
+--- Two functions write JSON, and the type of the value says which to call.
+--- [`Json.encode`] takes a [`Json.Value`]: a string, a number, a boolean,
+--- [`Json.null`], or an array or an object of those, so a literal written
+--- in the call (`Json.encode({ name = "x", tags = { "a" } })`) or a map
+--- of your own is checked, and a function, a record, a class or a nil is
+--- refused where it is written. [`Json.encode_any`] takes `any`, for
+--- what the checker cannot see into: a record or a class of your own and
+--- a value you decoded. It encodes by the same rules, and what is not
+--- JSON is the same error, found when it runs and not before.
+---
+--- To explore a document whose shape is not known, `Json.encode_any(v,
 --- { pretty = true })` dumps a value, and [`Json.decode_object`] and
 --- [`Json.decode_array`] narrow the outermost value so a caller can `pairs`
 --- or `ipairs` it without a cast. [`Json.quote`] spells a key in a message
@@ -305,6 +315,18 @@ local record Json
     offset: function(Reader): integer
   end
 
+  --- The type of [`Json.null`], the one value of it.
+  type Null = raw_json.Null
+
+  --- What JSON can say, as a Lua value: a string, a number, a boolean, [`Json.null`], an array of these
+  --- or an object of these, nested as deep as [`Json.depth_limit`] allows. [`Json.encode`] and `Web.json`
+  --- take it, so `Json.encode({ name = "x", n = 1, tags = { "a", "b" } })` is checked as it is written.
+  --- A record, a class, a decoded `any` or a nil is none of its arms: see [`Json.encode_any`].
+  ---
+  --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
+  --- Json.Null | {Json.Value} | {string: Json.Value}`.
+  type Value = any
+
   --- A path to one value inside another, as Lua steps: each a member's
   --- name (a string) or an array's position (an integer), counted from
   --- 1 as Lua counts, or from the end when negative, -1 the last, as
@@ -454,14 +476,18 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any} | nil
   return refuse("expected a JSON array, got " .. kind(value))
 end
 
---- Serializes `value` as JSON text, and "". nil and a message when it
---- holds a function, userdata other than [`Json.null`], NaN or an infinity,
---- a string that is not UTF-8, a table whose keys are neither all strings
---- nor all integers from 1 up, an array with a hole, or nesting past
---- `max_depth`. The message says where, by its JSON Pointer: `json:
---- cannot encode a function at pointer "/users/2/name"`, an array's
---- index counted from 0. nil encodes as `null`.
-function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, string
+-- TODO: move the islands' and ci/'s calls of [`Json.encode`] with a record or a decoded value (build/perf.tl,
+-- ci/cosmic_ci/github_api.tl, github_fake.tl, cache_trim_test.tl, report_test.tl) to this function, once
+-- ci/cosmic-driver.pin names a release that has it: the pinned release runs those files, and its [`Json`] has no
+-- [`encode_any`].
+
+--- Serializes `value` as [`Json.encode`] does, for a value of any type: a
+--- record or a class of your own, a value you decoded, a nil (which
+--- encodes as `null`). The type checker cannot see inside it, so what JSON
+--- cannot say is found when this runs, as the same message, and not where
+--- the value is written. Call [`Json.encode`] for a value the checker can
+--- see.
+function Json.encode_any(value: any, opts?: Json.EncodeOptions): string | nil, string
   local text: string
   local err: string
   if opts == nil then
@@ -471,6 +497,23 @@ function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, strin
   end
   if text == nil then return refuse(err) end
   return text, ""
+end
+
+--- Serializes `value` as JSON text, and "". nil and a message when it
+--- holds a function, userdata other than [`Json.null`], NaN or an infinity,
+--- a string that is not UTF-8, a table whose keys are neither all strings
+--- nor all integers from 1 up, an array with a hole, or nesting past
+--- `max_depth`. The message says where, by its JSON Pointer: `json:
+--- cannot encode a function at pointer "/users/2/name"`, an array's
+--- index counted from 0.
+---
+--- `value` is a [`Json.Value`], so what is written in the call is checked
+--- there: a literal like `{ name = "x", tags = { "a", "b" } }`, a string,
+--- a number, a boolean, [`Json.null`], an array or a map of those. A
+--- record or a class of your own, a value you decoded and a nil are not
+--- one: encode those with [`Json.encode_any`].
+function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, string
+  return Json.encode_any(value, opts)
 end
 
 --- true and "" when `decode(text, opts)` would read the text; else
@@ -549,6 +592,11 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
   end
   return values, ""
 end
+
+-- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked
+-- under its own type, once a call that passes nothing can take the parameter from the type its result is expected to have
+-- ([`Json.array()`] as an argument or in a literal is `cannot_infer` as a generic): the new checker reads `{Json.Value}` today
+-- ([`build.new_declarations`]), so the arrays of `any` and of records given to it are pinned in [`build/ceilings.txt`].
 
 --- Marks `t` as a JSON array, so it encodes as `[]` even when empty,
 --- and answers it; with no argument, a new empty one. Raises when `t`

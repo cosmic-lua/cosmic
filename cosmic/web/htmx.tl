@@ -264,7 +264,7 @@ end
 --- The JSON text of `value` for a header: ASCII only, as the header's
 --- bytes reach htmx as Latin-1.
 local function header_json(what: string, value: any): string | nil, string
-  local text, why = Json.encode(value, { ascii = true })
+  local text, why = Json.encode_any(value, { ascii = true })
   if text == nil then return nil, "htmx: " .. what .. ": " .. why end
   return text
 end

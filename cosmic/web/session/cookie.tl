@@ -104,7 +104,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   store.save = function(_: Session.Store, _previous: string, data: Session.Data,
                         _changes: Session.Changes, _now: integer, cookie: string): string | nil, string
     local values: {string:any} = data.values
-    local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = values },
+    local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values },
       { max_depth = DEPTH })
     if text == nil then return nil, "cannot encode the session: " .. why end
     local payload = Codec.base64url(text)

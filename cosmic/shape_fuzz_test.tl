@@ -246,7 +246,7 @@ local function check_json(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, true)
-  local text, eerr = Json.encode(value)
+  local text, eerr = Json.encode_any(value)
   if text == nil then return false, "a strict value did not encode: " .. eerr end
   local opts: Json.DecodeOptions = {}
   if byte(r, 2) == 0 then opts.null_value = Json.null end
@@ -255,7 +255,7 @@ local function check_json(input: string): boolean, string
   local out, err: any, string = Shape.into(decoded, spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
-  local again_text, aerr = Json.encode(filled(out))
+  local again_text, aerr = Json.encode_any(filled(out))
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
   -- Read back as it was first read: under `any` the answer keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.

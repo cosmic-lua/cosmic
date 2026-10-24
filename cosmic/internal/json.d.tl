@@ -3,6 +3,12 @@
 -- function answers `value, ""` on success and `nil, error` on failure.
 
 local record json
+  -- The type of `null`: JSON `null`'s stand-in, a userdata with nothing to
+  -- read or call.
+  record Null
+    userdata
+  end
+
   -- The value `text` holds. JSON `null` is `null` when given, and nil
   -- when not. nil and a message, naming the line and column, when the
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`; either
@@ -57,7 +63,7 @@ local record json
   -- Whether `v` is a table carrying the array mark.
   is_array: function(v: any): boolean
   -- The stand-in for JSON `null`: a userdata that encodes as `null`.
-  null: any
+  null: Null
   -- How many arrays and objects may nest when the caller names no
   -- limit, and the most a caller may name.
   default_depth: integer

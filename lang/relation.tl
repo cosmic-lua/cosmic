@@ -24,6 +24,8 @@
 ---   and below the same `mut` collection, nothing else: its element, key and
 ---   value must be the same type. A view is never below a `mut` collection. A
 ---   record with an array part `T` is below `{T}`.
+--- - A recursive alias (a [`Named`] of kind `alias`) is below what its body is below and above what is below its
+---   body, one level read at a time; two aliases are related only where they are one, and a record, a class or an interface is below none.
 --- - A named type is nominal. Two uses of one declaration are related when their
 ---   arguments are the same types; a use is below an interface only when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
@@ -674,6 +676,45 @@ local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): R
   return { code = "union_none", path = {}, sub = a, super = b, alternatives = alternatives }
 end
 
+--- Whether `t` is a recursive alias ([`Types.DeclKind`] `alias`), which is what it names and nothing else.
+local function is_alias(t: Type): boolean
+  return t is Named and t.decl.kind == "alias"
+end
+
+--- `a` below `b` where one of them is a recursive alias: that one is read as the type it names, one level, and
+--- the pair is compared again. The comparison ends because the other type is finite and a body names its alias only inside
+--- an array or a map, which the comparison then goes into the other type's element or value to meet: each time the alias is
+--- read, the other side is one level smaller. Two ways round that are closed. Two aliases are not compared by their bodies
+--- (a body that mentions its own alias would send two of them round for ever), and are unrelated, as two declarations are.
+--- A type that holds itself (a record whose array part is the record) does not get smaller, and is why a record, a class
+--- or an interface is refused here before the alias is read. The refusal names the alias as it was written.
+local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal | nil
+  local a_alias, b_alias = is_alias(a), is_alias(b)
+  if a_alias and b_alias then
+    return leaf(j, why, "nominal", a, b)
+  end
+  -- A record, a class or an interface is never an arm of an alias: a record with an array part is below `{T}`, but it may have fields and methods
+  -- besides (an encoder meets a table that mixes keys), so only the arrays and maps an alias names stand for it.
+  if b_alias and a is Named and (a.decl.kind == "record" or a.decl.kind == "class" or a.decl.kind == "interface") then
+    return leaf(j, why, "mismatch", a, b)
+  end
+  local ua, ub = Types.unfold(a), Types.unfold(b)
+  if ua == a and ub == b then
+    error("relation: " .. Types.display(a_alias and a or b) .. " is not defined", 0)
+  end
+  if a_alias and b is Union and member_set(j, b)[a.id] then
+    return nil
+  end
+  local r = rel(j, ua, ub, why)
+  if r == nil or not why then
+    return r
+  end
+  return {
+    code = r.code, path = r.path, sub = r.sub == ua and a or r.sub, super = r.super == ub and b or r.super,
+    index = r.index, alternatives = r.alternatives, lists = r.lists,
+  }
+end
+
 local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Relation.Refusal | nil
   local tag = a.tag
   if tag == "nil" then
@@ -1054,6 +1095,8 @@ local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation
     return leaf(j, why, "any_sink", a, b)
   elseif a is Union then
     return from_union(j, a, b, why)
+  elseif is_alias(a) or is_alias(b) then
+    return from_alias(j, a, b, why)
   elseif b is Union then
     return into_union(j, a, b, why)
   elseif b is Var and not (a is Var) and a.tag ~= "nil" then

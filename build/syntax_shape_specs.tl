@@ -184,6 +184,8 @@ spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: b
       return record_spec(decl, path, shape, holding, store)
     elseif decl.kind == "userdata" then
       return nil, path .. ": a userdata record has no shape"
+    elseif decl.kind == "alias" then
+      return nil, path .. ": a recursive alias has no shape"
     end
     return nil, ("%s: %s has no shape"):format(path, decl.kind == "interface" and "an interface" or "a class")
   elseif t is Types.Fn then

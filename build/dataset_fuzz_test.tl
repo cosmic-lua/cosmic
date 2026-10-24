@@ -105,7 +105,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       local texts, trouble = Sqlite.text_rows(db, "SELECT _json FROM t ORDER BY rowid")
       if texts == nil then return false, trouble end
       for index, row in ipairs(rows) do
-        local expected = assert(Json.encode(row))
+        local expected = assert(Json.encode_any(row))
         if texts[index]:text(1) ~= expected then
           return false, "row " .. index .. " read back as " .. texts[index]:text(1) .. ", not " .. expected
         end

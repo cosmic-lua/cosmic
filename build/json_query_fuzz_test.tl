@@ -73,7 +73,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         end
         local value, get_err = Json.get(doc, steps)
         if get_err ~= "" then return false, path .. ": " .. get_err end
-        local a, b = Json.encode(value), Json.encode(leaf.value)
+        local a, b = Json.encode_any(value), Json.encode(leaf.value)
         if a ~= b then
           return false, path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b)
         end

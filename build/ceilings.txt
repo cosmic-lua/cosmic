@@ -897,7 +897,7 @@ eval/check/grade.tl 7
 
 eval/summarize.tl 2
 
-lang/check.tl 6
+lang/check.tl 8
 
 lang/check_programs.tl 5
 
@@ -3108,7 +3108,7 @@ lang/ast.tl index_may_be_nil 4
 
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 41
+lang/check.tl index_may_be_nil 43
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -4650,7 +4650,7 @@ eval/summarize_test.tl view_written 1
 
 lang/ast.tl view_written 7
 
-lang/check.tl view_written 150
+lang/check.tl view_written 156
 
 lang/check_assigned_fuzz_test.tl view_written 4
 
@@ -4758,7 +4758,7 @@ lang/translate_speed_test.tl view_written 4
 
 lang/translate_test.tl view_written 5
 
-lang/types.tl view_written 89
+lang/types.tl view_written 92
 
 lang/types_fuzz_test.tl view_written 23
 
@@ -5631,7 +5631,7 @@ eval/round.tl field_fixed 1
 
 lang/ast.tl field_fixed 2
 
-lang/check.tl field_fixed 8
+lang/check.tl field_fixed 9
 
 lang/check_codes.tl field_fixed 2
 
@@ -5639,7 +5639,7 @@ lang/check_programs.tl field_fixed 5
 
 lang/codegen.tl field_fixed 1
 
-lang/declarations.tl field_fixed 10
+lang/declarations.tl field_fixed 11
 
 lang/declarations_programs.tl field_fixed 2
 
@@ -5742,7 +5742,7 @@ cosmic/stream.tl field_unknown 2
 
 lang/ast.tl field_unknown 3
 
-lang/check.tl field_unknown 837
+lang/check.tl field_unknown 857
 
 lang/check_class_test.tl field_unknown 6
 
@@ -5776,7 +5776,7 @@ lang/parser_recovery_test.tl field_unknown 14
 
 lang/parser_test.tl field_unknown 42
 
-lang/relation.tl field_unknown 122
+lang/relation.tl field_unknown 130
 
 lang/relation_fuzz_test.tl field_unknown 123
 
@@ -5796,7 +5796,7 @@ lang/truthy.tl field_unknown 15
 
 lang/truthy_test.tl field_unknown 2
 
-lang/types.tl field_unknown 169
+lang/types.tl field_unknown 172
 
 lang/types_fuzz_test.tl field_unknown 75
 
@@ -6911,8 +6911,6 @@ cosmic/json.tl overload_none 2
 
 cosmic/json_path_fuzz_test.tl overload_none 1
 
-cosmic/json_test.tl overload_none 2
-
 cosmic/net_resolve_test.tl overload_none 1
 
 cosmic/net_resolve_tool_test.tl overload_none 1
@@ -6991,7 +6989,7 @@ eval/solve_test.tl overload_none 1
 
 eval/summarize.tl overload_none 2
 
-lang/check.tl overload_none 5
+lang/check.tl overload_none 7
 
 lang/check_programs.tl overload_none 3
 
@@ -7175,7 +7173,7 @@ test/sqlite_json_test.tl return_arity 1
 # untrusted data read, operated on or stored: the rewrite validates it with a [`cosmic.shape`] validator
 build/analyzer.tl any_use 3
 
-build/archive.tl any_use 6
+build/archive.tl any_use 5
 
 build/artifact.tl any_use 1
 
@@ -7215,7 +7213,7 @@ build/confine_tool_test.tl any_use 3
 
 build/coverage_hits.tl any_use 1
 
-build/dataset.tl any_use 7
+build/dataset.tl any_use 8
 
 build/dataset_fuzz_test.tl any_use 14
 
@@ -7231,9 +7229,9 @@ build/fix/read_memo.tl any_use 1
 
 build/flow.tl any_use 1
 
-build/flow_fuzz_test.tl any_use 4
+build/flow_fuzz_test.tl any_use 5
 
-build/flow_test.tl any_use 21
+build/flow_test.tl any_use 1
 
 build/fuzz/init.tl any_use 9
 
@@ -7271,7 +7269,7 @@ build/sandbox_probe.tl any_use 1
 
 build/shape_specs.tl any_use 2
 
-build/sql.tl any_use 3
+build/sql.tl any_use 4
 
 build/stand_in_probe.tl any_use 1
 
@@ -7297,7 +7295,7 @@ build/workflows_test.tl any_use 16
 
 checker/facts.tl any_use 4
 
-ci/cosmic_ci/cache_trim_test.tl any_use 20
+ci/cosmic_ci/cache_trim_test.tl any_use 19
 
 ci/cosmic_ci/commit_verdicts.tl any_use 1
 
@@ -7309,7 +7307,7 @@ ci/cosmic_ci/orchestration.tl any_use 1
 
 ci/cosmic_ci/prerelease.tl any_use 1
 
-ci/cosmic_ci/prerelease_test.tl any_use 20
+ci/cosmic_ci/prerelease_test.tl any_use 15
 
 ci/cosmic_ci/report_test.tl any_use 34
 
@@ -7359,8 +7357,6 @@ cosmic/coverage.tl any_use 1
 
 cosmic/csv_test.tl any_use 2
 
-cosmic/declared_types_test.tl any_use 1
-
 cosmic/hash.tl any_use 1
 
 cosmic/hash_test.tl any_use 9
@@ -7397,9 +7393,9 @@ cosmic/internal/relay_wire_fuzz_test.tl any_use 28
 
 cosmic/internal/relay_wire_test.tl any_use 1
 
-cosmic/json.tl any_use 24
+cosmic/json.tl any_use 26
 
-cosmic/json_fuzz_test.tl any_use 20
+cosmic/json_fuzz_test.tl any_use 23
 
 cosmic/json_path_fuzz_test.tl any_use 1
 
@@ -7439,11 +7435,11 @@ cosmic/sandbox_test.tl any_use 50
 
 cosmic/shape.tl any_use 24
 
-cosmic/shape_fuzz_test.tl any_use 27
+cosmic/shape_fuzz_test.tl any_use 30
 
 cosmic/shape_record_test.tl any_use 4
 
-cosmic/shape_test.tl any_use 9
+cosmic/shape_test.tl any_use 8
 
 cosmic/signal.tl any_use 2
 
@@ -7483,8 +7479,6 @@ cosmic/web/app_test.tl any_use 5
 
 cosmic/web/assets_test.tl any_use 2
 
-cosmic/web/csrf_test.tl any_use 2
-
 cosmic/web/dev.tl any_use 4
 
 cosmic/web/dev_supervise_test.tl any_use 2
@@ -7495,23 +7489,19 @@ cosmic/web/errors.tl any_use 8
 
 cosmic/web/htmx.tl any_use 8
 
-cosmic/web/htmx_example.tl any_use 1
-
-cosmic/web/htmx_test.tl any_use 4
+cosmic/web/htmx_test.tl any_use 2
 
 cosmic/web/input.tl any_use 20
-
-cosmic/web/input_example.tl any_use 2
 
 cosmic/web/input_fuzz_test.tl any_use 7
 
 cosmic/web/input_multipart_fuzz_test.tl any_use 2
 
-cosmic/web/input_test.tl any_use 3
+cosmic/web/input_test.tl any_use 1
 
 cosmic/web/response.tl any_use 1
 
-cosmic/web/response_test.tl any_use 9
+cosmic/web/response_test.tl any_use 8
 
 cosmic/web/router_test.tl any_use 2
 
@@ -7537,11 +7527,11 @@ cosmic/web/sse_test.tl any_use 6
 
 cosmic/web/testing.tl any_use 1
 
-cosmic/web/testing_test.tl any_use 2
+cosmic/web/testing_test.tl any_use 1
 
 cosmic/web/typed.tl any_use 3
 
-cosmic/web/typed_test.tl any_use 7
+cosmic/web/typed_test.tl any_use 2
 
 cosmic/web_example.tl any_use 1
 
@@ -7549,13 +7539,11 @@ cosmic/zip.tl any_use 2
 
 cosmic/zip_fuzz_test.tl any_use 43
 
-doc/guides/web.md any_use 1
-
-eval/check/grade.tl any_use 46
+eval/check/grade.tl any_use 49
 
 eval/declared_types_test.tl any_use 12
 
-eval/result.tl any_use 11
+eval/result.tl any_use 20
 
 eval/result_test.tl any_use 18
 
@@ -9043,7 +9031,7 @@ eval/summarize.tl condition_type 6
 
 eval/summarize_test.tl condition_type 1
 
-lang/check.tl condition_type 31
+lang/check.tl condition_type 32
 
 lang/check_fuzz_test.tl condition_type 1
 
@@ -10313,7 +10301,7 @@ lang/parser.tl and_ternary 1
 
 lang/parser_fuzz_test.tl and_ternary 1
 
-lang/relation.tl and_ternary 7
+lang/relation.tl and_ternary 10
 
 lang/relation_fuzz_test.tl and_ternary 7
 
@@ -11309,7 +11297,7 @@ cosmic/internal/relay_server_test.tl compare_disjoint 1
 
 cosmic/json.tl compare_disjoint 5
 
-cosmic/json_test.tl compare_disjoint 1
+cosmic/json_test.tl compare_disjoint 3
 
 cosmic/net.tl compare_disjoint 1
 
@@ -11752,7 +11740,7 @@ eval/solve_test.tl literal_missing 3
 
 lang/check.tl literal_missing 8
 
-lang/declarations.tl literal_missing 5
+lang/declarations.tl literal_missing 6
 
 lang/relation.tl literal_missing 1
 
@@ -12152,8 +12140,6 @@ build/archive.tl literal_shape 1
 
 build/archive_test.tl literal_shape 5
 
-build/bom.tl literal_shape 1
-
 build/checker_narrowing_test.tl literal_shape 1
 
 build/codec_test.tl literal_shape 3
@@ -12255,8 +12241,6 @@ build/archive.tl arms_differ 1
 
 build/artifact_fuzz_test.tl arms_differ 1
 
-build/bom.tl arms_differ 1
-
 build/cache_maintenance.tl arms_differ 1
 
 build/checked_narrowing_test.tl arms_differ 1
@@ -12265,21 +12249,17 @@ build/checker_facts_test.tl arms_differ 1
 
 build/checker_narrowing_test.tl arms_differ 3
 
-build/fetch.tl arms_differ 1
-
 build/fix/breaks.tl arms_differ 1
 
 build/fix/fix_test.tl arms_differ 1
 
 build/flow_test.tl arms_differ 2
 
-build/json_query_test.tl arms_differ 3
+build/json_query_test.tl arms_differ 2
 
 build/perf_validation.tl arms_differ 1
 
 build/receivers.tl arms_differ 2
-
-build/refresh_fuzz_test.tl arms_differ 2
 
 build/runtime_checks_test.tl arms_differ 1
 
@@ -12319,7 +12299,7 @@ ci/cosmic_ci/orchestration_test.tl arms_differ 25
 
 ci/cosmic_ci/prerelease.tl arms_differ 1
 
-ci/cosmic_ci/prerelease_test.tl arms_differ 8
+ci/cosmic_ci/prerelease_test.tl arms_differ 7
 
 ci/cosmic_ci/report_test.tl arms_differ 6
 
@@ -12391,8 +12371,6 @@ cosmic/internal/relay_server_native_test.tl arms_differ 1
 
 cosmic/internal/relay_server_test.tl arms_differ 1
 
-cosmic/json_example.tl arms_differ 3
-
 cosmic/json_path_test.tl arms_differ 6
 
 cosmic/json_reader_test.tl arms_differ 3
@@ -12431,11 +12409,7 @@ cosmic/web/htmx.tl arms_differ 5
 
 cosmic/web/htmx_test.tl arms_differ 2
 
-cosmic/web/input_example.tl arms_differ 1
-
 cosmic/web/input_multipart_fuzz_test.tl arms_differ 1
-
-cosmic/web/input_test.tl arms_differ 1
 
 cosmic/web/request.tl arms_differ 1
 
@@ -12451,15 +12425,9 @@ cosmic/web/session/session_test.tl arms_differ 1
 
 cosmic/web/testing.tl arms_differ 3
 
-cosmic/web/testing_test.tl arms_differ 1
-
-cosmic/web/typed_test.tl arms_differ 5
-
-cosmic/web_example.tl arms_differ 3
-
 cosmic/zip.tl arms_differ 1
 
-eval/check/grade.tl arms_differ 7
+eval/check/grade.tl arms_differ 5
 
 eval/declared_types_test.tl arms_differ 2
 
@@ -12467,9 +12435,7 @@ eval/result.tl arms_differ 1
 
 eval/result_test.tl arms_differ 1
 
-eval/round_test.tl arms_differ 1
-
-eval/summarize_test.tl arms_differ 4
+eval/summarize_test.tl arms_differ 3
 
 lang/relation_test.tl arms_differ 1
 
@@ -12724,7 +12690,7 @@ test/profile_page.tmpl export_not_declared 1
 # callback with fewer parameters than the type wanted, a `number` for an `integer`
 build/ast/walk.tl not_assignable 2
 
-build/cache.tl not_assignable 5
+build/cache.tl not_assignable 2
 
 build/child_policy_database_fixture.tl not_assignable 1
 
@@ -12747,8 +12713,6 @@ build/fix/fix_test.tl not_assignable 1
 build/fix/init.tl not_assignable 6
 
 build/fix/notes_test.tl not_assignable 3
-
-build/flow_test.tl not_assignable 1
 
 build/harness_epoch_test.tl not_assignable 2
 
@@ -12804,7 +12768,7 @@ build/zig_lock_test.tl not_assignable 4
 
 build/zig_test.tl not_assignable 1
 
-ci/cosmic_ci/cache_trim_test.tl not_assignable 4
+ci/cosmic_ci/cache_trim_test.tl not_assignable 12
 
 ci/cosmic_ci/commit_verdicts_test.tl not_assignable 5
 
@@ -12834,7 +12798,7 @@ cosmic/http/server.tl not_assignable 4
 
 cosmic/http_test.tl not_assignable 1
 
-cosmic/internal/relay_config.tl not_assignable 4
+cosmic/internal/relay_config.tl not_assignable 1
 
 cosmic/internal/relay_server_test.tl not_assignable 19
 
@@ -12842,9 +12806,9 @@ cosmic/internal/relay_token_fuzz_test.tl not_assignable 1
 
 cosmic/internal/relay_wire_test.tl not_assignable 5
 
-cosmic/json.tl not_assignable 1
+cosmic/json.tl not_assignable 2
 
-cosmic/json_test.tl not_assignable 40
+cosmic/json_test.tl not_assignable 42
 
 cosmic/net_resolve_tool_test.tl not_assignable 5
 
@@ -12866,7 +12830,7 @@ cosmic/web/app.tl not_assignable 1
 
 cosmic/web/assets.tl not_assignable 1
 
-cosmic/web/input.tl not_assignable 1
+cosmic/web/input.tl not_assignable 2
 
 cosmic/web/input_test.tl not_assignable 1
 
@@ -12875,8 +12839,6 @@ cosmic/web/router.tl not_assignable 1
 cosmic/web/sse.tl not_assignable 2
 
 eval/check/grade.tl not_assignable 1
-
-eval/result.tl not_assignable 1
 
 lang/check.tl not_assignable 77
 
@@ -12892,7 +12854,7 @@ lang/parser_fuzz_test.tl not_assignable 3
 
 lang/parser_test.tl not_assignable 2
 
-lang/relation.tl not_assignable 16
+lang/relation.tl not_assignable 17
 
 lang/relation_fuzz_test.tl not_assignable 2
 
@@ -13010,7 +12972,7 @@ cosmic/json_path_test.tl alternatives_as_value 1
 
 cosmic/json_reader_test.tl alternatives_as_value 1
 
-cosmic/json_test.tl alternatives_as_value 3
+cosmic/json_test.tl alternatives_as_value 5
 
 cosmic/log_test.tl alternatives_as_value 1
 
@@ -13139,6 +13101,54 @@ ci/run_local_test.tl overload_none 1
 
 build/vendor_test.tl field_fixed 2
 
+build/archive.tl not_assignable 1
+
+build/bom.tl not_assignable 1
+
+build/json_query_test.tl not_assignable 1
+
+build/new_declarations.tl condition_type 2
+
+build/new_declarations.tl field_fixed 1
+
+build/new_declarations.tl view_written 3
+
+build/new_declarations_test.tl alternatives_as_value 1
+
+build/new_declarations_test.tl concat_type 6
+
+build/new_declarations_test.tl overload_none 1
+
+build/perf.tl any_use 26
+
+ci/cosmic_ci/github_api.tl any_use 1
+
+ci/cosmic_ci/github_fake.tl any_use 1
+
+ci/cosmic_ci/prerelease_test.tl not_assignable 8
+
+cosmic/shape.tl not_assignable 1
+
+cosmic/shape_fuzz_test.tl not_assignable 1
+
+cosmic/web/response_test.tl not_assignable 2
+
+cosmic/web/typed.tl not_assignable 1
+
+lang/recursive_alias_fuzz_test.tl field_unknown 13
+
+lang/recursive_alias_fuzz_test.tl index_may_be_nil 1
+
+lang/recursive_alias_fuzz_test.tl view_written 2
+
+lang/recursive_alias_test.tl alternatives_as_value 3
+
+lang/recursive_alias_test.tl field_unknown 7
+
+lang/recursive_alias_test.tl view_written 5
+
+lang/relation.tl or_mix 1
+
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which
 # [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
@@ -13237,21 +13247,9 @@ doc/guides/quickstart.md close_not_closable 1
 # values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
 # `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. The switch
 # (doc/plans/strict-teal.md, "the switch") needs a JSON value type, or a decision that a document is a record, first.
-cosmic/json_example.tl arms_differ 3
-
 cosmic/removed_example.tl any_use 1
 
-cosmic/web/htmx_example.tl any_use 1
-
-cosmic/web/input_example.tl any_use 2
-
-cosmic/web/input_example.tl arms_differ 1
-
 cosmic/web_example.tl any_use 1
-
-cosmic/web_example.tl arms_differ 3
-
-doc/guides/web.md any_use 1
 
 # TODO: write the coroutine example of the reference with the typed coroutines of the switch (doc/plans/strict-teal.md,
 # "the switch"): the new checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.

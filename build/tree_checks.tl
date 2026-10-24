@@ -174,6 +174,9 @@ allow({ "build.fix.laid.modules", "build.fix.laid.salt" }, "tested directly: the
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"
 
+allow({ "build.new_declarations.files", "build.new_declarations.missing" }, "tested directly: the edits themselves and the " ..
+    "lines of them that a file lacks, which a test holds to the files they are about")
+
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
@@ -2619,8 +2622,8 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
   local declared = Driver.globals(given.sources, given.adjust)
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/scopes_cover.tl", "lang/translate.tl", "lang/truthy.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
-    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl" },
-    "scoped 2")
+    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/new_declarations.tl" },
+    "scoped 3")
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "scoped")
   end
@@ -2962,7 +2965,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl",
     "build/tree_checks.tl", "build/tree_program.tl", "build/lang_proof.tl", "build/gen_syscalls.tl", "core/syscalls.h",
-    "core/process.h", "core/socket.h" }, "declared 4")
+    "core/process.h", "core/socket.h", "build/new_declarations.tl" }, "declared 5")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -3022,7 +3025,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "checked 4")
+    "core/socket.h", "build/new_declarations.tl" }, "checked 5")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -3081,7 +3084,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/lang_proof.tl", "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
-    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 2")
+    "core/syscalls.h", "core/process.h", "core/socket.h", "build/new_declarations.tl" }, "pipeline 3")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
   local given: {string: boolean} = {}
@@ -3571,7 +3574,7 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/syntax_stub.tl", "build/syntax_typed.tl",
     "build/contracts.tl", "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "typed 3")
+    "core/socket.h", "build/new_declarations.tl" }, "typed 4")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), nil, true, shaping_of(root, memo))
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "typed")
