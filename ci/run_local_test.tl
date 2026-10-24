@@ -395,8 +395,11 @@ end
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string
   local out: {string} = {}
-  for _, number in ipairs((assert(Fs.list("/proc/self/fd")))) do
-    local target, _ = Fs.readlink("/proc/self/fd/" .. number)
+  -- /dev/fd where there is no /proc (macOS, the BSDs).
+  local directory = "/proc/self/fd"
+  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
+  for _, number in ipairs((assert(Fs.list(directory)))) do
+    local target, _ = Fs.readlink(directory .. "/" .. number)
     out[#out + 1] = number .. "=" .. (target or "?")
   end
   table.sort(out)
