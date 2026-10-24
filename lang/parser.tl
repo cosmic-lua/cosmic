@@ -1610,10 +1610,15 @@ local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
   end
   local name = binding("a method")
   if name.name ~= "" then
+    local declares_type = seen[name.name] == true and seen["\0method " .. name.name] ~= true
     if seen[name.name] ~= nil then
       report("duplicate_field", name.first, "the name `" .. name.name .. "` is declared twice in the class",
-        "rename or delete one; a method and a field, or two methods, cannot share a name")
+        declares_type and
+          "delete the field and write its parameter and return types on the method; the receiver is `self`, so a field " ..
+          "`function(R, integer)` is `function " .. name.name .. "(self, x: integer)`" or
+          "rename or delete one; a method and a field, or two methods, cannot share a name")
     end
+    seen["\0method " .. name.name] = true
     seen[name.name] = false
   end
   local open = S.pos

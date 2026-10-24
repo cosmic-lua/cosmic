@@ -57,8 +57,10 @@
 ---   `metatable<R>` literal that follows it, which the class declares as the method
 ---   `__close`. A record with an array part or
 ---   `userdata` stays a record. A method that reads a name declared between its
----   record and where it was written, or gives types that differ from its
----   field's, is a [`Hazard`].
+---   record and where it was written is a [`Hazard`]. A field of the method's name that does not
+---   agree with the method (a type other than a function's, another receiver, parameter
+---   count, variadic, optional, written type or results) stays in the class beside the
+---   method, which the parser refuses as a name declared twice.
 --- - `class_literal`: `setmetatable(T, mt)` is `T` where `T` is a table literal, `mt` is the metatable of a class of
 ---   the file (`local mt: metatable<R> = { __index = R }`, or the literal `{ __index = R }`) and the place gives the
 ---   class as the type of the literal: the only value of a local declared `R`, which is declared `R` where it had no
@@ -102,8 +104,8 @@ local record Translate
   --- method that moved into a class reads a name declared between its record
   --- and where it was written, which the class cannot see), `shadow` (the same
   --- name is also declared before the record, so the moved method reads that
-  --- one), `signature` (the method and the field that declared it give
-  --- different types) or `interface` (a field given `mut` belongs to a record
+  --- one), `signature` (a generic field declares a method that leaves a
+  --- type out, which the field cannot supply) or `interface` (a field given `mut` belongs to a record
   --- that implements an interface this file does not declare, so the
   --- interface may need the same `mut`; most are fields the interface does
   --- not have).
@@ -859,10 +861,59 @@ local function closer_of(tokens: Lexer.Tokens, open: integer): integer
   return open
 end
 
+--- Whether the field type `declared` and the method `f` agree: the field's first parameter is the receiver, which is the
+--- class (or `self`), each parameter is variadic and optional as the method's is, and each type the method writes is spelled
+--- as the field spells it, as are the results when the method writes any. What the method leaves out the field gives. A
+--- field with type parameters agrees only with a method that writes no type, since its types name the parameters.
+local function agrees(source: string, tokens: Lexer.Tokens, declared: Ast.TypeFunction, f: Ast.Function,
+                      class_name: string): boolean
+  local params = f.fn.params
+  local given = declared.params
+  local first = given[1]
+  if #given ~= #params + 1 or first == nil or first.variadic then
+    return false
+  end
+  local generic = #declared.typeparams > 0
+  local ra, rb = bounds(first.type)
+  local receiver = spelled(source, tokens, ra, rb)
+  if receiver ~= class_name and receiver ~= "self" and sub(receiver, 1, #class_name + 1) ~= class_name .. "<" then
+    return false
+  end
+  for i, p in ipairs(params) do
+    local want = given[i + 1]
+    if want == nil or want.variadic ~= p.variadic or (p.optional and not want.optional) then
+      return false
+    end
+    -- A bare `...` writes no type, which spells as nothing.
+    local own = p.type
+    if own ~= nil then
+      local oa, ob = bounds(own)
+      local written = spelled(source, tokens, oa, ob)
+      local a, b = bounds(want.type)
+      if written ~= "" and (generic or written ~= spelled(source, tokens, a, b)) then
+        return false
+      end
+    end
+  end
+  local own = f.fn.rets
+  if own ~= nil then
+    local rets = declared.rets
+    if generic or rets == nil then
+      return false
+    end
+    local a, b = bounds(rets)
+    local oa, ob = bounds(own)
+    if spelled(source, tokens, oa, ob) ~= spelled(source, tokens, a, b) then
+      return false
+    end
+  end
+  return true
+end
+
 --- The types of the field `field` that declared method `f`, which the method
---- leaves out: a parameter without a type, and the return list. A type that
---- both write and that differs is a `signature` hazard. The field's first
---- parameter is the receiver.
+--- leaves out: a parameter without a type, and the return list. A method of a
+--- generic field that leaves a type out is a `signature` hazard. The caller has checked that the field agrees with the
+--- method; its first parameter is the receiver.
 local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Function, declared: Ast.TypeFunction,
                              hazards: {Translate.Hazard}): {Insertion}
   local out: {Insertion} = {}
@@ -895,11 +946,6 @@ local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Functi
       if own == nil or own is Ast.TypeError then
         out[#out + 1] = { at = stop_of(tokens, last), text = (question and "?" or "") .. ": " .. spelled(source, tokens, a, b) }
       else
-        local oa, ob = bounds(own)
-        if spelled(source, tokens, oa, ob) ~= spelled(source, tokens, a, b) then
-          local pn = p.name
-          differs(pn ~= nil and pn.name or "...")
-        end
         local pn = p.name
         if question and pn ~= nil then
           out[#out + 1] = { at = stop_of(tokens, (bounds(pn))), text = "?" }
@@ -914,11 +960,6 @@ local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Functi
     if own == nil then
       local close = closer_of(tokens, (bounds(f.fn)))
       out[#out + 1] = { at = stop_of(tokens, close), text = ": " .. spelled(source, tokens, a, b) }
-    else
-      local oa, ob = bounds(own)
-      if spelled(source, tokens, oa, ob) ~= spelled(source, tokens, a, b) then
-        differs("return")
-      end
     end
   end
   return out
@@ -1209,8 +1250,13 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     local header = "function " .. name .. "(self" .. (#params > 0 and ", " or "")
     local head_lo, head_hi = tokens.offset[first], stop_of(tokens, open)
     local field = fields[name]
-    local carried: {Insertion} = {}
     local declared_type = field ~= nil and field.type or nil
+    if field ~= nil and not (declared_type is Ast.TypeFunction and agrees(source, tokens, declared_type, f, rec.name.name)) then
+      -- The field stays beside the method, so the class declares the name twice and the parser refuses it.
+      field = nil
+      declared_type = nil
+    end
+    local carried: {Insertion} = {}
     if declared_type ~= nil and declared_type is Ast.TypeFunction then
       carried = carried_types(source, tokens, f, declared_type, found)
     end

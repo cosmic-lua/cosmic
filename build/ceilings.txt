@@ -4912,7 +4912,7 @@ lang/translate_fuzz_test.tl view_written 16
 
 lang/translate_speed_test.tl view_written 4
 
-lang/translate_test.tl view_written 6
+lang/translate_test.tl view_written 5
 
 lang/types.tl view_written 89
 
@@ -7255,7 +7255,7 @@ lang/translate.tl overload_none 6
 
 lang/translate_fuzz_test.tl overload_none 4
 
-lang/translate_test.tl overload_none 2
+lang/translate_test.tl overload_none 1
 
 lang/types.tl overload_none 4
 
@@ -10811,7 +10811,7 @@ lang/scopes_test.tl and_ternary 2
 
 lang/stdlib_test.tl and_ternary 1
 
-lang/translate.tl and_ternary 19
+lang/translate.tl and_ternary 18
 
 lang/types.tl and_ternary 7
 

@@ -6,7 +6,11 @@
 local Cover = require("lang.lexer_cover")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
+local Programs = require("lang.check_programs")
+local Test = require("cosmic.test")
 local Translate = require("lang.translate")
+
+Test.policy{}
 
 --- The lines joined, each ended by a line break.
 local function lines(...: string): string
@@ -1084,20 +1088,16 @@ local function test_a_method_takes_the_types_of_the_field_that_declared_it()
       "end"))
 end
 
-local function test_a_method_that_gives_other_types_than_its_field_is_reported()
-  local result = clean(lines(
+local function test_a_method_that_gives_other_types_than_its_field_is_refused_not_listed()
+  local result = Translate.translate(lines(
     "local record R",
     "  f: function(R, integer): string",
     "end",
     "function R:f(x: string): integer",
     "  return 1",
-    "end"))
-  local names: {string} = {}
-  for _, h in ipairs(result.hazards) do
-    names[#names + 1] = h.kind .. " " .. h.name
-  end
-  table.sort(names)
-  assert(table.concat(names, ",") == "signature return,signature x", table.concat(names, ","))
+    "end"), "t.tl")
+  local first = result.errors[1]
+  assert(#result.hazards == 0 and first ~= nil and first.code == "duplicate_field", result.text)
 end
 
 local function test_an_omittable_parameter_takes_a_name_no_other_parameter_has()
@@ -1222,6 +1222,168 @@ local function test_a_method_takes_optional_marks_and_leaves_a_generic_field_alo
     "end"), "t.tl")
   assert(result.hazards[1].kind == "signature" and result.hazards[1].name == "generic" and
       result.text:find("function g(self, x)", 1, true), result.text)
+end
+
+-- A field that declares a method's type and the `function R:m` that defines it agree on the parameters, or the program is refused.
+
+local function test_a_field_and_a_method_that_give_other_numbers_of_parameters_leave_the_class_declaring_the_name_twice()
+  -- the fork reads `function(integer)` as a function that takes an integer, and the method as one that takes `self` too
+  local result = Translate.translate(lines(
+    "local record R",
+    "  m: function(integer)",
+    "end",
+    "function R:m(x: integer)",
+    "end"), "t.tl")
+  local first = result.errors[1]
+  assert(first ~= nil and first.code == "duplicate_field" and first.msg:find("`m`", 1, true) ~= nil and
+      first.fix:find("the receiver is `self`", 1, true) ~= nil and #result.errors == 1,
+    "errors: " .. tostring(#result.errors) .. " in\n" .. result.text)
+  assert(result.text == lines(
+    "local class R",
+    "  m: function(integer)",
+    "",
+    "  function m(self, x: integer)",
+    "  end",
+    "end"), result.text)
+  -- the field with more parameters than the method, and a method that takes none
+  local more = Translate.translate(lines(
+    "local record R",
+    "  m: function(R, integer, string)",
+    "end",
+    "function R:m(x)",
+    "end"), "t.tl")
+  local more_first = more.errors[1]
+  assert(more_first ~= nil and more_first.code == "duplicate_field", more.text)
+  local none = Translate.translate(lines(
+    "local record R",
+    "  m: function()",
+    "end",
+    "function R:m()",
+    "end"), "t.tl")
+  local none_first = none.errors[1]
+  assert(none_first ~= nil and none_first.code == "duplicate_field", none.text)
+end
+
+local function refused_as_declared_twice(field: string, method: string): string
+  local result = Translate.translate(lines("local record R", "  m: " .. field, "end", method, "end"), "t.tl")
+  local first = result.errors[1]
+  assert(first ~= nil and first.code == "duplicate_field", field .. " against " .. method .. " is taken:\n" .. result.text)
+  assert(result.text:find("\n  m: ", 1, true) ~= nil, "the field is dropped:\n" .. result.text)
+  return result.text
+end
+
+local function test_a_field_that_disagrees_with_its_method_in_anything_stays_and_is_refused()
+  -- the types a method writes
+  refused_as_declared_twice("function(R, integer): integer", "function R:m(x: string): integer")
+  refused_as_declared_twice("function(R, integer): integer", "function R:m(x: integer): string")
+  refused_as_declared_twice("function(R, integer): integer", "function R:m(x: integer): integer, integer")
+  refused_as_declared_twice("function(R, integer | nil)", "function R:m(x: integer)")
+  refused_as_declared_twice("function(R, integer)", "function R:m(x: integer | nil)")
+  -- results the field lacks
+  refused_as_declared_twice("function(R)", "function R:m(): integer")
+  refused_as_declared_twice("function(R, integer)", "function R:m(x: integer): integer")
+  -- variadic against fixed, either way
+  refused_as_declared_twice("function(R, integer...)", "function R:m(x: integer)")
+  refused_as_declared_twice("function(R, integer...)", "function R:m(a: integer, b: integer)")
+  refused_as_declared_twice("function(R, integer...)", "function R:m()")
+  refused_as_declared_twice("function(R, integer)", "function R:m(...: integer)")
+  refused_as_declared_twice("function(R, integer)", "function R:m(...: string)")
+  -- optional method parameter the field declares required
+  refused_as_declared_twice("function(R, integer)", "function R:m(x?: integer)")
+  -- the receiver
+  refused_as_declared_twice("function(string, integer)", "function R:m(x: integer)")
+  refused_as_declared_twice("function(Q, integer)", "function R:m(x: integer)")
+  -- a generic field against a method that writes types
+  refused_as_declared_twice("function<T>(R, T): T", "function R:m(x: integer): integer")
+  refused_as_declared_twice("function<T>(R, T, T): T", "function R:m(x: integer): integer")
+  refused_as_declared_twice("function<T>(R, T)", "function R:m(x: integer)")
+  refused_as_declared_twice("function<T>(R): T", "function R:m(): integer")
+  refused_as_declared_twice("function<T>(R, integer)", "function R:m(x: integer)")
+  refused_as_declared_twice("function<T>(R): integer", "function R:m(): integer")
+  refused_as_declared_twice("function(R...)", "function R:m()")
+  -- fields that are no function type
+  refused_as_declared_twice("integer", "function R:m(x: integer)")
+  refused_as_declared_twice("function(R, integer) | nil", "function R:m(x: integer)")
+  refused_as_declared_twice("{string}", "function R:m()")
+end
+
+local function test_a_field_an_alias_names_stays_beside_its_method()
+  local result = Translate.translate(lines(
+    "local type F = function(R, integer)",
+    "local record R",
+    "  m: F",
+    "end",
+    "function R:m(x: string)",
+    "end"), "t.tl")
+  local first = result.errors[1]
+  assert(first ~= nil and first.code == "duplicate_field", result.text)
+end
+
+local function test_the_parser_tells_a_method_beside_a_function_field_to_move_the_types_and_two_methods_to_rename_one()
+  local field = Translate.translate(lines(
+    "local record R",
+    "  m: function(integer)",
+    "end",
+    "function R:m(x: integer)",
+    "end"), "t.tl").errors[1]
+  assert(field ~= nil and field.fix:find("the receiver is `self`", 1, true) ~= nil, field and field.fix or "no error")
+  local two = Parser.parse(Lexer.lex("local class C\n  function m(self)\n  end\n  function m(self)\n  end\nend\n", "t.tl"), "t.tl", "tl")
+  local second = two.errors[1]
+  assert(second ~= nil and second.code == "duplicate_field" and second.fix:find("receiver", 1, true) == nil,
+    second and second.fix or "no error")
+end
+
+local function test_a_field_that_agrees_in_receiver_spelling_variadics_and_types_is_dropped()
+  clean(lines("local record R", "  m: function(self: R, x: integer): integer", "end",
+    "function R:m(x: integer): integer", "  return x", "end"))
+  clean(lines("local record R", "  m: function(R, integer...)", "end", "function R:m(...: integer)", "end"))
+  clean(lines("local record R", "  m: function(R, integer, ? string)", "end", "function R:m(a, b?: string)", "end"))
+  -- a generic field agrees with a method that writes no type
+  clean(lines("local record G", "  g: function<T>(G, T): T", "end", "function G:g(x)", "  return x", "end"))
+end
+
+local function test_a_field_and_a_method_that_give_the_same_parameters_are_one_method_with_the_types_of_the_field()
+  local result = clean(lines(
+    "local record R",
+    "  total: integer",
+    "  m: function(R, integer): integer",
+    "end",
+    "function R:m(x)",
+    "  return x + self.total",
+    "end"))
+  assert(result.text == lines(
+    "local class R",
+    "  total: integer",
+    "",
+    "  function m(self, x: integer): integer",
+    "    return x + self.total",
+    "  end",
+    "end"), result.text)
+  -- a variadic or a type parameter of the field leaves the count to the checker
+  clean(lines(
+    "local record V",
+    "  m: function(V, integer...)",
+    "end",
+    "function V:m(...)",
+    "end"))
+end
+
+local function test_the_method_of_a_field_that_agrees_runs_with_the_declared_types()
+  local result = clean(lines(
+    "local record R",
+    "  total: integer",
+    "  m: function(R, integer): integer",
+    "end",
+    "function R:m(x)",
+    "  return x + self.total",
+    "end",
+    "local r: R = { total = 3 }",
+    "print(r:m(4))"))
+  local x = Programs.execute(result.text, true)
+  assert(x.ran and x.fault == nil and x.printed[1] == "7", tostring(x.fault) .. " in\n" .. x.lua)
+  -- the types of the field are the method's: a call with another type is refused
+  local wrong = Programs.run((result.text:gsub("print%(r:m%(4%)%)", "print(r:m('a'))")))
+  assert(Programs.codes(wrong) == "not_assignable", Programs.codes(wrong))
 end
 
 local function test_a_translation_with_a_carried_collection_type_is_its_own_translation()

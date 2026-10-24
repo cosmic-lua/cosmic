@@ -200,9 +200,11 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classe
     out[#out + 1] = "local record C" .. n .. " " .. tag
     out[#out + 1] = "  count: integer"
     out[#out + 1] = "  items: {string}"
-    out[#out + 1] = "  bump: function(C" .. n .. "): " .. gen_type(src, 1)
+    -- the method gives the field's results, since a field that disagrees with its method is refused
+    local rets = gen_type(src, 1)
+    out[#out + 1] = "  bump: function(C" .. n .. "): " .. rets
     out[#out + 1] = "end"
-    out[#out + 1] = "function C" .. n .. ":bump(): " .. gen_type(src, 0)
+    out[#out + 1] = "function C" .. n .. ":bump(): " .. rets
     out[#out + 1] = "  self.count = self.count + 1"
     out[#out + 1] = "  table.insert(self.items, \"x\")"
     out[#out + 1] = "  return nil"
