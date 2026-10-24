@@ -399,7 +399,7 @@ writes the wraps given `facts` (no flag of `cosmic compile` asks for them), and 
 --check-types` has the build write them for the tree ([`build.pipeline`]'s `generate`), so a read the checker narrowed
 wrongly is a failing test and a row of `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants one).
 
-CI runs the whole suite so in the `checked` job of a full run
+CI runs the whole suite so in the `checked-narrowing` job of a full run
 (`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`), and
 `bin/cosmic test --check-types` runs it anywhere.
 

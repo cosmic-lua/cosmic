@@ -122,7 +122,18 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- scheduled run does, so the change is gated on a run that stands on
 --- nothing. Where the driver cannot tell whether the file moved, it takes
 --- it as moved.
+---
+--- A run that gathers the shares of a suite (COSMIC_CI_GATHER=1, which
+--- the checked suite phase gives ci.yml's `checked` job) always stands, in every
+--- event and where the change moves the harness: it is the whole suite on
+--- the verdicts the shares kept, in a cache that holds nothing of main's
+--- (ci.yml merges them into it and only looks main's up), and each share
+--- ran its tests, every one of them where it stands on nothing. It is no
+--- `--all`, which would run them again, and no `--no-shared`, which would
+--- leave the shares' rows unread. What it adds is only what a whole run
+--- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
+  if env["COSMIC_CI_GATHER"] == "1" then return true end
   if env.COSMIC_CI_EVENT == "merge_group" and env.COSMIC_CI_HARNESS_MOVED ~= "0" then
     return false
   end
@@ -215,8 +226,14 @@ local function decide_harness(env: {string:string})
   if moved_by_base[asked] == nil then
     local moved, why = Orchestration.harness_moved(root, base)
     moved_by_base[asked] = moved
-    Fs.put(Fs.stderr, "merge queue: " .. (moved and "every suite runs every test (--all): " or
-      "suites stand on verdicts: ") .. why .. "\n")
+    local gathering = env["COSMIC_CI_GATHER"] == "1"
+    local said = "suites stand on verdicts: "
+    if moved and gathering then
+      said = "the gathering run stands on the shares' verdicts, where every test ran (--all): "
+    elseif moved then
+      said = "every suite runs every test (--all): "
+    end
+    Fs.put(Fs.stderr, "merge queue: " .. said .. why .. "\n")
   end
   env.COSMIC_CI_HARNESS_MOVED = moved_by_base[asked] and "1" or "0"
 end
@@ -562,9 +579,37 @@ local fixed_point_per_test_timeout_s <const> = "420"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
 --- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
 --- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
---- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). The job's 45 minutes hold the
---- build before this step and the narrowing run after it.
+--- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). It bounds the suite run whole in
+--- one job, which no ci.yml job does now (`checked_shard_timeout_ns`, `checked_gather_timeout_ns`) and ci/run-local's
+--- assemble does.
 local checked_suite_timeout_ns <const> = Clock.seconds(1500)
+--- One share of the checked suite, of the N ci.yml's `checked-shard` job
+--- runs (COSMIC_CI_CHECKED_SHARD, `I/N`), each on a runner of its own.
+--- build/test.tl's `dealt` deals the tests in turn, so a share holds a Nth
+--- of them and, the slow ones being spread across the modules, about a
+--- Nth of the time. The whole suite takes 1096 s where no verdict stands
+--- and 1504 s in the slowest of the merge queue's runs of 23 October 2026
+--- (past `checked_suite_timeout_ns`), which a share of four takes in 274
+--- and 376 s. The bound is 600 s, 1.6 times the slowest share seen, where
+--- the whole suite's was no more than the slowest run itself, and 2.2
+--- times a share of the run where nothing stood. It is the share's own,
+--- not the whole suite's divided by four: the share restores its verdicts,
+--- builds and checks the checked core as the whole suite's job did, and
+--- gains nothing from another share's time.
+local checked_shard_timeout_ns <const> = Clock.seconds(600)
+--- The checked suite's gathering run (COSMIC_CI_CHECKED_SUITE=gather,
+--- ci.yml's `checked` job): the whole suite on the verdicts the shares
+--- kept, where every test stands, so that only what a whole run answers is
+--- left to check (that some test enters each C function). A test that
+--- stands starts no worker: the time is the harness's, reading the rows
+--- and keying the tests, and the few tests that keep no verdict (187 of
+--- 8200 in a local run, 34 s in all on the release core where all the rest
+--- stood), some three times that on the checked core.
+-- TODO: lower this bound once CI's own runs of the step show its time; it
+-- is sized from that one local run, times the checked core's slowdown, and
+-- says only that a run that merged no share's verdicts, which runs the
+-- whole suite, fails in minutes rather than pass in twenty.
+local checked_gather_timeout_ns <const> = Clock.seconds(300)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -1059,11 +1104,15 @@ local function checked_suite(c: Context, target: string, work: string,
   if s ~= 0 then return s end
   assert(read(context) == "portable-v1\t" .. target .. "\t" .. digest .. "\n",
     "checked artifact did not execute the checked raw core: " .. read(context))
-  -- The suite on the checked core takes three to six minutes. Most of
-  -- what it checks is the same on every platform, so the workflow runs
-  -- it once, in a job of its own on linux-x86_64's host (ci.yml's
-  -- `checked`: phases `boot`, `checked-build` and this one), beside the
-  -- legs rather than after one of them; every leg sets
+  -- The suite on the checked core takes twenty minutes where nothing
+  -- stands. Most of what it checks is the same on every platform, so the
+  -- workflow runs it once, on linux-x86_64's host, beside the legs
+  -- rather than after one of them, and in shares (ci.yml's
+  -- `checked-shard`, each a share of the tests,
+  -- COSMIC_CI_CHECKED_SHARD=I/N: phases `boot`, `checked-build` and this
+  -- one) that a job gathers (`checked`, COSMIC_CI_CHECKED_SUITE=gather)
+  -- on the verdicts the shares kept: the whole suite, every test
+  -- standing. Every leg sets
   -- COSMIC_CI_CHECKED_SUITE=skip, and still builds and verifies the
   -- checked core above, which its fixtures use. macOS also runs the
   -- received-channel regressions: SIGPIPE protection on a channel
@@ -1131,16 +1180,31 @@ local function checked_suite(c: Context, target: string, work: string,
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever its build directory holds.
   local checked_argv: {string} = { cosmic }
+  local gathering = Env.get("COSMIC_CI_CHECKED_SUITE") == "gather"
+  local share = named("COSMIC_CI_CHECKED_SHARD")
   local checked_words, checked_environment = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
-    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
+    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
+    COSMIC_CI_GATHER = gathering and "1" or "" })
   table.insert(checked_words, 2, "--census")
-  for _, word in ipairs(checked_words) do
-    checked_argv[#checked_argv + 1] = word
+  local shard_words: {string} = share ~= nil and { "--shard", share } or {}
+  for _, words in ipairs({ checked_words, shard_words }) do
+    for _, word in ipairs(words) do
+      checked_argv[#checked_argv + 1] = word
+    end
+  end
+  -- One share of the tests, where ci.yml's `checked-shard` job runs
+  -- the suite in several: a share checks no C function, which only a
+  -- whole run answers, and `gather` does.
+  local bound = checked_suite_timeout_ns
+  if share ~= nil then
+    bound = checked_shard_timeout_ns
+  elseif gathering then
+    bound = checked_gather_timeout_ns
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ns, c.root, checked_environment)
+    bound, c.root, checked_environment)
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -1280,7 +1344,8 @@ end
 
 --- The candidate's cores and boot, on a fresh checkout: the `build`
 --- phase without its native suite. It is all the `boot` phase runs, for
---- a job that runs no native suite (ci.yml's `checked`).
+--- a job that runs no native suite (ci.yml's `checked`, `checked-shard`,
+--- `checked-narrowing` and `format`).
 local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
@@ -1474,8 +1539,8 @@ end
 --- written as a check of the test's fact, and a test that meets a read
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
 --- doc/testing.md's "checked narrowing"). It runs every test, since a
---- checked run stands on no verdict. ci.yml runs it in the `checked` job,
---- after `boot`.
+--- checked run stands on no verdict. ci.yml runs it in the `checked-narrowing`
+--- job, after `boot`.
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
@@ -1680,7 +1745,7 @@ local function phase_build(p: PlatformContext): integer
 end
 
 --- What the `checked` phase reads, on a booted tree, where assemble
---- does not run first (ci.yml's `checked` job): the checked build, and
+--- does not run first (ci.yml's `checked-shard` and `checked` jobs): the checked build, and
 --- the target's format decoder where the format-contract fixture would
 --- leave it in the contract. The decoder is only built here, not
 --- checked: that is the fixture's, on every leg.
@@ -1772,7 +1837,7 @@ end
 --- tree formats and type-checks the same on every platform, so the
 --- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
 --- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
---- light run it is a phase of its own in ci.yml's `checked` job, which
+--- light run it is a phase of its own in ci.yml's `format` job, which
 --- runs no native suite, off the legs' path.
 --- Where a native suite ran, `fix` writes the working database only
 --- after its boundary was checked (`local-boundary`); a job that ran
@@ -1787,7 +1852,35 @@ local function format_check(p: PlatformContext): integer
         "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  return checked(p.operation, "format check", format_command(p.root))
+  -- The check's memo (build/check_memo.tl), where COSMIC_CI_CHECK_MEMO
+  -- names a directory that holds one from an earlier run: put where the
+  -- check reads it, as the build directory is new each run, so that the
+  -- files it holds a row of cost the check nothing. A run that passed
+  -- leaves its own there, for ci.yml's `format` job to save. The memo
+  -- only ever speeds the check: a copy that fails is none.
+  local kept = named("COSMIC_CI_CHECK_MEMO")
+  local memo = BuildPaths.directory(p.root) .. "/translate-check.db"
+  if kept ~= nil and exists(kept .. "/translate-check.db") and not exists(memo) then
+    local copied, trouble = pcall(function()
+      mkdir(Fs.dirname(memo))
+      write(memo, read(kept .. "/translate-check.db"))
+    end)
+    if not copied then
+      Fs.put(Fs.stderr, "format check: no memo taken from " .. kept .. ": " .. tostring(trouble) .. "\n")
+      local _, _ = Fs.remove(memo)
+    end
+  end
+  local status = checked(p.operation, "format check", format_command(p.root))
+  if kept ~= nil and status == 0 and exists(memo) then
+    local copied, trouble = pcall(function()
+      mkdir(kept)
+      write(kept .. "/translate-check.db", read(memo))
+    end)
+    if not copied then
+      Fs.put(Fs.stderr, "format check: the memo is not kept in " .. kept .. ": " .. tostring(trouble) .. "\n")
+    end
+  end
+  return status
 end
 
 local function phase_assemble(p: PlatformContext): integer
