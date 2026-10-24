@@ -1213,6 +1213,9 @@ local record Progress
   typed: receivers.State | nil
   ahead: importer.Ahead | nil
   scanned: boolean
+  --- The compiles found elsewhere in the same look at the modules
+  --- ([`start_pool`]), by module.
+  looked: {string:importer.Shared.Compile}
 end
 
 --- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
@@ -1393,8 +1396,8 @@ end
 -- in for ([`Interfacing`]) is not compiled twice.
 local function start_pool(first: integer, open: Cache, workers: importer.Workers, handle: work.Handle,
                           in_order: {Module}, by_path: {string:compilation.Keys}, shared: importer.Shared | nil,
-                          looked: {string:importer.Shared.Compile}, progress: Progress,
-                          own_tree: boolean, judged: boolean): boolean, string
+                          progress: Progress, own_tree: boolean,
+                          judged: boolean): boolean, string
   local wanted: {string:boolean} = {}
   local bytes = 0
   -- Which compiles stand, asked once rather than for each module.
@@ -1414,7 +1417,7 @@ local function start_pool(first: integer, open: Cache, workers: importer.Workers
       if stands_by[key] ~= true then
         local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
         if elsewhere ~= nil then
-          looked[m.path] = elsewhere
+          progress.looked[m.path] = elsewhere
         else
           wanted[m.path] = true
           bytes = bytes + #m.source
@@ -1572,7 +1575,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- and stdlib. `ahead` is what the pool's processes compiled ahead of
   -- the loop below, and `scanned` whether the loop below has looked at
   -- every module for a compile elsewhere.
-  local progress: Progress = { failure = "", scanned = false }
+  local progress: Progress = { failure = "", scanned = false, looked = {} }
 
   local interfacing = interfacing_for(db, built, tool, serving, modules, keys, progress)
 
@@ -1608,9 +1611,6 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     end
     return hinting.databases, hinting.public
   end
-
-  -- The compiles found elsewhere in the same look at the modules.
-  local looked: {string:importer.Shared.Compile} = {}
 
   local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
@@ -1667,8 +1667,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         -- and it lands as a compile does, uses and all.
         local elsewhere: importer.Shared.Compile | nil = nil
         if not stands and progress.scanned then
-          elsewhere = looked[m.path]
-          looked[m.path] = nil
+          elsewhere = progress.looked[m.path]
+          progress.looked[m.path] = nil
         elseif not stands and shared ~= nil then
           elsewhere = shared.look(m, own_tree)
         end
@@ -1698,7 +1698,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           -- also how a refusal is told: the pool only knows it did not
           -- compile.
           if pool ~= nil and not progress.scanned and (compiled_here >= seeds or not interfaces_kept(db)) then
-            local started, start_trouble = start_pool(ordinal, cache, pool, handle, order, keys, shared, looked, progress, own_tree, judged)
+            local started, start_trouble = start_pool(ordinal, cache, pool, handle, order, keys, shared, progress,
+              own_tree, judged)
             if not started then
               return false, start_trouble
             end

@@ -1693,7 +1693,7 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
       end
       before = step.files
       local made, trouble = compile_with_checks(root)
-      if made ~= nil and step.single then
+      if made ~= nil and step.single == true then
         assert(made.compiled == 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
         local handle = assert(work.open(root))
         local named = assert(Sqlite.text_rows(handle.db,

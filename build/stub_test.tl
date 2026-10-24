@@ -337,15 +337,12 @@ end
 --- What tl reads of `text` that no position says: each token, and whether
 --- it starts a line of its own, as the parser tells a `(` that is a call
 --- from one that starts a statement.
-local function reading_of(text: string): {string}
+local function reading_of(text: string): string
   local parsed = assert(ast.parse(built, text, "m.tl"))
-  local out: {string} = {}
+  local out = ""
   local last_y = 0
   for _, token in ipairs(parsed.tokens) do
-    if token.y > last_y then
-      out[#out + 1] = "\n"
-    end
-    out[#out + 1] = token.tk
+    out = out .. (token.y > last_y and "\n" or "") .. token.tk .. "\0"
     local _, breaks = token.tk:gsub("\n", "")
     last_y = token.y + breaks
   end
@@ -403,12 +400,7 @@ local function test_a_canonical_stub_is_read_as_its_stub_is()
     local text = Store.source(name)
     if text ~= nil then
       local stubbed = stub_of(text)
-      local stood = reading_of(stubbed)
-      local canonical = reading_of(stub.canonical(stubbed))
-      assert(#stood == #canonical, name .. ": " .. #stood .. " tokens, " .. #canonical .. " canonical")
-      for i, token in ipairs(stood) do
-        assert(token == canonical[i], name .. ": token " .. i .. " is " .. token .. ", " .. canonical[i])
-      end
+      assert(reading_of(stubbed) == reading_of(stub.canonical(stubbed)), name .. ": a token or a line break moved")
       checked = checked + 1
     end
   end

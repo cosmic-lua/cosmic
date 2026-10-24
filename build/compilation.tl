@@ -862,6 +862,14 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   return true, ""
 end
 
+--- The two digests of a stub: of its exact text, which a verdict on it is kept
+--- under, and of its tokens less where they stand ([`stub.canonical`]), which
+--- a dependent's interface key holds.
+local record StubHashes
+  exact: string
+  shape: string
+end
+
 --- What a verdict on a stub is kept under beside the module's compile key:
 --- the hash of the stub's own text, so that a stub derived again differently
 --- is judged again whatever the key says.
@@ -1086,12 +1094,10 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   -- What a dependent keys on of a stub is its tokens, not where they stand
   -- ([`stub.canonical`]); the verdict on the stub stays under its exact text.
-  local stubs: {string:string} = {}
-  local verdict_hashes: {string:string} = {}
+  local stubs: {string:StubHashes} = {}
   for _, row in ipairs(rows) do
     local body = row:text(2)
-    verdict_hashes[row:text(1)] = stub_hash(body)
-    stubs[row:text(1)] = stub_hash(stub.canonical(body))
+    stubs[row:text(1)] = { exact = stub_hash(body), shape = stub_hash(stub.canonical(body)) }
   end
   local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
   if verdicts == nil then
@@ -1103,11 +1109,11 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local judged: {string:boolean} = {}
   local function held(path: string): boolean
-    local hash, named = verdict_hashes[path], keys[path]
-    if hash == nil or named == nil then
+    local hashes, named = stubs[path], keys[path]
+    if hashes == nil or named == nil then
       return false
     end
-    local verdict = kept[named.key .. "\0" .. hash]
+    local verdict = kept[named.key .. "\0" .. hashes.exact]
     if verdict ~= nil then
       return verdict
     end
@@ -1120,7 +1126,11 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local function line_of(slot: string, dependency: Dependency): string
     if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
-      return slot .. "\nstub\n" .. (stubs[slot] or "")
+      local hashes = stubs[slot]
+      if hashes == nil then
+        return slot .. "\nstub\n"
+      end
+      return slot .. "\nstub\n" .. hashes.shape
     end
     return source_line(slot, dependency)
   end

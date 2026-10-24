@@ -437,6 +437,9 @@ end
 --- as it is, which only keeps what a position would have moved.
 function stub.canonical(text: string): string
   local out: {string} = {}
+  local function push(piece: string)
+    out[#out + 1] = piece
+  end
   local at = 1
   local size = #text
   local find, sub = string.find, string.sub
@@ -445,16 +448,19 @@ function stub.canonical(text: string): string
     local stop = find(text, "[%s\"'%[]", at) or size + 1
     if from ~= nil then
       if #out > 0 then
-        out[#out + 1] = find(sub(text, from, to), "\n", 1, true) ~= nil and "\n" or " "
+        push(find(sub(text, from, to), "\n", 1, true) ~= nil and "\n" or " ")
       end
-      at = to + 1
+      at = assert(to) + 1
     elseif stop > at then
-      out[#out + 1] = sub(text, at, stop - 1)
+      push(sub(text, at, stop - 1))
       at = stop
     else
       local c = sub(text, at, at)
       local close: integer | nil = nil
-      local level = c == "[" and text:match("^%[(=*)%[", at) or nil
+      local level: string | nil = nil
+      if c == "[" then
+        level = text:match("^%[(=*)%[", at)
+      end
       if c == "[" and level == nil then
         close = at
       elseif level ~= nil then
@@ -477,7 +483,7 @@ function stub.canonical(text: string): string
       if close == nil then
         return text
       end
-      out[#out + 1] = sub(text, at, close)
+      push(sub(text, at, close))
       at = close + 1
     end
   end

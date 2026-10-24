@@ -440,12 +440,12 @@ local function compiled_outputs(db: Sqlite.Handle): string
     "SELECT p.path, c.lua, c.bytecode, coalesce((SELECT group_concat(module || member || line, ',') " ..
       "FROM (SELECT * FROM typed_refs r WHERE r.key = p.key ORDER BY ordinal)), '') FROM plan p JOIN compiled c ON c.key = p.key " ..
       "ORDER BY p.path"))
-  local lines: {string} = {}
+  local out = ""
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = row:bytes(1) .. "\n" .. row:bytes(2) .. "\n" .. Hash.hex_sha256(row:bytes(3)) ..
-      "\n" .. row:bytes(4)
+    out = out .. row:bytes(1) .. "\n" .. row:bytes(2) .. "\n" .. Hash.hex_sha256(row:bytes(3)) ..
+      "\n" .. row:bytes(4) .. "\n\0\n"
   end
-  return table.concat(lines, "\n\0\n")
+  return out
 end
 
 --- A tree of cosmic's own whose modules a pool compiles the first time, and
@@ -454,21 +454,23 @@ end
 --- of the others is what the pool made, byte for byte as a fresh build
 --- would make it, and a type that changes is compiled by the pool again.
 local function test_a_pooled_rebuild_after_an_edit_that_only_moves_lines_compiles_the_one()
-  local function tree(first: string): {string:string}
-    local files = own_tree()
-    files["cosmic/casting.tl"] = nil
-    files["cosmic/first.tl"] = first
+  --- The tree with `first` as cosmic/first.tl, which seven modules require.
+  local function tree(case: string, first: string): string
+    local root = fixture(case, own_tree())
+    assert(Fs.remove(root .. "/cosmic/casting.tl"))
+    assert(Fs.write(root .. "/cosmic/first.tl", first))
     for at = 1, 7 do
-      files["cosmic/user" .. at .. ".tl"] = 'local first = require("cosmic.first")\n' ..
-        "local record user" .. at .. " end\nfunction user" .. at .. ".value(): number\n" ..
-        "  return first.value() + " .. at .. "\nend\nreturn user" .. at .. "\n"
+      local name = "user" .. tostring(at)
+      assert(Fs.write(root .. "/cosmic/" .. name .. ".tl", 'local first = require("cosmic.first")\n' ..
+          "local record " .. name .. " end\nfunction " .. name .. ".value(): number\n" ..
+          "  return first.value() + " .. tostring(at) .. "\nend\nreturn " .. name .. "\n"))
     end
-    return files
+    return root
   end
   local plain = "local record first end\nfunction first.value(): integer\n  return 1\nend\nreturn first\n"
   local shifted = "-- noted\n\n" .. plain
   local changed = "-- noted\n\nlocal record first end\nfunction first.value(): number\n  return 1.5\nend\nreturn first\n"
-  local root = fixture("moved", tree(plain))
+  local root = tree("moved", plain)
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local pool = pool_of()
@@ -478,21 +480,21 @@ local function test_a_pooled_rebuild_after_an_edit_that_only_moves_lines_compile
     assert(Fs.write(root .. "/cosmic/first.tl", source))
     assert(work.stage(handle, true))
     local again, trouble = importer.compile(handle, built, "worker-test", false, nil, pool)
-    local fresh_root = fixture("moved-fresh", tree(source))
+    local fresh_root = tree("moved-fresh", source)
     local fresh_handle = assert(work.open(fresh_root))
     assert(work.stage(fresh_handle, true))
     assert(importer.compile(fresh_handle, built, "worker-test", false, nil, nil))
     if step == 1 then
       assert(again ~= nil, trouble)
-      assert(again.compiled == 1, "a move of lines compiled " .. again.compiled .. " modules, not the one")
-      assert(again.worked == 0, "the pool compiled " .. again.worked .. " modules ahead where a compile stood in for the rest")
+      assert(again.compiled == 1, "a move of lines compiled " .. tostring(again.compiled) .. " modules, not the one")
+      assert(again.worked == 0, "the pool compiled " .. tostring(again.worked) .. " modules ahead where a compile stood in for the rest")
     end
     assert(again ~= nil, trouble)
     if step == 2 then
-      assert(again.compiled > 1, "a type that changed compiled " .. again.compiled .. " modules")
+      assert(again.compiled > 1, "a type that changed compiled " .. tostring(again.compiled) .. " modules")
     end
     assert(compiled_outputs(handle.db) == compiled_outputs(fresh_handle.db),
-      "step " .. step .. ": a compile that stands in for another is not a fresh one")
+      "step " .. tostring(step) .. ": a compile that stands in for another is not a fresh one")
     assert(work.close(fresh_handle))
     assert(Fs.remove_tree(fresh_root))
   end
