@@ -90,7 +90,7 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     local more = index < #pages
     -- The fake's own marker, not GitHub's `page` parameter, keeps the
     -- path the answer is keyed by.
-    return reply(200, assert(Json.encode(pages[index])),
+    return reply(200, assert(Json.encode_any(pages[index])),
       more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } or nil), ""
   end
   local over = Github.over({ send = send, base = origin,

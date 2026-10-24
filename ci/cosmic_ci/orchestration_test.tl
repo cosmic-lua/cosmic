@@ -2049,8 +2049,7 @@ local function test_a_leg_is_given_the_requirements_it_promises()
 end
 
 --- A fixture runner is given its leg's promises as a candidate
---- suite is, Unix sockets among them, but for the names the pinned release it
---- runs on lacks (`all_cores`), which it would refuse as unknown.
+--- suite is, Unix sockets among them.
 local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, source in ipairs({ "format", "runtime" }) do
@@ -2064,8 +2063,7 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
     local given = "," .. assert(fixture["COSMIC_TEST_PROMISES"]) .. ","
-    assert(candidate:find(",all_cores,", 1, true), candidate)
-    assert(given == candidate:gsub(",all_cores,", ","), "the pinned release is given a name it lacks: " .. given)
+    assert(given == candidate, "the fixture changed its leg's promises: " .. given)
     assert(fixture["COSMIC_TEST_LEG"] == "linux-x86_64-checked")
     assert(fixture["COSMIC_SANDBOX"] == "must", "fixture confinement is no longer held")
     assert(fixture["COSMIC_TEST_SANDBOX"] == (source == "runtime" and "1" or "0"))
@@ -2079,9 +2077,6 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
   }, tmp .. "/tmp", tmp .. "/c.db")
   assert(unknown["COSMIC_TEST_PROMISES"] == "proc, unix_socket ,future_requirement,checked",
     "the fixture changed the promises it was given")
-  local newer = Orchestration.fixture_run("format", { COSMIC_TEST_PROMISES = "all_cores,proc" },
-    tmp .. "/tmp", tmp .. "/c.db")
-  assert(newer["COSMIC_TEST_PROMISES"] == "proc", newer["COSMIC_TEST_PROMISES"])
 end
 
 --- A fixture project made again at the same path starts with no build

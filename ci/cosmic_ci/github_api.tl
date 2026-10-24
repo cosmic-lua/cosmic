@@ -333,7 +333,7 @@ function GithubApi.request(client: GithubApi.Client, method: string, path: strin
                            seconds?: integer): GithubApi.Reply | nil, string
   local request = request_for(client, method, path, seconds)
   if value ~= nil then
-    local body, trouble = Json.encode(value)
+    local body, trouble = Json.encode_any(value)
     if body == nil then return nil, method .. " " .. path .. ": " .. trouble end
     request = { method = request.method, url = request.url, headers = { ["Content-Type"] = "application/json" },
       timeout_ns = request.timeout_ns, body = body }

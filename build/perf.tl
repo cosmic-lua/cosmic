@@ -369,7 +369,7 @@ local record Counters
 end
 
 local function save(path: string, value: any)
-  assert(Fs.write(path, assert(Json.encode(value, { pretty = true })) .. "\n"))
+  assert(Fs.write(path, assert(Json.encode_any(value, { pretty = true })) .. "\n"))
 end
 
 local function command(argv: {string}, fixture: Fixture): Child.Result

@@ -126,9 +126,7 @@ local function test_asset_set()
   assert(not Prerelease.known_asset("notes.md") and not Prerelease.known_asset("cosmic.exe"))
 end
 
--- TODO: type this parameter as the JSON value type once ci/cosmic-driver.pin names a release that
--- declares it: the tree's encoder takes one, and `any` is a finding there.
-local function json(value: any): string return (assert(Json.encode(value))) end
+local function json(value: any): string return (assert(Json.encode_any(value))) end
 
 --- A page of the releases list, as JSON: the `items`, each already JSON.
 local function array_of(items: {string}): string return "[" .. table.concat(items, ",") .. "]" end
