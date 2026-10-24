@@ -146,6 +146,9 @@ allow({
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
     "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
 
+allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge_new.lua, which is " ..
+    "Lua and loads the seed's Lua by name), which no Teal calls")
+
 allow({ "build.compilation.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
     "the keys `dependency_keys` keeps to, edit by edit")
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..

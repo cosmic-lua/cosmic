@@ -199,6 +199,11 @@ tree's compile and with the pinned release, and holds the files whose Lua differ
 name a line (`codegen.lua`), both ways: a change to what the new checker's code generator writes that the pin lacks lists its files there, a
 listed file that does not differ fails, and the pin move that takes a release carrying the change empties the list and
 removes the file (`bin/cosmic build/lang_proof_main.tl prove <dir> --seed $(bin/cosmic-bootstrap)` runs it).
+the seed the switch boots from is [`build/seed.txt`] (the files of the entry [`build/seed.tl`] and what it requires), compiled
+by the pinned release, and the bridge that loads it is [`core/bridge_new.lua`]; neither boots anything yet.
+`bin/cosmic build/seed_proof_main.tl prove <dir>` writes the translated tree, compiles the seed with the pinned release,
+and boots the tree through that bridge up to [`build.boot`]; with `--tool` it boots a copy of the tree and leaves a tool to
+test. there `lang/SEED_DIFFERS` names source paths ([`lang/codegen.tl`]), not output names.
 `COSMIC_BOOTSTRAP` names another cosmic for the seed too. with it pointing
 at the tree's own tool, the seed is always what the checker compiles itself
 to, so a standing entry fails the boot saying to remove it: boot with the
@@ -213,13 +218,18 @@ and keep the entry in the commit.
 [`bin/vendor`]: ../bin/vendor
 [`bin/verify-codesign`]: ../bin/verify-codesign
 [`bin/zig`]: ../bin/zig
+[`build.boot`]: ../build/boot.tl
 [`build/paths.tl`]: ../build/paths.tl
+[`build/seed.tl`]: ../build/seed.tl
+[`build/seed.txt`]: ../build/seed.txt
 [`build/zig.tl`]: ../build/zig.tl
 [`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/README.md`]: ../ci/README.md
 [`ci/run-local`]: ../ci/run-local
+[`core/bridge_new.lua`]: ../core/bridge_new.lua
 [`doc/c.md`]: c.md
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
+[`lang/codegen.tl`]: ../lang/codegen.tl
 [`Proc.find`]: ../cosmic/proc.tl
