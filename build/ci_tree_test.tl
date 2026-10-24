@@ -66,6 +66,8 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_CHECK_MEMO = true, COSMIC_CI_PORTABLE_SUITE = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
+  -- Names GITHUB_OUTPUT as the file it gives the script it runs, as a step's environment does.
+  ["build/branch_scope_test.tl"] = { GITHUB_OUTPUT = true },
 }
 
 --- The names of variables a suite forgets that `text`, a source,

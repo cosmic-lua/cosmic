@@ -123,6 +123,12 @@ merged.
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
+a branch push whose change touches what only the queue's legs prove (ci/,
+the build and core inputs, the harness's epoch, the artifact and launcher
+modules: [`.github/scripts/branch-scope.txt`]) runs the queue's scope on the
+branch, so those failures show there, and it takes about as long as the
+queue's run does; any other branch push runs the light scope.
+
 a queue run tests the change merged with every entry ahead of it, so it
 can fail where the branch's run passed. when it fails building, on a
 type error in code the change did not touch, it has met another change:
@@ -199,6 +205,7 @@ to, so a standing entry fails the boot saying to remove it: boot with the
 pinned release (unset `COSMIC_BOOTSTRAP`) or leave the file out locally,
 and keep the entry in the commit.
 
+[`.github/scripts/branch-scope.txt`]: ../.github/scripts/branch-scope.txt
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
 [`AGENTS.md`]: ../AGENTS.md
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap

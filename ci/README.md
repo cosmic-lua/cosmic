@@ -283,19 +283,49 @@ index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
 
 ### scope, saves and concurrency
 
-The workflow decides two things once, in its top-level `env`:
-`COSMIC_CI_SCOPE` is `full` for the merge queue, main (a push, the
-scheduled run) and a manual run, and `light` for a branch push;
-`COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled
-run, the only runs whose platform legs save a cache (a push to main
-that reuses the queue's run saves through `seed`, below). The driver
-reads neither (both are `COSMIC_CI_*`, which a suite's workers are
-never given).
+The workflow decides two things once. `COSMIC_CI_SCOPE` is `full` for the
+merge queue, main (a push, the scheduled run) and a manual run, and for a
+branch push whose change touches what a light run leaves unproved (below);
+it is `light` for any other branch push. It is decided by the `scope`
+job, which only a branch push runs, and each job that reads it passes the
+job's output on as its own `COSMIC_CI_SCOPE` (a workflow-level `env` cannot
+read a job): `full` unless the output says `light`, so a run the job did
+not decide, or could not, takes the wider scope. `COSMIC_CI_SAVES`
+is `true` only for a push to main and the scheduled run, the only runs
+whose platform legs save a cache (a push to main that reuses the queue's
+run saves through `seed`, below), and is decided in the top-level `env`.
+The driver reads neither (both are `COSMIC_CI_*`, which a suite's workers
+are never given).
+
+A light run leaves out the queue's alpine leg, regressions, product suite,
+assemble, checked shares and provenance, and a change to what those read
+fails in the queue alone, a pass and a requeue later (PR #3176's
+`all_cores`, a requirement name the pinned driver the alpine fixtures run
+did not know; build, ci/ and core changes failing in the regressions or
+assemble). So the `scope` job asks GitHub for the branch's files (a
+compare with main, `.github/scripts/branch-scope.sh`; no checkout beyond
+two files, and no driver) and chooses `full` where one is named by
+`.github/scripts/branch-scope.txt`: ci/, bin/, the workflow, its actions
+and scripts, what zig's caches hash (the core's C, `build.zig`, vendor/,
+patch/), the harness's epoch file and the artifact, launcher, boot and
+requirement-vocabulary modules of build/. A change to docs, or to any
+test or module that list does not name, runs light, and the job's cost
+there is a runner's start and some seconds. build/branch_scope_test.tl
+holds the list to what the caches and the driver check hash, so it
+cannot drift from them, and the script to `full` wherever it cannot tell
+(a failed compare, a diff of 300 files). A full branch push runs the
+queue's jobs (the checked shares, the narrowing run and the rehearsal
+too), and decides the harness as the queue does: the script's merge base
+is the leg's `COSMIC_CI_BASE_SHA`, so a change that moves
+build/harness_epoch.tl runs every test (`harness_moved`). It saves
+nothing, runs the portable suite on alpine-x86_64 alone as the queue
+does, and its format check is assemble's, not the `format` job's.
 
 A `light` run has three platform legs, not four: alpine-x86_64, which
 is linux-x86_64's runner and target in another image, runs on every
 `full` run, the merge queue's among them. A matrix cannot read `env`, so
-the legs' `name` list tests the scope's condition again and takes one
+the legs' `name` list tests the scope's condition again (the `scope`
+job's output) and takes one
 of two lists. The matrix's `include` adds each leg's values by name,
 and an entry naming a leg the list leaves out would start that leg
 anyway (GitHub adds an entry that fits no combination as one of its

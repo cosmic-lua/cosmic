@@ -39,6 +39,7 @@ local record Orchestration
     abandon: function(outcome: Runner.Outcome)
   end
   stands: function(env: {string:string}): boolean
+  against_a_base: function(env: {string:string}): boolean
   harness_moved: function(root: string, base: string): boolean, string
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string})
@@ -119,7 +120,10 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 -- which every module given the system's paths is keyed by.
 ---
 --- A merge-queue run does not stand either where its change moves
---- build/harness_epoch.tl from the queue's base (COSMIC_CI_HARNESS_MOVED,
+--- build/harness_epoch.tl from the queue's base, nor does a branch push's
+--- that runs the queue's scope (ci.yml's `scope` job, which names the
+--- main commit the branch grew from as COSMIC_CI_BASE_SHA, [`against_a_base`]):
+--- it is the queue's decision, made on the branch (COSMIC_CI_HARNESS_MOVED,
 --- which `environment` sets by [`harness_moved`] where the driver's
 --- environment does not). No key holds the harness's code, only the
 --- epoch that file records (build/declared_key.tl), so a harness change
@@ -140,11 +144,22 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
   if env["COSMIC_CI_GATHER"] == "1" then return true end
-  if env["COSMIC_CI_EVENT"] == "merge_group" and env["COSMIC_CI_HARNESS_MOVED"] ~= "0" then
+  if Orchestration.against_a_base(env) and env["COSMIC_CI_HARNESS_MOVED"] ~= "0" then
     return false
   end
   return (env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" or env["COSMIC_CI_DECLARED_KEYS"] == "1") and
     standing_events[env["COSMIC_CI_EVENT"] or ""] == true
+end
+
+--- Whether the run's change is held against a base commit
+--- (COSMIC_CI_BASE_SHA): the merge queue's, always, or a branch push's,
+--- which ci.yml gives one only where it runs the queue's scope for the
+--- change (its `scope` job; `unknown` where it could not name the base,
+--- which [`harness_moved`] takes as moved). A push to main, the scheduled
+--- and a manual run name none.
+function Orchestration.against_a_base(env: {string:string}): boolean
+  local event = env["COSMIC_CI_EVENT"]
+  return event == "merge_group" or (event == "push" and (env["COSMIC_CI_BASE_SHA"] or "") ~= "")
 end
 
 --- The file that records the harness's epoch and the digests last
@@ -226,7 +241,7 @@ local moved_by_base: {string:boolean} = {}
 --- build/harness_epoch.tl ([`harness_moved`], of the checkout
 --- GITHUB_WORKSPACE names against COSMIC_CI_BASE_SHA), else "0".
 local function decide_harness(env: {string:string})
-  if env["COSMIC_CI_EVENT"] ~= "merge_group" or env["COSMIC_CI_HARNESS_MOVED"] ~= nil then
+  if not Orchestration.against_a_base(env) or env["COSMIC_CI_HARNESS_MOVED"] ~= nil then
     return
   end
   local root, base = env["GITHUB_WORKSPACE"] or "", env["COSMIC_CI_BASE_SHA"] or ""
@@ -241,7 +256,8 @@ local function decide_harness(env: {string:string})
     elseif moved then
       said = "every suite runs every test (--all): "
     end
-    Fs.put(Fs.stderr, "merge queue: " .. said .. why .. "\n")
+    local where = env["COSMIC_CI_EVENT"] == "merge_group" and "merge queue: " or "branch push: "
+    Fs.put(Fs.stderr, where .. said .. why .. "\n")
   end
   env["COSMIC_CI_HARNESS_MOVED"] = moved_by_base[asked] == true and "1" or "0"
 end

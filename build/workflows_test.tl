@@ -191,9 +191,11 @@ local function decoded_workflows(): {string: {string: any}}
   return out
 end
 
---- The condition ci.yml's COSMIC_CI_SCOPE is `full` on; a matrix,
---- which cannot read `env`, tests it again.
-local FULL_RUN <const> = "(github.event_name != 'push' || github.ref == 'refs/heads/main')"
+--- The condition a job takes a run as `full` on: the `scope` job's output
+--- is anything but `light` (it is empty where the job is skipped, as on every
+--- run but a branch push, or failed). ci.yml's COSMIC_CI_SCOPE is this, and
+--- a matrix, which cannot read `env`, tests it again.
+local FULL_RUN <const> = "needs.scope.outputs.scope != 'light'"
 
 --- A matrix's combinations on a run of `scope` (`full` or `light`),
 --- each the values it gets, as GitHub's docs ("Expanding or adding
@@ -1341,7 +1343,8 @@ local function test_a_main_push_reuses_the_queue_run()
   -- `!cancelled()` runs the legs where `reuse` was skipped (every run but
   -- a push to main) or failed, as where it found nothing: without a
   -- status function, a job whose need was skipped is skipped too.
-  assert(platform.needs == "reuse" and platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
+  assert(Json.encode_any(platform.needs) == '["reuse","scope"]' and
+      platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
     "the platform legs run other than where no queue run was found: " .. tostring(platform["if"]))
   assert(seed.needs == "reuse" and seed["if"] == "needs.reuse.outputs.run != ''",
     "seed runs other than where a queue run was found: " .. tostring(seed["if"]))
@@ -1488,7 +1491,7 @@ local function test_a_main_push_reuses_the_queue_run()
 
   local join = jobs.ci
   local needs = join.needs as {string}
-  assert(table.concat(needs, ",") == "reuse,platform,checked,checked-shard,checked-narrowing,format,seed",
+  assert(table.concat(needs, ",") == "reuse,scope,platform,checked,checked-shard,checked-narrowing,format,seed",
     "the join needs " .. table.concat(needs, ","))
   -- The join passes on the legs, the checked job and its shares, and the
   -- checked narrowing run that ran, and (on a light run, and the scheduled
@@ -1833,7 +1836,7 @@ end
 local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x86_64s_host()
   local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
   local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
-  assert(table.concat(list_in(checked, "needs"), ",") == "reuse,checked-shard",
+  assert(table.concat(list_in(checked, "needs"), ",") == "reuse,scope,checked-shard",
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
   -- Past a failed share it runs only where it saves (main's push, the
   -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
@@ -1867,12 +1870,12 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       cenv["COSMIC_CI_FORMAT"] == nil and
       cenv["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and cenv["COSMIC_CI_DECLARED_KEYS"] == "0",
     "the checked job's switches are not linux-x86_64's with the checked suite gathered")
-  for _, same in ipairs({ "COSMIC_CI_EVENT", "COSMIC_CI_BASE_SHA" }) do
+  for _, same in ipairs({ "COSMIC_CI_EVENT", "COSMIC_CI_BASE_SHA", "COSMIC_CI_SCOPE" }) do
     assert(cenv[same] == penv[same], "the checked job's " .. same .. " is not the legs': " .. tostring(cenv[same]))
   end
   local expected <const>: {string: boolean} = { COSMIC_WORKER = true, TARGET = true,
     COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_REQUIRE_SANDBOX = true,
-    COSMIC_CI_DECLARED_KEYS = true,
+    COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SCOPE = true,
     COSMIC_CI_EVENT = true, COSMIC_CI_BASE_SHA = true }
   for key in pairs(cenv) do assert(expected[key], "the checked job sets " .. key) end
   for key in pairs(expected) do assert(cenv[key] ~= nil, "the checked job sets no " .. key) end
@@ -2037,8 +2040,8 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
   local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
   local shard = assert(jobs["checked-shard"], "no job runs a share of the checked suite")
-  assert(shard["needs"] == "reuse" and shard["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
-      "(github.event_name != 'push' || github.ref == 'refs/heads/main')",
+  assert(Json.encode_any(shard["needs"]) == '["reuse","scope"]' and
+      shard["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " .. FULL_RUN,
     "a share runs elsewhere than on a full run where the legs run: " .. tostring(shard["if"]))
   local strategy = table_in(shard, "strategy")
   local parts = numbers_in(table_in(strategy, "matrix"), "part")
@@ -2051,7 +2054,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
     COSMIC_CI_CHECKED_SUITE = "run", COSMIC_CI_CHECKED_SHARD = "${{ matrix.part }}/${{ strategy.job-total }}",
     COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_DECLARED_KEYS = "0",
     COSMIC_CI_EVENT = "${{ github.event_name }}",
-    COSMIC_CI_BASE_SHA = "${{ github.event.merge_group.base_sha }}" }
+    COSMIC_CI_BASE_SHA = "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}" }
   for key, value in pairs(expected) do
     assert(env[key] == value, "a share's " .. key .. ": " .. tostring(env[key]))
   end
@@ -2134,7 +2137,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   local platform = assert(jobs["platform"])
   local narrowing = assert(jobs["checked-narrowing"], "no job runs the checked narrowing")
   local format = assert(jobs["format"], "no job runs the light format check")
-  assert(narrowing["needs"] == "reuse" and narrowing["if"] == assert(jobs["checked-shard"])["if"],
+  assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == assert(jobs["checked-shard"])["if"],
     "the checked narrowing runs elsewhere than a share does: " .. tostring(narrowing["if"]))
   assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
@@ -2155,8 +2158,10 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   -- The format check: a branch push's and the scheduled run's, which
   -- names the paths the branch changed from the base it found, boots,
   -- and lays out only those.
-  assert(format["needs"] == "reuse" and format["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
-      "((github.event_name == 'push' && github.ref_name != 'main') || github.event_name == 'schedule')",
+  assert(Json.encode_any(format["needs"]) == '["reuse","scope"]' and
+      format["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
+      "((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || " ..
+      "github.event_name == 'schedule')",
     "the format check runs elsewhere than on a branch push or the scheduled run: " .. tostring(format["if"]))
   local fenv = texts_in(format, "env")
   assert(format["name"] == "linux-x86_64-format" and fenv["COSMIC_WORKER"] == format["name"])
@@ -2562,21 +2567,6 @@ local function test_only_the_legs_and_their_seed_save()
   end
 end
 
---- A run's scope is decided once, in ci.yml's workflow-level
---- COSMIC_CI_SCOPE, which the legs' steps and the provenance join
---- alike read: `full` for any run but a push off main.
-local function test_the_scope_is_decided_once()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local scope = (ci.env as {string: string}).COSMIC_CI_SCOPE
-  assert(scope == "${{ " .. FULL_RUN .. " && 'full' || 'light' }}", "the scope: " .. tostring(scope))
-  for name, job in pairs(ci.jobs as {string: {string: any}}) do
-    for _, env in ipairs(envs_of(job)) do
-      assert(env.COSMIC_CI_SCOPE == nil and env.FULL == nil,
-        "job " .. name .. " decides its scope again")
-    end
-  end
-end
-
 --- A leg saves only the verdicts its run relied on or reached,
 --- where it passed: a file saved whole would carry several runs' rows,
 --- most under keys no later run reaches. The trim runs where the suites
@@ -2748,6 +2738,50 @@ local function text_at(map: {string: any}, key: string): string
   return ""
 end
 
+--- A run's scope is decided once, by ci.yml's `scope` job (a branch push's
+--- alone: `light` unless its change touches a path of
+--- .github/scripts/branch-scope.txt), and each job that reads it passes
+--- the one answer on as its COSMIC_CI_SCOPE, which its steps and the
+--- provenance join read: `full` unless the output says `light`, so that a
+--- run the job did not decide (every run but a branch push) or could not
+--- (it failed) takes the wider scope. A job that reads the output names
+--- `scope` in its `needs`, or it reads it empty and runs `full` whatever
+--- the branch changed; and one whose steps read COSMIC_CI_SCOPE sets it.
+local function test_the_scope_is_decided_once()
+  local ci = assert(decoded_workflows()[DIR .. "/ci.yml"])
+  assert(Json.get(ci, { "env", "COSMIC_CI_SCOPE" }) == nil, "the scope is decided for every job at once")
+  local PASS <const> = "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}"
+  local deciding = object_at(ci, { "jobs", "scope" })
+  assert(deciding["needs"] == nil and text_at(deciding, "if") == "github.event_name == 'push' && github.ref_name != 'main'",
+    "the scope job runs on another run than a branch push, or waits: " .. text_at(deciding, "if"))
+  local outputs = object_at(deciding, { "outputs" })
+  assert(text_at(outputs, "scope") == "${{ steps.decide.outputs.scope }}" and
+      text_at(outputs, "base") == "${{ steps.decide.outputs.base }}", "the scope job's outputs")
+  local reading = 0
+  for name in pairs(object_at(ci, { "jobs" })) do
+    local job = object_at(ci, { "jobs", name })
+    local text = Json.encode_any(job) or ""
+    local needs = Json.encode_any((Json.get(job, { "needs" }))) or ""
+    local mine = text_at(object_at(job, { "env" }), "COSMIC_CI_SCOPE")
+    if name ~= "scope" then
+      if text:find("needs.scope.", 1, true) ~= nil then
+        reading = reading + 1
+        assert(needs:find('"scope"', 1, true) ~= nil, "job " .. name .. " reads the scope, and does not need it")
+      end
+      if text:find("env.COSMIC_CI_SCOPE", 1, true) ~= nil then
+        assert(mine == PASS, "job " .. name .. " reads COSMIC_CI_SCOPE, which it does not pass on from `scope`")
+      end
+    end
+    assert(mine == "" or mine == PASS, "job " .. name .. " decides its scope again: " .. mine)
+    for index = 1, length_at(job, { "steps" }) do
+      local step_env = object_at(job, { "steps", index, "env" })
+      assert(text_at(step_env, "COSMIC_CI_SCOPE") == "" and text_at(step_env, "FULL") == "",
+        "job " .. name .. " decides its scope again, in a step")
+    end
+  end
+  assert(reading >= 6, "too few jobs read the scope: " .. tostring(reading))
+end
+
 --- The rehearsal boots the tree a second time with the new checker and runs the whole suite on that tool, a project outside
 --- the tree and the proof of lang/ against the pinned seed, in a job of its own, beside the legs and the checked job, on
 --- linux-x86_64's host under a name of its own. It is informational: it is a full run's only, it fails nothing it
@@ -2760,7 +2794,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
     "the rehearsal runs elsewhere")
   local condition = text_at(rehearsal, "if")
   assert(condition:find("needs.reuse.outputs.run == ''", 1, true) ~= nil and
-      condition:find("github.event_name != 'push' || github.ref == 'refs/heads/main'", 1, true) ~= nil,
+      condition:find(FULL_RUN, 1, true) ~= nil,
     "the rehearsal runs other than on a full run that found no queue run: " .. condition)
   local name = text_at(rehearsal, "name")
   assert(name == "linux-x86_64-new-grammar" and text_at(object_at(rehearsal, { "env" }), "COSMIC_WORKER") == name, name)
@@ -3224,6 +3258,9 @@ local function test_the_merge_queue_runs_the_portable_suite_on_alpine_x86_64_alo
     local got = portable_suite_legs(case[1], case[2])
     assert(got == want[case[1]], "a " .. case[1] .. " run runs the portable suite on " .. got)
   end
+  -- A branch push that runs the full scope (`scope`) runs what the queue's does.
+  local branch = portable_suite_legs("push", "refs/heads/some-branch")
+  assert(branch == want["merge_group"], "a full branch push runs the portable suite on " .. branch)
 end
 
 --- A leg that skips the portable suite still runs the step (the driver
