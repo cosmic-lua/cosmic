@@ -238,13 +238,22 @@ local FORMS <const>: {string: function(n: integer)} = {
   end,
 }
 
+--- The sizes the forms are timed at, small and four times it. Each is small enough that
+--- [`Speed.least`] repeats a form many times to fill a sample: a sample is then an average over
+--- several slices of the processor, as the sample of the other side is. A form of a few tens of
+--- milliseconds is one run to a sample, which a host with more work than processors slows by the
+--- number of runners that share it while the short side, which fits in a slice, escapes: four
+--- times the input then read as more than ten times the time.
+local SMALL <const> = 3
+local LARGE <const> = 4 * SMALL
+
 local function test_four_times_the_input_costs_about_four_times_the_time_for_each_form()
   for name, form in pairs(FORMS) do
     local ok, why = Speed.within(function()
-      form(10)
+      form(SMALL)
     end, function()
-      form(40)
-    end, 10)
+      form(LARGE)
+    end, 8, 5)
     assert(ok, name .. ": four times the input " .. why)
   end
 end
