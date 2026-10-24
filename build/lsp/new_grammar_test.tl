@@ -79,6 +79,20 @@ local function test_a_syntax_error_is_published_in_the_parsers_words_at_its_plac
   assert(told.message:find("(", 1, true) ~= nil, told.message)
 end
 
+local function test_a_session_of_the_new_grammar_offers_no_formatting_and_answers_a_request_with_no_edits()
+  local root = project()
+  local ran = served(root, { initialize(root), open(root, "box.tl", BOX), session_fixture.format(2, root, "box.tl") })
+  local init = session_fixture.initialized(session_fixture.answer(ran, 1))
+  assert(init.capabilities.documentFormattingProvider == nil, "formatting is offered")
+  assert(init.capabilities.hoverProvider == true)
+  local body = session_fixture.answer(ran, 2)
+  assert(body:find('"result":[]', 1, true) ~= nil and body:find('"error"', 1, true) == nil, body)
+  -- A document the fork would reformat is left alone too.
+  local loose = served(root, { initialize(root), open(root, "n.tl", "local   n =  1\nreturn n\n"),
+    session_fixture.format(2, root, "n.tl") })
+  assert(session_fixture.answer(loose, 2):find('"result":[]', 1, true) ~= nil)
+end
+
 --- A project whose `helper` is in the new grammar and which `main` requires, each on disk.
 local function helped(helper: string): string
   local root = project()

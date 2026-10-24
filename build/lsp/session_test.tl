@@ -191,6 +191,7 @@ local function test_formatting_answers_the_fixed_text()
   assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
   assert(body:find('"end":{"character":0,"line":2}', 1, true), body)
   assert(failed(answer(ran, 3)) == -32803)
+  assert(initialized(answer(ran, 1)).capabilities.documentFormattingProvider == true)
 end
 
 local function test_the_lifecycle_is_held_to()
