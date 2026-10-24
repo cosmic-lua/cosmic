@@ -2,11 +2,18 @@
 --- and `.d.tl` file given, and each guide of `doc/guides` with the Teal of its examples translated in place. It is
 --- the step the switch (doc/plans/strict-teal.md, "the switch") makes once, with nothing in the tree reading it yet.
 ---
----     bin/cosmic build/tree_writer_main.tl write <dir> [--again] [--root <tree>] [path...]
+---     bin/cosmic build/tree_writer_main.tl write <dir> [--again] [--raw] [--root <tree>] [path...]
 ---
 --- writes the files below `<dir>` at the paths they have in the tree. With no path it takes the files git tracks.
 ---
---- A file whose translation still has errors ([`lang.translate`]'s `errors`: a form the translator does not handle)
+--- A module is written as the pipeline reads it: its translation and then the steps of [`TreeProgram.read`] (the `where`
+--- clauses of the files that cannot be read in the new grammar blanked, the tests of their records written as the tests of
+--- their tags, the lines the new checker reads otherwise replaced), so that the tree committed in the new grammar is the text
+--- the build already checks, with the pins and the Lua unchanged. `raw` (`--raw`) writes the translation alone.
+--- The checker's fork (`checker/`) and the fork-only fixtures (`testdata/rehearsal/fork_only/`) are *kept*: neither is
+--- read nor written, since they stay in the fork's Teal by design.
+---
+--- A file whose text still has errors ([`lang.translate`]'s `errors`: a form the translator does not handle)
 --- is *refused*: it is not written, and the report says why. A file the allow-list names ([`TreeWriter.allowance`], and
 --- the files [`build/ceilings.txt`] still pins under `[translated]`, up to their pins) is *allowed*: it is written as
 --- translated, errors and all, for a hand edit that the switch makes. Every other file is *clean*.
@@ -26,7 +33,9 @@ local Fs = require("cosmic.fs")
 local Doctest = require("build.doctest")
 local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
+local LangProof = require("build.lang_proof")
 local Translate = require("lang.translate")
+local TreeProgram = require("build.tree_program")
 
 local record TreeWriter
   --- What the allow-list lets through.
@@ -59,6 +68,8 @@ local record TreeWriter
     allowed: {File}
     --- The files not written.
     refused: {File}
+    --- How many files were neither read nor written, being fork-only by design (`kept`).
+    kept: integer
     --- The files whose second translation changed the text (only where `again` was asked).
     unstable: {string}
     --- Methods the translation moved into a class that read or give something else, one per line.
@@ -81,6 +92,8 @@ local record TreeWriter
     --- What translates, where not [`lang.translate`]: a test plants one that drifts or loses a comment to see the writer
     --- report it.
     translator: Translator | nil
+    --- Write the translation alone, without the steps the pipeline takes after it ([`TreeProgram.read`]).
+    raw: boolean | nil
   end
 
   --- What [`TreeWriter.guide`] answers.
@@ -96,9 +109,8 @@ local record TreeWriter
     left: integer
   end
 
-  --- The allow-list of the tree at `root`: the files the owner decided to let keep errors (the checker's own [`lang/ast.tl`] and
-  --- [`lang/types.tl`], the standard library's declarations, the tour, a guide's example of a generic method, the fork-only
-  --- fixtures) and the `[translated]` ceilings.
+  --- The allow-list of the tree at `root`: the files the owner decided to let keep errors (the tour, a guide's example of a
+  --- generic method) and the `[translated]` ceilings.
   allowance: function(root: string): Allowance | nil, string
 
   --- Whether the allow-list lets `path` keep errors of these `codes` (a count for each).
@@ -126,14 +138,24 @@ local record TreeWriter
   main: function(argv: {string}): integer
 end
 
---- The files whose translation may keep errors, by the owner's decision: the checker's own two modules and the fork's copy of
---- the standard library's declarations (the new checker's own, [`lang/stdlib.d.tl`], is written by hand already, and the copy goes
---- with the fork), the tour (which teaches
---- forms the new grammar cuts), a guide's example of a generic method, and the fork-only fixtures.
+--- The files whose text may keep errors, by the owner's decision: the tour (which teaches forms the new grammar cuts) and a
+--- guide's example of a generic method.
 local ALLOWED <const>: {string} = {
-  "lang/ast.tl", "lang/types.tl", "checker/stdlib.d.tl", "cosmic/removed_example.tl", "doc/guides/project.md",
-  "testdata/rehearsal/fork_only/*",
+  "cosmic/removed_example.tl", "doc/guides/project.md",
 }
+
+--- The directories that stay in the fork's Teal: the fork's checker (its copy of the standard library's declarations goes
+--- with it) and the fixtures that exist for the fork.
+local KEPT <const>: {string} = { "checker/", "testdata/rehearsal/fork_only/" }
+
+local function kept(path: string): boolean
+  for _, directory in ipairs(KEPT) do
+    if path:sub(1, #directory) == directory then
+      return true
+    end
+  end
+  return false
+end
 
 function TreeWriter.allowance(root: string): TreeWriter.Allowance | nil, string
   local ceilings, why = Ceilings.read(root)
@@ -359,8 +381,9 @@ local NEW_GRAMMAR <const>: {string: boolean} = {
 }
 
 --- `text`, the file `path`, translated: a guide through [`TreeWriter.guide`], a file already in the new grammar as it is, any
---- other file as a module.
-local function translated(path: string, text: string, translator: TreeWriter.Translator | nil): Done
+--- other file as a module, with the steps of [`TreeProgram.read`] where `tags` are given.
+local function translated(path: string, text: string, translator: TreeWriter.Translator | nil,
+                          tags: {string: LangProof.Tags} | nil): Done
   if NEW_GRAMMAR[path] == true then
     return { text = text, errors = {}, codes = {}, counts = {}, hazards = {}, left = 0 }
   end
@@ -369,7 +392,15 @@ local function translated(path: string, text: string, translator: TreeWriter.Tra
     return { text = g.text, errors = g.errors, codes = g.codes, counts = g.counts, hazards = g.hazards, left = g.left }
   end
   local translate: TreeWriter.Translator = translator or Translate.translate
-  local result = translate(text, path)
+  local result: Translate.Result
+  local final: string
+  if tags ~= nil then
+    local read = TreeProgram.read(path, text, tags, translator)
+    result, final = read.translation, read.text
+  else
+    result = translate(text, path)
+    final = result.text
+  end
   local errors: {string} = {}
   local codes: {string: integer} = {}
   for _, e in ipairs(result.errors) do
@@ -380,53 +411,73 @@ local function translated(path: string, text: string, translator: TreeWriter.Tra
   for _, h in ipairs(result.hazards) do
     hazards[#hazards + 1] = path .. ":" .. tostring(h.y) .. ": " .. h.class .. ":" .. h.method .. " (" .. h.kind .. ") " .. h.name
   end
-  return { text = result.text, errors = errors, codes = codes, counts = result.counts, hazards = hazards, left = 0 }
+  return { text = final, errors = errors, codes = codes, counts = result.counts, hazards = hazards, left = 0 }
 end
 
 function TreeWriter.write(root: string, paths: {string}, out: string, options: TreeWriter.Options): TreeWriter.Report | nil, string
   local started = Clock.monotonic_ns()
-  local report: TreeWriter.Report = {
-    files = 0, changed = 0, clean = {}, allowed = {}, refused = {}, unstable = {}, hazards = {}, counts = {}, left = 0,
-    nanoseconds = 0,
-  }
+  local held = 0
   for _, path in ipairs(paths) do
-    local source, why = Fs.read(root .. "/" .. path)
-    if source == nil then
-      return nil, why
+    if kept(path) then
+      held = held + 1
     end
-    local done = translated(path, source, options.translator)
-    report.files = report.files + 1
-    local changed = done.text ~= source
-    if changed then
-      report.changed = report.changed + 1
-    end
-    add_counts(report.counts, done.counts)
-    report.left = report.left + done.left
-    for _, line in ipairs(done.hazards) do
-      report.hazards[#report.hazards + 1] = line
-    end
-    local file: TreeWriter.File = { path = path, errors = done.errors, codes = done.codes, changed = changed }
-    local written = true
-    if #done.errors == 0 then
-      report.clean[#report.clean + 1] = path
-    elseif TreeWriter.permits(options.allowance, path, done.codes) then
-      report.allowed[#report.allowed + 1] = file
+  end
+  local report: TreeWriter.Report = {
+    files = 0, changed = 0, clean = {}, allowed = {}, refused = {}, kept = held, unstable = {}, hazards = {}, counts = {},
+    left = 0, nanoseconds = 0,
+  }
+  -- The steps after the translation read the two modules that hold the `where` clauses, as the tree has them.
+  local tags: {string: LangProof.Tags} | nil = nil
+  if options.raw ~= true then
+    local ast, _ = Fs.read(root .. "/lang/ast.tl")
+    local types, _ = Fs.read(root .. "/lang/types.tl")
+    if ast ~= nil and types ~= nil then
+      tags = TreeProgram.tags_of({ { "lang/ast.tl", ast }, { "lang/types.tl", types } })
     else
-      report.refused[#report.refused + 1] = file
-      written = false
+      tags = {}
     end
-    if written then
-      local target = out .. "/" .. path
-      local made, trouble = Fs.mkdirs(Fs.dirname(target))
-      if not made then
-        return nil, trouble
+  end
+  for _, path in ipairs(paths) do
+    if not kept(path) then
+      local source, why = Fs.read(root .. "/" .. path)
+      if source == nil then
+        return nil, why
       end
-      local wrote, write_trouble = Fs.write(target, done.text)
-      if not wrote then
-        return nil, write_trouble
+      local done = translated(path, source, options.translator, tags)
+      report.files = report.files + 1
+      local changed = done.text ~= source
+      if changed then
+        report.changed = report.changed + 1
       end
-      if options.again and translated(path, done.text, options.translator).text ~= done.text then
-        report.unstable[#report.unstable + 1] = path
+      add_counts(report.counts, done.counts)
+      report.left = report.left + done.left
+      for _, line in ipairs(done.hazards) do
+        report.hazards[#report.hazards + 1] = line
+      end
+      local file: TreeWriter.File = { path = path, errors = done.errors, codes = done.codes, changed = changed }
+      local written = true
+      if #done.errors == 0 then
+        report.clean[#report.clean + 1] = path
+      elseif TreeWriter.permits(options.allowance, path, done.codes) then
+        report.allowed[#report.allowed + 1] = file
+      else
+        report.refused[#report.refused + 1] = file
+        written = false
+      end
+      if written then
+        local target = out .. "/" .. path
+        local made, trouble = Fs.mkdirs(Fs.dirname(target))
+        if not made then
+          return nil, trouble
+        end
+        local wrote, write_trouble = Fs.write(target, done.text)
+        if not wrote then
+          return nil, write_trouble
+        end
+        -- Translated alone: the steps are done, and translating what they made must move nothing.
+        if options.again and translated(path, done.text, options.translator, nil).text ~= done.text then
+          report.unstable[#report.unstable + 1] = path
+        end
       end
     end
   end
@@ -440,7 +491,8 @@ function TreeWriter.summary(report: TreeWriter.Report): {string}
   out[#out + 1] = "read " .. String.counted(report.files, "file") .. ", " .. tostring(report.changed) ..
     " changed by the translation"
   out[#out + 1] = "written " .. tostring(written) .. " (" .. tostring(#report.clean) .. " clean, " ..
-    tostring(#report.allowed) .. " allowed with errors), refused " .. tostring(#report.refused)
+    tostring(#report.allowed) .. " allowed with errors), refused " .. tostring(#report.refused) .. ", kept in the fork's Teal " ..
+    tostring(report.kept)
   for _, file in ipairs(report.allowed) do
     out[#out + 1] = "  allowed " .. file.path .. ": " .. tostring(#file.errors) .. " left"
   end
@@ -487,7 +539,7 @@ function TreeWriter.summary(report: TreeWriter.Report): {string}
 end
 
 function TreeWriter.main(argv: {string}): integer
-  local usage = "usage: bin/cosmic build/tree_writer_main.tl write <dir> [--again] [--root <tree>] [path...]"
+  local usage = "usage: bin/cosmic build/tree_writer_main.tl write <dir> [--again] [--raw] [--root <tree>] [path...]"
   if argv[1] ~= "write" or argv[2] == nil then
     print(usage)
     return 2
@@ -495,12 +547,16 @@ function TreeWriter.main(argv: {string}): integer
   local out = assert(argv[2])
   local root = "."
   local again = false
+  local raw = false
   local paths: {string} = {}
   local index = 3
   while argv[index] ~= nil do
     local word = assert(argv[index])
     if word == "--again" then
       again = true
+      index = index + 1
+    elseif word == "--raw" then
+      raw = true
       index = index + 1
     elseif word == "--root" then
       local given = argv[index + 1]
@@ -528,7 +584,7 @@ function TreeWriter.main(argv: {string}): integer
     end
     paths = listed
   end
-  local report, trouble = TreeWriter.write(root, paths, out, { allowance = allowance, again = again, translator = nil })
+  local report, trouble = TreeWriter.write(root, paths, out, { allowance = allowance, again = again, translator = nil, raw = raw })
   if report == nil then
     print("writing: " .. trouble)
     return 1
