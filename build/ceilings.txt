@@ -6097,7 +6097,7 @@ build/worker.tl map_field 3
 
 build/worker_test.tl map_field 7
 
-build/workflows_test.tl map_field 193
+build/workflows_test.tl map_field 191
 
 build/zig_fetch_test.tl map_field 5
 
@@ -7758,7 +7758,7 @@ build/work_test.tl cast_refused 2
 
 build/worker_test.tl cast_refused 8
 
-build/workflows_test.tl cast_refused 300
+build/workflows_test.tl cast_refused 297
 
 build/zig_caches_test.tl cast_refused 1
 

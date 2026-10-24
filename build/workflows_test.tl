@@ -2567,49 +2567,6 @@ local function test_only_the_legs_and_their_seed_save()
   end
 end
 
---- A run's scope is decided once, by ci.yml's `scope` job (a branch push's
---- alone: `light` unless its change touches a path of
---- .github/scripts/branch-scope.txt), and each job that reads it passes
---- the one answer on as its COSMIC_CI_SCOPE, which its steps and the
---- provenance join read: `full` unless the output says `light`, so that a
---- run the job did not decide (every run but a branch push) or could not
---- (it failed) takes the wider scope. A job that reads the output names
---- `scope` in its `needs`, or it reads it empty and runs `full` whatever
---- the branch changed; and one whose steps read COSMIC_CI_SCOPE sets it.
-local function test_the_scope_is_decided_once()
-  local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  assert((ci.env as {string: string}).COSMIC_CI_SCOPE == nil, "the scope is decided for every job at once")
-  local PASS <const> = "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}"
-  local jobs = ci.jobs as {string: {string: any}}
-  local deciding = assert(jobs.scope, "no job decides the scope")
-  assert(deciding.needs == nil and deciding["if"] == "github.event_name == 'push' && github.ref_name != 'main'",
-    "the scope job runs on another run than a branch push, or waits: " .. tostring(deciding["if"]))
-  local outputs = deciding.outputs as {string: string}
-  assert(outputs.scope == "${{ steps.decide.outputs.scope }}" and outputs.base == "${{ steps.decide.outputs.base }}",
-    "the scope job's outputs")
-  local reading = 0
-  for name, job in pairs(jobs) do
-    local text = assert(Json.encode(job))
-    local needs = Json.encode(job.needs) or ""
-    local env = job.env as {string: string} or {}
-    if name ~= "scope" then
-      if text:find("needs.scope.", 1, true) then
-        reading = reading + 1
-        assert(needs:find('"scope"', 1, true) or job.needs == "scope", "job " .. name .. " reads the scope, and does not need it")
-      end
-      if text:find("env.COSMIC_CI_SCOPE", 1, true) then
-        assert(env.COSMIC_CI_SCOPE == PASS, "job " .. name .. " reads COSMIC_CI_SCOPE, which it does not pass on from `scope`")
-      end
-    end
-    for _, step_env in ipairs(envs_of(job)) do
-      assert(step_env == env or (step_env.COSMIC_CI_SCOPE == nil and step_env.FULL == nil),
-        "job " .. name .. " decides its scope again")
-    end
-    assert(env.COSMIC_CI_SCOPE == nil or env.COSMIC_CI_SCOPE == PASS, "job " .. name .. " decides its scope again: " .. tostring(env.COSMIC_CI_SCOPE))
-  end
-  assert(reading >= 6, "too few jobs read the scope: " .. reading)
-end
-
 --- A leg saves only the verdicts its run relied on or reached,
 --- where it passed: a file saved whole would carry several runs' rows,
 --- most under keys no later run reaches. The trim runs where the suites
@@ -2779,6 +2736,50 @@ local function text_at(map: {string: any}, key: string): string
     return found
   end
   return ""
+end
+
+--- A run's scope is decided once, by ci.yml's `scope` job (a branch push's
+--- alone: `light` unless its change touches a path of
+--- .github/scripts/branch-scope.txt), and each job that reads it passes
+--- the one answer on as its COSMIC_CI_SCOPE, which its steps and the
+--- provenance join read: `full` unless the output says `light`, so that a
+--- run the job did not decide (every run but a branch push) or could not
+--- (it failed) takes the wider scope. A job that reads the output names
+--- `scope` in its `needs`, or it reads it empty and runs `full` whatever
+--- the branch changed; and one whose steps read COSMIC_CI_SCOPE sets it.
+local function test_the_scope_is_decided_once()
+  local ci = assert(decoded_workflows()[DIR .. "/ci.yml"])
+  assert(Json.get(ci, { "env", "COSMIC_CI_SCOPE" }) == nil, "the scope is decided for every job at once")
+  local PASS <const> = "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}"
+  local deciding = object_at(ci, { "jobs", "scope" })
+  assert(deciding["needs"] == nil and text_at(deciding, "if") == "github.event_name == 'push' && github.ref_name != 'main'",
+    "the scope job runs on another run than a branch push, or waits: " .. text_at(deciding, "if"))
+  local outputs = object_at(deciding, { "outputs" })
+  assert(text_at(outputs, "scope") == "${{ steps.decide.outputs.scope }}" and
+      text_at(outputs, "base") == "${{ steps.decide.outputs.base }}", "the scope job's outputs")
+  local reading = 0
+  for name in pairs(object_at(ci, { "jobs" })) do
+    local job = object_at(ci, { "jobs", name })
+    local text = Json.encode(job) or ""
+    local needs = Json.encode((Json.get(job, { "needs" }))) or ""
+    local mine = text_at(object_at(job, { "env" }), "COSMIC_CI_SCOPE")
+    if name ~= "scope" then
+      if text:find("needs.scope.", 1, true) ~= nil then
+        reading = reading + 1
+        assert(needs:find('"scope"', 1, true) ~= nil, "job " .. name .. " reads the scope, and does not need it")
+      end
+      if text:find("env.COSMIC_CI_SCOPE", 1, true) ~= nil then
+        assert(mine == PASS, "job " .. name .. " reads COSMIC_CI_SCOPE, which it does not pass on from `scope`")
+      end
+    end
+    assert(mine == "" or mine == PASS, "job " .. name .. " decides its scope again: " .. mine)
+    for index = 1, length_at(job, { "steps" }) do
+      local step_env = object_at(job, { "steps", index, "env" })
+      assert(text_at(step_env, "COSMIC_CI_SCOPE") == "" and text_at(step_env, "FULL") == "",
+        "job " .. name .. " decides its scope again, in a step")
+    end
+  end
+  assert(reading >= 6, "too few jobs read the scope: " .. tostring(reading))
 end
 
 --- The rehearsal boots the tree a second time with the new checker and runs the whole suite on that tool, a project outside
@@ -3259,7 +3260,7 @@ local function test_the_merge_queue_runs_the_portable_suite_on_alpine_x86_64_alo
   end
   -- A branch push that runs the full scope (`scope`) runs what the queue's does.
   local branch = portable_suite_legs("push", "refs/heads/some-branch")
-  assert(branch == want.merge_group, "a full branch push runs the portable suite on " .. branch)
+  assert(branch == want["merge_group"], "a full branch push runs the portable suite on " .. branch)
 end
 
 --- A leg that skips the portable suite still runs the step (the driver

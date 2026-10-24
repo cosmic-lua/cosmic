@@ -10,7 +10,6 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 
 --- The script and its list, the actions whose hashes the list is held to
@@ -21,6 +20,7 @@ Test.policy{
   grants = {
     { path = ".github/", letters = "r" },
     { path = "/bin/sh", letters = "r" },
+    { path = "/bin/cat", letters = "r" },
     { path = "ci/cosmic_ci/orchestration.tl", letters = "r" },
     { path = "build.zig", letters = "r" },
     { path = "build.zig.zon", letters = "r" },
@@ -39,7 +39,7 @@ Test.policy{
     { path = "core/mbedtls_cosmic_config.h", letters = "r" },
   },
   env = { "PATH" },
-  requires = { "path:/bin/sh", "program:jq" },
+  requires = { "path:/bin/sh", "path:/bin/cat" },
 }
 
 local SCRIPT <const> = ".github/scripts/branch-scope.sh"
@@ -64,15 +64,11 @@ local function sample(pattern: string): string
   return (pattern:gsub("%*%*", "x/y"):gsub("%*", "z"))
 end
 
---- The quoted patterns of the `hashFiles(...)` in `text` that follows
---- `after`, in order.
-local function hashed(text: string, after: string): {string}
+--- The arguments of the `hashFiles(...)` in `text` that follows `after`,
+--- as written: quoted patterns, `, ` apart.
+local function hashed(text: string, after: string): string
   local from = assert(text:find(after, 1, true), "no " .. after)
-  local arguments = assert(text:match("hashFiles%((.-)%)", from), "no hashFiles after " .. after)
-  local out: {string} = {}
-  for pattern in arguments:gmatch("'([^']+)'") do out[#out + 1] = pattern end
-  assert(#out > 0, "no pattern after " .. after)
-  return out
+  return (assert(text:match("hashFiles%((.-)%)", from), "no hashFiles after " .. after))
 end
 
 --- What the zig caches' keys hash (the `vendor` and `core` parts of the
@@ -83,20 +79,15 @@ end
 local function test_the_list_names_what_the_caches_and_the_driver_check_hash(tmp: string)
   local action = assert(Fs.read(".github/actions/cache-names/action.yml"))
   local ci = assert(Fs.read(".github/workflows/ci.yml"))
-  local patterns: {string} = {}
-  for _, part in ipairs({ "VENDOR:", "CORE:" }) do
-    for _, pattern in ipairs(hashed(action, part)) do patterns[#patterns + 1] = pattern end
-  end
-  for _, pattern in ipairs(hashed(ci, 'key: "driver-checked-v2-${{ matrix.name }}-')) do
-    -- The workflow's own file is the only one of .github/workflows the
-    -- list names: another workflow is no input to a leg.
-    patterns[#patterns + 1] = pattern
-  end
+  local arguments = hashed(action, "VENDOR:") .. ", " .. hashed(action, "CORE:") .. ", " ..
+    hashed(ci, 'key: "driver-checked-v2-${{ matrix.name }}-')
   local count = 0
-  for _, pattern in ipairs(patterns) do
+  for pattern in arguments:gmatch("'([^']+)'") do
     count = count + 1
     local negated = pattern:sub(1, 1) == "!"
-    local path = sample(negated and pattern:sub(2) or pattern)
+    local bare = pattern
+    if negated then bare = pattern:sub(2) end
+    local path = sample(bare)
     local got = matched(tmp, { path })
     if negated then
       assert(got == "", pattern .. " is hashed apart from the zig build, and the list names " .. got)
@@ -104,7 +95,7 @@ local function test_the_list_names_what_the_caches_and_the_driver_check_hash(tmp
       assert(got ~= "", pattern .. " is hashed into a cache or the driver check's key, and the list names no " .. path)
     end
   end
-  assert(count >= 20, "the caches' patterns were not read: " .. count)
+  assert(count >= 20, "the caches' patterns were not read: " .. tostring(count))
 end
 
 --- The list's exact entries (those with no `*`) name files that exist,
@@ -122,7 +113,7 @@ local function test_the_lists_files_exist()
       if entry == "build/harness_epoch.tl" then epoch = true end
     end
   end
-  assert(seen >= 15, "too few files read: " .. seen)
+  assert(seen >= 15, "too few files read: " .. tostring(seen))
   assert(epoch, "the list does not name the harness's epoch file")
   local orchestration = assert(Fs.read("ci/cosmic_ci/orchestration.tl"))
   assert(orchestration:find('local epoch_file <const> = "build/harness_epoch.tl"', 1, true),
@@ -181,24 +172,23 @@ local function test_a_branch_push_runs_full_where_a_light_run_would_leave_the_ch
     "the first path the list names, and the pattern that does, are the answer: " .. matched(tmp, { "doc/a.md", "ci/cosmic_ci/driver.tl" }))
 end
 
---- Runs `branch-scope.sh decide` with a `gh` that answers `answer` (or
---- fails, where it is nil), answering the `scope`, `base` and the log's
---- line.
+--- Runs `branch-scope.sh decide` with a `gh` that answers `answer` (the
+--- merge base, the count and the files, a line each, as the script's
+--- `--jq` makes them) or fails, where it is nil, answering the `scope`,
+--- `base` and the log's line.
 local function decided(tmp: string, answer: string | nil): string, string, string
   local bin = tmp .. "/bin"
   assert(Fs.mkdirs(bin))
   if answer ~= nil then
-    assert(Fs.write(tmp .. "/compare.json", answer))
-    assert(Fs.write(bin .. "/gh", '#!/bin/sh\n[ "$1 $2" = "api repos/o/r/compare/main...abc123" ] || exit 9\ncat "' ..
-        tmp .. '/compare.json"\n', 0x1ed))
+    assert(Fs.write(tmp .. "/answer", answer))
+    assert(Fs.write(bin .. "/gh", '#!/bin/sh\n[ "$1 $2" = "api repos/o/r/compare/main...abc123" ] || exit 9\n/bin/cat "' ..
+        tmp .. '/answer"\n', 0x1ed))
   else
     assert(Fs.write(bin .. "/gh", "#!/bin/sh\necho 'HTTP 502' >&2\nexit 1\n", 0x1ed))
   end
   local output = tmp .. "/output"
   assert(Fs.write(output, ""))
-  local env = Env.all()
-  env["PATH"] = bin .. ":" .. (env["PATH"] or "/usr/bin:/bin")
-  env["GITHUB_OUTPUT"] = output
+  local env: {string: string} = { PATH = bin .. ":" .. (Env.get("PATH") or "/usr/bin:/bin"), GITHUB_OUTPUT = output }
   local result = assert(Child.run({ "/bin/sh", SCRIPT, "decide", "o/r", "abc123" },
     { env = env, stdout = "capture", stderr = "capture" }))
   assert(result.ok, "decide fails the run: " .. tostring(result.stderr))
@@ -217,28 +207,28 @@ local BASE <const> = string.rep("a1", 20)
 --- tell, a base it cannot name being `unknown`, which `harness_moved`
 --- takes as moved.
 local function test_the_scope_job_answers_full_wherever_it_cannot_tell(tmp: string)
-  local function compare(files: {{string: string}}, base: string | nil): string
-    local merge: {string: any} = {}
-    if base ~= nil then merge["sha"] = base end
-    return (assert(Json.encode({ merge_base_commit = merge, files = files })))
+  --- The answer for a base, the files' count and the files.
+  local function compare(base: string, files: {string}): string
+    return base .. "\n" .. tostring(#files) .. "\n" .. table.concat(files, "\n") .. "\n"
   end
-  local scope, base, said = decided(tmp .. "/1", compare({ { filename = "doc/a.md" }, { filename = "ci/x.tl" } }, BASE))
+  local scope, base, said = decided(tmp .. "/1", compare(BASE, { "doc/a.md", "ci/x.tl" }))
   assert(scope == "full" and base == BASE, "a change to ci/: " .. scope .. " " .. base)
-  assert(said:find("ci/x.tl ci/*", 1, true), "the log names the path and pattern: " .. said)
-  scope, base = decided(tmp .. "/2", compare({ { filename = "doc/a.md" }, { filename = "cosmic/x.tl" } }, BASE))
+  assert(said:find("ci/x.tl ci/*", 1, true) ~= nil, "the log names the path and pattern: " .. said)
+  scope, base = decided(tmp .. "/2", compare(BASE, { "doc/a.md", "cosmic/x.tl" }))
   assert(scope == "light" and base == "", "a change to nothing the list names: " .. scope .. " " .. base)
-  scope = decided(tmp .. "/3", compare({ { filename = "ci/new.tl", previous_filename = "cosmic/old.tl" } }, BASE))
+  -- A rename's old name follows its new one, one more line than the count.
+  scope = decided(tmp .. "/3", BASE .. "\n1\nci/new.tl\ncosmic/old.tl\n")
   assert(scope == "full", "a file moved into a listed path")
-  scope = decided(tmp .. "/4", compare({ { filename = "cosmic/new.tl", previous_filename = "core/old.c" } }, BASE))
+  scope = decided(tmp .. "/4", BASE .. "\n1\ncosmic/new.tl\ncore/old.c\n")
   assert(scope == "full", "a file moved out of a listed path")
   scope, base = decided(tmp .. "/5", nil)
   assert(scope == "full" and base == "unknown", "a compare that fails: " .. scope .. " " .. base)
-  scope, base = decided(tmp .. "/6", "not json")
-  assert(scope == "full" and base == "unknown", "an answer that is no JSON: " .. scope .. " " .. base)
-  local many: {{string: string}} = {}
-  for i = 1, 300 do many[i] = { filename = "doc/" .. i .. ".md" } end
-  scope, base = decided(tmp .. "/7", compare(many, BASE))
+  scope, base = decided(tmp .. "/6", "an answer\nthat is no count\n")
+  assert(scope == "full" and base == "unknown", "an answer that is no count: " .. scope .. " " .. base)
+  scope, base = decided(tmp .. "/6b", "")
+  assert(scope == "full" and base == "unknown", "no answer: " .. scope .. " " .. base)
+  scope, base = decided(tmp .. "/7", BASE .. "\n300\n" .. string.rep("doc/a.md\n", 300))
   assert(scope == "full" and base == BASE, "300 files, which GitHub stops listing at: " .. scope)
-  scope, base = decided(tmp .. "/8", compare({ { filename = "ci/x.tl" } }, nil))
+  scope, base = decided(tmp .. "/8", compare("", { "ci/x.tl" }))
   assert(scope == "full" and base == "unknown", "a change with no merge base named: " .. scope .. " " .. base)
 end

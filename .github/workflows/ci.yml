@@ -73,6 +73,12 @@
     # the branch grew from: the legs take it as the merge queue's base
     # (COSMIC_CI_BASE_SHA), so a change that moves build/harness_epoch.tl
     # runs every test as the queue's does (orchestration.tl's `stands`).
+    # TODO: name what else only the queue's legs prove, once a record of the
+    # queue's failures says which changed paths they follow: of the queue
+    # failures read when this list was written, the alpine native and
+    # product suites (2830, 2831, 2882, 2916) failed on changes to cosmic/ and
+    # tests that no path of the list names, and a list of all of cosmic/
+    # would run most branches in the queue's scope.
     scope: {
       if: "github.event_name == 'push' && github.ref_name != 'main'",
       "runs-on": "ubuntu-24.04",

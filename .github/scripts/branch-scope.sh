@@ -7,10 +7,10 @@
 #                              the first that the list names and the
 #                              pattern that does, exiting 1 where none is.
 #   branch-scope.sh decide REPOSITORY SHA
-#                              asks GitHub (with $GH_TOKEN) for the
+#                              asks GitHub (gh, with $GH_TOKEN) for the
 #                              change from main's merge base to SHA and
 #                              writes scope=, base= (the merge base, only
-#                              on a full run) and why= to $GITHUB_OUTPUT.
+#                              on a full run) to $GITHUB_OUTPUT.
 #
 # It never fails the run for what it cannot tell: a compare that fails, a
 # diff of 300 files (the most GitHub lists) or a path the list names is
@@ -71,18 +71,22 @@ say() {
 decide() {
   repository=$1
   sha=$2
-  if ! compared=$(gh api "repos/$repository/compare/main...$sha" 2>&1); then
-    say full unknown "cannot compare $sha with main: $compared"
+  # One call: the merge base, the number of files, then the files (a
+  # rename's old name too: moving a file out of a listed path changes it).
+  # gh's own jq, which the runner needs no other for.
+  if ! answer=$(gh api "repos/$repository/compare/main...$sha" --jq \
+    '.merge_base_commit.sha, (.files | length), (.files[] | .filename, (.previous_filename // empty))' 2>&1); then
+    say full unknown "cannot compare $sha with main: $answer"
     return 0
   fi
-  base=$(printf '%s' "$compared" | jq -r '.merge_base_commit.sha // empty') || base=
-  count=$(printf '%s' "$compared" | jq -r '.files | length') || count=
+  base=$(printf '%s\n' "$answer" | sed -n 1p)
+  count=$(printf '%s\n' "$answer" | sed -n 2p)
   case $base in
     '' | *[!0-9a-f]*) base=unknown ;;
   esac
   case $count in
     '' | *[!0-9]*)
-      say full "$base" "cannot read the files of the change"
+      say full "$base" "cannot read the files of the change: $answer"
       return 0
       ;;
   esac
@@ -90,9 +94,7 @@ decide() {
     say full "$base" "the change lists $count files, which GitHub stops at"
     return 0
   fi
-  # A rename's old name too: moving a file out of a listed path changes it.
-  files=$(printf '%s' "$compared" | jq -r '.files[] | .filename, (.previous_filename // empty)') || files=
-  if hit=$(printf '%s\n' "$files" | match); then
+  if hit=$(printf '%s\n' "$answer" | sed 1,2d | match); then
     say full "$base" "$hit"
   else
     say light "" "no path of the change's $count files is one that list names"
