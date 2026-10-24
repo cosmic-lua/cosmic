@@ -477,6 +477,14 @@ again by itself. [`build.harness_epoch_test`] fails until
 `acknowledged` holds every harness module's digest. It prints the line
 to set or add, and each stale entry to delete.
 
+The code that makes a key, looks a verdict up or keeps one, and gives a
+worker what it runs on is [`build/test_key.tl`], which the harness holds
+alone. The runner around it, [`build/test.tl`], and the types they
+share, [`build/test_state.tl`], are not held: an edit to either (a
+progress line, the coverage, the summary) moves no digest, and needs
+nothing here. Where a part of the runner could be either, it is in
+[`build/test_key.tl`].
+
 Bump `epoch` in the same edit where the change can alter a pass or a
 fail:
 
@@ -540,6 +548,9 @@ Other rules:
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
+[`build/test.tl`]: ../build/test.tl
+[`build/test_key.tl`]: ../build/test_key.tl
+[`build/test_state.tl`]: ../build/test_state.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
 [`ci/islands.txt`]: ../ci/islands.txt
