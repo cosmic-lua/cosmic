@@ -146,6 +146,8 @@ allow({
 }, "the new checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile with the new " ..
     "checker prints and writes through `insert` and `line`, and the fork's does not yet; tested directly until then")
 
+allow({ "build.seed_proof.boot", "build.seed_proof.shim" }, "the boot of a tree with a bare core and the bridge it boots through, which build/bridge_new_test.tl drives on a seed of stand-ins")
+
 allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge_new.lua, which is " ..
     "Lua and loads the seed's Lua by name), which no Teal calls")
 

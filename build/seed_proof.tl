@@ -48,9 +48,6 @@ local record SeedProof
     nanoseconds: integer
   end
 
-  --- The files of the seed list below `root`, in order.
-  listed: function(root: string): {string} | nil, string
-
   --- Copies into the translated `tree` what a boot of it reads that is no `.tl`: build/seed.txt, lang/SEED_DIFFERS where `root` has
   --- one, and the headers boot derives the syscall declarations from (core/*.h).
   carry: function(root: string, tree: string): boolean, string
@@ -64,13 +61,6 @@ local record SeedProof
   --- The modules among the files of `dump` (`<module>.lua`, what the bridge compiled) whose Lua is not among the Lua of the
   --- pipeline kept in the compile cache `cache` (a `compiled_v2` table), and how many files `dump` holds.
   unequal: function(dump: string, cache: string): Compared | nil, string
-
-  --- Writes `paths` of the tree at `root` translated, as the switch commits them, below `out`.
-  translate: function(root: string, paths: {string}, out: string): TreeWriter.Report | nil, string
-
-  --- Compiles `files` of the tree `tree` in this process, as `cosmic compile --grammar new` does, and writes the Lua of each
-  --- to `out`/`<basename>.lua`. The Lua by file, or nil and the syntax errors.
-  compile: function(tree: string, files: {string}, out: string): {string: string} | nil, string
 
   --- Boots `tree` with the raw core `core` (a path), the seed in `seed` and the variables `env`, with the command line
   --- `args` that [`build.boot`] is given after the seed. `tree` holds core/bridge.lua, which loads the new bridge.
@@ -217,7 +207,7 @@ function SeedProof.shim(): string
   return SHIM
 end
 
-function SeedProof.listed(root: string): {string} | nil, string
+local function listed(root: string): {string} | nil, string
   local text, why = Fs.read(root .. "/build/seed.txt")
   if text == nil then
     return nil, why
@@ -229,7 +219,7 @@ function SeedProof.listed(root: string): {string} | nil, string
   return out, ""
 end
 
-function SeedProof.translate(root: string, paths: {string}, out: string): TreeWriter.Report | nil, string
+local function translate(root: string, paths: {string}, out: string): TreeWriter.Report | nil, string
   local allowance, why = TreeWriter.allowance(root)
   if allowance == nil then
     return nil, why
@@ -242,7 +232,7 @@ local function output_of(file: string): string
   return (file:match("([^/]*)%.tl$") or file) .. ".lua"
 end
 
-function SeedProof.compile(tree: string, files: {string}, out: string): {string: string} | nil, string
+local function compile(tree: string, files: {string}, out: string): {string: string} | nil, string
   local sources: {CompileGrammar.Source} = {}
   for _, file in ipairs(files) do
     local text, why = Fs.read(tree .. "/" .. file)
@@ -630,7 +620,7 @@ function SeedProof.main(argv: {string}): integer
       return 2
     end
   end
-  local list, list_why = SeedProof.listed(root)
+  local list, list_why = listed(root)
   if list == nil then
     print(list_why)
     return 1
@@ -644,7 +634,7 @@ function SeedProof.main(argv: {string}): integer
     print("listing the tree: " .. tracked_why)
     return 1
   end
-  local written, written_why = SeedProof.translate(root, paths, dir .. "/tree")
+  local written, written_why = translate(root, paths, dir .. "/tree")
   if written == nil then
     print("translating: " .. written_why)
     return 1
@@ -664,7 +654,7 @@ function SeedProof.main(argv: {string}): integer
     return 1
   end
   print("2. " .. cosmic .. " compiled " .. String.counted(#list, "file") .. " to " .. dir .. "/seed: " .. took(started))
-  local ours, ours_why = SeedProof.compile(dir .. "/tree", list, dir .. "/own")
+  local ours, ours_why = compile(dir .. "/tree", list, dir .. "/own")
   if ours == nil then
     print("   this tool's compile of the seed's files failed: " .. ours_why)
     return 1

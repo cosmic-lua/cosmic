@@ -1,102 +1,36 @@
---- The cheap form of the proof that the tool can be bootstrapped from the new checker's seed ([`build.seed_proof`]): the real
---- seed, the real bridge, a tree of the seed's own translated files and a stub in the place of [`build.boot`]. The seed is
---- compiled by this tool, which is what the pinned release's compile is once the pin names this tree's generator; the proof
---- itself (`bin/cosmic build/seed_proof_main.tl prove <dir>`) compiles it with the pinned release and boots the whole tree.
+--- The parts of the proof that the tool can be bootstrapped from the new checker's seed ([`build.seed_proof`]) that need no
+--- boot: what it carries into the translated tree, and how it compares the bridge's Lua with the pipeline's.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local SeedProof = require("build.seed_proof")
-local Test = require("cosmic.test")
-local artifact = require("build.artifact")
 
-Test.policy{ grants = {
-  { path = "build/", letters = "r" },
-  { path = "lang/", letters = "r" },
-  { path = "cosmic/", letters = "r" },
-  { path = "core/", letters = "r" },
-} }
+--- The real seed booting a tree (compiling its 30 files twice, then the closure of build.boot) takes some 15 seconds, more than
+--- a test of the suite may: `bin/cosmic build/seed_proof_main.tl prove <dir>` runs it, and build/bridge_new_test.tl holds the
+--- bridge's stages and the names of lang/SEED_DIFFERS on a seed of two stand-in files.
+---
+-- TODO: run `prove` in CI's rehearsal job beside the proof of lang/ (ci/cosmic_ci/orchestration.tl), so the real seed is booted
+-- on every change, once the switch makes the rehearsal job a required one (doc/plans/strict-teal.md, "the switch").
 
---- A stand-in for [`build.boot`] that reaches the seed's code through the bridge, and for [`build.gen_syscalls`], which
---- the boot loads first.
-local BOOT <const> = [[
-local Truthy = require("lang.truthy")
-local String = require("cosmic.string")
-return function(root: string, argv: {string}, source: string): integer
-  return (type(Truthy) == "table" and type(String) == "table") and 7 or 3
-end
-]]
-
-local GEN_SYSCALLS <const> = [[
-local record Gen
-  targets: {string}
-  declaration: function(): string
-end
-local gen: Gen = { targets = {}, declaration = function(): string return "return {}" end }
-return gen
-]]
-
---- Writes the translated files of the seed list below `tmp`/tree, with the declarations of the standard library and the
---- stand-ins, and the seed this tool compiles of them below `tmp`/seed. Answers the seed list.
-local function prepared(tmp: string): {string}
-  local list = assert(SeedProof.listed("."))
-  local report = assert(SeedProof.translate(".", list, tmp .. "/tree"))
-  local declarations = assert(SeedProof.translate(".", { "lang/prelude.d.tl", "lang/stdlib.d.tl" }, tmp .. "/tree"))
-  assert(#report.refused == 0 and #declarations.refused == 0, "the translation refused a file of the seed")
-  local tree = tmp .. "/tree"
-  assert(SeedProof.carry(".", tree))
-  assert(Fs.mkdirs(tree .. "/core"))
-  assert(Fs.write(tree .. "/core/bridge.lua", SeedProof.shim()))
-  assert(Fs.write(tree .. "/core/bridge_new.lua", (assert(Fs.read("core/bridge_new.lua")))))
-  assert(Fs.write(tree .. "/build/boot.tl", BOOT))
-  assert(Fs.write(tree .. "/build/gen_syscalls.tl", GEN_SYSCALLS))
-  assert(SeedProof.compile(tree, list, tmp .. "/seed"))
-  return list
-end
-
-local function boot(tmp: string, cache: string): SeedProof.Booted
-  local core = tmp .. "/cosmic-core"
-  if Fs.exists(core) ~= true then
-    local trusted = assert(artifact.trusted_core())
-    assert(Fs.write(core, trusted.bytes, 0x1ed))
-  end
-  return (assert(SeedProof.boot(core, tmp .. "/tree", tmp .. "/seed", { "status" },
-    { COSMIC_BRIDGE_TRACE = "1", COSMIC_BUILD_CACHE = cache })))
-end
-
-local function test_the_seed_boots_a_tree_through_the_bridge_and_agrees_with_its_own_compile(tmp: string)
-  prepared(tmp)
-  local booted = boot(tmp, tmp .. "/cache.db")
-  -- No lang/SEED_DIFFERS is there to excuse a difference, so the seed and stage two are one text for every file.
-  assert(booted.code == 7, "exit " .. tostring(booted.code) .. ": " .. booted.stderr)
-  local seen = table.concat(booted.trace, "\n")
-  assert(seen:find("stage two: compiled by stage one", 1, true) and seen:find("build.boot loaded: ", 1, true), seen)
-  local again = boot(tmp, tmp .. "/cache.db")
-  assert(again.code == 7, "exit " .. tostring(again.code) .. ": " .. again.stderr)
-  assert(table.concat(again.trace, "\n"):find("stage two: taken from the cache", 1, true), table.concat(again.trace, "\n"))
-end
-
---- A change to what the generator writes that the pin lacks shows as a file whose seed differs from stage two: the boot
---- refuses it unless lang/SEED_DIFFERS names the file, and the proof carries that file into the tree it boots.
-local function test_a_file_the_seed_writes_otherwise_than_the_tree_does_is_named(tmp: string)
-  prepared(tmp)
-  local text = assert(Fs.read(tmp .. "/seed/truthy.lua"))
-  assert(Fs.write(tmp .. "/seed/truthy.lua", text .. "\n-- the pin's emitter wrote this\n"))
-  local booted = boot(tmp, "0")
-  assert(booted.code == 1, "exit " .. tostring(booted.code))
-  assert(booted.stderr:find("differs from the build compiled by itself in lang/truthy.tl", 1, true), booted.stderr)
-  -- The checkout the proof runs in names it; the translated tree has no such file until the proof carries it there.
+--- The translated tree has no lang/SEED_DIFFERS of its own: the proof carries the checkout's, so that a seed the pin lags
+--- behind the generator by is excused in the boot as it is in step 2.
+local function test_the_proof_carries_the_seed_list_the_declared_differences_and_the_headers(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/lang"))
   assert(Fs.mkdirs(tmp .. "/root/core"))
   assert(Fs.mkdirs(tmp .. "/root/build"))
   assert(Fs.write(tmp .. "/root/lang/SEED_DIFFERS", "lang/truthy.tl\n"))
-  assert(Fs.write(tmp .. "/root/build/seed.txt", (assert(Fs.read("build/seed.txt")))))
+  assert(Fs.write(tmp .. "/root/build/seed.txt", "build/seed.tl\n"))
   assert(Fs.write(tmp .. "/root/core/syscalls.h", "/* header */\n"))
-  assert(Fs.exists(tmp .. "/tree/lang/SEED_DIFFERS") ~= true)
+  assert(Fs.write(tmp .. "/root/core/bridge.lua", "-- not carried\n"))
   assert(SeedProof.carry(tmp .. "/root", tmp .. "/tree"))
   assert(Fs.read(tmp .. "/tree/lang/SEED_DIFFERS") == "lang/truthy.tl\n")
+  assert(Fs.read(tmp .. "/tree/build/seed.txt") == "build/seed.tl\n")
   assert(Fs.read(tmp .. "/tree/core/syscalls.h") == "/* header */\n")
-  local declared = boot(tmp, "0")
-  assert(declared.code == 7, "exit " .. tostring(declared.code) .. ": " .. declared.stderr)
+  assert(Fs.exists(tmp .. "/tree/core/bridge.lua") ~= true)
+  -- Without a declared difference there is no file to carry, and the carry says nothing of it.
+  assert(Fs.remove(tmp .. "/root/lang/SEED_DIFFERS"))
+  assert(SeedProof.carry(tmp .. "/root", tmp .. "/tree2"))
+  assert(Fs.exists(tmp .. "/tree2/lang/SEED_DIFFERS") ~= true)
 end
 
 local function test_the_lua_the_bridge_dumps_is_compared_with_the_pipelines(tmp: string)
