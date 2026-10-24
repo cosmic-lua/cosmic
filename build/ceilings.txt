@@ -3724,6 +3724,12 @@ build/scopes_test.tl view_written 5
 
 build/sealed_nests_worker_test.tl view_written 4
 
+build/seed.tl view_written 3
+
+build/seed_proof.tl view_written 31
+
+build/seed_test.tl view_written 6
+
 build/shape_specs.tl view_written 7
 
 build/shards.tl view_written 19
