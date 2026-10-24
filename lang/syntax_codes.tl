@@ -103,13 +103,6 @@ SyntaxCodes.catalog = {
     why = "a byte that begins no token is no part of the language, so the rest of the line cannot be read",
     fix = "delete it, or write it inside a string",
   },
-  {
-    code = "pragma", stage = "lexer", rule = LEFT_OUT,
-    why = "a `--#pragma` comment changes what the fork checks from inside a comment, so the text of a program would say " ..
-      "one thing and its checking another; the grammar has no pragma, and what one switched (the arity of a call) is " ..
-      "always checked",
-    fix = "delete the comment",
-  },
   -- the parser
   {
     code = "reserved_word", stage = "parser", rule = GRAMMAR,

@@ -779,9 +779,15 @@ returns as the production named, when a use appears.
   would gain `String`, or a tuple form. the translator leaves each, and
   [`build/tree_checks.tl`]'s `translated` pins them by file.
 - **`where`** (3: `FILE` and the tour's two), **`macroexp`** (0),
-  **`<total>`** (0), **`--#pragma`** (0), **a table item with a type** (0
+  **`<total>`** (0), **a table item with a type** (0
   by text) and **`metamethod`** (45, all `__close`, which becomes a
   `__close` field or class method).
+- **`--#pragma`** (0). the lexer reads it as a comment that does nothing, and
+  no pragma changes what is checked: a call is always held to its declared
+  arity. *not adopted:* a pragma of any kind, since a comment would then
+  change what the checker says of the program. the fork's four pragma
+  messages are rows of `retired.json` ("the new grammar has no pragmas:
+  `--#pragma` is a comment").
 - **combined constraints** `T is A & B` or a list (0 of 6) and **a generic
   interface as a constraint** (0). `tparam` would gain a list or `&`, and
   `tref` in place of `tname`.

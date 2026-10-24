@@ -2401,7 +2401,7 @@ lang/lexer_cover.tl nil_not_allowed 3
 
 lang/lexer_parity_test.tl nil_not_allowed 13
 
-lang/lexer_test.tl nil_not_allowed 38
+lang/lexer_test.tl nil_not_allowed 36
 
 lang/literals.tl nil_not_allowed 3
 
@@ -4838,7 +4838,7 @@ lang/lexer_fuzz_test.tl view_written 2
 
 lang/lexer_parity_test.tl view_written 1
 
-lang/lexer_test.tl view_written 5
+lang/lexer_test.tl view_written 4
 
 lang/literals.tl view_written 13
 
@@ -5139,7 +5139,7 @@ lang/codegen.tl view_as_mut 5
 
 lang/declarations.tl view_as_mut 4
 
-lang/lexer.tl view_as_mut 13
+lang/lexer.tl view_as_mut 12
 
 lang/literals.tl view_as_mut 1
 

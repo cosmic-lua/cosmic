@@ -599,16 +599,16 @@ local record R
 end
 local z = {id = 1}
 local w: R = z
-=== expected pragma name => pragma
+=== expected pragma name => retired
 --#pragma
 local x = 1
-=== expected pragma value => pragma
+=== expected pragma value => retired
 --#pragma arity
 local x = 1
-=== invalid pragma: %s => pragma
+=== invalid pragma: %s => retired
 --#pragma foo bar
 local x = 1
-=== invalid value for pragma 'arity': %s => pragma
+=== invalid value for pragma 'arity': %s => retired
 --#pragma arity maybe
 local x = 1
 === macroexp type does not match declaration => expected_name

@@ -93,12 +93,12 @@ local function test_the_counts_of_the_table_are_the_gates()
   -- The programs the fork's tests pin and the corpora, by what each checker says. A change to the table or to the
   -- checker that moves these is meant, and moves them here.
   assert(#list == 956, tostring(#list))
-  assert(count(list, "refused", "refused") == 692, "refused by both: " .. tostring(count(list, "refused", "refused")))
-  assert(count(list, "refused", "accepted") == 30, "retired or open: " .. tostring(count(list, "refused", "accepted")))
+  assert(count(list, "refused", "refused") == 688, "refused by both: " .. tostring(count(list, "refused", "refused")))
+  assert(count(list, "refused", "accepted") == 34, "retired or open: " .. tostring(count(list, "refused", "accepted")))
   assert(count(list, "accepted", "refused") == 122,
     "refused only by the new checker: " .. tostring(count(list, "accepted", "refused")))
   assert(count(list, "accepted", "accepted") == 112, "accepted by both: " .. tostring(count(list, "accepted", "accepted")))
-  assert(#retired() == 30)
+  assert(#retired() == 34)
   -- what the fork refuses and the new checker takes is either explained by a rule or open, and nothing is both
   assert(#retired() + #open_programs() == count(list, "refused", "accepted"))
 end
@@ -744,7 +744,7 @@ local function test_every_refusal_program_is_refused_for_the_rule_it_expects_or_
     by[kind] = (by[kind] or 0) + 1
   end
   assert(#made == 186, tostring(#made))
-  assert(by["code"] == 180 and by["retired"] == 6 and by["open"] == nil, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
+  assert(by["code"] == 176 and by["retired"] == 10 and by["open"] == nil, tostring(by["code"]) .. " " .. tostring(by["retired"]) ..
       " " .. tostring(by["open"]))
 end
 
