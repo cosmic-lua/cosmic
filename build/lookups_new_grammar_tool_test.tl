@@ -85,6 +85,34 @@ local record Garden
   tank: Tank
 end
 
+--- Something with an area.
+local interface Shape
+  area: function(self: Shape): integer
+end
+
+--- A square, which defines the area itself.
+local class Sq is Shape
+  side: integer
+
+  function area(self): integer
+    return self.side * self.side
+  end
+end
+
+local function square_area(sq: Sq): integer
+  return sq:area()
+end
+
+local function shape_area(shape: Shape): integer
+  return shape:area()
+end
+
+local function through_the_class(tank: Tank): integer
+  local Alias = Tank
+  local first = Tank.fill(tank, 3)
+  return first + Alias.fill(tank, 4)
+end
+
 local function drain(tank: Tank): integer
   return tank:fill(-1)
 end
@@ -95,6 +123,9 @@ local record Vessels
   garden: function(): Garden
   drain: function(tank: Tank): integer
   filled: function(): integer
+  square_area: function(sq: Sq): integer
+  shape_area: function(shape: Shape): integer
+  through_the_class: function(tank: Tank): integer
 end
 
 local function tank(): Tank
@@ -111,7 +142,8 @@ local function filled(): integer
   return planted.tank:fill(2)
 end
 
-local vessels: Vessels = { tank = tank, jar = function(): Jar return {} end, garden = garden, drain = drain, filled = filled }
+local vessels: Vessels = { tank = tank, jar = function(): Jar return {} end, garden = garden, drain = drain, filled = filled,
+  square_area = square_area, shape_area = shape_area, through_the_class = through_the_class }
 return vessels
 ]==]
 
@@ -217,12 +249,16 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   end
   local line = looked_up(root, tmp, { "uses", "Counter.line" })
   assert(line == "cmd/tally/main.tl:18: counter Counter.line\ncounter_test.tl:8: counter Counter.line\n", line)
-  -- `self:fill(1)`, `tank:fill(-1)` through a parameter and `planted.tank:fill(2)` through a field; the constructor's value and
-  -- the jar, which is another class
+  -- `self:fill(1)`, `tank:fill(-1)` through a parameter and `planted.tank:fill(2)` through a field, `Tank.fill(tank, 3)` and
+  -- the same through an alias of the class; the constructor's value and the jar, which is another class. `sq:area()` is a use of
+  -- the `area` the class `Sq` defines, `shape:area()` of the one the interface `Shape` declares.
+  local square = looked_up(root, tmp, { "uses", "Sq.area" })
+  assert(square == "vessels.tl:43: vessels Sq.area\n", square)
   local rows = looked_up(root, tmp, { "sql", "SELECT symbol, from_file, line FROM uses WHERE module = 'vessels' AND symbol LIKE '%.%' " ..
       "ORDER BY symbol, from_file, line" })
-  assert(rows == "symbol\tfrom_file\tline\nJar.fill\tvessels_test.tl\t7\nTank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t29\n" ..
-      "Tank.fill\tvessels.tl\t51\nTank.fill\tvessels_test.tl\t5\nTank.top_up\tvessels_test.tl\t5\n", rows)
+  assert(rows == "symbol\tfrom_file\tline\nJar.fill\tvessels_test.tl\t7\nShape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\n" ..
+      "Tank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t52\nTank.fill\tvessels.tl\t53\nTank.fill\tvessels.tl\t57\n" ..
+      "Tank.fill\tvessels.tl\t82\nTank.fill\tvessels_test.tl\t5\nTank.top_up\tvessels_test.tl\t5\n", rows)
 end
 
 --- A mistyped COSMIC_GRAMMAR is refused by the lookups, as it is by every command that reads it, saying the allowed values.

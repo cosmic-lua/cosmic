@@ -95,7 +95,22 @@ local DECOY <const> = table.concat({
   "return Decoy",
 }, "\n")
 
-local MODULES <const>: {string: string} = { zipx = ZIPX, tally = TALLY, decoy = DECOY }
+--- A module whose returned record lists an interface of its own file, which no one else can name.
+local TOLD <const> = table.concat({
+  "local interface Told",
+  "  tell: function(Told): string",
+  "end",
+  "local record Teller is Told",
+  "  n: integer",
+  "  new: function(): Teller",
+  "end",
+  "function Teller.new(): Teller",
+  "  return { n = 1, tell = function(_: Teller): string return 't' end }",
+  "end",
+  "return Teller",
+}, "\n")
+
+local MODULES <const>: {string: string} = { zipx = ZIPX, tally = TALLY, decoy = DECOY, told = TOLD }
 
 local function uses_of(said: Fixture.Said): string
   local out: {string} = {}
@@ -347,4 +362,37 @@ local function test_a_method_from_an_interface_no_module_names_is_a_use_of_nothi
     "",
   }, "\n")
   assert(#Receivers.references(Fixture.subject(text, MODULES)) == 0)
+end
+
+--- A method the record a module returns inherits from an interface of the module's own file is a use of that interface's, which
+--- the fork (it would say the record's own) cannot name.
+local function test_a_method_the_returned_record_inherits_from_an_interface_of_its_file_is_the_interfaces()
+  local text = Fixture.PRELUDE .. "local type Teller = require('told')\nlocal t = Teller.new()\nuse(t:tell())\n"
+  local out = ""
+  for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
+    out = out .. r.module .. " " .. r.member .. " " .. tostring(r.top) .. "\n"
+  end
+  assert(out == "told Told.tell true\n", out)
+end
+
+--- A record nested in one module's own that is also the record another module returns (a value typed as it) is used under the
+--- nesting, whichever module the fork walks first (the order of a table, so there are several of each).
+local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_another_module_returns()
+  local nested <const> = "local record Types\n  record Def\n    name: string\n  end\nend\nreturn Types\n"
+  local function returns(types: string): string
+    return "local types = require('" .. types .. "')\nlocal def: types.Def = { name = 'd' }\nreturn def\n"
+  end
+  local modules: {string: string} = {
+    a_types = nested, b_types = nested, c_types = nested, d_types = nested, e_types = nested, f_types = nested,
+    g_def = returns("a_types"), h_def = returns("b_types"), i_def = returns("c_types"), j_def = returns("d_types"),
+    k_def = returns("e_types"), l_def = returns("f_types"),
+  }
+  local text = Fixture.PRELUDE .. "local a, b, c = require('g_def'), require('h_def'), require('i_def')\n" ..
+    "local d, e, f = require('j_def'), require('k_def'), require('l_def')\nuse(a.name, b.name, c.name, d.name, e.name, f.name)\n"
+  local found = uses_of(Fixture.fork(text, modules))
+  local want = ""
+  for _, types in ipairs({ "a", "b", "c", "d", "e", "f" }) do
+    want = want .. (want == "" and "" or "\n") .. types .. "_types Def.name " .. tostring(line(3))
+  end
+  assert(found == want, found)
 end

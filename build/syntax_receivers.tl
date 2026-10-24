@@ -22,8 +22,8 @@ local record Receivers
     member: string
     line: integer
     --- Whether the fork cannot find this use: the value is of a record or class declared at the top of its module's file and
-    --- not the module's returned record ([`Report.home_of`]), or the method comes from such an interface; the fork names no
-    --- module for either.
+    --- not the module's returned record ([`Report.home_of`]), or a class, or the method comes from such an interface; the
+    --- fork names no module for the first and the third, and has no classes.
     top?: boolean
   end
 
@@ -48,9 +48,9 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local seen: {string: boolean} = {}
   local targets: {integer: boolean} = {}
   local program = subject.program
-  --- The use of the field `name` of `object`, written on `line`; `called` when it is the method of `object:name(...)`, the
-  --- only use of a record or class that is no one's nested record ([`Report.home_of`]).
-  local function use(object: Ast.Exp, name: string, line: integer, called: boolean)
+  --- The use of the field `name` of `object`, written on `line`; `written_call` when it is the method of `object:name(...)`, the
+  --- only use of a record that is no one's nested record ([`Report.home_of`]), and a read of a class's method is as a call.
+  local function use(object: Ast.Exp, name: string, line: integer, written_call: boolean)
     local decl = Report.decl_of(subject.types[Node.base(object).id])
     if decl == nil then
       return
@@ -66,6 +66,8 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
         not (statics ~= nil and statics[name] ~= nil) then
       return
     end
+    -- A method of a class read through a value or through the class itself (`A.m(obj)`) is a use of it as a call is.
+    local called = written_call or (kind == "class" and Report.has_method(decl, name))
     -- Where the record is nested under its module's, and else, for a call, where it is declared in its module: at the top of
     -- the file, or as the record the module returns. `top` says the fork finds nothing there: it names no module for the
     -- record of a value, or for the interface a method comes from, unless the module's own record nests it.
@@ -80,7 +82,11 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     if owner == nil then
       return
     end
+    -- A class that defines the method itself is used under its own name, whatever interface also declares it.
     local from = Report.declaring(decl, name)
+    if kind == "class" and Report.has_member(decl, name) then
+      from = nil
+    end
     if from ~= nil then
       local inherited = Report.owner_of(program, from)
       if inherited == nil and homed then
@@ -93,6 +99,10 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
         -- Declared by an interface no module names: the method is not one of this record's to be a use of.
         return
       end
+    end
+    -- The fork has no classes.
+    if kind == "class" then
+      top = true
     end
     local member = name
     if owner.path ~= "" then

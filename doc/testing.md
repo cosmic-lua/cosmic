@@ -56,7 +56,8 @@ stands on another checkout's pass.
   grammar (`mut`, a class, `T?`) runs `cosmic test` with coverage. `cosmic docs` and `cosmic uses` build the project
   with it before they answer ([`build.rebuild`]), so a symbol declared with `mut` or `name?: T` is found, and a call
   through a value of a record nested in its module, of the record a module returns, or of a class or record declared at the
-  top of a module's file is a use of the method it calls (a value of no known type is a use of nothing); `cosmic db` and
+  top of a module's file is a use of the method it calls, as is a class's method read through the class (`Counter.add(c, 1)`),
+  under the class's own name where it defines the method (a value of no known type is a use of nothing); `cosmic db` and
   `cosmic sql` read the rows that build wrote. The fork finds the first two and not the third. A module it refuses leaves the
   last build as it was, and the lookup says why, as a build the fork stops does. A mistyped value is refused by `docs` and
   `uses` as by `test`. In the tree's own Teal the rows are numbered in the text the translation wrote, which moves the
