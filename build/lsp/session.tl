@@ -8,7 +8,9 @@
 ---   closed, as [`build.lsp.check`] finds them, with those of the other
 ---   open documents that may change with it ([`build.lsp.publish`]).
 --- - Hover: the docs of the symbol under the cursor ([`build.lsp.hover`]).
---- - Formatting: the whole document as `cosmic fix` writes it.
+--- - Formatting: the whole document as `cosmic fix` writes it, in a session of the fork's grammar. A session of the
+---   new grammar ([`build.grammar_mode`]) offers none and answers a request with no edits: `cosmic fix` checks
+---   new-grammar Teal and does not reformat it.
 ---
 --- The open documents that require one whose text changed are checked
 --- again once its own check is published, where what it serves them
@@ -155,6 +157,10 @@ end
 local function formatting(s: Session, params: protocol.DocumentParams): string | nil, string
   local document = document_of(s, params)
   if document == nil then return nil, "no such document is open" end
+  -- The grammar is the session's, not the document's: nothing in a text says which grammar it is written in.
+  --
+  -- TODO: once the formatter reads the new grammar, format the documents of a session of it too.
+  if s.checker.grammar == "new" then return "[]", "" end
   local built = check.compiler(s.checker)
   local fixed, trouble = require("build.fix").source(built, document.text, document.name)
   if fixed == nil then return nil, trouble end
@@ -204,12 +210,14 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
   if workspace ~= nil then watched = workspace.didChangeWatchedFiles end
   s.watch = watched ~= nil and watched.dynamicRegistration == true
   s.initialized = true
+  local formats: boolean | nil = nil
+  if s.checker.grammar ~= "new" then formats = true end
   return {
     capabilities = {
       positionEncoding = s.encoding,
       textDocumentSync = { openClose = true, change = 1, save = { includeText = false } },
       hoverProvider = true,
-      documentFormattingProvider = true,
+      documentFormattingProvider = formats,
     },
     serverInfo = { name = "cosmic" },
   }

@@ -104,7 +104,7 @@ local record protocol
     positionEncoding: string
     textDocumentSync: SyncOptions
     hoverProvider: boolean
-    documentFormattingProvider: boolean
+    documentFormattingProvider?: boolean
   end
 
   record ServerInfo
