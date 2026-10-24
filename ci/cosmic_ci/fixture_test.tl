@@ -46,7 +46,8 @@ local function test_target_records_are_exact(tmp: string)
   for name, contents in pairs(invalid) do
     local invalid_path = tmp .. "/" .. name .. ".tsv"
     Fixture.write(invalid_path, contents)
-    assert(not pcall(Fixture.targets, invalid_path),
+    local accepted, _ = pcall(Fixture.targets, invalid_path)
+    assert(not accepted,
       "invalid target records were accepted: " .. name)
   end
 end

@@ -95,13 +95,13 @@ end
 --- regular file, or its bytes are not the ones recorded, or, for the
 --- programs (cosmic and apps/), where it is not executable by everyone.
 function ProductSetup.changed(product: string, recorded: string): string | nil
-  local now = Fs.read(product .. "/hashes.sha256")
+  local now, _ = Fs.read(product .. "/hashes.sha256")
   if now ~= recorded then return "hashes.sha256" end
   for line in recorded:gmatch("[^\n]+") do
     local digest, name = line:match("^([0-9a-f]+)  (.+)$")
     assert(digest and name, "invalid product hash record: " .. line)
     local path = product .. "/" .. name
-    local st = Fs.stat(path)
+    local st, _ = Fs.stat(path)
     if not st or st.kind ~= "file" or Fixture.hash(path) ~= digest then
       return name
     end

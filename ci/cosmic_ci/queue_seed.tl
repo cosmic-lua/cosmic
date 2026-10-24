@@ -53,6 +53,7 @@
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
+local Shape = require("cosmic.shape")
 local Time = require("cosmic.time")
 
 local record QueueSeed
@@ -116,36 +117,59 @@ local record Run
   event: string
 end
 
+--- One run of the API's listing, each field as `jq -r` would print it.
+local record RunRow
+  id?: any
+  status?: any
+  conclusion?: any
+  head_sha?: any
+  head_branch?: any
+  html_url?: any
+  event?: any
+end
+local record RunsPage
+  workflow_runs: {RunRow}
+end
+local RUNS_PAGE <const> = Shape.record_of("RunsPage")
+
 --- The workflow runs `pages` list, as `.workflow_runs[]` reads them in
 --- the API's order (newest first), or nil where an answer holds no
 --- list of runs.
-local function runs_of(pages: {any}): {Run} | nil
+local function runs_of(pages: {string}): {Run} | nil
   local out: {Run} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).workflow_runs or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local run = item as {string:any}
-      out[#out + 1] = { id = printed(run.id), status = printed(run.status),
-        conclusion = run.conclusion == nil and "none" or printed(run.conclusion),
-        sha = printed(run.head_sha), branch = printed(run.head_branch),
-        url = printed(run.html_url), event = printed(run.event) }
+  for _, text in ipairs(pages) do
+    local page, _ = RUNS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, row in ipairs(page.workflow_runs) do
+      local conclusion = "none"
+      if row.conclusion ~= nil then conclusion = printed(row.conclusion) end
+      out[#out + 1] = { id = printed(row.id), status = printed(row.status),
+        conclusion = conclusion,
+        sha = printed(row.head_sha), branch = printed(row.head_branch),
+        url = printed(row.html_url), event = printed(row.event) }
     end
   end
   return out
 end
 
+--- One artifact of a run's listing.
+local record ArtifactRow
+  name?: any
+  expired?: any
+end
+local record ArtifactsPage
+  artifacts: {ArtifactRow}
+end
+local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage")
+
 --- The names of a run's artifacts that have not expired, as a set, or
 --- nil where the answer holds no list of artifacts.
-local function artifact_names(pages: {any}): {string:boolean} | nil
+local function artifact_names(pages: {string}): {string:boolean} | nil
   local names: {string:boolean} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).artifacts or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local artifact = item as {string:any}
+  for _, text in ipairs(pages) do
+    local page, _ = ARTIFACTS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, artifact in ipairs(page.artifacts) do
       -- `select(.expired | not)`: only an artifact marked expired is out.
       if artifact.expired == nil or artifact.expired == false then
         names[printed(artifact.name)] = true
@@ -164,33 +188,43 @@ local record Job
   name: string
 end
 
+--- One step of a job, and one job of a run's listing.
+local record StepRow
+  name?: any
+  status?: any
+end
+local record JobRow
+  status?: any
+  name?: any
+  started_at?: any
+  steps?: {StepRow}
+end
+local record JobsPage
+  jobs: {JobRow}
+end
+local JOBS_PAGE <const> = Shape.record_of("JobsPage")
+
 --- The jobs `pages` list, in the API's order, each with whether it has
 --- begun the step `suite` (in progress or completed; always false where
 --- `suite` is ""), or nil where an answer holds no list of jobs or
 --- a job's start is no time.
-local function jobs_of(pages: {any}, suite: string): {Job} | nil
+local function jobs_of(pages: {string}, suite: string): {Job} | nil
   local out: {Job} = {}
-  for _, page in ipairs(pages) do
-    local list = type(page) == "table" and (page as {string:any}).jobs or nil
-    if type(list) ~= "table" then return nil end
-    for _, item in ipairs(list as {any}) do
-      if type(item) ~= "table" then return nil end
-      local job = item as {string:any}
+  for _, text in ipairs(pages) do
+    local page, _ = JOBS_PAGE:decode_into(text)
+    if page == nil then return nil end
+    for _, job in ipairs(page.jobs) do
       local started: integer | nil = nil
       if job.started_at ~= nil and job.started_at ~= "" then
-        local ns = Time.parse_rfc3339(printed(job.started_at))
+        local ns, _ = Time.parse_rfc3339(printed(job.started_at))
         if ns == nil then return nil end
         started = ns // 1000000000
       end
       local reached = false
-      local steps = job.steps
-      if suite ~= "" and type(steps) == "table" then
-        for _, step in ipairs(steps as {any}) do
-          if type(step) == "table" then
-            local entry = step as {string:any}
-            if entry.name == suite and (entry.status == "in_progress" or entry.status == "completed") then
-              reached = true
-            end
+      if suite ~= "" then
+        for _, entry in ipairs(job.steps or {}) do
+          if entry.name == suite and (entry.status == "in_progress" or entry.status == "completed") then
+            reached = true
           end
         end
       end

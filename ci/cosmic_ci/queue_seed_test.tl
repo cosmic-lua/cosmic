@@ -11,7 +11,7 @@ local Time = require("cosmic.time")
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
-local START <const> = GithubFake.START
+local START <const> = GithubFake.start()
 
 --- A run, as the API lists it: of `event`, else merge_group.
 local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string,
@@ -78,8 +78,13 @@ local record Spec
   fail_once?: {string}
 end
 
+--- How many run listings have been asked for.
+local record Asked
+  value: integer
+end
+
 local function serve(spec: Spec): GithubFake.Fake
-  local runs_asked = { value = 0 }
+  local runs_asked: Asked = { value = 0 }
   local kept: {string: integer} = {}
   local failing: {string: boolean} = {}
   for _, id in ipairs(spec.fail_once or {}) do failing[id] = true end

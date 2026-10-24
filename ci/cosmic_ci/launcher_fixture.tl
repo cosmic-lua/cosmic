@@ -4,6 +4,7 @@
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
+local Maps = require("cosmic_ci.maps")
 local sys = require("cosmic.sys")
 
 local child_timeout_ns <const> = Clock.seconds(30)
@@ -35,19 +36,16 @@ local private_environment = {
 --- launcher's private contract, the cache `cache`, and `extra` over it.
 function LauncherFixture.environment(cache?: string,
                                      extra?: {string:string}): {string:string}
-  local values = Fixture.environment({
+  local values = Maps.without(Fixture.environment({
     PORTABLE_ORDINARY_ENV = "preserved",
     PORTABLE_CALLER_LOCALE = "preserved",
-  })
-  for _, name in ipairs(private_environment) do values[name] = nil end
+  }), private_environment)
   if cache ~= nil then
-    values["COSMIC_PORTABLE_CACHE"] = cache
+    values = Maps.with(values, { COSMIC_PORTABLE_CACHE = cache })
   else
-    values["COSMIC_PORTABLE_CACHE"] = nil
+    values = Maps.without(values, { "COSMIC_PORTABLE_CACHE" })
   end
-  if extra then
-    for name, value in pairs(extra) do values[name] = value end
-  end
+  if extra then values = Maps.with(values, extra) end
   return values
 end
 

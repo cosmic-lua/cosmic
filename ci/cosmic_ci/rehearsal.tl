@@ -5,7 +5,7 @@
 
 local record Rehearsal
   --- The path of the list below the checkout's root.
-  path: string
+  path: function(): string
 
   --- The entries of the list `text`: a failure's name to why it is expected. A line is `<name> -- <reason>`; a blank line and a
   --- line that starts with `#` say nothing. nil and what is wrong with the text: an entry with no reason or a name that two
@@ -35,7 +35,11 @@ local record Rehearsal
   judge_tool: function(output: string, errors: string): {string}
 end
 
-Rehearsal.path = "testdata/gate/rehearsal.txt"
+local PATH <const> = "testdata/gate/rehearsal.txt"
+
+function Rehearsal.path(): string
+  return PATH
+end
 
 function Rehearsal.parse(text: string): {string: string} | nil, string
   local out: {string: string} = {}
@@ -45,10 +49,10 @@ function Rehearsal.parse(text: string): {string: string} | nil, string
     if line ~= "" and line:sub(1, 1) ~= "#" then
       local name, reason = line:match("^(%S.-) %-%- (%S.*)$")
       if name == nil or reason == nil then
-        return nil, Rehearsal.path .. ":" .. tostring(number) .. ": expected `<failure> -- <reason>`, not `" .. line .. "`"
+        return nil, PATH .. ":" .. tostring(number) .. ": expected `<failure> -- <reason>`, not `" .. line .. "`"
       end
       if out[name] ~= nil then
-        return nil, Rehearsal.path .. ":" .. tostring(number) .. ": `" .. name .. "` is listed twice"
+        return nil, PATH .. ":" .. tostring(number) .. ": `" .. name .. "` is listed twice"
       end
       out[name] = reason
     end
@@ -162,7 +166,7 @@ function Rehearsal.judge(allowed: {string: string}, failed: {string}): {string}
   for _, name in ipairs(failed) do
     happened[name] = true
     if allowed[name] == nil then
-      out[#out + 1] = name .. " failed and " .. Rehearsal.path .. " does not expect it: fix it, or list it with its reason"
+      out[#out + 1] = name .. " failed and " .. PATH .. " does not expect it: fix it, or list it with its reason"
     end
   end
   local names: {string} = {}
@@ -172,7 +176,7 @@ function Rehearsal.judge(allowed: {string: string}, failed: {string}): {string}
   table.sort(names)
   for _, name in ipairs(names) do
     if happened[name] ~= true then
-      out[#out + 1] = name .. " is listed in " .. Rehearsal.path .. " and did not fail: remove the entry"
+      out[#out + 1] = name .. " is listed in " .. PATH .. " and did not fail: remove the entry"
     end
   end
   return out

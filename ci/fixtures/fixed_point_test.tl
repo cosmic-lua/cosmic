@@ -1,6 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Fixture = require("cosmic_ci.fixture")
+local Maps = require("cosmic_ci.maps")
 
 local Test = require("cosmic.test")
 
@@ -119,10 +120,11 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
 
   local path = tree .. "/" .. file
   local original = Fixture.read(path)
-  local values = Fixture.environment({
+  local base = Fixture.environment({
     COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
+  local values = base
   if shares then
-    values["COSMIC_BUILD_CACHE"] = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES")
+    values = Maps.with(base, { COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES") })
   end
   for _, stage in ipairs({ "edited", "undone" }) do
     if stage == "edited" then

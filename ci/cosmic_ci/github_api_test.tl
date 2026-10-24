@@ -1,6 +1,38 @@
 local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Http = require("cosmic.http")
+local Shape = require("cosmic.shape")
+
+local record Created
+  id: integer
+end
+local CREATED <const> = Shape.record_of("Created")
+
+--- A count a closure adds to, and a flag it raises.
+local record Tally
+  value: integer
+end
+local record Flag
+  value: boolean
+end
+
+--- What a download answers, with the fields it leaves out said so.
+local function download_result(kind: Http.DownloadKind, reason: string,
+                               status: integer | nil): Http.DownloadResult
+  return { kind = kind, reason = reason, status = status, algorithm = nil,
+    expected = nil, actual = nil }
+end
+
+--- A release the API is asked to make.
+local record NewRelease
+  tag_name: string
+  draft: boolean
+end
+
+--- What a download hook was given.
+local record Captured
+  options?: Http.Options
+end
 
 -- The live client's transport runs over [`cosmic.http`]'s `script`, whose
 -- connections are socket pairs: no network is reached.
@@ -17,12 +49,15 @@ end
 --- The live client over a plain-HTTP API (a script cannot finish a TLS
 --- handshake), its calls answered by `script` in order; `sent` collects
 --- what each `send` wrote.
-local function live(script: {{string}}, env?: {string:string}): GithubApi.Client, {string}
+local function live(script: {{string}}, env?: {string:string},
+                    download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
   local sent: {string} = {}
-  env = env or {}
-  assert(env)["GH_TOKEN"] = assert(env)["GH_TOKEN"] or token
-  assert(env)["GITHUB_API_URL"] = assert(env)["GITHUB_API_URL"] or "http://api.test/"
-  local client, why = GithubApi.live(assert(env), { script = script, sent = sent })
+  local given: {string:string} = {}
+  for name, value in pairs(env or {}) do given[name] = value end
+  if given["GH_TOKEN"] == nil then given["GH_TOKEN"] = token end
+  if given["GITHUB_API_URL"] == nil then given["GITHUB_API_URL"] = "http://api.test/" end
+  local client, why = GithubApi.live(given, { script = script, download = download,
+    sent = function(text: string) sent[#sent + 1] = text end })
   assert(client ~= nil, why)
   return client, sent
 end
@@ -112,46 +147,41 @@ end
 --- fetches the redirect's URL, which [`Http.download_result`] is handed without
 --- one.
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
-  local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} })
   local urls: {string} = {}
-  local options = { value = {} as Http.Options }
-  local real = Http.download_result
-  Http.download_result = function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
-    urls[#urls + 1] = url
-    options.value = opts as Http.Options
-    assert(Fs.write(path, "zip bytes"))
-    return { kind = "downloaded", reason = "" }
-  end
-  local called, ok, why = pcall(GithubApi.download, client, "repos/o/r/actions/artifacts/7/zip",
-    tmp .. "/a.zip")
-  Http.download_result = real
-  assert(called, tostring(ok))
+  local captured: Captured = {}
+  local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} }, nil,
+    function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+      urls[#urls + 1] = url
+      captured.options = opts
+      assert(Fs.write(path, "zip bytes"))
+      return download_result("downloaded", "", nil)
+    end)
+  local ok, why = GithubApi.download(client, "repos/o/r/actions/artifacts/7/zip", tmp .. "/a.zip")
   assert(ok, why)
   has(assert(sent[1]), "GET /repos/o/r/actions/artifacts/7/zip HTTP/1.1\r\n")
   has(assert(sent[1]), "Authorization: Bearer " .. token)
   assert(#urls == 1 and urls[1] == "https://blob.test/signed?sig=abc", table.concat(urls, " "))
   assert(Fs.read(tmp .. "/a.zip") == "zip bytes")
-  for name in pairs(options.value.headers or {}) do
+  local options = assert(captured.options)
+  for name in pairs(options.headers or {}) do
     assert(name:lower() ~= "authorization", "the token went to the redirect's host")
   end
-  local protocols = options.value.redirect_protocols
-  assert(protocols and #protocols == 1 and protocols[1] == "https", "a redirect may leave https")
-  assert(options.value.follow ~= false and (options.value.max_redirects or 0) <= 3)
+  local protocols = options.redirect_protocols
+  assert(protocols ~= nil and #protocols == 1 and protocols[1] == "https", "a redirect may leave https")
+  assert(options.follow ~= false and (options.max_redirects or 0) <= 3)
 end
 
 local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
+  local fetched: Flag = { value = false }
   local client = live({
     { reply("302 Found", "Location: http://blob.test/x\r\n") },
     { reply("302 Found", "Location: /relative\r\n") },
     { reply("302 Found", "") },
     { reply("200 OK", "", "inline") },
-  })
-  local fetched = { value = false }
-  local real = client.fetch
-  client.fetch = function(url: string, path: string): boolean, string
+  }, nil, function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
     fetched.value = true
-    return real(url, path)
-  end
+    return download_result("failed", "no network in this test", nil)
+  end)
   for i = 1, 4 do
     local ok, why = GithubApi.download(client, "repos/o/r/z" .. tostring(i), tmp .. "/z")
     assert(not ok and why:find("GET repos/o/r/z" .. tostring(i) .. ": ", 1, true) == 1, tostring(why))
@@ -169,16 +199,11 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   assert(not ok and why == "GET repos/o/r/artifacts/2/zip: HTTP 410: Artifact has expired", why)
   local failing = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
     { script = { { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") },
-      { reply("403 Forbidden", "", "expired") } } }))
-  local real = Http.download_result
-  Http.download_result = function(): Http.DownloadResult
-    return { kind = "http_status", reason = "", status = 403 }
-  end
-  local called, got, trouble = pcall(GithubApi.download, failing, "repos/o/r/artifacts/3/zip",
-    tmp .. "/z")
-  Http.download_result = real
-  assert(called, tostring(got))
-  ok, why = got as boolean, trouble or ""
+      { reply("403 Forbidden", "", "expired") } },
+      download = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
+        return download_result("http_status", "", 403)
+      end }))
+  ok, why = GithubApi.download(failing, "repos/o/r/artifacts/3/zip", tmp .. "/z")
   -- The signed URL stays out of the message.
   assert(not ok and why == "GET repos/o/r/artifacts/3/zip: HTTP 403", why)
 end
@@ -216,8 +241,8 @@ end
 
 local function test_a_json_body_is_sent_whole_by_any_method()
   local client, sent = live({ { reply("201 Created", "", '{"id":9}') }, { reply("200 OK", "", '{"id":9}') } })
-  local made, why = GithubApi.request(client, "POST", "repos/o/r/releases",
-    { tag_name = "t", draft = true })
+  local new_release: NewRelease = { tag_name = "t", draft = true }
+  local made, why = GithubApi.request(client, "POST", "repos/o/r/releases", new_release)
   assert(made ~= nil and made.status == 201, why)
   local patched = GithubApi.request(client, "PATCH", "repos/o/r/releases/9", { draft = false })
   assert(patched ~= nil and patched.status == 200)
@@ -242,25 +267,23 @@ local function test_an_object_is_the_decoded_answer_or_why_not()
   local client = live({ { reply("201 Created", "", '{"id":9}') },
     { reply("422 Unprocessable Entity", "", '{"message":"Validation Failed"}') },
     { reply("200 OK", "", "[1]") } })
-  local object, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
-  assert(object ~= nil and object.id == 9, why)
-  object, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
-  assert(object == nil and why == "POST repos/o/r/releases: HTTP 422: Validation Failed", why)
-  object, why = GithubApi.object(client, "GET", "repos/o/r/releases/1")
-  assert(object == nil and why:find("GET repos/o/r/releases/1: no JSON object", 1, true) == 1, why)
+  local text, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
+  assert(text ~= nil, why)
+  assert(assert(CREATED:decode_into(text)).id == 9)
+  local refused_text: string | nil
+  refused_text, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
+  assert(refused_text == nil and why == "POST repos/o/r/releases: HTTP 422: Validation Failed", why)
+  refused_text, why = GithubApi.object(client, "GET", "repos/o/r/releases/1")
+  assert(refused_text == nil and why:find("GET repos/o/r/releases/1: no JSON object", 1, true) == 1, why)
 end
 
 local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
-  local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed\r\n") }, {} })
-  local real = Http.download_result
-  Http.download_result = function(_url: string, path: string): Http.DownloadResult
-    assert(Fs.write(path, "asset bytes"))
-    return { kind = "downloaded", reason = "" }
-  end
-  local called, ok, why = pcall(GithubApi.download, client, "repos/o/r/releases/assets/5",
-    tmp .. "/a", "application/octet-stream")
-  Http.download_result = real
-  assert(called, tostring(ok))
+  local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed\r\n") }, {} }, nil,
+    function(_url: string, path: string, _opts?: Http.Options): Http.DownloadResult
+      assert(Fs.write(path, "asset bytes"))
+      return download_result("downloaded", "", nil)
+    end)
+  local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a", "application/octet-stream")
   assert(ok, why)
   has(assert(sent[1]), "GET /repos/o/r/releases/assets/5 HTTP/1.1\r\n")
   has(assert(sent[1]), "\r\nAccept: application/octet-stream\r\n")
@@ -271,8 +294,9 @@ end
 --- A client made by hand without an upload origin refuses an upload
 --- before it sends anything.
 local function test_a_client_without_an_upload_origin_uploads_nothing()
-  local sent = { value = 0 }
-  local client: GithubApi.Client = { base = "http://api.test", fetch = nil as GithubApi.Fetch,
+  local sent: Tally = { value = 0 }
+  local client: GithubApi.Client = { base = "http://api.test",
+    fetch = function(_url: string, _path: string): boolean, string return false, "no download" end,
     send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
       sent.value = sent.value + 1
       return { status = 201, headers = {}, body = "" }, ""
@@ -423,10 +447,10 @@ end
 --- A client whose `send` answers each page after `cost_ns` of a clock
 --- the test steps, recording the timeout each request was given.
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
-  local clock = { value = 0 }
+  local clock: Tally = { value = 0 }
   local timeouts: {integer} = {}
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
-    timeouts[#timeouts + 1] = request.timeout_ns as integer
+    timeouts[#timeouts + 1] = assert(request.timeout_ns)
     clock.value = clock.value + cost_ns
     local number = #timeouts
     local head = {}
@@ -435,7 +459,10 @@ local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {int
     end
     return { status = 200, headers = head, body = "[]" }, ""
   end
-  return { send = send, fetch = nil as GithubApi.Fetch, base = "http://api.test",
+  return { send = send, fetch = function(_url: string, _path: string): boolean, string
+    return false, "no download"
+  end,
+    base = "http://api.test",
     now_ns = function(): integer return clock.value end }, timeouts
 end
 

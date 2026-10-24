@@ -62,7 +62,6 @@ Test.policy{
   },
 }
 
-local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 -- A call that finds the tool stale rebuilds it from the tree first. Every
@@ -112,14 +111,19 @@ local record Seed
   rows: integer
 end
 
+--- A count, kept where the closure that adds to it can write.
+local record Tally
+  value: integer
+end
+
 --- How many compiles `path` holds, and how many of them a build took
 --- or made at `since_ns` or later. The table's name carries its
 --- format's version (build/cache_formats.tl), so each that matches is
 --- counted.
 local function compiles_in(path: string, since_ns: integer): integer, integer
   local db = assert(Sqlite.open(path))
-  local total = { value = 0 }
-  local used = { value = 0 }
+  local total: Tally = { value = 0 }
+  local used: Tally = { value = 0 }
   local ok, failure = pcall(function(): boolean
     local tables = assert(Sqlite.text_rows(db,
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
@@ -326,7 +330,7 @@ local function run_rebuild_case(fixture_dir: string,
 
   local seed = seeded_compiles(case_root)
   local since = Clock.now_ns()
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local values = Fixture.environment({
       COSMIC_BUILD_CACHE = seed.path,
       COSMIC_PORTABLE_CACHE = cache,
@@ -337,7 +341,7 @@ local function run_rebuild_case(fixture_dir: string,
     local child = start("rebuild-" .. action,
       { program, "test", "build/embed_test.tl", "argument with spaces" }, tree, values,
       diagnostics)
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     await_ready(case_root, diagnostics, "first-" .. action, ready, child)
     local entries_before = cache_entries(cache)
@@ -585,13 +589,13 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
   local said: {string} = {}
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     for n = 1, 3 do
-      active[#active + 1] = start("concurrent-" .. tostring(n),
-        { program, "fix", "--check", "build/clock.tl" }, tree, values, diagnostics)
+      Process.adopt(active, start("concurrent-" .. tostring(n),
+        { program, "fix", "--check", "build/clock.tl" }, tree, values, diagnostics))
     end
     local rebuilt = 0
-    for _, child in ipairs(active) do
+    for _, child in ipairs(active.children) do
       local result = finish(child, rebuild_timeout_ns)
       local err = Fixture.read(child.err)
       assert(result.ok, child.label .. ": exit status " ..

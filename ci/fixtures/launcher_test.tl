@@ -3,6 +3,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
+local Maps = require("cosmic_ci.maps")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
@@ -68,14 +69,14 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local marker = ctx.work .. "/basic.marker"
   local input = ctx.work .. "/input"
   Fixture.write(input, "input stays intact\n")
-  Process.supervised(function(active: {Process.Running})
+  Process.supervised(function(active: Process.Fleet)
     local values = environment(cache, { PORTABLE_PAYLOAD_MARKER = marker,
       PORTABLE_EXPECT_CWD = ctx.work .. "/run alias",
       PORTABLE_EXPECT_UMASK = "0027", PORTABLE_CHECK_IO = "1" })
     local child = Process.start("basic", { "/bin/sh", "-c",
       "umask 027; exec \"$@\"", "sh", ctx.artifact, "a b", "", "--literal" },
       ctx.work .. "/run alias", values, ctx.diagnostics, input)
-    active[#active + 1] = child
+    Process.adopt(active, child)
     local result = Process.finish(child)
     assert(result.ok, "cold launcher failed")
     Fixture.contains(child.out, "pid=" .. tostring(child.handle.pid) .. "\n")
@@ -104,10 +105,9 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local home, xdg = ctx.work .. "/home", ctx.work .. "/xdg"
   Fixture.mkdir(home)
   Fixture.mkdir(xdg)
-  local default_env = environment()
-  default_env["COSMIC_PORTABLE_CACHE"] = nil
-  default_env["XDG_CACHE_HOME"] = nil
-  default_env["HOME"] = home
+  local default_env = Maps.with(
+    Maps.without(environment(), { "COSMIC_PORTABLE_CACHE", "XDG_CACHE_HOME" }),
+    { HOME = home })
   local default = Fixture.call_with_environment("default-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, default_env)
@@ -117,10 +117,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local default_exists = Predicate.is_dir(default_cache)
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
-  local xdg_env = environment()
-  xdg_env["COSMIC_PORTABLE_CACHE"] = nil
-  xdg_env["XDG_CACHE_HOME"] = xdg
-  xdg_env["HOME"] = home
+  local xdg_env = Maps.with(Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" }),
+    { XDG_CACHE_HOME = xdg, HOME = home })
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
@@ -128,10 +126,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   assert(xdg_exists, "XDG cache was not made under " .. xdg)
   local relative_home = ctx.work .. "/relative-home"
   Fixture.mkdir(relative_home)
-  local relative_xdg = environment()
-  relative_xdg["COSMIC_PORTABLE_CACHE"] = nil
-  relative_xdg["XDG_CACHE_HOME"] = "relative"
-  relative_xdg["HOME"] = relative_home
+  local relative_xdg = Maps.with(Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" }),
+    { XDG_CACHE_HOME = "relative", HOME = relative_home })
   outcome_ok(Fixture.call_with_environment("relative-xdg",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
@@ -140,8 +136,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       { "empty-cache", "", home, "must be an absolute path" },
       { "relative-cache", "relative", home, "must be an absolute path" },
   }) do
-    local values = environment(case[2])
-    values["HOME"] = assert(case[3])
+    local values = Maps.with(environment(case[2]), { HOME = assert(case[3]) })
     local answer = Fixture.call_with_environment(assert(case[1]),
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
@@ -151,16 +146,13 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   for _, name in ipairs({ "relative-home", "unset-home" }) do
     local temp = ctx.work .. "/" .. name .. "-tmp"
     Fixture.mkdir(temp)
-    local values = environment()
-    values["COSMIC_PORTABLE_CACHE"] = nil
+    local bare = Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" })
+    local values: {string:string}
     if name == "relative-home" then
-      values["XDG_CACHE_HOME"] = "relative"
-      values["HOME"] = "relative"
+      values = Maps.with(bare, { XDG_CACHE_HOME = "relative", HOME = "relative", TMPDIR = temp })
     else
-      values["XDG_CACHE_HOME"] = nil
-      values["HOME"] = nil
+      values = Maps.with(Maps.without(bare, { "XDG_CACHE_HOME", "HOME" }), { TMPDIR = temp })
     end
-    values["TMPDIR"] = temp
     outcome_ok(Fixture.call_with_environment(name,
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values), name .. " temp fallback")
@@ -320,7 +312,7 @@ end
 
 local function test_launcher_publication_and_interruption(tmp: string)
   local ctx = setup(tmp)
-  Process.supervised(function(active: {Process.Running})
+  Process.supervised(function(active: Process.Fleet)
     local race = ctx.work .. "/race-cache"
     local ready1 = Process.fifo(ctx.work, ctx.diagnostics, "race-ready1")
     local go1 = Process.fifo(ctx.work, ctx.diagnostics, "race-go1")
@@ -329,12 +321,12 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local first = Process.start("race1", { ctx.artifact }, ctx.work,
       hook_environment(race, "before_publish", ready1, go1),
       ctx.diagnostics)
-    active[#active + 1] = first
+    Process.adopt(active, first)
     Process.await_ready(ctx.work, ctx.diagnostics, "race1", ready1, first)
     local second = Process.start("race2", { ctx.artifact }, ctx.work,
       hook_environment(race, "before_publish", ready2, go2),
       ctx.diagnostics)
-    active[#active + 1] = second
+    Process.adopt(active, second)
     Process.await_ready(ctx.work, ctx.diagnostics, "race2", ready2, second)
     Process.release(ctx.work, ctx.diagnostics, "race1", go1)
     Process.release(ctx.work, ctx.diagnostics, "race2", go2)
@@ -352,7 +344,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local waiting = Process.start("late-waiting", { ctx.artifact }, ctx.work,
       hook_environment(late, "before_recheck", late_ready, late_go),
       ctx.diagnostics)
-    active[#active + 1] = waiting
+    Process.adopt(active, waiting)
     Process.await_ready(ctx.work, ctx.diagnostics, "late-waiting", late_ready, waiting)
     outcome_ok(run(ctx, "late-publisher", late), "late publisher")
     Process.release(ctx.work, ctx.diagnostics, "late-waiting", late_go)
@@ -366,7 +358,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local publisher = Process.start("interrupted", { ctx.artifact }, ctx.work,
       hook_environment(interrupted, "before_publish", ready, go),
       ctx.diagnostics)
-    active[#active + 1] = publisher
+    Process.adopt(active, publisher)
     Process.await_ready(ctx.work, ctx.diagnostics, "interrupt", ready, publisher)
     assert(publisher.handle:stop(sys.SIGTERM))
     assert(not Process.finish(publisher).ok, "interrupted publisher succeeded")
@@ -381,7 +373,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
       ctx.work,
       hook_environment(interrupted, "after_repair_lock", repair_ready, repair_go),
       ctx.diagnostics)
-    active[#active + 1] = repair
+    Process.adopt(active, repair)
     Process.await_ready(ctx.work, ctx.diagnostics, "repair", repair_ready, repair)
     assert(repair.handle:stop(sys.SIGTERM))
     assert(not Process.finish(repair).ok, "interrupted repair succeeded")
@@ -394,7 +386,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     local killed = Process.start("repair-killed", { ctx.artifact }, ctx.work,
       hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go),
       ctx.diagnostics)
-    active[#active + 1] = killed
+    Process.adopt(active, killed)
     Process.await_ready(ctx.work, ctx.diagnostics, "kill", kill_ready, killed)
     assert(killed.handle:stop(sys.SIGKILL))
     assert(not Process.finish(killed).ok, "killed repair succeeded")

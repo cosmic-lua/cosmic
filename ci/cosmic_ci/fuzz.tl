@@ -8,6 +8,7 @@ local Clock = require("cosmic.clock")
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
@@ -48,7 +49,7 @@ local final_output_ns <const> = 5 * 1000 * 1000 * 1000
 --- Every `*_fuzz_test.tl` under `root`, outside its top-level o/,
 --- vendor/ and ci/, as `./`-relative paths in byte order.
 function Fuzz.discover(root: string): {string}
-  local found = assert(Fs.walk(root, function(entry: string, _name: string): boolean
+  local found = assert(Fs.walk(root, function(entry: string, _name: string, _kind: sys.Kind): boolean
     return pruned[entry] == true
   end))
   local tests: {string} = {}
@@ -171,7 +172,7 @@ end
 --- file backwards from its end only as far as those lines begin, and
 --- then only each one's first `cut` bytes.
 function Fuzz.tail(path: string): {string} | nil
-  local opened = Fs.open_read(path)
+  local opened, _ = Fs.open_read(path)
   if opened == nil then return nil end
   local fd: integer = opened
   local tailed: Tailed = { lines = {} }
@@ -242,30 +243,32 @@ end
 --- one deadline bounds inherited writers; an incomplete drain is a driver
 --- failure, while any known child status remains available to be saved.
 local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
-                        env: {string:string}, out: string, log: integer): integer | nil, string
+                        env: {string:string}, out: string, log: integer): Streamed
   local program = assert(argv[1], "no program to run")
-  local out_fd = assert(Fs.open_write(out))
+  local seams = Seams.calls()
+  local out_fd = assert(seams.fs_open_write(out))
   local kept: Streamed = { trouble = "" }
   local called, failure = pcall(function()
-    local sink = Stream.tee(Stream.to_fd(out_fd), Stream.to_fd(log))
-    local started, start_trouble = Child.start(argv, { cwd = cwd, env = env,
+    local sink = seams.stream_tee(Stream.to_fd(out_fd), Stream.to_fd(log))
+    local started, start_trouble = seams.child_start(argv, { cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
-      if Fs.exists(program) == true then kept.status = 126 else kept.status = 127 end
+      local there, _ = seams.fs_exists(program)
+      if there == true then kept.status = 126 else kept.status = 127 end
       local wrote, why = sink:write(program .. ": " .. start_trouble .. "\n")
       if not wrote then kept.trouble = why end
       return
     end
     -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
     -- [`Child.Handle`] as a class: a `<close>` local must be one.
-    local handle: Child.Handle = started
+    local handle = started
     local function supervise(): string
       local deadline: integer | nil = nil
       local eof = false
       while true do
         local signal = guard:take()
-        if signal ~= 0 then local _, _ = handle:stop(signal) end
-        local waiting, why = handle:try_wait()
+        if signal ~= 0 then local _, _ = handle.stop(signal) end
+        local waiting, why = handle.try_wait()
         if waiting == nil then return why end
         if waiting.finished and kept.status == nil then
           kept.status = Child.shell_status(assert(waiting.result))
@@ -273,14 +276,14 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
         end
         if eof then
           if kept.status ~= nil then return "" end
-          Clock.sleep_ns(poll_ns)
+          local _, _ = Clock.sleep_ns(poll_ns)
         else
           local wait = poll_ns
           if deadline ~= nil then
             wait = math.min(wait, math.max(0, deadline - Clock.monotonic_ns()))
             if wait == 0 then return "fuzz output remained open after the child exited" end
           end
-          local drained = handle:drain{ stdout = sink, stderr = nil, timeout_ns = wait, max_bytes = drain_bytes }
+          local drained = handle.drain{ stdout = sink, stderr = nil, timeout_ns = wait, max_bytes = drain_bytes }
           if drained.kind == "failed" then return drained.reason end
           eof = drained.kind == "eof"
           -- limit, timeout and interrupted all resume supervision. A failed
@@ -291,26 +294,26 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     local ran, reason = pcall(supervise)
     if not ran then
       kept.trouble = tostring(reason)
-    elseif type(reason) == "string" then
+    elseif reason is string then
       kept.trouble = reason
     end
     -- drain may have observed exit before a sink failed or raised. Keep
     -- that actual status before scoped cleanup ends any remaining child.
     if kept.status == nil then
       local _, _ = pcall(function()
-        local waiting = handle:try_wait()
+        local waiting, _ = handle.try_wait()
         if waiting ~= nil and waiting.finished then
           kept.status = Child.shell_status(assert(waiting.result))
         end
       end)
     end
-    local _, _ = handle:close()
+    local _, _ = handle.close()
   end)
   local closed, close_trouble = Fs.close(out_fd)
-  if not called then return kept.status, tostring(failure) end
-  if kept.trouble ~= "" then return kept.status, kept.trouble end
-  if not closed then return kept.status, close_trouble end
-  return kept.status, ""
+  if not called then return { status = kept.status, trouble = tostring(failure) } end
+  if kept.trouble ~= "" then return kept end
+  if not closed then return { status = kept.status, trouble = close_trouble } end
+  return { status = kept.status, trouble = "" }
 end
 
 --- A failed run's summary, kept where the function that makes it under `pcall` can set it.
@@ -344,7 +347,8 @@ function Fuzz.execute(r: Fuzz.Run): integer
   local guard = assert(Signal.guard())
   local kept: Streamed = { trouble = "" }
   local ran, raised = pcall(function()
-    kept.status, kept.trouble = streamed(guard, argv, r.root, env, out, r.log)
+    local answered = streamed(guard, argv, r.root, env, out, r.log)
+    kept.status, kept.trouble = answered.status, answered.trouble
     local reached = kept.status
     if reached ~= nil then
       assert(Fs.write(r.temp .. "/fuzz.status", tostring(reached) .. "\n"))

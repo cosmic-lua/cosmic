@@ -31,7 +31,7 @@ local record GithubFake
   --- page, linked to the next as GitHub's `Link` header does.
   type Answer = function(path: string, nth: integer): string | nil
   --- The time a fake starts at, in seconds since the epoch.
-  START: integer
+  start: function(): integer
   --- A fake answering through `answer`; `refuse` names the cache ids a
   --- DELETE fails for.
   new: function(answer: Answer, refuse?: {string}): Fake
@@ -42,7 +42,11 @@ local record GithubFake
   count: function(fake: Fake, needle: string): integer
 end
 
-GithubFake.START = 1790000000
+local START <const> = 1790000000
+
+function GithubFake.start(): integer
+  return START
+end
 
 function GithubFake.text(lines: {string}): string
   if #lines == 0 then return "" end
@@ -61,15 +65,14 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
   local refused: {string:boolean} = {}
   for _, id in ipairs(refuse or {}) do refused[id] = true end
   local asks: {string:integer} = {}
-  local fake: GithubFake.Fake = { calls = {}, outputs = {}, summaries = {}, printed = {}, sleeps = {},
-    clock = GithubFake.START, moved = false, asked = {}, host = nil as Github.Host }
+  local calls: {string} = {}
   local origin <const> = "https://api.test"
   local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
     return { status = status, body = body, headers = headers or {} }
   end
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
     local path = request.url:sub(#origin + 2)
-    fake.calls[#fake.calls + 1] = request.method .. " " .. path
+    calls[#calls + 1] = request.method .. " " .. path
     if request.method == "DELETE" then
       if refused[assert(path:match("[^/]*$"))] == true then
         return reply(403, '{"message":"refused"}'), ""
@@ -81,7 +84,7 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     asks[asked] = (asks[asked] or 0) + (at and 0 or 1)
     local text = answer(asked, assert(asks[asked]))
     if text == nil then return reply(500, ""), "" end
-    local pages = Json.decode_array(text)
+    local pages, _ = Json.decode_array(text)
     if pages == nil then return reply(200, text), "" end
     local index = assert(math.tointeger(tonumber(number) or 1))
     local more = index < #pages
@@ -90,21 +93,39 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     return reply(200, assert(Json.encode(pages[index])),
       more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } or nil), ""
   end
-  local fetch, delete = Github.over({ send = send, base = origin,
+  local over = Github.over({ send = send, base = origin,
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })
+  local outputs: {string} = {}
+  local summaries: {string} = {}
+  local printed: {string} = {}
+  local sleeps: {integer} = {}
+  local asked_bases: {string} = {}
+  -- Made with a host that does nothing, which the real one, naming the fake, replaces.
+  local fake: GithubFake.Fake = { calls = calls, outputs = outputs, summaries = summaries, printed = printed,
+    sleeps = sleeps, clock = START, moved = false, asked = asked_bases,
+    host = {
+      fetch = over.fetch,
+      delete = over.delete,
+      now = function(): integer return START end,
+      sleep = function(_seconds: integer) end,
+      output = function(_line: string) end,
+      print = function(_line: string) end,
+      summary = function(_line: string) end,
+      moved = function(_base: string): boolean return false end,
+    } }
   fake.host = {
-    fetch = fetch,
-    delete = delete,
+    fetch = over.fetch,
+    delete = over.delete,
     now = function(): integer return fake.clock end,
     sleep = function(seconds: integer)
-      fake.sleeps[#fake.sleeps + 1] = seconds
+      sleeps[#sleeps + 1] = seconds
       fake.clock = fake.clock + seconds
     end,
-    output = function(line: string) fake.outputs[#fake.outputs + 1] = line end,
-    print = function(line: string) fake.printed[#fake.printed + 1] = line end,
-    summary = function(line: string) fake.summaries[#fake.summaries + 1] = line end,
+    output = function(line: string) outputs[#outputs + 1] = line end,
+    print = function(line: string) printed[#printed + 1] = line end,
+    summary = function(line: string) summaries[#summaries + 1] = line end,
     moved = function(base: string): boolean
-      fake.asked[#fake.asked + 1] = base
+      asked_bases[#asked_bases + 1] = base
       return fake.moved
     end,
   }

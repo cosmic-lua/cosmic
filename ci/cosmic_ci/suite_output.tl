@@ -52,6 +52,11 @@ local record SuiteOutput
     --- nil where the run said none.
     held?: string
   end
+  --- A suite's figures and how it ended ([`SuiteOutput.status`]).
+  record Read
+    figures: Figures
+    status: string
+  end
   --- One set of key parts a verdict cache's rows name (`parts`, {} for
   --- rows that name none), and how many rows it keys.
   record Held
@@ -169,11 +174,11 @@ end
 --- census, said before its tests ran: a summary line in its output is
 --- some test's own nested run's, never the suite's, which it did not
 --- reach.
-function SuiteOutput.read(text: string, code: integer): SuiteOutput.Figures, string
+function SuiteOutput.read(text: string, code: integer): SuiteOutput.Read
   local figures = SuiteOutput.parse(text)
   local status = SuiteOutput.status(figures, code)
   if status == "timeout" then figures = { parts = figures.parts, held = figures.held } end
-  return figures, status
+  return { figures = figures, status = status }
 end
 
 --- The share of `row`'s tests that stood, as a percentage with one

@@ -2,6 +2,17 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Verdicts = require("cosmic_ci.verdicts")
 
+--- [`Verdicts.command`] and [`Verdicts.merge`], each answer as three values.
+local function verdicts_command(argv: {string}, env: {string:string}): integer, string, string
+  local command = Verdicts.command(argv, env)
+  return command.code, command.out, command.err
+end
+
+local function verdicts_merge(argv: {string}, env: {string:string}): integer, string, string
+  local command = Verdicts.merge(argv, env)
+  return command.code, command.out, command.err
+end
+
 local s <const> = 1000000000
 
 --- A cache of the shape build/shared_verdicts.tl keeps, in its
@@ -47,7 +58,7 @@ end
 local function test_trim_keeps_unknown_formats_and_reports_them(tmp: string)
   local path = tmp .. "/verdicts.db"
   cache(path, { 999, 1000, 1001 })
-  local code, out, err = Verdicts.command({ "1000" },
+  local code, out, err = verdicts_command({ "1000" },
     { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err:find("kept tables", 1, true) ~= nil, out .. err)
   local left = keys(path)
@@ -59,7 +70,7 @@ local function test_no_run_reached_and_whole_keep_all_rows(tmp: string)
   local path = tmp .. "/verdicts.db"
   cache(path, { 1, 2 })
   for _, since in ipairs({ "1000", "whole" }) do
-    local code, out, err = Verdicts.command({ since },
+    local code, out, err = verdicts_command({ since },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0, out .. err)
     assert(table.concat(keys(path), ",") == "k1,k2,old")
@@ -74,7 +85,7 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
   cache(tmp .. "/fixtures.db", { 1, 6 })
   assert(Fs.write(tmp .. "/fixtures.db.corrupt-123", "retired"))
   for _, since in ipairs({ "5", "whole" }) do
-    local code, _, err = Verdicts.command({ since },
+    local code, _, err = verdicts_command({ since },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0 and err ~= "")
     assert(Fs.read(path) == bytes)
@@ -89,23 +100,23 @@ local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)
     local dir = tmp .. "/" .. tostring(i)
     assert(Fs.mkdirs(dir))
     cache(dir .. "/verdicts.db", used)
-    local code, out, err = Verdicts.command({ "5" },
+    local code, out, err = verdicts_command({ "5" },
       { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = dir .. "/output" })
     assert(code == 0, out .. err)
-    digests[i] = assert(outputs(dir .. "/output")["digest"])
+    digests[#digests + 1] = assert(outputs(dir .. "/output")["digest"])
   end
   assert(digests[1] == digests[2] and digests[1] ~= digests[3])
 end
 
 local function test_no_cache_is_created_or_named_by_a_digest(tmp: string)
   for _, path in ipairs({ "0", "relative", tmp .. "/absent/verdicts.db" }) do
-    local code, out, err = Verdicts.command({ "5" },
+    local code, out, err = verdicts_command({ "5" },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil, out .. err)
   end
   assert(#assert(Fs.list(tmp)) == 0)
   for _, since in ipairs({ "soon", "-1", "9223372037", "1.5" }) do
-    assert(Verdicts.command({ since }, { COSMIC_VERDICT_CACHE = tmp .. "/v.db" }) == 2)
+    assert(verdicts_command({ since }, { COSMIC_VERDICT_CACHE = tmp .. "/v.db" }) == 2)
   end
 end
 
@@ -138,17 +149,17 @@ local function test_a_merge_adds_the_rows_ahead_as_a_union(tmp: string)
   assert(Sqlite.run(db, "INSERT INTO declared_v9 VALUES ('theirs')"))
   assert(db:close())
   local env = { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" }
-  local code, out, err = Verdicts.merge({ ahead }, env)
+  local code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and err == "", err)
   assert(out:find("added 1 row to declared_v1, 1 row to declared_v9, 0 rows to verdicts_v3; ", 1, true) ~= nil, out)
   local want = "k1 t.tl test_1 500\nk2 t.tl test_2 600\nk3 t.tl test_3 0"
   assert(rows(ours .. "/verdicts.db") == want, rows(ours .. "/verdicts.db"))
-  code, out, err = Verdicts.merge({ ahead }, env)
+  code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and err == "" and out:find("added 0 rows to declared_v1, 0 rows to declared_v9", 1, true) ~= nil,
     out .. err)
   assert(rows(ours .. "/verdicts.db") == want, rows(ours .. "/verdicts.db"))
   -- A trim after a run that reached none of them takes them out.
-  code, out = Verdicts.command({ "550" }, env)
+  code, out = verdicts_command({ "550" }, env)
   assert(code == 0 and rows(ours .. "/verdicts.db") == "k2 t.tl test_2 600", out)
 end
 
@@ -160,7 +171,7 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
   local ahead, ours = tmp .. "/ahead", tmp .. "/ours/sub"
   assert(Fs.mkdirs(ahead))
   cache(ahead .. "/checked.db", { 700 })
-  local code, out, err = Verdicts.merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
+  local code, out, err = verdicts_merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
   assert(code == 0 and err == "", out .. err)
   assert(rows(ours .. "/checked.db") == "k1 t.tl test_1 0", rows(ours .. "/checked.db"))
   assert(Fs.exists(ours .. "/verdicts.db") ~= true, "the merge made a cache the run ahead had none of")
@@ -175,7 +186,7 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
       "ALTER TABLE declared_v1 ADD COLUMN extra TEXT; INSERT INTO declared_v1 (key, test, hits, elapsed_ns, " ..
       "used_ns, origin) VALUES ('k9', 't', x'00', 1, 1, 'o')"))
   assert(db:close())
-  code, out, err = Verdicts.merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
+  code, out, err = verdicts_merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
   assert(code == 0 and err == "verdicts-merge: " .. ahead .. "/checked.db: left as they are: " ..
       "declared_v1 (another shape), declared_v7 (no primary key)\n", err)
   assert(rows(ours .. "/checked.db") == "k1 t.tl test_1 0", rows(ours .. "/checked.db"))
@@ -187,18 +198,19 @@ end
 local function test_a_merge_does_nothing_it_is_not_given(tmp: string)
   local ahead, ours = tmp .. "/ahead", tmp .. "/ours"
   assert(Fs.mkdirs(ahead) and Fs.mkdirs(ours))
-  for _, env in ipairs({ {} as {string:string}, { COSMIC_VERDICT_CACHE = "0" } }) do
-    local code, out, err = Verdicts.merge({ ahead }, env)
+  local envs: {{string:string}} = { {}, { COSMIC_VERDICT_CACHE = "0" } }
+  for _, env in ipairs(envs) do
+    local code, out, err = verdicts_merge({ ahead }, env)
     assert(code == 0 and err == "" and out:find("nothing to merge", 1, true) ~= nil, out .. err)
   end
   local env = { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" }
-  local code, out, err = Verdicts.merge({ ahead }, env)
+  local code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and err == "" and out:find("holds no cache", 1, true) ~= nil, out .. err)
-  code, out, err = Verdicts.merge({}, env)
+  code, out, err = verdicts_merge({}, env)
   assert(code == 2 and out == "" and err:find("usage", 1, true) ~= nil, err)
   cache(ours .. "/verdicts.db", { 500 })
   assert(Fs.write(ahead .. "/verdicts.db", string.rep("not a database at all ", 512)))
-  code, out, err = Verdicts.merge({ ahead }, env)
+  code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and out == "" and err:find("nothing merged", 1, true) ~= nil, out .. err)
   assert(rows(ours .. "/verdicts.db") == "k1 t.tl test_1 500", rows(ours .. "/verdicts.db"))
 end
@@ -238,11 +250,11 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   assert(Fs.mkdirs(ahead) and Fs.mkdirs(ours))
   stores(ours .. "/verdicts.db", { 100, 1000 })
   local env = { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" }
-  local code, out, err = Verdicts.command({ "1000" }, env)
+  local code, out, err = verdicts_command({ "1000" }, env)
   assert(code == 0 and err == "", out .. err)
   assert(addresses(ours .. "/verdicts.db") == "a2 1000", addresses(ours .. "/verdicts.db"))
   stores(ahead .. "/verdicts.db", { 700, 800, 900 })
-  code, out, err = Verdicts.merge({ ahead }, env)
+  code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and err == "" and
       out:find("added 2 rows to stores_v1", 1, true) ~= nil, out .. err)
   assert(addresses(ours .. "/verdicts.db") == "a1 0\na2 1000\na3 0",
@@ -252,7 +264,7 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   local db = assert(Sqlite.open(ahead .. "/verdicts.db", { writable = true }))
   assert(db:exec("UPDATE stores_v1 SET digest = 'e' WHERE address = 'a2'"))
   assert(db:close())
-  code, out, err = Verdicts.merge({ ahead }, env)
+  code, out, err = verdicts_merge({ ahead }, env)
   assert(code == 0 and err:find("warning: the run ahead kept another digest of a closure " ..
       "store for 1 address of stores_v1", 1, true) ~= nil, out .. err)
   db = assert(Sqlite.open(ours .. "/verdicts.db"))

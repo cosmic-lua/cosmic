@@ -37,8 +37,9 @@ local function test_a_file_is_checked_and_never_run(tmp: string)
     ["build/typed.tl"] = 'local x: integer = "a"\nreturn x\n',
     ["build/tree.tl"] = 'local Paths = require("build.paths")\nreturn Paths\n',
   })
-  local complaints, checked = Islands.check(root,
+  local report = Islands.check(root,
     { "build/ok.tl", "build/syntax.tl", "build/tree.tl", "build/typed.tl", "ci/" }, Env.all())
+  local complaints, checked = report.complaints, report.checked
   assert(checked == 4, tostring(checked))
   assert(#complaints == 3, table.concat(complaints, "\n"))
   local syntax, tree, typed = assert(complaints[1]), assert(complaints[2]), assert(complaints[3])
@@ -51,7 +52,8 @@ end
 
 local function test_a_path_that_is_neither_a_file_nor_a_directory_is_refused(tmp: string)
   local root = checkout(tmp, "", { ["build/a.lua"] = "return 1\n" })
-  local complaints, checked = Islands.check(root, { "build/a.lua", "build/gone.tl" }, Env.all())
+  local report = Islands.check(root, { "build/a.lua", "build/gone.tl" }, Env.all())
+  local complaints, checked = report.complaints, report.checked
   assert(checked == 1 and #complaints == 2, table.concat(complaints, "\n"))
   local neither, gone = assert(complaints[1]), assert(complaints[2])
   assert(neither:find("neither a directory nor a .tl file", 1, true), neither)

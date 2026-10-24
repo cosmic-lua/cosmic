@@ -2,6 +2,12 @@ local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 
+--- [`SuiteOutput.read`], its answer as two values.
+local function both(text: string, code: integer): SuiteOutput.Figures, string
+  local read = SuiteOutput.read(text, code)
+  return read.figures, read.status
+end
+
 local key_parts <const> = "test: key parts: host features 0123456789abcdef, host aaaaaaaaaaaa, " ..
   "system , runtime bbbbbbbbbbbb, compiler cccccccccccc, harness dddddddddddd, " ..
   "store eeeeeeeeeeee"
@@ -98,7 +104,7 @@ end
 --- Under `--census` a run says, after its key parts, what the verdict
 --- cache held: each set of parts its rows name, and how many.
 local function test_the_census_line_says_what_the_cache_held(tmp: string)
-  local figures, status = SuiteOutput.read(key_parts .. "\n" ..
+  local figures, status = both(key_parts .. "\n" ..
       "test: census: 1990 rows under host features 01, runtime bbbbbbbbbbbb, " ..
       "harness e8-072f7458-t60000; 1 row under no parts named\n" ..
       "test: 1994 tests passed in 193 modules; 0 ran, 1994 stood, 2385 ms; sandboxed\n", 0)
@@ -113,7 +119,7 @@ local function test_the_census_line_says_what_the_cache_held(tmp: string)
   assert(empty_held == "" and #SuiteOutput.held(assert(empty_held)) == 0)
   assert(SuiteOutput.parse(key_parts .. "\n").held == nil)
   -- Timed out, it keeps the census, said before its tests ran.
-  local timed = SuiteOutput.read("test: census: 3 rows under runtime r, harness h\n", 124)
+  local timed = both("test: census: 3 rows under runtime r, harness h\n", 124)
   assert(timed.held == "3 rows under runtime r, harness h", timed.held)
   -- Kept in its row, and read back; a row from before the column has none.
   local path = tmp .. "/operations.db"
@@ -162,28 +168,28 @@ end
 --- A suite the driver ended keeps its key parts and nothing its output
 --- said after: a summary there is a test's own nested run's.
 local function test_a_timed_out_suite_keeps_only_its_key_parts()
-  local figures, status = SuiteOutput.read(key_parts .. "\n" ..
+  local figures, status = both(key_parts .. "\n" ..
       "test: 1 test passed in 1 module; 1 ran, 0 stood, 3 ms\n", 124)
   assert(status == "timeout")
   assert(figures.verdict == nil and figures.tests == nil and figures.ran == nil)
   assert(figures.stood == nil and figures.elapsed_ms == nil)
   assert(assert(figures.parts)["runtime"] == "bbbbbbbbbbbb")
-  local bare, bare_status = SuiteOutput.read("", 124)
+  local bare, bare_status = both("", 124)
   assert(bare_status == "timeout" and bare.parts == nil)
 end
 
 --- A suite that exited otherwise than 0 failed, though it said it passed:
 --- its status is what it answered. Its counts are still the suite's.
 local function test_a_pass_that_exits_nonzero_is_a_failure()
-  local figures, status = SuiteOutput.read(
+  local figures, status = both(
     "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\n", 1)
   assert(status == "fail" and figures.ran == 4 and figures.stood == 6)
-  local _, passed = SuiteOutput.read(
+  local _, passed = both(
     "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\n", 0)
   assert(passed == "pass")
-  local _, unreported = SuiteOutput.read("", 0)
+  local _, unreported = both("", 0)
   assert(unreported == "unreported")
-  local _, failed = SuiteOutput.read("", 2)
+  local _, failed = both("", 2)
   assert(failed == "fail")
 end
 

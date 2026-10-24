@@ -4,7 +4,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
+local CiWorkflow = require("cosmic_ci.ci_workflow")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Fixture = require("cosmic_ci.fixture")
@@ -28,6 +28,80 @@ Test.policy{
     { path = "/parent/.github/workflows/ci.yml", letters = "r" },
   },
 }
+
+--- One case of a test that runs the driver over a fixture: a named
+--- scenario and what it is to answer, one record for each test that
+--- tables them.
+local record SandboxCase
+  name: string
+  said: string
+  require: string
+  ok: boolean
+end
+local record StandsCase
+  event: string
+  stands: boolean
+end
+local record FormatCase
+  name: string
+  switch: string
+  ok: boolean
+  ran: boolean
+end
+local record BoundaryCase
+  name: string
+  immediate: boolean
+  boundary: boolean
+  ran: boolean
+end
+local record NativeCase
+  name: string
+  broken: boolean
+end
+local record PortableCase
+  event: string
+  words: string
+  shared: boolean
+end
+local record DarwinCase
+  name: string
+  target: string
+  event: string
+  sandbox: string
+  ran: string
+  suites: string
+  ok: boolean
+  stood: integer
+end
+local record ChecksCase
+  name: string
+  target: string
+  report: boolean
+  status: integer
+  ok: boolean
+  ran?: string
+end
+
+--- `Orchestration.harness_moved`, its answer as two values.
+local function harness_moved(root: string, base: string): boolean, string
+  local Orchestration = require("cosmic_ci.orchestration")
+  local judged = Orchestration.harness_moved(root, base)
+  return judged.moved, judged.why
+end
+
+--- `Orchestration.suite_run`, its answer as two values.
+local function suite_run(extra?: {string:string}): {string}, {string:string}
+  local Orchestration = require("cosmic_ci.orchestration")
+  local run = Orchestration.suite_run(extra)
+  return run.words, run.env
+end
+
+--- `Orchestration.fixture_lanes`, the two lanes as two values.
+local function fixture_lanes(env: {string:string}, cpus: integer): integer | nil, integer | nil
+  local Orchestration = require("cosmic_ci.orchestration")
+  local lanes = Orchestration.fixture_lanes(env, cpus)
+  return lanes.high, lanes.low
+end
 
 --- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so `driver.tl` must never run with project root `ci/`
@@ -269,11 +343,12 @@ end
 --- either where the leg does not require it.
 local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp: string)
   local base, project = command(tmp)
-  for _, case in ipairs({
-      { name = "unavailable", said = "Confinement: **unavailable** (unveil).", require = "1", ok = false },
-      { name = "available", said = "Confinement: available.", require = "1", ok = true },
-      { name = "unrequired", said = "Confinement: **unavailable** (unveil).", require = "", ok = true },
-  }) do
+  local cases: {SandboxCase} = {
+    { name = "unavailable", said = "Confinement: **unavailable** (unveil).", require = "1", ok = false },
+    { name = "available", said = "Confinement: available.", require = "1", ok = true },
+    { name = "unrequired", said = "Confinement: **unavailable** (unveil).", require = "", ok = true },
+  }
+  for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
@@ -325,7 +400,9 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   end
   for _, event in ipairs({ "workflow_dispatch", "schedule", "pull_request", "" }) do
     for _, leg in ipairs({ "COSMIC_CI_REQUIRE_SANDBOX", "COSMIC_CI_DECLARED_KEYS" }) do
-      local env = { [leg] = "1", COSMIC_CI_EVENT = event }
+      local env: {string:string} = {}
+      env[leg] = "1"
+      env["COSMIC_CI_EVENT"] = event
       assert(not Orchestration.stands(env) and words(env) == "test --all", leg .. " " .. event)
     end
   end
@@ -333,10 +410,10 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   -- Standing, it may stand on what another run reached; else not.
   local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group",
     COSMIC_CI_HARNESS_MOVED = "0" }
-  Orchestration.shares(queued)
+  queued = Orchestration.shares(queued)
   assert(queued["COSMIC_TEST_NO_SHARED"] == nil, "the merge queue")
   local scheduled: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "schedule" }
-  Orchestration.shares(scheduled)
+  scheduled = Orchestration.shares(scheduled)
   assert(scheduled["COSMIC_TEST_NO_SHARED"] == "1", "main's scheduled run")
   -- A merge queue run whose change moves the harness's epoch file, or
   -- that cannot tell, stands on nothing; a push's is not asked.
@@ -362,11 +439,10 @@ local function git(root: string, words: {string}): string
 end
 
 --- A merge queue run compares build/harness_epoch.tl at its base with
---- what it checks (`harness_moved`): a change that leaves it runs what
---- its keys moved, one that moves it every test (`suite_run`), and one
+--- what it checks ([`harness_moved`]): a change that leaves it runs what
+--- its keys moved, one that moves it every test ([`suite_run`]), and one
 --- whose base it cannot read or that names none every test too.
 local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: string)
-  local Orchestration = require("cosmic_ci.orchestration")
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/build"))
   git(root, { "init", "--quiet" })
@@ -377,33 +453,32 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
   local base = git(root, { "rev-parse", "HEAD" }):match("^(%x+)")
   assert(Fs.write(root .. "/README", "two\n"))
   git(root, { "commit", "--quiet", "-am", "elsewhere" })
-  assert(not Orchestration.harness_moved(root, assert(base)), "a change that leaves the file")
+  assert(not harness_moved(root, assert(base)), "a change that leaves the file")
   local function queued(sha: string): string
-    local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
+    local words = suite_run({ COSMIC_CI_EVENT = "merge_group",
       COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = sha })
     return table.concat(words, " ")
   end
   assert(queued(assert(base)) == "test --bail", "a merge queue run that leaves the epoch ran --all")
   assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
   git(root, { "commit", "--quiet", "-am", "bump" })
-  assert(Orchestration.harness_moved(root, assert(base)), "a change that moves the file")
+  assert(harness_moved(root, assert(base)), "a change that moves the file")
   -- Asked of another checkout, as the answer is kept by checkout and base.
   local moved = tmp .. "/moved"
   git(tmp, { "clone", "--quiet", root, moved })
   assert(queued(assert(base)) == "test --bail", "the first answer was not kept")
-  local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
+  local words = suite_run({ COSMIC_CI_EVENT = "merge_group",
     COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
   assert(table.concat(words, " ") == "test --all --bail", "a merge queue run that moves the epoch")
   -- A base it cannot read, or none, is taken as a move.
-  local unread, why = Orchestration.harness_moved(root, string.rep("0", 40))
+  local unread, why = harness_moved(root, string.rep("0", 40))
   assert(unread and why:find("git ", 1, true) ~= nil, "a base that is no commit: " .. why)
-  assert(Orchestration.harness_moved(root, ""), "no base")
-  assert(Orchestration.harness_moved(tmp .. "/none", assert(base)), "no checkout")
+  assert(harness_moved(root, ""), "no base")
+  assert(harness_moved(tmp .. "/none", assert(base)), "no checkout")
   -- ci.yml names the base, and checks out the merge's parent with it.
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
-  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
-  local platform = (ci.jobs as {string: {string: any}}).platform
-  local env = platform.env as {string: string}
+  local platform = assert(CiWorkflow.parse(text).jobs["platform"])
+  local env = assert(platform.env)
   assert(env.COSMIC_CI_BASE_SHA == "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
     "ci.yml's platform job names no merge queue base: " .. tostring(env.COSMIC_CI_BASE_SHA))
 end
@@ -435,10 +510,10 @@ local function test_a_full_branch_push_decides_the_harness_as_the_merge_queue_do
   assert(not Orchestration.against_a_base({ COSMIC_CI_EVENT = "schedule", COSMIC_CI_BASE_SHA = base }))
   local unasked: {string:string} = { COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
     GITHUB_WORKSPACE = root }
-  assert(table.concat(Orchestration.suite_run(unasked), " ") == "test" and unasked["COSMIC_CI_HARNESS_MOVED"] == nil,
+  assert(table.concat(Orchestration.suite_run(unasked).words, " ") == "test" and unasked["COSMIC_CI_HARNESS_MOVED"] == nil,
     "a push naming no base is asked")
   local left = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = base })
+    GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = base }).words
   assert(table.concat(left, " ") == "test", "a branch push that leaves the epoch ran --all")
   assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
   git(root, { "commit", "--quiet", "-am", "bump" })
@@ -446,10 +521,10 @@ local function test_a_full_branch_push_decides_the_harness_as_the_merge_queue_do
   local moved = tmp .. "/moved"
   git(tmp, { "clone", "--quiet", root, moved })
   local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base }).words
   assert(table.concat(words, " ") == "test --all", "a branch push that moves the epoch: " .. table.concat(words, " "))
   local unknown = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = "unknown" })
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = "unknown" }).words
   assert(table.concat(unknown, " ") == "test --all", "a base the scope job could not name stands on verdicts")
 end
 
@@ -490,7 +565,7 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
   local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "push",
     COSMIC_TEST_SANDBOX = "1", COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_SOURCE = tmp .. "/source" }
-  Orchestration.shares(env)
+  env = Orchestration.shares(env)
   assert(env["COSMIC_TEST_NO_SHARED"] == nil, "a Linux push's suite stands on shared verdicts")
   local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
   assert(fixture["COSMIC_VERDICT_CACHE"] == "0", "the fixture may keep shared verdicts")
@@ -576,8 +651,9 @@ local function test_a_sandboxed_fixture_keeps_verdicts_beside_the_legs(tmp: stri
   local fixtures = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db" },
     "fixtures")
   assert(fixtures == tmp .. "/v/fixtures.db", fixtures)
-  for _, case in ipairs({ { event = "push", stands = true },
-      { event = "workflow_dispatch", stands = false } }) do
+  local cases: {StandsCase} = { { event = "push", stands = true },
+    { event = "workflow_dispatch", stands = false } }
+  for _, case in ipairs(cases) do
     local env: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = case.event,
       COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
       COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_BUILD_CACHE = tmp .. "/build.db" }
@@ -677,7 +753,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
           policy:find('{ path = "o/bin", letters = "rx" }', 1, true),
         name .. ": a fixture that starts the running program on build/paths.tl does not declare tool")
     end
-    if Orchestration.sandboxed_fixtures[name] == true then
+    if Orchestration.sandboxed_fixtures()[name] == true then
       sandboxed = sandboxed + 1
       local host = declared_reads(name)
       if name == "performance" then
@@ -710,7 +786,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
         declared[variable] = true
       end
       local wanted: {string:boolean} = {}
-      for _, variable in ipairs(Fixture.inherited) do wanted[variable] = true end
+      for _, variable in ipairs(Fixture.inherited()) do wanted[variable] = true end
       for variable in code:gmatch('Fixture%.required%("([A-Z_]+)"%)') do wanted[variable] = true end
       if code:find("Fixture.source_tree(", 1, true) then wanted["COSMIC_FIXTURE_SOURCE"] = true end
       for variable in pairs(wanted) do
@@ -730,7 +806,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
-  for _ in pairs(Orchestration.sandboxed_fixtures) do listed = listed + 1 end
+  for _ in pairs(Orchestration.sandboxed_fixtures()) do listed = listed + 1 end
   assert(sandboxed == listed and listed > 0, "a sandboxed fixture has no module")
 end
 
@@ -738,11 +814,12 @@ end
 --- sets on every leg but one; any other value runs it.
 local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
   local base, project = command(tmp)
-  for _, case in ipairs({
-      { name = "skip", switch = "skip", ok = true, ran = false },
-      { name = "run", switch = "run", ok = false, ran = true },
-      { name = "unset", switch = "", ok = false, ran = true },
-  }) do
+  local cases: {FormatCase} = {
+    { name = "skip", switch = "skip", ok = true, ran = false },
+    { name = "run", switch = "run", ok = false, ran = true },
+    { name = "unset", switch = "", ok = false, ran = true },
+  }
+  for _, case in ipairs(cases) do
     local fake = tmp .. "/format-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local boundary = runner_temp .. "/cosmic-ci/platform/local-diagnostics/local-boundary"
@@ -846,20 +923,22 @@ end
 --- on a light run) has neither snapshot, and the check runs.
 local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: string)
   local base, project = command(tmp)
-  for _, case in ipairs({
-      { name = "no-suite", immediate = false, boundary = false, ran = true },
-      { name = "suite-unbounded", immediate = true, boundary = false, ran = false },
-      { name = "suite-bounded", immediate = true, boundary = true, ran = true },
-  }) do
+  local cases: {BoundaryCase} = {
+    { name = "no-suite", immediate = false, boundary = false, ran = true },
+    { name = "suite-unbounded", immediate = true, boundary = false, ran = false },
+    { name = "suite-bounded", immediate = true, boundary = true, ran = true },
+  }
+  for _, case in ipairs(cases) do
     local fake = tmp .. "/format-boundary-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local diagnostics = runner_temp .. "/cosmic-ci/platform/local-diagnostics"
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(diagnostics))
-    for _, snapshot in ipairs({ { "local-immediate", case.immediate }, { "local-boundary", case.boundary } }) do
-      if snapshot[2] then
-        assert(Fs.mkdirs(diagnostics .. "/" .. assert(snapshot[1])))
-        assert(Fs.write(diagnostics .. "/" .. assert(snapshot[1]) .. "/hashes.sha256", ""))
-      end
+    local kept: {string} = {}
+    if case.immediate then kept[#kept + 1] = "local-immediate" end
+    if case.boundary then kept[#kept + 1] = "local-boundary" end
+    for _, snapshot in ipairs(kept) do
+      assert(Fs.mkdirs(diagnostics .. "/" .. snapshot))
+      assert(Fs.write(diagnostics .. "/" .. snapshot .. "/hashes.sha256", ""))
     end
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
@@ -1069,7 +1148,8 @@ end
 --- still decides the phase, which passes, and says so on stderr.
 local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing(tmp: string)
   local base, project = command(tmp)
-  for _, case in ipairs({ { name = "rows", broken = false }, { name = "broken", broken = true } }) do
+  local cases: {NativeCase} = { { name = "rows", broken = false }, { name = "broken", broken = true } }
+  for _, case in ipairs(cases) do
     local fake = tmp .. "/native-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
@@ -1123,17 +1203,19 @@ end
 --- that names it or names no leg, a later one's over an earlier one's
 --- (build/workflows_test.tl expands the matrix as GitHub does, for a
 --- light run too).
-local function full_run_legs(platform: {string: any}): {string: {string: string}}
-  local matrix = (platform.strategy as {string: any}).matrix as {string: any}
-  local full = assert((matrix.name as string):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
+local function full_run_legs(platform: CiWorkflow.Job): {string: {string: string}}
+  local matrix = assert(assert(platform.strategy).matrix)
+  local full = assert(assert(matrix.name):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
   local legs: {string: {string: string}} = {}
   local names, why: {string} | nil, string = Shape.decode_into(full, Shape.list(Shape.string))
   assert(names ~= nil, why)
   for _, name in ipairs(names) do
     local leg: {string: string} = { name = name }
-    for _, entry in ipairs(matrix.include as {{string: string}}) do
+    for _, entry in ipairs(assert(matrix.include)) do
       if entry.name == nil or entry.name == name then
-        for key, value in pairs(entry) do leg[key] = value end
+        for key, value in pairs(entry) do
+          if value is string then leg[key] = value end
+        end
       end
     end
     legs[name] = leg
@@ -1153,24 +1235,24 @@ end
 --- in the `format` job after its boot, off the legs' path.
 local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
-  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
-  local jobs = ci.jobs as {string: {string: any}}
-  local platform = jobs.platform
+  local jobs = CiWorkflow.parse(text).jobs
+  local platform = assert(jobs["platform"])
   local legs = full_run_legs(platform)
-  local env = platform.env as {string: string}
+  local env = assert(platform.env)
   assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
       tostring(env.COSMIC_CI_CHECKED_SUITE))
   local format = assert(env.COSMIC_CI_FORMAT, "ci.yml's platform job sets no COSMIC_CI_FORMAT")
   local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
   assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
-  local function env_of(job: {string: any}): {string: string}
-    return job["env"] as {string: string}
+  local function env_of(job: CiWorkflow.Job): {string: string}
+    return assert(job.env)
   end
-  local function phases_of(job: {string: any}): string
+  local function phases_of(job: CiWorkflow.Job): string
     local phases: {string} = {}
-    for _, step in ipairs(job["steps"] as {{string: any}}) do
+    for _, step in ipairs(assert(job.steps)) do
       local run = step.run
-      local phase = run is string and run:match("driver%.tl platform ([%w-]+)$") or nil
+      local phase: string | nil
+      if run ~= nil then phase = run:match("driver%.tl platform ([%w-]+)$") end
       if phase ~= nil then phases[#phases + 1] = phase end
       if phase == "performance-checked" then
         assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture runs outside the full scope")
@@ -1200,9 +1282,8 @@ end
 --- ci.yml's platform job's legs, by name, and its environment.
 local function platform_legs_and_env(): {string: {string: string}}, {string: string}
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
-  local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
-  local platform = (ci.jobs as {string: {string: any}}).platform
-  return full_run_legs(platform), platform.env as {string: string}
+  local platform = assert(CiWorkflow.parse(text).jobs["platform"])
+  return full_run_legs(platform), assert(platform.env)
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
@@ -1410,11 +1491,12 @@ end
 --- they do not (main's scheduled run), it runs every test.
 local function test_the_portable_suite_stands_on_the_local_suites_verdicts(tmp: string)
   local base, project = command(tmp)
-  for _, case in ipairs({
-      { event = "merge_group", words = "test --census --bail\n", shared = false },
-      { event = "push", words = "test --census\n", shared = false },
-      { event = "schedule", words = "test --census --all\n", shared = true },
-  }) do
+  local cases: {PortableCase} = {
+    { event = "merge_group", words = "test --census --bail\n", shared = false },
+    { event = "push", words = "test --census\n", shared = false },
+    { event = "schedule", words = "test --census --all\n", shared = true },
+  }
+  for _, case in ipairs(cases) do
     local fake = tmp .. "/portable-" .. case.event
     local runner_temp = fake .. "-runner-temp"
     local work = runner_temp .. "/cosmic-ci/platform"
@@ -1461,12 +1543,11 @@ exit 0
   end
 end
 
---- The checked suite and the others alike (`suite_run`): the words are
+--- The checked suite and the others alike ([`suite_run`]): the words are
 --- decided on the driver's environment, then what names the run is
 --- forgotten and the rest is kept.
 local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
-  local Orchestration = require("cosmic_ci.orchestration")
-  local words, env = Orchestration.suite_run({
+  local words, env = suite_run({
     GITHUB_RUN_ID = "1", RUNNER_NAME = "r", ACTIONS_RUNTIME_TOKEN = "t",
     CI = "true", HOSTNAME = "4f1c", COSMIC_CI_SCOPE = "light",
     COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
@@ -1479,7 +1560,7 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
   end
   assert(env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and env["HOME"] == "/home/runner" and
       env["COSMIC_WORKER"] == "w" and env["FUZZ_ITERS"] == "0")
-  local all, all_env = Orchestration.suite_run({
+  local all, all_env = suite_run({
     COSMIC_CI_EVENT = "schedule", COSMIC_CI_REQUIRE_SANDBOX = "1" })
   assert(table.concat(all, " ") == "test --all" and
       all_env["COSMIC_TEST_NO_SHARED"] == "1", "main's scheduled run")
@@ -1491,7 +1572,7 @@ end
 local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   for _, event in ipairs({ "push", "merge_group" }) do
-    local words, env = Orchestration.suite_run({
+    local words, env = suite_run({
       COSMIC_CI_EVENT = event, COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_HARNESS_MOVED = "0",
       COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "" })
     assert(table.concat(words, " ") == (event == "merge_group" and "test --bail" or "test"),
@@ -1501,11 +1582,11 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
     assert((env["COSMIC_TEST_SANDBOX"] or "") == "" and env["COSMIC_SANDBOX"] ~= "must",
       event .. ": the macOS leg's suite was held to a sandbox")
   end
-  local all, scheduled = Orchestration.suite_run({ COSMIC_CI_EVENT = "schedule",
+  local all, scheduled = suite_run({ COSMIC_CI_EVENT = "schedule",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
   assert(table.concat(all, " ") == "test --all" and scheduled["COSMIC_TEST_NO_SHARED"] == "1",
     "the macOS leg's scheduled run")
-  local _, pushed = Orchestration.suite_run({ COSMIC_CI_EVENT = "push",
+  local _, pushed = suite_run({ COSMIC_CI_EVENT = "push",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
   local fixture = Orchestration.fixture(pushed, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
   assert(fixture["COSMIC_TEST_NO_SHARED"] == "1" and fixture["COSMIC_VERDICT_CACHE"] == "0")
@@ -1601,7 +1682,7 @@ end
 local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tmp: string)
   local base, project = command(tmp)
   local darwin = "test --all --census core/a_test.tl build/b_test.tl"
-  local cases = {
+  local cases: {DarwinCase} = {
     { name = "macos-push", target = "aarch64-macos", event = "push", sandbox = "0",
       ran = "test --census\n" .. darwin .. "\n", suites = "local darwin", ok = true,
       stood = 3 },
@@ -1635,7 +1716,7 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' \"$*\" >> \"$0.ran\"; fi\n" .. failing ..
         "case \"$*\" in 'test --census'*) printf '%s\\n' " ..
-        "'test: " .. (2 + case.stood) .. " tests passed in 2 modules; 2 ran, " .. case.stood ..
+        "'test: " .. tostring(2 + case.stood) .. " tests passed in 2 modules; 2 ran, " .. tostring(case.stood) ..
         " stood, 5 ms; unsandboxed'; exit 0;; esac\n" ..
         "if [ \"$1\" = test ]; then printf '%s\\n' " ..
         "'test: 2 tests passed in 2 modules; 2 ran, 0 stood, 5 ms; unsandboxed'; fi\nexit 0\nEOF\n" ..
@@ -1678,7 +1759,7 @@ local function test_the_checked_narrowing_phase_runs_the_whole_suite_checked_on_
   -- core does not have: the phase leaves that one out.
   local promised = "all_cores,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh,path:/bin/cat," ..
     "path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
-  local cases = {
+  local cases: {ChecksCase} = {
     { name = "linux", target = "x86_64-linux-musl", report = true, status = 0, ok = true,
       ran = "test --check-types 120 " .. promised .. "\n" },
     { name = "linux-failing", target = "x86_64-linux-musl", report = true, status = 1, ok = false,
@@ -1916,7 +1997,7 @@ end
 --- ordinary launcher, adding only a requested private mount grant.
 local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
-  assert(Orchestration.sandboxed_fixtures["launcher_noexec"])
+  assert(Orchestration.sandboxed_fixtures()["launcher_noexec"])
   local source = code_of("launcher_noexec")
   assert(source:find('{ path = "/noexec", letters = "rwc" }', 1, true) and
       source:find('profiles = { "system" }', 1, true))
@@ -1940,17 +2021,17 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
 end
 
 --- A suite on a leg is given the requirements the leg promises
---- (ci/cosmic_ci/capabilities.tl) and its name, so a held `cosmic test`
+--- (ci/cosmic_ci/capabilities.json) and its name, so a held `cosmic test`
 --- fails a module for lacking one; a worker that is no leg's is given
 --- none, and a list the caller set is left alone.
 local function test_a_leg_is_given_the_requirements_it_promises()
   local Orchestration = require("cosmic_ci.orchestration")
   local linux: {string:string} = { COSMIC_WORKER = "linux-x86_64-shard" }
-  Orchestration.promise(linux)
+  linux = Orchestration.promise(linux)
   assert(linux["COSMIC_TEST_LEG"] == "linux-x86_64-shard")
   assert(("," .. assert(linux["COSMIC_TEST_PROMISES"]) .. ","):find(",nest,", 1, true), linux["COSMIC_TEST_PROMISES"])
   local mac: {string:string} = { COSMIC_WORKER = "macos-aarch64" }
-  Orchestration.promise(mac)
+  mac = Orchestration.promise(mac)
   assert(mac["COSMIC_TEST_LEG"] == "macos-aarch64")
   local given = "," .. assert(mac["COSMIC_TEST_PROMISES"]) .. ","
   assert(given:find(",path:/bin/sh,", 1, true) and given:find(",path:/usr/bin/env,", 1, true),
@@ -1959,11 +2040,11 @@ local function test_a_leg_is_given_the_requirements_it_promises()
     mac["COSMIC_TEST_PROMISES"])
   for _, worker in ipairs({ "provenance", "fuzz", "" }) do
     local other: {string:string} = { COSMIC_WORKER = worker }
-    Orchestration.promise(other)
+    other = Orchestration.promise(other)
     assert(other["COSMIC_TEST_PROMISES"] == nil and other["COSMIC_TEST_LEG"] == nil, worker)
   end
   local chosen: {string:string} = { COSMIC_WORKER = "linux-x86_64", COSMIC_TEST_PROMISES = "proc" }
-  Orchestration.promise(chosen)
+  chosen = Orchestration.promise(chosen)
   assert(chosen["COSMIC_TEST_PROMISES"] == "proc" and chosen["COSMIC_TEST_LEG"] == nil)
 end
 
@@ -1978,7 +2059,7 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
       COSMIC_TEST_SANDBOX = "1", COSMIC_SANDBOX = "must",
       COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     }
-    Orchestration.promise(env)
+    env = Orchestration.promise(env)
     local candidate = "," .. assert(env["COSMIC_TEST_PROMISES"]) .. ","
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
@@ -1989,7 +2070,7 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     assert(fixture["COSMIC_SANDBOX"] == "must", "fixture confinement is no longer held")
     assert(fixture["COSMIC_TEST_SANDBOX"] == (source == "runtime" and "1" or "0"))
   end
-  local words, candidate = Orchestration.suite_run({ COSMIC_WORKER = "linux-x86_64-checked" })
+  local words, candidate = suite_run({ COSMIC_WORKER = "linux-x86_64-checked" })
   assert(words[1] == "test")
   assert(("," .. assert(candidate["COSMIC_TEST_PROMISES"]) .. ","):find(",unix_socket,", 1, true),
     candidate["COSMIC_TEST_PROMISES"])
@@ -2020,6 +2101,24 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
 end
 
+--- The fixture project holds the driver namespace's JSON data beside its
+--- modules (the capabilities and run names the driver reads), and refuses
+--- any other file there.
+local function test_a_fixture_project_takes_the_drivers_json_data(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local driver = tmp .. "/ci/cosmic_ci/driver.tl"
+  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci") and Fs.mkdirs(tmp .. "/ci/fixtures"))
+  assert(Fs.write(driver, "return 0\n"))
+  assert(Fs.write(tmp .. "/ci/cosmic_ci/capabilities.json", "{}\n"))
+  assert(Fs.write(tmp .. "/ci/cosmic_ci/run_names.json", "{}\n"))
+  local project = Orchestration.fixture_project(driver, tmp .. "/work")
+  assert(Fs.read(project .. "/cosmic_ci/capabilities.json") == "{}\n")
+  assert(Fs.read(project .. "/cosmic_ci/run_names.json") == "{}\n")
+  assert(Fs.write(tmp .. "/ci/fixtures/data.json", "{}\n"))
+  local called, _ = pcall(Orchestration.fixture_project, driver, tmp .. "/work")
+  assert(not called, "a JSON file among the fixtures was copied")
+end
+
 local type Orch = require("cosmic_ci.orchestration")
 
 --- A bound for a group that should end at once: only a hang reaches it.
@@ -2041,45 +2140,46 @@ local function lane_rig(tmp: string): LaneRig
   assert(Fs.mkdirs(candidate) and Fs.mkdirs(state) and Fs.mkdirs(tmp .. "/logs"))
   local c: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
-  local rig: LaneRig = { events = {}, sink = assert(Fs.open_write(tmp .. "/sink")) } as LaneRig
-  rig.group = function(name: string, script: string, timeout_ns?: integer): Orch.Group
+  local events: {string} = {}
+  local sink = assert(Fs.open_write(tmp .. "/sink"))
+  local function group(name: string, script: string, timeout_ns?: integer): Orch.Group
     local out, err = tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"
     return {
       name = name,
       run = function(): integer
-        table.insert(rig.events, "run:" .. name)
+        events[#events + 1] = "run:" .. name
         return 0
       end,
       start = function(): Runner.Running
-        table.insert(rig.events, "start:" .. name)
+        events[#events + 1] = "start:" .. name
         return Runner.spawn(c, name, { argv = { "/bin/sh", "-c", script }, cwd = candidate,
           output = out, error = err, timeout_ns = timeout_ns or lane_hang_guard })
       end,
       finish = function(outcome: Runner.Outcome): integer
-        table.insert(rig.events, "finish:" .. name .. ":" .. outcome.status)
-        assert(Orchestration.replay(out, err, rig.sink, rig.sink))
+        events[#events + 1] = "finish:" .. name .. ":" .. outcome.status
+        assert(Orchestration.replay(out, err, sink, sink))
         return outcome.code
       end,
       abandon = function(outcome: Runner.Outcome)
-        table.insert(rig.events, "abandon:" .. name .. ":" .. outcome.status)
-        assert(Orchestration.replay(out, err, rig.sink, rig.sink))
+        events[#events + 1] = "abandon:" .. name .. ":" .. outcome.status
+        assert(Orchestration.replay(out, err, sink, sink))
       end,
     }
   end
-  rig.serial = function(name: string, status: integer): Orch.Group
-    local group = rig.group(name, "exit 0")
+  local function serial(name: string, status: integer): Orch.Group
+    local made = group(name, "exit 0")
     return {
       name = name,
       run = function(): integer
-        table.insert(rig.events, "run:" .. name)
+        events[#events + 1] = "run:" .. name
         return status
       end,
-      start = group.start,
-      finish = group.finish,
-      abandon = group.abandon,
+      start = made.start,
+      finish = made.finish,
+      abandon = made.abandon,
     }
   end
-  return rig
+  return { events = events, sink = sink, group = group, serial = serial }
 end
 
 local function gone(pid: integer): boolean
@@ -2173,13 +2273,12 @@ local function test_without_lanes_the_groups_run_one_after_another_as_before(tmp
 end
 
 local function test_the_lanes_are_off_unless_asked_for_and_never_exceed_the_processors()
-  local Orchestration = require("cosmic_ci.orchestration")
-  assert(Orchestration.fixture_lanes({}, 8) == nil)
-  assert(Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "skip" }, 8) == nil)
-  assert(Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, 1) == nil,
+  assert(fixture_lanes({}, 8) == nil)
+  assert(fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "skip" }, 8) == nil)
+  assert(fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, 1) == nil,
     "one processor was shared by two lanes")
   for cpus = 2, 64 do
-    local high, low = Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, cpus)
+    local high, low = fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, cpus)
     assert(high ~= nil and low ~= nil and low == 1 and high >= 1 and high + low == cpus,
       "the lanes' workers are not the processors at " .. tostring(cpus))
   end

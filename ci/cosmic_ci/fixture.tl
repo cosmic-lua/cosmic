@@ -7,6 +7,7 @@ local Hash = require("cosmic.hash")
 local Project = require("cosmic.project")
 local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
+local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
@@ -22,7 +23,8 @@ end
 local builds: Builds = {}
 
 local record Fixture
-  inherited: {string}
+  --- The variables of the fixture's own environment that a child it starts has.
+  inherited: function(): {string}
 
   record Target
     id: integer
@@ -131,7 +133,7 @@ end
 --- yet, and answers it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
-  assert(Fs.exists(destination) ~= true, "unpack destination already exists: " .. destination)
+  assert(not Predicate.exists(destination), "unpack destination already exists: " .. destination)
   Fixture.mkdir(destination)
   local written, trouble = Archive.extract(tar, destination)
   assert(written, tar .. ": " .. tostring(trouble))
@@ -144,7 +146,7 @@ end
 --- `require`s and writes what it builds (its o/).
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"
-  if Fs.exists(tree) == true then return tree end
+  if Predicate.exists(tree) then return tree end
   return Fixture.unpack(fixture_dir .. "/tool.tar", tree)
 end
 
@@ -204,7 +206,7 @@ end
 -- TODO: list what a macOS leg's zig and system shims read beyond these
 -- (TOOLCHAINS for xcrun, say) once a macOS leg's run has been read for
 -- it: a variable missing here breaks that leg alone, naming nothing.
-Fixture.inherited = {
+local INHERITED <const>: {string} = {
   "PATH", "HOME", "XDG_CACHE_HOME", "TMPDIR",
   "COSMIC_PORTABLE_CACHE", "COSMIC_VERDICT_CACHE", "COSMIC_AUTO_BOOT",
   "COSMIC_TEST_SANDBOX", "COSMIC_SANDBOX", "COSMIC_TEST_HELD",
@@ -218,6 +220,10 @@ Fixture.inherited = {
   "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "all_proxy", "https_proxy", "http_proxy", "no_proxy",
 }
+
+function Fixture.inherited(): {string}
+  return INHERITED
+end
 
 --- The environment for a child a fixture starts, with `extra` set over
 --- it: of `base`, the fixture's own (`environment` makes it of that),
@@ -242,7 +248,7 @@ Fixture.inherited = {
 function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
   local environment: {string:string} = {}
-  for _, name in ipairs(Fixture.inherited) do
+  for _, name in ipairs(INHERITED) do
     local inherited = base[name]
     if inherited ~= nil then environment[name] = inherited end
   end
@@ -261,13 +267,23 @@ function Fixture.environment(extra?: {string:string}): {string:string}
   return Fixture.environment_of(Env.all(), extra)
 end
 
+--- What a read run under `pcall` took.
+local record Taken
+  text?: string
+  trouble?: string
+end
+
 local function preview(path: string): string
   local fd = assert(Fs.open_read(path))
-  local called, answer, trouble = pcall(Fs.take, fd, 8192)
+  local taken: Taken = {}
+  local called, raised = pcall(function()
+    local text, trouble = Fs.take(fd, 8192)
+    taken.text, taken.trouble = text, trouble
+  end)
   local closed, close_trouble = Fs.close(fd)
-  if not called then error(answer) end
+  if not called then error(raised) end
   assert(closed, close_trouble)
-  return (assert(answer as string | nil, trouble))
+  return (assert(taken.text, taken.trouble))
 end
 
 function Fixture.call_with_environment(label: string, argv: {string},
@@ -280,12 +296,11 @@ function Fixture.call_with_environment(label: string, argv: {string},
   local outcome = Runner.execute({ argv = argv, cwd = directory,
     env = environment, timeout_ns = timeout_ns or default_child_timeout_ns,
     input = input, output = out, error = err, fds = fds })
-  local outcome_result = outcome.result
-  if not outcome_result then
+  local finished = outcome.result
+  if not finished then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
         "; stdout=" .. out .. "; stderr=" .. err)
   end
-  local finished = outcome_result as Child.Result
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
       tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
       tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
@@ -295,20 +310,28 @@ end
 
 --- [`call_with_environment`] with each file of `paths` open for reading on
 --- the descriptor it is keyed by, in the child only.
+--- The outcome of a call run under `pcall`.
+local record Done
+  outcome?: Fixture.Outcome
+end
+
 function Fixture.call_with_descriptors(label: string, argv: {string},
                                        directory: string, diagnostics: string, environment: {string:string},
                                        paths: {integer:string}): Fixture.Outcome
   local fds: {integer:integer} = {}
-  local called, answer = pcall(function(): Fixture.Outcome
+  local done: Done = {}
+  local called, raised = pcall(function()
     for number, path in pairs(paths) do
       fds[number] = assert(Fs.open_read(path))
     end
-    return Fixture.call_with_environment(label, argv, directory, diagnostics,
+    done.outcome = Fixture.call_with_environment(label, argv, directory, diagnostics,
       environment, nil, nil, fds)
   end)
-  for _, fd in pairs(fds) do Fs.close(fd) end
-  if not called then error(answer) end
-  return answer as Fixture.Outcome
+  for _, fd in pairs(fds) do
+    local _, _ = Fs.close(fd)
+  end
+  if not called then error(raised) end
+  return (assert(done.outcome, label .. ": no outcome"))
 end
 
 function Fixture.call(label: string, argv: {string}, directory: string,

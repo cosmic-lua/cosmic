@@ -4,10 +4,32 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
 local Fixture = require("cosmic_ci.fixture")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
+
+--- What the controller recorded of the run, as far as the test reads it.
+local record Metadata
+  record Fixture
+    id: string
+    root: string
+  end
+  protocol: string
+  exploratory: boolean
+  fixtures: {Metadata.Fixture}
+end
+local METADATA <const> = Shape.record_of("Metadata")
+
+--- One recorded observation of a fixture's uses: the six figures before and
+--- after, and where it ran.
+local record Observation
+  before: {string}
+  after: {string}
+  cwd: string
+end
+local OBSERVATION <const> = Shape.record_of("Observation")
+local OBSERVATIONS <const> = Shape.list(OBSERVATION.spec)
 
 --- The selected candidate, including its carried modules, and the controller
 --- source are both inputs. The CI driver is only the outer test supervisor;
@@ -58,25 +80,30 @@ end
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
   local result = run(tmp, controller())
   assert(result.code == 2, diagnostic(result))
-  local metadata = assert(Json.decode_object((assert(Fs.read(tmp .. "/results/metadata.json")))))
+  local metadata, metadata_trouble: Metadata | nil, string =
+    METADATA:decode_into((assert(Fs.read(tmp .. "/results/metadata.json"))))
+  assert(metadata ~= nil, metadata_trouble)
   assert(metadata.protocol == "fixed-sample-v3" and metadata.exploratory == true)
   local root = assert(Fs.absolute(tmp .. "/results"))
   local names = { "aa-a", "aa-b", "ab-a", "ab-b" }
-  local manifest = metadata.fixtures as {{string:any}}
+  local manifest = metadata.fixtures
   assert(#manifest == 4)
   for i, name in ipairs(names) do
-    assert(manifest[i].id == name and manifest[i].root == root .. "/" .. name)
+    local recorded = manifest[i]
+    assert(recorded ~= nil and recorded.id == name and recorded.root == root .. "/" .. name)
   end
   for _, phase in ipairs({ "aa", "ab" }) do
     -- The fixture's build directory, beside it (the tree's build/perf.tl
     -- gives each COSMIC_BUILD_HOME=<fixture>-build), as build/paths.tl names it.
     local real = (assert(sys.realpath(tmp .. "/results")))
     local built = real .. "/" .. phase .. "-a-build/" .. Hash.hex_sha256(real .. "/" .. phase .. "-a")
-    local observations = assert(Json.decode((assert(Fs.read(built .. "/perf/" .. phase .. "-uses.json"))))) as {{string:any}}
+    local observations, observed_trouble: {Observation} | nil, string = Shape.decode_into(
+      (assert(Fs.read(built .. "/perf/" .. phase .. "-uses.json"))), OBSERVATIONS)
+    assert(observations ~= nil, observed_trouble)
     assert(#observations == 2 * (pairs_sampled + 3))
     for i, observation in ipairs(observations) do
       local iteration = (i + 1) // 2
-      local before, after = observation.before as {string}, observation.after as {string}
+      local before, after = observation.before, observation.after
       assert(#before == 6 and #after == 6)
       assert(before[5] == tostring(3 + iteration) and before[6] == before[5])
       assert(after[5] == tostring(4 + iteration) and after[6] == after[5])

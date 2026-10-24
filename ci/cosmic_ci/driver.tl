@@ -78,7 +78,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
       local cells: {string} = {}
-      for i = 1, 9 do cells[i] = clean(row:text(i)) end
+      for i = 1, 9 do cells[#cells + 1] = clean(row:text(i)) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
     -- Each suite's row (orchestration's `record_suite`), for a reader
@@ -138,7 +138,7 @@ local commands: {string:Command} = {
   ["invalidate-commit-verdicts"] = { about = "delete main's verdicts keyed by COMMIT, after that commit's run that saves them failed",
     usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
-    usage = "[--name | --restore]", spec = PlaceTree.spec, options = PlaceTree.command },
+    usage = "[--name | --restore]", spec = PlaceTree.spec(), options = PlaceTree.command },
   ["check-islands"] = { about = "type-check the files of ci/islands.txt on the running driver's Teal, running none of them",
     usage = "[ROOT]", handler = Islands.command },
   platform = { about = "run one phase of this worker's platform job",
@@ -158,7 +158,7 @@ local commands: {string:Command} = {
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
   report = { about = "print CI's recent runs' times and suites, from GitHub's API",
-    usage = "[options]", spec = Report.spec, options = Report.command },
+    usage = "[options]", spec = Report.spec(), options = Report.command },
 }
 
 return function(argv: {string}): integer

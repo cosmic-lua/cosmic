@@ -585,18 +585,18 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true), refused[1])
 end
 
---- The legs are read out of ci/cosmic_ci/capabilities.tl as data, and a file
---- that returns no `legs` of lists of names is refused.
+--- The legs are read out of ci/cosmic_ci/capabilities.json, and a file
+--- that holds no `legs` of lists of names is refused.
 local function test_the_legs_are_read_from_the_capabilities_file(dir: string)
   assert(Fs.mkdirs(dir .. "/ci/cosmic_ci"))
-  local path = dir .. "/ci/cosmic_ci/capabilities.tl"
-  assert(Fs.write(path, 'local linux = { "sandbox", "nest" }\nreturn { legs = { x = linux, y = {} } }\n'))
+  local path = dir .. "/ci/cosmic_ci/capabilities.json"
+  assert(Fs.write(path, '{"legs": {"x": ["sandbox", "nest"], "y": []}}'))
   local legs = assert(tree_checks.legs(dir))
   assert(#legs.x == 2 and legs.x[2] == "nest" and #legs.y == 0)
-  for _, bad in ipairs({ "return {}", "return { legs = { x = 1 } }", "error('no')", "return {" }) do
+  for _, bad in ipairs({ "{}", '{"legs": {"x": 1}}', "not json", "{" }) do
     assert(Fs.write(path, bad))
     local found, why = tree_checks.legs(dir)
-    assert(found == nil and why:find("capabilities.tl", 1, true) ~= nil, bad .. ": " .. tostring(why))
+    assert(found == nil and why:find("capabilities.json", 1, true) ~= nil, bad .. ": " .. tostring(why))
   end
 end
 

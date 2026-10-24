@@ -41,7 +41,6 @@ Test.policy{
   profiles = { "system" },
 }
 
-local type Running = Process.Running
 local start, finish, supervised = Process.start, Process.finish, Process.supervised
 local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
 local chmod, host_uname = Process.chmod, Process.host_uname
@@ -130,7 +129,7 @@ local function run_build_race(project: string, cache: string,
   Fixture.copy(fixture_dir .. "/runtime.old", copy_path, 0x1ed)
   local ready = fifo(work, diagnostics, action .. "-ready")
   local go = fifo(work, diagnostics, action .. "-go")
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local values = Fixture.environment({
       COSMIC_PORTABLE_CACHE = cache,
       COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
@@ -138,7 +137,7 @@ local function run_build_race(project: string, cache: string,
     })
     local child = start(action .. "-build", { copy_path, "build" }, project,
       values, diagnostics)
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     await_ready(work, diagnostics, action, ready, child)
     if action == "rename" then

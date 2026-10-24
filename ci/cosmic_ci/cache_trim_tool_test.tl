@@ -24,8 +24,10 @@ local function test_cancellation_cleans_snapshot_before_driver_redelivery(tmp: s
   local script = ([=[
 local Child = require("cosmic.child")
 local Compiles = require("cosmic_ci.compiles")
-local actual = Child.run
-Child.run = function(_argv: {string}, options?: Child.Options): Child.Result | nil, string
+local Seams = require("cosmic_ci.seams")
+local seams = Seams.calls()
+local actual = seams.child_run
+seams.child_run = function(_argv: {string}, options?: Child.Options): Child.Result | nil, string
   return actual({ "/bin/sh", "-c", %q }, options)
 end
 Compiles.command({ "1", %q }, { COSMIC_BUILD_CACHE = %q, GITHUB_OUTPUT = %q })
@@ -63,18 +65,18 @@ local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: s
   assert(Fs.write(candidate .. "/build/boot.tl", "invalid bootstrap source"))
   local script = ([=[
 local Compiles = require("cosmic_ci.compiles")
-local Env = require("cosmic.env")
+local Maps = require("cosmic_ci.maps")
+local Seams = require("cosmic_ci.seams")
 local sys = require("cosmic.sys")
 assert(sys.chdir(%q))
-local original = Env.all
-Env.all = function(): {string:string}
-  local env = original()
-  env.COSMIC_TREE = %q
-  return env
+local seams = Seams.calls()
+local original = seams.env_all
+seams.env_all = function(): {string:string}
+  return Maps.with(original(), { COSMIC_TREE = %q })
 end
 for _ = 1, 2 do
-  local code, _, err = Compiles.command({ "1" }, { COSMIC_BUILD_CACHE = %q })
-  assert(code == 0 and err == "", err)
+  local command = Compiles.command({ "1" }, { COSMIC_BUILD_CACHE = %q })
+  assert(command.code == 0 and command.err == "", command.err)
 end
 ]=]):format(candidate, candidate .. "/does-not-exist", candidate .. "/missing/cache.db")
   assert(Fs.write(project .. "/check.tl", script))

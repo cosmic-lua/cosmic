@@ -4,11 +4,12 @@
 --- sources, found an earlier pass: here each verdict is keyed by the
 --- sources it reads, so a change to one runs it again on every leg.
 local Fs = require("cosmic.fs")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 
 --- The tree's sources, the variables the driver keeps from a gating
---- suite (ci/cosmic_ci/run_names.tl), and the darwin list.
+--- suite (ci/cosmic_ci/run_names.json), and the darwin list.
 Test.policy{
   grants = {
     { path = "build/", letters = "r" },
@@ -18,23 +19,26 @@ Test.policy{
     { path = "eval/", letters = "r" },
     { path = "cmd/", letters = "r" },
     { path = "doc/", letters = "r" },
-    { path = "ci/cosmic_ci/run_names.tl", letters = "r" },
+    { path = "ci/cosmic_ci/run_names.json", letters = "r" },
     { path = "ci/darwin-tests.txt", letters = "r" },
   },
 }
 
 --- The names a gating suite's workers are not given, as
---- ci/cosmic_ci/run_names.tl lists them: data in text Lua reads, since
---- no module of ci/ is the tree's to require.
+--- ci/cosmic_ci/run_names.json lists them: JSON, since no module of ci/
+--- is the tree's to require.
 local record RunNames
   exact: {string}
   prefixes: {string}
   kept: {string}
 end
 
+local RUN_NAMES <const> = Shape.record_of("RunNames")
+
 local function run_names(): RunNames
-  local chunk = assert(load(assert(Fs.read("ci/cosmic_ci/run_names.tl")), "=run_names", "t", {}))
-  return chunk() as RunNames
+  local names, why = RUN_NAMES:decode_into((assert(Fs.read("ci/cosmic_ci/run_names.json"))))
+  assert(names ~= nil, why)
+  return names
 end
 
 --- Whether `names` says `name` names the run: as cosmic_ci.orchestration's
@@ -98,7 +102,7 @@ end
 --- No tree source names a variable a gating suite's workers are not
 --- given (cosmic_ci.orchestration's `forget_run`) but one that sets it
 --- itself (`sets_what_it_reads`): a test that read one would find it
---- unset in CI. A new one is kept out of ci/cosmic_ci/run_names.tl or
+--- unset in CI. A new one is kept out of ci/cosmic_ci/run_names.json or
 --- set by the test. This module, which names them only as what it
 --- checks for, is left out.
 local function test_no_tree_source_reads_what_a_suite_forgets()

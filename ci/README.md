@@ -64,7 +64,7 @@ unprivileged user namespace (Ubuntu 24.04's
 `kernel.apparmor_restrict_unprivileged_userns=1`, most containers), so the
 phases after it still run there. Set it to hold a local run to the same.
 
-Each leg also promises the host requirements cosmic_ci/capabilities.tl
+Each leg also promises the host requirements cosmic_ci/capabilities.json
 lists for it (a `requires` name of a test module's policy): the driver
 gives every suite's `cosmic test` the list as `COSMIC_TEST_PROMISES` and
 the leg's name (`COSMIC_WORKER`) as `COSMIC_TEST_LEG`, and a held run
