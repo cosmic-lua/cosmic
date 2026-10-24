@@ -12273,7 +12273,7 @@ ci/cosmic_ci/github_api_test.tl arms_differ 1
 
 ci/cosmic_ci/host_id_test.tl arms_differ 5
 
-ci/cosmic_ci/orchestration_test.tl arms_differ 30
+ci/cosmic_ci/orchestration_test.tl arms_differ 25
 
 ci/cosmic_ci/prerelease.tl arms_differ 1
 
