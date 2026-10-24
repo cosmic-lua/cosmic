@@ -51,7 +51,6 @@ local record Orchestration
   fixture_project: function(driver: string, work: string, group?: string): string
   forget_run: function(env: {string:string})
   suite_run: function(extra?: {string:string}): {string}, {string:string}
-  gather_run: function(extra?: {string:string}): {string}, {string:string}
   suite_verdicts: function(env: {string:string}, name: string): string
   darwin_modules: function(text: string): {string}
   darwin_words: function(words: {string}, modules: {string}): {string} | nil
@@ -123,7 +122,18 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- scheduled run does, so the change is gated on a run that stands on
 --- nothing. Where the driver cannot tell whether the file moved, it takes
 --- it as moved.
+---
+--- A run that gathers the shares of a suite (COSMIC_CI_GATHER=1, which
+--- the checked suite phase gives ci.yml's `checked` job) always stands, in every
+--- event and where the change moves the harness: it is the whole suite on
+--- the verdicts the shares kept, in a cache that holds nothing of main's
+--- (ci.yml merges them into it and only looks main's up), and each share
+--- ran its tests, every one of them where it stands on nothing. It is no
+--- `--all`, which would run them again, and no `--no-shared`, which would
+--- leave the shares' rows unread. What it adds is only what a whole run
+--- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
+  if env["COSMIC_CI_GATHER"] == "1" then return true end
   if env.COSMIC_CI_EVENT == "merge_group" and env.COSMIC_CI_HARNESS_MOVED ~= "0" then
     return false
   end
@@ -356,24 +366,6 @@ function Orchestration.suite_run(extra?: {string:string}): {string}, {string:str
   local words = Orchestration.test_words(values)
   Orchestration.forget_run(values)
   return words, values
-end
-
---- [`suite_run`]'s words and environment for the run that gathers the shares of a
---- suite: the whole suite, standing on the verdicts the shares kept. In every event,
---- a run that stands on nothing (`stands`) among them: it is no `--all`, which would run
---- the tests again, and it consults the shared verdicts, which are the shares' alone
---- (ci.yml's `checked` job merges them into a cache of its own, and restores none of
---- main's, whose rows a harness change may have moved). Each share ran its tests, every
---- one of them where the run stands on nothing, so what this run adds is only what a
---- whole run answers: that some test enters each C function, which the rows carry.
-function Orchestration.gather_run(extra?: {string:string}): {string}, {string:string}
-  local words, values = Orchestration.suite_run(extra)
-  local kept: {string} = {}
-  for _, word in ipairs(words) do
-    if word ~= "--all" then kept[#kept + 1] = word end
-  end
-  values.COSMIC_TEST_NO_SHARED = nil
-  return kept, values
 end
 
 --- The shared verdict cache (COSMIC_VERDICT_CACHE) the suite `name`
@@ -1184,26 +1176,22 @@ local function checked_suite(c: Context, target: string, work: string,
   local checked_argv: {string} = { cosmic }
   local gathering = Env.get("COSMIC_CI_CHECKED_SUITE") == "gather"
   local share = named("COSMIC_CI_CHECKED_SHARD")
-  local checked_extra = {
+  local checked_words, checked_environment = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
-    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s }
-  local checked_words, checked_environment: {string}, {string:string}
-  if gathering then
-    checked_words, checked_environment = Orchestration.gather_run(checked_extra)
-  else
-    checked_words, checked_environment = Orchestration.suite_run(checked_extra)
-  end
+    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
+    COSMIC_CI_GATHER = gathering and "1" or "" })
   table.insert(checked_words, 2, "--census")
-  for _, word in ipairs(checked_words) do
-    checked_argv[#checked_argv + 1] = word
+  local shard_words: {string} = share ~= nil and { "--shard", share } or {}
+  for _, words in ipairs({ checked_words, shard_words }) do
+    for _, word in ipairs(words) do
+      checked_argv[#checked_argv + 1] = word
+    end
   end
   -- One share of the tests, where ci.yml's `checked-shard` job runs
   -- the suite in several: a share checks no C function, which only a
   -- whole run answers, and `gather` does.
   local bound = checked_suite_timeout_ns
   if share ~= nil then
-    checked_argv[#checked_argv + 1] = "--shard"
-    checked_argv[#checked_argv + 1] = share
     bound = checked_shard_timeout_ns
   elseif gathering then
     bound = checked_gather_timeout_ns

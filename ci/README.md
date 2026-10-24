@@ -532,7 +532,7 @@ verdicts, which would otherwise ride along whole in each save.
   and merges the four artifacts into a verdict cache that holds
   nothing of main's (its restore only looks the entry up, which the
   save compares with), then runs the whole suite, on which every test
-  stands (`gather_run`: not `--all`, not `--no-shared`, even where the
+  stands (`stands` takes it for a run that gathers: not `--all`, not `--no-shared`, even where the
   merge queue's change moves the harness and a share ran every test),
   so that what a whole run alone answers is checked, the C functions some
   test enters, which the rows carry. A test that keeps no verdict runs
