@@ -769,7 +769,7 @@ build/syntax_typed_fixture.tl 2
 
 build/teal.tl 9
 
-build/term_filter.tl 1
+build/term_filter.tl 2
 
 build/term_relay.tl 2
 
@@ -785,7 +785,7 @@ build/test_report.tl 1
 
 build/test_sandbox.tl 1
 
-build/test_worker.tl 9
+build/test_worker.tl 11
 
 build/todo_scan.tl 2
 
@@ -902,6 +902,8 @@ lang/parser_cover.tl 1
 lang/relation.tl 1
 
 lang/scopes.tl 4
+
+lang/lexer.tl 67
 
 lang/translate.tl 12
 
@@ -12379,6 +12381,8 @@ cosmic/time.tl float_key 1
 lang/ast.tl float_key 3
 
 lang/declarations.tl float_key 2
+
+lang/lexer.tl float_key 3
 
 # a module that returns something no declaration describes
 cosmic/archive_example.tl export_not_declared 1

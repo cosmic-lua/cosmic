@@ -339,7 +339,7 @@ local lua_byte: function(string, integer): integer | nil = string.byte
 local lua_gsub: function(string, string, any): string, integer = string.gsub
 local lua_tonumber: function(string, integer): number | nil = tonumber
 local lua_pcall: function(any, any...): boolean, any... = pcall
-local lua_select: function(integer, any...): any = select
+local lua_select = select
 local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
   table.concat, string.format, string.sub, getmetatable, tostring, string.find
 
@@ -545,7 +545,7 @@ local function hook(_: integer, text: string, ...: any): any...
       return ...
     end
   end
-  local given = select("#", ...)
+  local given = lua_select("#", ...)
   for index = 1, check.n do
     local kinds = check.kinds[index]
     if kinds ~= nil then
