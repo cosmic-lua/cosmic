@@ -14,7 +14,8 @@
 --- code, its message and its fix.
 local Lexer = require("lang.lexer")
 
-local find, byte = string.find, string.byte
+local find = string.find
+local byte: function(string, integer): integer | nil = string.byte
 
 local record Cover
   --- Whether `lexed` tiles `source`, or `false` and the first place it does
@@ -65,7 +66,8 @@ local function blank(source: string, from: integer, to: integer): boolean
   if gap <= 0 then
     return gap == 0
   elseif gap == 1 then
-    return BLANK[byte(source, from)] == true
+    local b = byte(source, from)
+    return b ~= nil and BLANK[b] == true
   end
   local _, e = find(source, "^[ \t\r\n\v\f]*", from)
   return e >= to

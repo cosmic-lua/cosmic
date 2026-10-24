@@ -162,7 +162,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
       refuse("Store.attach")
     end
     Store.alone(function()
-      local called, answer = pcall(function(): any return dispatch.main(argv) end)
+      local called, answer = pcall(function(): number | string return dispatch.main(argv) end)
       if not called then
         -- TODO: write what the core writes after this line for an
         -- uncaught error -- its source position and the catalog's

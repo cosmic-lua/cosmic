@@ -332,8 +332,14 @@ end
 -- one counts the string work of what it measures, must not have the hook
 -- call it, for the wrapper's own checked parameters would call the hook.
 local gmatch, lua_match = string.gmatch, string.match
-local lua_type, math_type, lua_select, lua_pcall = type, math.type, select, pcall
-local lua_byte, lua_char, lua_gsub, lua_tonumber, lua_error = string.byte, string.char, string.gsub, tonumber, error
+local lua_type, math_type = type, math.type
+local lua_char, lua_error = string.char, error
+-- These are overloaded in the library, so each is declared with the one signature the hook calls it by.
+local lua_byte: function(string, integer): integer | nil = string.byte
+local lua_gsub: function(string, string, any): string, integer = string.gsub
+local lua_tonumber: function(string, integer): number | nil = tonumber
+local lua_pcall: function(any, any...): boolean, any... = pcall
+local lua_select = select
 local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
   table.concat, string.format, string.sub, getmetatable, tostring, string.find
 
@@ -470,7 +476,7 @@ end
 
 local function parse_fact(text: string)
   local at, name, declared = lua_match(text, "^n;([^;]*);([^;]*);([^;]*)$")
-  if at == nil then error("a fact of no place") end
+  if at == nil or name == nil or declared == nil then error("a fact of no place") end
   local negated = lua_byte(declared, 1) == 126
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
     local byte = lua_tonumber(digits, 16)

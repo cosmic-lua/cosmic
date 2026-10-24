@@ -593,8 +593,10 @@ test/coverage_children_test.tl 1
 [untyped]
 # How many calls of a file the discipline holds ([`build.syntax_contracts`]) the checker gave no function, so that no rule
 # judged them: a call through a value an error already reported left `invalid`, or of a function an error refused (`table.sort`
-# of a view, `setmetatable`), `require` apart. The fork judged them; the switch waits on these reaching 0, which they do as
-# the `[checked]` pins of the files do.
+# of a view, `setmetatable`), `require` apart. The fork judged them. The switch does not wait on these reaching 0: every one
+# follows from a pinned `[checked]` error of the same file (a triage of all 591 calls found none that is a gap of its own, and none
+# that is a binding of C), so the count is bookkeeping of those pins. The pins hold the counts, and each later pull request lowers
+# the row of every file whose `[checked]` errors it removes.
 build/analyzer.tl 5
 
 build/archive.tl 2
@@ -641,8 +643,6 @@ build/dataset.tl 3
 
 build/declared_key.tl 16
 
-build/dispatch.tl 1
-
 build/docs.tl 8
 
 build/docs_checks.tl 3
@@ -655,7 +655,7 @@ build/fetch.tl 1
 
 build/fix/breaks.tl 3
 
-build/fix/init.tl 3
+build/fix/init.tl 2
 
 build/fix/near.tl 1
 
@@ -678,8 +678,6 @@ build/host_requires.tl 1
 build/identity.tl 2
 
 build/importer.tl 4
-
-build/invoke.tl 1
 
 build/json.tl 1
 
@@ -726,8 +724,6 @@ build/release.tl 1
 build/roots.tl 1
 
 build/sandbox.tl 3
-
-build/sandbox_probe.tl 1
 
 build/shape_specs.tl 2
 
@@ -789,7 +785,7 @@ build/test_report.tl 1
 
 build/test_sandbox.tl 1
 
-build/test_worker.tl 20
+build/test_worker.tl 11
 
 build/todo_scan.tl 2
 
@@ -799,9 +795,9 @@ build/tree_checks.tl 30
 
 build/tree_shard.tl 1
 
-build/udp_fixture.tl 2
+build/udp_fixture.tl 1
 
-build/unix_socket.tl 2
+build/unix_socket.tl 1
 
 build/verbs_fixture.tl 3
 
@@ -810,8 +806,6 @@ build/work.tl 4
 build/worker.tl 1
 
 build/zig.tl 2
-
-cmd/cosmic/main.tl 1
 
 cosmic/child.tl 15
 
@@ -859,7 +853,7 @@ cosmic/template/parse.tl 1
 
 cosmic/test.tl 4
 
-cosmic/time.tl 9
+cosmic/time.tl 8
 
 cosmic/web/app.tl 2
 
@@ -901,10 +895,6 @@ lang/codegen.tl 1
 
 lang/declarations.tl 2
 
-lang/lexer.tl 74
-
-lang/lexer_cover.tl 3
-
 lang/parser.tl 1
 
 lang/parser_cover.tl 1
@@ -913,6 +903,8 @@ lang/relation.tl 1
 
 lang/scopes.tl 4
 
+lang/lexer.tl 67
+
 lang/translate.tl 12
 
 lang/types.tl 5
@@ -920,8 +912,6 @@ lang/types.tl 5
 lang/warnings.tl 1
 
 test/portable/tool.tl 2
-
-test/terminal/pty.tl 1
 
 build/tree_writer.tl 3
 
@@ -1150,15 +1140,11 @@ build/compile_grammar_test.tl unchecked_binding 1
 
 build/compile_lang_test.tl unchecked_binding 1
 
-build/dispatch.tl unchecked_binding 2
+build/dispatch.tl unchecked_binding 1
 
 build/fact_hook_test.tl unchecked_binding 1
 
-build/fix/init.tl unchecked_binding 1
-
 build/fuzz/fuzz_test.tl unchecked_binding 1
-
-build/invoke.tl unchecked_binding 1
 
 build/link_resolve.tl unchecked_binding 1
 
@@ -1171,8 +1157,6 @@ build/standalone.tl unchecked_binding 1
 build/teal_test.tl unchecked_binding 2
 
 build/test_worker.tl unchecked_binding 1
-
-cmd/cosmic/main.tl unchecked_binding 1
 
 core/surface_test.tl unchecked_binding 1
 
@@ -1727,7 +1711,7 @@ build/test_skip_tool_test.tl nil_not_allowed 1
 
 build/test_test.tl nil_not_allowed 9
 
-build/test_worker.tl nil_not_allowed 31
+build/test_worker.tl nil_not_allowed 27
 
 build/test_worker_test.tl nil_not_allowed 12
 
@@ -2303,7 +2287,7 @@ lang/declarations_speed_test.tl nil_not_allowed 2
 
 lang/declarations_test.tl nil_not_allowed 46
 
-lang/lexer.tl nil_not_allowed 20
+lang/lexer.tl nil_not_allowed 17
 
 lang/lexer_cover.tl nil_not_allowed 3
 
@@ -6446,7 +6430,7 @@ lang/codegen_fuzz_test.tl overload_value 1
 
 lang/codegen_test.tl overload_value 4
 
-lang/lexer.tl overload_value 2
+lang/lexer.tl overload_value 1
 
 lang/lexer_cover.tl overload_value 1
 
@@ -7626,7 +7610,7 @@ build/sandbox_connect_test.tl cast_refused 11
 
 build/sandbox_connect_tool_test.tl cast_refused 6
 
-build/sandbox_probe.tl cast_refused 2
+build/sandbox_probe.tl cast_refused 1
 
 build/sandbox_test.tl cast_refused 4
 
@@ -7654,9 +7638,9 @@ build/time_input_fuzz_test.tl cast_refused 1
 
 build/todos_test.tl cast_refused 3
 
-build/udp_fixture.tl cast_refused 2
+build/udp_fixture.tl cast_refused 1
 
-build/unix_socket.tl cast_refused 2
+build/unix_socket.tl cast_refused 1
 
 build/verbs_store_test.tl cast_refused 4
 
@@ -8040,7 +8024,7 @@ test/sqlite_result_test.tl cast_refused 1
 
 test/sqlite_row_test.tl cast_refused 2
 
-test/terminal/pty.tl cast_refused 2
+test/terminal/pty.tl cast_refused 1
 
 # an `is` of a record, an interface or a collection, whose tag no program can read: the tagged unions of the plan
 # replace the `where` clause
@@ -11680,7 +11664,7 @@ build/dataset_test.tl literal_needs_type 2
 
 build/derivation.tl literal_needs_type 1
 
-build/dispatch.tl literal_needs_type 2
+build/dispatch.tl literal_needs_type 1
 
 build/docs.tl literal_needs_type 2
 
@@ -11701,8 +11685,6 @@ build/flow_test.tl literal_needs_type 1
 build/fuzz/init.tl literal_needs_type 1
 
 build/hash.tl literal_needs_type 1
-
-build/help_source.tl literal_needs_type 1
 
 build/host_features_test.tl literal_needs_type 1
 
@@ -12409,10 +12391,6 @@ lang/declarations.tl float_key 2
 lang/lexer.tl float_key 3
 
 # a module that returns something no declaration describes
-build/dispatch.tl export_not_declared 1
-
-build/help_source.tl export_not_declared 1
-
 cosmic/archive_example.tl export_not_declared 1
 
 cosmic/channel_example.tl export_not_declared 1

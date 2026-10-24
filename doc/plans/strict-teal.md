@@ -1263,9 +1263,14 @@ correctness. the gate:
 - every call the contracts judge has a callee, or is named. in the files
   the contracts judge, 3,654 of 40,874 calls have no callee the checker
   recorded: C bindings, and receivers left `invalid` by a pinned error. a
-  breach on such a call goes unseen. each file's count is held under a
-  `[typed]` ceiling in [`build/ceilings.txt`], and the gate takes each to
-  zero or names the calls that stay.
+  breach on such a call goes unseen. each file's count is held under an
+  `[untyped]` ceiling in [`build/ceilings.txt`]. the switch does not wait
+  for them to reach zero: every one of these calls follows from a pinned
+  `[checked]` error (a value the checker refused, or `setmetatable_call`),
+  none is a binding of C (a triage of all 591 untyped calls found this),
+  so the count is bookkeeping of those pins and no gap of its own. the
+  pins hold the counts, and each later pull request lowers its row with
+  the `[checked]` rows it removes.
 
 the evidence is in the tree: the verdict tables ([the verdict harness is
 tables]), the pins retired by a rule ([a pin the new rules retire is a row,

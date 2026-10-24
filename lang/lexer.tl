@@ -38,7 +38,7 @@
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
 local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
-local tonumber, math_type = tonumber, math.type
+local math_type = math.type
 
 local record Lexer
   --- The kind of a token. A bracket, `,`, `:`, `.`, `?` and `...` are their
@@ -468,7 +468,7 @@ local function check_escape(source: string, s: integer): integer, string
     return e, "`\\x` takes exactly two hexadecimal digits: write `\\x41` for `A`"
   elseif c >= 48 and c <= 57 then
     local _, e = find(source, "^%d%d?%d?", s + 1)
-    if tonumber(sub(source, s + 1, e)) > 255 then
+    if assert(tonumber(sub(source, s + 1, e))) > 255 then
       return e, "a decimal escape is at most `\\255`: write a character past 255 as `\\u{...}`, as `\\u{100}`"
     end
     return e, ""
@@ -476,7 +476,7 @@ local function check_escape(source: string, s: integer): integer, string
     local _, e, digits = find(source, "^{(%x+)}", s + 2)
     if e then
       local significant = digits:gsub("^0+", "")
-      if #significant <= 8 and (significant == "" or tonumber(significant, 16) <= 0x7FFFFFFF) then
+      if #significant <= 8 and (significant == "" or assert(tonumber(significant, 16)) <= 0x7FFFFFFF) then
         return e, ""
       end
       return e, "a code point in `\\u{...}` is at most `7FFFFFFF`: write `\\u{20AC}` for the euro sign"
@@ -551,15 +551,15 @@ local function decode(inner: string): string
       text = ""
       e = ze
     elseif c == byte("x") then
-      text = string.char(math.tointeger(tonumber(sub(inner, s + 2, s + 3), 16)))
+      text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 2, s + 3), 16)))))
       e = s + 3
     elseif c == byte("u") then
       local _, ue, digits = find(inner, "^{(%x+)}", s + 2)
-      text = utf8.char(math.tointeger(tonumber(digits, 16)))
+      text = utf8.char(assert(math.tointeger(assert(tonumber(digits, 16)))))
       e = ue
     else
       local _, de = find(inner, "^%d%d?%d?", s + 1)
-      text = string.char(math.tointeger(tonumber(sub(inner, s + 1, de))))
+      text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 1, de))))))
       e = de
     end
     n = n + 1

@@ -16,8 +16,6 @@ local type raw_process = require("cosmic.internal.process")
 -- store's searcher ([`raw_process_table`]).
 local _ = require("cosmic.child")
 
-local type Searcher = function(string): any, any
-
 --- The raw process table, as the store's searcher hands it to
 --- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
@@ -26,7 +24,7 @@ local type Searcher = function(string): any, any
 -- cosmic.child offers spawn's sandbox as a Child option (the TODO in
 -- cosmic/child.tl's start).
 local function raw_process_table(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
+  for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then return extra as raw_process end
   end
