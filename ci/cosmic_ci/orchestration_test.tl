@@ -1232,13 +1232,15 @@ end
 
 --- The portable suite runs on the two x86-64 legs of a push to main
 --- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, on the musl
---- one alone in the merge queue, whose glibc leg builds the same bytes,
+--- one alone in the merge queue, whose glibc leg builds the same bytes
+--- (and in a branch push that runs the full scope, as the queue does),
 --- and on every leg of the scheduled run and a manual one.
 local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_one()
   local legs, env = platform_legs_and_env()
   local value = assert(env["COSMIC_CI_PORTABLE_SUITE"], "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
   local one, two = value:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && " ..
-      "github%.event_name != 'merge_group'%) || " ..
+      "github%.event_name != 'merge_group' && %(github%.event_name != 'push' || " ..
+      "github%.ref == 'refs/heads/main'%)%) || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
       "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
   assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,

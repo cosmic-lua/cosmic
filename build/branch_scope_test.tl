@@ -143,6 +143,10 @@ local function test_a_branch_push_runs_full_where_a_light_run_would_leave_the_ch
     { "build/harness_epoch.tl" },
     { "build/host_requires.tl" },
     { "build/embed.tl" },
+    { "build/reboot.tl" },
+    { "build/launcher.tl" },
+    { "build/paths.tl" },
+    { "build/host_names.tl" },
     -- #3176's change, which a light run passed: build.zig, the
     -- artifact format, the epoch file and ci/ among its files.
     { "AGENTS.md", "build.zig", "build/artifact.tl", "build/boot.tl", "build/embed.tl",
