@@ -1213,6 +1213,9 @@ local record Progress
   typed: receivers.State | nil
   ahead: importer.Ahead | nil
   scanned: boolean
+  --- The compiles found elsewhere in the same look at the modules
+  --- ([`start_pool`]), by module.
+  looked: {string:importer.Shared.Compile}
 end
 
 --- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
@@ -1309,9 +1312,17 @@ end
 -- TODO: offer a reused compile to the shared cache ([`build.shared_compiles`]) as a compiled one is, once
 -- `reuse` reads its record-field uses back from `typed_refs` in the shape `shared.keep` takes: until then
 -- another checkout compiles what this one only copied.
--- TODO: leave a module `reuse` would take out of `wanted` in the pool's scan below, once that scan can ask
--- for an interface key before the stubs of the modules compiled in this run are judged: until then the
--- pool compiles ahead a module the loop then takes from the cache.
+
+--- How many modules the loop compiles itself, of those no compile stands in for, before it hands every
+--- module after them to the pool, where an earlier compile is kept to stand in for one ([`importer.Workers`]). A module that changed is compiled first, here, so
+--- that the verdict on its stub ([`compilation.stub_held`]) is given before the modules that reach it ask
+--- for their interface keys, and the pool is not made to compile the many a compile stands in for. An edit
+--- that moves an interface compiles this many here besides, a few tenths of a second each.
+-- TODO: compile the modules that changed in a first wave of the pool, and ask for the interface key of the rest once
+-- their stubs are judged, rather than compile `seeds` here and the rest ahead: once the pool serves a job too small
+-- for two shards (`count < 2` in build/worker.tl's `compile`), an edit of more than `seeds` modules has the pool
+-- compile ahead modules a compile stands in for.
+local seeds <const> = 6
 
 local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string, serving: boolean,
                                modules: {Module}, keys: {string:compilation.Keys},
@@ -1368,6 +1379,74 @@ local function interfacing_for(db: Sqlite.Handle, built: compiler, tool: string,
       { text(interface), text(key) })
   end
   return { reuse = reuse, note = note }
+end
+
+--- Whether an earlier compile is kept for a module to stand in for another's
+--- ([`Interfacing`]): none is in a tree built for the first time, whose
+--- modules the pool compiles from the first.
+local function interfaces_kept(db: Sqlite.Handle): boolean
+  local rows, _ = Sqlite.text_rows(db, "SELECT 1 FROM compiled_interface LIMIT 1")
+  return rows ~= nil and #rows > 0
+end
+
+-- Which modules from `first` on must be compiled, before the loop
+-- gets to them: the pool compiles them together, and the loop takes
+-- each result in order. Started once the loop has met modules it
+-- cannot take a compile for ([`seeds`]), so a module a compile stands
+-- in for ([`Interfacing`]) is not compiled twice.
+local function start_pool(first: integer, open: Cache, workers: importer.Workers, handle: work.Handle,
+                          in_order: {Module}, by_path: {string:compilation.Keys}, shared: importer.Shared | nil,
+                          progress: Progress, own_tree: boolean,
+                          judged: boolean): boolean, string
+  local wanted: {string:boolean} = {}
+  local bytes = 0
+  -- Which compiles stand, asked once rather than for each module.
+  local standing, standing_trouble = Sqlite.text_rows(handle.db, "SELECT key FROM compiled WHERE seen >= 0")
+  if standing == nil then
+    finish_cache(open)
+    return false, standing_trouble
+  end
+  local stands_by: {string:boolean} = {}
+  for _, row in ipairs(standing) do stands_by[row:text(1)] = true end
+  for ordinal = first, #in_order do
+    local m = in_order[ordinal]
+    local key = by_path[m.path].key
+    m.key = key
+    m.graph_key = by_path[m.path].graph
+    if compilation.refusal(m) == nil then
+      if stands_by[key] ~= true then
+        local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
+        if elsewhere ~= nil then
+          progress.looked[m.path] = elsewhere
+        else
+          wanted[m.path] = true
+          bytes = bytes + #m.source
+        end
+      end
+    end
+  end
+  progress.scanned = true
+  if bytes > 0 and workers.ready(bytes) then
+    -- The workers answer only when they are done, so this is the one
+    -- line a long compile says before its result.
+    -- TODO: say how many modules the workers have finished, every
+    -- few seconds (build.progress's phase, which this module cannot
+    -- require without joining the compiler's identity): once a
+    -- worker's reply can be read with a timeout, the wait on it in
+    -- build/workers.tl's `run` being the other TODO there.
+    local count = 0
+    for _ in pairs(wanted) do count = count + 1 end
+    local _, _ = log:complain("build: compiling " .. plural.count(count, "module") ..
+        " in worker processes")
+    local made_ahead, ahead_trouble = workers.compile(handle.db, handle.root, in_order, wanted,
+      own_tree, judged)
+    if made_ahead == nil and ahead_trouble ~= "" then
+      local _, _ = log:complain("build: workers: " .. ahead_trouble ..
+          "; compiling in this process")
+    end
+    progress.ahead = made_ahead
+  end
+  return true, ""
 end
 
 --- Plans and compiles an already derived tree. Only the entry points
@@ -1496,7 +1575,7 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
   -- and stdlib. `ahead` is what the pool's processes compiled ahead of
   -- the loop below, and `scanned` whether the loop below has looked at
   -- every module for a compile elsewhere.
-  local progress: Progress = { failure = "", scanned = false }
+  local progress: Progress = { failure = "", scanned = false, looked = {} }
 
   local interfacing = interfacing_for(db, built, tool, serving, modules, keys, progress)
 
@@ -1533,9 +1612,6 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
     return hinting.databases, hinting.public
   end
 
-  -- The compiles found elsewhere in the same look at the modules.
-  local looked: {string:importer.Shared.Compile} = {}
-
   local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
@@ -1551,58 +1627,10 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
       return false, prepare_trouble
     end
 
-    if pool ~= nil then
-      -- Which modules must be compiled, before any is: the pool compiles
-      -- them together, and the loop below takes each result in order.
-      local wanted: {string:boolean} = {}
-      local bytes = 0
-      -- Which compiles stand, asked once rather than for each module.
-      local standing, standing_trouble = Sqlite.text_rows(db, "SELECT key FROM compiled WHERE seen >= 0")
-      if standing == nil then
-        finish_cache(cache)
-        return false, standing_trouble
-      end
-      local stands_by: {string:boolean} = {}
-      for _, row in ipairs(standing) do stands_by[row:text(1)] = true end
-      for _, m in ipairs(order) do
-        local key = keys[m.path].key
-        m.key = key
-        m.graph_key = keys[m.path].graph
-        if compilation.refusal(m) == nil then
-          if stands_by[key] ~= true then
-            local elsewhere = shared ~= nil and shared.look(m, own_tree) or nil
-            if elsewhere ~= nil then
-              looked[m.path] = elsewhere
-            else
-              wanted[m.path] = true
-              bytes = bytes + #m.source
-            end
-          end
-        end
-      end
-      progress.scanned = true
-      if bytes > 0 and pool.ready(bytes) then
-        -- The workers answer only when they are done, so this is the one
-        -- line a long compile says before its result.
-        -- TODO: say how many modules the workers have finished, every
-        -- few seconds (build.progress's phase, which this module cannot
-        -- require without joining the compiler's identity): once a
-        -- worker's reply can be read with a timeout, the wait on it in
-        -- build/workers.tl's `run` being the other TODO there.
-        local count = 0
-        for _ in pairs(wanted) do count = count + 1 end
-        local _, _ = log:complain("build: compiling " .. plural.count(count, "module") ..
-            " in worker processes")
-        local made_ahead, ahead_trouble = pool.compile(db, handle.root, order, wanted,
-          own_tree, judged)
-        if made_ahead == nil and ahead_trouble ~= "" then
-          local _, _ = log:complain("build: workers: " .. ahead_trouble ..
-              "; compiling in this process")
-        end
-        progress.ahead = made_ahead
-      end
-    end
-
+    -- The modules compiled in this process so far, which meets the first
+    -- `seeds` of those no compile stands in for before it hands the rest to
+    -- the pool.
+    local compiled_here = 0
     for ordinal, m in ipairs(order) do
       local key = keys[m.path].key
       m.key = key
@@ -1639,8 +1667,8 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
         -- and it lands as a compile does, uses and all.
         local elsewhere: importer.Shared.Compile | nil = nil
         if not stands and progress.scanned then
-          elsewhere = looked[m.path]
-          looked[m.path] = nil
+          elsewhere = progress.looked[m.path]
+          progress.looked[m.path] = nil
         elseif not stands and shared ~= nil then
           elsewhere = shared.look(m, own_tree)
         end
@@ -1669,6 +1697,13 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           -- A module the pool did not reach is compiled here, which is
           -- also how a refusal is told: the pool only knows it did not
           -- compile.
+          if pool ~= nil and not progress.scanned and (compiled_here >= seeds or not interfaces_kept(db)) then
+            local started, start_trouble = start_pool(ordinal, cache, pool, handle, order, keys, shared, progress,
+              own_tree, judged)
+            if not started then
+              return false, start_trouble
+            end
+          end
           local early: compilation.Generated | nil = nil
           local ahead = progress.ahead
           if ahead ~= nil then
@@ -1678,7 +1713,19 @@ local function compile_derived(handle: work.Handle, built: compiler, tool: strin
           if early ~= nil then
             generated = early
             result.worked = result.worked + 1
+            -- A compile that was not refused of a standard-library module
+            -- has held its stub to its source's type
+            -- ([`compilation.generate`]), as the verdict under its key says
+            -- for the modules that reach it ([`compilation.interface_keys`]).
+            if own_tree and not early.refused then
+              local noted, note_trouble = compilation.note_held(db, keys, m)
+              if not noted then
+                finish_cache(cache)
+                return false, m.file .. ": " .. note_trouble
+              end
+            end
           else
+            compiled_here = compiled_here + 1
             local made_generated: compilation.Generated | nil = nil
             local generate_trouble = ""
             if grammar == "new" then

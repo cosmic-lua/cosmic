@@ -862,6 +862,14 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   return true, ""
 end
 
+--- The two digests of a stub: of its exact text, which a verdict on it is kept
+--- under, and of its tokens less where they stand ([`stub.canonical`]), which
+--- a dependent's interface key holds.
+local record StubHashes
+  exact: string
+  shape: string
+end
+
 --- What a verdict on a stub is kept under beside the module's compile key:
 --- the hash of the stub's own text, so that a stub derived again differently
 --- is judged again whatever the key says.
@@ -958,6 +966,25 @@ local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
   return held, ""
 end
 
+--- Keeps the verdict that the stub of `m` is held to its source's type under
+--- its key, for a compile of it made in another process, which has no checker
+--- environment here to judge it by ([`compilation.hold_stubs`]). A compile
+--- of a standard-library module holds its stub to the type its source has
+--- in the process that makes it, and refuses it where it does not
+--- ([`held_to_stub`], in [`compilation.generate`]): so a compile that was
+--- not refused is a verdict, on the stub the module carries. A module with
+--- no stub, or one that is not a standard-library module, has none to keep.
+--- @param keys each module's [`compilation.Keys`], by path
+function compilation.note_held(db: Sqlite.Handle, keys: {string:Keys}, m: Module): boolean, string
+  local made, named = m.stub, keys[m.path]
+  if made == nil or named == nil or m.kind ~= "module" or m.path:sub(1, 7) ~= "cosmic." then
+    return true, ""
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, 1)",
+    { text(named.key), text(stub_hash(made.text)) })
+end
+
 --- Compares, for each module of the tree that `env` holds the type of
 --- and that has no verdict under its key yet, the stub
 --- ([`build.stub`]) with the source's type ([`stub.difference`]), and
@@ -1037,7 +1064,11 @@ end
 --- key moved but whose interface did not -- a body, a comment -- has the same
 --- one, and what was compiled under the one stands for the other: a check
 --- reads of a held stub what it reads of the source, which is what the
---- hold judges. The verdicts kept are read once; a module the stub of which
+--- hold judges. A stub is keyed by its tokens, not where they stand
+--- ([`stub.canonical`]): no output of a compile holds a position in a
+--- module it reaches, so an edit that only moves lines in a dependency (a
+--- comment, a blank line, a body of another length) leaves the key. The
+--- verdicts kept are read once; a module the stub of which
 --- has none under its key is asked of `judge`, which can give one only for a
 --- module compiled in this run and so by the time a module that reaches it
 --- is asked about.
@@ -1061,9 +1092,12 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   if rows == nil then
     return nil, rows_trouble
   end
-  local stubs: {string:string} = {}
+  -- What a dependent keys on of a stub is its tokens, not where they stand
+  -- ([`stub.canonical`]); the verdict on the stub stays under its exact text.
+  local stubs: {string:StubHashes} = {}
   for _, row in ipairs(rows) do
-    stubs[row:text(1)] = stub_hash(row:text(2))
+    local body = row:text(2)
+    stubs[row:text(1)] = { exact = stub_hash(body), shape = stub_hash(stub.canonical(body)) }
   end
   local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
   if verdicts == nil then
@@ -1075,11 +1109,11 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local judged: {string:boolean} = {}
   local function held(path: string): boolean
-    local hash, named = stubs[path], keys[path]
-    if hash == nil or named == nil then
+    local hashes, named = stubs[path], keys[path]
+    if hashes == nil or named == nil then
       return false
     end
-    local verdict = kept[named.key .. "\0" .. hash]
+    local verdict = kept[named.key .. "\0" .. hashes.exact]
     if verdict ~= nil then
       return verdict
     end
@@ -1092,13 +1126,17 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   local function line_of(slot: string, dependency: Dependency): string
     if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
-      return slot .. "\nstub\n" .. (stubs[slot] or "")
+      local hashes = stubs[slot]
+      if hashes == nil then
+        return slot .. "\nstub\n"
+      end
+      return slot .. "\nstub\n" .. hashes.shape
     end
     return source_line(slot, dependency)
   end
   local interfaced: Interfaced = function(m: Module): string | nil, string
     local made, identify_trouble = identify_in(graph, m.path, m.file,
-      "interface-1 " .. tool, line_of)
+      "interface-2 " .. tool, line_of)
     if made == nil then
       return nil, identify_trouble
     end

@@ -424,6 +424,72 @@ function stub.made(parsed: ast.Parsed, every?: boolean): stub.Made
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
 end
 
+--- The stub text `text` less where it puts its tokens: the form two stubs of
+--- the same tokens share wherever they stand, which is what a dependent's
+--- compile can see of a stub, since no output of it holds a position in
+--- another module's source (a check names the dependent's own line, and a
+--- diagnostic refuses the compile). A run of space between tokens is one
+--- space, or one line break where it held any, and the text starts at its
+--- first token. The line break stays because tl reads a `(` on a later line
+--- than the token before it as a statement of its own; how many lines apart,
+--- and in which column, it does not read. A string, quoted or long, is kept
+--- as it is. Text it cannot scan (a string that does not end) is answered
+--- as it is, which only keeps what a position would have moved.
+function stub.canonical(text: string): string
+  local out: {string} = {}
+  local function push(piece: string)
+    out[#out + 1] = piece
+  end
+  local at = 1
+  local size = #text
+  local find, sub = string.find, string.sub
+  while at <= size do
+    local from, to = find(text, "^%s+", at)
+    local stop = find(text, "[%s\"'%[]", at) or size + 1
+    if from ~= nil then
+      if #out > 0 then
+        push(find(sub(text, from, to), "\n", 1, true) ~= nil and "\n" or " ")
+      end
+      at = assert(to) + 1
+    elseif stop > at then
+      push(sub(text, at, stop - 1))
+      at = stop
+    else
+      local c = sub(text, at, at)
+      local close: integer | nil = nil
+      local level: string | nil = nil
+      if c == "[" then
+        level = text:match("^%[(=*)%[", at)
+      end
+      if c == "[" and level == nil then
+        close = at
+      elseif level ~= nil then
+        local _, e = find(text, "]" .. level .. "]", at + #level + 2, true)
+        close = e
+      else
+        local k = at + 1
+        while k <= size do
+          local e = find(text, "[\\" .. c .. "]", k)
+          if e == nil then
+            break
+          elseif sub(text, e, e) == "\\" then
+            k = e + 2
+          else
+            close = e
+            break
+          end
+        end
+      end
+      if close == nil then
+        return text
+      end
+      push(sub(text, at, close))
+      at = close + 1
+    end
+  end
+  return table.concat(out)
+end
+
 --- Fields of a checked type that say where it was read, which a stub
 --- moves no further than its source does but which name a fresh place
 --- each check: positions, the file, the type's number; or what only its
