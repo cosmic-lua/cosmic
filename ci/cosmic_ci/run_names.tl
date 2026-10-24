@@ -10,11 +10,9 @@
 --- Data alone, in run_names.json beside this module: the tree's own
 --- build/ci_tree_test.tl, which cannot require a module of ci/, reads it
 --- to find a tree source that names one of them.
+local DataPath = require("cosmic_ci.data_path")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
-
---- Where the data is, below the project's root: the driver and its tests run there.
-local path <const> = "cosmic_ci/run_names.json"
 
 local record RunNames
   --- What run_names.json holds.
@@ -39,6 +37,7 @@ local read: Read = {}
 function RunNames.names(): RunNames.Names
   local held = read.data
   if held ~= nil then return held end
+  local path = DataPath.of("run_names.json")
   local text, why = Fs.read(path)
   assert(text ~= nil, why)
   local decoded, trouble = DATA:decode_into(text)

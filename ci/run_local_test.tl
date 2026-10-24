@@ -337,7 +337,9 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
     end
     assert(handed.value ~= borrowed and assert(sys.fstat(handed.value)).ino == file.ino)
     for number, fd in pairs(launched.fds) do
-      assert(option_fds[number] == (number == slot and handed.value or fd), "another runtime grant changed")
+      local expected = fd
+      if number == slot then expected = handed.value end
+      assert(option_fds[number] == expected, "another runtime grant changed")
     end
     for name, value in pairs(launched.env) do assert(option_env[name] == value) end
     local probe: {string} = {}

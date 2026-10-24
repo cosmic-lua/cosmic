@@ -410,7 +410,8 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     local name = leg.name
     assert(name is string, "a seed leg has no name")
     local is_checked = leg.checked == true
-    local steps = is_checked and checked_steps or platform_steps
+    local steps = platform_steps
+    if is_checked then steps = checked_steps end
     local env: {string: string} = {}
     for key, template in pairs(assert(step_of(steps, nil, "queue-stage").env)) do
       env[key] = expand(template, name, steps)
@@ -433,7 +434,9 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
     -- under the commit, and where the leg is a platform one its
     -- compiles, zig outputs and marker.
     local _, count = keys:gsub("\n", "")
-    assert(count == (is_checked and 2 or 6), name .. ": " .. keys)
+    local expected = 6
+    if is_checked then expected = 2 end
+    assert(count == expected, name .. ": " .. keys)
     local read = read_keys(tmp, ci, name, keys)
     assert(read == keys, name .. " reads back only some of its keys:\n" .. keys .. "read:\n" .. read)
     staged[name] = keys

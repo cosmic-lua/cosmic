@@ -40,6 +40,7 @@
 -- TODO: promise `landlock:N` for the N the runners' kernels give (ubuntu-24.04's
 -- and its arm image's), once a run's summary says the ABI they hold:
 -- only the bare `landlock` (version 1 or later) is known to hold.
+local DataPath = require("cosmic_ci.data_path")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 
@@ -48,9 +49,6 @@ local record Data
   legs: {string:{string}}
 end
 local DATA <const> = Shape.record_of("Data")
-
---- Where the data is, below the project's root: the driver and its tests run there.
-local path <const> = "cosmic_ci/capabilities.json"
 
 local record Capabilities
   --- The requirements each leg promises, by the leg's name. Raises where the data cannot be read.
@@ -67,6 +65,7 @@ local read: Read = {}
 function Capabilities.legs(): {string:{string}}
   local held = read.data
   if held ~= nil then return held.legs end
+  local path = DataPath.of("capabilities.json")
   local text, why = Fs.read(path)
   assert(text ~= nil, why)
   local decoded, trouble = DATA:decode_into(text)

@@ -2101,6 +2101,24 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
 end
 
+--- The fixture project holds the driver namespace's JSON data beside its
+--- modules (the capabilities and run names the driver reads), and refuses
+--- any other file there.
+local function test_a_fixture_project_takes_the_drivers_json_data(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local driver = tmp .. "/ci/cosmic_ci/driver.tl"
+  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci") and Fs.mkdirs(tmp .. "/ci/fixtures"))
+  assert(Fs.write(driver, "return 0\n"))
+  assert(Fs.write(tmp .. "/ci/cosmic_ci/capabilities.json", "{}\n"))
+  assert(Fs.write(tmp .. "/ci/cosmic_ci/run_names.json", "{}\n"))
+  local project = Orchestration.fixture_project(driver, tmp .. "/work")
+  assert(Fs.read(project .. "/cosmic_ci/capabilities.json") == "{}\n")
+  assert(Fs.read(project .. "/cosmic_ci/run_names.json") == "{}\n")
+  assert(Fs.write(tmp .. "/ci/fixtures/data.json", "{}\n"))
+  local called, _ = pcall(Orchestration.fixture_project, driver, tmp .. "/work")
+  assert(not called, "a JSON file among the fixtures was copied")
+end
+
 local type Orch = require("cosmic_ci.orchestration")
 
 --- A bound for a group that should end at once: only a hang reaches it.
