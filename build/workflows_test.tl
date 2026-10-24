@@ -1343,7 +1343,7 @@ local function test_a_main_push_reuses_the_queue_run()
   -- `!cancelled()` runs the legs where `reuse` was skipped (every run but
   -- a push to main) or failed, as where it found nothing: without a
   -- status function, a job whose need was skipped is skipped too.
-  assert(Json.encode(platform.needs) == '["reuse","scope"]' and
+  assert(Json.encode_any(platform.needs) == '["reuse","scope"]' and
       platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
     "the platform legs run other than where no queue run was found: " .. tostring(platform["if"]))
   assert(seed.needs == "reuse" and seed["if"] == "needs.reuse.outputs.run != ''",
@@ -2040,7 +2040,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
   local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
   local shard = assert(jobs["checked-shard"], "no job runs a share of the checked suite")
-  assert(Json.encode(shard["needs"]) == '["reuse","scope"]' and
+  assert(Json.encode_any(shard["needs"]) == '["reuse","scope"]' and
       shard["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " .. FULL_RUN,
     "a share runs elsewhere than on a full run where the legs run: " .. tostring(shard["if"]))
   local strategy = table_in(shard, "strategy")
@@ -2137,7 +2137,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   local platform = assert(jobs["platform"])
   local narrowing = assert(jobs["checked-narrowing"], "no job runs the checked narrowing")
   local format = assert(jobs["format"], "no job runs the light format check")
-  assert(Json.encode(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == assert(jobs["checked-shard"])["if"],
+  assert(Json.encode_any(narrowing["needs"]) == '["reuse","scope"]' and narrowing["if"] == assert(jobs["checked-shard"])["if"],
     "the checked narrowing runs elsewhere than a share does: " .. tostring(narrowing["if"]))
   assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
@@ -2158,7 +2158,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   -- The format check: a branch push's and the scheduled run's, which
   -- names the paths the branch changed from the base it found, boots,
   -- and lays out only those.
-  assert(Json.encode(format["needs"]) == '["reuse","scope"]' and
+  assert(Json.encode_any(format["needs"]) == '["reuse","scope"]' and
       format["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
       "((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || " ..
       "github.event_name == 'schedule')",
@@ -2760,8 +2760,8 @@ local function test_the_scope_is_decided_once()
   local reading = 0
   for name in pairs(object_at(ci, { "jobs" })) do
     local job = object_at(ci, { "jobs", name })
-    local text = Json.encode(job) or ""
-    local needs = Json.encode((Json.get(job, { "needs" }))) or ""
+    local text = Json.encode_any(job) or ""
+    local needs = Json.encode_any((Json.get(job, { "needs" }))) or ""
     local mine = text_at(object_at(job, { "env" }), "COSMIC_CI_SCOPE")
     if name ~= "scope" then
       if text:find("needs.scope.", 1, true) ~= nil then
