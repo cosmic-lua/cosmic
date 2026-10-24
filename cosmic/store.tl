@@ -235,7 +235,7 @@ end
 --- The names `name` requires according to `db`'s `imports` rows. With
 --- `types` false, an edge is dropped when the importer's bytecode lacks
 --- the required name as a string constant, which is what Teal leaves of
---- a type-only require: the rule build/test_key.tl's `erased_require` holds
+--- a type-only require: the rule build/test.tl's `erased_require` holds
 --- its closures to, so a sealed program's modules are those the tests of
 --- it ran against. Keep the two in step.
 local function requires_of(db: Handle, name: string, types: boolean): {string}

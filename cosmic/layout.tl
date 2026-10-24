@@ -20,7 +20,7 @@ local record Layout
   --- functions -- direct elements of the file, never inside another
   --- statement -- are discovered and run by `cosmic test`. No return
   --- value and no registration; the name alone is the rule. Its
-  --- summary's "N ran, M stood": ran counts
+  --- summary's "N ran, M stood" is [`test.Tally`]: ran counts
   --- tests actually executed this time, stood the ones answered from
   --- an unchanged prior verdict instead
   tests: string

@@ -23,6 +23,17 @@
 --- modules the harness holds is outside build/harness_epoch.tl's `library`
 --- rule (the TODO at `key_roots`).
 
+-- TODO: name this module where the comments of build/test_policy.tl,
+-- build/test_sandbox.tl, build/closure_store.tl, build/schema.tl,
+-- build/artifact.tl and cosmic/store.tl still name build.test for what
+-- moved here (`launch`, `scratch`, [`worker_environment`], [`sealed_for`],
+-- `store_writer`, [`sweep_stores`], [`base_name`], `erased_require`, `harness`),
+-- with the next edit to each that runs every test again anyway: the
+-- runtime every key holds is made from the digests of the first two, a
+-- store's address from the source of the next two, and the core's identity
+-- from the last two, so a comment edit in any of them moves every key or
+-- every store address, which this move leaves alone.
+
 local type Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")

@@ -166,6 +166,10 @@ local type Unmet = State.Unmet
 local record test
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+  --- How many tests this run ran, and how many it answered from a
+  --- verdict that still stood ([`build.test_state`]'s [`Tally`]).
+  type Tally = State.Tally
+
   --- Every test id (`"path name"`) whose standing verdict credits a
   --- given run, by that run's `run_at_ns`: what this run still owes
   --- `hits`, gathered while replaying verdicts and resolved against

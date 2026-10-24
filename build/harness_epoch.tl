@@ -83,7 +83,7 @@ end
 harness_epoch.epoch = "51-fddb0e02" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "555eea099acf99b5a51b304b02c3cc4106bf8619d7d242f37f3e48ddb7e8ac86",
+  ["build.artifact"] = "e3f8acd5718271deae9f9454a9c49e27bf33777c7124756c766c72090d57b1bf",
 
   ["build.assertions"] = "536da1af6ed52bf04f8f8803d77f83f44a9c43cb65f2572eca09c995fa87fe4d",
 
@@ -121,11 +121,11 @@ harness_epoch.acknowledged = {
 
   ["build.test_inputs"] = "e2e8fcf6be7a20d3767eb8334ec1f332ab86b542d30d56ec3d7e948e6196451c",
 
-  ["build.test_key"] = "48dd7978df8b8901a37946658ec8677d24ad1732a6dbf02bc1024432be8c18ea",
+  ["build.test_key"] = "d233ec09ad89026ee4802de43684233de99697e31f029eb4ac3e44adb786b332",
 
-  ["build.test_policy"] = "cf7e9c5f1cd253f68b04f9b7c0bf001c1084e84ab1d0395d9080cb3f7a4d0b7d",
+  ["build.test_policy"] = "597348dbe514ef0cee04cbfdcee0f3b3198d9a15a2bd4f51961b3fc1894de607",
 
-  ["build.test_sandbox"] = "f08cc885e5663986395d8cf4e88ae2208499f7ba144296c689376d0ab4fc9d54",
+  ["build.test_sandbox"] = "f93f700ed812010d7b58d10d76d4fe912fbf50c059a1a2bfac53be197e979a52",
 
   ["build.test_worker"] = "fb641439108b785da8e7cf306ff33a64186c237b0bfa59764e40aa5e94792b1c",
 

@@ -118,7 +118,7 @@ end
 --- The part of every worker's policy that is the same for all of them and
 --- that a verdict's key holds: the isolation, the promises every worker
 --- has, as text, whatever its module declares. A change to either is a
---- change to what every worker is held to, so it names the runtime the key holds ([`build.test_key`]'s `runtime_of`); what
+--- change to what every worker is held to, so it names the runtime the key holds ([`build.test`]'s `runtime`); what
 --- a module declares is in its key already, by `effective`.
 --- @return the text
 function test_policy.common(): string
@@ -157,7 +157,7 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
     scratch = scratch or path
   end
   -- The private noexec scratch: a writable grant without `x`, which the
-  -- root of `isolate` "file" mounts noexec ([`build.test_key`]'s `prepare` makes
+  -- root of `isolate` "file" mounts noexec ([`build.test`]'s `launch` makes
   -- the directory it is bound from).
   if effective.noexec_ready and scratch ~= nil then
     grants[#grants + 1] = { path = "/noexec", from = scratch .. "/noexec", letters = "rwc" }
