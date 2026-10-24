@@ -32,20 +32,26 @@ Compiles.command({ "1", %q }, { COSMIC_BUILD_CACHE = %q, GITHUB_OUTPUT = %q })
 error("the original signal was swallowed")
 ]=]):format("echo ready > '" .. ready .. "'; sleep 30", restored, tmp .. "/cache.db", output)
   assert(Fs.write(project .. "/cancel.tl", script))
-  local handle <close> = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
+  -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+  -- [`Child.Handle`] as a class: a `<close>` local must be one.
+  local handle = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
     { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
-  local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
-    Clock.sleep_ns(Clock.ms(10))
-  end
-  assert(Fs.read(ready) ~= nil, "maintenance child did not enter its guarded wait")
-  assert(handle:stop(sys.SIGTERM))
-  local result = assert(handle:wait(Clock.seconds(10)))
-  assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))
-  for _, suffix in ipairs({ "", "-wal", "-shm" }) do
-    assert(Fs.stat(restored .. suffix) == nil, "snapshot remained at signal redelivery")
-  end
-  assert(Fs.stat(output) == nil, "cancelled maintenance published a save key")
+  local ran, raised = pcall(function()
+    local deadline = Clock.monotonic_ns() + Clock.seconds(30)
+    while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
+      Clock.sleep_ns(Clock.ms(10))
+    end
+    assert(Fs.read(ready) ~= nil, "maintenance child did not enter its guarded wait")
+    assert(handle:stop(sys.SIGTERM))
+    local result = assert(handle:wait(Clock.seconds(10)))
+    assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))
+    for _, suffix in ipairs({ "", "-wal", "-shm" }) do
+      assert(Fs.stat(restored .. suffix) == nil, "snapshot remained at signal redelivery")
+    end
+    assert(Fs.stat(output) == nil, "cancelled maintenance published a save key")
+  end)
+  local _, _ = handle:close()
+  if not ran then error(raised, 0) end
 end
 
 local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: string)

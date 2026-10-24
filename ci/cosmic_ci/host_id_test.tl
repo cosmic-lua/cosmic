@@ -21,10 +21,10 @@ local record Vector
   name: string
   sysname: string
   machine: string
-  cpuinfo: string | nil
-  osrelease: string | nil
-  version: string | nil
-  sysctl: {string:string} | nil
+  cpuinfo?: string
+  osrelease?: string
+  version?: string
+  sysctl?: {string:string}
   digest: string
 end
 
@@ -40,12 +40,15 @@ end
 --- engine's version (nil: it fails).
 local function facts_of(vector: Vector, docker?: string): HostId.Facts
   local files: {string:string} = {}
+  local function put(path: string, content?: string)
+    if content ~= nil then files[path] = content end
+  end
   if vector.sysname == "Darwin" then
-    files["/System/Library/CoreServices/SystemVersion.plist"] = vector.osrelease
+    put("/System/Library/CoreServices/SystemVersion.plist", vector.osrelease)
   else
-    files["/proc/cpuinfo"] = vector.cpuinfo
-    files["/proc/sys/kernel/osrelease"] = vector.osrelease
-    files["/proc/sys/kernel/version"] = vector.version
+    put("/proc/cpuinfo", vector.cpuinfo)
+    put("/proc/sys/kernel/osrelease", vector.osrelease)
+    put("/proc/sys/kernel/version", vector.version)
   end
   return {
     sysname = vector.sysname,
@@ -243,6 +246,6 @@ local function test_a_leg_named_by_nothing_is_refused(tmp: string)
   }) do
     local env, output, said, code = named(tmp, "darwin-all", case.args, case.env, "28.0.4")
     assert(code == 2 and env == nil and output == nil and said == "",
-      table.concat(case.args, " ") .. ": " .. code)
+      table.concat(case.args, " ") .. ": " .. tostring(code))
   end
 end

@@ -14,18 +14,18 @@ local record Runner
   record Request
     argv: {string}
     cwd: string
-    env: {string:string} | nil
-    timeout_ns: integer | nil
-    input: string | nil
-    output: string | nil
-    error: string | nil
+    env?: {string:string}
+    timeout_ns?: integer
+    input?: string
+    output?: string
+    error?: string
     --- More descriptors the child gets, by the number it sees them as
     --- (Child.Options.fds); the caller keeps and closes them.
-    fds: {integer:integer} | nil
+    fds?: {integer:integer}
   end
   record Outcome
-    result: Child.Result | nil
-    trouble: string | nil
+    result?: Child.Result
+    trouble?: string
     status: string
     code: integer
     elapsed_ns: integer
@@ -44,10 +44,10 @@ local record Runner
   record Running
     phase: string
     recording: Recording
-    handle: Child.Handle | nil
+    handle?: Child.Handle
     descriptors: {integer}
     --- Set when the command could not start, and once it is reaped.
-    outcome: Outcome | nil
+    outcome?: Outcome
     reaped: boolean
   end
 end
@@ -62,9 +62,9 @@ end
 --- none left open, when a file cannot be opened.
 local function prepare(request: Runner.Request): Child.Options, {integer}
   local record Opened
-    input: integer | nil
-    output: integer | nil
-    error: integer | nil
+    input?: integer
+    output?: integer
+    error?: integer
   end
   local fds_opened: Opened = {}
   local opened, open_failure = pcall(function(): boolean
@@ -311,7 +311,7 @@ function Runner.stop(running: Runner.Running): Runner.Outcome
   local handle = running.handle
   if handle == nil then return Runner.reap(running) end
   local polled = handle:try_wait()
-  if polled and polled.finished then return Runner.reap(running) end
+  if (polled and polled.finished) == true then return Runner.reap(running) end
   local _, _ = handle:close()
   local elapsed = Clock.monotonic_ns() - running.recording.started
   return settle(running, { status = "cancelled", code = 130, elapsed_ns = elapsed,
@@ -322,15 +322,22 @@ end
 --- as `operation` records a command: "success" when it returns true, and
 --- "error" with its message when it returns false or raises.
 function Runner.step(c: Runner.Context, phase: string,
-                     work: function(): boolean, string): Runner.Outcome
+                     work: function(): boolean, string | nil): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     local started = Clock.monotonic_ns()
     local ok, trouble = work()
     local elapsed = Clock.monotonic_ns() - started
     if ok then return { status = "success", code = 0, elapsed_ns = elapsed } end
+    local reason = trouble or ""
+    if reason == "" then reason = "failed" end
     return { status = "error", code = 1, elapsed_ns = elapsed,
-      trouble = limited((trouble or "") ~= "" and trouble or "failed") }
+      trouble = limited(reason) }
   end)
+end
+
+--- The status a phase's action answered, kept where the function that runs it under `pcall` can set it.
+local record Reached
+  code: integer
 end
 
 --- Records a phase's integer exit status, including its nested operations.
@@ -339,8 +346,11 @@ end
 function Runner.phase(c: Runner.Context, phase: string,
                       action: function(): integer): integer
   local recording = start(c, phase, Clock.monotonic_ns())
-  local called, answer = pcall(action)
-  local code = called and answer or 1
+  local reached: Reached = { code = 1 }
+  local called, answer = pcall(function()
+    reached.code = action()
+  end)
+  local code = reached.code
   local status = code == 0 and "success" or (called and "exit" or "error")
   local detail: string | nil = nil
   if not called then detail = tostring(answer) end

@@ -34,11 +34,17 @@ local linux = { "all_cores", "sandbox", "landlock", "userns", "nest", "own_proc"
   env, passwd }
 
 local with_curl = {}
-for i = 1, #linux do with_curl[i] = linux[i] end
+for i = 1, #linux do
+  local name = linux[i]
+  if name ~= nil then with_curl[#with_curl + 1] = name end
+end
 with_curl[#with_curl + 1] = "program:curl"
 
 local checked_leg = {}
-for i = 1, #linux do checked_leg[i] = linux[i] end
+for i = 1, #linux do
+  local name = linux[i]
+  if name ~= nil then checked_leg[#checked_leg + 1] = name end
+end
 checked_leg[#checked_leg + 1] = "checked"
 
 return {

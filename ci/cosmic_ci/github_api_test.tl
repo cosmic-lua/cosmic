@@ -20,9 +20,9 @@ end
 local function live(script: {{string}}, env?: {string:string}): GithubApi.Client, {string}
   local sent: {string} = {}
   env = env or {}
-  env.GH_TOKEN = env.GH_TOKEN or token
-  env.GITHUB_API_URL = env.GITHUB_API_URL or "http://api.test/"
-  local client, why = GithubApi.live(env, { script = script, sent = sent })
+  assert(env)["GH_TOKEN"] = assert(env)["GH_TOKEN"] or token
+  assert(env)["GITHUB_API_URL"] = assert(env)["GITHUB_API_URL"] or "http://api.test/"
+  local client, why = GithubApi.live(assert(env), { script = script, sent = sent })
   assert(client ~= nil, why)
   return client, sent
 end
@@ -36,30 +36,30 @@ local function test_a_get_sends_the_token_and_the_headers_github_requires()
   local body, why = GithubApi.get(client, "repos/o/r/actions/runs?status=completed&per_page=2")
   assert(body == '{"a":1}', why)
   assert(#sent == 1)
-  assert(sent[1]:find("GET /repos/o/r/actions/runs?status=completed&per_page=2 HTTP/1.1\r\n", 1, true) == 1, sent[1])
-  has(sent[1], "\r\nHost: api.test\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer " .. token .. "\r\n")
-  has(sent[1], "\r\nAccept: application/vnd.github+json\r\n")
-  has(sent[1], "\r\nX-GitHub-Api-Version: 2022-11-28\r\n")
-  has(sent[1], "\r\nUser-Agent: cosmic-ci\r\n")
+  assert(assert(sent[1]):find("GET /repos/o/r/actions/runs?status=completed&per_page=2 HTTP/1.1\r\n", 1, true) == 1, sent[1])
+  has(assert(sent[1]), "\r\nHost: api.test\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer " .. token .. "\r\n")
+  has(assert(sent[1]), "\r\nAccept: application/vnd.github+json\r\n")
+  has(assert(sent[1]), "\r\nX-GitHub-Api-Version: 2022-11-28\r\n")
+  has(assert(sent[1]), "\r\nUser-Agent: cosmic-ci\r\n")
 end
 
 local function test_the_token_is_read_from_gh_token_then_github_token()
   local client, sent = live({ { reply("200 OK", "", "{}") } }, { GH_TOKEN = "", GITHUB_TOKEN = "second" })
   assert(GithubApi.get(client, "x"))
-  has(sent[1], "Authorization: Bearer second\r\n")
+  has(assert(sent[1]), "Authorization: Bearer second\r\n")
   client, sent = live({ { reply("200 OK", "", "{}") } }, { GH_TOKEN = "first", GITHUB_TOKEN = "second" })
   assert(GithubApi.get(client, "x"))
-  has(sent[1], "Authorization: Bearer first\r\n")
+  has(assert(sent[1]), "Authorization: Bearer first\r\n")
 end
 
 local function test_there_is_no_client_without_a_token()
   local client, why = GithubApi.live({})
-  assert(client == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true), tostring(why))
+  assert(client == nil and why:find("GH_TOKEN or GITHUB_TOKEN", 1, true) ~= nil, tostring(why))
   client, why = GithubApi.live({ GH_TOKEN = "", GITHUB_TOKEN = "" })
   assert(client == nil, "an empty token was taken")
   client, why = GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "not a url" })
-  assert(client == nil and why:find("GITHUB_API_URL", 1, true), tostring(why))
+  assert(client == nil and why:find("GITHUB_API_URL", 1, true) ~= nil, tostring(why))
 end
 
 local function test_the_api_is_github_by_default_and_named_by_github_api_url()
@@ -92,7 +92,7 @@ local function test_the_token_goes_to_no_other_origin()
   local client, sent = live({ { reply("200 OK", "", "{}") } })
   for _, url in ipairs({ "http://other.test/repos/o/r", "http://api.test:8080/x", "https://api.test/x" }) do
     local answered, why = client.send({ method = "GET", url = url, headers = {} })
-    assert(answered == nil and why:find("refusing to send the token", 1, true), url .. ": " .. tostring(why))
+    assert(answered == nil and why:find("refusing to send the token", 1, true) ~= nil, url .. ": " .. tostring(why))
   end
   assert(#sent == 0)
 end
@@ -102,10 +102,10 @@ local function test_a_body_is_sent_whole_with_its_content_type()
   local answered, why = client.send({ method = "POST", url = client.base .. "/repos/o/r/git/refs",
     headers = { ["Content-Type"] = "application/json" }, body = '{"ref":"r"}' })
   assert(answered ~= nil and answered.status == 201, why)
-  has(sent[1], "POST /repos/o/r/git/refs HTTP/1.1\r\n")
-  has(sent[1], "\r\nContent-Type: application/json\r\n")
-  has(sent[1], '\r\n\r\n{"ref":"r"}')
-  assert(not sent[1]:find("Expect:", 1, true), sent[1])
+  has(assert(sent[1]), "POST /repos/o/r/git/refs HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nContent-Type: application/json\r\n")
+  has(assert(sent[1]), '\r\n\r\n{"ref":"r"}')
+  assert(not assert(sent[1]):find("Expect:", 1, true), sent[1])
 end
 
 --- A download asks the API with the token, takes its redirect by hand and
@@ -127,8 +127,8 @@ local function test_a_download_fetches_the_redirect_without_the_token(tmp: strin
   Http.download_result = real
   assert(called, tostring(ok))
   assert(ok, why)
-  has(sent[1], "GET /repos/o/r/actions/artifacts/7/zip HTTP/1.1\r\n")
-  has(sent[1], "Authorization: Bearer " .. token)
+  has(assert(sent[1]), "GET /repos/o/r/actions/artifacts/7/zip HTTP/1.1\r\n")
+  has(assert(sent[1]), "Authorization: Bearer " .. token)
   assert(#urls == 1 and urls[1] == "https://blob.test/signed?sig=abc", table.concat(urls, " "))
   assert(Fs.read(tmp .. "/a.zip") == "zip bytes")
   for name in pairs(options.value.headers or {}) do
@@ -153,11 +153,11 @@ local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
     return real(url, path)
   end
   for i = 1, 4 do
-    local ok, why = GithubApi.download(client, "repos/o/r/z" .. i, tmp .. "/z")
-    assert(not ok and why:find("GET repos/o/r/z" .. i .. ": ", 1, true) == 1, tostring(why))
+    local ok, why = GithubApi.download(client, "repos/o/r/z" .. tostring(i), tmp .. "/z")
+    assert(not ok and why:find("GET repos/o/r/z" .. tostring(i) .. ": ", 1, true) == 1, tostring(why))
   end
   assert(not fetched.value, "a URL was fetched")
-  assert(not Fs.exists(tmp .. "/z"))
+  assert(Fs.exists(tmp .. "/z") ~= true)
 end
 
 local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(tmp: string)
@@ -178,7 +178,7 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
     tmp .. "/z")
   Http.download_result = real
   assert(called, tostring(got))
-  ok, why = got as boolean, trouble
+  ok, why = got as boolean, trouble or ""
   -- The signed URL stays out of the message.
   assert(not ok and why == "GET repos/o/r/artifacts/3/zip: HTTP 403", why)
 end
@@ -197,7 +197,7 @@ local function test_origins_are_compared_by_scheme_host_and_port()
   for _, url in ipairs({ "http://api.test:81/a", "https://api.test:80/a",
       "http://api.test.evil.test/a", "http://api.test@evil.test/a", "http://[::1]/a" }) do
     local answered, why = client.send({ method = "GET", url = url, headers = {} })
-    assert(answered == nil and why:find("refusing", 1, true), url .. ": " .. tostring(why))
+    assert(answered == nil and why:find("refusing", 1, true) ~= nil, url .. ": " .. tostring(why))
   end
   assert(#sent == 2)
 end
@@ -208,9 +208,9 @@ local function test_a_client_whose_base_is_another_origin_sends_nothing(tmp: str
   local client, sent = live({ { reply("200 OK", "", "{}") } })
   client.base = "http://other.test"
   local body, why = GithubApi.get(client, "repos/o/r")
-  assert(body == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  assert(body == nil and why:find("refusing to send the token", 1, true) ~= nil, tostring(why))
   local ok, trouble = GithubApi.download(client, "repos/o/r/zip", tmp .. "/z")
-  assert(not ok and trouble:find("refusing to send the token", 1, true), tostring(trouble))
+  assert(not ok and trouble:find("refusing to send the token", 1, true) ~= nil, tostring(trouble))
   assert(#sent == 0)
 end
 
@@ -221,19 +221,19 @@ local function test_a_json_body_is_sent_whole_by_any_method()
   assert(made ~= nil and made.status == 201, why)
   local patched = GithubApi.request(client, "PATCH", "repos/o/r/releases/9", { draft = false })
   assert(patched ~= nil and patched.status == 200)
-  has(sent[1], "POST /repos/o/r/releases HTTP/1.1\r\n")
-  has(sent[1], "\r\nContent-Type: application/json\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer " .. token .. "\r\n")
-  has(sent[1], '\r\n\r\n{"draft":true,"tag_name":"t"}')
-  has(sent[2], "PATCH /repos/o/r/releases/9 HTTP/1.1\r\n")
-  has(sent[2], '\r\n\r\n{"draft":false}')
-  assert(not sent[1]:find("Expect:", 1, true) and not sent[2]:find("Expect:", 1, true))
+  has(assert(sent[1]), "POST /repos/o/r/releases HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nContent-Type: application/json\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer " .. token .. "\r\n")
+  has(assert(sent[1]), '\r\n\r\n{"draft":true,"tag_name":"t"}')
+  has(assert(sent[2]), "PATCH /repos/o/r/releases/9 HTTP/1.1\r\n")
+  has(assert(sent[2]), '\r\n\r\n{"draft":false}')
+  assert(not assert(sent[1]):find("Expect:", 1, true) and not assert(sent[2]):find("Expect:", 1, true))
 end
 
 local function test_a_request_answers_a_refusal_and_reports_no_answer()
   local client = live({ { reply("403 Forbidden", "", '{"message":"Resource not accessible by integration"}') } })
   local refused = GithubApi.request(client, "POST", "repos/o/r/git/refs", { ref = "r" })
-  assert(refused ~= nil and refused.status == 403 and refused.body:find("not accessible", 1, true))
+  assert(refused ~= nil and refused.status == 403 and refused.body:find("not accessible", 1, true) ~= nil)
   local none, why = GithubApi.request(client, "POST", "repos/o/r/git/refs", { ref = "r" })
   assert(none == nil and why:find("POST repos/o/r/git/refs: ", 1, true) == 1, tostring(why))
 end
@@ -262,9 +262,9 @@ local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
   Http.download_result = real
   assert(called, tostring(ok))
   assert(ok, why)
-  has(sent[1], "GET /repos/o/r/releases/assets/5 HTTP/1.1\r\n")
-  has(sent[1], "\r\nAccept: application/octet-stream\r\n")
-  assert(not sent[1]:find("vnd.github", 1, true), sent[1])
+  has(assert(sent[1]), "GET /repos/o/r/releases/assets/5 HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nAccept: application/octet-stream\r\n")
+  assert(not assert(sent[1]):find("vnd.github", 1, true), sent[1])
   assert(Fs.read(tmp .. "/a") == "asset bytes")
 end
 
@@ -278,14 +278,14 @@ local function test_a_client_without_an_upload_origin_uploads_nothing()
       return { status = 201, headers = {}, body = "" }, ""
     end }
   local ok, why = GithubApi.upload(client, "http://api.test/repos/o/r/releases/1/assets{?name}", "x", "b")
-  assert(not ok and why:find("no upload origin", 1, true), why)
+  assert(not ok and why:find("no upload origin", 1, true) ~= nil, why)
   assert(sent.value == 0)
 end
 
 local function test_the_upload_origin_follows_the_api()
   local function uploads(url: string): string, string
     local client = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = url }))
-    return client.upload_origin, client.upload_path
+    return assert(client.upload_origin), assert(client.upload_path)
   end
   local origin, path = uploads("https://api.github.com")
   assert(origin == "https://uploads.github.com:443" and path == "", origin .. path)
@@ -312,13 +312,13 @@ local function test_an_upload_sends_the_bytes_to_the_upload_origin_with_the_toke
   local ok, why = GithubApi.upload(client, release_assets .. "{?name,label}", "a b", bytes)
   assert(ok, why)
   assert(#sent == 1)
-  has(sent[1], "POST /repos/o/r/releases/5/assets?name=a%20b HTTP/1.1\r\n")
-  has(sent[1], "\r\nHost: uploads.test\r\n")
-  has(sent[1], "\r\nAuthorization: Bearer " .. token .. "\r\n")
-  has(sent[1], "\r\nContent-Type: application/octet-stream\r\n")
-  has(sent[1], "\r\nContent-Length: " .. #bytes .. "\r\n")
-  has(sent[1], "\r\n\r\n" .. bytes)
-  assert(not sent[1]:find("Expect:", 1, true), "an Expect header was sent")
+  has(assert(sent[1]), "POST /repos/o/r/releases/5/assets?name=a%20b HTTP/1.1\r\n")
+  has(assert(sent[1]), "\r\nHost: uploads.test\r\n")
+  has(assert(sent[1]), "\r\nAuthorization: Bearer " .. token .. "\r\n")
+  has(assert(sent[1]), "\r\nContent-Type: application/octet-stream\r\n")
+  has(assert(sent[1]), "\r\nContent-Length: " .. tostring(#bytes) .. "\r\n")
+  has(assert(sent[1]), "\r\n\r\n" .. bytes)
+  assert(not assert(sent[1]):find("Expect:", 1, true), "an Expect header was sent")
 end
 
 local function test_an_upload_goes_to_no_other_origin_or_path()
@@ -339,10 +339,10 @@ local function test_an_upload_goes_to_no_other_origin_or_path()
       "http://uploads.test/repos/./r/releases/5/assets",
       "http://uploads.test/x/repos/o/r/releases/5/assets", "not a url", "" }) do
     local ok, why = GithubApi.upload(client, url, "cosmic", "bytes")
-    assert(not ok and why:find("upload", 1, true), url .. ": " .. tostring(why))
+    assert(not ok and why:find("upload", 1, true) ~= nil, url .. ": " .. tostring(why))
   end
   local ok, why = GithubApi.upload(client, release_assets, "", "bytes")
-  assert(not ok and why:find("no asset name", 1, true), tostring(why))
+  assert(not ok and why:find("no asset name", 1, true) ~= nil, tostring(why))
   assert(#sent == 0, "something was sent")
 end
 
@@ -353,7 +353,7 @@ local function test_an_enterprise_servers_upload_path_is_its_own()
   local ok, why = GithubApi.upload(client, "http://ghe.test/api/uploads/repos/o/r/releases/5/assets{?name}",
     "cosmic", "b")
   assert(ok, why)
-  has(sent[1], "POST /api/uploads/repos/o/r/releases/5/assets?name=cosmic HTTP/1.1\r\n")
+  has(assert(sent[1]), "POST /api/uploads/repos/o/r/releases/5/assets?name=cosmic HTTP/1.1\r\n")
   ok = GithubApi.upload(client, "http://ghe.test/repos/o/r/releases/5/assets", "cosmic", "b")
   assert(not ok)
   assert(#sent == 1)
@@ -370,7 +370,7 @@ local function test_an_upload_fails_naming_githubs_refusal()
   ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
   assert(not ok and why == "POST /repos/o/r/releases/5/assets (cosmic): HTTP 500", why)
   ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
-  assert(not ok and why:find("HTTP 302", 1, true), why)
+  assert(not ok and why:find("HTTP 302", 1, true) ~= nil, why)
   ok, why = GithubApi.upload(client, release_assets, "cosmic", "b")
   assert(not ok and why:find("POST /repos/o/r/releases/5/assets (cosmic): ", 1, true) == 1, why)
 end
@@ -380,10 +380,10 @@ end
 local function test_the_upload_origin_takes_the_token_for_uploads_alone()
   local client, sent = live({})
   local answered, why = client.send({ method = "GET", url = release_assets, headers = {} })
-  assert(answered == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  assert(answered == nil and why:find("refusing to send the token", 1, true) ~= nil, tostring(why))
   answered, why = client.send({ method = "POST", url = "http://other.test/x", headers = {},
     upload = true })
-  assert(answered == nil and why:find("refusing to send the token", 1, true), tostring(why))
+  assert(answered == nil and why:find("refusing to send the token", 1, true) ~= nil, tostring(why))
   assert(#sent == 0)
 end
 
@@ -393,7 +393,7 @@ local function test_the_upload_origin_takes_the_token_only_for_a_release_s_asset
       "/repos/o/../releases/5/assets" }) do
     local answered, why = client.send({ method = "POST", url = "http://uploads.test" .. path,
       headers = {}, body = "b", upload = true })
-    assert(answered == nil and why:find("refusing to send the token", 1, true), path .. ": " .. tostring(why))
+    assert(answered == nil and why:find("refusing to send the token", 1, true) ~= nil, path .. ": " .. tostring(why))
   end
   assert(#sent == 0)
 end
@@ -401,8 +401,8 @@ end
 local function test_an_upload_sets_the_type_it_is_given()
   local client, sent = live({ { reply("201 Created", "", "{}") } })
   assert(GithubApi.upload(client, release_assets, "source.json", "{}", "application/json"))
-  has(sent[1], "\r\nContent-Type: application/json\r\n")
-  assert(not sent[1]:find("octet-stream", 1, true), sent[1])
+  has(assert(sent[1]), "\r\nContent-Type: application/json\r\n")
+  assert(not assert(sent[1]):find("octet-stream", 1, true), sent[1])
 end
 
 --- Asked for as bytes, the API may answer with them, not a redirect.
@@ -411,13 +411,13 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
   local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a",
     "application/octet-stream")
   assert(ok, why)
-  has(sent[1], "\r\nAccept: application/octet-stream\r\n")
+  has(assert(sent[1]), "\r\nAccept: application/octet-stream\r\n")
   assert(Fs.read(tmp .. "/a") == "\0asset\255")
   -- Without that ask a 200 is no file.
   client = live({ { reply("200 OK", "", "x") } })
   ok, why = GithubApi.download(client, "repos/o/r/z", tmp .. "/b")
-  assert(not ok and why:find("no redirect to a file", 1, true), tostring(why))
-  assert(not Fs.exists(tmp .. "/b"))
+  assert(not ok and why:find("no redirect to a file", 1, true) ~= nil, tostring(why))
+  assert(Fs.exists(tmp .. "/b") ~= true)
 end
 
 --- A client whose `send` answers each page after `cost_ns` of a clock
@@ -430,7 +430,9 @@ local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {int
     clock.value = clock.value + cost_ns
     local number = #timeouts
     local head = {}
-    if number < pages then head["link"] = '<http://api.test/next' .. number .. '>; rel="next"' end
+    if number < pages then
+      head["link"] = '<http://api.test/next' .. tostring(number) .. '>; rel="next"'
+    end
     return { status = 200, headers = head, body = "[]" }, ""
   end
   return { send = send, fetch = nil as GithubApi.Fetch, base = "http://api.test",
@@ -450,6 +452,6 @@ local function test_pages_that_are_each_timely_fail_once_the_total_runs_out()
   local pages, why = GithubApi.pages(client, "repos/o/r/x", 1)
   assert(pages == nil, "succeeded past the budget")
   assert(why:find("page 4", 1, true) and why:find("ran out", 1, true), why)
-  assert(#timeouts == 3, "a request began after the deadline: " .. #timeouts)
-  assert(timeouts[1] > timeouts[2] and timeouts[2] > timeouts[3])
+  assert(#timeouts == 3, "a request began after the deadline: " .. tostring(#timeouts))
+  assert(assert(timeouts[1]) > assert(timeouts[2]) and assert(timeouts[2]) > assert(timeouts[3]))
 end

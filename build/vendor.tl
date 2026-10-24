@@ -93,48 +93,50 @@ local log = Log.new("vendor")
 --- of it; `keep` and `drop` accumulate, and for every other key the
 --- first line naming it wins.
 function Vendor.read_pin(text: string): Vendor.Pin
-  local pin: Vendor.Pin = { url = "", sha256 = "", sha3_256 = "", strip = "", file = "", feed = "",
-    keep = {}, drop = {} }
+  local url, sha256, sha3_256, strip, file, feed = "", "", "", "", "", ""
+  local keep: {string} = {}
+  local drop: {string} = {}
   local seen: {string:boolean} = {}
   for line in text:gmatch("[^\n]+") do
     local key, value = line:match("^([%w_%-]+)%s+(%S+)")
-    if key == "keep" then
-      pin.keep[#pin.keep + 1] = value
+    if key == nil or value == nil then
+      -- Not a `key value` line: it names nothing.
+    elseif key == "keep" then
+      keep[#keep + 1] = value
     elseif key == "drop" then
-      pin.drop[#pin.drop + 1] = value
-    elseif key ~= nil and not seen[key] then
+      drop[#drop + 1] = value
+    elseif seen[key] ~= true then
       seen[key] = true
       if key == "url" then
-        pin.url = value
+        url = value
       elseif key == "sha256" then
-        pin.sha256 = value
+        sha256 = value
       elseif key == "sha3-256" then
-        pin.sha3_256 = value
+        sha3_256 = value
       elseif key == "strip" then
-        pin.strip = value
+        strip = value
       elseif key == "file" then
-        pin.file = value
+        file = value
       elseif key == "feed" then
-        pin.feed = value
+        feed = value
       end
     end
   end
-  return pin
+  return { url = url, sha256 = sha256, sha3_256 = sha3_256, strip = strip, file = file, feed = feed,
+    keep = keep, drop = drop }
 end
 
 --- `vendor/<name> <archive>`: argv[1] names a tree directly (it holds
 --- a "/"), so it and argv[2] are read as the two-argument form.
 function Vendor.is_direct_rewrite(argv: {string}): boolean
-  return argv[1] ~= nil and argv[2] ~= nil and argv[1]:find("/", 1, true) ~= nil
+  local first = argv[1]
+  return first ~= nil and argv[2] ~= nil and first:find("/", 1, true) ~= nil
 end
 
 --- The repository root, from this script's own path, Lua's `arg[0]`. Like
 --- build/zig.tl's, which names itself in its messages: each runs standalone
 --- on cosmic.* modules alone, so neither can load the other's.
 function Vendor.repo_root(script_path: string): string | nil, string
-  if script_path == nil then
-    return nil, "expected to run as .../build/vendor.tl"
-  end
   local abs, trouble = Fs.absolute(script_path)
   if abs == nil then
     return nil, trouble
@@ -207,14 +209,9 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- and the download is held to the PIN's digests whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
-  local options: Http.Options = { roots = "mozilla" }
-  for _, digest in ipairs(digests) do
-    if digest.algorithm == "sha256" then
-      options.sha256 = digest.hex
-    elseif digest.algorithm == "sha3-256" then
-      options.sha3_256 = digest.hex
-    end
-  end
+  local want: {string:string} = {}
+  for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
+  local options: Http.Options = { roots = "mozilla", sha256 = want["sha256"], sha3_256 = want["sha3-256"] }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, trouble
@@ -268,7 +265,7 @@ function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string}
     end
   end
   for _, glob in ipairs(pin.keep) do
-    if not used[glob] then
+    if used[glob] ~= true then
       return nil, "keep " .. glob .. " matches nothing in the archive"
     end
   end
@@ -278,13 +275,19 @@ end
 --- Removes every entry under `tree` -- links included -- but PIN and
 --- the `files` names, then every directory that leaves empty.
 local function prune(tree: string, files: {string:boolean}, under?: string): boolean, string
-  local directory = under == nil and tree or (tree .. "/" .. under)
+  local directory = tree
+  if under ~= nil then
+    directory = tree .. "/" .. under
+  end
   local entries, trouble = sys.readdir(directory)
   if entries == nil then
     return false, directory .. ": " .. trouble
   end
   for name, kind in pairs(entries) do
-    local path = under == nil and name or (under .. "/" .. name)
+    local path = name
+    if under ~= nil then
+      path = under .. "/" .. name
+    end
     -- A link to a directory is removed, not followed: readdir answers
     -- a link as "link", whatever it leads to.
     if kind == "dir" then
@@ -296,7 +299,7 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
       if left ~= nil and #left == 0 then
         local _, _ = sys.rmdir(tree .. "/" .. path)
       end
-    elseif path ~= "PIN" and not files[path] then
+    elseif path ~= "PIN" and files[path] ~= true then
       local gone, why = Fs.remove(tree .. "/" .. path)
       if not gone then
         return false, why
@@ -338,10 +341,9 @@ end
 --- A scratch directory beside `tree`, on the same filesystem, so what
 --- is unpacked into it can be renamed into place.
 local function scratch_beside(tree: string): string | nil, string
-  local parent, name = tree:match("^(.*)/([^/]+)$")
-  if parent == nil then
-    parent, name = ".", tree
-  end
+  local found_parent, found_name = tree:match("^(.*)/([^/]+)$")
+  local parent = found_parent or "."
+  local name = found_name or tree
   local template = parent .. "/." .. name .. ".vendor.XXXXXX"
   local made, trouble = sys.mkdtemp(template)
   if made == nil then
@@ -578,19 +580,20 @@ function Vendor.run(argv: {string}, program: string): integer
     log:complain(parse_trouble .. "; usage: " .. usage)
     return 2
   end
-  if parsed.set["--help"] or parsed.set["-h"] then
+  if parsed.set["--help"] == true or parsed.set["-h"] == true then
     log:say(Flags.help({ spec = spec, about = about, usage = "[name... | vendor/<name> <archive>]" }, "bin/vendor"))
     return 0
   end
   local words = parsed.words
-  if Vendor.is_direct_rewrite(words) then
-    local tree = (words[1]):gsub("/+$", "")
-    local count, trouble = rewrite(tree, words[2])
+  local first, second = words[1], words[2]
+  if first ~= nil and second ~= nil and Vendor.is_direct_rewrite(words) then
+    local tree = first:gsub("/+$", "")
+    local count, trouble = rewrite(tree, second)
     if count == nil then
       log:complain(trouble)
       return 1
     end
-    log:say("vendor: " .. tree .. " (" .. count .. " files)")
+    log:say("vendor: " .. tree .. " (" .. tostring(count) .. " files)")
     return 0
   end
 
@@ -633,10 +636,11 @@ function Vendor.run(argv: {string}, program: string): integer
       log:complain(name .. ": " .. trouble)
       failed = true
     else
-      log:say("vendor: vendor/" .. name .. " (" .. count .. " files)")
+      log:say("vendor: vendor/" .. name .. " (" .. tostring(count) .. " files)")
     end
   end
-  return failed and 1 or 0
+  if failed then return 1 end
+  return 0
 end
 
 --- The entry point: [`Vendor.run`] with this script's path, Lua's `arg[0]`.

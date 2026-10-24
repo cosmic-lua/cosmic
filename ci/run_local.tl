@@ -14,50 +14,82 @@ local sys = require("cosmic.sys")
 local record Local
 end
 
-local record Descriptor
-  metamethod __close: function(Descriptor)
-  fd: integer
-end
-
-local descriptor_mt: metatable<Descriptor> = {
-  __close = function(self: Descriptor)
-    if self.fd >= 0 then
-      local _, _ = Fs.close(self.fd)
-      self.fd = -1
-    end
-  end,
-}
-
+--- The private copy of the core a dropped user runs: its directory and the descriptor that names it.
 local record Runtime
-  metamethod __close: function(Runtime)
   path: string
   fd: integer
 end
 
-local runtime_mt: metatable<Runtime> = {
-  __close = function(self: Runtime)
-    if self.fd >= 0 then
-      local _, _ = Fs.close(self.fd)
-      self.fd = -1
+--- What [`execute`] leaves open or made, which [`Local.run`] lets go of when `execute` ends, however it ends.
+local record Held
+  runtime: Runtime
+  open: {integer}
+end
+
+--- What [`execute`] answered, kept where the function that runs it under `pcall` can read it.
+local record Ended
+  status: integer
+end
+
+--- What the snapshot of the checkout is, kept where the function that makes it under `pcall` can read it.
+local record Snapshot
+  commit: string
+end
+
+--- Registers the descriptor `fd` with `held`, to be closed by [`close_held`] or, if `execute` ends first, by
+--- [`release`]. Answers `fd`.
+local function hold(held: Held, fd: integer): integer
+  held.open[#held.open + 1] = fd
+  return fd
+end
+
+--- Forgets the descriptor `fd` [`hold`] registered, and closes it.
+local function close_held(held: Held, fd: integer): boolean, string
+  for at, each in ipairs(held.open) do
+    if each == fd then
+      table.remove(held.open, at)
+      break
     end
-    if self.path ~= "" then
-      local _, _ = Fs.remove_tree(self.path)
-      self.path = ""
+  end
+  return Fs.close(fd)
+end
+
+-- TODO: make [`Runtime`] and a descriptor classes with `function __close(self)`, hold them in `<close>` locals and
+-- drop [`Held`] and this function, once ci/cosmic-driver.pin names a release that reads the new grammar
+-- (doc/plans/strict-teal.md, "the switch"): the Teal both grammars read has no class, and the new one has no
+-- `setmetatable`.
+
+--- Closes what `held` still holds: the descriptors, then the runtime's descriptor and directory.
+local function release(held: Held)
+  while #held.open > 0 do
+    local fd = table.remove(held.open)
+    if fd ~= nil then
+      local _, _ = Fs.close(fd)
     end
-  end,
-}
+  end
+  local runtime = held.runtime
+  if runtime.fd >= 0 then
+    local _, _ = Fs.close(runtime.fd)
+    runtime.fd = -1
+  end
+  if runtime.path ~= "" then
+    local _, _ = Fs.remove_tree(runtime.path)
+    runtime.path = ""
+  end
+end
 
 local function fallback_value(values: {string:string}, name: string, fallback: string): string
   local found = values[name]
-  return found ~= nil and found ~= "" and found or fallback
+  if found == nil or found == "" then return fallback end
+  return found
 end
 
 --- The user a root caller's driver runs as: `COSMIC_CI_LOCAL_USER`, else
 --- the user `sudo` came from, else "nobody".
 local function dropped_user(values: {string:string}): string
-  local named = values.COSMIC_CI_LOCAL_USER
+  local named = values["COSMIC_CI_LOCAL_USER"]
   if named ~= nil and named ~= "" then return named end
-  local sudo = values.SUDO_USER
+  local sudo = values["SUDO_USER"]
   if sudo ~= nil and sudo ~= "" and sudo ~= "root" then return sudo end
   return "nobody"
 end
@@ -105,7 +137,7 @@ local function owned_root(path: string)
     path .. ": owned root must be a directory, never a symbolic link: " .. tostring(why))
 end
 
-local function execute(argv: {string}, program: string): integer
+local function execute(argv: {string}, program: string, held: Held): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = Env.all()
   local relaunch = assert(Proc.relaunch())
@@ -115,7 +147,9 @@ local function execute(argv: {string}, program: string): integer
   for _, word in ipairs(relaunch.argv) do resolver_argv[#resolver_argv + 1] = word end
   for name, value in pairs(relaunch.env) do resolver_env[name] = value end
   for number, fd in pairs(relaunch.fds) do resolver_fds[number] = fd end
-  resolver_argv[#resolver_argv + 1], resolver_argv[#resolver_argv + 2], resolver_argv[#resolver_argv + 3] = "--standalone", root .. "/build/paths.tl", root
+  resolver_argv[#resolver_argv + 1] = "--standalone"
+  resolver_argv[#resolver_argv + 1] = root .. "/build/paths.tl"
+  resolver_argv[#resolver_argv + 1] = root
   local named = assert(Child.run(resolver_argv, { env = resolver_env, fds = resolver_fds,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   successful(named, "build directory")
@@ -136,7 +170,7 @@ local function execute(argv: {string}, program: string): integer
   end
   local env = copy(caller_env)
   local uid = sys.getuid()
-  local cache = fallback_value(env, "XDG_CACHE_HOME", (env.HOME or "") .. "/.cache") .. "/cosmic"
+  local cache = fallback_value(env, "XDG_CACHE_HOME", (env["HOME"] or "") .. "/.cache") .. "/cosmic"
   local zig_global = fallback_value(env, "COSMIC_ZIG_GLOBAL_CACHE", cache .. "/zig-global")
   local seed = fallback_value(env, "COSMIC_ZIG_CACHE", cache .. "/zig-project")
   local git = assert(Proc.find("git"))
@@ -147,7 +181,7 @@ local function execute(argv: {string}, program: string): integer
   -- TODO: prune state for checkouts that no longer exist, once each state
   -- records its source path so a later run can identify abandoned worktrees.
   local base = fallback_value(env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-" .. tostring(uid)
-  local state = env.COSMIC_CI_LOCAL
+  local state = env["COSMIC_CI_LOCAL"]
   if state == nil or state == "" then
     owned_root(base)
     base = resolved(base)
@@ -164,7 +198,9 @@ local function execute(argv: {string}, program: string): integer
   if uid == 0 then
     user = dropped_user(env)
     local account, why = Proc.user(user)
-    assert(account ~= nil, why ~= "" and why or "no user " .. user .. "; set COSMIC_CI_LOCAL_USER")
+    local reason = why
+    if reason == "" then reason = "no user " .. user .. "; set COSMIC_CI_LOCAL_USER" end
+    assert(account ~= nil, reason)
     assert(account.uid ~= 0 and account.gid ~= 0, "COSMIC_CI_LOCAL_USER must have nonzero user and group IDs")
     credentials = { user = account.uid, group = account.gid }
   end
@@ -173,33 +209,34 @@ local function execute(argv: {string}, program: string): integer
   -- Grant one nonwritable copy for this run without changing that cache.
   -- Its retained descriptor must name the executing copy: startup checks
   -- both its digest against the artifact and its physical inode.
-  local runtime <close>: Runtime = setmetatable({ path = "", fd = -1 }, runtime_mt)
+  local runtime: Runtime = held.runtime
   local core_slot: integer | nil = nil
   if credentials then
     runtime.path = assert(sys.mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
-    local source <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
+    local source: integer | nil = nil
     local from: integer
-    if relaunch.env.COSMIC_PORTABLE_CORE_FD then
-      core_slot = assert(math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)))
+    if relaunch.env["COSMIC_PORTABLE_CORE_FD"] then
+      core_slot = assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])))
       from = assert(relaunch.fds[core_slot], "relaunch names no core descriptor")
     else
-      source.fd = assert(Fs.open_read(relaunch.argv[1]))
-      from = source.fd
+      local core_path = assert(relaunch.argv[1], "relaunch names no program")
+      from = hold(held, (assert(Fs.open_read(core_path))))
+      source = from
     end
     local native = runtime.path .. "/core"
-    local output <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
-    output.fd = assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180))
+    local output = hold(held, (assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180))))
     local offset = 0
     while true do
       local bytes = assert(sys.pread(from, 65536, offset))
       if #bytes == 0 then break end
-      assert(Fs.put(output.fd, bytes))
+      assert(Fs.put(output, bytes))
       offset = offset + #bytes
     end
     assert(Fs.chmod(native, 0x16d))
-    local written = output.fd
-    output.fd = -1
-    assert(Fs.close(written))
+    assert(close_held(held, output))
+    if source ~= nil then
+      local _, _ = close_held(held, source)
+    end
     runtime.fd = assert(Fs.open_read(native))
     -- Nor can it reach root's build directory, its user's alone (0700):
     -- it runs a copy of the tool beside the core.
@@ -211,15 +248,24 @@ local function execute(argv: {string}, program: string): integer
   -- Every invocation gets new tables; Proc.relaunch is cached.
   local function probe(code: string, values?: {string:string}, input?: string): Child.Result
     local words: {string} = {}
-    for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
-    if runtime.fd >= 0 then words[1] = runtime.path .. "/core" end
+    for at, word in ipairs(relaunch.argv) do
+      if at == 1 and runtime.fd >= 0 then
+        words[#words + 1] = runtime.path .. "/core"
+      else
+        words[#words + 1] = word
+      end
+    end
     words[#words + 1] = "-e"
     words[#words + 1] = code
     local child_env = copy(values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
     local fds: {integer:integer} = {}
-    for destination, source in pairs(relaunch.fds) do
-      fds[destination] = destination == core_slot and runtime.fd or source
+    for destination, given in pairs(relaunch.fds) do
+      if destination == core_slot then
+        fds[destination] = runtime.fd
+      else
+        fds[destination] = given
+      end
     end
     local answer, why = Child.run(words, { cwd = "/", env = child_env, fds = fds,
       credentials = credentials, input = input, stdout = "capture", stderr = "capture" })
@@ -250,7 +296,7 @@ local function execute(argv: {string}, program: string): integer
   end
   assert(Fs.mkdirs(state))
   if credentials then
-    if env.COSMIC_CI_LOCAL == nil or env.COSMIC_CI_LOCAL == "" then
+    if env["COSMIC_CI_LOCAL"] == nil or env["COSMIC_CI_LOCAL"] == "" then
       assert(Fs.chmod(base, 0x1ed))
     end
     if assert(Fs.stat(state)).uid ~= credentials.user then reown(state, true) end
@@ -259,7 +305,7 @@ local function execute(argv: {string}, program: string): integer
       assert(Fs.mkdirs(path))
       reown(path, false)
     end
-    env.HOME, env.TMPDIR = state .. "/home", state .. "/tmp"
+    env["HOME"], env["TMPDIR"] = state .. "/home", state .. "/tmp"
     for _, name in ipairs({ "SSL_CERT_FILE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO" }) do
       local path = env[name]
       if path ~= nil and path ~= "" and present(path) then
@@ -276,11 +322,11 @@ local function execute(argv: {string}, program: string): integer
         end
       end
     end
-    local count = env.GIT_CONFIG_COUNT or "0"
+    local count = env["GIT_CONFIG_COUNT"] or "0"
     assert(count:match("^%d+$"), "invalid GIT_CONFIG_COUNT")
     local n = math.tointeger(tonumber(count))
-    assert(n and n >= 0 and n < math.maxinteger, "invalid GIT_CONFIG_COUNT")
-    env.GIT_CONFIG_COUNT = tostring(n + 1)
+    assert(n ~= nil and n >= 0 and n < math.maxinteger, "invalid GIT_CONFIG_COUNT")
+    env["GIT_CONFIG_COUNT"] = tostring(n + 1)
     env["GIT_CONFIG_KEY_" .. tostring(n)] = "safe.directory"
     env["GIT_CONFIG_VALUE_" .. tostring(n)] = candidate
     successful(probe("local s=require('cosmic.sys'); assert(s.access(" .. string.format("%q", state) ..
@@ -291,8 +337,12 @@ local function execute(argv: {string}, program: string): integer
       say(user .. " cannot read " .. seed .. "; the candidate builds without it")
       seed = ""
     end
-    zig_global = env.COSMIC_CI_LOCAL and env.COSMIC_CI_LOCAL ~= "" and state .. "/zig-global" or
-      base .. "/zig-global-" .. tostring(credentials.user)
+    local named_state = env["COSMIC_CI_LOCAL"]
+    if named_state ~= nil and named_state ~= "" then
+      zig_global = state .. "/zig-global"
+    else
+      zig_global = base .. "/zig-global-" .. tostring(credentials.user)
+    end
     owned_root(zig_global)
     assert(Fs.mkdirs(zig_global))
     if assert(Fs.stat(zig_global)).uid ~= credentials.user then reown(zig_global, true) end
@@ -311,10 +361,8 @@ local function execute(argv: {string}, program: string): integer
       "local s=" .. string.format("%q", root .. "/ci") ..
       "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
   local phases: {string} = {}
-  local at = 1
-  while argv[at] ~= nil do
-    phases[#phases + 1] = argv[at]
-    at = at + 1
+  for _, word in ipairs(argv) do
+    phases[#phases + 1] = word
   end
   if #phases == 0 then
     phases = { "build", "local-boundary", "declared-types", "darwin-suite", "sandbox", "assemble",
@@ -332,23 +380,26 @@ local function execute(argv: {string}, program: string): integer
     assert(phase:match("^[%w_-]+$"), "invalid phase: " .. phase)
     if phase == "build" then
       local index_dir = assert(sys.mkdtemp(fallback_value(caller_env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-index.XXXXXX"))
-      local worked, snapshot = pcall(function(): string
+      local taken: Snapshot = { commit = "" }
+      local worked, raised = pcall(function()
         local values = copy(caller_env)
-        values.GIT_INDEX_FILE = index_dir .. "/index"
+        local index_file = index_dir .. "/index"
+        values["GIT_INDEX_FILE"] = index_file
         -- Keep the caller's tracked set, including force-added ignored files.
         -- A blank index would silently drop them when add applies ignores.
         local original = git_run({ "rev-parse", "--git-path", "index" })
         if original:sub(1, 1) ~= "/" then original = root .. "/" .. original end
         if present(original) then
-          assert(Fs.write(values.GIT_INDEX_FILE, assert(Fs.read(original)), 0x180))
+          assert(Fs.write(index_file, assert(Fs.read(original)), 0x180))
         end
         git_run({ "add", "-A" }, values)
         local tree = git_run({ "write-tree" }, values)
-        return git_run({ "commit-tree", tree, "-p", "HEAD" }, nil, "ci/run-local snapshot\n")
+        taken.commit = git_run({ "commit-tree", tree, "-p", "HEAD" }, nil, "ci/run-local snapshot\n")
       end)
       local removed, why = Fs.remove_tree(index_dir)
-      if not worked then error(snapshot) end
+      if not worked then error(raised) end
       assert(removed, why)
+      local snapshot = taken.commit
       owned_root(candidate)
       if present(candidate) then
         local removed_worktree = privileged({ git, "-C", root, "worktree", "remove", "--force", candidate },
@@ -368,20 +419,17 @@ local function execute(argv: {string}, program: string): integer
         string.format("%q", state .. "/runner") .. ")); assert(F.mkdirs(" ..
         string.format("%q", state .. "/logs") .. "))", env), "phase directories")
     local path = state .. "/logs/" .. phase .. ".log"
-    local file <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
-    file.fd = assert(fd, path .. ": " .. tostring(open_why))
+    local log = hold(held, (assert(fd, path .. ": " .. tostring(open_why))))
     local values = copy(env)
-    values.GITHUB_WORKSPACE, values.RUNNER_TEMP = candidate, state .. "/runner"
-    values.GITHUB_RUN_ID, values.GITHUB_RUN_ATTEMPT, values.COSMIC_WORKER = "local", "1", "local"
-    values.TARGET, values.XDG_CACHE_HOME = target, state .. "/cache"
-    values.COSMIC_ZIG_CACHE_FROM, values.COSMIC_ZIG_GLOBAL_CACHE = seed, zig_global
+    values["GITHUB_WORKSPACE"], values["RUNNER_TEMP"] = candidate, state .. "/runner"
+    values["GITHUB_RUN_ID"], values["GITHUB_RUN_ATTEMPT"], values["COSMIC_WORKER"] = "local", "1", "local"
+    values["TARGET"], values["XDG_CACHE_HOME"] = target, state .. "/cache"
+    values["COSMIC_ZIG_CACHE_FROM"], values["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
     local start = Clock.monotonic_ns()
     local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
-      { cwd = project, env = values, credentials = credentials, stdout = file.fd, stderr = file.fd })
-    local log = file.fd
-    file.fd = -1
-    local closed, close_why = Fs.close(log)
+      { cwd = project, env = values, credentials = credentials, stdout = log, stderr = log })
+    local closed, close_why = close_held(held, log)
     assert(result, why)
     assert(closed, close_why)
     local status = Child.shell_status(result)
@@ -390,10 +438,9 @@ local function execute(argv: {string}, program: string): integer
     if status ~= 0 then
       -- Diagnostics must not replace the phase status, or retain an entire
       -- build/fuzzer log in memory. Stop at an overlong line as well.
-      local input <close>: Descriptor = setmetatable({ fd = -1 }, descriptor_mt)
       local opened, read_why = Fs.open_read(path)
       if opened then
-        input.fd = opened
+        hold(held, opened)
         local reader = Stream.lines(Stream.from_fd(opened), 65536)
         local lines = 0
         while lines < 20 do
@@ -403,12 +450,13 @@ local function execute(argv: {string}, program: string): integer
             break
           end
           -- A complaint names the trouble; a failing test says FAIL.
-          if line:match("^FAIL") or line:find(" FAIL", 1, true) or line:match("^cosmic: ") or
-              line:find("timed out", 1, true) or line:find("error", 1, true) then
+          if line:match("^FAIL") ~= nil or line:find(" FAIL", 1, true) ~= nil or line:match("^cosmic: ") ~= nil or
+              line:find("timed out", 1, true) ~= nil or line:find("error", 1, true) ~= nil then
             Fs.put(Fs.stderr, line .. "\n")
             lines = lines + 1
           end
         end
+        local _, _ = close_held(held, opened)
       else
         say("cannot read phase log: " .. read_why)
       end
@@ -422,13 +470,22 @@ end
 --- @param program this script's own path
 function Local.run(argv: {string}, program: string): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
-  local _guard <close> = assert(Signal.guard())
-  local ok, answer = pcall(execute, argv, program)
+  -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
+  -- [`Signal.Guard`] as a class: a `<close>` local must be one.
+  local guard = assert(Signal.guard())
+  local held: Held = { runtime = { path = "", fd = -1 }, open = {} }
+  local ended: Ended = { status = 0 }
+  local ok, answer = pcall(function()
+    ended.status = execute(argv, program, held)
+  end)
+  release(held)
+  local status = ended.status
   if not ok then
     say(tostring(answer))
-    return 2
+    status = 2
   end
-  return answer
+  local _, _ = guard:close()
+  return status
 end
 
 --- The entry point: [`Local.run`] with this script's path, Lua's `arg[0]`.

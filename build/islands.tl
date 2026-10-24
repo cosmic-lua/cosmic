@@ -27,9 +27,7 @@ local record Islands
   --- needs, with how many of each (a lexer or parser code). A file with none is written in the common subset. A
   --- count only falls.
   ---
-  --- `nil_union`: `T | nil` has no spelling the fork also reads (`T?` is the new grammar's alone). `metamethod`:
-  --- `metamethod __close` has none either (a plain `__close` field is a type error in the fork for a `<close>`
-  --- local).
+  --- `nil_union`: `T | nil` has no spelling the fork also reads (`T?` is the new grammar's alone).
   blocked: {string: {string: integer}}
 end
 
@@ -71,7 +69,7 @@ local islands: Islands = {
     ["build/paths.tl"] = { nil_union = 4 },
     ["build/perf.tl"] = { nil_union = 9 },
     ["build/vendor.tl"] = { nil_union = 11 },
-    ["build/zig.tl"] = { metamethod = 1, nil_union = 20 },
+    ["build/zig.tl"] = { nil_union = 20 },
     ["build/zig_fetch.tl"] = { nil_union = 4 },
   },
 }

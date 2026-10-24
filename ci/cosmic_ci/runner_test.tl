@@ -64,7 +64,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
     argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate,
     output = tmp .. "/missing/out",
   })
-  assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble,
+  assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble ~= nil,
     "retained open failure did not return an error outcome")
   local db = assert(Sqlite.open(database))
   local rows = assert(Sqlite.text_rows(db, [[
@@ -73,7 +73,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
      WHERE s.phase = 'retained-open' AND c.event = 'complete'
   ]]))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(1) == "error" and rows[1]:text(2) ~= "",
+  assert(#rows == 1 and assert(rows[1]):text(1) == "error" and assert(rows[1]):text(2) ~= "",
     "retained open failure was left incomplete")
 end
 
@@ -84,7 +84,7 @@ local function test_step_records_work_done_in_process(tmp: string)
   local context: Runner.Context = { database = database, worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   local done = Runner.step(context, "done", function(): boolean, string
-    return true
+    return true, ""
   end)
   assert(done.status == "success" and done.code == 0)
   local refused = Runner.step(context, "refused", function(): boolean, string
@@ -105,9 +105,9 @@ local function test_step_records_work_done_in_process(tmp: string)
      WHERE c.event = 'complete' ORDER BY s.id
   ]]))
   assert(db:close())
-  assert(#rows == 3 and rows[1]:text(1) == "done" and rows[1]:text(2) == "success" and
-      rows[2]:text(2) == "error" and rows[2]:text(3) == "no such thing" and
-      rows[3]:text(1) == "raised" and rows[3]:text(3) == long_error:sub(1, 1000),
+  assert(#rows == 3 and assert(rows[1]):text(1) == "done" and assert(rows[1]):text(2) == "success" and
+      assert(rows[2]):text(2) == "error" and assert(rows[2]):text(3) == "no such thing" and
+      assert(rows[3]):text(1) == "raised" and assert(rows[3]):text(3) == long_error:sub(1, 1000),
     "a step was not recorded with its outcome")
   for _, row in ipairs(rows) do
     assert(row:text(4) == "1", "a boolean step acquired an exit code")
@@ -137,7 +137,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   Fs.put = function(fd: integer, bytes: string): boolean, string
     if fd ~= Fs.stderr then return put(fd, bytes) end
     messages[#messages + 1] = bytes
-    return true
+    return true, ""
   end
   local entered = { value = 0 }
   local leaving = { value = 0 }
@@ -166,14 +166,14 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
      WHERE c.event = 'complete' ORDER BY s.id
   ]]))
   assert(db:close())
-  assert(#rows == 3 and rows[1]:text(1) == "done" and rows[1]:text(2) == "success" and rows[1]:text(3) == "0")
-  assert(rows[2]:text(1) == "refused" and rows[2]:text(2) == "exit" and rows[2]:text(3) == "23")
-  assert(rows[3]:text(1) == "raised" and rows[3]:text(2) == "error" and rows[3]:text(3) == "1" and
-      rows[3]:text(4) == detail, "the phase's full error or durable exit code was lost")
-  local started = assert(tonumber(rows[1]:text(5)))
-  local finished = assert(tonumber(rows[1]:text(6)))
+  assert(#rows == 3 and assert(rows[1]):text(1) == "done" and assert(rows[1]):text(2) == "success" and assert(rows[1]):text(3) == "0")
+  assert(assert(rows[2]):text(1) == "refused" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):text(3) == "23")
+  assert(assert(rows[3]):text(1) == "raised" and assert(rows[3]):text(2) == "error" and assert(rows[3]):text(3) == "1" and
+      assert(rows[3]):text(4) == detail, "the phase's full error or durable exit code was lost")
+  local started = assert(tonumber(assert(rows[1]):text(5)))
+  local finished = assert(tonumber(assert(rows[1]):text(6)))
   assert(started <= entered.value and finished >= leaving.value and finished <= returned.value and
-      tonumber(rows[1]:text(7)) == finished - started, "phase timestamps do not enclose its callback")
+      tonumber(assert(rows[1]):text(7)) == finished - started, "phase timestamps do not enclose its callback")
   for _, row in ipairs(rows) do
     assert(row:text(8) == "1" and row:text(9) == "0", "a phase acquired a child's signal or timeout")
   end
@@ -195,12 +195,12 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
      WHERE c.event = 'complete' ORDER BY s.id
   ]]))
   assert(db:close())
-  assert(#rows == 2 and rows[1]:text(1) == "outer" and rows[1]:text(2) == "exit" and
-      rows[1]:text(3) == "124" and rows[1]:text(4) == "0", "parent phase lost its returned exit status")
-  assert(rows[2]:text(1) == "child" and rows[2]:text(2) == "timeout" and rows[2]:text(4) == "1",
+  assert(#rows == 2 and assert(rows[1]):text(1) == "outer" and assert(rows[1]):text(2) == "exit" and
+      assert(rows[1]):text(3) == "124" and assert(rows[1]):text(4) == "0", "parent phase lost its returned exit status")
+  assert(assert(rows[2]):text(1) == "child" and assert(rows[2]):text(2) == "timeout" and assert(rows[2]):text(4) == "1",
     "the child timeout lost its own operation row")
-  assert(tonumber(rows[1]:text(5)) < tonumber(rows[2]:text(5)) and
-      tonumber(rows[2]:text(6)) < tonumber(rows[1]:text(6)), "nested operation events are out of order")
+  assert(assert(tonumber(assert(rows[1]):text(5))) < assert(tonumber(assert(rows[2]):text(5))) and
+      assert(tonumber(assert(rows[2]):text(6))) < assert(tonumber(assert(rows[1]):text(6))), "nested operation events are out of order")
 end
 
 local function test_phase_rejects_a_candidate_database_before_its_action(tmp: string)
@@ -213,7 +213,7 @@ local function test_phase_rejects_a_candidate_database_before_its_action(tmp: st
     ran.value = true
     return 0
   end)
-  assert(not called and tostring(failure):find("outside candidate checkout", 1, true))
+  assert(not called and tostring(failure):find("outside candidate checkout", 1, true) ~= nil)
   assert(not ran.value and not Predicate.exists(context.database), "a refused phase did work")
 end
 
@@ -254,8 +254,8 @@ local function test_spawned_commands_run_at_once_and_are_reaped_in_the_order_the
   local late = Runner.reap(slow)
   assert(late.code == 5 and late.status == "exit")
   local rows = completes(c.database)
-  assert(#rows == 2 and rows[1]:text(1) == "quick" and rows[1]:text(2) == "success" and
-      rows[2]:text(1) == "slow" and rows[2]:text(2) == "exit" and rows[2]:text(3) == "5",
+  assert(#rows == 2 and assert(rows[1]):text(1) == "quick" and assert(rows[1]):text(2) == "success" and
+      assert(rows[2]):text(1) == "slow" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):text(3) == "5",
     "spawned commands were not recorded once each, as they ended")
   local reopened = assert(Fs.open_write(tmp .. "/quick.out"))
   assert(Fs.close(reopened), "a spawned command's descriptor stayed open")
@@ -295,7 +295,7 @@ local function test_stopping_a_command_ends_its_process_group_and_records_it(tmp
   assert(running.handle == nil and running.reaped, "a stopped command was left unreaped")
   assert(Runner.stop(running) == outcome, "a command was stopped twice")
   local rows = completes(c.database)
-  assert(#rows == 1 and rows[1]:text(1) == "stuck" and rows[1]:text(2) == "cancelled",
+  assert(#rows == 1 and assert(rows[1]):text(1) == "stuck" and assert(rows[1]):text(2) == "cancelled",
     "a stopped command was not recorded")
   Clock.sleep_ns(Clock.ms(200))
   assert(not Predicate.exists(tmp .. "/late"), "a stop left the command's group running")
@@ -321,7 +321,7 @@ local function test_a_command_that_cannot_start_is_returned_ended_and_recorded(t
   assert(Runner.reap(missing).status == "start-error")
   assert(Runner.reap(unwritable).status == "error")
   local rows = completes(c.database)
-  assert(#rows == 2 and rows[1]:text(2) == "start-error" and rows[2]:text(2) == "error",
+  assert(#rows == 2 and assert(rows[1]):text(2) == "start-error" and assert(rows[2]):text(2) == "error",
     "commands that could not start were not recorded")
 end
 
@@ -329,6 +329,6 @@ local function test_a_start_failure_keeps_the_reason_it_was_given(tmp: string)
   local c = spawn_context(tmp)
   local missing = Runner.spawn(c, "missing", { argv = { "/missing/command" }, cwd = c.candidate })
   local outcome = Runner.reap(missing)
-  assert(outcome.status == "start-error" and outcome.trouble and outcome.trouble ~= "child operation failed" and
+  assert(outcome.status == "start-error" and outcome.trouble ~= nil and outcome.trouble ~= "child operation failed" and
       outcome.trouble ~= "child start failed", tostring(outcome.trouble))
 end

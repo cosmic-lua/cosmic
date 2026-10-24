@@ -105,9 +105,9 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   Fixture.mkdir(home)
   Fixture.mkdir(xdg)
   local default_env = environment()
-  default_env.COSMIC_PORTABLE_CACHE = nil
-  default_env.XDG_CACHE_HOME = nil
-  default_env.HOME = home
+  default_env["COSMIC_PORTABLE_CACHE"] = nil
+  default_env["XDG_CACHE_HOME"] = nil
+  default_env["HOME"] = home
   local default = Fixture.call_with_environment("default-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, default_env)
@@ -118,9 +118,9 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
   local xdg_env = environment()
-  xdg_env.COSMIC_PORTABLE_CACHE = nil
-  xdg_env.XDG_CACHE_HOME = xdg
-  xdg_env.HOME = home
+  xdg_env["COSMIC_PORTABLE_CACHE"] = nil
+  xdg_env["XDG_CACHE_HOME"] = xdg
+  xdg_env["HOME"] = home
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
@@ -129,9 +129,9 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local relative_home = ctx.work .. "/relative-home"
   Fixture.mkdir(relative_home)
   local relative_xdg = environment()
-  relative_xdg.COSMIC_PORTABLE_CACHE = nil
-  relative_xdg.XDG_CACHE_HOME = "relative"
-  relative_xdg.HOME = relative_home
+  relative_xdg["COSMIC_PORTABLE_CACHE"] = nil
+  relative_xdg["XDG_CACHE_HOME"] = "relative"
+  relative_xdg["HOME"] = relative_home
   outcome_ok(Fixture.call_with_environment("relative-xdg",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, relative_xdg), "relative XDG fallback")
@@ -141,28 +141,33 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       { "relative-cache", "relative", home, "must be an absolute path" },
   }) do
     local values = environment(case[2])
-    values.HOME = case[3]
-    local answer = Fixture.call_with_environment(case[1],
+    values["HOME"] = assert(case[3])
+    local answer = Fixture.call_with_environment(assert(case[1]),
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
-    assert(not answer.result.ok, case[1] .. " unexpectedly succeeded")
-    Fixture.contains(answer.err, case[4])
+    assert(not answer.result.ok, assert(case[1]) .. " unexpectedly succeeded")
+    Fixture.contains(answer.err, assert(case[4]))
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
     local temp = ctx.work .. "/" .. name .. "-tmp"
     Fixture.mkdir(temp)
     local values = environment()
-    values.COSMIC_PORTABLE_CACHE = nil
-    values.XDG_CACHE_HOME = name == "relative-home" and "relative" or nil
-    values.HOME = name == "relative-home" and "relative" or nil
-    values.TMPDIR = temp
+    values["COSMIC_PORTABLE_CACHE"] = nil
+    if name == "relative-home" then
+      values["XDG_CACHE_HOME"] = "relative"
+      values["HOME"] = "relative"
+    else
+      values["XDG_CACHE_HOME"] = nil
+      values["HOME"] = nil
+    end
+    values["TMPDIR"] = temp
     outcome_ok(Fixture.call_with_environment(name,
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values), name .. " temp fallback")
     local made = assert(Fs.list(temp))
-    assert(#made == 1 and made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+    assert(#made == 1 and assert(made[1]):match("^cosmic%-cores%-%d+$") ~= nil,
       name .. " did not make its own cache leaf in TMPDIR")
-    assert(permissions(temp .. "/" .. made[1]) == 0x1c0,
+    assert(permissions(temp .. "/" .. assert(made[1])) == 0x1c0,
       name .. " cache leaf is not private")
   end
   -- `cosmic help build` says a program runs with an empty environment:
@@ -179,7 +184,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
       PORTABLE_CALLER_LOCALE = "preserved",
     }), "empty environment")
   local bare_made = assert(Fs.list(bare))
-  assert(#bare_made == 1 and bare_made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+  assert(#bare_made == 1 and assert(bare_made[1]):match("^cosmic%-cores%-%d+$") ~= nil,
     "an empty environment did not make its cache leaf in TMPDIR")
   -- Cold, warm and every environment above ran the artifact; none wrote it.
   assert(Fixture.hash(ctx.artifact) == artifact_hash, "launcher artifact changed")
@@ -239,7 +244,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local base = ctx.work .. "/base-cache"
   outcome_ok(run(ctx, "base-cold", base), "base cold launch")
   local core = only_core(base)
-  local key = core:match("([^/]+)$") as string
+  local key = assert(core:match("([^/]+)$"))
   local core_bytes, core_hash = Fixture.read(core), Fixture.hash(core)
   local sentinel = ctx.work .. "/sentinel"
   Fixture.write(sentinel, "untouched\n")
@@ -444,18 +449,18 @@ printf 'after\n' >&9
 exit "$result"
 ]], "9" },
   }) do
-    local guard = ctx.work .. "/" .. one[1] .. ".guard"
-    local err = ctx.work .. "/" .. one[1] .. ".err"
-    local answer = Fixture.call_with_environment(one[1],
-      { "/bin/sh", "-c", one[2], "sh",
+    local guard = ctx.work .. "/" .. assert(one[1]) .. ".guard"
+    local err = ctx.work .. "/" .. assert(one[1]) .. ".err"
+    local answer = Fixture.call_with_environment(assert(one[1]),
+      { "/bin/sh", "-c", assert(one[2]), "sh",
         ctx.artifact, guard, err }, ctx.work, ctx.diagnostics,
-      environment(ctx.work .. "/" .. one[1] .. "-cache"))
-    assert(not answer.result.ok, one[1] .. " unexpectedly succeeded")
+      environment(ctx.work .. "/" .. assert(one[1]) .. "-cache"))
+    assert(not answer.result.ok, assert(one[1]) .. " unexpectedly succeeded")
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-        Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false,
-      one[1] .. " disturbed the caller's descriptors or made a cache")
+        Fs.exists(ctx.work .. "/" .. assert(one[1]) .. "-cache") == false,
+      assert(one[1]) .. " disturbed the caller's descriptors or made a cache")
   end
 
   local exit_marker = ctx.work .. "/exit.marker"

@@ -71,22 +71,24 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     local path = request.url:sub(#origin + 2)
     fake.calls[#fake.calls + 1] = request.method .. " " .. path
     if request.method == "DELETE" then
-      if refused[path:match("[^/]*$")] then return reply(403, '{"message":"refused"}') end
-      return reply(204, "")
+      if refused[assert(path:match("[^/]*$"))] == true then
+        return reply(403, '{"message":"refused"}'), ""
+      end
+      return reply(204, ""), ""
     end
     local at, number = path:match("^(.-)#page=(%d+)$")
     local asked = at or path
     asks[asked] = (asks[asked] or 0) + (at and 0 or 1)
-    local text = answer(asked, asks[asked])
-    if text == nil then return reply(500, "") end
+    local text = answer(asked, assert(asks[asked]))
+    if text == nil then return reply(500, ""), "" end
     local pages = Json.decode_array(text)
-    if pages == nil then return reply(200, text) end
-    local index = math.tointeger(tonumber(number) or 1) as integer
+    if pages == nil then return reply(200, text), "" end
+    local index = assert(math.tointeger(tonumber(number) or 1))
     local more = index < #pages
     -- The fake's own marker, not GitHub's `page` parameter, keeps the
     -- path the answer is keyed by.
     return reply(200, assert(Json.encode(pages[index])),
-      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. (index + 1) .. '>; rel="next"' } or nil)
+      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } or nil), ""
   end
   local fetch, delete = Github.over({ send = send, base = origin,
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })

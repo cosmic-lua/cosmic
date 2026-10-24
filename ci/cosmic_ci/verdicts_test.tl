@@ -19,7 +19,7 @@ local function cache(path: string, used: {integer})
       "used_ns INTEGER NOT NULL); CREATE TABLE declared_v9 (key TEXT PRIMARY KEY)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO declared_v1 VALUES (?1, ?2, zeroblob(16384), 1, ?3, 'o')",
-      { { text = "k" .. i }, { text = "t.tl test_" .. i }, { integer = at * s } }))
+      { { text = "k" .. tostring(i) }, { text = "t.tl test_" .. tostring(i) }, { integer = at * s } }))
   end
   assert(Sqlite.run(db, "INSERT INTO verdicts_v3 VALUES ('old', zeroblob(16384), 1)"))
   assert(Sqlite.run(db, "INSERT INTO declared_v9 VALUES ('other')"))
@@ -49,10 +49,10 @@ local function test_trim_keeps_unknown_formats_and_reports_them(tmp: string)
   cache(path, { 999, 1000, 1001 })
   local code, out, err = Verdicts.command({ "1000" },
     { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
-  assert(code == 0 and err:find("kept tables", 1, true), out .. err)
+  assert(code == 0 and err:find("kept tables", 1, true) ~= nil, out .. err)
   local left = keys(path)
   assert(table.concat(left, ",") == "k2,k3,old", table.concat(left, ","))
-  assert(#(outputs(tmp .. "/output").digest or "") == 64)
+  assert(#(outputs(tmp .. "/output")["digest"] or "") == 64)
 end
 
 local function test_no_run_reached_and_whole_keep_all_rows(tmp: string)
@@ -63,7 +63,7 @@ local function test_no_run_reached_and_whole_keep_all_rows(tmp: string)
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0, out .. err)
     assert(table.concat(keys(path), ",") == "k1,k2,old")
-    assert(#(outputs(tmp .. "/output").digest or "") == 64)
+    assert(#(outputs(tmp .. "/output")["digest"] or "") == 64)
   end
 end
 
@@ -86,14 +86,13 @@ end
 local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)
   local digests: {string} = {}
   for i, used in ipairs({ { 1, 6 }, { 1, 9 }, { 1, 6, 7 } }) do
-    local dir = tmp .. "/" .. i
+    local dir = tmp .. "/" .. tostring(i)
     assert(Fs.mkdirs(dir))
     cache(dir .. "/verdicts.db", used)
     local code, out, err = Verdicts.command({ "5" },
       { COSMIC_VERDICT_CACHE = dir .. "/verdicts.db", GITHUB_OUTPUT = dir .. "/output" })
     assert(code == 0, out .. err)
-    digests[i] = outputs(dir .. "/output").digest
-    assert(digests[i] ~= nil)
+    digests[i] = assert(outputs(dir .. "/output")["digest"])
   end
   assert(digests[1] == digests[2] and digests[1] ~= digests[3])
 end
@@ -102,7 +101,7 @@ local function test_no_cache_is_created_or_named_by_a_digest(tmp: string)
   for _, path in ipairs({ "0", "relative", tmp .. "/absent/verdicts.db" }) do
     local code, out, err = Verdicts.command({ "5" },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
-    assert(code == 0 and err == "" and out:find("nothing to trim", 1, true), out .. err)
+    assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil, out .. err)
   end
   assert(#assert(Fs.list(tmp)) == 0)
   for _, since in ipairs({ "soon", "-1", "9223372037", "1.5" }) do
@@ -164,7 +163,7 @@ local function test_a_merge_makes_what_is_missing_and_leaves_another_shape(tmp: 
   local code, out, err = Verdicts.merge({ ahead }, { COSMIC_VERDICT_CACHE = ours .. "/verdicts.db" })
   assert(code == 0 and err == "", out .. err)
   assert(rows(ours .. "/checked.db") == "k1 t.tl test_1 0", rows(ours .. "/checked.db"))
-  assert(not Fs.exists(ours .. "/verdicts.db"), "the merge made a cache the run ahead had none of")
+  assert(Fs.exists(ours .. "/verdicts.db") ~= true, "the merge made a cache the run ahead had none of")
   local db = assert(Sqlite.open(ours .. "/checked.db"))
   local indexes = assert(Sqlite.text_rows(db, "SELECT name FROM sqlite_schema WHERE type = 'index' AND " ..
       "name = 'declared_v1_by_use'"))
@@ -213,7 +212,7 @@ local function stores(path: string, used: {integer})
       "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO stores_v1 VALUES (?1, 'd', ?2)",
-      { { text = "a" .. i }, { integer = at * s } }))
+      { { text = "a" .. tostring(i) }, { integer = at * s } }))
   end
   assert(db:close())
 end
@@ -259,5 +258,5 @@ local function test_store_digests_are_trimmed_and_merged_as_verdicts_are(tmp: st
   db = assert(Sqlite.open(ours .. "/verdicts.db"))
   local digest = assert(Sqlite.text_rows(db, "SELECT digest FROM stores_v1 WHERE address = 'a2'"))
   assert(db:close())
-  assert(digest[1]:text(1) == "d", digest[1]:text(1))
+  assert(assert(digest[1]):text(1) == "d", assert(digest[1]):text(1))
 end

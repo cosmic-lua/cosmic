@@ -7,7 +7,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 local function source(path: string, body: string, environment?: boolean)
   assert(Fs.mkdirs(path .. "/build"))
-  assert(Fs.write(path .. "/build/paths.tl", (environment and 'local Env = require("cosmic.env")\n' or "") .. [[
+  assert(Fs.write(path .. "/build/paths.tl", (environment == true and 'local Env = require("cosmic.env")\n' or "") .. [[
 local Fs = require("cosmic.fs")
 local record Paths end
 function Paths.main(_argv: {string}): integer
@@ -37,7 +37,7 @@ local function test_a_failed_resolver_is_not_used_as_a_directory(tmp: string)
   return 2
 ]])
   local ok, why = pcall(BuildPaths.directory, tmp, {})
-  assert(not ok and tostring(why):find("invalid build home", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("invalid build home", 1, true) ~= nil, tostring(why))
 end
 
 local function test_extra_output_is_refused(tmp: string)
@@ -46,7 +46,7 @@ local function test_extra_output_is_refused(tmp: string)
   return 0
 ]])
   local ok, why = pcall(BuildPaths.directory, tmp, {})
-  assert(not ok and tostring(why):find("did not print one path", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("did not print one path", 1, true) ~= nil, tostring(why))
 end
 
 --- The running driver names where it builds a project: outside it.

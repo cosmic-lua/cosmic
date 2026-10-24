@@ -135,12 +135,12 @@ end
 --- published prerelease holds.
 function Prerelease.complete_assets(names: {string}): boolean, string
   if #names ~= #Prerelease.assets then
-    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. #Prerelease.assets
+    return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. tostring(#Prerelease.assets)
   end
   local seen: {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
   for _, name in ipairs(Prerelease.assets) do
-    if not seen[name] then return false, "the release holds no " .. name end
+    if seen[name] ~= true then return false, "the release holds no " .. name end
   end
   return true, ""
 end
@@ -216,10 +216,10 @@ end
 function Prerelease.stage(s: Prerelease.Stage)
   local found = product_directories(s.products)
   assert(#found == #Prerelease.lanes, "expected " .. Plural.count(#Prerelease.lanes, "product directory", "product directories") ..
-      ", found " .. #found)
+      ", found " .. tostring(#found))
   for i, lane in ipairs(Prerelease.lanes) do
     assert(found[i] == "portable-product-" .. lane,
-      "expected portable-product-" .. lane .. ", found " .. found[i])
+      "expected portable-product-" .. lane .. ", found " .. assert(found[i]))
   end
   local baseline = read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic")
   local digest: string | nil = nil
@@ -271,7 +271,7 @@ local function api_probe(p: Prerelease.Publish, path: string): boolean
   local reply, why = GithubApi.request(p.client, "GET", path)
   assert(reply ~= nil, why)
   if reply.status >= 200 and reply.status <= 299 then return true end
-  assert(reply.status == 404, "GET " .. path .. " failed (HTTP status " .. reply.status .. ")")
+  assert(reply.status == 404, "GET " .. path .. " failed (HTTP status " .. tostring(reply.status) .. ")")
   return false
 end
 
@@ -397,12 +397,12 @@ local function ensure_tag(p: Prerelease.Publish): boolean
     assert(made ~= nil, why)
     if made.status < 200 or made.status > 299 then
       if made.status == 403 and
-          made.body:find("Resource not accessible by integration", 1, true) and
+          made.body:find("Resource not accessible by integration", 1, true) ~= nil and
           workflows_moved(p) then
         return false
       end
       error("POST " .. path .. " ref=refs/tags/" .. tag .. " failed (HTTP status " ..
-          made.status .. ")", 0)
+          tostring(made.status) .. ")", 0)
     end
   end
   verify_tag(p)
@@ -412,7 +412,7 @@ end
 --- The release `id`, as GET releases/ID answers: by id, not by tag, as
 --- the by-tag endpoint finds no draft.
 local function view(p: Prerelease.Publish, id: integer): {string:any}
-  return api_object(p, "repos/" .. p.repository .. "/releases/" .. id)
+  return api_object(p, "repos/" .. p.repository .. "/releases/" .. tostring(id))
 end
 
 --- The names of a release's assets, sorted, and each one's id.
@@ -446,7 +446,7 @@ end
 --- Downloads the asset `name`, whose id is `id`, into `destination`.
 local function download(p: Prerelease.Publish, id: integer, name: string, destination: string)
   local ok, why = GithubApi.download(p.client, "repos/" .. p.repository ..
-      "/releases/assets/" .. id, destination .. "/" .. name, "application/octet-stream")
+      "/releases/assets/" .. tostring(id), destination .. "/" .. name, "application/octet-stream")
   assert(ok, why)
 end
 
@@ -454,7 +454,8 @@ end
 local function fresh(p: Prerelease.Publish, name: string): string
   local path = p.temp .. "/prerelease/" .. name
   local there, why = Fs.exists(path)
-  assert(there == false, there and path .. " exists already" or why)
+  assert(there ~= nil, why)
+  assert(not there, path .. " exists already")
   assert(Fs.mkdirs(path))
   return path
 end
@@ -475,7 +476,9 @@ local function verify_assets(p: Prerelease.Publish, release: integer, digest: st
   local complete, why = Prerelease.complete_assets(names)
   assert(complete, tag_of(p) .. ": " .. why)
   local destination = fresh(p, name)
-  for _, asset in ipairs(Prerelease.assets) do download(p, ids[asset], asset, destination) end
+  for _, asset in ipairs(Prerelease.assets) do
+    download(p, assert(ids[asset]), asset, destination)
+  end
   same_bytes(p.release .. "/cosmic", destination .. "/cosmic")
   same_bytes(p.release .. "/SHA256SUMS", destination .. "/SHA256SUMS")
   source_checked(p, digest, destination .. "/source.json")
@@ -499,7 +502,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
   local release: integer
   if #ids == 1 then
-    release = ids[1]
+    release = assert(ids[1])
     verify_tag(p)
     local state = view(p, release)
     assert(flag(state, "prerelease"), tag .. " is no prerelease")
@@ -532,7 +535,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
     assert(Prerelease.known_asset(name), tag .. " holds an unexpected asset: " .. name)
     existing[name] = true
     local destination = fresh(p, "existing-" .. name)
-    download(p, asset_ids[name], name, destination)
+    download(p, assert(asset_ids[name]), name, destination)
     if name == "source.json" then
       source_checked(p, digest, destination .. "/" .. name)
     else
@@ -540,7 +543,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
     end
   end
   for _, name in ipairs(Prerelease.assets) do
-    if not existing[name] then
+    if existing[name] ~= true then
       local uploaded, trouble = GithubApi.upload(p.client, upload_url, name,
         read(p.release .. "/" .. name), asset_types[name])
       assert(uploaded, tag .. ": " .. trouble)
@@ -548,7 +551,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   end
   verify_assets(p, release, digest, "completed")
   local edited, trouble = GithubApi.object(p.client, "PATCH",
-    "repos/" .. p.repository .. "/releases/" .. release, { draft = false, prerelease = true })
+    "repos/" .. p.repository .. "/releases/" .. tostring(release), { draft = false, prerelease = true })
   assert(edited ~= nil, trouble)
   verify_tag(p)
   verify_assets(p, release, digest, "published")

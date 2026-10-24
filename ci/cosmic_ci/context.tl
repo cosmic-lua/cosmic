@@ -70,7 +70,7 @@ end
 --- GITHUB_STEP_SUMMARY names, or writes it to stdout when that is unset.
 function Context.summarize(text: string)
   local output = Env.get("GITHUB_STEP_SUMMARY")
-  if output and output ~= "" then
+  if output ~= nil and output ~= "" then
     assert(Fs.append(output, text))
   else
     assert(Fs.put(Fs.stdout, text))

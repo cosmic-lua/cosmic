@@ -96,11 +96,11 @@ function CommitVerdicts.merge_base(env: {string:string}, host: Github.Host): int
     return 2
   end
   local base = ""
-  local event, ref = env.EVENT or "", env.REF or ""
+  local event, ref = env["EVENT"] or "", env["REF"] or ""
   if event == "merge_group" then
-    base = env.QUEUE_BASE or ""
+    base = env["QUEUE_BASE"] or ""
   elseif event == "push" and ref ~= "refs/heads/main" then
-    local pages = Github.ask(host, "repos/" .. (env.REPOSITORY or "") .. "/compare/main..." .. (env.SHA or "") ..
+    local pages = Github.ask(host, "repos/" .. (env["REPOSITORY"] or "") .. "/compare/main..." .. (env["SHA"] or "") ..
         "?per_page=1", false, call)
     local commit = pages and pages[1] and type(pages[1]) == "table" and
       (pages[1] as {string:any}).merge_base_commit or nil
@@ -140,7 +140,8 @@ local function prune(host: Github.Host, repository: string, call: integer, age: 
       end
       if go then
         local raw = (item as {string:any}).id
-        local id = raw is number and math.tointeger(raw) or nil
+        local id: integer | nil = nil
+        if raw is number then id = math.tointeger(raw) end
         if id == nil then
           listed = false
           break
@@ -162,7 +163,7 @@ local function prune(host: Github.Host, repository: string, call: integer, age: 
       failed = failed + 1
     end
   end
-  host.print("pruned " .. Plural.count(deleted, entry, entries) .. " " .. age .. " (" .. failed ..
+  host.print("pruned " .. Plural.count(deleted, entry, entries) .. " " .. age .. " (" .. tostring(failed) ..
       " failed)")
 end
 
@@ -196,15 +197,15 @@ function CommitVerdicts.prune(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, "prune-commit-verdicts: " .. why .. "\n")
     return 2
   end
-  local repository = env.REPOSITORY or ""
+  local repository = env["REPOSITORY"] or ""
   local cutoff = host.now() - hours * 3600
-  prune(host, repository, call, "older than " .. hours .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if commit_of(key) == nil then return false end
     return older(entry, cutoff)
   end)
-  prune(host, repository, call, "older than " .. hours .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: {string:any}): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if key:sub(1, 16) ~= "compiles-branch-" then return false end
@@ -215,7 +216,7 @@ end
 
 function CommitVerdicts.invalidate(env: {string:string}, host: Github.Host): integer
   local call, why = whole(env, "CALL_SECONDS", 15)
-  local commit = env.COMMIT or ""
+  local commit = env["COMMIT"] or ""
   if call ~= nil and not Github.is_commit(commit) then
     call, why = nil, "COMMIT is no whole commit id: " .. commit
   end
@@ -223,7 +224,7 @@ function CommitVerdicts.invalidate(env: {string:string}, host: Github.Host): int
     local _, _ = Fs.put(Fs.stderr, "invalidate-commit-verdicts: " .. why .. "\n")
     return 2
   end
-  prune(host, env.REPOSITORY or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+  prune(host, env["REPOSITORY"] or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     return commit_of(key) == commit

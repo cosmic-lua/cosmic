@@ -49,6 +49,11 @@ local record ZigRestat
     left: integer
     manifests: integer
   end
+
+  --- The stat of a file the restat has looked at, none where the file has none or is no regular file.
+  record Seen
+    stat?: sys.Stat
+  end
 end
 
 -- A record's flags: bit 0 a directory, bit 1 a stat-only file, whose
@@ -62,7 +67,8 @@ local metadata_flag <const> = 2
 local function located(record: ZigPrune.Record, own: string,
                        roots: {integer:string}): string | nil
   if record.path:sub(1, 1) == "/" then return record.path end
-  local root = record.prefix == 2 and own or roots[record.prefix]
+  local root = roots[record.prefix]
+  if record.prefix == 2 then root = own end
   if root == nil then return nil end
   if record.path == "" then return root end
   return root .. "/" .. record.path
@@ -80,14 +86,14 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
     manifests = 0 }
   -- Each path's stat, or false where there is none; each re-hashed
   -- path's digest.
-  local stats: {string:sys.Stat | boolean} = {}
+  local stats: {string:ZigRestat.Seen} = {}
   local digests: {string:string} = {}
   local writes: {{string}} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
     if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
     for _, name in ipairs(names) do
-      if #name == 32 and name:match("^%x+$") then
+      if #name == 32 and name:match("^%x+$") ~= nil then
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
         if text == nil then return nil, path .. ": " .. text_trouble end
@@ -100,17 +106,22 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
           for _, record in ipairs(records) do
             result.records = result.records + 1
             local file = located(record, cache.path, roots)
-            local stat: sys.Stat | boolean = false
+            local stat: sys.Stat | nil = nil
             if file ~= nil and record.flags & (directory_flag | metadata_flag) == 0 then
-              stat = stats[file]
-              if stat == nil then
+              local seen = stats[file]
+              if seen == nil then
                 local found, _ = sys.stat(file)
-                stat = found ~= nil and found.kind == "file" and found or false
-                stats[file] = stat
+                if found ~= nil and found.kind == "file" then
+                  seen = { stat = found }
+                else
+                  seen = {}
+                end
+                stats[file] = seen
               end
+              stat = seen.stat
             end
             local taken, unchanged = false, false
-            if file ~= nil and stat is sys.Stat and stat.size == record.size then
+            if file ~= nil and stat ~= nil and stat.size == record.size then
               local mtime = stat.mtime * 1000000000 + stat.mtime_ns
               if mtime == record.mtime and stat.ino == record.inode then
                 unchanged = true
@@ -147,8 +158,8 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
     end
   end
   for _, write in ipairs(writes) do
-    local ok, trouble = Fs.write(write[1], write[2])
-    if not ok then return nil, write[1] .. ": " .. trouble end
+    local ok, trouble = Fs.write(assert(write[1]), assert(write[2]))
+    if not ok then return nil, assert(write[1]) .. ": " .. trouble end
     result.manifests = result.manifests + 1
   end
   return result, ""
@@ -172,7 +183,8 @@ function ZigRestat.command(project: string, shared: string | nil, root: string,
     return 0, "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", ""
   end
   local caches: {ZigPrune.Cache} = { { path = project, prefix = 2 } }
-  local roots: {integer:string} = { [0] = root, [1] = lib, [4] = root }
+  local roots: {integer:string} = { [0] = root, [4] = root }
+  if lib ~= nil then roots[1] = lib end
   if shared ~= nil and Predicate.is_dir(shared .. "/h") then
     caches[2] = { path = shared, prefix = 3 }
     roots[3] = shared
@@ -182,8 +194,8 @@ function ZigRestat.command(project: string, shared: string | nil, root: string,
     return 0, "", "zig-restat: left as restored: " .. trouble .. "\n"
   end
   return 0, "zig-restat: " .. Plural.count(result.records, "file") .. " listed: " ..
-    result.adopted .. " given their new inode, " .. result.rehashed ..
-    " re-hashed and taken, " .. result.left .. " left; " ..
+    tostring(result.adopted) .. " given their new inode, " .. tostring(result.rehashed) ..
+    " re-hashed and taken, " .. tostring(result.left) .. " left; " ..
     Plural.count(result.manifests, "manifest") .. " rewritten\n", ""
 end
 
@@ -195,8 +207,8 @@ end
 function ZigRestat.run(root: string, project: string, shared: string | nil): integer, string, string
   if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
   local env = Env.all()
-  env.COSMIC_ZIG_CACHE = project
-  if shared ~= nil then env.COSMIC_ZIG_GLOBAL_CACHE = shared end
+  env["COSMIC_ZIG_CACHE"] = project
+  if shared ~= nil then env["COSMIC_ZIG_GLOBAL_CACHE"] = shared end
   local lib: string | nil = nil
   local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture" })
@@ -211,8 +223,9 @@ end
 function ZigRestat.restat_command(_argv: {string}): integer
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED") or ""
   local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
-  local code, out, err = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache",
-    shared ~= "" and shared or nil)
+  local kept: string | nil = nil
+  if shared ~= nil and shared ~= "" then kept = shared end
+  local code, out, err = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)
   if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
   if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
   return code

@@ -60,7 +60,7 @@ end
 --- explicitly and passes it as Fixture.call's extra env instead.
 local function context(candidate: string, runner_temp: string,
                        extra?: {string:string}): {string:string}
-  if Fs.exists(candidate .. "/AGENTS.md") then build_resolver(candidate) end
+  if Fs.exists(candidate .. "/AGENTS.md") == true then build_resolver(candidate) end
   local env: {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run",
@@ -334,15 +334,16 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   local queued: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "merge_group",
     COSMIC_CI_HARNESS_MOVED = "0" }
   Orchestration.shares(queued)
-  assert(queued.COSMIC_TEST_NO_SHARED == nil, "the merge queue")
+  assert(queued["COSMIC_TEST_NO_SHARED"] == nil, "the merge queue")
   local scheduled: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1", COSMIC_CI_EVENT = "schedule" }
   Orchestration.shares(scheduled)
-  assert(scheduled.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
+  assert(scheduled["COSMIC_TEST_NO_SHARED"] == "1", "main's scheduled run")
   -- A merge queue run whose change moves the harness's epoch file, or
   -- that cannot tell, stands on nothing; a push's is not asked.
   for _, moved in ipairs({ "1", "" }) do
     local harness: {string:string} = { COSMIC_CI_REQUIRE_SANDBOX = "1",
-      COSMIC_CI_EVENT = "merge_group", COSMIC_CI_HARNESS_MOVED = moved ~= "" and moved or nil }
+      COSMIC_CI_EVENT = "merge_group" }
+    if moved ~= "" then harness["COSMIC_CI_HARNESS_MOVED"] = moved end
     assert(not Orchestration.stands(harness) and words(harness) == "test --all --bail",
       "the merge queue, the harness moved: " .. moved)
   end
@@ -376,28 +377,28 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
   local base = git(root, { "rev-parse", "HEAD" }):match("^(%x+)")
   assert(Fs.write(root .. "/README", "two\n"))
   git(root, { "commit", "--quiet", "-am", "elsewhere" })
-  assert(not Orchestration.harness_moved(root, base), "a change that leaves the file")
+  assert(not Orchestration.harness_moved(root, assert(base)), "a change that leaves the file")
   local function queued(sha: string): string
     local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
       COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = sha })
     return table.concat(words, " ")
   end
-  assert(queued(base) == "test --bail", "a merge queue run that leaves the epoch ran --all")
+  assert(queued(assert(base)) == "test --bail", "a merge queue run that leaves the epoch ran --all")
   assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
   git(root, { "commit", "--quiet", "-am", "bump" })
-  assert(Orchestration.harness_moved(root, base), "a change that moves the file")
+  assert(Orchestration.harness_moved(root, assert(base)), "a change that moves the file")
   -- Asked of another checkout, as the answer is kept by checkout and base.
   local moved = tmp .. "/moved"
   git(tmp, { "clone", "--quiet", root, moved })
-  assert(queued(base) == "test --bail", "the first answer was not kept")
+  assert(queued(assert(base)) == "test --bail", "the first answer was not kept")
   local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "merge_group",
     COSMIC_CI_REQUIRE_SANDBOX = "1", GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
   assert(table.concat(words, " ") == "test --all --bail", "a merge queue run that moves the epoch")
   -- A base it cannot read, or none, is taken as a move.
   local unread, why = Orchestration.harness_moved(root, string.rep("0", 40))
-  assert(unread and why:find("git ", 1, true), "a base that is no commit: " .. why)
+  assert(unread and why:find("git ", 1, true) ~= nil, "a base that is no commit: " .. why)
   assert(Orchestration.harness_moved(root, ""), "no base")
-  assert(Orchestration.harness_moved(tmp .. "/none", base), "no checkout")
+  assert(Orchestration.harness_moved(tmp .. "/none", assert(base)), "no checkout")
   -- ci.yml names the base, and checks out the merge's parent with it.
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
@@ -445,14 +446,14 @@ local function test_an_unsandboxed_fixture_neither_reads_nor_writes_shared_verdi
     COSMIC_TEST_SANDBOX = "1", COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     COSMIC_BUILD_CACHE = tmp .. "/build.db", COSMIC_FIXTURE_SOURCE = tmp .. "/source" }
   Orchestration.shares(env)
-  assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
+  assert(env["COSMIC_TEST_NO_SHARED"] == nil, "a Linux push's suite stands on shared verdicts")
   local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
-  assert(fixture.COSMIC_VERDICT_CACHE == "0", "the fixture may keep shared verdicts")
-  assert(fixture.COSMIC_BUILD_CACHE == tmp .. "/fixture-compiles.db",
+  assert(fixture["COSMIC_VERDICT_CACHE"] == "0", "the fixture may keep shared verdicts")
+  assert(fixture["COSMIC_BUILD_CACHE"] == tmp .. "/fixture-compiles.db",
     "the fixture shares the leg's compiles, not its fixtures' own")
-  assert(fixture.COSMIC_TEST_NO_SHARED == "1", "the fixture may stand on shared verdicts")
-  assert(fixture.COSMIC_TEST_SANDBOX == "0" and fixture.TMPDIR == tmp .. "/tmp")
-  assert(fixture.COSMIC_FIXTURE_SOURCE == tmp .. "/source")
+  assert(fixture["COSMIC_TEST_NO_SHARED"] == "1", "the fixture may stand on shared verdicts")
+  assert(fixture["COSMIC_TEST_SANDBOX"] == "0" and fixture["TMPDIR"] == tmp .. "/tmp")
+  assert(fixture["COSMIC_FIXTURE_SOURCE"] == tmp .. "/source")
 end
 
 --- The self-rebuild fixture's seed is a copy of the leg's compiles,
@@ -476,7 +477,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
     local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
-    return rows[1]:text(1)
+    return assert(rows[1]):text(1)
   end
 
   local named = tmp .. "/named/cache.db"
@@ -487,7 +488,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   assert(seeded_from(tmp .. "/one.db") == named)
   local again, again_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named },
     tmp .. "/one.db")
-  assert(not again and again_trouble:find("already exists", 1, true), again_trouble)
+  assert(not again and again_trouble:find("already exists", 1, true) ~= nil, again_trouble)
   assert(named_db:close())
 
   local default = tmp .. "/xdg/cosmic/build/cache.db"
@@ -497,26 +498,26 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
 
   local off, off_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = "0" },
     tmp .. "/three.db")
-  assert(not off and off_trouble:find("COSMIC_BUILD_CACHE=0", 1, true), off_trouble)
+  assert(not off and off_trouble:find("COSMIC_BUILD_CACHE=0", 1, true) ~= nil, off_trouble)
   local missing, missing_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = tmp .. "/missing.db" }, tmp .. "/four.db")
-  assert(not missing and missing_trouble:find(tmp .. "/missing.db", 1, true), missing_trouble)
+  assert(not missing and missing_trouble:find(tmp .. "/missing.db", 1, true) ~= nil, missing_trouble)
   local relative, relative_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = "named/cache.db" }, tmp .. "/five.db")
-  assert(not relative and relative_trouble:find("absolute", 1, true), relative_trouble)
+  assert(not relative and relative_trouble:find("absolute", 1, true) ~= nil, relative_trouble)
   assert(Fs.chmod(default, 0x1b4))
   local shared, shared_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = default }, tmp .. "/six.db")
-  assert(not shared and shared_trouble:find("writable by its group", 1, true), shared_trouble)
+  assert(not shared and shared_trouble:find("writable by its group", 1, true) ~= nil, shared_trouble)
   local a_dir, a_dir_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = tmp .. "/named" }, tmp .. "/seven.db")
-  assert(not a_dir and a_dir_trouble:find("/named: not a file", 1, true), a_dir_trouble)
+  assert(not a_dir and a_dir_trouble:find("/named: not a file", 1, true) ~= nil, a_dir_trouble)
   local under_file, under_file_trouble = Orchestration.seed_compiles(
     { COSMIC_BUILD_CACHE = default .. "/cache.db" }, tmp .. "/eight.db")
-  assert(not under_file and under_file_trouble:find("cache.db: not a directory", 1, true),
+  assert(not under_file and under_file_trouble:find("cache.db: not a directory", 1, true) ~= nil,
     under_file_trouble)
   for _, name in ipairs({ "three", "four", "five", "six", "seven", "eight" }) do
-    assert(not Fs.exists(tmp .. "/" .. name .. ".db"), name)
+    assert(Fs.exists(tmp .. "/" .. name .. ".db") ~= true, name)
   end
 end
 
@@ -537,11 +538,11 @@ local function test_a_sandboxed_fixture_keeps_verdicts_beside_the_legs(tmp: stri
       COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db", COSMIC_BUILD_CACHE = tmp .. "/build.db" }
     local fixture = Orchestration.fixture(env, tmp .. "/tmp", tmp .. "/fixture-compiles.db",
       fixtures)
-    assert(fixture.COSMIC_VERDICT_CACHE == fixtures, "the fixture keeps its verdicts apart")
-    assert(fixture.COSMIC_TEST_SANDBOX == "1" and fixture.COSMIC_SANDBOX == "must",
+    assert(fixture["COSMIC_VERDICT_CACHE"] == fixtures, "the fixture keeps its verdicts apart")
+    assert(fixture["COSMIC_TEST_SANDBOX"] == "1" and fixture["COSMIC_SANDBOX"] == "must",
       "the fixture's workers are sandboxed where the leg's are")
-    assert((fixture.COSMIC_TEST_NO_SHARED == nil) == case.stands, case.event)
-    assert(fixture.COSMIC_BUILD_CACHE == tmp .. "/fixture-compiles.db")
+    assert((fixture["COSMIC_TEST_NO_SHARED"] == nil) == case.stands, case.event)
+    assert(fixture["COSMIC_BUILD_CACHE"] == tmp .. "/fixture-compiles.db")
   end
 end
 
@@ -564,14 +565,14 @@ local function test_fixture_run_shares_only_a_sandboxed_fixtures_verdicts(tmp: s
       return out
     end
     local sandboxed = Orchestration.fixture_run("runtime", env(), tmp .. "/tmp", tmp .. "/c.db")
-    assert(sandboxed.COSMIC_VERDICT_CACHE == tmp .. "/v/fixtures.db", leg .. ": " ..
-        tostring(sandboxed.COSMIC_VERDICT_CACHE))
-    assert(sandboxed.COSMIC_TEST_NO_SHARED == nil, leg .. ": a push's fixture stands on nothing")
-    assert(sandboxed.COSMIC_TEST_SANDBOX == values.COSMIC_TEST_SANDBOX,
+    assert(sandboxed["COSMIC_VERDICT_CACHE"] == tmp .. "/v/fixtures.db", leg .. ": " ..
+        tostring(sandboxed["COSMIC_VERDICT_CACHE"]))
+    assert(sandboxed["COSMIC_TEST_NO_SHARED"] == nil, leg .. ": a push's fixture stands on nothing")
+    assert(sandboxed["COSMIC_TEST_SANDBOX"] == values["COSMIC_TEST_SANDBOX"],
       leg .. ": the fixture's workers are not held as the leg's are")
     local plain = Orchestration.fixture_run("self_driven", env(), tmp .. "/tmp", tmp .. "/c.db")
-    assert(plain.COSMIC_VERDICT_CACHE == "0" and plain.COSMIC_TEST_NO_SHARED == "1" and
-        plain.COSMIC_TEST_SANDBOX == "0",
+    assert(plain["COSMIC_VERDICT_CACHE"] == "0" and plain["COSMIC_TEST_NO_SHARED"] == "1" and
+        plain["COSMIC_TEST_SANDBOX"] == "0",
       leg .. ": an unsandboxed fixture shares verdicts")
   end
 end
@@ -631,12 +632,12 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
           policy:find('{ path = "o/bin", letters = "rx" }', 1, true),
         name .. ": a fixture that starts the running program on build/paths.tl does not declare tool")
     end
-    if Orchestration.sandboxed_fixtures[name] then
+    if Orchestration.sandboxed_fixtures[name] == true then
       sandboxed = sandboxed + 1
       local host = declared_reads(name)
       if name == "performance" then
-        assert(host["o/fixtures/performance/program"] and
-            host["o/fixtures/performance/perf.tl"],
+        assert(host["o/fixtures/performance/program"] == true and
+            host["o/fixtures/performance/perf.tl"] == true,
           "performance fixture must key the full candidate and controller source")
       else
         assert(host["o/fixtures/product/prefix"],
@@ -644,7 +645,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       end
       if name ~= "product" then
         for _, whole in ipairs({ "cosmic", "cosmic.db" }) do
-          assert(not host["o/fixtures/product/" .. whole],
+          assert(host["o/fixtures/product/" .. whole] ~= true,
             name .. ": a sandboxed fixture that does not check the whole product declares its " ..
               whole .. ", which moves with every edit to the tool's code")
         end
@@ -659,14 +660,14 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       local env = assert(policy:match("env%s*=%s*(%b{})"), name .. ": no env")
       local declared: {string:boolean} = {}
       for variable in env:gmatch('"([^"]*)"') do
-        assert(variable ~= "*" and variable:match("^[%a][%w_]*$"),
+        assert(variable ~= "*" and variable:match("^[%a][%w_]*$") ~= nil,
           name .. ": an unsandboxed fixture declares the variable " .. variable)
         declared[variable] = true
       end
       local wanted: {string:boolean} = {}
       for _, variable in ipairs(Fixture.inherited) do wanted[variable] = true end
       for variable in code:gmatch('Fixture%.required%("([A-Z_]+)"%)') do wanted[variable] = true end
-      if code:find("Fixture.source_tree(", 1, true) then wanted.COSMIC_FIXTURE_SOURCE = true end
+      if code:find("Fixture.source_tree(", 1, true) then wanted["COSMIC_FIXTURE_SOURCE"] = true end
       for variable in pairs(wanted) do
         assert(declared[variable], name .. ": an unsandboxed fixture does not declare " ..
             variable .. ", which it or its children read")
@@ -732,19 +733,19 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
       { name = "unread", changed = tmp .. "/no-such-list", ran = "fix --check ." },
       { name = "unset", changed = "", ran = "fix --check ." },
   }) do
-    local fake = tmp .. "/format-changed-" .. case.name
+    local fake = tmp .. "/format-changed-" .. assert(case["name"])
     local runner_temp = fake .. "-runner-temp"
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '%s' \"$*\" > \"$0.ran\"\nexit 0\n", 493)
-    local outcome = Fixture.call("format-changed-" .. case.name, append(base, { "platform", "format" }),
+    local outcome = Fixture.call("format-changed-" .. assert(case["name"]), append(base, { "platform", "format" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run",
-        COSMIC_CI_FORMAT_CHANGED = case.changed,
+        COSMIC_CI_FORMAT_CHANGED = assert(case["changed"]),
       }))
-    assert(outcome.result.ok, case.name .. ": the format phase failed")
+    assert(outcome.result.ok, assert(case["name"]) .. ": the format phase failed")
     local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
-    assert(ran == case.ran, case.name .. ": the check ran " .. tostring(ran))
+    assert(ran == case["ran"], assert(case["name"]) .. ": the check ran " .. tostring(ran))
   end
 end
 
@@ -811,8 +812,8 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
     assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(diagnostics))
     for _, snapshot in ipairs({ { "local-immediate", case.immediate }, { "local-boundary", case.boundary } }) do
       if snapshot[2] then
-        assert(Fs.mkdirs(diagnostics .. "/" .. snapshot[1] as string))
-        assert(Fs.write(diagnostics .. "/" .. snapshot[1] as string .. "/hashes.sha256", ""))
+        assert(Fs.mkdirs(diagnostics .. "/" .. assert(snapshot[1])))
+        assert(Fs.write(diagnostics .. "/" .. assert(snapshot[1]) .. "/hashes.sha256", ""))
       end
     end
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
@@ -842,8 +843,8 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
   local core = "the checked core"
   local digest = Hash.hex_sha256(core)
   local target = "x86_64-linux-musl"
-  local right = "16384 " .. #core .. " " .. digest
-  local wrong = "16384 " .. #core .. " " .. string.rep("0", 64)
+  local right = "16384 " .. tostring(#core) .. " " .. digest
+  local wrong = "16384 " .. tostring(#core) .. " " .. string.rep("0", 64)
   local function entry(fields: string): string
     return "printf '%s\\t%s\\t%s\\n' " .. fields .. "\n"
   end
@@ -867,7 +868,7 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
         "case \"$1 $2\" in '--inspect '*/o/sanitized/bin/cosmic) ;; *) exit 9 ;; esac\n" ..
         "printf '%s\\n' 'prefix 32768 manifest 28672 4096 database 32768 0 entries 2' " ..
         "'entry 1 1 16384 1 " .. string.rep("1", 64) .. "' " ..
-        "'entry 1 2 16384 " .. #core .. " " .. digest .. "'\n", 493)
+        "'entry 1 2 16384 " .. tostring(#core) .. " " .. digest .. "'\n", 493)
     -- The checked artifact: a script that answers each run as the tool
     -- would, `tool.tl entry` with `checked`, its core at the first
     -- aligned offset past it. Its `-e` answers only a chunk that prints
@@ -961,13 +962,13 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     local rows = State.suite_rows(db)
     assert(db:close())
     if case.argv ~= nil then
-      assert(#rows == 1, case.name .. ": " .. #rows .. " suite rows")
+      assert(#rows == 1, case.name .. ": " .. tostring(#rows) .. " suite rows")
       local row = rows[1]
-      assert(row.worker == "worker" and row.phase == "checked" and row.suite == "checked")
+      assert(assert(row).worker == "worker" and row.phase == "checked" and row.suite == "checked")
       assert(row.status == "pass" and row.exit_code == 0 and row.tests == 7)
       assert(row.ran == 3 and row.stood == 4 and row.elapsed_ms == 55)
       local parts = assert(row.parts)
-      assert(parts.runtime == "04" and parts.harness == "06" and parts.system == "")
+      assert(parts["runtime"] == "04" and parts["harness"] == "06" and parts["system"] == "")
     else
       assert(#rows == 0, case.name .. ": a suite that did not run wrote a row")
     end
@@ -1007,7 +1008,7 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
   local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
   assert(Fs.read(decoder) == "decoder", "the decoder is not where the checked phase reads it")
   local st = assert(Fs.stat(decoder))
-  assert(st.mode & 0x49 == 0x49, "the decoder is not executable: " .. st.mode)
+  assert(st.mode & 0x49 == 0x49, "the decoder is not executable: " .. tostring(st.mode))
   local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
   assert(#State.suite_rows(db) == 0, "a suite ran")
   assert(db:close())
@@ -1052,21 +1053,21 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     local db = assert(Sqlite.open(database))
     if case.broken then
       local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
-      assert(count[1]:text(1) == "0", case.name .. ": " .. count[1]:text(1) .. " rows")
+      assert(assert(count[1]):text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
       local rows = State.suite_rows(db)
-      assert(#rows == 1, case.name .. ": " .. #rows .. " suite rows")
+      assert(#rows == 1, case.name .. ": " .. tostring(#rows) .. " suite rows")
       local row = rows[1]
-      assert(row.suite == "local" and row.phase == "build" and row.status == "pass")
+      assert(assert(row).suite == "local" and row.phase == "build" and row.status == "pass")
       assert(row.exit_code == 0 and row.tests == 9 and row.ran == 5 and row.stood == 4)
       assert(row.elapsed_ms == 77 and row.sandbox == "sandboxed")
       local parts = assert(row.parts)
-      assert(parts.runtime == "04" and parts.harness == "06")
+      assert(parts["runtime"] == "04" and parts["harness"] == "06")
     end
     local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
-    assert(#phases == 2 and phases[1]:text(2) == "success" and phases[2]:text(2) == "success",
+    assert(#phases == 2 and assert(phases[1]):text(2) == "success" and assert(phases[2]):text(2) == "success",
       case.name .. ": the phases did not succeed")
     assert(db:close())
   end
@@ -1163,7 +1164,7 @@ end
 --- on no gating run (COSMIC_CI_FIXED_POINT), only on the scheduled one.
 local function test_the_fixed_point_fixture_runs_only_on_the_scheduled_run()
   local _, env = platform_legs_and_env()
-  local value = assert(env.COSMIC_CI_FIXED_POINT, "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
+  local value = assert(env["COSMIC_CI_FIXED_POINT"], "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
   assert(value == "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
     "the fixed-point fixture runs on more than the scheduled run, or not on it: " .. value)
 end
@@ -1174,13 +1175,13 @@ end
 --- scheduled run.
 local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_scheduled_one()
   local legs, env = platform_legs_and_env()
-  local value = assert(env.COSMIC_CI_SELF_REBUILD, "ci.yml's platform job sets no COSMIC_CI_SELF_REBUILD")
+  local value = assert(env["COSMIC_CI_SELF_REBUILD"], "ci.yml's platform job sets no COSMIC_CI_SELF_REBUILD")
   local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule'%) && 'run' || 'skip' }}$")
-  assert(one and two and one ~= two and legs[one] and legs[two],
+  assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,
     "the self-rebuild fixture runs on no two legs of the matrix, " ..
       "or not on every leg of the scheduled run: " .. value)
-  assert(legs[one].runner:sub(1, 5) == "macos" or legs[two].runner:sub(1, 5) == "macos",
+  assert(assert(assert(legs[one])["runner"]):sub(1, 5) == "macos" or assert(assert(legs[two])["runner"]):sub(1, 5) == "macos",
     "the self-rebuild fixture runs on no macOS leg of a gating run: " .. value)
 end
 
@@ -1190,20 +1191,20 @@ end
 --- and on every leg of the scheduled run and a manual one.
 local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_one()
   local legs, env = platform_legs_and_env()
-  local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
+  local value = assert(env["COSMIC_CI_PORTABLE_SUITE"], "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
   local one, two = value:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && " ..
       "github%.event_name != 'merge_group'%) || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
       "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
-  assert(one and two and one ~= two and legs[one] and legs[two],
+  assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,
     "the portable suite runs on no two legs of a push to main, on more than " ..
       "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
-  assert(legs[one].target:sub(1, 7) == "x86_64-" and legs[two].target:sub(1, 7) == "x86_64-",
+  assert(assert(assert(legs[one])["target"]):sub(1, 7) == "x86_64-" and assert(assert(legs[two])["target"]):sub(1, 7) == "x86_64-",
     "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
   -- Both Linux legs, the queue's in the Alpine (musl) image, the other
   -- not (glibc).
-  assert(legs[one].image ~= "" and legs[one].image:find("alpine", 1, true) == nil and
-      legs[two].image:find("alpine", 1, true) ~= nil,
+  assert(assert(legs[one])["image"] ~= "" and assert(assert(legs[one])["image"]):find("alpine", 1, true) == nil and
+      assert(assert(legs[two])["image"]):find("alpine", 1, true) ~= nil,
     "the portable suite's gating legs are not a glibc host and, in the queue too, a musl one: " .. value)
 end
 
@@ -1293,7 +1294,7 @@ chmod 755 o/bin/cosmic
   local env: {string:string} = {}
   for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
     local name, value = line:match("^([^=]+)=(.*)$")
-    if name then env[name] = value end
+    if name ~= nil and value ~= nil then env[name] = value end
   end
   for name in pairs(env) do
     assert(not (name:match("^GITHUB_") or name:match("^RUNNER_") or
@@ -1310,8 +1311,8 @@ chmod 755 o/bin/cosmic
       COSMIC_WORKER = "worker", FUZZ_ITERS = "0", COSMIC_TEST_SANDBOX = "1" }) do
     assert(env[name] == value, name .. " did not reach the suite: " .. tostring(env[name]))
   end
-  assert(env.PATH ~= nil and env.PATH ~= "", "PATH did not reach the suite")
-  assert(env.COSMIC_TEST_NO_SHARED == nil, "a Linux push's suite stands on shared verdicts")
+  assert(env["PATH"] ~= nil and env["PATH"] ~= "", "PATH did not reach the suite")
+  assert(env["COSMIC_TEST_NO_SHARED"] == nil, "a Linux push's suite stands on shared verdicts")
   assert(Fs.read(seen .. ".words") == "test --census\n", "a Linux push's suite ran --all")
 end
 
@@ -1324,7 +1325,7 @@ local function test_a_shard_leg_runs_its_share_of_the_native_suite(tmp: string)
       { name = "second", shard = "2/2", words = "test --census --shard 2/2\n" },
       { name = "whole", shard = "", words = "test --census\n" },
   }) do
-    local fake = tmp .. "/shard-" .. case.name
+    local fake = tmp .. "/shard-" .. assert(case["name"])
     assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
@@ -1341,18 +1342,18 @@ chmod 755 o/bin/cosmic
 ]], 493)
     local runner_temp = fake .. "-runner-temp"
     assert(Fs.mkdirs(runner_temp))
-    local outcome = Fixture.call("shard-" .. case.name, append(base, { "platform", "build" }),
+    local outcome = Fixture.call("shard-" .. assert(case["name"]), append(base, { "platform", "build" }),
       project, tmp .. "/logs", context(fake, runner_temp, {
         TARGET = "x86_64-linux-musl", SEEN = seen,
         COSMIC_CI_SCOPE = "light", COSMIC_CI_EVENT = "push",
         COSMIC_CI_CHECKED_SUITE = "skip", COSMIC_CI_REQUIRE_SANDBOX = "1",
-        COSMIC_CI_SHARD = case.shard, XDG_CACHE_HOME = tmp .. "/cache",
+        COSMIC_CI_SHARD = assert(case["shard"]), XDG_CACHE_HOME = tmp .. "/cache",
       }))
-    assert(outcome.result.ok, case.name .. ": the build failed: " .. Fixture.read(outcome.err))
+    assert(outcome.result.ok, assert(case["name"]) .. ": the build failed: " .. Fixture.read(outcome.err))
     local words = assert(Fs.read(seen .. ".words"))
-    assert(words == case.words, case.name .. ": the suite ran " .. words)
+    assert(words == case["words"], assert(case["name"]) .. ": the suite ran " .. words)
     local env = assert(Fs.read(seen .. ".env"))
-    assert(not env:find("COSMIC_CI_SHARD", 1, true), case.name .. ": the suite was given the share")
+    assert(not env:find("COSMIC_CI_SHARD", 1, true), assert(case["name"]) .. ": the suite was given the share")
   end
 end
 
@@ -1404,12 +1405,12 @@ exit 0
     local env: {string:string} = {}
     for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
       local name, value = line:match("^([^=]+)=(.*)$")
-      if name then env[name] = value end
+      if name ~= nil and value ~= nil then env[name] = value end
     end
-    assert(env.COSMIC_VERDICT_CACHE == runner_temp .. "/verdicts/verdicts.db",
-      case.event .. ": " .. tostring(env.COSMIC_VERDICT_CACHE))
-    assert((env.COSMIC_TEST_NO_SHARED == "1") == case.shared,
-      case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env.COSMIC_TEST_NO_SHARED))
+    assert(env["COSMIC_VERDICT_CACHE"] == runner_temp .. "/verdicts/verdicts.db",
+      case.event .. ": " .. tostring(env["COSMIC_VERDICT_CACHE"]))
+    assert((env["COSMIC_TEST_NO_SHARED"] == "1") == case.shared,
+      case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env["COSMIC_TEST_NO_SHARED"]))
   end
 end
 
@@ -1429,12 +1430,12 @@ local function test_a_suite_run_forgets_the_run_after_deciding_its_words()
       "CI", "HOSTNAME", "COSMIC_CI_SCOPE", "COSMIC_CI_EVENT" }) do
     assert(env[name] == nil, "the suite was given " .. name)
   end
-  assert(env.COSMIC_CI_REQUIRE_SANDBOX == "1" and env.HOME == "/home/runner" and
-      env.COSMIC_WORKER == "w" and env.FUZZ_ITERS == "0")
+  assert(env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" and env["HOME"] == "/home/runner" and
+      env["COSMIC_WORKER"] == "w" and env["FUZZ_ITERS"] == "0")
   local all, all_env = Orchestration.suite_run({
     COSMIC_CI_EVENT = "schedule", COSMIC_CI_REQUIRE_SANDBOX = "1" })
   assert(table.concat(all, " ") == "test --all" and
-      all_env.COSMIC_TEST_NO_SHARED == "1", "main's scheduled run")
+      all_env["COSMIC_TEST_NO_SHARED"] == "1", "main's scheduled run")
 end
 
 --- The macOS leg's suites stand on shared verdicts in pushes and the
@@ -1448,19 +1449,19 @@ local function test_the_macos_leg_stands_on_verdicts_keyed_by_declarations(tmp: 
       COSMIC_CI_DECLARED_KEYS = "1", COSMIC_TEST_SANDBOX = "" })
     assert(table.concat(words, " ") == (event == "merge_group" and "test --bail" or "test"),
       event .. ": the macOS leg ran --all")
-    assert(env.COSMIC_TEST_NO_SHARED == nil, event .. ": the macOS leg stands on no shared verdict")
-    assert(env.COSMIC_CI_DECLARED_KEYS == nil, event .. ": the suite was given the driver's switch")
-    assert((env.COSMIC_TEST_SANDBOX or "") == "" and env.COSMIC_SANDBOX ~= "must",
+    assert(env["COSMIC_TEST_NO_SHARED"] == nil, event .. ": the macOS leg stands on no shared verdict")
+    assert(env["COSMIC_CI_DECLARED_KEYS"] == nil, event .. ": the suite was given the driver's switch")
+    assert((env["COSMIC_TEST_SANDBOX"] or "") == "" and env["COSMIC_SANDBOX"] ~= "must",
       event .. ": the macOS leg's suite was held to a sandbox")
   end
   local all, scheduled = Orchestration.suite_run({ COSMIC_CI_EVENT = "schedule",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
-  assert(table.concat(all, " ") == "test --all" and scheduled.COSMIC_TEST_NO_SHARED == "1",
+  assert(table.concat(all, " ") == "test --all" and scheduled["COSMIC_TEST_NO_SHARED"] == "1",
     "the macOS leg's scheduled run")
   local _, pushed = Orchestration.suite_run({ COSMIC_CI_EVENT = "push",
     COSMIC_CI_REQUIRE_SANDBOX = "0", COSMIC_CI_DECLARED_KEYS = "1" })
   local fixture = Orchestration.fixture(pushed, tmp .. "/tmp", tmp .. "/fixture-compiles.db")
-  assert(fixture.COSMIC_TEST_NO_SHARED == "1" and fixture.COSMIC_VERDICT_CACHE == "0")
+  assert(fixture["COSMIC_TEST_NO_SHARED"] == "1" and fixture["COSMIC_VERDICT_CACHE"] == "0")
 end
 
 --- A darwin list names one path a line; a comment, on a line of its
@@ -1868,7 +1869,7 @@ end
 --- ordinary launcher, adding only a requested private mount grant.
 local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
-  assert(Orchestration.sandboxed_fixtures.launcher_noexec)
+  assert(Orchestration.sandboxed_fixtures["launcher_noexec"])
   local source = code_of("launcher_noexec")
   assert(source:find('{ path = "/noexec", letters = "rwc" }', 1, true) and
       source:find('profiles = { "system" }', 1, true))
@@ -1883,8 +1884,8 @@ local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(
       COSMIC_FIXTURE_TARGET = target,
       COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     }, tmp .. "/tmp", tmp .. "/compiles.db")
-    assert(env.COSMIC_TEST_SANDBOX == "1" and env.COSMIC_SANDBOX == "must")
-    assert(env.COSMIC_VERDICT_CACHE == tmp .. "/fixtures.db" and env.COSMIC_TEST_NO_SHARED == nil)
+    assert(env["COSMIC_TEST_SANDBOX"] == "1" and env["COSMIC_SANDBOX"] == "must")
+    assert(env["COSMIC_VERDICT_CACHE"] == tmp .. "/fixtures.db" and env["COSMIC_TEST_NO_SHARED"] == nil)
   end
   for _, target in ipairs({ "aarch64-macos", "x86_64-windows", "", "unknown" }) do
     assert(not Orchestration.noexec_fixture(target), target .. ": unsupported noexec fixture scheduled")
@@ -1899,24 +1900,24 @@ local function test_a_leg_is_given_the_requirements_it_promises()
   local Orchestration = require("cosmic_ci.orchestration")
   local linux: {string:string} = { COSMIC_WORKER = "linux-x86_64-shard" }
   Orchestration.promise(linux)
-  assert(linux.COSMIC_TEST_LEG == "linux-x86_64-shard")
-  assert(("," .. linux.COSMIC_TEST_PROMISES .. ","):find(",nest,", 1, true), linux.COSMIC_TEST_PROMISES)
+  assert(linux["COSMIC_TEST_LEG"] == "linux-x86_64-shard")
+  assert(("," .. assert(linux["COSMIC_TEST_PROMISES"]) .. ","):find(",nest,", 1, true), linux["COSMIC_TEST_PROMISES"])
   local mac: {string:string} = { COSMIC_WORKER = "macos-aarch64" }
   Orchestration.promise(mac)
-  assert(mac.COSMIC_TEST_LEG == "macos-aarch64")
-  local given = "," .. mac.COSMIC_TEST_PROMISES .. ","
+  assert(mac["COSMIC_TEST_LEG"] == "macos-aarch64")
+  local given = "," .. assert(mac["COSMIC_TEST_PROMISES"]) .. ","
   assert(given:find(",path:/bin/sh,", 1, true) and given:find(",path:/usr/bin/env,", 1, true),
-    mac.COSMIC_TEST_PROMISES)
+    mac["COSMIC_TEST_PROMISES"])
   assert(not given:find(",sandbox,", 1, true) and not given:find(",nest,", 1, true),
-    mac.COSMIC_TEST_PROMISES)
+    mac["COSMIC_TEST_PROMISES"])
   for _, worker in ipairs({ "provenance", "fuzz", "" }) do
     local other: {string:string} = { COSMIC_WORKER = worker }
     Orchestration.promise(other)
-    assert(other.COSMIC_TEST_PROMISES == nil and other.COSMIC_TEST_LEG == nil, worker)
+    assert(other["COSMIC_TEST_PROMISES"] == nil and other["COSMIC_TEST_LEG"] == nil, worker)
   end
   local chosen: {string:string} = { COSMIC_WORKER = "linux-x86_64", COSMIC_TEST_PROMISES = "proc" }
   Orchestration.promise(chosen)
-  assert(chosen.COSMIC_TEST_PROMISES == "proc" and chosen.COSMIC_TEST_LEG == nil)
+  assert(chosen["COSMIC_TEST_PROMISES"] == "proc" and chosen["COSMIC_TEST_LEG"] == nil)
 end
 
 --- A fixture runner is given its leg's promises as a candidate
@@ -1931,24 +1932,24 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
       COSMIC_VERDICT_CACHE = tmp .. "/verdicts.db",
     }
     Orchestration.promise(env)
-    local candidate = "," .. env.COSMIC_TEST_PROMISES .. ","
+    local candidate = "," .. assert(env["COSMIC_TEST_PROMISES"]) .. ","
     assert(candidate:find(",unix_socket,", 1, true), candidate)
     local fixture = Orchestration.fixture_run(source, env, tmp .. "/tmp", tmp .. "/c.db")
-    local given = "," .. fixture.COSMIC_TEST_PROMISES .. ","
+    local given = "," .. assert(fixture["COSMIC_TEST_PROMISES"]) .. ","
     assert(candidate:find(",all_cores,", 1, true), candidate)
     assert(given == candidate:gsub(",all_cores,", ","), "the pinned release is given a name it lacks: " .. given)
-    assert(fixture.COSMIC_TEST_LEG == "linux-x86_64-checked")
-    assert(fixture.COSMIC_SANDBOX == "must", "fixture confinement is no longer held")
-    assert(fixture.COSMIC_TEST_SANDBOX == (source == "runtime" and "1" or "0"))
+    assert(fixture["COSMIC_TEST_LEG"] == "linux-x86_64-checked")
+    assert(fixture["COSMIC_SANDBOX"] == "must", "fixture confinement is no longer held")
+    assert(fixture["COSMIC_TEST_SANDBOX"] == (source == "runtime" and "1" or "0"))
   end
   local words, candidate = Orchestration.suite_run({ COSMIC_WORKER = "linux-x86_64-checked" })
   assert(words[1] == "test")
-  assert(("," .. candidate.COSMIC_TEST_PROMISES .. ","):find(",unix_socket,", 1, true),
-    candidate.COSMIC_TEST_PROMISES)
+  assert(("," .. assert(candidate["COSMIC_TEST_PROMISES"]) .. ","):find(",unix_socket,", 1, true),
+    candidate["COSMIC_TEST_PROMISES"])
   local unknown = Orchestration.fixture_run("format", {
     COSMIC_TEST_PROMISES = "proc, unix_socket ,future_requirement,checked",
   }, tmp .. "/tmp", tmp .. "/c.db")
-  assert(unknown.COSMIC_TEST_PROMISES == "proc, unix_socket ,future_requirement,checked",
+  assert(unknown["COSMIC_TEST_PROMISES"] == "proc, unix_socket ,future_requirement,checked",
     "the fixture changed the promises it was given")
   local newer = Orchestration.fixture_run("format", { COSMIC_TEST_PROMISES = "all_cores,proc" },
     tmp .. "/tmp", tmp .. "/c.db")
@@ -1969,7 +1970,7 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(Fs.mkdirs(placed) and Fs.write(placed .. "/file", "earlier"))
   assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
   assert(Fs.read(project .. "/fixtures/a_test.tl") == "\n")
-  assert(not Fs.exists(placed), "the earlier fixture's placement was kept")
+  assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
 end
 
 local type Orch = require("cosmic_ci.orchestration")
@@ -2053,12 +2054,14 @@ local function test_a_failing_group_stops_the_other_lane_and_starts_nothing_afte
     local rig = lane_rig(dir)
     local hang = "echo $$ > " .. dir .. "/hung.pid; (sleep 30) & wait"
     local fail = "sleep 0.3; exit 7"
-    local high = rig.group("high", high_fails and fail or hang)
-    local first = rig.group("first", high_fails and hang or fail)
+    local high_command, first_command = hang, fail
+    if high_fails then high_command, first_command = fail, hang end
+    local high = rig.group("high", high_command)
+    local first = rig.group("first", first_command)
     local after = rig.group("after", "touch " .. dir .. "/after.ran")
     local started = Clock.monotonic_ns()
     local status = Orchestration.run_groups(high, { first, after }, true)
-    assert(status == 7, "the failing group's status was not returned: " .. status)
+    assert(status == 7, "the failing group's status was not returned: " .. tostring(status))
     assert(Clock.monotonic_ns() - started < Clock.seconds(10), "the hung group was waited out")
     assert(gone(pid_of(dir .. "/hung.pid")), "the other lane's group was left running")
     assert(not Predicate.exists(dir .. "/after.ran") and
@@ -2080,7 +2083,7 @@ local function test_a_hung_group_meets_its_own_timeout_beside_a_running_lane(tmp
   local long = rig.group("long", "sleep 30")
   local started = Clock.monotonic_ns()
   local status = Orchestration.run_groups(high, { long }, true)
-  assert(status == 124, "a timeout was not the group's status: " .. status)
+  assert(status == 124, "a timeout was not the group's status: " .. tostring(status))
   assert(Clock.monotonic_ns() - started < Clock.seconds(10),
     "the hung group ran past its own timeout")
   local text = table.concat(rig.events, " ")
@@ -2130,14 +2133,14 @@ local function test_the_lanes_are_off_unless_asked_for_and_never_exceed_the_proc
     "one processor was shared by two lanes")
   for cpus = 2, 64 do
     local high, low = Orchestration.fixture_lanes({ COSMIC_CI_FIXTURE_BUDGET = "run" }, cpus)
-    assert(high and low and low == 1 and high >= 1 and high + low == cpus,
-      "the lanes' workers are not the processors at " .. cpus)
+    assert(high ~= nil and low ~= nil and low == 1 and high >= 1 and high + low == cpus,
+      "the lanes' workers are not the processors at " .. tostring(cpus))
   end
 end
 
 local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
   local legs, env = platform_legs_and_env()
-  local value = assert(env.COSMIC_CI_FIXTURE_BUDGET, "ci.yml's platform job sets no COSMIC_CI_FIXTURE_BUDGET")
+  local value = assert(env["COSMIC_CI_FIXTURE_BUDGET"], "ci.yml's platform job sets no COSMIC_CI_FIXTURE_BUDGET")
   local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
       "matrix%.name == '([%w_-]+)'%) && 'run' || 'skip' }}$")
   assert(one and two and legs[one] and legs[two] and

@@ -160,7 +160,7 @@ local function location(root: string, environment?: {string:string}): Location |
   local output = found.directory
   local given: string
   if environment ~= nil then
-    given = environment.COSMIC_BUILD_HOME or ""
+    given = environment["COSMIC_BUILD_HOME"] or ""
   else
     given = Env.get_or("COSMIC_BUILD_HOME", "")
   end
@@ -247,11 +247,14 @@ end
 function paths.main(argv: {string}): integer
   local making = argv[1] == "--prepare"
   local at = making and 2 or 1
-  if argv[at] == nil or argv[at + 1] ~= nil then
+  local project = argv[at]
+  if project == nil or argv[at + 1] ~= nil then
     local _, _ = put(Fs.stderr, "usage: build/paths.tl [--prepare] <project-root>\n")
     return 2
   end
-  local directory, trouble = (making and prepare or directory_of)(argv[at])
+  local resolve = directory_of
+  if making then resolve = prepare end
+  local directory, trouble = resolve(project)
   if directory == nil then
     local _, _ = put(Fs.stderr, "build/paths.tl: " .. trouble .. "\n")
     return 1

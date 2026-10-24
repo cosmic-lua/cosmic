@@ -49,8 +49,8 @@ local function test_an_answer_of_another_shape_is_refused_by_path()
   -- The nulls GitHub writes for what it has not got are nothing.
   local runs = Report.runs('{"workflow_runs":[{"id":7,"event":"push","head_sha":"s",' ..
       '"head_branch":null,"conclusion":null,"run_attempt":null}]}')
-  assert(runs[1].id == "7" and runs[1].branch == "" and runs[1].conclusion == "" and
-      runs[1].attempt == "", runs[1].branch)
+  assert(assert(runs[1]).id == "7" and assert(runs[1]).branch == "" and assert(runs[1]).conclusion == "" and
+      assert(runs[1]).attempt == "", assert(runs[1]).branch)
   assert(#Report.jobs('{"jobs":[{"name":"a","started_at":null,"completed_at":null}]}') == 1)
 end
 
@@ -80,9 +80,9 @@ local function test_reuse_and_seed_are_no_platform_jobs()
     } }
   assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
   table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64")
+  assert(assert(Report.slowest(run)).name == "linux-x86_64")
   table.insert(run.jobs, { name = "linux-x86_64-checked", seconds = 61, steps = {} })
-  assert((Report.slowest(run) as Report.Job).name == "linux-x86_64-checked")
+  assert(assert(Report.slowest(run)).name == "linux-x86_64-checked")
 end
 
 --- A run whose rows say what its restored cache held qualifies by
@@ -111,25 +111,25 @@ local function test_a_run_qualifies_by_what_its_restored_cache_held()
     run("10", "h9"),
   }
   Report.qualify(runs, 4)
-  assert(runs[1].qualifies, runs[1].why)
-  assert(runs[1].why == "runtime and harness epoch and timeout among the restored cache's " ..
-      "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", runs[1].why)
-  assert(not runs[2].qualifies and runs[2].why == "linux-x86_64 checked: runtime or harness " ..
+  assert(assert(runs[1]).qualifies, assert(runs[1]).why)
+  assert(assert(runs[1]).why == "runtime and harness epoch and timeout among the restored cache's " ..
+      "(linux-x86_64 checked: 10 of 12 rows; linux-x86_64 local: 10 of 12 rows)", assert(runs[1]).why)
+  assert(not assert(runs[2]).qualifies and assert(runs[2]).why == "linux-x86_64 checked: runtime or harness " ..
       "not among the restored cache's (12 rows); linux-x86_64 local: runtime or harness not " ..
-      "among the restored cache's (12 rows)", runs[2].why)
-  assert(not runs[3].qualifies and
-      runs[3].why:find("linux-x86_64 local: the restored cache held no rows", 1, true), runs[3].why)
-  assert(not runs[4].qualifies and runs[4].why:find("harness moved", 1, true), runs[4].why)
+      "among the restored cache's (12 rows)", assert(runs[2]).why)
+  assert(not assert(runs[3]).qualifies and
+      assert(runs[3]).why:find("linux-x86_64 local: the restored cache held no rows", 1, true) ~= nil, assert(runs[3]).why)
+  assert(not assert(runs[4]).qualifies and assert(runs[4]).why:find("harness moved", 1, true) ~= nil, assert(runs[4]).why)
   -- Restored rows that name no parts (a cache kept from before rows
   -- named them) tell nothing: the earlier run decides, and the reason
   -- says so.
   local unnamed = "7 rows under no parts named"
   runs = { run("70", "h1", unnamed), run("60", "h1"), run("55", "h1", unnamed), run("50", "h0") }
   Report.qualify(runs, 3)
-  assert(runs[1].qualifies and runs[1].why == "restored rows name no parts; runtime and " ..
-      "harness epoch and timeout held since run 60", runs[1].why)
-  assert(not runs[3].qualifies and runs[3].why:find("linux-x86_64 local: restored rows name " ..
-      "no parts, harness moved", 1, true), runs[3].why)
+  assert(assert(runs[1]).qualifies and assert(runs[1]).why == "restored rows name no parts; runtime and " ..
+      "harness epoch and timeout held since run 60", assert(runs[1]).why)
+  assert(not assert(runs[3]).qualifies and assert(runs[3]).why:find("linux-x86_64 local: restored rows name " ..
+      "no parts, harness moved", 1, true) ~= nil, assert(runs[3]).why)
 end
 
 --- A fake GitHub: a `Send` answering from `answers`, by the path it was
@@ -169,7 +169,7 @@ local function fake(tmp: string): Fake
       return Fs.write(to, zip)
     end,
   }
-  f.env.GITHUB_REPOSITORY = nil
+  f.env["GITHUB_REPOSITORY"] = nil
   return f
 end
 
@@ -219,8 +219,12 @@ end
 
 --- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
 local function artifacts(f: Fake, run: string, listed: {{string:any}})
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100",
-    { artifacts = #listed > 0 and listed or Json.array() })
+  local path = "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100"
+  if #listed > 0 then
+    answer(f, path, { artifacts = listed })
+  else
+    answer(f, path, { artifacts = Json.array() })
+  end
 end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.
@@ -238,7 +242,7 @@ end
 
 local function run_entry(id: integer, conclusion: string, attempt: integer): {string:any}
   return { id = id, event = "merge_group",
-    head_branch = "gh-readonly-queue/main/pr-" .. id,
+    head_branch = "gh-readonly-queue/main/pr-" .. tostring(id),
     head_sha = string.rep(tostring(id % 10), 40), conclusion = conclusion,
     run_attempt = attempt }
 end
@@ -253,7 +257,7 @@ end
 --- line answers 2, as the driver's dispatch does.
 local function report(f: Fake, args: {string}): Answer, string
   local argv: {string} = {}
-  for i, word in ipairs(args) do argv[i] = word end
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
   local got, why = Flags.parse(argv, 1, Report.spec)
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
   local code, out, err = Report.answer(got, f.env, f.client)
@@ -292,7 +296,7 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   })
   local result, said = report(f, { "--runs", "4", "--repo", repository })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   local function has(needle: string)
     assert(text:find(needle, 1, true), "the report lacks " .. needle .. ":\n" .. text)
   end
@@ -343,7 +347,7 @@ local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp
     { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
-  local text = result.stdout or ""
+  local text = result.stdout
   assert(text:find("- Not read: ci-driver-linux-x86_64: GET " ..
       "repos/cosmic-lua/cosmic/actions/artifacts/9/zip: HTTP 404: Not Found", 1, true), text)
   assert(text:find("- Wall: -", 1, true), text)
@@ -361,14 +365,14 @@ local function test_report_refuses_a_bad_line_and_a_missing_token(tmp: string)
   end
   -- GitHub's refusal is the report's failure, and names its status.
   local failed, why = report(f, { "--runs", "3" })
-  assert(failed.code == 1 and why:find("HTTP 404", 1, true), why)
+  assert(failed.code == 1 and why:find("HTTP 404", 1, true) ~= nil, why)
   -- A branch may hold "/", as a merge queue's and feature/x do.
   local branched, asked = report(f, { "--branch", "gh-readonly-queue/main/pr-1" })
-  assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true), asked)
+  assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true) ~= nil, asked)
   -- Without a client of its own, the report makes the live one from its
   -- environment, which needs a token.
   local got = assert(Flags.parse({}, 1, Report.spec))
-  f.env.GH_TOKEN, f.env.GITHUB_TOKEN = nil, nil
+  f.env["GH_TOKEN"], f.env["GITHUB_TOKEN"] = nil, nil
   local code, _, told = Report.answer(got, f.env)
-  assert(code == 1 and told:find("no GitHub token", 1, true), told)
+  assert(code == 1 and told:find("no GitHub token", 1, true) ~= nil, told)
 end

@@ -124,8 +124,6 @@ build/json_query_test.tl key_type 4
 
 build/link_resolve.tl key_type 1
 
-build/perf.tl key_type 2
-
 build/sandbox_test.tl key_type 1
 
 build/stdlib_declarations_test.tl key_type 3
@@ -707,8 +705,6 @@ build/lsp/graph.tl 3
 
 build/lsp/publish.tl 1
 
-build/paths.tl 1
-
 build/perf.tl 1
 
 build/pipeline.tl 5
@@ -817,9 +813,7 @@ build/work.tl 4
 
 build/worker.tl 1
 
-build/zig.tl 3
-
-build/zig_fetch.tl 7
+build/zig.tl 2
 
 cmd/cosmic/main.tl 1
 
@@ -1048,15 +1042,9 @@ build/test_worker.tl setmetatable_call 1
 
 build/udp_fixture.tl setmetatable_call 1
 
-build/zig.tl setmetatable_call 1
-
 checker/facts.tl setmetatable_call 2
 
-ci/cosmic_ci/fuzz_test.tl setmetatable_call 1
-
-ci/cosmic_ci/orchestration.tl condition_type 6
-
-ci/cosmic_ci/rehearsal.tl condition_type 2
+ci/cosmic_ci/orchestration.tl condition_type 1
 
 ci/cosmic_ci/orchestration.tl field_fixed 1
 
@@ -1066,9 +1054,7 @@ build/fix/read_memo_test.tl nil_not_allowed 8
 
 build/key_parts.tl nil_not_allowed 1
 
-ci/cosmic_ci/orchestration.tl nil_not_allowed 8
-
-ci/cosmic_ci/rehearsal.tl nil_not_allowed 1
+ci/cosmic_ci/orchestration.tl nil_not_allowed 2
 
 build/progress.tl overload_none 1
 
@@ -1080,15 +1066,11 @@ ci/cosmic_ci/rehearsal.tl overload_none 1
 
 build/shape_key.tl view_written 2
 
-ci/cosmic_ci/orchestration.tl view_written 28
+ci/cosmic_ci/orchestration.tl view_written 38
 
 ci/cosmic_ci/rehearsal.tl view_written 13
 
-ci/cosmic_ci/rehearsal_test.tl nil_not_allowed 4
-
 ci/cosmic_ci/rehearsal_test.tl view_written 1
-
-ci/run_local.tl setmetatable_call 5
 
 core/declarations_test.tl setmetatable_call 4
 
@@ -1549,8 +1531,6 @@ build/narrow.tl nil_not_allowed 1
 
 build/patch_test.tl nil_not_allowed 1
 
-build/perf.tl nil_not_allowed 28
-
 build/perf_test.tl nil_not_allowed 10
 
 build/perf_validation.tl nil_not_allowed 9
@@ -1791,8 +1771,6 @@ build/tree_program_test.tl nil_not_allowed 14
 
 build/tree_root.tl nil_not_allowed 8
 
-build/vendor.tl nil_not_allowed 13
-
 build/vendor_test.tl nil_not_allowed 1
 
 build/verbs_fixture.tl nil_not_allowed 2
@@ -1817,10 +1795,6 @@ build/writer.tl nil_not_allowed 3
 
 build/writer_test.tl nil_not_allowed 72
 
-build/zig.tl nil_not_allowed 8
-
-build/zig_fetch.tl nil_not_allowed 4
-
 build/zig_fetch_test.tl nil_not_allowed 14
 
 build/zig_test.tl nil_not_allowed 1
@@ -1835,73 +1809,7 @@ checker/flow.tl nil_not_allowed 20
 
 checker/narrowing.tl nil_not_allowed 23
 
-ci/cosmic_ci/cache_trim.tl nil_not_allowed 1
-
-ci/cosmic_ci/cache_trim_test.tl nil_not_allowed 8
-
-ci/cosmic_ci/compiles_test.tl nil_not_allowed 2
-
-ci/cosmic_ci/driver.tl nil_not_allowed 1
-
-ci/cosmic_ci/fixture_test.tl nil_not_allowed 4
-
-ci/cosmic_ci/fuzz.tl nil_not_allowed 9
-
-ci/cosmic_ci/fuzz_test.tl nil_not_allowed 2
-
-ci/cosmic_ci/github_api_test.tl nil_not_allowed 12
-
-ci/cosmic_ci/github_fake.tl nil_not_allowed 1
-
-ci/cosmic_ci/host_id.tl nil_not_allowed 4
-
-ci/cosmic_ci/host_id_test.tl nil_not_allowed 4
-
-ci/cosmic_ci/images.tl nil_not_allowed 1
-
-ci/cosmic_ci/orchestration_test.tl nil_not_allowed 22
-
-ci/cosmic_ci/place_tree_test.tl nil_not_allowed 3
-
-ci/cosmic_ci/prerelease.tl nil_not_allowed 1
-
-ci/cosmic_ci/prerelease_test.tl nil_not_allowed 7
-
-ci/cosmic_ci/queue_seed_test.tl nil_not_allowed 5
-
-ci/cosmic_ci/queue_stage_test.tl nil_not_allowed 2
-
-ci/cosmic_ci/report.tl nil_not_allowed 32
-
-ci/cosmic_ci/report_test.tl nil_not_allowed 24
-
-ci/cosmic_ci/runner_test.tl nil_not_allowed 43
-
-ci/cosmic_ci/state.tl nil_not_allowed 2
-
-ci/cosmic_ci/suite_output.tl nil_not_allowed 5
-
-ci/cosmic_ci/suite_output_test.tl nil_not_allowed 20
-
-ci/cosmic_ci/verdicts.tl nil_not_allowed 1
-
-ci/cosmic_ci/verdicts_test.tl nil_not_allowed 2
-
-ci/cosmic_ci/zig_prune.tl nil_not_allowed 7
-
-ci/cosmic_ci/zig_prune_test.tl nil_not_allowed 2
-
-ci/cosmic_ci/zig_restat.tl nil_not_allowed 2
-
-ci/cosmic_ci/zig_restat_test.tl nil_not_allowed 11
-
-ci/fixtures/launcher_test.tl nil_not_allowed 10
-
-ci/fixtures/runtime_test.tl nil_not_allowed 1
-
-ci/fixtures/self_rebuild_test.tl nil_not_allowed 9
-
-ci/run_local_test.tl nil_not_allowed 5
+ci/cosmic_ci/queue_stage_test.tl nil_not_allowed 1
 
 core/allocation_test.tl nil_not_allowed 4
 
@@ -2620,8 +2528,6 @@ build/fuzz/init.tl unreachable 2
 
 build/stand_in_probe.tl unreachable 2
 
-ci/cosmic_ci/fuzz.tl unreachable 1
-
 cosmic/tar_test.tl unreachable 1
 
 test/sqlite_transaction_test.tl unreachable 1
@@ -2814,11 +2720,7 @@ build/links.tl index_may_be_nil 6
 
 build/locator_fuzz_test.tl index_may_be_nil 8
 
-build/patch.tl index_may_be_nil 1
-
 build/patch_test.tl index_may_be_nil 2
-
-build/perf.tl index_may_be_nil 7
 
 build/perf_validation.tl index_may_be_nil 2
 
@@ -2954,11 +2856,7 @@ build/tree_program.tl index_may_be_nil 1
 
 build/tree_root.tl index_may_be_nil 1
 
-build/vendor.tl index_may_be_nil 1
-
 build/verb_list_test.tl index_may_be_nil 2
-
-build/verify_codesign.tl index_may_be_nil 1
 
 build/work.tl index_may_be_nil 8
 
@@ -2970,65 +2868,11 @@ build/workers.tl index_may_be_nil 1
 
 build/workflows_test.tl index_may_be_nil 8
 
-build/zig.tl index_may_be_nil 6
-
-build/zig_fetch.tl index_may_be_nil 2
-
 build/zig_fetch_test.tl index_may_be_nil 1
 
 checker/facts.tl index_may_be_nil 2
 
 checker/flow.tl index_may_be_nil 6
-
-ci/cosmic_ci/build_paths.tl index_may_be_nil 1
-
-ci/cosmic_ci/cache_trim_test.tl index_may_be_nil 4
-
-ci/cosmic_ci/driver.tl index_may_be_nil 2
-
-ci/cosmic_ci/fixture.tl index_may_be_nil 1
-
-ci/cosmic_ci/fuzz.tl index_may_be_nil 1
-
-ci/cosmic_ci/fuzz_test.tl index_may_be_nil 8
-
-ci/cosmic_ci/github_api_test.tl index_may_be_nil 29
-
-ci/cosmic_ci/github_fake.tl index_may_be_nil 1
-
-ci/cosmic_ci/github_test.tl index_may_be_nil 7
-
-ci/cosmic_ci/host_id.tl index_may_be_nil 4
-
-ci/cosmic_ci/orchestration.tl index_may_be_nil 1
-
-ci/cosmic_ci/place_tree_test.tl index_may_be_nil 1
-
-ci/cosmic_ci/prerelease.tl index_may_be_nil 3
-
-ci/cosmic_ci/prerelease_test.tl index_may_be_nil 4
-
-ci/cosmic_ci/queue_stage_test.tl index_may_be_nil 2
-
-ci/cosmic_ci/report.tl index_may_be_nil 6
-
-ci/cosmic_ci/state.tl index_may_be_nil 5
-
-ci/cosmic_ci/suite_output.tl index_may_be_nil 2
-
-ci/cosmic_ci/zig_prune.tl index_may_be_nil 2
-
-ci/cosmic_ci/zig_prune_test.tl index_may_be_nil 2
-
-ci/cosmic_ci/zig_restat.tl index_may_be_nil 3
-
-ci/fixtures/launcher_test.tl index_may_be_nil 4
-
-ci/run_local.tl index_may_be_nil 2
-
-ci/run_local_proof.tl index_may_be_nil 4
-
-ci/run_local_test.tl index_may_be_nil 8
 
 core/allocation_tool_test.tl index_may_be_nil 1
 
@@ -3800,7 +3644,7 @@ build/patch.tl view_written 8
 
 build/paths_test.tl view_written 1
 
-build/perf.tl view_written 35
+build/perf.tl view_written 43
 
 build/perf_test.tl view_written 11
 
@@ -4108,7 +3952,7 @@ build/type_watch.tl view_written 2
 
 build/unix_socket.tl view_written 4
 
-build/vendor.tl view_written 12
+build/vendor.tl view_written 13
 
 build/verb_cases.tl view_written 1
 
@@ -4140,15 +3984,15 @@ build/writer.tl view_written 11
 
 build/writer_test.tl view_written 1
 
-build/zig.tl view_written 27
+build/zig.tl view_written 32
 
 build/zig_caches.tl view_written 1
 
 build/zig_fetch.tl view_written 8
 
-build/zig_fetch_test.tl view_written 2
+build/zig_fetch_test.tl view_written 3
 
-build/zig_test.tl view_written 8
+build/zig_test.tl view_written 9
 
 checker/captures.tl view_written 2
 
@@ -4158,7 +4002,7 @@ checker/flow.tl view_written 1
 
 checker/narrowing.tl view_written 10
 
-ci/cosmic_ci/bootstrap_test.tl view_written 3
+ci/cosmic_ci/bootstrap_test.tl view_written 9
 
 ci/cosmic_ci/build_paths.tl view_written 7
 
@@ -4180,41 +4024,41 @@ ci/cosmic_ci/compiles_test.tl view_written 2
 
 ci/cosmic_ci/driver.tl view_written 9
 
-ci/cosmic_ci/fixture.tl view_written 7
+ci/cosmic_ci/fixture.tl view_written 10
 
-ci/cosmic_ci/fuzz.tl view_written 13
+ci/cosmic_ci/fuzz.tl view_written 12
 
-ci/cosmic_ci/fuzz_test.tl view_written 8
+ci/cosmic_ci/fuzz_test.tl view_written 16
 
 ci/cosmic_ci/github.tl view_written 1
 
-ci/cosmic_ci/github_api.tl view_written 7
+ci/cosmic_ci/github_api.tl view_written 10
 
-ci/cosmic_ci/github_api_test.tl view_written 2
+ci/cosmic_ci/github_api_test.tl view_written 4
 
 ci/cosmic_ci/github_fake.tl view_written 8
 
 ci/cosmic_ci/github_test.tl view_written 1
 
-ci/cosmic_ci/host_id.tl view_written 10
+ci/cosmic_ci/host_id.tl view_written 11
 
-ci/cosmic_ci/host_id_test.tl view_written 7
+ci/cosmic_ci/host_id_test.tl view_written 4
 
 ci/cosmic_ci/images.tl view_written 5
 
-ci/cosmic_ci/images_test.tl view_written 4
+ci/cosmic_ci/images_test.tl view_written 19
 
 ci/cosmic_ci/islands.tl view_written 3
 
-ci/cosmic_ci/launcher_fixture.tl view_written 2
+ci/cosmic_ci/launcher_fixture.tl view_written 4
 
-ci/cosmic_ci/orchestration_test.tl view_written 15
+ci/cosmic_ci/orchestration_test.tl view_written 17
 
-ci/cosmic_ci/place_tree_test.tl view_written 6
+ci/cosmic_ci/place_tree_test.tl view_written 7
 
 ci/cosmic_ci/prerelease.tl view_written 10
 
-ci/cosmic_ci/prerelease_test.tl view_written 22
+ci/cosmic_ci/prerelease_test.tl view_written 34
 
 ci/cosmic_ci/product_setup.tl view_written 1
 
@@ -4222,9 +4066,9 @@ ci/cosmic_ci/queue_seed.tl view_written 4
 
 ci/cosmic_ci/queue_seed_test.tl view_written 6
 
-ci/cosmic_ci/queue_stage.tl view_written 5
+ci/cosmic_ci/queue_stage.tl view_written 6
 
-ci/cosmic_ci/queue_stage_test.tl view_written 7
+ci/cosmic_ci/queue_stage_test.tl view_written 8
 
 ci/cosmic_ci/report.tl view_written 47
 
@@ -4236,7 +4080,7 @@ ci/cosmic_ci/runner_test.tl view_written 1
 
 ci/cosmic_ci/runtime_setup.tl view_written 2
 
-ci/cosmic_ci/state.tl view_written 14
+ci/cosmic_ci/state.tl view_written 17
 
 ci/cosmic_ci/suite_output.tl view_written 10
 
@@ -4248,21 +4092,21 @@ ci/cosmic_ci/zig_prune.tl view_written 22
 
 ci/cosmic_ci/zig_prune_test.tl view_written 1
 
-ci/cosmic_ci/zig_restat.tl view_written 8
+ci/cosmic_ci/zig_restat.tl view_written 11
 
 ci/cosmic_ci/zig_restat_test.tl view_written 5
 
 ci/fixtures/product_test.tl view_written 2
 
-ci/fixtures/runtime_test.tl view_written 3
+ci/fixtures/runtime_test.tl view_written 4
 
 ci/fixtures/self_rebuild_test.tl view_written 5
 
-ci/run_local.tl view_written 17
+ci/run_local.tl view_written 31
 
-ci/run_local_proof.tl view_written 1
+ci/run_local_proof.tl view_written 22
 
-ci/run_local_test.tl view_written 3
+ci/run_local_test.tl view_written 14
 
 core/allocation_test.tl view_written 6
 
@@ -5073,11 +4917,9 @@ ci/cosmic_ci/cache_trim.tl view_as_mut 1
 
 ci/cosmic_ci/changed_paths_test.tl view_as_mut 1
 
-ci/cosmic_ci/orchestration.tl view_as_mut 2
+ci/cosmic_ci/orchestration.tl view_as_mut 9
 
 ci/cosmic_ci/process_test.tl view_as_mut 2
-
-ci/cosmic_ci/queue_stage.tl view_as_mut 1
 
 ci/fixtures/identity_test.tl view_as_mut 1
 
@@ -5393,7 +5235,7 @@ build/memprobe.tl field_fixed 2
 
 build/memprobe_test.tl field_fixed 8
 
-build/patch_test.tl field_fixed 1
+build/patch_test.tl field_fixed 5
 
 build/perf_test.tl field_fixed 3
 
@@ -5507,8 +5349,6 @@ build/tree_checks_test.tl field_fixed 17
 
 build/udp_fixture.tl field_fixed 1
 
-build/vendor.tl field_fixed 8
-
 build/verb_cases.tl field_fixed 2
 
 build/verb_list.tl field_fixed 1
@@ -5529,15 +5369,11 @@ build/workflows_test.tl field_fixed 1
 
 build/writer_test.tl field_fixed 2
 
-build/zig.tl field_fixed 1
-
-build/zig_fetch.tl field_fixed 1
-
-build/zig_fetch_test.tl field_fixed 1
+build/zig_fetch_test.tl field_fixed 3
 
 build/zig_lock_test.tl field_fixed 6
 
-build/zig_test.tl field_fixed 12
+build/zig_test.tl field_fixed 18
 
 checker/facts.tl field_fixed 1
 
@@ -5553,13 +5389,9 @@ ci/cosmic_ci/fixture.tl field_fixed 1
 
 ci/cosmic_ci/fuzz_test.tl field_fixed 6
 
-ci/cosmic_ci/github_api.tl field_fixed 2
-
 ci/cosmic_ci/github_api_test.tl field_fixed 8
 
 ci/cosmic_ci/github_fake.tl field_fixed 3
-
-ci/cosmic_ci/images.tl field_fixed 2
 
 ci/cosmic_ci/images_test.tl field_fixed 6
 
@@ -5572,8 +5404,6 @@ ci/cosmic_ci/prerelease_test.tl field_fixed 13
 ci/cosmic_ci/process.tl field_fixed 2
 
 ci/cosmic_ci/queue_seed_test.tl field_fixed 1
-
-ci/cosmic_ci/queue_stage.tl field_fixed 1
 
 ci/cosmic_ci/report.tl field_fixed 8
 
@@ -5591,7 +5421,7 @@ ci/cosmic_ci/zig_prune_test.tl field_fixed 12
 
 ci/cosmic_ci/zig_restat.tl field_fixed 5
 
-ci/run_local_test.tl field_fixed 28
+ci/run_local_test.tl field_fixed 38
 
 core/artifact_fd_tool_test.tl field_fixed 1
 
@@ -6111,11 +5941,7 @@ build/must_confine_test.tl map_field 2
 
 build/patch_test.tl map_field 18
 
-build/paths.tl map_field 1
-
 build/paths_test.tl map_field 3
-
-build/perf.tl map_field 15
 
 build/policy_rules.tl map_field 8
 
@@ -6273,10 +6099,6 @@ build/worker_test.tl map_field 7
 
 build/workflows_test.tl map_field 193
 
-build/zig.tl map_field 14
-
-build/zig_fetch.tl map_field 3
-
 build/zig_fetch_test.tl map_field 5
 
 build/zig_lock_test.tl map_field 4
@@ -6285,99 +6107,39 @@ build/zig_test.tl map_field 25
 
 checker/captures.tl map_field 6
 
-ci/cosmic_ci/bootstrap_test.tl map_field 6
-
-ci/cosmic_ci/cache_trim.tl map_field 1
-
 ci/cosmic_ci/cache_trim_test.tl map_field 9
 
-ci/cosmic_ci/changed_paths.tl map_field 3
-
-ci/cosmic_ci/commit_verdicts.tl map_field 12
-
-ci/cosmic_ci/commit_verdicts_test.tl map_field 2
-
-ci/cosmic_ci/compiles.tl map_field 1
+ci/cosmic_ci/commit_verdicts.tl map_field 4
 
 ci/cosmic_ci/context_test.tl map_field 6
 
-ci/cosmic_ci/fixture.tl map_field 3
+ci/cosmic_ci/fixture_test.tl map_field 2
 
-ci/cosmic_ci/fixture_test.tl map_field 7
-
-ci/cosmic_ci/fuzz.tl map_field 11
-
-ci/cosmic_ci/fuzz_test.tl map_field 23
-
-ci/cosmic_ci/github.tl map_field 3
-
-ci/cosmic_ci/github_api.tl map_field 14
-
-ci/cosmic_ci/github_api_test.tl map_field 18
-
-ci/cosmic_ci/host_id.tl map_field 5
+ci/cosmic_ci/github_api_test.tl map_field 14
 
 ci/cosmic_ci/host_id_test.tl map_field 3
 
-ci/cosmic_ci/images.tl map_field 1
+ci/cosmic_ci/images_test.tl map_field 6
 
-ci/cosmic_ci/images_test.tl map_field 36
+ci/cosmic_ci/orchestration.tl map_field 2
 
-ci/cosmic_ci/launcher_fixture.tl map_field 1
-
-ci/cosmic_ci/orchestration.tl map_field 52
-
-ci/cosmic_ci/orchestration_test.tl map_field 99
-
-ci/cosmic_ci/place_tree.tl map_field 5
+ci/cosmic_ci/orchestration_test.tl map_field 4
 
 ci/cosmic_ci/prerelease.tl map_field 16
 
-ci/cosmic_ci/prerelease_test.tl map_field 31
+ci/cosmic_ci/prerelease_test.tl map_field 9
 
-ci/cosmic_ci/process.tl map_field 3
+ci/cosmic_ci/queue_seed_test.tl map_field 3
 
-ci/cosmic_ci/queue_seed.tl map_field 7
-
-ci/cosmic_ci/queue_seed_test.tl map_field 14
-
-ci/cosmic_ci/queue_stage.tl map_field 1
-
-ci/cosmic_ci/queue_stage_test.tl map_field 15
-
-ci/cosmic_ci/report.tl map_field 13
-
-ci/cosmic_ci/report_test.tl map_field 3
+ci/cosmic_ci/queue_stage_test.tl map_field 13
 
 ci/cosmic_ci/runner_test.tl map_field 8
 
-ci/cosmic_ci/state.tl map_field 3
-
-ci/cosmic_ci/suite_output_test.tl map_field 21
-
-ci/cosmic_ci/verdicts.tl map_field 4
-
-ci/cosmic_ci/verdicts_test.tl map_field 3
-
-ci/cosmic_ci/zig_prune.tl map_field 2
-
-ci/cosmic_ci/zig_restat.tl map_field 2
-
-ci/fixtures/fixed_point_test.tl map_field 1
-
-ci/fixtures/launcher_test.tl map_field 14
-
 ci/fixtures/performance_test.tl map_field 3
-
-ci/fixtures/runtime_test.tl map_field 1
 
 ci/fixtures/self_rebuild_test.tl map_field 6
 
-ci/run_local.tl map_field 25
-
-ci/run_local_proof.tl map_field 21
-
-ci/run_local_test.tl map_field 55
+ci/run_local_test.tl map_field 11
 
 core/allocation_test.tl map_field 18
 
@@ -6730,8 +6492,6 @@ build/term_filter.tl overload_value 1
 
 build/test_worker.tl overload_value 5
 
-build/zig_fetch.tl overload_value 1
-
 checker/facts.tl overload_value 1
 
 cosmic/shape.tl overload_value 1
@@ -7045,7 +6805,7 @@ build/zig.tl overload_none 2
 
 build/zig_lock_test.tl overload_none 2
 
-build/zig_test.tl overload_none 1
+build/zig_test.tl overload_none 2
 
 checker/captures.tl overload_none 6
 
@@ -7059,7 +6819,7 @@ ci/cosmic_ci/orchestration_test.tl overload_none 1
 
 ci/cosmic_ci/prerelease.tl overload_none 2
 
-ci/cosmic_ci/report.tl overload_none 7
+ci/cosmic_ci/report.tl overload_none 10
 
 ci/cosmic_ci/report_test.tl overload_none 2
 
@@ -7380,14 +7140,6 @@ build/writer_test.tl return_arity 1
 
 build/zig_test.tl return_arity 1
 
-ci/cosmic_ci/github_fake.tl return_arity 5
-
-ci/cosmic_ci/orchestration.tl return_arity 1
-
-ci/cosmic_ci/prerelease_test.tl return_arity 23
-
-ci/cosmic_ci/runner_test.tl return_arity 2
-
 cosmic/archive_test.tl return_arity 1
 
 cosmic/child_drain_test.tl return_arity 1
@@ -7507,8 +7259,6 @@ build/lsp/session.tl any_use 5
 
 build/lsp/splice.tl any_use 1
 
-build/perf.tl any_use 25
-
 build/perf_validation.tl any_use 7
 
 build/rand.tl any_use 1
@@ -7551,8 +7301,6 @@ ci/cosmic_ci/cache_trim_test.tl any_use 20
 
 ci/cosmic_ci/commit_verdicts.tl any_use 1
 
-ci/cosmic_ci/fuzz.tl any_use 2
-
 ci/cosmic_ci/fuzz_test.tl any_use 1
 
 ci/cosmic_ci/github.tl any_use 1
@@ -7561,11 +7309,9 @@ ci/cosmic_ci/orchestration.tl any_use 1
 
 ci/cosmic_ci/prerelease.tl any_use 1
 
-ci/cosmic_ci/prerelease_test.tl any_use 19
+ci/cosmic_ci/prerelease_test.tl any_use 20
 
-ci/cosmic_ci/report_test.tl any_use 33
-
-ci/run_local.tl any_use 3
+ci/cosmic_ci/report_test.tl any_use 34
 
 ci/run_local_test.tl any_use 1
 
@@ -8022,8 +7768,6 @@ checker/captures.tl cast_refused 4
 
 checker/facts.tl cast_refused 27
 
-ci/cosmic_ci/cache_trim.tl cast_refused 1
-
 ci/cosmic_ci/cache_trim_test.tl cast_refused 1
 
 ci/cosmic_ci/changed_paths_test.tl cast_refused 1
@@ -8034,13 +7778,11 @@ ci/cosmic_ci/commit_verdicts_test.tl cast_refused 1
 
 ci/cosmic_ci/fixture.tl cast_refused 3
 
-ci/cosmic_ci/fuzz.tl cast_refused 4
-
-ci/cosmic_ci/fuzz_test.tl cast_refused 2
+ci/cosmic_ci/fuzz_test.tl cast_refused 1
 
 ci/cosmic_ci/github_api_test.tl cast_refused 6
 
-ci/cosmic_ci/github_fake.tl cast_refused 2
+ci/cosmic_ci/github_fake.tl cast_refused 1
 
 ci/cosmic_ci/github_test.tl cast_refused 4
 
@@ -8048,11 +7790,7 @@ ci/cosmic_ci/host_id_test.tl cast_refused 1
 
 ci/cosmic_ci/orchestration.tl cast_refused 1
 
-ci/cosmic_ci/orchestration_test.tl cast_refused 15
-
-ci/cosmic_ci/place_tree.tl cast_refused 1
-
-ci/cosmic_ci/prerelease_test.tl cast_refused 1
+ci/cosmic_ci/orchestration_test.tl cast_refused 13
 
 ci/cosmic_ci/queue_seed.tl cast_refused 11
 
@@ -8060,25 +7798,15 @@ ci/cosmic_ci/queue_stage_test.tl cast_refused 19
 
 ci/cosmic_ci/report.tl cast_refused 3
 
-ci/cosmic_ci/report_test.tl cast_refused 3
+ci/cosmic_ci/report_test.tl cast_refused 1
 
 ci/cosmic_ci/runner.tl cast_refused 7
 
 ci/cosmic_ci/runner_test.tl cast_refused 2
 
-ci/cosmic_ci/state.tl cast_refused 1
-
-ci/cosmic_ci/suite_output.tl cast_refused 6
-
 ci/cosmic_ci/verdicts_test.tl cast_refused 1
 
-ci/fixtures/launcher_noexec_test.tl cast_refused 1
-
-ci/fixtures/launcher_test.tl cast_refused 1
-
 ci/fixtures/performance_test.tl cast_refused 4
-
-ci/run_local_test.tl cast_refused 1
 
 core/allocation_children_test.tl cast_refused 3
 
@@ -8488,8 +8216,6 @@ build/workflows_test.tl is_on_record 3
 
 ci/cosmic_ci/prerelease.tl is_on_record 3
 
-ci/cosmic_ci/zig_restat.tl is_on_record 1
-
 core/allocation_test.tl is_on_record 1
 
 cosmic/child.tl is_on_record 1
@@ -8587,8 +8313,6 @@ build/lsp/session_test.tl close_not_closable 3
 
 build/lsp/tool_test.tl close_not_closable 4
 
-build/patch.tl close_not_closable 2
-
 build/rebuild_lock.tl close_not_closable 1
 
 build/rebuild_lock_test.tl close_not_closable 1
@@ -8617,25 +8341,7 @@ build/udp_fixture_test.tl close_not_closable 4
 
 build/workers.tl close_not_closable 1
 
-build/zig.tl close_not_closable 1
-
-build/zig_fetch.tl close_not_closable 1
-
 build/zig_lock_test.tl close_not_closable 2
-
-ci/cosmic_ci/cache_trim.tl close_not_closable 1
-
-ci/cosmic_ci/cache_trim_tool_test.tl close_not_closable 1
-
-ci/cosmic_ci/fuzz.tl close_not_closable 2
-
-ci/cosmic_ci/fuzz_test.tl close_not_closable 7
-
-ci/run_local.tl close_not_closable 6
-
-ci/run_local_proof.tl close_not_closable 1
-
-ci/run_local_test.tl close_not_closable 1
 
 core/allocation_test.tl close_not_closable 22
 
@@ -8931,13 +8637,9 @@ build/links.tl condition_type 3
 
 build/links_test.tl condition_type 1
 
-build/patch.tl condition_type 3
-
 build/patch_test.tl condition_type 1
 
 build/paths_test.tl condition_type 1
-
-build/perf.tl condition_type 6
 
 build/pipeline_test.tl condition_type 1
 
@@ -9077,8 +8779,6 @@ build/tree_root.tl condition_type 1
 
 build/tree_root_test.tl condition_type 1
 
-build/vendor.tl condition_type 4
-
 build/vendor_test.tl condition_type 11
 
 build/verb_list_test.tl condition_type 3
@@ -9091,8 +8791,6 @@ build/verbs_test.tl condition_type 6
 
 build/verbs_tool_test.tl condition_type 3
 
-build/verify_codesign.tl condition_type 1
-
 build/work.tl condition_type 5
 
 build/work_test.tl condition_type 2
@@ -9100,10 +8798,6 @@ build/work_test.tl condition_type 2
 build/worker_test.tl condition_type 4
 
 build/workflows_test.tl condition_type 7
-
-build/zig.tl condition_type 4
-
-build/zig_fetch.tl condition_type 1
 
 build/zig_lock_test.tl condition_type 1
 
@@ -9118,64 +8812,6 @@ checker/facts.tl condition_type 2
 checker/flow.tl condition_type 42
 
 checker/narrowing.tl condition_type 17
-
-ci/cosmic_ci/build_paths_test.tl condition_type 1
-
-ci/cosmic_ci/context.tl condition_type 1
-
-ci/cosmic_ci/fixture.tl condition_type 4
-
-ci/cosmic_ci/fuzz.tl condition_type 1
-
-ci/cosmic_ci/github_api.tl condition_type 4
-
-ci/cosmic_ci/github_api_test.tl condition_type 2
-
-ci/cosmic_ci/github_fake.tl condition_type 1
-
-ci/cosmic_ci/images.tl condition_type 1
-
-ci/cosmic_ci/orchestration_test.tl condition_type 7
-
-ci/cosmic_ci/place_tree.tl condition_type 5
-
-ci/cosmic_ci/place_tree_test.tl condition_type 2
-
-ci/cosmic_ci/prerelease.tl condition_type 3
-
-ci/cosmic_ci/prerelease_test.tl condition_type 8
-
-ci/cosmic_ci/queue_seed.tl condition_type 2
-
-ci/cosmic_ci/queue_seed_test.tl condition_type 1
-
-ci/cosmic_ci/queue_stage.tl condition_type 1
-
-ci/cosmic_ci/queue_stage_test.tl condition_type 12
-
-ci/cosmic_ci/report.tl condition_type 6
-
-ci/cosmic_ci/report_test.tl condition_type 2
-
-ci/cosmic_ci/runner.tl condition_type 2
-
-ci/cosmic_ci/runtime_setup.tl condition_type 1
-
-ci/cosmic_ci/state.tl condition_type 3
-
-ci/cosmic_ci/suite_output.tl condition_type 1
-
-ci/cosmic_ci/verdicts_test.tl condition_type 1
-
-ci/cosmic_ci/zig_prune.tl condition_type 8
-
-ci/cosmic_ci/zig_prune_test.tl condition_type 9
-
-ci/fixtures/product_test.tl condition_type 1
-
-ci/fixtures/runtime_test.tl condition_type 1
-
-ci/run_local.tl condition_type 1
 
 core/allocation_test.tl condition_type 1
 
@@ -9758,72 +9394,6 @@ checker/flow.tl or_mix 5
 
 checker/narrowing.tl or_mix 4
 
-ci/cosmic_ci/bootstrap_test.tl or_mix 3
-
-ci/cosmic_ci/build_paths_test.tl or_mix 2
-
-ci/cosmic_ci/cache_trim_test.tl or_mix 6
-
-ci/cosmic_ci/commit_verdicts_test.tl or_mix 5
-
-ci/cosmic_ci/compiles.tl or_mix 1
-
-ci/cosmic_ci/compiles_test.tl or_mix 2
-
-ci/cosmic_ci/fixture_test.tl or_mix 1
-
-ci/cosmic_ci/fuzz_test.tl or_mix 2
-
-ci/cosmic_ci/github_api.tl or_mix 1
-
-ci/cosmic_ci/github_api_test.tl or_mix 15
-
-ci/cosmic_ci/github_test.tl or_mix 5
-
-ci/cosmic_ci/host_id.tl or_mix 1
-
-ci/cosmic_ci/images_test.tl or_mix 2
-
-ci/cosmic_ci/orchestration.tl or_mix 1
-
-ci/cosmic_ci/orchestration_test.tl or_mix 9
-
-ci/cosmic_ci/place_tree.tl or_mix 1
-
-ci/cosmic_ci/place_tree_test.tl or_mix 1
-
-ci/cosmic_ci/prerelease.tl or_mix 1
-
-ci/cosmic_ci/prerelease_test.tl or_mix 2
-
-ci/cosmic_ci/process_test.tl or_mix 1
-
-ci/cosmic_ci/report.tl or_mix 7
-
-ci/cosmic_ci/report_test.tl or_mix 6
-
-ci/cosmic_ci/runner_test.tl or_mix 3
-
-ci/cosmic_ci/verdicts.tl or_mix 1
-
-ci/cosmic_ci/verdicts_test.tl or_mix 2
-
-ci/cosmic_ci/zig_prune.tl or_mix 1
-
-ci/cosmic_ci/zig_prune_test.tl or_mix 4
-
-ci/cosmic_ci/zig_restat.tl or_mix 1
-
-ci/cosmic_ci/zig_restat_test.tl or_mix 3
-
-ci/fixtures/format_test.tl or_mix 1
-
-ci/fixtures/performance_test.tl or_mix 1
-
-ci/run_local.tl or_mix 1
-
-ci/run_local_test.tl or_mix 6
-
 core/allocation_test.tl or_mix 1
 
 core/connector_request_fuzz_test.tl or_mix 1
@@ -10359,10 +9929,6 @@ build/link_text_fuzz_test.tl and_ternary 1
 
 build/links.tl and_ternary 6
 
-build/patch.tl and_ternary 1
-
-build/paths.tl and_ternary 1
-
 build/plural.tl and_ternary 1
 
 build/plural_sites.tl and_ternary 1
@@ -10465,8 +10031,6 @@ build/tree_checks.tl and_ternary 22
 
 build/tree_program_test.tl and_ternary 1
 
-build/vendor.tl and_ternary 2
-
 build/vendor_test.tl and_ternary 1
 
 build/verbs_store_test.tl and_ternary 1
@@ -10481,55 +10045,9 @@ build/workflows_test.tl and_ternary 2
 
 build/writer.tl and_ternary 1
 
-build/zig.tl and_ternary 4
-
-build/zig_fetch.tl and_ternary 3
-
 build/zig_lock_test.tl and_ternary 1
 
 checker/flow.tl and_ternary 3
-
-ci/cosmic_ci/cache_trim.tl and_ternary 2
-
-ci/cosmic_ci/changed_paths.tl and_ternary 1
-
-ci/cosmic_ci/commit_verdicts.tl and_ternary 1
-
-ci/cosmic_ci/driver.tl and_ternary 1
-
-ci/cosmic_ci/fuzz.tl and_ternary 2
-
-ci/cosmic_ci/github.tl and_ternary 1
-
-ci/cosmic_ci/github_api.tl and_ternary 2
-
-ci/cosmic_ci/github_test.tl and_ternary 1
-
-ci/cosmic_ci/host_id.tl and_ternary 2
-
-ci/cosmic_ci/orchestration.tl and_ternary 6
-
-ci/cosmic_ci/orchestration_test.tl and_ternary 3
-
-ci/cosmic_ci/plural.tl and_ternary 1
-
-ci/cosmic_ci/prerelease_test.tl and_ternary 2
-
-ci/cosmic_ci/queue_seed.tl and_ternary 1
-
-ci/cosmic_ci/report.tl and_ternary 1
-
-ci/cosmic_ci/report_test.tl and_ternary 1
-
-ci/cosmic_ci/runner.tl and_ternary 2
-
-ci/cosmic_ci/verdicts.tl and_ternary 1
-
-ci/cosmic_ci/zig_restat.tl and_ternary 3
-
-ci/cosmic_ci/zig_restat_test.tl and_ternary 2
-
-ci/run_local.tl and_ternary 3
 
 core/allocation_test.tl and_ternary 2
 
@@ -11024,8 +10542,6 @@ build/links_test.tl concat_type 2
 
 build/parses_fixture.tl concat_type 1
 
-build/perf.tl concat_type 6
-
 build/perf_validation.tl concat_type 3
 
 build/policy_rules.tl concat_type 1
@@ -11166,8 +10682,6 @@ build/tree_program_test.tl concat_type 2
 
 build/unix_socket_declared_types_test.tl concat_type 1
 
-build/vendor.tl concat_type 2
-
 build/verb_list_test.tl concat_type 1
 
 build/verbs_store_test.tl concat_type 1
@@ -11187,60 +10701,6 @@ build/workflows_test.tl concat_type 12
 build/writer_test.tl concat_type 1
 
 build/zig_test.tl concat_type 1
-
-ci/cosmic_ci/cache_trim.tl concat_type 5
-
-ci/cosmic_ci/cache_trim_test.tl concat_type 1
-
-ci/cosmic_ci/changed_paths.tl concat_type 1
-
-ci/cosmic_ci/changed_paths_test.tl concat_type 1
-
-ci/cosmic_ci/commit_verdicts.tl concat_type 3
-
-ci/cosmic_ci/commit_verdicts_test.tl concat_type 2
-
-ci/cosmic_ci/compiles_test.tl concat_type 3
-
-ci/cosmic_ci/github_api.tl concat_type 7
-
-ci/cosmic_ci/github_api_test.tl concat_type 5
-
-ci/cosmic_ci/host_id_test.tl concat_type 1
-
-ci/cosmic_ci/orchestration.tl concat_type 6
-
-ci/cosmic_ci/orchestration_test.tl concat_type 9
-
-ci/cosmic_ci/place_tree_test.tl concat_type 1
-
-ci/cosmic_ci/prerelease.tl concat_type 7
-
-ci/cosmic_ci/prerelease_test.tl concat_type 3
-
-ci/cosmic_ci/queue_seed_test.tl concat_type 4
-
-ci/cosmic_ci/queue_stage_test.tl concat_type 1
-
-ci/cosmic_ci/report.tl concat_type 2
-
-ci/cosmic_ci/report_test.tl concat_type 1
-
-ci/cosmic_ci/state.tl concat_type 1
-
-ci/cosmic_ci/suite_output.tl concat_type 1
-
-ci/cosmic_ci/verdicts.tl concat_type 1
-
-ci/cosmic_ci/verdicts_test.tl concat_type 4
-
-ci/cosmic_ci/zig_prune.tl concat_type 10
-
-ci/cosmic_ci/zig_prune_test.tl concat_type 6
-
-ci/cosmic_ci/zig_restat.tl concat_type 3
-
-ci/cosmic_ci/zig_restat_test.tl concat_type 6
 
 core/allocation_children_test.tl concat_type 3
 
@@ -11745,8 +11205,6 @@ build/links.tl compare_disjoint 2
 
 build/lsp/hover.tl compare_disjoint 1
 
-build/perf.tl compare_disjoint 1
-
 build/receivers.tl compare_disjoint 5
 
 build/sandboxed_verdicts_test.tl compare_disjoint 6
@@ -11783,21 +11241,13 @@ build/todos.tl compare_disjoint 1
 
 build/tree_checks.tl compare_disjoint 1
 
-build/vendor.tl compare_disjoint 1
-
 build/work.tl compare_disjoint 4
 
 build/work_test.tl compare_disjoint 1
 
-build/zig.tl compare_disjoint 2
-
 checker/facts.tl compare_disjoint 19
 
 checker/narrowing.tl compare_disjoint 2
-
-ci/cosmic_ci/fuzz.tl compare_disjoint 2
-
-ci/cosmic_ci/zig_restat.tl compare_disjoint 1
 
 core/allocation_test.tl compare_disjoint 5
 
@@ -12108,47 +11558,15 @@ build/version_tool_test.tl literal_missing 1
 
 build/workers.tl literal_missing 1
 
-build/zig.tl literal_missing 3
-
 build/zig_fetch_test.tl literal_missing 5
 
 build/zig_test.tl literal_missing 1
 
-ci/cosmic_ci/cache_trim_test.tl literal_missing 5
-
-ci/cosmic_ci/driver.tl literal_missing 3
-
-ci/cosmic_ci/fixture.tl literal_missing 1
-
-ci/cosmic_ci/fuzz.tl literal_missing 1
+ci/cosmic_ci/cache_trim_test.tl literal_missing 2
 
 ci/cosmic_ci/fuzz_test.tl literal_missing 1
 
-ci/cosmic_ci/github_api.tl literal_missing 3
-
-ci/cosmic_ci/github_api_test.tl literal_missing 11
-
-ci/cosmic_ci/github_fake.tl literal_missing 1
-
-ci/cosmic_ci/host_id_test.tl literal_missing 1
-
-ci/cosmic_ci/orchestration.tl literal_missing 9
-
-ci/cosmic_ci/orchestration_test.tl literal_missing 1
-
-ci/cosmic_ci/prerelease_test.tl literal_missing 3
-
-ci/cosmic_ci/queue_stage_test.tl literal_missing 1
-
-ci/cosmic_ci/report_test.tl literal_missing 1
-
-ci/cosmic_ci/runner.tl literal_missing 11
-
-ci/cosmic_ci/runner_test.tl literal_missing 14
-
-ci/cosmic_ci/verdicts.tl literal_missing 1
-
-ci/run_local.tl literal_missing 2
+ci/cosmic_ci/github_api_test.tl literal_missing 3
 
 core/allocation_test.tl literal_missing 3
 
@@ -12857,8 +12275,6 @@ build/flow_test.tl arms_differ 2
 
 build/json_query_test.tl arms_differ 3
 
-build/perf.tl arms_differ 6
-
 build/perf_validation.tl arms_differ 1
 
 build/receivers.tl arms_differ 2
@@ -12908,8 +12324,6 @@ ci/cosmic_ci/prerelease_test.tl arms_differ 8
 ci/cosmic_ci/report_test.tl arms_differ 6
 
 ci/cosmic_ci/runner_test.tl arms_differ 2
-
-ci/run_local.tl arms_differ 1
 
 core/allocation_test.tl arms_differ 1
 
@@ -13068,8 +12482,6 @@ build/declared_key_test.tl array_of_optional 1
 
 build/links_test.tl array_of_optional 1
 
-build/perf.tl array_of_optional 1
-
 build/policy_rules.tl array_of_optional 1
 
 core/artifact_fd_test.tl array_of_optional 4
@@ -13117,8 +12529,6 @@ build/json_query_test.tl array_hole 1
 
 build/link_text.tl array_hole 4
 
-build/perf.tl array_hole 1
-
 build/sandbox.tl array_hole 2
 
 build/test_worker.tl array_hole 5
@@ -13126,8 +12536,6 @@ build/test_worker.tl array_hole 5
 build/tree_checks.tl array_hole 1
 
 build/worker_test.tl array_hole 1
-
-ci/cosmic_ci/prerelease_test.tl array_hole 1
 
 cosmic/archive_test.tl array_hole 1
 
@@ -13389,8 +12797,6 @@ build/vendor.tl not_assignable 1
 build/work_test.tl not_assignable 2
 
 build/worker.tl not_assignable 3
-
-build/zig.tl not_assignable 1
 
 build/zig_fetch_test.tl not_assignable 1
 
@@ -13714,6 +13120,24 @@ build/migrate_tool_test.tl view_written 2
 build/migrate.tl narrowing_dropped 1
 
 build/migrate_test.tl view_written 1
+
+ci/cosmic_ci/queue_stage.tl overload_none 1
+
+ci/cosmic_ci/orchestration_test.tl view_as_mut 5
+
+ci/fixtures/fixed_point_test.tl view_written 1
+
+ci/fixtures/launcher_test.tl view_written 16
+
+build/patch_test.tl overload_none 1
+
+build/patch_test.tl view_written 1
+
+build/zig_fetch_test.tl overload_none 1
+
+ci/run_local_test.tl overload_none 1
+
+build/vendor_test.tl field_fixed 2
 
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which

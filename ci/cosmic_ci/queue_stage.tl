@@ -67,8 +67,10 @@ local record QueueStage
 end
 
 local function sorted(names: {string}): {string}
-  table.sort(names)
-  return names
+  local out: {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name end
+  table.sort(out)
+  return out
 end
 
 --- Adds the tree at `path` to `writer` as `member`.
@@ -85,8 +87,8 @@ local function add(writer: Archive.Writer, path: string, member: string): boolea
     -- has no link entry), which costs size only; zig's caches hold none.
     local reader, trouble = Stream.open(path)
     if reader == nil then return false, trouble end
-    entry.size = st.size
-    local ok, added = writer:add_file(member, reader, entry)
+    local file_entry: Stream.EntryOptions = { mode = entry.mode, mtime = entry.mtime, size = st.size }
+    local ok, added = writer:add_file(member, reader, file_entry)
     local _, _ = reader:close()
     return ok, added
   elseif st.kind == "dir" then
@@ -139,7 +141,7 @@ end
 --- none kept costs only time.
 local function zig_build(host: QueueStage.Host, temp: string, zig: string,
                          key: string, exact: string, restored: string): string
-  if key == "" or not Fs.is_dir(temp .. "/zig-build") then return "" end
+  if key == "" or Fs.is_dir(temp .. "/zig-build") ~= true then return "" end
   if restored:sub(1, #exact) == exact then return "" end
   local tar = zig .. "/zig-build.tar"
   local ok, why = Fs.mkdirs(zig)
@@ -154,7 +156,7 @@ local function zig_build(host: QueueStage.Host, temp: string, zig: string,
 end
 
 function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
-  local temp = env.RUNNER_TEMP
+  local temp = env["RUNNER_TEMP"]
   if temp == nil or temp == "" then
     host.warn("queue-stage: RUNNER_TEMP is not set")
     return 1

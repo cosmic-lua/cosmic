@@ -59,7 +59,7 @@ function RuntimeSetup.closure(root: string, entry: string): {string}
   local seen: {string:boolean} = {}
   local out: {string} = {}
   local function visit(relative: string)
-    if seen[relative] then return end
+    if seen[relative] == true then return end
     seen[relative] = true
     out[#out + 1] = relative
     for name in Fixture.read(root .. "/" .. relative):gmatch("require%(%s*\"([%w_%.]+)\"%s*%)") do

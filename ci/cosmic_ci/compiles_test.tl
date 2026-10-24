@@ -11,7 +11,7 @@ local function cache(path: string, used: {integer})
       "used_ns INTEGER NOT NULL)"))
   for i, at in ipairs(used) do
     assert(Sqlite.run(db, "INSERT INTO compiled_v2 VALUES (?1, zeroblob(65536), x'', x'', 'd', 65536, ?2)",
-      { { text = "k" .. i }, { integer = at * 1000000000 } }))
+      { { text = "k" .. tostring(i) }, { integer = at * 1000000000 } }))
   end
   assert(db:close())
 end
@@ -49,7 +49,7 @@ local function test_missing_cache_stays_missing_and_snapshot_is_cleaned(tmp: str
   assert(Fs.stat(tmp .. "/missing") == nil and Fs.stat(restored) == nil)
   assert(Fs.stat(tmp .. "/output") == nil)
   code, out, err = Compiles.command({ "5" }, {})
-  assert(code == 0 and err == "" and out:find("nothing to trim", 1, true))
+  assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil)
 end
 
 local function test_unreadable_active_cache_is_retained_and_never_saved(tmp: string)
@@ -76,22 +76,23 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   assert(code == 0 and err ~= "")
   assert(Fs.stat(tmp .. "/output") == nil)
   db = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))[1]:text(1) == "future")
+  local future = assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))
+  assert(assert(future[1]):text(1) == "future")
   assert(db:close())
 end
 
 local function test_digest_ignores_usage_stamps_and_snapshot_absence_counts_fresh(tmp: string)
   local digests: {string} = {}
   for i, used in ipairs({ { 1, 6 }, { 1, 9 }, { 1, 6, 7 } }) do
-    local dir = tmp .. "/" .. i
+    local dir = tmp .. "/" .. tostring(i)
     assert(Fs.mkdirs(dir))
     cache(dir .. "/cache.db", used)
     local code, out, err = Compiles.command({ "5", dir .. "/absent.db" },
       { COSMIC_BUILD_CACHE = dir .. "/cache.db", GITHUB_OUTPUT = dir .. "/output" })
     assert(code == 0 and err == "", out .. err)
     local output = assert(Fs.read(dir .. "/output"))
-    digests[i] = output:match("^digest=([0-9a-f]+)\n")
-    assert(output:find("fresh=" .. (#used - 1) .. "\n", 1, true), output)
+    digests[i] = assert(output:match("^digest=([0-9a-f]+)\n"))
+    assert(output:find("fresh=" .. tostring((#used - 1)) .. "\n", 1, true), output)
   end
   assert(digests[1] == digests[2] and digests[1] ~= digests[3])
 end
@@ -102,7 +103,7 @@ local function test_invalid_arguments_and_snapshot_aliases_are_not_removed(tmp: 
   assert(Fs.symlink(path, tmp .. "/link"))
   for _, restored in ipairs({ path, tmp .. "/./cache.db", tmp .. "/link", path .. "-wal" }) do
     local code, _, err = Compiles.command({ "5", restored }, { COSMIC_BUILD_CACHE = path })
-    assert(code == 2 and err:find("aliases", 1, true), err)
+    assert(code == 2 and err:find("aliases", 1, true) ~= nil, err)
     assert(keys(path) == "k1")
   end
   for _, since in ipairs({ "soon", "-1", "9223372037", "1.5" }) do

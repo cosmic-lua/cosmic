@@ -46,9 +46,9 @@ end
 
 local function test_build_argv_refuses_missing_context()
   local env = build_env("false")
-  env.UBUNTU_SNAPSHOT = nil
+  env["UBUNTU_SNAPSHOT"] = nil
   local ok, why = pcall(Images.build_argv, env)
-  assert(not ok and tostring(why):find("UBUNTU_SNAPSHOT", 1, true))
+  assert(not ok and tostring(why):find("UBUNTU_SNAPSHOT", 1, true) ~= nil)
 end
 
 local function test_publish_argvs_join_each_arch()
@@ -119,16 +119,16 @@ local function test_build_runs_docker_from_the_checkout(tmp: string)
   local code, trouble = Images.build(env)
   assert(code == 0, trouble)
   local bracketed = build_words:gsub("[^ ]+", "[%0]")
-  local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
-  assert(read(env.FAKE_LOG) == cwd ..
+  local cwd = "cwd " .. assert(Fs.absolute(assert(env["GITHUB_WORKSPACE"]))) .. "\n"
+  assert(read(assert(env["FAKE_LOG"])) == cwd ..
       "argv " .. bracketed .. " [--push] [ci/images/ubuntu]\ntoken unset\n",
-    read(env.FAKE_LOG))
+    read(assert(env["FAKE_LOG"])))
 end
 
 local function test_build_fails_with_docker(tmp: string)
   local env = fake(tmp)
   for name, value in pairs(build_env("false")) do env[name] = value end
-  env.FAKE_FAIL, env.FAKE_STATUS = "buildx build", "3"
+  env["FAKE_FAIL"], env["FAKE_STATUS"] = "buildx build", "3"
   local code, trouble = Images.build(env)
   assert(code == 3 and trouble == "docker buildx build: exit 3", trouble)
 end
@@ -138,42 +138,42 @@ end
 --- commit whose images it joins (SOURCE_COMMIT).
 local function publish_env(tmp: string): {string:string}
   local env = fake(tmp)
-  env.IMAGE, env.ARCHES, env.TOKEN = "Ubuntu", "amd64 arm64", "s3cret-token"
-  env.SOURCE_COMMIT, env.GITHUB_SHA = "abc123", "main-head"
+  env["IMAGE"], env["ARCHES"], env["TOKEN"] = "Ubuntu", "amd64 arm64", "s3cret-token"
+  env["SOURCE_COMMIT"], env["GITHUB_SHA"] = "abc123", "main-head"
   return env
 end
 
 local function test_publish_joins_and_reports_the_digest(tmp: string)
   local env = publish_env(tmp)
-  assert(Fs.write(env.GITHUB_STEP_SUMMARY, "earlier\n"))
+  assert(Fs.write(assert(env["GITHUB_STEP_SUMMARY"]), "earlier\n"))
   local out = assert(Fs.open_write(tmp .. "/out"))
   local code, trouble = Images.publish(env, out)
   assert(Fs.close(out))
   assert(code == 0, trouble)
   local name = "ghcr.io/owner/repo-ci-ubuntu"
-  local cwd = "cwd " .. assert(Fs.absolute(env.GITHUB_WORKSPACE)) .. "\n"
-  assert(read(env.FAKE_LOG) ==
+  local cwd = "cwd " .. assert(Fs.absolute(assert(env["GITHUB_WORKSPACE"]))) .. "\n"
+  assert(read(assert(env["FAKE_LOG"])) ==
       cwd .. "argv [login] [ghcr.io] [-u] [actor] [--password-stdin]\n" ..
       "token unset\nstdin s3cret-token\n" ..
       cwd .. "argv [buildx] [imagetools] [create] [--tag] [" .. name .. ":abc123] [" ..
       name .. ":abc123-amd64] [" .. name .. ":abc123-arm64]\ntoken unset\n" ..
       cwd .. "argv [buildx] [imagetools] [inspect] [" .. name .. ":abc123]\n" ..
-      "token unset\n", read(env.FAKE_LOG))
+      "token unset\n", read(assert(env["FAKE_LOG"])))
   assert(read(tmp .. "/out") == name .. "@sha256:0123abcd\n")
-  assert(read(env.GITHUB_STEP_SUMMARY) ==
+  assert(read(assert(env["GITHUB_STEP_SUMMARY"])) ==
       "earlier\nUbuntu: `" .. name .. "@sha256:0123abcd`\n")
 end
 
 local function test_publish_refuses_an_index_without_a_digest(tmp: string)
   local env = publish_env(tmp)
-  env.FAKE_INSPECT = "Name: x\nDigest: md5:0\n"
+  env["FAKE_INSPECT"] = "Name: x\nDigest: md5:0\n"
   local out = assert(Fs.open_write(tmp .. "/out"))
   local code, trouble = Images.publish(env, out)
   assert(Fs.close(out))
   assert(code == 1 and trouble == "no digest for ghcr.io/owner/repo-ci-ubuntu:abc123",
     trouble)
   assert(read(tmp .. "/out") == "")
-  assert(Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+  assert(Fs.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
 end
 
 local function test_publish_stops_at_a_docker_failure(tmp: string)
@@ -182,13 +182,13 @@ local function test_publish_stops_at_a_docker_failure(tmp: string)
   for calls, command in ipairs(commands) do
     local dir = tmp .. "/" .. tostring(calls)
     local env = publish_env(dir)
-    env.FAKE_FAIL, env.FAKE_STATUS = command, "5"
+    env["FAKE_FAIL"], env["FAKE_STATUS"] = command, "5"
     local out = assert(Fs.open_write(dir .. "/out"))
     local code, trouble = Images.publish(env, out)
     assert(Fs.close(out))
     local label = command == "login" and "login ghcr.io" or command
     assert(code == 5 and trouble == "docker " .. label .. ": exit 5", trouble)
-    local _, ran = read(env.FAKE_LOG):gsub("argv ", "")
+    local _, ran = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
     assert(ran == calls, "ran on past the failure")
     assert(not trouble:find("s3cret", 1, true))
     assert(read(dir .. "/out") == "")
@@ -198,9 +198,9 @@ end
 local function test_missing_docker_fails(tmp: string)
   local env = fake(tmp)
   for name, value in pairs(build_env("false")) do env[name] = value end
-  env.PATH = tmp .. "/nowhere"
+  env["PATH"] = tmp .. "/nowhere"
   local code, trouble = Images.build(env)
-  assert(code == 127 and trouble:find("^docker: "), trouble)
+  assert(code == 127 and trouble:find("^docker: ") ~= nil, trouble)
 end
 
 --- driver.tl as a workflow step runs it, from a copy of this project:
@@ -222,16 +222,16 @@ local function test_driver_runs_both_commands(tmp: string)
   for name, value in pairs(build_env("false")) do
     if name ~= "IMAGE" then env[name] = value end
   end
-  env.HOME = tmp
+  env["HOME"] = tmp
   local built = driver(tmp .. "/build", "image-build", env)
   assert(built.ok, built.stderr)
   local published = driver(tmp .. "/publish", "image-publish", env)
   assert(published.ok, published.stderr)
   assert(published.stdout == "ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd\n",
     published.stdout)
-  local _, calls = read(env.FAKE_LOG):gsub("argv ", "")
+  local _, calls = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
   assert(calls == 4)
-  env.FAKE_FAIL, env.FAKE_STATUS = "login", "4"
+  env["FAKE_FAIL"], env["FAKE_STATUS"] = "login", "4"
   local refused = driver(tmp .. "/refused", "image-publish", env)
   local stderr = refused.stderr
   assert(refused.code == 4 and stderr ==
@@ -243,7 +243,7 @@ local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
   local env = publish_env(tmp)
   local target = tmp .. "/target"
   assert(Fs.write(target, "earlier\n", 0x180))
-  assert(Fs.symlink(target, env.GITHUB_STEP_SUMMARY))
+  assert(Fs.symlink(target, assert(env["GITHUB_STEP_SUMMARY"])))
   local before = assert(Fs.stat(target))
   local out = assert(Fs.open_write(tmp .. "/out"))
   local code, trouble = Images.publish(env, out)
@@ -251,14 +251,14 @@ local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
   assert(code == 0, trouble)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(env.GITHUB_STEP_SUMMARY) == target)
+  assert(Fs.readlink(assert(env["GITHUB_STEP_SUMMARY"])) == target)
   assert(read(target) == "earlier\nUbuntu: `ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd`\n")
 end
 
 local function test_publish_reports_output_before_one_failed_summary_append(tmp: string)
   local env = publish_env(tmp)
-  local path = env.GITHUB_STEP_SUMMARY
-  assert(Fs.write(path, "earlier\n"))
+  local path = env["GITHUB_STEP_SUMMARY"]
+  assert(Fs.write(assert(path), "earlier\n"))
   local output = tmp .. "/out"
   local out = assert(Fs.open_write(output))
   local append = Fs.append
@@ -273,8 +273,8 @@ local function test_publish_reports_output_before_one_failed_summary_append(tmp:
   Fs.append = append
   assert(Fs.close(out))
   assert(ok and code == 1 and calls.value == 1, trouble)
-  assert(trouble == path .. ": injected append failure", trouble)
-  assert(read(path) == "earlier\nUb")
+  assert(trouble == assert(path) .. ": injected append failure", trouble)
+  assert(read(assert(path)) == "earlier\nUb")
 end
 
 local function test_failed_image_output_does_not_append_the_summary(tmp: string)
@@ -294,5 +294,5 @@ local function test_failed_image_output_does_not_append_the_summary(tmp: string)
   Fs.put, Fs.append = put, append
   assert(Fs.close(output))
   assert(ok and code == 1 and trouble == "injected output failure", trouble)
-  assert(calls.value == 0 and Fs.exists(env.GITHUB_STEP_SUMMARY) == false)
+  assert(calls.value == 0 and Fs.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
 end

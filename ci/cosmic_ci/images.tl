@@ -72,7 +72,7 @@ end
 function Images.digest(output: string): string | nil
   for line in output:gmatch("[^\n]*") do
     local first, second = line:match("^[ \t]*([^ \t]+)[ \t]*([^ \t]*)")
-    if first == "Digest:" then
+    if first == "Digest:" and second ~= nil then
       if second:sub(1, 7) == "sha256:" then return second end
       return nil
     end
@@ -95,17 +95,20 @@ end
 --- answers its stdout as well.
 local function docker(env: {string:string}, words: {string},
                       input?: string, capture?: boolean): integer, string, string
-  local found, missing = Proc.find("docker", env.PATH)
+  local found, missing = Proc.find("docker", env["PATH"])
   if found == nil then return 127, "docker: " .. missing, "" end
   -- A relative PATH entry names docker from the driver's cwd, not the
   -- checkout's root it runs in.
   found = assert(Fs.absolute(found))
   local argv: {string} = { found }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local options: Child.Options = { cwd = required(env, "GITHUB_WORKSPACE"),
-    env = docker_environment(env) }
-  if input then options.input = input end
-  if capture then options.stdout = "capture" end
+  local cwd = required(env, "GITHUB_WORKSPACE")
+  local options: Child.Options
+  if capture == true then
+    options = { cwd = cwd, env = docker_environment(env), input = input, stdout = "capture" }
+  else
+    options = { cwd = cwd, env = docker_environment(env), input = input }
+  end
   -- Named by the words before its first option, which hold no secret.
   local label = "docker"
   for i = 1, 3 do

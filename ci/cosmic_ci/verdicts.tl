@@ -37,6 +37,11 @@ local Plural = require("cosmic_ci.plural")
 local record Verdicts
 end
 
+--- Whether the merge attached the run ahead's database, kept where the function that runs it can read it.
+local record Attached
+  attached: boolean
+end
+
 --- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`;
 --- `stores_v<n>`, the digest of each closure store's bytes by its
 --- address, which a run stamps as it keys a test by it, so a leg that
@@ -65,7 +70,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): integer, string
   if since == nil and not whole then
     return 2, "", "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n"
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
     return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", ""
   end
@@ -118,7 +123,7 @@ end
 local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
-  return math.tointeger(tonumber(rows[1]:text(1))) or 0, ""
+  return math.tointeger(tonumber(assert(rows[1]):text(1))) or 0, ""
 end
 
 --- Adds to the cache at `into` (made where it is not there) the rows of
@@ -144,9 +149,9 @@ local function merge_file(from: string, into: string): string, string
   local skipped: {string} = {}
   local added: {string} = {}
   local differing: {string} = {}
-  local session = { attached = false }
+  local session: Attached = { attached = false }
   local function work(): boolean, string
-    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. busy_ms)
+    local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))
     if not timed then return false, time_trouble end
     local ok, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS ahead", { { text = from } })
     if not ok then return false, attach_trouble end
@@ -197,7 +202,7 @@ local function merge_file(from: string, into: string): string, string
         -- `stores`): one address names one store's bytes, so a digest
         -- the run ahead kept for an address ours holds otherwise says
         -- a store's writer made two stores of it. Ours is kept.
-        if #ours > 0 and name:match("^stores_v%d+$") then
+        if #ours > 0 and name:match("^stores_v%d+$") ~= nil then
           local other, other_trouble = counted(db, "SELECT count(*) FROM main." .. q ..
               " AS m JOIN ahead." .. q .. " AS a ON a.address = m.address " ..
               "WHERE a.digest <> m.digest")
@@ -239,7 +244,8 @@ local function merge_file(from: string, into: string): string, string
       "holds, and this cache's is kept: a store's bytes must follow from its address " ..
       "alone (build/closure_store.tl's `address`), so a writer made two stores of one\n"
   end
-  local what = #added > 0 and table.concat(added, ", ") or "no table of the tool's"
+  local what = "no table of the tool's"
+  if #added > 0 then what = table.concat(added, ", ") end
   return "verdicts-merge: added " .. what .. "; " .. from .. " -> " .. into .. "\n", err
 end
 
@@ -260,7 +266,7 @@ function Verdicts.merge(argv: {string}, env: {string:string}): integer, string, 
   if from == "" or argv[2] ~= nil then
     return 2, "", "usage: verdicts-merge DIR\n"
   end
-  local path = env.COSMIC_VERDICT_CACHE or ""
+  local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
     return 0, "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
       "'); nothing to merge\n", ""

@@ -29,7 +29,7 @@ local function recorded(scenario: string, calls: {string}): ChangedPaths.Git
   return function(argv: {string}, seconds: integer): boolean, string
     local line = table.concat(argv, " ")
     calls[#calls + 1] = line
-    assert(seconds == (argv[1] == "fetch" and 60 or 0), line .. " is cut off after " .. seconds .. " s")
+    assert(seconds == (argv[1] == "fetch" and 60 or 0), line .. " is cut off after " .. tostring(seconds) .. " s")
     if line == "fetch --quiet --no-tags --depth=1 origin " .. RECORDED_BASE then return true, "" end
     if line:sub(1, #"fetch --quiet --no-tags --depth=1 origin ") == "fetch --quiet --no-tags --depth=1 origin " then
       return false, ""

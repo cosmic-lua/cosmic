@@ -24,11 +24,11 @@ local record GithubApi
     method: string
     url: string
     headers: {string:string}
-    body: string | nil
+    body?: string
     --- How long the request may take, in nanoseconds; a minute where nil.
-    timeout_ns: integer | nil
+    timeout_ns?: integer
     --- Whether `url` is on the client's upload origin, not the API's.
-    upload: boolean | nil
+    upload?: boolean
   end
   --- An answer, whatever its status; `headers` are keyed by lowercased name.
   record Reply
@@ -56,7 +56,7 @@ local record GithubApi
     --- The monotonic clock, in nanoseconds, that a paginated call's
     --- deadline is measured on; [`Clock.monotonic_ns`] where nil. A test
     --- sets it to step time by hand.
-    now_ns: function(): integer | nil
+    now_ns?: function(): integer
   end
   --- What a test changes about [`GithubApi.live`]: `script` holds one
   --- list of canned replies ([`cosmic.http`]'s `script`) for each call
@@ -66,6 +66,11 @@ local record GithubApi
     script?: {{string}}
     sent?: {string}
   end
+end
+
+--- How many scripted replies [`GithubApi.live`] has handed out.
+local record Handed
+  calls: integer
 end
 
 local default_base <const> = "https://api.github.com"
@@ -92,7 +97,7 @@ local function origin_of(url: string): string | nil, string
   local port = parts.port or default_ports[parts.scheme]
   if port == nil then return nil, "the scheme " .. parts.scheme .. " has no default port" end
   local host = parts.host:find(":", 1, true) and ("[" .. parts.host .. "]") or parts.host
-  return parts.scheme .. "://" .. host .. ":" .. port, ""
+  return parts.scheme .. "://" .. host .. ":" .. tostring(port), ""
 end
 
 --- Where `base`'s API takes release uploads: the origin and the path that
@@ -105,7 +110,7 @@ local function uploads_of(base: string): string | nil, string
   if host:sub(1, 4) == "api." then host, prefix = "uploads." .. host:sub(5), "" end
   local authority = host:find(":", 1, true) and ("[" .. host .. "]") or host
   local port = parts.port
-  if port then authority = authority .. ":" .. port end
+  if port then authority = authority .. ":" .. tostring(port) end
   local origin, trouble = origin_of(parts.scheme .. "://" .. authority)
   if origin == nil then return nil, trouble end
   return origin, prefix
@@ -128,7 +133,7 @@ end
 --- GitHub's explanation in an error answer's body: its `message`, or "".
 local function message_of(body: string): string
   local decoded = Json.decode_object(body)
-  local message = decoded and decoded.message
+  local message = decoded and decoded["message"]
   if message is string then return message end
   return ""
 end
@@ -137,8 +142,8 @@ end
 --- `GITHUB_TOKEN`, and its address from `GITHUB_API_URL` (api.github.com
 --- by default). Nil and why where there is no token.
 function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.Client | nil, string
-  local token = env.GH_TOKEN
-  if token == nil or token == "" then token = env.GITHUB_TOKEN end
+  local token = env["GH_TOKEN"]
+  if token == nil or token == "" then token = env["GITHUB_TOKEN"] end
   if token == nil or token == "" then
     -- A `gh auth login` is not read: the driver does not run gh, so a
     -- person with gh exports GH_TOKEN=$(gh auth token).
@@ -146,14 +151,14 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   end
   -- GITHUB_API_URL is trusted as given, plain http included: the tests'
   -- script transport cannot do TLS.
-  local base = env.GITHUB_API_URL
+  local base = env["GITHUB_API_URL"]
   if base == nil or base == "" then base = default_base end
   base = (base:gsub("/+$", ""))
   local api_origin, why = origin_of(base)
   if api_origin == nil then return nil, "GITHUB_API_URL: " .. why end
   local upload_origin, upload_path = uploads_of(base)
   assert(upload_origin ~= nil, upload_path)
-  local made = { calls = 0 }
+  local made: Handed = { calls = 0 }
   local function script(): {string} | nil
     made.calls = made.calls + 1
     local scripted = test and test.script
@@ -163,7 +168,7 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
     -- The token is the one thing this function must not hand to any other host.
     local target = origin_of(request.url)
-    if target ~= api_origin and not (request.upload and target == upload_origin) then
+    if target ~= api_origin and not (request.upload == true and target == upload_origin) then
       return nil, "refusing to send the token to " .. tostring(target or request.url)
     end
     if target ~= api_origin then
@@ -176,11 +181,11 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
     end
     local headers: {string:string} = {}
     for name, value in pairs(request.headers) do headers[name] = value end
-    headers.Authorization = "Bearer " .. token
-    headers.Accept = headers.Accept or "application/vnd.github+json"
+    headers["Authorization"] = "Bearer " .. token
+    headers["Accept"] = headers["Accept"] or "application/vnd.github+json"
     headers["X-GitHub-Api-Version"] = api_version
     headers["User-Agent"] = user_agent
-    if request.body ~= nil then headers.Expect = "" end
+    if request.body ~= nil then headers["Expect"] = "" end
     -- A redirect (a renamed repository's 301, say) fails the call rather
     -- than being followed: the token must not follow one.
     local response, trouble = Http.open(request.url, { method = request.method,
@@ -220,7 +225,8 @@ end
 --- What `reply` to a request for `path` says of a refusal, as an error.
 local function refused(method: string, path: string, reply: GithubApi.Reply): string
   local said = message_of(reply.body)
-  return method .. " " .. path .. ": HTTP " .. reply.status .. (said ~= "" and (": " .. said) or "")
+  if said ~= "" then said = ": " .. said end
+  return method .. " " .. path .. ": HTTP " .. tostring(reply.status) .. said
 end
 
 local function succeeded(reply: GithubApi.Reply): boolean
@@ -264,28 +270,32 @@ function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integ
   local pages: {any} = {}
   local now = client.now_ns or Clock.monotonic_ns
   local deadline = now() + (seconds and Clock.seconds(seconds) or request_ns)
-  local request = request_for(client, "GET", path, seconds)
-  local seen: {string:boolean} = { [request.url] = true }
+  local url = request_for(client, "GET", path, seconds).url
+  local seen: {string:boolean} = { [url] = true }
+  local limit = tostring(max_pages)
   for number = 1, max_pages do
-    local label = number == 1 and path or (path .. " (page " .. number .. ")")
+    local label = path
+    if number ~= 1 then label = path .. " (page " .. tostring(number) .. ")" end
     local left = deadline - now()
     if left <= 0 then return nil, "GET " .. label .. ": the listing's time ran out" end
-    request.timeout_ns = left
-    local reply, why = client.send(request)
+    local reply, why = client.send({ method = "GET", url = url, headers = {}, timeout_ns = left })
     if reply == nil then return nil, "GET " .. label .. ": " .. why end
     if not succeeded(reply) then return nil, refused("GET", label, reply) end
     local page, trouble = Json.decode(reply.body)
     if not (page is table) then
-      return nil, "GET " .. label .. ": " .. (trouble ~= "" and trouble or "not an object or an array")
+      if trouble == "" then trouble = "not an object or an array" end
+      return nil, "GET " .. label .. ": " .. trouble
     end
     pages[#pages + 1] = page
-    local target = next_link(reply.headers.link)
+    local target = next_link(reply.headers["link"])
     if target == nil then return pages, "" end
-    if seen[target] then return nil, "GET " .. label .. ": the next page repeats " .. target end
+    if seen[target] == true then
+      return nil, "GET " .. label .. ": the next page repeats " .. target
+    end
     seen[target] = true
-    request = { method = "GET", url = target, headers = {} }
+    url = target
   end
-  return nil, "GET " .. path .. ": more than " .. max_pages .. " pages"
+  return nil, "GET " .. path .. ": more than " .. limit .. " pages"
 end
 
 --- Deletes `path` (relative to the API): true, or false and why, naming
@@ -308,8 +318,8 @@ function GithubApi.request(client: GithubApi.Client, method: string, path: strin
   if value ~= nil then
     local body, trouble = Json.encode(value)
     if body == nil then return nil, method .. " " .. path .. ": " .. trouble end
-    request.body = body
-    request.headers["Content-Type"] = "application/json"
+    request = { method = request.method, url = request.url, headers = { ["Content-Type"] = "application/json" },
+      timeout_ns = request.timeout_ns, body = body }
   end
   local reply, why = client.send(request)
   if reply == nil then return nil, method .. " " .. path .. ": " .. why end
@@ -358,7 +368,7 @@ function GithubApi.upload(client: GithubApi.Client, upload_url: string, name: st
   if reply == nil then return false, "POST " .. path .. " (" .. name .. "): " .. trouble end
   if reply.status == 201 then return true, "" end
   local said = refused("POST", path .. " (" .. name .. ")", reply)
-  if reply.status == 422 and reply.body:find("already_exists", 1, true) then
+  if reply.status == 422 and reply.body:find("already_exists", 1, true) ~= nil then
     said = said .. " (the release holds an asset of that name)"
   end
   return false, said
@@ -373,10 +383,10 @@ end
 function GithubApi.download(client: GithubApi.Client, path: string, to: string,
                             accept?: string): boolean, string
   local request = request_for(client, "GET", path)
-  if accept then request.headers.Accept = accept end
+  if accept then request.headers["Accept"] = accept end
   local reply, why = client.send(request)
   if reply == nil then return false, "GET " .. path .. ": " .. why end
-  if not redirect_statuses[reply.status] then
+  if redirect_statuses[reply.status] ~= true then
     if reply.status >= 200 and reply.status <= 299 then
       -- Asked for as bytes, a file may come in the answer itself, as it
       -- may as a redirect: GitHub's documentation allows both.
@@ -385,14 +395,16 @@ function GithubApi.download(client: GithubApi.Client, path: string, to: string,
         if not written then return false, "GET " .. path .. ": " .. trouble end
         return true, ""
       end
-      return false, "GET " .. path .. ": HTTP " .. reply.status .. " with no redirect to a file"
+      return false, "GET " .. path .. ": HTTP " .. tostring(reply.status) .. " with no redirect to a file"
     end
     return false, refused("GET", path, reply)
   end
-  local location = reply.headers.location
-  local parts = location and Url.parse(location)
-  if parts == nil or parts.scheme ~= "https" then
-    return false, "GET " .. path .. ": HTTP " .. reply.status ..
+  local location = reply.headers["location"]
+  local status = tostring(reply.status)
+  local parts: Url.Parts | nil = nil
+  if location ~= nil then parts = Url.parse(location) end
+  if location == nil or parts == nil or parts.scheme ~= "https" then
+    return false, "GET " .. path .. ": HTTP " .. status ..
       " redirects somewhere other than an https URL"
   end
   local fetched, trouble = client.fetch(location, to)

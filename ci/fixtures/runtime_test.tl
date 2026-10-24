@@ -300,7 +300,7 @@ local function test_runtime_environment_scrubbing(tmp: string)
   local long_name = "COSMIC_PORTABLE_" .. string.format("%080d", 0)
   names[#names + 1] = long_name
   values[long_name] = "long"
-  values.COSMIC_PORTABLE_CACHE = cache
+  values["COSMIC_PORTABLE_CACHE"] = cache
 
   local argv: {string} = { fixture_dir .. "/runtime.old",
     tool .. "/test/portable/tool.tl", "environment-clean", cache }
@@ -509,7 +509,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   -- A cold launch that runs past a second may stamp the core it just
   -- published; whether it does depends on the host's speed, not on the
   -- launcher. What it may never do is stamp something the entry is not.
-  if Fs.exists(stamp) then
+  if Fs.exists(stamp) == true then
     local cold = assert(sys.lstat(core))
     local prefix = string.format("%d|%d|%d|", cold.size, cold.ino, cold.mtime)
     assert(String.starts_with(Fixture.read(stamp), prefix),
@@ -523,7 +523,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
     "stamp does not record the entry")
 
   local bytes = Fixture.read(core)
-  local last = string.char(bytes:byte(#bytes) ~ 0xff)
+  local last = string.char(assert(bytes:byte(#bytes)) ~ 0xff)
   Fixture.write(core, bytes:sub(1, #bytes - 1) .. last, 0x140)
   local repaired = Fixture.run("stamp-damaged", { program, "help" }, work,
     diagnostics, values)

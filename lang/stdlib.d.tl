@@ -6,6 +6,11 @@
 -- collection it is given takes it `mut`, and one that the fork types by a special case in its checker (`assert`,
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
+--
+-- TODO: declare `Fs.Scratch`, `Signal.Guard` and `Child.Handle` as classes in cosmic/fs.tl, cosmic/signal.tl and
+-- cosmic/child.tl (each says `metamethod __close` today), once the stdlib is written in the new grammar: a `<close>`
+-- local must be a class, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
+-- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
   -- What a coroutine's body is given to yield through, since `coroutine.yield` is dynamically scoped and no type says
   -- which coroutine a bare `yield` feeds: `Y` is what it yields and `S` what it is sent.

@@ -31,6 +31,6 @@ local function test_await_ready_fails_when_the_child_exits_first(tmp: string)
     return true
   end)
   local why = tostring(failure)
-  assert(not called and why:find("early exited before it was ready (code=7", 1, true),
+  assert(not called and why:find("early exited before it was ready (code=7", 1, true) ~= nil,
     why)
 end

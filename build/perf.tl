@@ -36,43 +36,53 @@ local record Perf
   end
 end
 
-local rank_cache: {string:{integer}} = {}
+--- The lowest and highest rank of a sign interval ([`ranks`]).
+local record Ranks
+  lower: integer
+  upper: integer
+end
+
+local rank_cache: {string:Ranks} = {}
 
 --- Relative binomial masses start at the mode, avoiding the underflow of
 --- p^n at large n. Each outward recurrence decreases; normalizing their sum
 --- gives both tails without subtracting a tiny probability from one.
 local function ranks(n: integer, numerator: integer, denominator: integer,
                      tail_denominator: integer): integer, integer
-  local key = n .. ":" .. numerator .. ":" .. denominator .. ":" .. tail_denominator
+  local key = tostring(n) .. ":" .. tostring(numerator) .. ":" .. tostring(denominator) .. ":" ..
+    tostring(tail_denominator)
   local cached = rank_cache[key]
-  if cached ~= nil then return cached[1], cached[2] end
+  if cached ~= nil then return cached.lower, cached.upper end
   local mode = ((n + 1) * numerator) // denominator
   local weights: {number} = {}
+  for _ = 1, n + 1 do weights[#weights + 1] = 0.0 end
   weights[mode + 1] = 1
+  local weight = 1.0
   for k = mode, 1, -1 do
-    weights[k] = weights[k + 1] * k * (denominator - numerator) /
-      ((n - k + 1) * numerator)
+    weight = weight * k * (denominator - numerator) / ((n - k + 1) * numerator)
+    weights[k] = weight
   end
+  weight = 1.0
   for k = mode, n - 1 do
-    weights[k + 2] = weights[k + 1] * (n - k) * numerator /
-      ((k + 1) * (denominator - numerator))
+    weight = weight * (n - k) * numerator / ((k + 1) * (denominator - numerator))
+    weights[k + 2] = weight
   end
   local total = 0.0
-  for _, weight in ipairs(weights) do total = total + weight end
+  for _, each in ipairs(weights) do total = total + each end
   local limit = total / tail_denominator
   local cumulative, lower, upper = 0.0, 0, n + 1
-  for k = 0, n do
-    cumulative = cumulative + weights[k + 1]
+  for at, each in ipairs(weights) do
+    cumulative = cumulative + each
     if cumulative > limit then break end
-    lower = k + 1
+    lower = at
   end
   cumulative = 0
-  for k = n, 0, -1 do
-    cumulative = cumulative + weights[k + 1]
+  for at = #weights, 1, -1 do
+    cumulative = cumulative + assert(weights[at])
     if cumulative > limit then break end
-    upper = k
+    upper = at - 1
   end
-  rank_cache[key] = { lower, upper }
+  rank_cache[key] = { lower = lower, upper = upper }
   return lower, upper
 end
 
@@ -80,6 +90,13 @@ local function interval(low: number | nil, high: number | nil): Perf.Interval
   assert(low == nil or (low == low and math.abs(low) < math.huge), "lower bound is not finite")
   assert(high == nil or (high == high and math.abs(high) < math.huge), "upper bound is not finite")
   return { low = low, high = high, lower_bounded = low ~= nil, upper_bounded = high ~= nil }
+end
+
+--- The observation of rank `at` in `sorted`, which must hold one there.
+local function nth(sorted: {number}, at: integer): number
+  local value = sorted[at]
+  assert(value ~= nil, "no observation of rank " .. tostring(at))
+  return value
 end
 
 --- Median with a 95% sign interval, and p95 with a 97.5% order-statistic
@@ -95,12 +112,12 @@ function Perf.distribution(values: {number}): Perf.Distribution
   table.sort(sorted)
   local n = #sorted
   local middle = (n + 1) // 2
-  local median = sorted[middle]
-  if n % 2 == 0 then median = median / 2 + sorted[middle + 1] / 2 end
+  local median = nth(sorted, middle)
+  if n % 2 == 0 then median = median / 2 + nth(sorted, middle + 1) / 2 end
   local lower, upper = ranks(n, 1, 2, 40)
   local tail_lower, tail_upper = ranks(n, 19, 20, 80)
-  return { median = median, p95 = sorted[math.ceil(n * 0.95)],
-    low = sorted[lower], high = sorted[upper],
+  return { median = median, p95 = nth(sorted, math.ceil(n * 0.95)),
+    low = nth(sorted, lower), high = nth(sorted, upper),
     p95_interval = interval(sorted[tail_lower], sorted[tail_upper]) }
 end
 
@@ -203,18 +220,26 @@ function Perf.check_history(a: {string}, b: {string})
   assert(a[5] == b[5] and a[6] == b[6], "unbalanced fixture build history")
 end
 
+--- The number in column `at` of a build history row.
+local function counter(row: {string}, at: integer): number
+  local value = tonumber(row[at])
+  assert(value ~= nil, "build history counter " .. tostring(at) .. " is not a number")
+  return value
+end
+
 --- Check the exact effect of a command outside its timed region. Reads and
 --- compilation belong only to the deliberate leaf mutation workload.
 function Perf.check_transition(before: {string}, after: {string}, builds?: boolean, change?: boolean)
   assert(#before == 6 and #after == 6, "missing build history counters")
-  local delta = builds and 1 or 0
-  assert(tonumber(after[5]) == tonumber(before[5]) + delta and
-      tonumber(after[6]) == tonumber(before[6]) + delta, "unexpected build history transition")
+  local delta = 0
+  if builds == true then delta = 1 end
+  assert(counter(after, 5) == counter(before, 5) + delta and
+      counter(after, 6) == counter(before, 6) + delta, "unexpected build history transition")
   assert(after[4] == "PASS", "fixture build failed")
-  if builds then
-    assert(tonumber(after[1]) + tonumber(after[2]) == 6, "build lost fixture modules")
-    if change then
-      assert(tonumber(after[1]) > 0 and tonumber(after[3]) > 0, "leaf edit read/compiled no modules")
+  if builds == true then
+    assert(counter(after, 1) + counter(after, 2) == 6, "build lost fixture modules")
+    if change == true then
+      assert(counter(after, 1) > 0 and counter(after, 3) > 0, "leaf edit read/compiled no modules")
     else
       assert(after[1] == "0" and after[2] == "6" and after[3] == "0", "no-op read/compiled modules")
     end
@@ -261,16 +286,86 @@ local record Observation
   leaf_value?: integer
 end
 
-local function json_bounds(value: any): any
-  if not value is {any:any} then return value end
-  local copy: {any:any} = {}
-  for key, item in pairs(value) do copy[key] = json_bounds(item) end
-  if value.lower_bounded == false then copy.low = Json.null end
-  if value.upper_bounded == false then copy.high = Json.null end
-  if value.calibration_tail_interval ~= nil and value.tail_noise == nil then
-    copy.tail_noise = Json.null
-  end
-  return copy
+--- `value` as an `any`, which a parameter declared `any` takes and answers.
+local function passed(value: any): any
+  return value
+end
+
+--- A value as the JSON files hold it: itself, and `null` where it is missing, which a record's missing field
+--- would leave out (doc/performance.md: an unbounded side is `null`).
+local function shown(value?: number): any
+  if value == nil then return Json.null end
+  return passed(value)
+end
+
+--- An [`Perf.Interval`] as the JSON files hold it.
+local record IntervalJson
+  low: any
+  high: any
+  lower_bounded: boolean
+  upper_bounded: boolean
+end
+
+--- A [`Perf.Distribution`] as the JSON files hold it.
+local record DistributionJson
+  median: number
+  p95: number
+  low: number
+  high: number
+  p95_interval: IntervalJson
+end
+
+--- A [`Reading`] as the JSON files hold it.
+local record ReadingJson
+  a: DistributionJson
+  b: DistributionJson
+  delta: DistributionJson
+  noise: number
+  calibration: DistributionJson
+  calibration_deviation: DistributionJson
+  candidate_deviation: DistributionJson
+  tail_delta: number
+  tail_interval: IntervalJson
+  calibration_tail_delta: number
+  calibration_tail_interval: IntervalJson
+  tail_noise: any
+  sample_count: integer
+  calibration_count: integer
+  status: string
+  reasons: {string}
+end
+
+local function interval_json(bounds: Perf.Interval): IntervalJson
+  return { low = shown(bounds.low), high = shown(bounds.high),
+    lower_bounded = bounds.lower_bounded, upper_bounded = bounds.upper_bounded }
+end
+
+local function distribution_json(d: Perf.Distribution): DistributionJson
+  return { median = d.median, p95 = d.p95, low = d.low, high = d.high, p95_interval = interval_json(d.p95_interval) }
+end
+
+local function reading_json(r: Reading): ReadingJson
+  return { a = distribution_json(r.a), b = distribution_json(r.b), delta = distribution_json(r.delta),
+    noise = r.noise, calibration = distribution_json(r.calibration),
+    calibration_deviation = distribution_json(r.calibration_deviation),
+    candidate_deviation = distribution_json(r.candidate_deviation), tail_delta = r.tail_delta,
+    tail_interval = interval_json(r.tail_interval), calibration_tail_delta = r.calibration_tail_delta,
+    calibration_tail_interval = interval_json(r.calibration_tail_interval), tail_noise = shown(r.tail_noise),
+    sample_count = r.sample_count, calibration_count = r.calibration_count, status = r.status,
+    reasons = r.reasons }
+end
+
+--- What `command` keeps when a command does not run or does not succeed.
+local record Failure
+  argv: {string}
+  trouble?: string
+  result?: Child.Result
+end
+
+--- The build history counters of a fixture before and after a command.
+local record Counters
+  before: {string}
+  after: {string}
 end
 
 local function save(path: string, value: any)
@@ -282,13 +377,15 @@ local function command(argv: {string}, fixture: Fixture): Child.Result
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
     if fixture.logs ~= "" then
-      save(fixture.logs .. "/failure.json", { argv = argv, trouble = trouble })
+      local failure: Failure = { argv = argv, trouble = trouble }
+      save(fixture.logs .. "/failure.json", failure)
     end
     error(trouble)
   end
   if not result.ok or result.truncated then
     if fixture.logs ~= "" then
-      save(fixture.logs .. "/failure.json", { argv = argv, result = result })
+      local failure: Failure = { argv = argv, result = result }
+      save(fixture.logs .. "/failure.json", failure)
     end
     error(table.concat(argv, " ") .. ": " .. (result.stderr or "") .. (result.stdout or ""))
   end
@@ -297,7 +394,7 @@ end
 
 local function leaf(fixture: Fixture, value: integer)
   assert(Fs.write(fixture.root .. "/leaf.tl", "local record Leaf end\n" ..
-      "function Leaf.value(): integer return " .. value .. " end\nreturn Leaf\n"))
+      "function Leaf.value(): integer return " .. tostring(value) .. " end\nreturn Leaf\n"))
   assert(Fs.set_mtime(fixture.root .. "/leaf.tl", 1000000000, value))
 end
 
@@ -306,8 +403,9 @@ local function latest_build(fixture: Fixture): {string}
   local rows = assert(Sqlite.text_rows(db,
     "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(4) == "PASS", "missing successful build counters")
-  return rows[1]:texts()
+  local row = rows[1]
+  assert(#rows == 1 and row ~= nil and row:text(4) == "PASS", "missing successful build counters")
+  return row:texts()
 end
 
 local function fixture(binary: string, root: string): Fixture
@@ -316,15 +414,15 @@ local function fixture(binary: string, root: string): Fixture
   for name in pairs(env) do
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
   end
-  env.COSMIC_TREE = root
-  env.COSMIC_AUTO_BOOT = "0"
-  env.COSMIC_BUILD_CACHE = "0"
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_PORTABLE_CACHE = root .. "/portable-cache"
+  env["COSMIC_TREE"] = root
+  env["COSMIC_AUTO_BOOT"] = "0"
+  env["COSMIC_BUILD_CACHE"] = "0"
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_PORTABLE_CACHE"] = root .. "/portable-cache"
   -- Beside the fixture, so its build directory, and the logs kept there,
   -- stay in the result directory rather than the user's cache.
-  env.COSMIC_BUILD_HOME = root .. "-build"
+  env["COSMIC_BUILD_HOME"] = root .. "-build"
   local f: Fixture = { binary = binary, root = root, host = root .. "/host",
     portable = root .. "/portable", host_tool = root .. "/host-tool",
     logs = "", output = "", env = env }
@@ -450,7 +548,7 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   end
   local argv = { executable }
   for _, word in ipairs(w.args) do argv[#argv + 1] = word end
-  if w.change then
+  if w.change == true then
     -- Both phases see the same new content, never an earlier verdict.
     leaf(f, leaf_value)
   end
@@ -469,7 +567,7 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
   local observation: Observation = { phase = phase, workload = w.name, pair = pair, label = label,
     elapsed_ns = elapsed, batch = w.batch, argv = argv, cwd = f.root,
     stdout = stdout, stderr = stderr, before = before, after = latest_build(f) }
-  if w.change then observation.leaf_value = leaf_value end
+  if w.change == true then observation.leaf_value = leaf_value end
   save(f.logs .. "/current.json", observation)
   if w.name == "exact_docs" then
     assert(stdout:find("Fs.read", 1, true), "docs did not return Fs.read")
@@ -490,7 +588,8 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
     assert(not (stdout .. stderr):find("test: SKIP", 1, true), "fixture skipped a test")
   end
   Perf.check_transition(before, observation.after, w.builds, w.change)
-  save(f.logs .. "/counters.json", { before = before, after = observation.after })
+  local counters: Counters = { before = before, after = observation.after }
+  save(f.logs .. "/counters.json", counters)
   return observation
 end
 
@@ -508,16 +607,69 @@ local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
       second = measure(b, w, phase, offset + i, "b", mutation_offset + i)
       first = measure(a, w, phase, offset + i, "a", mutation_offset + i)
     end
-    observations[#observations + 1], observations[#observations + 2] = first, second
+    observations[#observations + 1] = first
+    observations[#observations + 1] = second
     save(a.logs .. "/" .. phase .. "-" .. w.name .. ".json", observations)
     Perf.check_history(first.before, second.before)
     Perf.check_history(first.after, second.after)
     if i > 3 then
-      raw[#raw + 1], raw[#raw + 2] = first, second
+      raw[#raw + 1] = first
+      raw[#raw + 1] = second
       paired[#paired + 1] = { a = first.elapsed_ns / w.batch, b = second.elapsed_ns / w.batch }
     end
   end
   return paired
+end
+
+--- A benchmark input as retained in the output directory.
+local record Artifact
+  input: string
+  retained: string
+  sha256: string
+  bytes: integer
+end
+
+--- One fixture directory and the retained artifact it runs.
+local record Entry
+  id: string
+  phase: string
+  label: string
+  artifact_index: integer
+  root: string
+end
+
+--- The controller process that ran the benchmark.
+local record Controller
+  path: string
+  sha256: string
+  pin?: string
+end
+
+--- What `metadata.json` records of a run.
+local record Metadata
+  cache: string
+  sandbox: string
+  cold_io: string
+  peak_rss: string
+  pairs: integer
+  protocol: string
+  adaptive_repeat: boolean
+  exploratory: boolean
+  host: sys.Uname
+  cpu_features: {string}
+  controller_sqlite: string
+  cpuinfo?: string
+  kernel?: string
+  artifacts: {Artifact}
+  controller: Controller
+  script_sha256: string
+  workload: string
+  timer_overhead_ns: DistributionJson
+  baseline_commit?: string
+  candidate_commit?: string
+  fixtures: {Entry}
+  counter_columns: {string}
+  supervisor_with_true_ns?: DistributionJson | string
 end
 
 --- The shared body of [`Perf.benchmark`] and [`Perf.rehearse`]: `count` sample pairs
@@ -528,14 +680,14 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
   end
   assert(#selected > 0, "unknown workload: " .. (argv[5] or ""))
-  local output = argv[3]
-  local exists, exists_trouble = Fs.exists(output)
+  local given_output = assert(argv[3], "missing output directory")
+  local exists, exists_trouble = Fs.exists(given_output)
   assert(exists ~= nil, exists_trouble)
   assert(not exists, "output directory must not already exist")
-  assert(Fs.mkdirs(output))
-  output = assert(Fs.absolute(output))
+  assert(Fs.mkdirs(given_output))
+  local output = assert(Fs.absolute(given_output))
   local binaries: {string} = {}
-  local artifacts: {any} = {}
+  local artifacts: {Artifact} = {}
   local cpuinfo, _ = Fs.read("/proc/cpuinfo")
   local kernel, _ = Fs.read("/proc/version")
   local controller = assert(Proc.executable())
@@ -547,7 +699,21 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     local start = Clock.monotonic_ns()
     timer[#timer + 1] = Clock.monotonic_ns() - start
   end
-  local metadata: {string:any} = { cache = "warm OS page cache, fresh process per command",
+  for i = 1, 2 do
+    local input = assert(Fs.absolute((assert(argv[i], "missing artifact"))))
+    local bytes = assert(Fs.read(input))
+    local retained = output .. "/artifact-" .. tostring(i)
+    assert(Fs.write(retained, bytes, 493))
+    binaries[#binaries + 1] = retained
+    artifacts[#artifacts + 1] = { input = input, retained = retained, sha256 = Hash.hex_sha256(bytes), bytes = #bytes }
+  end
+  local manifest: {Entry} = {
+    { id = "aa-a", phase = "aa", label = "a", artifact_index = 1, root = output .. "/aa-a" },
+    { id = "aa-b", phase = "aa", label = "b", artifact_index = 1, root = output .. "/aa-b" },
+    { id = "ab-a", phase = "ab", label = "a", artifact_index = 1, root = output .. "/ab-a" },
+    { id = "ab-b", phase = "ab", label = "b", artifact_index = 2, root = output .. "/ab-b" },
+  }
+  local metadata: Metadata = { cache = "warm OS page cache, fresh process per command",
     sandbox = "unsandboxed fixtures; no shared compile or verdict cache",
     cold_io = "unmeasured", peak_rss = "unmeasured", pairs = count,
     protocol = "fixed-sample-v3", adaptive_repeat = false, exploratory = count < 200,
@@ -557,50 +723,40 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     controller = { path = controller, sha256 = Hash.hex_sha256((assert(Fs.read(controller)))), pin = pin },
     script_sha256 = Hash.hex_sha256((assert(Fs.read(script)))),
     workload = argv[5] or "all",
-    timer_overhead_ns = Perf.distribution(timer),
+    timer_overhead_ns = distribution_json(Perf.distribution(timer)),
     baseline_commit = Env.get("COSMIC_PERF_BASELINE_COMMIT"),
-    candidate_commit = Env.get("COSMIC_PERF_CANDIDATE_COMMIT") }
-  for i = 1, 2 do
-    local input = assert(Fs.absolute(argv[i]))
-    local bytes = assert(Fs.read(input))
-    local retained = output .. "/artifact-" .. i
-    assert(Fs.write(retained, bytes, 493))
-    binaries[i] = retained
-    artifacts[i] = { input = input, retained = retained, sha256 = Hash.hex_sha256(bytes), bytes = #bytes }
-  end
-  local manifest = {
-    { id = "aa-a", phase = "aa", label = "a", artifact_index = 1, root = output .. "/aa-a" },
-    { id = "aa-b", phase = "aa", label = "b", artifact_index = 1, root = output .. "/aa-b" },
-    { id = "ab-a", phase = "ab", label = "a", artifact_index = 1, root = output .. "/ab-a" },
-    { id = "ab-b", phase = "ab", label = "b", artifact_index = 2, root = output .. "/ab-b" },
-  }
-  metadata.fixtures = manifest
-  metadata.counter_columns = { "compiled", "cached", "read", "verdict", "run", "builds" }
-  save(output .. "/metadata.json", json_bounds(metadata))
+    candidate_commit = Env.get("COSMIC_PERF_CANDIDATE_COMMIT"),
+    fixtures = manifest,
+    counter_columns = { "compiled", "cached", "read", "verdict", "run", "builds" } }
+  save(output .. "/metadata.json", metadata)
   local fixtures: {Fixture} = {}
   for _, entry in ipairs(manifest) do
-    fixtures[#fixtures + 1] = fixture(binaries[entry.artifact_index], entry.root)
+    local binary = binaries[entry.artifact_index]
+    assert(binary ~= nil, "the manifest names an artifact that was not retained")
+    fixtures[#fixtures + 1] = fixture(binary, entry.root)
   end
   local a, aa, parent, b = fixtures[1], fixtures[2], fixtures[3], fixtures[4]
+  assert(a ~= nil and aa ~= nil and parent ~= nil and b ~= nil, "the manifest names four fixtures")
   local afacts = assert(Json.decode_object((assert(Fs.read(a.logs .. "/runtime.json")))))
   local bfacts = assert(Json.decode_object((assert(Fs.read(b.logs .. "/runtime.json")))))
-  assert(afacts.target == bfacts.target and afacts.configuration == bfacts.configuration,
+  assert(rawequal(afacts["target"], bfacts["target"]) and
+      rawequal(afacts["configuration"], bfacts["configuration"]),
     "baseline and candidate must use the same target/configuration")
   local has_true, _ = Fs.exists("/usr/bin/true")
-  if has_true then
+  if has_true == true then
     local supervisor: {number} = {}
     for _ = 1, probes do
       local start = Clock.monotonic_ns()
       command({ "/usr/bin/true" }, a)
       supervisor[#supervisor + 1] = Clock.monotonic_ns() - start
     end
-    metadata.supervisor_with_true_ns = Perf.distribution(supervisor)
+    metadata.supervisor_with_true_ns = distribution_json(Perf.distribution(supervisor))
   else
     metadata.supervisor_with_true_ns = "unmeasured: /usr/bin/true unavailable"
   end
-  save(output .. "/metadata.json", json_bounds(metadata))
+  save(output .. "/metadata.json", metadata)
   local raw: {Observation} = {}
-  local summaries: {string:Reading} = {}
+  local summaries: {string:ReadingJson} = {}
   local failed = false
   local stride = ((count + 4) // 2) * 2
   for index, w in ipairs(selected) do
@@ -614,15 +770,16 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     local after = latest_build(a)
     for _, f in ipairs(fixtures) do Perf.check_history(after, latest_build(f)) end
     local compared = Perf.compare(calibration, samples)
-    summaries[w.name] = compared
+    summaries[w.name] = reading_json(compared)
     failed = failed or compared.status ~= "pass"
     save(output .. "/raw.json", raw)
-    save(output .. "/summary.json", json_bounds(summaries))
+    save(output .. "/summary.json", summaries)
     print(string.format("%s: %s; median %.3f -> %.3f ms; A/A resolution %.3f ms",
       w.name, compared.status, compared.a.median / 1e6, compared.b.median / 1e6, compared.noise / 1e6))
     if #compared.reasons > 0 then print(w.name .. ": " .. table.concat(compared.reasons, ", ")) end
   end
-  return failed and 2 or 0
+  if failed then return 2 end
+  return 0
 end
 
 --- Run independently retained artifacts in new fixture directories. Status 1
@@ -635,12 +792,14 @@ function Perf.benchmark(argv: {string}, program: string): integer
     return 1
   end
   local count: integer = 200
-  if argv[4] ~= nil then
-    local parsed = tonumber(argv[4])
+  local given_pairs = argv[4]
+  if given_pairs ~= nil then
+    local parsed = tonumber(given_pairs)
     assert(parsed ~= nil, "pairs must be a number")
-    count = math.tointeger(parsed)
+    local whole = math.tointeger(parsed)
+    assert(whole ~= nil and whole >= 30 and whole <= 2000, "pairs must be an integer from 30 to 2000")
+    count = whole
   end
-  assert(count ~= nil and count >= 30 and count <= 2000, "pairs must be an integer from 30 to 2000")
   return experiment(argv, count, 30, program)
 end
 

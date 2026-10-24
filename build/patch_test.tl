@@ -3,6 +3,20 @@ local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")
 
+--- The open descriptors of this process, each with what it names.
+local function descriptors(): string
+  local out: {string} = {}
+  -- /dev/fd where there is no /proc (macOS, the BSDs).
+  local directory = "/proc/self/fd"
+  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
+  for _, number in ipairs((assert(Fs.list(directory)))) do
+    local target, _ = Fs.readlink(directory .. "/" .. number)
+    out[#out + 1] = number .. "=" .. (target or "?")
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
 --- A checkout at `root` with one vendored tree, `lib`, holding `files`,
 --- and the patch records `records` for it (none when nil).
 local function checkout(root: string, files: {string: string}, records?: {string: string})
@@ -395,4 +409,42 @@ local function test_direct_tree_does_not_request_a_device_flush(tmp: string)
   local ok, result, trouble = pcall(Patch.tree, tmp .. "/source", "lib", tmp .. "/direct")
   raw.full_fsync = real
   assert(ok and result, trouble or tostring(result))
+end
+
+--- A raise while a tree is placed must leave no scratch directory and no descriptor: the scratch owner is held open
+--- for the whole call.
+local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
+  checkout(dir .. "/root", { ["src/a.h"] = "x\n" })
+  assert(Patch.prepare(dir .. "/root", "lib", dir .. "/warm"))
+  local cache = dir .. "/cache"
+  assert(Fs.mkdirs(cache))
+  local before = descriptors()
+  local real_rename = Fs.rename
+  Fs.rename = function(_from: string, _to: string): boolean, string
+    error("the rename raised")
+  end
+  local ok, trouble = pcall(Patch.prepare, dir .. "/root", "lib", cache)
+  Fs.rename = real_rename
+  assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
+  assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
+  assert(descriptors() == before, "a descriptor of the scratch stayed open")
+end
+
+local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
+  checkout(dir .. "/root", { ["src/a.h"] = "x\n" })
+  assert(Fs.mkdirs(dir .. "/root/patch/zig-lib"))
+  assert(Fs.mkdirs(dir .. "/lib/x"))
+  assert(Fs.write(dir .. "/lib/x/f", "y"))
+  local cache = dir .. "/cache"
+  assert(Fs.mkdirs(cache))
+  local before = descriptors()
+  local real_rename = Fs.rename
+  Fs.rename = function(_from: string, _to: string): boolean, string
+    error("the rename raised")
+  end
+  local ok, trouble = pcall(Patch.zig_lib, dir .. "/root", dir .. "/lib", cache .. "/out")
+  Fs.rename = real_rename
+  assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
+  assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
+  assert(descriptors() == before, "a descriptor of the scratch stayed open")
 end

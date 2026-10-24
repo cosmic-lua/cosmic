@@ -92,15 +92,15 @@ local function test_stage_keeps_what_main_would_save(tmp: string)
     COMPILES_PREFIX = "compiles-leg-", COMPILES_DIGEST = "",
   }, false)
   assert(keys == "", keys)
-  assert(not Fs.exists(seed .. "/verdicts") and not Fs.exists(seed .. "/build-cache") and
-      not Fs.exists(seed .. "/driver-checked"))
+  assert(Fs.exists(seed .. "/verdicts") ~= true and Fs.exists(seed .. "/build-cache") ~= true and
+      Fs.exists(seed .. "/driver-checked") ~= true)
 
   -- A job that keeps no compiles (ci.yml's `checked`) names none.
   seed, keys = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-checked-h-f-", VERDICTS_DIGEST = "d2", VERDICTS_RESTORED = "",
   }, false)
   assert(keys == "verdicts=verdicts-leg-checked-h-f-d2\n", keys)
-  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and not Fs.exists(seed .. "/build-cache"))
+  assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v" and Fs.exists(seed .. "/build-cache") ~= true)
 end
 
 --- The verdicts' entry is named under the commit too (`verdicts-sha`):
@@ -116,7 +116,7 @@ local function test_stage_names_the_verdicts_under_the_commit(tmp: string)
   }, false)
   assert(keys == "verdicts-sha=verdicts-leg-h-f-sha-" .. SHA .. "-d0\n", keys)
   assert(Fs.read(seed .. "/verdicts-commit/key") == "verdicts-leg-h-f-d0\n")
-  assert(not Fs.exists(seed .. "/verdicts"), "the rows restored are kept again")
+  assert(Fs.exists(seed .. "/verdicts") ~= true, "the rows restored are kept again")
 
   seed, keys = stage(tmp, {
     VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d1", VERDICTS_RESTORED = "verdicts-leg-h-f-d0",
@@ -128,7 +128,7 @@ local function test_stage_names_the_verdicts_under_the_commit(tmp: string)
   assert(Fs.read(seed .. "/verdicts-commit/key") == "verdicts-leg-h-f-d1\n")
 
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "", SHA = SHA }, false)
-  assert(keys == "" and not Fs.exists(seed .. "/verdicts") and not Fs.exists(seed .. "/verdicts-commit"), keys)
+  assert(keys == "" and Fs.exists(seed .. "/verdicts") ~= true and Fs.exists(seed .. "/verdicts-commit") ~= true, keys)
 end
 
 local ZIG <const> = "zig-build-leg-v1-"
@@ -170,7 +170,7 @@ end
 --- `tar` laid out under `dir` by cosmic's own reader.
 local function unpacked(tar: string, dir: string): string
   assert(Fs.mkdirs(dir))
-  assert(Archive.extract(tar, dir, { links = "create" }))
+  assert(Archive.extract(tar, dir, { links = "create", filter = nil }))
   return dir .. "/zig-build"
 end
 
@@ -183,8 +183,8 @@ local function test_stage_keeps_the_zig_build_outputs_of_a_new_core(tmp: string)
     local seed, keys = stage(tmp, { ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE,
       ZIG_BUILD_RESTORED = restored }, false)
     assert(keys == "zig-build=" .. CORE .. "9-1\nzig-build-exact=" .. CORE .. "\n", restored .. ": " .. keys)
-    assert(not Fs.exists(seed .. "/zig-build.tar"), "the zig build outputs are kept in the seed itself")
-    local program = unpacked(zig_tar(seed), tmp .. "/unpacked-" .. i) .. "/zig-project/o/abc/build"
+    assert(Fs.exists(seed .. "/zig-build.tar") ~= true, "the zig build outputs are kept in the seed itself")
+    local program = unpacked(zig_tar(seed), tmp .. "/unpacked-" .. tostring(i)) .. "/zig-project/o/abc/build"
     assert(Fs.read(program) == "z" and assert(Fs.stat(program)).mode & 0x1ff == 493,
       restored .. ": the zig build outputs lost a file or its mode")
   end
@@ -196,9 +196,9 @@ end
 local function test_stage_keeps_no_zig_build_outputs_an_entry_holds(tmp: string)
   local seed, keys = stage(tmp, { ZIG_BUILD_KEY = CORE .. "9-1", ZIG_BUILD_EXACT = CORE,
     ZIG_BUILD_RESTORED = CORE .. "8-1" }, false)
-  assert(keys == "" and not Fs.exists(zig_tar(seed)), keys)
+  assert(keys == "" and Fs.exists(zig_tar(seed)) ~= true, keys)
   seed, keys = stage(tmp, { VERDICTS_PREFIX = "verdicts-leg-h-f-", VERDICTS_DIGEST = "d2" }, false)
-  assert(keys == "verdicts=verdicts-leg-h-f-d2\n" and not Fs.exists(zig_tar(seed)), keys)
+  assert(keys == "verdicts=verdicts-leg-h-f-d2\n" and Fs.exists(zig_tar(seed)) ~= true, keys)
 end
 
 --- A tar that fails keeps none of zig's and names no key for it, and
@@ -213,7 +213,7 @@ local function test_a_failing_zig_tar_keeps_the_rest(tmp: string)
     return false, "refused"
   end)
   assert(keys == "verdicts=verdicts-leg-h-f-d1\ndriver-checked=driver-checked-v2-leg-x\n", keys)
-  assert(not Fs.exists(zig_tar(seed)), "a failed tar is kept")
+  assert(Fs.exists(zig_tar(seed)) ~= true, "a failed tar is kept")
   assert(Fs.read(seed .. "/verdicts/verdicts.db") == "v")
   assert(f.warned[#f.warned] == "warning: the zig build outputs could not be kept: none seeded",
     table.concat(f.warned, "\n"))
@@ -270,7 +270,7 @@ local function test_the_zig_tar_refuses_what_it_cannot_keep(tmp: string)
   assert(sys.mkfifo(fifo, 0x1a4))
   local ok, why = QueueStage.archive_tree(parent, "zig-build", parent .. "/zig-build.tar")
   assert(not ok and why:find("pipe", 1, true) ~= nil, why)
-  assert(not Fs.exists(parent .. "/zig-build.tar"))
+  assert(Fs.exists(parent .. "/zig-build.tar") ~= true)
 end
 
 --- ci.yml, decoded.
@@ -297,7 +297,7 @@ local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663f
 --- platform matrix: an entry of its name, else the entry that names
 --- none (alpine-x86_64's, which adds to every leg).
 local function in_container(leg: string): boolean
-  local platform = (workflow().jobs as {string: {string: any}}).platform
+  local platform = (workflow()["jobs"] as {string: {string: any}}).platform
   local image: string | nil
   for _, entry in ipairs(((platform.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
     if entry.name == leg then return (entry.image as string) ~= "" end
@@ -332,7 +332,6 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
     ["github.run_attempt"] = "1",
     ["steps.host-id.outputs.prefix"] = host,
     ["steps.host-id.outputs.verdicts"] = host .. "bfd3e88dc72aaf8f-",
-    ["steps.names.outputs.image"] = IMAGES[leg],
     ["steps.names.outputs.vendor"] = "zig-build-" .. leg .. "-" .. HEX64 .. "-",
     ["steps.names.outputs.core"] = HEX64,
     ["steps.verdicts-trim.outputs.digest"] = HEX64,
@@ -341,10 +340,13 @@ local function expand(template: string, leg: string, steps: {{string: any}}): st
     ["steps.compiles-restore.outputs.cache-matched-key"] = "",
     ["steps.zig-cache-restore.outputs.cache-matched-key"] = "",
   }
+  local image = IMAGES[leg]
+  if image ~= nil then values["steps.names.outputs.image"] = image end
   return (template:gsub("%${{ (.-) }}", function(expression: string): string
     if expression:match("^hashFiles%(") then return HEX64 end
     if expression == "matrix.image && 'container' || steps.names.outputs.image" then
-      return in_container(leg) and "container" or IMAGES[leg]
+      if in_container(leg) then return "container" end
+      return assert(image)
     end
     if expression == "steps.zig-cache-restore.outputs.cache-primary-key" then
       return expand((step_of(steps, "zig-cache-restore").with as {string: string}).key, leg, steps)
@@ -364,8 +366,8 @@ local function read_keys(tmp: string, ci: {string: {string: any}}, leg: string, 
   assert(Fs.mkdirs(dir))
   assert(Fs.write(dir .. "/seed.keys", keys))
   assert(Fs.write(dir .. "/output", ""))
-  local seed = ci.seed
-  local script = step_of(seed.steps as {{string: any}}, "keys").run as string
+  local seed = ci["seed"]
+  local script = step_of(assert(seed).steps as {{string: any}}, "keys").run as string
   script = script:gsub("%${{ matrix%.name }}", leg):gsub("%${{ github%.sha }}", SHA)
   assert(not script:find("${{", 1, true), "the key read holds an expression the test gives no value: " .. script)
   local result = assert(Child.run({ "/bin/sh", "-e", "-c", script }, {
@@ -382,7 +384,7 @@ end
 --- `-`-joined part, was once dropped, so each of its queue legs ran the
 --- driver check again.
 local function test_seed_reads_every_key_each_leg_stages(tmp: string)
-  local ci = workflow().jobs as {string: {string: any}}
+  local ci = workflow()["jobs"] as {string: {string: any}}
   local platform, checked = ci.platform, ci.checked
   local platform_steps = platform.steps as {{string: any}}
   local checked_steps = checked.steps as {{string: any}}
@@ -403,9 +405,9 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
       -- macOS's, on the runner's own userland, names the image.
       if in_container(name) then
         assert(marker:find("-container-verdicts-" .. name .. "-", 1, true) and
-            not marker:find(IMAGES[name], 1, true), marker)
+            not marker:find(assert(IMAGES[name]), 1, true), marker)
       else
-        assert(marker:find("-" .. IMAGES[name] .. "-verdicts-" .. name .. "-", 1, true), marker)
+        assert(marker:find("-" .. assert(IMAGES[name]) .. "-verdicts-" .. name .. "-", 1, true), marker)
       end
     end
     local _, keys = stage(tmp, env, marker ~= nil, marker)

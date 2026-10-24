@@ -75,14 +75,15 @@ function Rehearsal.failures(output: string): {string}
       -- listed and no other: the code is in the head, or in the line after "the compiler refused it".
       if not name:find("[ :]") then
         local code = head:match("%(([%a][%w_]*)%): ") or ""
-        if code == "" and head:find(": the compiler refused it", 1, true) ~= nil and rows[at + 1] ~= nil then
-          code = rows[at + 1]:match("%(([%a][%w_]*)%): ") or ""
+        local following = rows[at + 1]
+        if code == "" and head:find(": the compiler refused it", 1, true) ~= nil and following ~= nil then
+          code = following:match("%(([%a][%w_]*)%): ") or ""
         end
         if code ~= "" then
           name = name .. " " .. code
         end
       end
-      if not seen[name] then
+      if seen[name] ~= true then
         seen[name] = true
         out[#out + 1] = name
       end
@@ -170,7 +171,7 @@ function Rehearsal.judge(allowed: {string: string}, failed: {string}): {string}
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    if not happened[name] then
+    if happened[name] ~= true then
       out[#out + 1] = name .. " is listed in " .. Rehearsal.path .. " and did not fail: remove the entry"
     end
   end

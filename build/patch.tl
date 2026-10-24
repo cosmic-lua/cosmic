@@ -217,7 +217,10 @@ local function read_dir(dir: string, relative: string, inputs: Inputs): boolean,
   end
   for _, entry in ipairs(names) do
     local path = dir .. "/" .. entry
-    local under = relative == "" and entry or relative .. "/" .. entry
+    local under = entry
+    if relative ~= "" then
+      under = relative .. "/" .. entry
+    end
     local st, st_trouble = sys.lstat(path)
     if st == nil then
       return false, path .. ": " .. st_trouble
@@ -360,9 +363,25 @@ local function patched(inputs: Inputs): Tree | nil, string
   end
   local files: {Input} = {}
   for _, file in ipairs(inputs.files) do
-    files[#files + 1] = { path = file.path, mode = file.mode, data = contents[file.path] }
+    files[#files + 1] = { path = file.path, mode = file.mode, data = contents[file.path] or file.data }
   end
   return { dir_mode = dir_mode, dirs = inputs.dirs, files = files }, ""
+end
+
+-- TODO: hold the scratch directory in a `<close>` local again and delete this, once ci/cosmic-driver.pin names a
+-- release whose [`Fs.Scratch`] is a class: the new checker refuses a `<close>` local of a record.
+
+--- Runs `body` on `scratch`, then removes the directory and lets go of its owner descriptor, as the `<close>` of
+--- an [`Fs.Scratch`] does, whether `body` answers or raises. Answers the trouble `body` answers, "" for none; a
+--- failure always has a message. This copy and the one in the other island are separate because an island
+--- requires no module of the tree.
+local function within(scratch: Fs.Scratch, body: function(Fs.Scratch): string): string
+  local ok, outcome = pcall(body, scratch)
+  local _, _ = Fs.remove_tree(scratch.path)
+  local _, _ = sys.close(scratch.owner)
+  if not ok then error(outcome, 0) end
+  assert(type(outcome) == "string", "a scratch body answers its trouble as a string, \"\" for none")
+  return outcome
 end
 
 --- Writes `tree` into `out`, which must not exist, and syncs every file
@@ -463,33 +482,36 @@ function Patch.prepare(root: string, name: string, cache: string): string | nil,
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
-  local holding <close> = owned
-  local payload = holding.path .. "/payload"
-  local written, write_trouble = write_tree(tree, payload)
-  if not written then
-    return nil, write_trouble
-  end
-  local host, host_trouble = sys.uname()
-  if host == nil then return nil, host_trouble end
-  if host.sysname == "Darwin" then
-    -- F_FULLFSYNC needs a regular file. The held owner is on the
-    -- payload's filesystem, even when the payload has no files.
-    local flushed, flush_trouble = sys.full_fsync(holding.owner)
-    if not flushed then return nil, holding.path .. "/owner: " .. flush_trouble end
-  end
-  local moved, move_trouble = Fs.rename(payload, dir)
-  if not moved then
-    -- Another build may have won the race; its tree is the same bytes.
-    local raced, _ = Fs.exists(dir)
-    if raced then
-      return dir, ""
+  local failed = within(owned, function(holding: Fs.Scratch): string
+    local payload = holding.path .. "/payload"
+    local written, write_trouble = write_tree(tree, payload)
+    if not written then
+      return write_trouble
     end
-    return nil, move_trouble
-  end
-  -- The rename itself, so the next build finds the tree rather than
-  -- writing it again. Best effort: the tree at its name is whole
-  -- whether or not the rename lasts.
-  local _, _ = sync_dir(cache)
+    local host, host_trouble = sys.uname()
+    if host == nil then return host_trouble end
+    if host.sysname == "Darwin" then
+      -- F_FULLFSYNC needs a regular file. The held owner is on the
+      -- payload's filesystem, even when the payload has no files.
+      local flushed, flush_trouble = sys.full_fsync(holding.owner)
+      if not flushed then return holding.path .. "/owner: " .. flush_trouble end
+    end
+    local moved, move_trouble = Fs.rename(payload, dir)
+    if not moved then
+      -- Another build may have won the race; its tree is the same bytes.
+      local raced, _ = Fs.exists(dir)
+      if raced == true then
+        return ""
+      end
+      return move_trouble
+    end
+    -- The rename itself, so the next build finds the tree rather than
+    -- writing it again. Best effort: the tree at its name is whole
+    -- whether or not the rename lasts.
+    local _, _ = sync_dir(cache)
+    return ""
+  end)
+  if failed ~= "" then return nil, failed end
   return dir, ""
 end
 
@@ -509,56 +531,59 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local cache = Fs.dirname(out)
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return false, own_trouble end
-  local holding <close> = owned
-  local payload = holding.path .. "/payload"
-  local copied, copy_trouble = Fs.copy_tree(lib, payload)
-  if not copied then
-    return false, copy_trouble
-  end
-  for _, entry in ipairs(names) do
-    if #entry > 4 and entry:sub(-4) == ".txt" then
-      local name = "patch/zig-lib/" .. entry
-      local text, text_trouble = Fs.read(dir .. "/" .. entry)
-      if text == nil then
-        return false, text_trouble
-      end
-      local parsed, parse_trouble = Patch.parse(text, name)
-      if parsed == nil then
-        return false, parse_trouble
-      end
-      local path = payload .. "/" .. parsed.file
-      local st, _ = sys.lstat(path)
-      if st == nil or st.kind ~= "file" then
-        return false, name .. ": no file " .. parsed.file .. " to patch"
-      end
-      local source, read_trouble = Fs.read(path)
-      if source == nil then
-        return false, read_trouble
-      end
-      local applied, apply_trouble = Patch.apply(source, parsed, name)
-      if applied == nil then
-        return false, apply_trouble
-      end
-      -- A fresh file, for one the copy keeps read-only.
-      local removed, remove_trouble = Fs.remove(path)
-      if not removed then
-        return false, remove_trouble
-      end
-      local written, write_trouble = write_synced(path, applied, st.mode & 0x1ff)
-      if not written then
-        return false, write_trouble
+  local failed = within(owned, function(holding: Fs.Scratch): string
+    local payload = holding.path .. "/payload"
+    local copied, copy_trouble = Fs.copy_tree(lib, payload)
+    if not copied then
+      return copy_trouble
+    end
+    for _, entry in ipairs(names) do
+      if #entry > 4 and entry:sub(-4) == ".txt" then
+        local name = "patch/zig-lib/" .. entry
+        local text, text_trouble = Fs.read(dir .. "/" .. entry)
+        if text == nil then
+          return text_trouble
+        end
+        local parsed, parse_trouble = Patch.parse(text, name)
+        if parsed == nil then
+          return parse_trouble
+        end
+        local path = payload .. "/" .. parsed.file
+        local st, _ = sys.lstat(path)
+        if st == nil or st.kind ~= "file" then
+          return name .. ": no file " .. parsed.file .. " to patch"
+        end
+        local source, read_trouble = Fs.read(path)
+        if source == nil then
+          return read_trouble
+        end
+        local applied, apply_trouble = Patch.apply(source, parsed, name)
+        if applied == nil then
+          return apply_trouble
+        end
+        -- A fresh file, for one the copy keeps read-only.
+        local removed, remove_trouble = Fs.remove(path)
+        if not removed then
+          return remove_trouble
+        end
+        local written, write_trouble = write_synced(path, applied, st.mode & 0x1ff)
+        if not written then
+          return write_trouble
+        end
       end
     end
-  end
-  local moved, move_trouble = Fs.rename(payload, out)
-  if not moved then
-    -- Another build may have won the race; its library is the same bytes.
-    local raced, _ = Fs.exists(out)
-    if raced then
-      return true, ""
+    local moved, move_trouble = Fs.rename(payload, out)
+    if not moved then
+      -- Another build may have won the race; its library is the same bytes.
+      local raced, _ = Fs.exists(out)
+      if raced == true then
+        return ""
+      end
+      return move_trouble
     end
-    return false, move_trouble
-  end
+    return ""
+  end)
+  if failed ~= "" then return false, failed end
   return true, ""
 end
 
@@ -572,7 +597,7 @@ function Patch.names(root: string): {string} | nil, string
   local names: {string} = {}
   for _, name in ipairs(entries) do
     local pinned, _ = Fs.exists(root .. "/vendor/" .. name .. "/PIN")
-    if pinned then
+    if pinned == true then
       names[#names + 1] = name
     end
   end

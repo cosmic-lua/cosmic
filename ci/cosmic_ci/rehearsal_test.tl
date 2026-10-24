@@ -7,6 +7,12 @@ Test.policy{ grants = { { path = "/parent/testdata/gate/rehearsal.txt", letters 
   { path = "/parent/testdata/rehearsal/fork_only/lookup_test.tl", letters = "r" },
   { path = "/parent/testdata/rehearsal/fork_only/cache_test.tl", letters = "r" } } }
 
+--- Whether line `at` of `lines` holds `text`.
+local function says(lines: {string}, at: integer, text: string): boolean
+  local line = lines[at]
+  return line ~= nil and line:find(text, 1, true) ~= nil
+end
+
 local function test_a_list_is_entries_with_reasons_and_comments()
   local listed = assert(Rehearsal.parse("# why the list exists\n\nbuild/x_test.tl test_a -- prints the fork's hint\n" ..
       "cosmic/removed_example.tl -- the tour uses a tuple\n"))
@@ -51,20 +57,19 @@ local function test_a_failure_the_list_lacks_and_an_entry_that_did_not_fail_are_
   local failed = Rehearsal.failures(OUTPUT)
   assert(#Rehearsal.judge(allowed, failed) == 0)
   local more = Rehearsal.judge({ ["build/x_test.tl test_a"] = "a" }, failed)
-  assert(#more == 3 and more[1]:find("cosmic/removed_example.tl method_in_record failed and testdata/gate/rehearsal.txt does not expect it", 1, true) ~= nil,
+  assert(#more == 3 and says(more, 1, "cosmic/removed_example.tl method_in_record failed and testdata/gate/rehearsal.txt does not expect it"),
     table.concat(more, "\n"))
   allowed["lang/gone_test.tl test_old"] = "a test that passes now"
   local stale = Rehearsal.judge(allowed, failed)
-  assert(#stale == 1 and stale[1]:find("lang/gone_test.tl test_old is listed in testdata/gate/rehearsal.txt and did not fail: remove the entry",
-    1, true) ~= nil, table.concat(stale, "\n"))
+  assert(#stale == 1 and says(stale, 1, "lang/gone_test.tl test_old is listed in testdata/gate/rehearsal.txt and did not fail: remove the entry"), table.concat(stale, "\n"))
 end
 
 local function test_a_refused_file_stays_expected_for_its_code_alone()
   local allowed: {string: string} = { ["cosmic/removed_example.tl method_in_record"] = "the example is the removed form" }
   local other = Rehearsal.failures("test: FAIL  cosmic/removed_example.tl:12:1: a name is missing (unknown_variable): declare it\n")
   local told = Rehearsal.judge(allowed, other)
-  assert(#told == 2 and told[1]:find("cosmic/removed_example.tl unknown_variable failed", 1, true) ~= nil and
-      told[2]:find("cosmic/removed_example.tl method_in_record is listed", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#told == 2 and says(told, 1, "cosmic/removed_example.tl unknown_variable failed") and
+      says(told, 2, "cosmic/removed_example.tl method_in_record is listed"), table.concat(told, "\n"))
   -- a module not compiled for requiring a refused one has no code of its own
   local cascade = Rehearsal.failures("test: FAIL  build/a.tl: not compiled: it requires b, which the new checker refused\n")
   assert(cascade[1] == "build/a.tl")

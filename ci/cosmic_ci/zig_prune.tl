@@ -122,11 +122,12 @@ function ZigPrune.records(text: string): {ZigPrune.Record} | nil, string
   local records: {ZigPrune.Record} = {}
   local at = 1
   while at < #text do
-    if at + 41 > #text then return nil, "a file cut short at byte " .. at end
+    if at + 41 > #text then return nil, "a file cut short at byte " .. tostring(at) end
     local ends = text:find("\0", at + 41, true)
-    if ends == nil then return nil, "a path with no end at byte " .. at end
+    if ends == nil then return nil, "a path with no end at byte " .. tostring(at) end
     local size, inode, mtime = string.unpack("<i8i8i8", text, at)
     local flags = text:byte(at + 40)
+    if flags == nil then return nil, "a file cut short at byte " .. tostring(at) end
     records[#records + 1] = { at = at, size = size, inode = inode, mtime = mtime,
       digest = text:sub(at + 24, at + 39), flags = flags, prefix = flags >> 2,
       path = text:sub(at + 41, ends - 1) }
@@ -141,7 +142,8 @@ end
 --- zig's ([`ZigPrune.records`]). A file's prefix 2 is the manifest's own
 --- cache (see [`Cache`]), and 3 the global one.
 local function read(name: string, text: string, prefix: integer): Manifest | nil, string
-  local named = #name == 32 and name:match("^%x+$") and Codec.unhex(name) or nil
+  local named: string | nil = nil
+  if #name == 32 and name:match("^%x+$") ~= nil then named = Codec.unhex(name) end
   if named == nil then return nil, "not named as a manifest" end
   local records, trouble = ZigPrune.records(text)
   if records == nil then return nil, trouble end
@@ -150,13 +152,13 @@ local function read(name: string, text: string, prefix: integer): Manifest | nil
   for _, record in ipairs(records) do
     parts[#parts + 1] = record.digest
     local within = record.path:match("^o/(%x+)/") or record.path:match("^o/(%x+)$")
-    if within and record.prefix == 2 then
-      inputs[#inputs + 1] = prefix .. "/" .. within
-    elseif within and record.prefix == 3 then
-      inputs[#inputs + 1] = "3/" .. within
+    if (within and record.prefix == 2) == true then
+      inputs[#inputs + 1] = tostring(prefix) .. "/" .. assert(within)
+    elseif (within and record.prefix == 3) == true then
+      inputs[#inputs + 1] = "3/" .. assert(within)
     end
   end
-  local output = prefix .. "/" .. Codec.hex(ZigPrune.siphash128(ZigPrune.key, table.concat(parts)))
+  local output = tostring(prefix) .. "/" .. Codec.hex(ZigPrune.siphash128(ZigPrune.key, table.concat(parts)))
   return { output = output, inputs = inputs }, ""
 end
 
@@ -185,16 +187,18 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     local dirs, dirs_trouble = Fs.list(cache.path .. "/o")
     if dirs == nil then return nil, cache.path .. "/o: " .. dirs_trouble end
     for _, dir in ipairs(dirs) do
-      outputs[cache.prefix .. "/" .. dir] = cache.path .. "/o/" .. dir
-      files[cache.prefix .. "/" .. dir] = {}
+      outputs[tostring(cache.prefix) .. "/" .. dir] = cache.path .. "/o/" .. dir
+      files[tostring(cache.prefix) .. "/" .. dir] = {}
       outputs_seen = outputs_seen + 1
     end
     local walked, walk_trouble = Fs.walk(cache.path .. "/o")
     if walked == nil then return nil, cache.path .. "/o: " .. walk_trouble end
     for _, path in ipairs(walked) do
       local dir, under = path:match("^([^/]+)/(.+)$")
-      local list = dir and files[cache.prefix .. "/" .. dir] or nil
-      if list then list[#list + 1] = under end
+      if dir ~= nil and under ~= nil then
+        local list = files[tostring(cache.prefix) .. "/" .. dir]
+        if list ~= nil then list[#list + 1] = under end
+      end
     end
   end
   -- The manifests an older zig wrote (`<name>.txt`), in a cache restored
@@ -224,7 +228,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
           -- `zig build`'s configuration (the build graph build.zig
           -- made) is a file, `c/<digest>`, rather than a directory.
           if outputs[manifest.output] == nil then
-            local configuration = cache.path .. "/c/" .. manifest.output:match("/(.*)$")
+            local configuration = cache.path .. "/c/" .. assert(manifest.output:match("/(.*)$"))
             local there, there_trouble = Fs.exists(configuration)
             if there == nil then return nil, configuration .. ": " .. there_trouble end
             if there then
@@ -233,8 +237,8 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
             end
           end
           if outputs[manifest.output] == nil then
-            return nil, path .. " vouches for " .. where[cache.prefix] .. "/o/" ..
-              manifest.output:match("/(.*)$") .. ", which is not there"
+            return nil, path .. " vouches for " .. assert(where[cache.prefix]) .. "/o/" ..
+              assert(manifest.output:match("/(.*)$")) .. ", which is not there"
           end
           manifests[path] = manifest
           local list = vouching[manifest.output] or {}
@@ -254,9 +258,9 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
   for output in pairs(outputs) do
     if vouching[output] == nil and files[output] ~= nil then
       orphans = orphans + 1
-      local superseded = #files[output] > 0
-      for _, under in ipairs(files[output]) do
-        if not vouched_files[under] then
+      local superseded = #assert(files[output]) > 0
+      for _, under in ipairs(assert(files[output])) do
+        if vouched_files[under] ~= true then
           superseded = false
           break
         end
@@ -288,9 +292,9 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
   while moved do
     moved = false
     for path, manifest in pairs(manifests) do
-      if not gone[path] then
+      if gone[path] ~= true then
         for _, input in ipairs(manifest.inputs) do
-          if removed[input] then
+          if removed[input] == true then
             gone[path] = true
             moved = true
             break
@@ -299,10 +303,10 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
       end
     end
     for output, list in pairs(vouching) do
-      if not removed[output] then
+      if removed[output] ~= true then
         local all = true
         for _, path in ipairs(list) do
-          if not gone[path] then
+          if gone[path] ~= true then
             all = false
             break
           end
@@ -319,13 +323,16 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan | nil, string
     outputs_seen = outputs_seen, manifests_seen = 0 }
   for path in pairs(manifests) do
     plan.manifests_seen = plan.manifests_seen + 1
-    if gone[path] then plan.manifests[#plan.manifests + 1] = path end
+    if gone[path] == true then plan.manifests[#plan.manifests + 1] = path end
   end
   for _, path in ipairs(older) do
     plan.manifests_seen = plan.manifests_seen + 1
     plan.manifests[#plan.manifests + 1] = path
   end
-  for output in pairs(removed) do plan.outputs[#plan.outputs + 1] = outputs[output] end
+  for output in pairs(removed) do
+    local name = outputs[output]
+    if name ~= nil then plan.outputs[#plan.outputs + 1] = name end
+  end
   table.sort(plan.manifests)
   table.sort(plan.outputs)
   return plan, ""
@@ -355,8 +362,8 @@ end
 --- there. It never fails (0): a cache it cannot read is left whole and
 --- said so, on standard error, since a cache too large costs only time.
 function ZigPrune.command(env: {string:string}): integer, string, string
-  local seed = env.COSMIC_ZIG_CACHE_SEED or ""
-  local shared = env.COSMIC_ZIG_GLOBAL_CACHE or ""
+  local seed = env["COSMIC_ZIG_CACHE_SEED"] or ""
+  local shared = env["COSMIC_ZIG_GLOBAL_CACHE"] or ""
   local project = seed ~= "" and seed .. "/zig-cache" or ""
   if project == "" or shared == "" or not Predicate.is_dir(project .. "/h") or
       not Predicate.is_dir(shared .. "/h") then
@@ -372,9 +379,9 @@ function ZigPrune.command(env: {string:string}): integer, string, string
     return 0, "", "zig-prune: stopped: " .. apply_trouble .. "\n"
   end
   return 0, "zig-prune: removed " .. Plural.count(#plan.manifests, "manifest") .. " of " ..
-    plan.manifests_seen .. " and " .. Plural.count(#plan.outputs, "output") .. " of " ..
-    plan.outputs_seen .. " (" .. Plural.count(plan.orphans, "orphan") .. ", " ..
-    plan.orphans_kept .. " kept)\n", ""
+    tostring(plan.manifests_seen) .. " and " .. Plural.count(#plan.outputs, "output") .. " of " ..
+    tostring(plan.outputs_seen) .. " (" .. Plural.count(plan.orphans, "orphan") .. ", " ..
+    tostring(plan.orphans_kept) .. " kept)\n", ""
 end
 
 --- `driver.tl zig-prune`, in the driver's environment (`command`).
