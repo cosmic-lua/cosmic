@@ -10,6 +10,7 @@
 --- writes.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local flow = require("build.flow")
 local String = require("cosmic.string")
@@ -3414,12 +3415,17 @@ local function test_the_credential_proof_takes_the_build_steps_directory_and_its
 end
 
 --- Each leg that runs a suite (the platform legs of a light and a full run,
---- and the checked job) has an entry in ci/cosmic_ci/capabilities.tl, and
+--- and the checked job) has an entry in ci/cosmic_ci/capabilities.json, and
 --- each entry is such a leg: a renamed or mistyped leg would promise
 --- nothing, silently.
 local function test_every_leg_has_its_promises_and_no_other_does()
-  local text = assert(Fs.read("ci/cosmic_ci/capabilities.tl"))
-  local loaded = assert(load(text, "=capabilities", "t", {}))() as {string: {string: any}}
+  local record Capabilities
+    legs: {string: {string}}
+  end
+  local CAPABILITIES <const> = Shape.record_of("Capabilities")
+  local text = assert(Fs.read("ci/cosmic_ci/capabilities.json"))
+  local loaded, why = CAPABILITIES:decode_into(text)
+  assert(loaded ~= nil, why)
   local promised: {string: boolean} = {}
   for name in pairs(loaded.legs) do promised[name] = true end
   local ran: {string: boolean} = {}
@@ -3430,9 +3436,9 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local checked = (ci.jobs as {string: {string: any}}).checked
   ran[(checked.env as {string: string}).COSMIC_WORKER] = true
   for name in pairs(ran) do
-    assert(promised[name], name .. ": a leg with no entry in capabilities.tl")
+    assert(promised[name], name .. ": a leg with no entry in capabilities.json")
   end
   for name in pairs(promised) do
-    assert(ran[name], name .. ": capabilities.tl names no such leg")
+    assert(ran[name], name .. ": capabilities.json names no such leg")
   end
 end

@@ -8,7 +8,7 @@
 --- renames every verdict cache.
 local Fs = require("cosmic.fs")
 local HostId = require("cosmic_ci.host_id")
-local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 --- The recorded hosts, which build/host_features_test.tl holds
@@ -27,13 +27,14 @@ local record Vector
   sysctl?: {string:string}
   digest: string
 end
+local VECTOR <const> = Shape.record_of("Vector")
+local VECTORS <const> = Shape.list(VECTOR.spec)
 
 local function vectors(): {Vector}
   local text = assert(Fs.read("testdata/host_features/vectors.json"))
-  local found = assert(Json.decode_array(text))
-  local out: {Vector} = {}
-  for i, entry in ipairs(found) do out[i] = entry as Vector end
-  return out
+  local found, trouble: {Vector} | nil, string = Shape.decode_into(text, VECTORS)
+  assert(found ~= nil, trouble)
+  return found
 end
 
 --- The facts of the recorded host `vector`, where `docker` answers the
@@ -117,7 +118,11 @@ local function test_a_host_with_no_files_is_still_named()
   assert(HostId.features(bare) == "e3b0c44298fc1c14", HostId.features(bare))
 end
 
-local runs = { value = 0 }
+--- How many recorded runs have been made, where `named` can count it.
+local record Runs
+  value: integer
+end
+local runs: Runs = { value = 0 }
 
 --- What the command appends to $GITHUB_ENV and to $GITHUB_OUTPUT (nil
 --- where `files` is false: unset), what it said and wrote to standard
@@ -126,7 +131,7 @@ local runs = { value = 0 }
 local function named(tmp: string, host: string, words: {string}, env: {string:string}, docker?: string):
     string | nil, string | nil, string, integer
   runs.value = runs.value + 1
-  local dir = tmp .. "/run-" .. runs.value
+  local dir = tmp .. "/run-" .. tostring(runs.value)
   assert(Fs.mkdirs(dir))
   local merged: {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
   for name, value in pairs(env) do merged[name] = value end
@@ -230,20 +235,27 @@ local function test_unset_files_say_their_lines_instead(tmp: string)
       "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-d86f880ad83e73ad-\n", mac)
 end
 
+--- One refused invocation: the words and the environment it was run with.
+local record Refused
+  args: {string}
+  env: {string:string}
+end
+
 --- A leg with no image and no runner, or with no image and a runner that
 --- names no image (ImageOS, ImageVersion), or the wrong count of words,
 --- is refused before anything is written.
 local function test_a_leg_named_by_nothing_is_refused(tmp: string)
   local image = { ImageOS = "macos15", ImageVersion = "20250922.1" }
   local mac = { "macos-aarch64", "", "macos-15", "cafe" }
-  for _, case in ipairs({
-      { args = { "macos-aarch64", "", "", "cafe" }, env = image },
-      { args = { "a", "b", "c" }, env = image },
-      { args = { "a", "b", "c", "d", "e" }, env = image },
-      { args = mac, env = {} },
-      { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
-      { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
-  }) do
+  local cases: {Refused} = {
+    { args = { "macos-aarch64", "", "", "cafe" }, env = image },
+    { args = { "a", "b", "c" }, env = image },
+    { args = { "a", "b", "c", "d", "e" }, env = image },
+    { args = mac, env = {} },
+    { args = mac, env = { ImageOS = "macos15", ImageVersion = "" } },
+    { args = mac, env = { ImageOS = "", ImageVersion = "20250922.1" } },
+  }
+  for _, case in ipairs(cases) do
     local env, output, said, code = named(tmp, "darwin-all", case.args, case.env, "28.0.4")
     assert(code == 2 and env == nil and output == nil and said == "",
       table.concat(case.args, " ") .. ": " .. tostring(code))

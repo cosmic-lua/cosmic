@@ -8,8 +8,21 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 
 local record Images
+  --- How a command came out: 0 and "", or docker's failing status and why.
+  record Outcome
+    code: integer
+    trouble: string
+  end
+
+  --- The words after `docker` for each of publish's three commands.
+  record PublishArgvs
+    login: {string}
+    create: {string}
+    inspect: {string}
+  end
 end
 
 --- `env[name]`, which must be set and not empty. Unlike the rest of the
@@ -55,7 +68,7 @@ end
 --- architecture in the blank-separated `arches` under `name:sha`, and
 --- the inspection of the index that join made.
 function Images.publish_argvs(name: string, actor: string, sha: string,
-                              arches: string): {string}, {string}, {string}
+                              arches: string): Images.PublishArgvs
   local login: {string} = { "login", "ghcr.io", "-u", actor, "--password-stdin" }
   local create: {string} = { "buildx", "imagetools", "create", "--tag",
     name .. ":" .. sha }
@@ -63,7 +76,7 @@ function Images.publish_argvs(name: string, actor: string, sha: string,
     create[#create + 1] = name .. ":" .. sha .. "-" .. arch
   end
   local inspect: {string} = { "buildx", "imagetools", "inspect", name .. ":" .. sha }
-  return login, create, inspect
+  return { login = login, create = create, inspect = inspect }
 end
 
 --- The digest `imagetools inspect` reports: the second field of the first
@@ -128,9 +141,9 @@ end
 
 --- Builds one image for one architecture, pushing it when PUBLISH is
 --- true: 0, or docker's failing status and why.
-function Images.build(env: {string:string}): integer, string
+function Images.build(env: {string:string}): Images.Outcome
   local code, trouble = docker(env, Images.build_argv(env))
-  return code, trouble
+  return { code = code, trouble = trouble }
 end
 
 --- Joins one image's architectures under `name:SOURCE_COMMIT`, the
@@ -138,43 +151,44 @@ end
 --- in ci-images-publish.yml's workflow_run is main's head), writes its
 --- `name@digest` to `out`, and appends it to the step summary: 0, or a
 --- failing status and why.
-function Images.publish(env: {string:string}, out: integer): integer, string
+function Images.publish(env: {string:string}, out: integer): Images.Outcome
   local image = required(env, "IMAGE")
   local name = Images.name(required(env, "GITHUB_REPOSITORY"), image)
   local sha = required(env, "SOURCE_COMMIT")
   local summary = required(env, "GITHUB_STEP_SUMMARY")
   local token = required(env, "TOKEN")
-  local login, create, inspect = Images.publish_argvs(name,
+  local argvs = Images.publish_argvs(name,
     required(env, "GITHUB_ACTOR"), sha, required(env, "ARCHES"))
-  local code, trouble = docker(env, login, token .. "\n")
-  if code ~= 0 then return code, trouble end
-  code, trouble = docker(env, create)
-  if code ~= 0 then return code, trouble end
+  local code, trouble = docker(env, argvs.login, token .. "\n")
+  if code ~= 0 then return { code = code, trouble = trouble } end
+  code, trouble = docker(env, argvs.create)
+  if code ~= 0 then return { code = code, trouble = trouble } end
   local report: string
-  code, trouble, report = docker(env, inspect, nil, true)
-  if code ~= 0 then return code, trouble end
+  code, trouble, report = docker(env, argvs.inspect, nil, true)
+  if code ~= 0 then return { code = code, trouble = trouble } end
   local digest = Images.digest(report)
-  if digest == nil then return 1, "no digest for " .. name .. ":" .. sha end
+  if digest == nil then return { code = 1, trouble = "no digest for " .. name .. ":" .. sha } end
   local reference = name .. "@" .. digest
-  local put, put_trouble = Fs.put(out, reference .. "\n")
-  if not put then return 1, put_trouble end
-  local appended, append_trouble = Fs.append(summary,
+  local seams = Seams.calls()
+  local put, put_trouble = seams.fs_put(out, reference .. "\n")
+  if not put then return { code = 1, trouble = put_trouble } end
+  local appended, append_trouble = seams.fs_append(summary,
     image .. ": `" .. reference .. "`\n")
-  if not appended then return 1, append_trouble end
-  return 0, ""
+  if not appended then return { code = 1, trouble = append_trouble } end
+  return { code = 0, trouble = "" }
 end
 
 local function command(name: string, argv: {string},
-                       run: function({string:string}): integer, string): integer
+                       run: function({string:string}): Images.Outcome): integer
   if #argv > 0 then
     local _, _ = Fs.put(Fs.stderr, "driver.tl " .. name .. ": takes no arguments\n")
     return 2
   end
-  local code, trouble = run(Env.all())
-  if code ~= 0 then
-    local _, _ = Fs.put(Fs.stderr, name .. ": " .. trouble .. "\n")
+  local outcome = run(Env.all())
+  if outcome.code ~= 0 then
+    local _, _ = Fs.put(Fs.stderr, name .. ": " .. outcome.trouble .. "\n")
   end
-  return code
+  return outcome.code
 end
 
 function Images.build_command(argv: {string}): integer
@@ -182,7 +196,7 @@ function Images.build_command(argv: {string}): integer
 end
 
 function Images.publish_command(argv: {string}): integer
-  return command("image-publish", argv, function(env: {string:string}): integer, string
+  return command("image-publish", argv, function(env: {string:string}): Images.Outcome
     return Images.publish(env, Fs.stdout)
   end)
 end

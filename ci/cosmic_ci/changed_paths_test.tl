@@ -25,19 +25,25 @@ local RECORDED_BASE <const> = (assert(Fs.read(DATA .. "/base")):gsub("%s+$", "")
 --- against HEAD into the recorded answer of `scenario` (none where it has
 --- no file: a diff that fails); any other call fails the test, its
 --- arguments said.
-local function recorded(scenario: string, calls: {string}): ChangedPaths.Git
-  return function(argv: {string}, seconds: integer): boolean, string
+local record Seen
+  lines: {string}
+end
+
+local function recorded(scenario: string, seen: Seen): ChangedPaths.Git
+  return function(argv: {string}, seconds: integer): ChangedPaths.Ran
     local line = table.concat(argv, " ")
-    calls[#calls + 1] = line
+    seen.lines[#seen.lines + 1] = line
     assert(seconds == (argv[1] == "fetch" and 60 or 0), line .. " is cut off after " .. tostring(seconds) .. " s")
-    if line == "fetch --quiet --no-tags --depth=1 origin " .. RECORDED_BASE then return true, "" end
+    if line == "fetch --quiet --no-tags --depth=1 origin " .. RECORDED_BASE then
+      return { ok = true, output = "" }
+    end
     if line:sub(1, #"fetch --quiet --no-tags --depth=1 origin ") == "fetch --quiet --no-tags --depth=1 origin " then
-      return false, ""
+      return { ok = false, output = "" }
     end
     if line == "diff --no-renames --name-only -z " .. RECORDED_BASE .. " HEAD --" then
-      local answer = Fs.read(DATA .. "/" .. scenario .. ".z")
-      if answer == nil then return false, "" end
-      return true, answer
+      local answer, _ = Fs.read(DATA .. "/" .. scenario .. ".z")
+      if answer == nil then return { ok = false, output = "" } end
+      return { ok = true, output = answer }
     end
     error("unexpected git call: " .. line)
   end
@@ -52,7 +58,7 @@ local function named(tmp: string, scenario: string, base: string, limit?: string
   assert(Fs.write(out, "stale\n"))
   local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
   local code = ChangedPaths.changed_paths({ BASE = base, OUT = out, LIMIT = limit or "400" }, fake.host,
-    recorded(scenario, {}))
+    recorded(scenario, { lines = {} }))
   local listed, _ = Fs.read(out)
   return listed, GithubFake.text(fake.outputs), GithubFake.text(fake.printed), code
 end
@@ -100,7 +106,7 @@ local function test_what_it_cannot_name_whole_it_names_none(tmp: string)
   -- Where it cannot write the list, it names none.
   local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
   local code2 = ChangedPaths.changed_paths({ BASE = RECORDED_BASE, OUT = tmp .. "/no/such/dir/changed" },
-    fake.host, recorded("edited", {}))
+    fake.host, recorded("edited", { lines = {} }))
   assert(code2 == 0 and #fake.outputs == 0 and
       GithubFake.text(fake.printed) == whole .. "could not write " .. tmp .. "/no/such/dir/changed\n",
     GithubFake.text(fake.printed))
@@ -116,9 +122,9 @@ local function test_a_step_without_its_settings_fails(tmp: string)
       { BASE = RECORDED_BASE, OUT = tmp .. "/changed", FETCH_SECONDS = "-1" },
   }) do
     local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
-    local calls: {string} = {}
-    assert(ChangedPaths.changed_paths(env, fake.host, recorded("edited", calls)) == 2)
-    assert(#calls == 0 and #fake.outputs == 0, table.concat(calls, "\n"))
+    local seen: Seen = { lines = {} }
+    assert(ChangedPaths.changed_paths(env, fake.host, recorded("edited", seen)) == 2)
+    assert(#seen.lines == 0 and #fake.outputs == 0, table.concat(seen.lines, "\n"))
   end
 end
 
@@ -127,9 +133,9 @@ local function test_the_fetch_waits_as_long_as_it_is_told(tmp: string)
   local waits: {integer} = {}
   local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
   local code = ChangedPaths.changed_paths({ BASE = RECORDED_BASE, OUT = tmp .. "/changed", FETCH_SECONDS = "7" },
-    fake.host, function(_argv: {string}, seconds: integer): boolean, string
+    fake.host, function(_argv: {string}, seconds: integer): ChangedPaths.Ran
       waits[#waits + 1] = seconds
-      return true, ""
+      return { ok = true, output = "" }
     end)
-  assert(code == 0 and #waits == 2 and waits[1] == 7 and waits[2] == 0, table.concat(waits as {string}, ","))
+  assert(code == 0 and #waits == 2 and waits[1] == 7 and waits[2] == 0, tostring(#waits))
 end

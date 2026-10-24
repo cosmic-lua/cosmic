@@ -3,6 +3,23 @@
 --- recording of git's answers.
 local Github = require("cosmic_ci.github")
 local GithubApi = require("cosmic_ci.github_api")
+local Shape = require("cosmic.shape")
+
+local record Commit
+  sha: string
+end
+local record Compare
+  merge_base_commit: Commit
+end
+local COMPARE <const> = Shape.record_of("Compare")
+
+local record Cache
+  id: integer
+end
+local record Caches
+  actions_caches: {Cache}
+end
+local CACHES <const> = Shape.record_of("Caches")
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
 local function reply(status: string, head: string, body?: string): string
@@ -16,7 +33,7 @@ end
 local function host_with(script: {{string}}): Github.Host, {string}
   local sent: {string} = {}
   local host = Github.live({ GH_TOKEN = "secret", GITHUB_API_URL = "http://api.test" },
-    { script = script, sent = sent })
+    { script = script, sent = function(text: string) sent[#sent + 1] = text end })
   return host, sent
 end
 
@@ -30,8 +47,9 @@ local function test_a_lookup_gets_the_path_and_decodes_its_answer()
   local host, sent = host_with({ { reply("200 OK", "", '{"merge_base_commit":{"sha":"abc"}}') } })
   local pages, why = host.fetch("repos/o/r/compare/main...x", false, 30)
   assert(pages ~= nil, why)
-  local page = pages[1] as {string: any}
-  assert(#pages == 1 and (page.merge_base_commit as {string: string}).sha == "abc")
+  assert(#pages == 1)
+  local page = assert(COMPARE:decode_into(assert(pages[1])))
+  assert(page.merge_base_commit.sha == "abc")
   assert(#sent == 1)
   has(assert(sent[1]), "GET /repos/o/r/compare/main...x HTTP/1.1\r\n")
   has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
@@ -50,9 +68,9 @@ local function test_a_listing_follows_the_link_header_to_every_page()
   })
   local pages, why = host.fetch("repos/o/r/actions/caches?per_page=1", true, 30)
   assert(pages ~= nil and #pages == 3, why)
-  for i, page in ipairs(pages) do
-    local caches = (page as {string: any}).actions_caches as {{string: integer}}
-    assert(caches[1].id == i)
+  for i, text in ipairs(pages) do
+    local caches = assert(CACHES:decode_into(text)).actions_caches
+    assert(assert(caches[1]).id == i)
   end
   assert(#sent == 3)
   has(assert(sent[1]), "GET /repos/o/r/actions/caches?per_page=1 HTTP/1.1\r\n")
@@ -118,15 +136,17 @@ end
 
 --- A request is cut off after the seconds the lookup gives.
 local function test_a_lookup_carries_its_time_limit()
-  local limits: {integer | nil} = {}
-  local fetch, delete = Github.over({ base = "http://api.test",
+  local limits: {integer} = {}
+  local over = Github.over({ base = "http://api.test",
     now_ns = function(): integer return 0 end,
-    fetch = function(): boolean, string return false, "" end,
+    fetch = function(_a: string, _b: string): boolean, string return false, "" end,
     send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
-      limits[#limits + 1] = request.timeout_ns
+      limits[#limits + 1] = request.timeout_ns or -1
       return { status = 200, headers = {}, body = "{}" }, ""
     end })
-  assert(fetch("a", false, 7) and fetch("b", true, 8) and delete("c", 9))
+  assert(over.fetch("a", false, 7))
+  assert(over.fetch("b", true, 8))
+  assert(over.delete("c", 9))
   assert(limits[1] == 7000000000 and limits[2] == 8000000000 and limits[3] == 9000000000,
     tostring(limits[1]) .. " " .. tostring(limits[2]) .. " " .. tostring(limits[3]))
 end

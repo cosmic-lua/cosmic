@@ -66,6 +66,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Github = require("cosmic_ci.github")
 local Plural = require("cosmic_ci.plural")
+local Shape = require("cosmic.shape")
 local Time = require("cosmic.time")
 
 local record CommitVerdicts
@@ -78,6 +79,29 @@ local record CommitVerdicts
   prune_command: function(argv: {string}): integer
   invalidate_command: function(argv: {string}): integer
 end
+
+--- The part of the API's comparison of main with a commit that names the
+--- commit the tree grew from.
+local record BaseCommit
+  sha: string
+end
+local record Comparison
+  merge_base_commit?: BaseCommit
+end
+local COMPARISON <const> = Shape.record_of("Comparison")
+
+--- One entry of the cache's listing, whose fields the API's schema types
+--- and the lookups below test for what they need.
+local record CacheEntry
+  key?: any
+  created_at?: any
+  id?: any
+end
+--- One page of the cache's listing.
+local record CachePage
+  actions_caches: {CacheEntry}
+end
+local CACHE_PAGE <const> = Shape.record_of("CachePage")
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
 --- and why where it is no whole number.
@@ -102,10 +126,12 @@ function CommitVerdicts.merge_base(env: {string:string}, host: Github.Host): int
   elseif event == "push" and ref ~= "refs/heads/main" then
     local pages = Github.ask(host, "repos/" .. (env["REPOSITORY"] or "") .. "/compare/main..." .. (env["SHA"] or "") ..
         "?per_page=1", false, call)
-    local commit = pages and pages[1] and type(pages[1]) == "table" and
-      (pages[1] as {string:any}).merge_base_commit or nil
-    local sha = type(commit) == "table" and (commit as {string:any}).sha or nil
-    if sha is string then base = sha end
+    local first = pages and pages[1]
+    if first ~= nil then
+      local compared, _ = COMPARISON:decode_into(first)
+      local commit = compared and compared.merge_base_commit
+      if commit ~= nil then base = commit.sha end
+    end
   end
   if Github.is_commit(base) then
     host.output("sha=" .. base)
@@ -121,25 +147,24 @@ end
 --- `wanted` answers whether an entry of the listing is to go, nil where
 --- it cannot tell.
 local function prune(host: Github.Host, repository: string, call: integer, age: string,
-                     prefix: string, entry: string, entries: string, wanted: function(entry: {string:any}): boolean | nil)
+                     prefix: string, entry: string, entries: string, wanted: function(entry: CacheEntry): boolean | nil)
   local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?key=" .. prefix .. "&per_page=100", true, call)
   local ids: {string} = {}
   local listed = pages ~= nil
-  for _, page in ipairs(pages or {}) do
-    local list = type(page) == "table" and (page as {string:any}).actions_caches or nil
-    if type(list) ~= "table" then
+  for _, text in ipairs(pages or {}) do
+    local page, _ = CACHE_PAGE:decode_into(text)
+    if page == nil then
       listed = false
       break
     end
-    for _, item in ipairs(list as {any}) do
-      local go: boolean | nil = nil
-      if type(item) == "table" then go = wanted(item as {string:any}) end
+    for _, item in ipairs(page.actions_caches) do
+      local go = wanted(item)
       if go == nil then
         listed = false
         break
       end
       if go then
-        local raw = (item as {string:any}).id
+        local raw = item.id
         local id: integer | nil = nil
         if raw is number then id = math.tointeger(raw) end
         if id == nil then
@@ -157,7 +182,8 @@ local function prune(host: Github.Host, repository: string, call: integer, age: 
   end
   local deleted, failed = 0, 0
   for _, id in ipairs(ids) do
-    if host.delete("repos/" .. repository .. "/actions/caches/" .. id, call) then
+    local gone, _ = host.delete("repos/" .. repository .. "/actions/caches/" .. id, call)
+    if gone then
       deleted = deleted + 1
     else
       failed = failed + 1
@@ -170,10 +196,10 @@ end
 --- Whether `entry`'s `created_at`, an RFC 3339 time (with the
 --- milliseconds the API writes, or none), is before `cutoff` seconds
 --- since the epoch; nil where it holds none.
-local function older(entry: {string:any}, cutoff: integer): boolean | nil
+local function older(entry: CacheEntry, cutoff: integer): boolean | nil
   local created = entry.created_at
   if not (created is string) then return nil end
-  local ns = Time.parse_rfc3339(created)
+  local ns, _ = Time.parse_rfc3339(created)
   if ns == nil then return nil end
   return ns // 1000000000 < cutoff
 end
@@ -199,13 +225,13 @@ function CommitVerdicts.prune(env: {string:string}, host: Github.Host): integer
   end
   local repository = env["REPOSITORY"] or ""
   local cutoff = host.now() - hours * 3600
-  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if commit_of(key) == nil then return false end
     return older(entry, cutoff)
   end)
-  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: {string:any}): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: CacheEntry): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     if key:sub(1, 16) ~= "compiles-branch-" then return false end
@@ -224,7 +250,7 @@ function CommitVerdicts.invalidate(env: {string:string}, host: Github.Host): int
     local _, _ = Fs.put(Fs.stderr, "invalidate-commit-verdicts: " .. why .. "\n")
     return 2
   end
-  prune(host, env["REPOSITORY"] or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: {string:any}): boolean | nil
+  prune(host, env["REPOSITORY"] or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean | nil
     local key = entry.key
     if not (key is string) then return nil end
     return commit_of(key) == commit

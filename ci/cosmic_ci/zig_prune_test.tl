@@ -2,6 +2,12 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local ZigPrune = require("cosmic_ci.zig_prune")
 
+--- [`ZigPrune.command`], its answer as three values.
+local function prune_command(env: {string:string}): integer, string, string
+  local command = ZigPrune.command(env)
+  return command.code, command.out, command.err
+end
+
 --- Manifests zig 0.17 wrote, each with the output it made: what a
 --- manifest vouches for is zig's to say, so a hash read wrongly here
 --- fails these rather than pruning what a build would hit.
@@ -50,8 +56,8 @@ local function test_the_answers_are_the_pinned_zigs()
   local root = assert(cwd:match("^(.*)/[^/]+$"), cwd)
   local pin = assert(Fs.read(root .. "/bin/zig.pin"))
   local version = pin:match("^version (%S+)")
-  assert(version == ZigPrune.zig_version, "bin/zig.pin names zig " .. tostring(version) ..
-      ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version .. "'s caches")
+  assert(version == ZigPrune.zig_version(), "bin/zig.pin names zig " .. tostring(version) ..
+      ", and cosmic_ci/zig_prune.tl reads " .. ZigPrune.zig_version() .. "'s caches")
 end
 
 --- A cache under `root`, as zig lays one out, with no manifest yet.
@@ -283,7 +289,7 @@ local function test_nothing_is_removed_where_a_manifest_is_not_understood(tmp: s
     end
     local plan, trouble = ZigPrune.plan({ project, shared })
     assert(plan == nil and trouble:find(hex("f"), 1, true) ~= nil, trouble)
-    local code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = root,
+    local code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = root,
       COSMIC_ZIG_GLOBAL_CACHE = shared.path })
     assert(code == 0 and out == "" and err:find("^zig%-prune: kept whole: ") ~= nil, err)
     assert(Fs.exists(p .. "/o/" .. old_copies) == true and Fs.exists(p .. "/o/" .. old_object) == true)
@@ -294,9 +300,9 @@ end
 --- `zig-cache` under COSMIC_ZIG_CACHE_SEED, and COSMIC_ZIG_GLOBAL_CACHE)
 --- and never fails: where neither is there it has nothing to do.
 local function test_the_command_prunes_the_caches_the_builds_use(tmp: string)
-  local code, out, err = ZigPrune.command({})
+  local code, out, err = prune_command({})
   assert(code == 0 and out:find("nothing to prune", 1, true) ~= nil and err == "", out .. err)
-  code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/absent",
+  code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/absent",
     COSMIC_ZIG_GLOBAL_CACHE = tmp .. "/absent/zig-global" })
   assert(code == 0 and out:find("nothing to prune", 1, true) ~= nil and err == "", out .. err)
 
@@ -306,7 +312,7 @@ local function test_the_command_prunes_the_caches_the_builds_use(tmp: string)
   local old_copies = orphan(p, hex("9"), { "core/a.c" })
   step(p, hex("a"), { "1 core/a.c" }, { "core/a.c" })
   local old_object = step(p, hex("c"), { "2 o/" .. old_copies .. "/core/a.c" }, { "a.o" })
-  code, out, err = ZigPrune.command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/seed",
+  code, out, err = prune_command({ COSMIC_ZIG_CACHE_SEED = tmp .. "/seed",
     COSMIC_ZIG_GLOBAL_CACHE = shared.path })
   assert(code == 0 and err == "", err)
   assert(out == "zig-prune: removed 1 manifest of 2 and 2 outputs of 3 (1 orphan, 0 kept)\n", out)

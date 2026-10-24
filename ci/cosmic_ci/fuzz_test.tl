@@ -3,8 +3,10 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local Maps = require("cosmic_ci.maps")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
+local Seams = require("cosmic_ci.seams")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -21,6 +23,11 @@ end
 --- A yes or no a closure shares with the test that made it.
 local record Flag
   value: boolean
+end
+
+--- The result of a wait run under `pcall`.
+local record Waited
+  result?: Child.Result
 end
 
 --- A descriptor, once one is opened, that a closure shares with the test that made it.
@@ -268,10 +275,8 @@ local function test_driver_commands_read_the_environment(tmp: string)
   assert(Fs.mkdirs(temp))
   local summary = tmp .. "/summary.md"
   -- The job's own GITHUB_* and RUNNER_TEMP, under CI, are replaced.
-  local env = Env.all()
-  env["GITHUB_WORKSPACE"], env["RUNNER_TEMP"] = root, temp
-  env["GITHUB_STEP_SUMMARY"] = summary
-  env["FUZZ_SEED"], env["FUZZ_ITERS"] = "11", "2"
+  local env = Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" })
   local fuzz = assert(Child.run({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
@@ -309,12 +314,8 @@ local function start_fuzz(tmp: string, body: {string},
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
-  local env = Env.all()
-  env["GITHUB_WORKSPACE"], env["RUNNER_TEMP"] = root, temp
-  env["GITHUB_STEP_SUMMARY"] = tmp .. "/summary.md"
-  if extra then
-    for name, value in pairs(extra) do env[name] = value end
-  end
+  local env = Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {})
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
   local handle, trouble = Child.start({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })
@@ -439,19 +440,20 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   local root, temp = tmp .. "/checkout", tmp .. "/temp"
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
-  local original_open, original_tee = Fs.open_write, Stream.tee
+  local seams = Seams.calls()
+  local original_open, original_tee = seams.fs_open_write, seams.stream_tee
   local opened: Slot = {}
-  Fs.open_write = function(path: string, mode?: integer): integer | nil, string
+  seams.fs_open_write = function(path: string, mode?: integer): integer | nil, string
     local fd, why = original_open(path, mode)
     if path == temp .. "/fuzz.out" then opened.value = fd end
     return fd, why
   end
-  Stream.tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
+  seams.stream_tee = function(_a: Stream.Writer, _b: Stream.Writer): Stream.Writer
     error("injected sink constructor failure")
   end
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = Fs.stdout,
     summarize = function(_text: string) end })
-  Fs.open_write, Stream.tee = original_open, original_tee
+  seams.fs_open_write, seams.stream_tee = original_open, original_tee
   assert(not ok and tostring(why):find("injected sink constructor failure", 1, true) ~= nil)
   local opened_value = opened.value
   assert(opened_value ~= nil)
@@ -465,34 +467,36 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/temp"
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
-  local original = Child.start
+  local seams = Seams.calls()
+  local original = seams.child_start
   local ended: Flag = { value = false }
   local closed: Flag = { value = false }
-  Child.start = function(_argv: {string}, _opts?: Child.Options): Child.Handle | nil, string
-    local fake: any = {
-      try_wait = function(): Child.TryWait
+  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started | nil, string
+    local fake: Seams.Started = {
+      try_wait = function(): Child.TryWait | nil, string
         if ended.value then
-          return { finished = true, result = { ok = false, code = 17, timed_out = false, captured = {}, truncated = false } }
+          return { finished = true, result = { ok = false, code = 17, signal = nil, timed_out = false,
+            stdout = nil, stderr = nil, captured = {}, truncated = false } }, ""
         end
-        return { finished = false }
+        return { finished = false }, ""
       end,
-      drain = function(_self: any, options: Child.DrainOptions): Child.DrainResult
+      drain = function(options: Child.DrainOptions): Child.DrainResult
         assert(assert(options.stdout):write("saved-once\n"))
         ended.value = true
         return { kind = "failed", bytes = 11, reason = "injected sink failure" }
       end,
-      stop = function(): boolean, string return true, "" end,
+      stop = function(_signal?: integer): boolean, string return true, "" end,
       close = function(): boolean, string
         closed.value = true
         return true, ""
       end,
     }
-    return fake as Child.Handle, ""
+    return fake, ""
   end
   local log = assert(Fs.open_write(tmp .. "/log"))
   local ok, why = pcall(Fuzz.execute, { root = root, temp = temp, env = {}, log = log,
     summarize = function(_text: string) end })
-  Child.start = original
+  seams.child_start = original
   assert(Fs.close(log))
   assert(not ok and tostring(why):find("injected sink failure", 1, true) ~= nil)
   assert(closed.value and read(temp .. "/fuzz.status") == "17\n")
@@ -510,12 +514,14 @@ local function test_an_escaped_writer_bounds_final_drain_without_replacing_child
     "while [ ! -e \"$FUZZ_ESCAPE_PID\" ]; do sleep 0.01; done",
     "echo before-exit", "exit 23",
   }, { FUZZ_SETSID = setsid, FUZZ_ESCAPE_PID = pid_file }, function(handle: Child.Handle, temp: string, _log: string)
-    local ok, result = pcall(function(): Child.Result
-      return (assert(handle:wait(Clock.seconds(30))))
+    local waited: Waited = {}
+    local ok, raised = pcall(function()
+      waited.result = assert(handle:wait(Clock.seconds(30)))
     end)
     local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
     if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end
-    assert(ok, result)
+    assert(ok, raised)
+    local result = assert(waited.result)
     assert(not result.ok, "incomplete output was reported as successful")
     assert(read(temp .. "/fuzz.status") == "23\n", "drain failure replaced the child's actual status")
     assert(read(temp .. "/fuzz.out") == "before-exit\n")

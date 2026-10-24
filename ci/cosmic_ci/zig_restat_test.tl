@@ -4,6 +4,13 @@ local ZigPrune = require("cosmic_ci.zig_prune")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local sys = require("cosmic.sys")
 
+--- [`ZigRestat.command`], its answer as three values.
+local function restat_command(project: string, shared: string | nil, root: string,
+                              lib?: string): integer, string, string
+  local command = ZigRestat.command(project, shared, root, lib)
+  return command.code, command.out, command.err
+end
+
 local name <const> = string.rep("a", 32)
 
 --- A record of `path` under `prefix` (flags `flags`, 0 when absent),
@@ -11,7 +18,9 @@ local name <const> = string.rep("a", 32)
 local function record(file: string, prefix: integer, path: string, flags?: integer): string
   local stat = assert(sys.stat(file))
   local digest = string.rep("\0", 16)
-  if stat.kind ~= "dir" then digest = ZigPrune.siphash128(ZigPrune.key, (assert(Fs.read(file)))) end
+  if stat.kind ~= "dir" then
+    digest = ZigPrune.siphash128(ZigPrune.key(), (assert(Fs.read(file))))
+  end
   return string.pack("<i8i8i8", stat.size, stat.ino, stat.mtime * 1000000000 + stat.mtime_ns) ..
     digest .. string.char((prefix << 2) | (flags or 0)) .. path .. "\0"
 end
@@ -182,18 +191,18 @@ end
 --- where there is one, and never fails; where the project cache holds
 --- no manifests it has nothing to do.
 local function test_the_command_says_what_it_did(tmp: string)
-  local code, out, err = ZigRestat.command(tmp .. "/absent", nil, tmp)
+  local code, out, err = restat_command(tmp .. "/absent", nil, tmp)
   assert(code == 0 and out:find("nothing to restat", 1, true) ~= nil and err == "", out .. err)
   local project, shared, tree = layout(tmp .. "/seed")
   assert(Fs.write(project .. "/o/1/a.c", "int a;"))
   assert(Fs.write(project .. "/h/" .. name, record(project .. "/o/1/a.c", 2, "o/1/a.c") .. "\0"))
   restored(project .. "/o/1/a.c")
-  code, out, err = ZigRestat.command(project, shared, tree)
+  code, out, err = restat_command(project, shared, tree)
   assert(code == 0 and err == "", err)
   assert(out == "zig-restat: 1 file listed: 1 given their new inode, 0 re-hashed and " ..
       "taken, 0 left; 1 manifest rewritten\n", out)
   restored(project .. "/o/1/a.c")
-  code, out, err = ZigRestat.command(project, nil, tree)
+  code, out, err = restat_command(project, nil, tree)
   assert(code == 0 and err == "" and out:find("1 given their new inode", 1, true) ~= nil, out .. err)
 end
 
@@ -217,5 +226,5 @@ local function test_the_lib_directory_comes_from_zig_env()
   local env = '.{\n    .zig_exe = "/z/zig",\n    .lib_dir = "/z/lib",\n    .std_dir = "/z/lib/std",\n}\n'
   assert(ZigRestat.lib_dir(env) == "/z/lib")
   assert(ZigRestat.lib_dir("") == nil)
-  assert(Codec.hex(ZigPrune.key) == "02e9fafee0958155f55a15cb4af40009")
+  assert(Codec.hex(ZigPrune.key()) == "02e9fafee0958155f55a15cb4af40009")
 end

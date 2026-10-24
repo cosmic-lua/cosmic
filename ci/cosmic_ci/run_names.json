@@ -1,0 +1,5 @@
+{
+  "exact": ["CI", "INVOCATION_ID", "JOURNAL_STREAM", "HOSTNAME"],
+  "prefixes": ["GITHUB_", "RUNNER_", "ACTIONS_", "COSMIC_CI_"],
+  "kept": ["COSMIC_CI_REQUIRE_SANDBOX"]
+}

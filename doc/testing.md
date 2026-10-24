@@ -270,7 +270,7 @@ Every other core finds it not applicable. The checked leg promises it.
 ### CI legs
 
 Each CI leg promises a list of requirements in
-[`ci.cosmic_ci.capabilities`]. Add a name to a leg's list in the same
+[`ci/cosmic_ci/capabilities.json`]. Add a name to a leg's list in the same
 change where a module first requires it. `bin/cosmic fix --check .`
 fails a requirement no leg promises, because a module that is n/a or
 skipped on every leg runs nowhere.
@@ -554,7 +554,7 @@ Other rules:
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_state.tl`]: ../build/test_state.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
-[`ci.cosmic_ci.capabilities`]: ../ci/cosmic_ci/capabilities.tl
+[`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/islands.txt`]: ../ci/islands.txt
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl

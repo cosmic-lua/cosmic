@@ -2,6 +2,7 @@ local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Maps = require("cosmic_ci.maps")
 local GithubApi = require("cosmic_ci.github_api")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
@@ -25,26 +26,29 @@ end
 --- reads: a value of another shape is refused naming where it is, where
 --- the entries once read as empty, were skipped, or were taken as text.
 local function test_an_answer_of_another_shape_is_refused_by_path()
-  local function refused(read: function(string): any, text: string, list: string,
+  local function refused(read: function(string), text: string, list: string,
                          at: string, expected: string)
-    local ok, why = pcall(read, text)
+    local ok, why = pcall(function(): boolean
+      read(text)
+      return true
+    end)
     assert(not ok, "accepted " .. text)
     local said = tostring(why)
     assert(said:find("the " .. list .. " list: ", 1, true) and said:find('pointer "' .. at .. '": expected ' .. expected, 1, true),
       ("wanted %s at %s, expected %s; got %q"):format(list, at, expected, said))
   end
-  refused(Report.runs, "[]", "runs", "", "record, got array")
-  refused(Report.runs, '{"workflow_runs":[7]}', "runs", "/workflow_runs/0", "record, got integer")
-  refused(Report.runs, '{"workflow_runs":[{"event":"push","head_sha":"s"}]}', "runs",
+  refused(function(text: string) local _ = Report.runs(text) end, "[]", "runs", "", "record, got array")
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[7]}', "runs", "/workflow_runs/0", "record, got integer")
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[{"event":"push","head_sha":"s"}]}', "runs",
     "/workflow_runs/0/id", "integer, got nothing")
-  refused(Report.runs, '{"workflow_runs":[{"id":"7","event":"push","head_sha":"s"}]}', "runs",
+  refused(function(text: string) local _ = Report.runs(text) end, '{"workflow_runs":[{"id":"7","event":"push","head_sha":"s"}]}', "runs",
     "/workflow_runs/0/id", "integer, got string")
-  refused(Report.jobs, '{"jobs":[{"name":"a","steps":[7]}]}', "jobs", "/jobs/0/steps/0", "record, got integer")
-  refused(Report.jobs, '{"jobs":[{"name":"a","started_at":12}]}', "jobs", "/jobs/0/started_at",
+  refused(function(text: string) local _ = Report.jobs(text) end, '{"jobs":[{"name":"a","steps":[7]}]}', "jobs", "/jobs/0/steps/0", "record, got integer")
+  refused(function(text: string) local _ = Report.jobs(text) end, '{"jobs":[{"name":"a","started_at":12}]}', "jobs", "/jobs/0/started_at",
     "string, got integer")
-  refused(Report.driver_artifacts, '{"artifacts":[{"name":"ci-driver-x","id":"9"}]}', "artifacts",
+  refused(function(text: string) local _ = Report.driver_artifacts(text) end, '{"artifacts":[{"name":"ci-driver-x","id":"9"}]}', "artifacts",
     "/artifacts/0/id", "integer, got string")
-  refused(Report.driver_artifacts, '{"artifacts":{"a":1}}', "artifacts", "/artifacts",
+  refused(function(text: string) local _ = Report.driver_artifacts(text) end, '{"artifacts":{"a":1}}', "artifacts", "/artifacts",
     "list, got the string key")
   -- The nulls GitHub writes for what it has not got are nothing.
   local runs = Report.runs('{"workflow_runs":[{"id":7,"event":"push","head_sha":"s",' ..
@@ -79,9 +83,9 @@ local function test_reuse_and_seed_are_no_platform_jobs()
       { name = "ci", seconds = 120, steps = {} },
     } }
   assert(Report.slowest(run) == nil, "a seeded run's slowest platform job")
-  table.insert(run.jobs, { name = "linux-x86_64", seconds = 60, steps = {} })
+  run.jobs[#run.jobs + 1] = { name = "linux-x86_64", seconds = 60, steps = {} }
   assert(assert(Report.slowest(run)).name == "linux-x86_64")
-  table.insert(run.jobs, { name = "linux-x86_64-checked", seconds = 61, steps = {} })
+  run.jobs[#run.jobs + 1] = { name = "linux-x86_64-checked", seconds = 61, steps = {} }
   assert(assert(Report.slowest(run)).name == "linux-x86_64-checked")
 end
 
@@ -147,7 +151,11 @@ end
 local api <const> = "https://api.test/"
 
 local function fake(tmp: string): Fake
-  local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp, env = Env.all() } as Fake
+  local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp,
+    env = Maps.without(Env.all(), { "GITHUB_REPOSITORY" }),
+    client = { base = "", send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
+      return nil, "not yet"
+    end, fetch = function(_url: string, _to: string): boolean, string return false, "not yet" end } }
   f.client = {
     base = "https://api.test",
     send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
@@ -169,30 +177,45 @@ local function fake(tmp: string): Fake
       return Fs.write(to, zip)
     end,
   }
-  f.env["GITHUB_REPOSITORY"] = nil
   return f
 end
 
-local function answer(f: Fake, endpoint: string, value: any)
-  f.answers[endpoint] = assert(Json.encode(value))
+--- The API's answer for `endpoint`, as JSON text.
+local function answer(f: Fake, endpoint: string, text: string)
+  f.answers[endpoint] = text
+end
+
+local function q(text: string): string return Json.quote(text) end
+
+--- A list as JSON, each item already JSON.
+local function list_of(items: {string}): string return "[" .. table.concat(items, ",") .. "]" end
+
+--- A step or a job of a run, as JSON, with its times (JSON, `null` for none).
+local function step_json(name: string, started: string, completed: string): string
+  return '{"name":' .. q(name) .. ',"started_at":' .. started .. ',"completed_at":' .. completed .. "}"
+end
+
+local function job_json(name: string, started: string, completed: string, steps: {string}): string
+  return '{"name":' .. q(name) .. ',"started_at":' .. started .. ',"completed_at":' .. completed ..
+    ',"steps":' .. list_of(steps) .. "}"
 end
 
 local function at(minutes: integer, seconds?: integer): string
-  return string.format("2026-09-28T10:%02d:%02dZ", minutes, seconds or 0)
+  return q(string.format("2026-09-28T10:%02d:%02dZ", minutes, seconds or 0))
 end
 
 --- A run's jobs: two legs and the join, the first leg `slow` minutes long.
 local function jobs(f: Fake, id: string, slow: integer)
-  answer(f, "repos/" .. repository .. "/actions/runs/" .. id .. "/jobs?per_page=100", { jobs = {
-    { name = "linux-x86_64", started_at = at(0), completed_at = at(slow), steps = {
-      { name = "set up", started_at = at(0), completed_at = at(0, 5) },
-      { name = "assemble", started_at = at(1), completed_at = at(slow - 1) },
-      { name = "build", started_at = at(0, 5), completed_at = at(1) },
-      { name = "skipped", started_at = Json.null, completed_at = Json.null },
-    } },
-    { name = "macos-aarch64", started_at = at(0), completed_at = at(8), steps = Json.array() },
-    { name = "ci", started_at = at(0), completed_at = at(59), steps = Json.array() },
-  } })
+  answer(f, "repos/" .. repository .. "/actions/runs/" .. id .. "/jobs?per_page=100", '{"jobs":' .. list_of({
+    job_json("linux-x86_64", at(0), at(slow), {
+      step_json("set up", at(0), at(0, 5)),
+      step_json("assemble", at(1), at(slow - 1)),
+      step_json("build", at(0, 5), at(1)),
+      step_json("skipped", "null", "null"),
+    }),
+    job_json("macos-aarch64", at(0), at(8), {}),
+    job_json("ci", at(0), at(59), {}),
+  }) .. "}")
 end
 
 --- A `ci-driver-linux-x86_64` artifact `id`, as the API serves it: a
@@ -217,14 +240,16 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
   f.zips["repos/" .. repository .. "/actions/artifacts/" .. id .. "/zip"] = assert(Fs.read(path))
 end
 
---- Run `run`'s artifacts list: `listed`, each {name, id, created, expired}.
-local function artifacts(f: Fake, run: string, listed: {{string:any}})
+--- One artifact of a run's list, as JSON.
+local function artifact_json(name: string, id: integer, expired: boolean, created: string | nil): string
+  local made = created ~= nil and (',"created_at":' .. created) or ""
+  return '{"name":' .. q(name) .. ',"id":' .. tostring(id) .. ',"expired":' .. tostring(expired) .. made .. "}"
+end
+
+--- Run `run`'s artifacts list: `listed`, each already JSON.
+local function artifacts(f: Fake, run: string, listed: {string})
   local path = "repos/" .. repository .. "/actions/runs/" .. run .. "/artifacts?per_page=100"
-  if #listed > 0 then
-    answer(f, path, { artifacts = listed })
-  else
-    answer(f, path, { artifacts = Json.array() })
-  end
+  answer(f, path, '{"artifacts":' .. list_of(listed) .. "}")
 end
 
 --- Run `run`'s one ci-driver artifact, and two it does not read.
@@ -233,18 +258,17 @@ local function artifact(f: Fake, run: string, runtime: string, harness: string,
   local id = run .. "1"
   artifact_zip(f, id, run, runtime, harness, stood)
   artifacts(f, run, {
-    { name = "ci-driver-linux-x86_64", id = math.tointeger(tonumber(id)), expired = false,
-      created_at = at(1) },
-    { name = "portable-product-linux-x86_64", id = 7, expired = false, created_at = at(1) },
-    { name = "ci-driver-macos-aarch64", id = 8, expired = true, created_at = at(1) },
+    artifact_json("ci-driver-linux-x86_64", assert(math.tointeger(tonumber(id))), false, at(1)),
+    artifact_json("portable-product-linux-x86_64", 7, false, at(1)),
+    artifact_json("ci-driver-macos-aarch64", 8, true, at(1)),
   })
 end
 
-local function run_entry(id: integer, conclusion: string, attempt: integer): {string:any}
-  return { id = id, event = "merge_group",
-    head_branch = "gh-readonly-queue/main/pr-" .. tostring(id),
-    head_sha = string.rep(tostring(id % 10), 40), conclusion = conclusion,
-    run_attempt = attempt }
+local function run_entry(id: integer, conclusion: string, attempt: integer): string
+  return '{"id":' .. tostring(id) .. ',"event":"merge_group","head_branch":' ..
+    q("gh-readonly-queue/main/pr-" .. tostring(id)) .. ',"head_sha":' ..
+    q(string.rep(tostring(id % 10), 40)) .. ',"conclusion":' .. q(conclusion) ..
+    ',"run_attempt":' .. tostring(attempt) .. "}"
 end
 
 local record Answer
@@ -258,10 +282,10 @@ end
 local function report(f: Fake, args: {string}): Answer, string
   local argv: {string} = {}
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local got, why = Flags.parse(argv, 1, Report.spec)
+  local got, why = Flags.parse(argv, 1, Report.spec())
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end
-  local code, out, err = Report.answer(got, f.env, f.client)
-  return { code = code, ok = code == 0, stdout = out }, out .. err
+  local answered = Report.answer(got, f.env, f.client)
+  return { code = answered.code, ok = answered.code == 0, stdout = answered.out }, answered.out .. answered.err
 end
 
 --- Six merge-queue runs, newest first, four shown (--runs 4):
@@ -276,10 +300,10 @@ end
 local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/" .. repository .. "/actions/workflows/ci.yml/runs?status=completed" ..
-      "&per_page=14&event=merge_group", { workflow_runs = {
+      "&per_page=14&event=merge_group", '{"workflow_runs":' .. list_of({
         run_entry(40, "success", 1), run_entry(30, "success", 1),
         run_entry(25, "cancelled", 1), run_entry(22, "failure", 1),
-        run_entry(20, "success", 2), run_entry(10, "success", 1) } })
+        run_entry(20, "success", 2), run_entry(10, "success", 1) }) .. "}")
   jobs(f, "40", 13)
   jobs(f, "30", 11)
   jobs(f, "25", 12)
@@ -291,8 +315,8 @@ local function test_report_reads_runs_jobs_and_suite_rows(tmp: string)
   artifact_zip(f, "201", "20", "rrrr", "stale", 10)
   artifact_zip(f, "202", "20", "rrrr", "h1", 60)
   artifacts(f, "20", {
-    { name = "ci-driver-linux-x86_64", id = 201, expired = false, created_at = at(1) },
-    { name = "ci-driver-linux-x86_64", id = 202, expired = false, created_at = at(30) },
+    artifact_json("ci-driver-linux-x86_64", 201, false, at(1)),
+    artifact_json("ci-driver-linux-x86_64", 202, false, at(30)),
   })
   local result, said = report(f, { "--runs", "4", "--repo", repository })
   assert(result.ok, said)
@@ -339,12 +363,11 @@ end
 local function test_report_of_pushes_names_main_and_survives_a_lost_artifact(tmp: string)
   local f = fake(tmp)
   answer(f, "repos/cosmic-lua/cosmic/actions/workflows/ci.yml/runs?status=completed" ..
-      "&per_page=11&event=push&branch=main", { workflow_runs = {
-        { id = 5, event = "push", head_branch = "main", head_sha = string.rep("5", 40),
-          conclusion = "success", run_attempt = 1 } } })
-  answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", { jobs = Json.array() })
+      "&per_page=11&event=push&branch=main", '{"workflow_runs":[{"id":5,"event":"push","head_branch":"main",' ..
+      '"head_sha":' .. q(string.rep("5", 40)) .. ',"conclusion":"success","run_attempt":1}]}')
+  answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/jobs?per_page=100", '{"jobs":[]}')
   answer(f, "repos/cosmic-lua/cosmic/actions/runs/5/artifacts?per_page=100",
-    { artifacts = { { name = "ci-driver-linux-x86_64", id = 9, expired = false } } })
+    '{"artifacts":[' .. artifact_json("ci-driver-linux-x86_64", 9, false, nil) .. "]}")
   local result, said = report(f, { "--runs=1", "--event", "push" })
   assert(result.ok, said)
   local text = result.stdout
@@ -371,8 +394,8 @@ local function test_report_refuses_a_bad_line_and_a_missing_token(tmp: string)
   assert(branched.code == 1 and asked:find("&branch=gh-readonly-queue/main/pr-1", 1, true) ~= nil, asked)
   -- Without a client of its own, the report makes the live one from its
   -- environment, which needs a token.
-  local got = assert(Flags.parse({}, 1, Report.spec))
-  f.env["GH_TOKEN"], f.env["GITHUB_TOKEN"] = nil, nil
-  local code, _, told = Report.answer(got, f.env)
-  assert(code == 1 and told:find("no GitHub token", 1, true) ~= nil, told)
+  local got = assert(Flags.parse({}, 1, Report.spec()))
+  f.env = Maps.without(f.env, { "GH_TOKEN", "GITHUB_TOKEN" })
+  local answered = Report.answer(got, f.env)
+  assert(answered.code == 1 and answered.err:find("no GitHub token", 1, true) ~= nil, answered.err)
 end

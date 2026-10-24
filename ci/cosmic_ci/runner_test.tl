@@ -2,6 +2,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
+local Seams = require("cosmic_ci.seams")
 local Sqlite = require("cosmic.sqlite")
 
 --- The bound for a child that should finish at once (`exit 0`, a `cat`):
@@ -11,6 +12,11 @@ local Sqlite = require("cosmic.sqlite")
 --- first wait fails here, recorded, rather than by the runner ending the
 --- test.
 local hang_guard = Clock.seconds(20)
+
+--- A number a stand-in or a callback sets.
+local record Count
+  value: integer
+end
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
@@ -33,8 +39,9 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
   assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
   local bad_candidate: Runner.Context = { database = candidate .. "/bad.db",
     worker = c.worker, run = c.run, attempt = c.attempt, candidate = candidate }
-  assert(not pcall(Runner.operation, bad_candidate, "bad",
-    { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate } as Runner.Request),
+  local bad_request: Runner.Request = { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate }
+  local accepted, _ = pcall(Runner.operation, bad_candidate, "bad", bad_request)
+  assert(not accepted,
     "candidate database was accepted")
 end
 
@@ -49,9 +56,11 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
   assert(assert(Fs.read(tmp .. "/err")) == "error-bytes")
   local reopened = assert(Fs.open_write(tmp .. "/out"))
   assert(Fs.close(reopened), "retained output descriptor remained open")
-  assert(not pcall(Runner.execute, {
+  local unopenable: Runner.Request = {
     argv = { "/bin/sh", "-c", "exit 0" }, cwd = tmp, output = tmp .. "/missing/out",
-  } as Runner.Request), "retained output open failure was hidden")
+  }
+  local opened, _ = pcall(Runner.execute, unopenable)
+  assert(not opened, "retained output open failure was hidden")
 end
 
 local function test_operation_records_retained_open_failure_as_error(tmp: string)
@@ -133,15 +142,16 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
     run = "run", attempt = "1", candidate = candidate }
   local detail = string.rep("full phase failure; ", 100)
   local messages: {string} = {}
-  local put = Fs.put
-  Fs.put = function(fd: integer, bytes: string): boolean, string
+  local seams = Seams.calls()
+  local put = seams.fs_put
+  seams.fs_put = function(fd: integer, bytes: string): boolean, string
     if fd ~= Fs.stderr then return put(fd, bytes) end
     messages[#messages + 1] = bytes
     return true, ""
   end
-  local entered = { value = 0 }
-  local leaving = { value = 0 }
-  local returned = { value = 0 }
+  local entered: Count = { value = 0 }
+  local leaving: Count = { value = 0 }
+  local returned: Count = { value = 0 }
   local called, failure = pcall(function(): boolean
     assert(Runner.phase(context, "done", function(): integer
       entered.value = Clock.monotonic_ns()
@@ -155,7 +165,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
     assert(Runner.phase(context, "raised", function(): integer error(detail, 0) end) == 1)
     return true
   end)
-  Fs.put = put
+  seams.fs_put = put
   assert(called, tostring(failure))
   assert(#messages == 1 and messages[1] == detail .. "\n", "phase error logging changed")
   local db = assert(Sqlite.open(context.database))
@@ -203,12 +213,17 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
       assert(tonumber(assert(rows[2]):text(6))) < assert(tonumber(assert(rows[1]):text(6))), "nested operation events are out of order")
 end
 
+--- A flag a callback sets.
+local record Flag
+  value: boolean
+end
+
 local function test_phase_rejects_a_candidate_database_before_its_action(tmp: string)
   local candidate = tmp .. "/candidate"
   assert(Fs.mkdirs(candidate))
   local context: Runner.Context = { database = candidate .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
-  local ran = { value = false }
+  local ran: Flag = { value = false }
   local called, failure = pcall(Runner.phase, context, "refused", function(): integer
     ran.value = true
     return 0

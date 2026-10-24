@@ -17,6 +17,13 @@ local function command(argv: {string}, env: {string:string}): Child.Result
   return (assert(result, trouble))
 end
 
+--- Whether nothing is at `path`.
+local function missing(path: string): boolean
+  local there, why = Fs.exists(path)
+  assert(there ~= nil, why)
+  return not there
+end
+
 local function good(result: Child.Result)
   assert(result.ok, (result.stderr or "") .. (result.stdout or "") ..
       "proof child status " .. tostring(result.code))
@@ -48,7 +55,8 @@ local function prove(argv: {string}): integer
   local ok, why = pcall(function(): boolean
     assert(Fs.chmod(scratch, 0x1ed))
     local root, state = scratch .. "/source tree", scratch .. "/state space"
-    assert(Fs.mkdirs(root .. "/ci/cosmic_ci") and Fs.mkdirs(root .. "/o/bin"))
+    assert(Fs.mkdirs(root .. "/ci/cosmic_ci"))
+    assert(Fs.mkdirs(root .. "/o/bin"))
     assert(Fs.write(root .. "/ci/run_local.tl", (assert(Fs.read(source .. "/ci/run_local.tl")))))
     assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver"))
     assert(Fs.write(root .. "/ci/.hidden", "hidden"))
@@ -83,16 +91,19 @@ printf 'error: fixture phase\n'
 [ "$3" != failure ] || exit 23
 ]=], 0x1ed))
     local private = scratch .. "/private"
-    assert(sys.mkdir(private, 0x1c0) and sys.mkdir(private .. "/seed", 0x1c0))
+    assert(sys.mkdir(private, 0x1c0))
+    assert(sys.mkdir(private .. "/seed", 0x1c0))
     assert(Fs.write(private .. "/ca", "ca-proof", 0x180))
     local outside = scratch .. "/outside"
-    assert(sys.mkdir(outside, 0x1ed) and Fs.write(outside .. "/keep", "sentinel"))
+    assert(sys.mkdir(outside, 0x1ed))
+    assert(Fs.write(outside .. "/keep", "sentinel"))
     assert(Fs.symlink(outside .. "/keep", root .. "/file-link"))
     assert(Fs.symlink(outside, root .. "/dir-link"))
     assert(Fs.symlink(outside .. "/missing", root .. "/dangling"))
     assert(Fs.mkdirs(state))
     assert(Fs.symlink(outside, state .. "/external-link"))
-    local env = Env.all()
+    local env: {string:string} = {}
+    for name, value in pairs(Env.all()) do env[name] = value end
     env["GIT_AUTHOR_NAME"], env["GIT_COMMITTER_NAME"] = "Local proof", "Local proof"
     env["GIT_AUTHOR_EMAIL"], env["GIT_COMMITTER_EMAIL"] = "proof@example.invalid", "proof@example.invalid"
     env["COSMIC_CI_LOCAL"], env["COSMIC_CI_LOCAL_USER"] = state, "nobody"
@@ -114,7 +125,8 @@ printf 'error: fixture phase\n'
     assert(Fs.write(root .. "/tracked", "staged"))
     git_run({ "add", "tracked" })
     local index = git_run({ "write-tree" })
-    assert(Fs.write(root .. "/tracked", "working") and Fs.write(root .. "/untracked", "included"))
+    assert(Fs.write(root .. "/tracked", "working"))
+    assert(Fs.write(root .. "/untracked", "included"))
     assert(Fs.write(root .. "/ignored", "excluded"))
     local function run(phases: {string}): Child.Result
       local words = { driver, "--standalone", root .. "/ci/run_local.tl" }
@@ -125,16 +137,16 @@ printf 'error: fixture phase\n'
     end
     good(run({ "build", "fixtures" }))
     local candidate = state .. "/candidate"
-    assert(Fs.read(candidate .. "/phases") == "build\nfixtures\n")
+    assert((assert(Fs.read(candidate .. "/phases"))) == "build\nfixtures\n")
     local grants = assert(Fs.read(candidate .. "/runtime-grants"))
     local first, second = grants:match("^([^\n]+)\n([^\n]+)\n$")
     assert(first and first == second, "one invocation did not reuse its runtime grant")
-    assert(Fs.read(candidate .. "/tracked") == "working" and Fs.read(candidate .. "/untracked") == "included")
-    assert(Fs.exists(candidate .. "/ignored") == false)
+    assert((assert(Fs.read(candidate .. "/tracked"))) == "working" and assert(Fs.read(candidate .. "/untracked")) == "included")
+    assert(missing(candidate .. "/ignored"))
     assert(git_run({ "write-tree" }) == index and git_run({ "stash", "list" }) == "")
     assert(assert(Fs.stat(root)).uid == 0 and assert(Fs.stat(private .. "/seed")).uid == 0)
     assert(assert(Fs.stat(outside)).uid == 0 and assert(Fs.stat(outside .. "/keep")).uid == 0)
-    assert(Fs.read(outside .. "/keep") == "sentinel")
+    assert((assert(Fs.read(outside .. "/keep"))) == "sentinel")
     for _, path in ipairs({ state .. "/external-link", candidate .. "/file-link",
         candidate .. "/dir-link", candidate .. "/dangling" }) do
       local st = assert(sys.lstat(path))
@@ -143,17 +155,19 @@ printf 'error: fixture phase\n'
     -- An o/ an older driver left in the project, its user's: the refresh
     -- removes it with the rest, the driver's database being in its build
     -- directory outside the project.
-    assert(Fs.mkdirs(state .. "/ci/o") and Fs.write(state .. "/ci/o/stale", "stale"))
+    assert(Fs.mkdirs(state .. "/ci/o"))
+    assert(Fs.write(state .. "/ci/o/stale", "stale"))
     for _, path in ipairs({ state .. "/ci/o", state .. "/ci/o/stale" }) do
       assert(sys.chown(path, account.uid, account.gid))
     end
-    assert(Fs.write(root .. "/ci/.hidden", "edited") and Fs.write(root .. "/tracked", "later"))
+    assert(Fs.write(root .. "/ci/.hidden", "edited"))
+    assert(Fs.write(root .. "/tracked", "later"))
     good(run({ "fixtures" }))
-    assert(Fs.read(candidate .. "/tracked") == "working" and Fs.read(state .. "/ci/.hidden") == "edited")
-    assert(Fs.exists(state .. "/ci/o") == false, "the refresh kept a stale o/")
+    assert((assert(Fs.read(candidate .. "/tracked"))) == "working" and assert(Fs.read(state .. "/ci/.hidden")) == "edited")
+    assert(missing(state .. "/ci/o"), "the refresh kept a stale o/")
     local failed = run({ "failure", "later" })
-    assert(failed.code == 23 and Fs.read(candidate .. "/phases") == "build\nfixtures\nfixtures\nfailure\n")
-    assert(Fs.read(state .. "/logs/failure.log") == "error: fixture phase\n")
+    assert(failed.code == 23 and assert(Fs.read(candidate .. "/phases")) == "build\nfixtures\nfixtures\nfailure\n")
+    assert((assert(Fs.read(state .. "/logs/failure.log"))) == "error: fixture phase\n")
     -- The default base shares one global cache per selected numeric user,
     -- while each checkout retains its checksum-named state.
     env["COSMIC_CI_LOCAL"], env["TMPDIR"] = nil, scratch
@@ -179,7 +193,7 @@ printf 'error: fixture phase\n'
     env["COSMIC_CI_LOCAL_USER"] = "nobody"
     env["GIT_CONFIG_COUNT"] = "invalid"
     assert(run({ "later" }).code == 2)
-    assert(Fs.read(candidate .. "/phases") == "build\nfixtures\nfixtures\nfailure\n")
+    assert((assert(Fs.read(candidate .. "/phases"))) == "build\nfixtures\nfixtures\nfailure\n")
     return true
   end)
   local removed, trouble = Fs.remove_tree(scratch)

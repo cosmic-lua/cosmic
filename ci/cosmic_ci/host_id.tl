@@ -170,10 +170,10 @@ end
 -- one goes wrong, the step fails or the host names fewer features, which
 -- a leg's first run shows.
 function HostId.live(env: {string:string}): HostId.Facts
-  local names = sys.uname()
+  local names, _ = sys.uname()
   local sysname, machine = "", ""
   if names ~= nil then sysname, machine = names.sysname, names.machine end
-  local docker = Proc.find("docker", env["PATH"] or "")
+  local docker, _ = Proc.find("docker", env["PATH"] or "")
   return {
     sysname = sysname,
     machine = machine,
@@ -183,14 +183,14 @@ function HostId.live(env: {string:string}): HostId.Facts
     end,
     -- By its path: /usr/sbin is not on every shell's default PATH.
     sysctl = function(name: string): string | nil
-      local result = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
+      local result, _ = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
         stdout = "capture", stderr = "null", timeout_ns = Time.seconds(30) })
       if result == nil or not result.ok then return nil end
       return result.stdout or ""
     end,
     docker_version = function(): string | nil, string
       if docker == nil then return nil, "docker: not found" end
-      local result = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
+      local result, _ = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
         { env = env, stdin = "null", stdout = "capture", stderr = Fs.stderr,
           timeout_ns = Time.seconds(120) })
       if result == nil or not result.ok then return nil, "docker version failed" end

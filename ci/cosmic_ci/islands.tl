@@ -23,6 +23,11 @@ local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
 local record Islands
+  --- What `check` found: the complaints, and how many files were checked.
+  record Report
+    complaints: {string}
+    checked: integer
+  end
 end
 
 --- The paths `text`, the list ci/islands.txt holds, names: one a line, with
@@ -40,8 +45,8 @@ end
 --- driver reads it: nil where its `compile` takes it without a word, else
 --- what it said or why it did not.
 function Islands.complaint(root: string, path: string, env: {string:string}): string | nil
-  local argv, values, fds = BuildPaths.driver({ "compile", "--errors", path }, env)
-  local answer, why = Child.run(argv, { env = values, fds = fds, cwd = root, stdin = "null",
+  local driver = BuildPaths.driver({ "compile", "--errors", path }, env)
+  local answer, why = Child.run(driver.argv, { env = driver.env, fds = driver.fds, cwd = root, stdin = "null",
     stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if answer == nil then return "could not run the driver: " .. why end
   if answer.timed_out then return "the driver's compile did not finish in 60 s" end
@@ -56,7 +61,7 @@ end
 --- The complaints about the files of `paths` under `root`, each named, and
 --- how many files were checked. A path that is neither a directory (a `/`
 --- ends it) nor a `.tl` file is a complaint too.
-function Islands.check(root: string, paths: {string}, env: {string:string}): {string}, integer
+function Islands.check(root: string, paths: {string}, env: {string:string}): Islands.Report
   local complaints: {string} = {}
   local checked = 0
   for _, path in ipairs(paths) do
@@ -70,7 +75,7 @@ function Islands.check(root: string, paths: {string}, env: {string:string}): {st
       if complaint ~= nil then complaints[#complaints + 1] = path .. ": " .. complaint end
     end
   end
-  return complaints, checked
+  return { complaints = complaints, checked = checked }
 end
 
 --- `driver.tl check-islands [ROOT]`.
@@ -87,7 +92,8 @@ function Islands.command(argv: {string}): integer
     local _, _ = Fs.put(Fs.stderr, "check-islands: " .. list .. " names no island\n")
     return 1
   end
-  local complaints, checked = Islands.check(root, paths, Env.all())
+  local report = Islands.check(root, paths, Env.all())
+  local complaints, checked = report.complaints, report.checked
   if #complaints > 0 then
     -- A complaint holds the compiler's lines: each is indented under its file.
     local indented = table.concat(complaints, "\n"):gsub("\n", "\n  ")

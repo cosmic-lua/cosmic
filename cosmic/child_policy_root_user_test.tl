@@ -15,7 +15,7 @@
 -- once a leg runs the suite as root (doc/roadmap.md's root leg): until then
 -- only a developer's or an agent's run as root checks them.
 -- TODO: require `root`, and that the worker is, once a CI leg promises
--- `root` (ci/cosmic_ci/capabilities.tl; build/tree_checks.tl refuses a
+-- `root` (ci/cosmic_ci/capabilities.json; build/tree_checks.tl refuses a
 -- name no leg promises) and a requirement names the worker's user: `root`
 -- is the runner's, and a root run that sandboxes its workers starts each as
 -- a user of its own, so it would pass `root` and still skip every test here.

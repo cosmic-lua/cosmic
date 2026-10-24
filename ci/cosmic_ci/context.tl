@@ -1,6 +1,6 @@
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
+local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
 
 -- Every driver subcommand reads its context from the environment, not from
@@ -18,7 +18,7 @@ local record Context
 end
 
 function Context.required(name: string): string
-  local value = Env.get(name)
+  local value = Seams.calls().env_get(name)
   assert(value and value ~= "", "missing required environment variable: " .. name)
   return value
 end
@@ -69,11 +69,12 @@ end
 --- Appends `text` to the run's summary page, the file
 --- GITHUB_STEP_SUMMARY names, or writes it to stdout when that is unset.
 function Context.summarize(text: string)
-  local output = Env.get("GITHUB_STEP_SUMMARY")
+  local seams = Seams.calls()
+  local output = seams.env_get("GITHUB_STEP_SUMMARY")
   if output ~= nil and output ~= "" then
-    assert(Fs.append(output, text))
+    assert(seams.fs_append(output, text))
   else
-    assert(Fs.put(Fs.stdout, text))
+    assert(seams.fs_put(Fs.stdout, text))
   end
 end
 

@@ -73,7 +73,18 @@ local record Report
     workflow: string
     client: GithubApi.Client
   end
-  spec: {string:Flags.Option}
+  --- What `driver.tl report` answers: the exit status, and what it says on standard output and on standard error.
+  record Answer
+    code: integer
+    out: string
+    err: string
+  end
+  spec: function(): {string:Flags.Option}
+end
+
+--- The report text a run of [`Report.report`] under `pcall` came to.
+local record Said
+  text: string
 end
 
 --- What one suite reported in the runs a report compares: each figure's values, a value a run.
@@ -81,6 +92,11 @@ local record Series
   ms: {number}
   stood: {number}
   ran: {number}
+end
+
+--- What one leg's jobs took in the runs a report compares, a value a run.
+local record Times
+  seconds: {number}
 end
 
 --- `count` as text, "" where there is none.
@@ -104,14 +120,16 @@ local lookback <const> = 10
 --- How many of a leg's slowest steps a run's table names.
 local slowest_steps <const> = 3
 
-Report.spec = {
-  ["--runs"] = { value = "n", about = "how many completed runs to report (1 to 100; 10)" },
-  ["--event"] = { value = "event", about = "the event whose runs to report (merge_group)" },
-  ["--branch"] = { value = "branch", about = "the branch whose runs to report (main for push)" },
-  ["--repo"] = { value = "owner/name",
-    about = "the repository ($GITHUB_REPOSITORY, else cosmic-lua/cosmic)" },
-  ["--workflow"] = { value = "file", about = "the workflow whose runs to report (ci.yml)" },
-}
+function Report.spec(): {string:Flags.Option}
+  return {
+    ["--runs"] = { value = "n", about = "how many completed runs to report (1 to 100; 10)" },
+    ["--event"] = { value = "event", about = "the event whose runs to report (merge_group)" },
+    ["--branch"] = { value = "branch", about = "the branch whose runs to report (main for push)" },
+    ["--repo"] = { value = "owner/name",
+      about = "the repository ($GITHUB_REPOSITORY, else cosmic-lua/cosmic)" },
+    ["--workflow"] = { value = "file", about = "the workflow whose runs to report (ci.yml)" },
+  }
+end
 
 --- Seconds since 1970 of an ISO 8601 UTC time as GitHub writes one
 --- ("2026-09-28T12:34:56Z"), or nil for anything else (JSON null).
@@ -407,8 +425,10 @@ function Report.qualify(runs: {Report.Run}, shown?: integer)
           table.concat(by_census, "; ") .. ")"
       end
       if by_earlier > 0 then
+        local earlier_id = ""
+        if earlier ~= nil then earlier_id = earlier.id end
         said[#said + 1] = (unnamed_held and "restored rows name no parts; " or "") ..
-          "runtime and harness epoch and timeout held since run " .. (earlier as Report.Run).id
+          "runtime and harness epoch and timeout held since run " .. earlier_id
       end
       assert(run).why = table.concat(said, "; ")
     end
@@ -419,7 +439,7 @@ end
 function Report.median(values: {number}): number | nil
   if #values == 0 then return nil end
   local sorted: {number} = {}
-  for i, v in ipairs(values) do sorted[i] = v end
+  for _, v in ipairs(values) do sorted[#sorted + 1] = v end
   table.sort(sorted)
   local middle = (#sorted + 1) // 2
   if #sorted % 2 == 1 then return sorted[middle] end
@@ -469,7 +489,7 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     for _, job in ipairs(platform_jobs(run)) do
       local named: {string} = {}
       for i = 1, math.min(slowest_steps, #job.steps) do
-        named[i] = assert(job.steps[i]).name .. " " .. Report.duration(assert(job.steps[i]).seconds)
+        named[#named + 1] = assert(job.steps[i]).name .. " " .. Report.duration(assert(job.steps[i]).seconds)
       end
       out[#out + 1] = "| " .. job.name .. " | " .. Report.duration(job.seconds) ..
         " | " .. table.concat(named, "; ") .. " |\n"
@@ -490,7 +510,7 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   end
   local walls: {number} = {}
   local runner: {number} = {}
-  local legs: {string:{number}} = {}
+  local legs: {string:Times} = {}
   local leg_names: {string} = {}
   local suites: {string:Series} = {}
   local suite_names: {string} = {}
@@ -504,27 +524,32 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
     for _, job in ipairs(platform_jobs(run)) do
       local seconds = job.seconds
       if seconds then
-        if not legs[job.name] then
-          legs[job.name] = {}
+        local held = legs[job.name]
+        if held == nil then
+          held = { seconds = {} }
+          legs[job.name] = held
           leg_names[#leg_names + 1] = job.name
         end
-        table.insert(legs[job.name], seconds)
+        held.seconds[#held.seconds + 1] = seconds
       end
     end
     for _, row in ipairs(run.suites) do
       local key = row.worker .. " | " .. row.suite
-      local series = suites[key]
-      if series == nil then
+      local found = suites[key]
+      local series: Series
+      if found == nil then
         series = { ms = {}, stood = {}, ran = {} }
         suites[key] = series
         suite_names[#suite_names + 1] = key
+      else
+        series = found
       end
       local elapsed_ms = row.elapsed_ms
-      if elapsed_ms then table.insert(series.ms, elapsed_ms) end
+      if elapsed_ms then series.ms[#series.ms + 1] = elapsed_ms end
       local row_ran = row.ran
-      if row_ran then table.insert(series.ran, row_ran) end
+      if row_ran then series.ran[#series.ran + 1] = row_ran end
       local percent = tonumber(SuiteOutput.stood_percent(row))
-      if percent then table.insert(series.stood, percent) end
+      if percent then series.stood[#series.stood + 1] = percent end
     end
   end
   table.sort(leg_names)
@@ -533,7 +558,7 @@ function Report.render(runs: {Report.Run}, o: Report.Options): string
   out[#out + 1] = "- Runner time: " .. Report.duration(whole(Report.median(runner))) .. "\n"
   out[#out + 1] = "\n| Leg | Time |\n|---|---:|\n"
   for _, name in ipairs(leg_names) do
-    out[#out + 1] = "| " .. name .. " | " .. Report.duration(whole(Report.median(assert(legs[name])))) .. " |\n"
+    out[#out + 1] = "| " .. name .. " | " .. Report.duration(whole(Report.median(assert(legs[name]).seconds))) .. " |\n"
   end
   out[#out + 1] = "\n| Leg | Suite | Ran | Stood % | ms |\n|---|---|---:|---:|---:|\n"
   for _, key in ipairs(suite_names) do
@@ -552,6 +577,11 @@ local function api(o: Report.Options, endpoint: string): string
   return text
 end
 
+--- The rows a read of an operations database came to, kept where the function that reads them under `pcall` can set them.
+local record Read
+  rows: {State.SuiteRun}
+end
+
 --- The suite rows of `bytes`, an operations database, or nil and why
 --- they cannot be read.
 local function rows_of(bytes: string, path: string): {State.SuiteRun} | nil, string
@@ -559,10 +589,13 @@ local function rows_of(bytes: string, path: string): {State.SuiteRun} | nil, str
   if not written then return nil, why end
   local db, trouble = Sqlite.open(path)
   if db == nil then return nil, trouble end
-  local called, rows = pcall(State.suite_rows, db)
-  db:close()
-  if not called then return nil, tostring(rows) end
-  return rows as {State.SuiteRun}, ""
+  local read: Read = { rows = {} }
+  local called, raised = pcall(function()
+    read.rows = State.suite_rows(db)
+  end)
+  local _, _ = db:close()
+  if not called then return nil, tostring(raised) end
+  return read.rows, ""
 end
 
 --- The operations database a `ci-driver-` artifact's zip, `zip`, holds,
@@ -572,14 +605,14 @@ local function database_of(zip: string): string | nil, string
   if reader == nil then return nil, why end
   local listed, list_why = reader:entries()
   if listed == nil then
-    reader:close()
+    local _, _ = reader:close()
     return nil, list_why
   end
   local found: string | nil = nil
   local trouble = "no operations.db"
   for _, entry in ipairs(listed) do
     if entry.path == "operations.db" and entry.kind == "file" then
-      local stream, opened = entry.open(entry)
+      local stream, opened = entry:open()
       if stream == nil then
         trouble = opened
       else
@@ -588,7 +621,7 @@ local function database_of(zip: string): string | nil, string
       end
     end
   end
-  reader:close()
+  local _, _ = reader:close()
   if found == nil then return nil, trouble end
   return found, ""
 end
@@ -642,8 +675,10 @@ function Report.report(o: Report.Options): string
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean
     for _, run in ipairs(shown) do
-      run.jobs = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
+      local fetched = Report.jobs(api(o, "repos/" .. o.repo .. "/actions/runs/" .. run.id ..
           "/jobs?per_page=100"))
+      run.jobs = {}
+      for _, job in ipairs(fetched) do run.jobs[#run.jobs + 1] = job end
       read_suites(o, run, scratch)
     end
     for i = #shown + 1, #runs do
@@ -678,9 +713,9 @@ end
 --- read, 1 where there is no token or GitHub failed; and what it says on
 --- stdout and on stderr. `client` stands in for the live one `env` makes.
 function Report.answer(got: Flags.Parsed, env: {string:string},
-                       client?: GithubApi.Client): integer, string, string
-  local function refuse(why: string): integer, string, string
-    return 2, "", "driver.tl report: " .. why .. "\n"
+                       client?: GithubApi.Client): Report.Answer
+  local function refuse(why: string): Report.Answer
+    return { code = 2, out = "", err = "driver.tl report: " .. why .. "\n" }
   end
   if #got.words > 0 then return refuse("takes no words: " .. assert(got.words[1])) end
   local runs = math.tointeger(tonumber(got.values["--runs"] or "10"))
@@ -693,8 +728,8 @@ function Report.answer(got: Flags.Parsed, env: {string:string},
   local repository = got.values["--repo"] or env["GITHUB_REPOSITORY"] or ""
   if repository == "" then repository = "cosmic-lua/cosmic" end
   local workflow = got.values["--workflow"] or "ci.yml"
-  if (branch and not branch_name(branch)) == true then
-    return refuse("not a branch name: " .. assert(branch))
+  if branch ~= nil and not branch_name(branch) then
+    return refuse("not a branch name: " .. branch)
   end
   for _, value in ipairs({ event, workflow }) do
     if not word(value) then return refuse("not a plain name: " .. value) end
@@ -704,21 +739,30 @@ function Report.answer(got: Flags.Parsed, env: {string:string},
   end
   if client == nil then
     local live, why = GithubApi.live(env)
-    if live == nil then return 1, "", "driver.tl report: " .. why .. "\n" end
+    if live == nil then return { code = 1, out = "", err = "driver.tl report: " .. why .. "\n" } end
     client = live
   end
-  local called, answer = pcall(Report.report, { runs = runs, event = event,
-    branch = branch, repo = repository, workflow = workflow, client = client })
-  if not called then return 1, "", "driver.tl report: " .. tostring(answer) .. "\n" end
-  return 0, answer as string, ""
+  local said: Said = { text = "" }
+  local called, raised = pcall(function()
+    said.text = Report.report({ runs = runs, event = event,
+      branch = branch, repo = repository, workflow = workflow, client = client })
+  end)
+  if not called then
+    return { code = 1, out = "", err = "driver.tl report: " .. tostring(raised) .. "\n" }
+  end
+  return { code = 0, out = said.text, err = "" }
 end
 
 --- `driver.tl report [options]`, in this process's environment.
 function Report.command(got: Flags.Parsed): integer
-  local code, out, err = Report.answer(got, Env.all())
-  if out ~= "" then Fs.put(Fs.stdout, out) end
-  if err ~= "" then Fs.put(Fs.stderr, err) end
-  return code
+  local answer = Report.answer(got, Env.all())
+  if answer.out ~= "" then
+    local _, _ = Fs.put(Fs.stdout, answer.out)
+  end
+  if answer.err ~= "" then
+    local _, _ = Fs.put(Fs.stderr, answer.err)
+  end
+  return answer.code
 end
 
 return Report

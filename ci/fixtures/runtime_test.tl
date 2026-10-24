@@ -555,10 +555,10 @@ local function test_runtime_replace_while_paused(tmp: string)
   local program = work .. "/replace space/cosmic"
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local child, go = run_paused(tool, work, diagnostics, "after_validation",
       program, cache, old_hash, "old")
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     local replacement = work .. "/replacement"
     Fixture.copy(fixture_dir .. "/runtime.new", replacement, 0x1ed)
@@ -596,10 +596,10 @@ local function test_runtime_unlink_while_paused(tmp: string)
   local program = work .. "/unlinked"
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local child, go = run_paused(tool, work, diagnostics, "after_validation",
       program, cache, old_hash, "old")
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     assert(Fs.remove(program))
 
@@ -634,10 +634,10 @@ local function test_runtime_mismatch_after_select(tmp: string)
   local program = work .. "/mismatch"
   Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
 
-  supervised(function(active: {Running})
+  supervised(function(active: Process.Fleet)
     local child, go = run_paused(tool, work, diagnostics, "after_select",
       program, cache, old_hash, "old")
-    active[#active + 1] = child
+    Process.adopt(active, child)
 
     local replacement = work .. "/mismatch.new"
     Fixture.copy(fixture_dir .. "/runtime.incompatible", replacement, 0x1ed)

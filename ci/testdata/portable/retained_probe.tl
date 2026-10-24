@@ -16,8 +16,10 @@ return function(argv: {string}): integer
   if argv[3] == "reenter" and Env.get(reentered) == nil then
     -- Replace this process with the same artifact: the portable startup
     -- must find the logical executable again after the exec.
-    local environment = Env.all()
-    environment[reentered] = "1"
+    local environment: {string:string} = {}
+    for _, source in ipairs({ Env.all(), { [reentered] = "1" } }) do
+      for name, value in pairs(source) do environment[name] = value end
+    end
     local _, trouble = Proc.exec({ artifact, script, first, second, "reenter" },
       { env = environment })
     error(trouble)

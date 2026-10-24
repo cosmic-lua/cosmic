@@ -4,6 +4,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
+local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -17,12 +18,9 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- COSMIC_BOOTSTRAP exported where the tests run is no part of them),
 --- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
-  local values = Env.all()
-  values["COSMIC_BOOTSTRAP"], values["COSMIC_BOOTSTRAP_VERIFY"] = nil, nil
-  values["COSMIC_BOOTSTRAP_ATTEMPTS"] = nil
-  if extra then
-    for name, value in pairs(extra) do values[name] = value end
-  end
+  local values = Maps.without(Env.all(), { "COSMIC_BOOTSTRAP",
+    "COSMIC_BOOTSTRAP_VERIFY", "COSMIC_BOOTSTRAP_ATTEMPTS" })
+  if extra then return Maps.with(values, extra) end
   return values
 end
 
@@ -378,7 +376,7 @@ local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
   local here = checkout_root()
-  for tool, script in pairs({ zig = "zig.tl", vendor = "vendor.tl",
+  for tool, script in pairs({ ["zig"] = "zig.tl", ["vendor"] = "vendor.tl",
       ["verify-codesign"] = "verify_codesign.tl" }) do
     assert(Fs.write(root .. "/bin/" .. tool,
       (assert(Fs.read(here .. "/bin/" .. tool))), 0x1ed))

@@ -64,29 +64,33 @@ end
 
 --- Trims the sorted save set through the running driver. Any incomplete
 --- file withholds the aggregate key; unreadable active files stay put.
-function Verdicts.command(argv: {string}, env: {string:string}): integer, string, string
+function Verdicts.command(argv: {string}, env: {string:string}): CacheTrim.Command
   local whole = argv[1] == "whole"
   local since = CacheTrim.since(argv)
   if since == nil and not whole then
-    return 2, "", "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n"
+    return { code = 2, out = "", err = "verdicts-trim: SINCE must be bounded Unix seconds, or whole\n" }
   end
   local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
-    return 0, "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", ""
+    return { code = 0, out = "verdicts-trim: COSMIC_VERDICT_CACHE names no file; nothing to trim\n", err = "" }
   end
-  if path:find("\0", 1, true) then return 2, "", "verdicts-trim: cache path contains NUL\n" end
+  if path:find("\0", 1, true) then
+    return { code = 2, out = "", err = "verdicts-trim: cache path contains NUL\n" }
+  end
   local found = caches(Fs.dirname(path))
-  if #found == 0 then return 0, "verdicts-trim: no cache; nothing to trim\n", "" end
-  local out, err = CacheTrim.run({ family = "verdicts", paths = found,
+  if #found == 0 then
+    return { code = 0, out = "verdicts-trim: no cache; nothing to trim\n", err = "" }
+  end
+  local trimmed = CacheTrim.run({ family = "verdicts", paths = found,
     since_ns = since, whole = whole }, env)
-  return 0, out, err
+  return { code = 0, out = trimmed.out, err = trimmed.err }
 end
 
 --- Writes what a command said, and answers its status.
-local function said(code: integer, out: string, err: string): integer
-  if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
-  if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
-  return code
+local function said(command: CacheTrim.Command): integer
+  if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end
+  if command.err ~= "" then local _, _ = Fs.put(Fs.stderr, command.err) end
+  return command.code
 end
 
 --- `driver.tl verdicts-trim SINCE|whole`, in the driver's environment
@@ -194,9 +198,9 @@ local function merge_file(from: string, into: string): string, string
         end
         local list: {string} = {}
         local values: {string} = {}
-        for i, column in ipairs(theirs) do
-          list[i] = quote(column)
-          values[i] = column == "used_ns" and "0" or quote(column)
+        for _, column in ipairs(theirs) do
+          list[#list + 1] = quote(column)
+          values[#values + 1] = column == "used_ns" and "0" or quote(column)
         end
         -- The digests of closure stores (build/shared_verdicts.tl's
         -- `stores`): one address names one store's bytes, so a digest
@@ -261,30 +265,30 @@ end
 --- names no file or DIR holds no cache. Only a missing DIR argument
 --- fails it (2): a cache it cannot merge is reported on standard error,
 --- and this run goes on with what it restored.
-function Verdicts.merge(argv: {string}, env: {string:string}): integer, string, string
+function Verdicts.merge(argv: {string}, env: {string:string}): CacheTrim.Command
   local from = argv[1] or ""
   if from == "" or argv[2] ~= nil then
-    return 2, "", "usage: verdicts-merge DIR\n"
+    return { code = 2, out = "", err = "usage: verdicts-merge DIR\n" }
   end
   local path = env["COSMIC_VERDICT_CACHE"] or ""
   if path:sub(1, 1) ~= "/" then
-    return 0, "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
-      "'); nothing to merge\n", ""
+    return { code = 0, out = "verdicts-merge: COSMIC_VERDICT_CACHE names no file ('" .. path ..
+        "'); nothing to merge\n", err = "" }
   end
   local found = caches(from)
   if #found == 0 then
-    return 0, "verdicts-merge: " .. from .. " holds no cache; nothing to merge\n", ""
+    return { code = 0, out = "verdicts-merge: " .. from .. " holds no cache; nothing to merge\n", err = "" }
   end
   local dir = Fs.dirname(path)
   local made, trouble = Fs.mkdirs(dir)
   if not made then
-    return 0, "", "verdicts-merge: " .. dir .. ": " .. trouble .. "; nothing merged\n"
+    return { code = 0, out = "", err = "verdicts-merge: " .. dir .. ": " .. trouble .. "; nothing merged\n" }
   end
   local outs, errs: {string}, {string} = {}, {}
   for _, cache in ipairs(found) do
     outs[#outs + 1], errs[#errs + 1] = merge_file(cache, dir .. "/" .. Fs.basename(cache))
   end
-  return 0, table.concat(outs), table.concat(errs)
+  return { code = 0, out = table.concat(outs), err = table.concat(errs) }
 end
 
 --- `driver.tl verdicts-merge DIR`, in the driver's environment

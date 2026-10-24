@@ -73,7 +73,8 @@ local function test_decoder_inspection_records_are_exact(tmp: string)
   }) do
     local path = tmp .. "/" .. name
     Fixture.write(path, contents)
-    assert(not pcall(Fixture.inspection, path),
+    local accepted, _ = pcall(Fixture.inspection, path)
+    assert(not accepted,
       "malformed decoder inspection was accepted: " .. name)
   end
 end

@@ -5,6 +5,7 @@
 --- as the API answers it (cosmic_ci/github_fake.tl).
 local CommitVerdicts = require("cosmic_ci.commit_verdicts")
 local GithubFake = require("cosmic_ci.github_fake")
+local Maps = require("cosmic_ci.maps")
 local Time = require("cosmic.time")
 
 local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
@@ -47,14 +48,15 @@ local function test_the_queue_names_its_base_and_main_none()
   local output, _, _, calls = merge_base({ EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x",
     SHA = SHA, QUEUE_BASE = BASE, REPOSITORY = "o/r" })
   assert(output == "sha=" .. BASE .. "\n" and #calls == 0, output .. table.concat(calls, "\n"))
-  for _, env in ipairs({
-      { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
-      { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
-      { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
-      { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
-      { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "main" },
-      {},
-  }) do
+  local cases: {{string:string}} = {
+    { EVENT = "push", REF = "refs/heads/main", SHA = SHA },
+    { EVENT = "schedule", REF = "refs/heads/main", SHA = SHA },
+    { EVENT = "workflow_dispatch", REF = "refs/heads/topic", SHA = SHA },
+    { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "" },
+    { EVENT = "merge_group", REF = "refs/heads/gh-readonly-queue/main/x", SHA = SHA, QUEUE_BASE = "main" },
+    {},
+  }
+  for _, env in ipairs(cases) do
     local none, _, _, asked = merge_base(env, nil)
     assert(none == "" and #asked == 0, tostring(env.EVENT) .. " " .. tostring(env.REF) .. ": " .. none ..
         table.concat(asked, "\n"))
@@ -73,7 +75,7 @@ end
 --- An entry as the API lists the cache's: `hours` old.
 local function entry(id: integer, key: string, hours: number): string
   -- With milliseconds, as the API writes them.
-  local created = Time.format_rfc3339((GithubFake.START - math.floor(hours * 3600)) * 1000000000, nil, { digits = 3 })
+  local created = Time.format_rfc3339((GithubFake.start() - math.floor(hours * 3600)) * 1000000000, nil, { digits = 3 })
   return '{"id":' .. tostring(id) .. ',"key":"' .. key .. '","created_at":"' .. created .. '","ref":"refs/heads/main"}'
 end
 
@@ -182,7 +184,7 @@ local function test_an_unreadable_environment_is_refused()
     local fake, _, code = prune(env, pages(listing()))
     assert(code == 2 and #fake.calls == 0, tostring(env["HOURS"]))
   end
-  local fake = GithubFake.new(function(): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
 end
 
@@ -207,7 +209,7 @@ local function test_an_invalidate_deletes_the_failed_commits_verdict_entries()
     entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 2)))
   local pruned = prune({}, listed)
   assert(deleted(pruned) == "2 6", "prune keeps what is under a day old: " .. table.concat(pruned.calls, "\n"))
-  local fake = GithubFake.new(function(): string | nil return listed end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return listed end)
   local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
   local said = GithubFake.text(fake.printed)
   assert(code == 0, said)
@@ -220,18 +222,19 @@ end
 --- A listing it cannot read, or a delete that fails, fails nothing; an
 --- unreadable step, or no whole commit, refuses, asking nothing.
 local function test_a_failed_invalidate_fails_nothing()
-  local fake = GithubFake.new(function(): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
   local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
   assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true) ~= nil)
-  fake = GithubFake.new(function(): string | nil
+  fake = GithubFake.new(function(_path: string, _nth: integer): string | nil
     return pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 1), entry(2, "verdicts-leg-g-f-sha-" .. SHA, 1)))
   end, { "1" })
   code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
   assert(code == 0 and deleted(fake) == "1 2" and GithubFake.text(fake.printed):find("(1 failed)", 1, true) ~= nil)
-  for _, env in ipairs({ { COMMIT = SHA, CALL_SECONDS = "soon" }, {}, { COMMIT = "" }, { COMMIT = "abc" },
-      { COMMIT = SHA:upper() }, { COMMIT = "main" }, { COMMIT = SHA .. "0" } } as {{string: string}}) do
-    fake = GithubFake.new(function(): string | nil return nil end)
-    env.REPOSITORY = "o/r"
+  local invalid: {{string:string}} = { { COMMIT = SHA, CALL_SECONDS = "soon" }, {}, { COMMIT = "" }, { COMMIT = "abc" },
+    { COMMIT = SHA:upper() }, { COMMIT = "main" }, { COMMIT = SHA .. "0" } }
+  for _, given in ipairs(invalid) do
+    local env = Maps.with(given, { REPOSITORY = "o/r" })
+    fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
     assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env.COMMIT))
   end
 end

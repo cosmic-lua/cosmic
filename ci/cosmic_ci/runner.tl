@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
 
 local record Runner
@@ -82,25 +83,23 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
     if fd >= 0 then descriptors[#descriptors + 1] = fd end
   end
   if not opened then
-    for _, fd in ipairs(descriptors) do Fs.close(fd) end
+    for _, fd in ipairs(descriptors) do
+      local _, _ = Fs.close(fd)
+    end
     error(open_failure)
   end
-  local options: Child.Options = { cwd = request.cwd, process_group = true }
-  local env = request.env
-  if env then options.env = env end
+  local limit: integer | nil = nil
   local timeout_ns = request.timeout_ns
-  if timeout_ns ~= nil and timeout_ns > 0 then
-    options.timeout_ns = timeout_ns
-  end
-  if input_fd then options.stdin = input_fd end
-  if output_fd then options.stdout = output_fd end
-  if error_fd then options.stderr = error_fd end
+  if timeout_ns ~= nil and timeout_ns > 0 then limit = timeout_ns end
+  local fds: {integer:integer | string} | nil = nil
   local request_fds = request.fds
   if request_fds then
-    local fds: {integer:integer | string} = {}
-    for number, fd in pairs(request_fds) do fds[number] = fd end
-    options.fds = fds
+    local copy: {integer:integer | string} = {}
+    for number, fd in pairs(request_fds) do copy[number] = fd end
+    fds = copy
   end
+  local options: Child.Options = { cwd = request.cwd, process_group = true, env = request.env,
+    timeout_ns = limit, stdin = input_fd, stdout = output_fd, stderr = error_fd, fds = fds }
   return options, descriptors
 end
 
@@ -114,19 +113,24 @@ local function release(descriptors: {integer})
   if not close_ok then error(close_trouble) end
 end
 
---- The outcome of a command that ran: how it ended, by `result`, or why
---- it did not (`called`, `answer` and `trouble` as pcall of Child.run
---- answers).
-local function judged(called: boolean, answer: any, trouble: string | nil,
-                      elapsed: integer): Runner.Outcome
-  if not called then
-    return { status = "error", code = 1, trouble = limited(tostring(answer)),
-      elapsed_ns = elapsed }
+--- What a call run under `pcall` came to: what it raised, else its result,
+--- or why it answered none.
+local record Called
+  raised?: string
+  result?: Child.Result
+  trouble?: string
+end
+
+--- The outcome of a command that ran: how it ended, by `called`.
+local function judged(called: Called, elapsed: integer): Runner.Outcome
+  local raised = called.raised
+  if raised ~= nil then
+    return { status = "error", code = 1, trouble = limited(raised), elapsed_ns = elapsed }
   end
-  local result = answer as Child.Result | nil
+  local result = called.result
   if not result then
     return { status = "start-error", code = 1,
-      trouble = limited(trouble or "child operation failed"), elapsed_ns = elapsed }
+      trouble = limited(called.trouble or "child operation failed"), elapsed_ns = elapsed }
   end
   local status, code = "exit", result.code or 1
   if result.timed_out then
@@ -142,10 +146,15 @@ end
 function Runner.execute(request: Runner.Request): Runner.Outcome
   local options, descriptors = prepare(request)
   local started = Clock.monotonic_ns()
-  local called, answer, trouble = pcall(Child.run, request.argv, options)
+  local called: Called = {}
+  local ok, raised = pcall(function()
+    local result, trouble = Seams.calls().child_run(request.argv, options)
+    called.result, called.trouble = result, trouble
+  end)
+  if not ok then called.raised = tostring(raised) end
   local elapsed = Clock.monotonic_ns() - started
   release(descriptors)
-  return judged(called, answer, trouble, elapsed)
+  return judged(called, elapsed)
 end
 
 local type Recording = Runner.Recording
@@ -184,9 +193,14 @@ local function finish(recording: Recording, phase: string, outcome: Runner.Outco
   if outcome.status ~= "success" then
     local trouble = outcome.trouble
     local why = trouble ~= nil and (": " .. trouble) or ""
-    Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
+    local _, _ = Seams.calls().fs_put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
         tostring(outcome.code) .. ")" .. why .. "\n")
   end
+end
+
+--- The outcome an attempt returned, kept where the function that runs it under `pcall` can set it.
+local record Made
+  outcome?: Runner.Outcome
 end
 
 -- Runs `attempt` as one operation named `phase`: a start event, then a
@@ -194,13 +208,17 @@ end
 local function recorded(c: Runner.Context, phase: string,
                         attempt: function(): Runner.Outcome): Runner.Outcome
   local recording = start(c, phase)
-  local called, answer = pcall(attempt)
+  local made: Made = {}
+  local called, raised = pcall(function()
+    made.outcome = attempt()
+  end)
+  local attempted = made.outcome
   local outcome: Runner.Outcome
-  if called then
-    outcome = answer as Runner.Outcome
+  if called and attempted ~= nil then
+    outcome = attempted
   else
     outcome = { status = "error", code = 1,
-      trouble = limited(tostring(answer)),
+      trouble = limited(tostring(raised)),
       elapsed_ns = Clock.monotonic_ns() - recording.started }
   end
   finish(recording, phase, outcome)
@@ -228,27 +246,24 @@ function Runner.spawn(c: Runner.Context, phase: string,
   local recording = start(c, phase)
   local running: Runner.Running = { phase = phase, recording = recording,
     descriptors = {}, reaped = false }
-  local called, answer, started_trouble = pcall(function(): Child.Handle | nil, string
+  local started: Called = {}
+  local ok, raised = pcall(function()
     local options, descriptors = prepare(request)
     running.descriptors = descriptors
     local handle, trouble = Child.start(request.argv, options)
+    started.trouble = trouble
     if handle == nil then
       release(descriptors)
       running.descriptors = {}
-    end
-    return handle, trouble
-  end)
-  if not called then
-    running.outcome = { status = "error", code = 1, trouble = limited(tostring(answer)),
-      elapsed_ns = Clock.monotonic_ns() - recording.started }
-  else
-    local handle = answer as Child.Handle | nil
-    if handle then
-      running.handle = handle
     else
-      running.outcome = judged(true, nil, started_trouble as string | nil,
-        Clock.monotonic_ns() - recording.started)
+      running.handle = handle
     end
+  end)
+  if not ok then
+    running.outcome = { status = "error", code = 1, trouble = limited(tostring(raised)),
+      elapsed_ns = Clock.monotonic_ns() - recording.started }
+  elseif running.handle == nil then
+    running.outcome = judged(started, Clock.monotonic_ns() - recording.started)
   end
   return running
 end
@@ -279,7 +294,9 @@ function Runner.wait_any(commands: {Runner.Running}): Runner.Running
   local handles: {Child.Handle} = {}
   for _, command in ipairs(commands) do
     if command.outcome then return command end
-    handles[#handles + 1] = command.handle as Child.Handle
+    local handle = command.handle
+    assert(handle ~= nil, "runner: a running command has neither a handle nor an outcome")
+    handles[#handles + 1] = handle
   end
   local done, trouble = Child.wait_any(handles)
   if done == nil then error("runner: waiting failed: " .. tostring(trouble), 0) end
@@ -294,14 +311,20 @@ end
 --- the same again if it is reaped twice. A command that ran past its
 --- timeout was ended, as `operation`'s is: "timeout", status 124.
 function Runner.reap(running: Runner.Running): Runner.Outcome
-  if running.reaped then return running.outcome as Runner.Outcome end
+  local ended = running.outcome
+  if running.reaped then return (assert(ended, "runner: a reaped command has no outcome")) end
   local handle = running.handle
   if handle == nil then
-    return settle(running, running.outcome as Runner.Outcome)
+    return settle(running, (assert(ended, "runner: a command with no handle has no outcome")))
   end
-  local called, answer, trouble = pcall(handle.wait, handle)
+  local called: Called = {}
+  local ok, raised = pcall(function()
+    local result, trouble = handle:wait()
+    called.result, called.trouble = result, trouble
+  end)
+  if not ok then called.raised = tostring(raised) end
   local elapsed = Clock.monotonic_ns() - running.recording.started
-  return settle(running, judged(called, answer, trouble, elapsed))
+  return settle(running, judged(called, elapsed))
 end
 
 --- Ends `running` and its process group if it still runs, SIGTERM, a
@@ -310,8 +333,8 @@ end
 function Runner.stop(running: Runner.Running): Runner.Outcome
   local handle = running.handle
   if handle == nil then return Runner.reap(running) end
-  local polled = handle:try_wait()
-  if (polled and polled.finished) == true then return Runner.reap(running) end
+  local polled, _ = handle:try_wait()
+  if polled ~= nil and polled.finished then return Runner.reap(running) end
   local _, _ = handle:close()
   local elapsed = Clock.monotonic_ns() - running.recording.started
   return settle(running, { status = "cancelled", code = 130, elapsed_ns = elapsed,
@@ -357,7 +380,9 @@ function Runner.phase(c: Runner.Context, phase: string,
   local finished = Clock.monotonic_ns()
   complete(recording, finished, finished - recording.started,
     status, code, nil, 0, detail)
-  if detail then Fs.put(Fs.stderr, detail .. "\n") end
+  if detail then
+    local _, _ = Seams.calls().fs_put(Fs.stderr, detail .. "\n")
+  end
   return code
 end
 

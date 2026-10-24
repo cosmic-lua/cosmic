@@ -90,7 +90,8 @@ local function add(writer: Archive.Writer, path: string, member: string): boolea
     local file_entry: Stream.EntryOptions = { mode = entry.mode, mtime = entry.mtime, size = st.size }
     local ok, added = writer:add_file(member, reader, file_entry)
     local _, _ = reader:close()
-    return ok, added
+    if not ok then return false, added end
+    return true, ""
   elseif st.kind == "dir" then
     local names, trouble = Fs.list(path)
     if names == nil then return false, trouble end
@@ -141,7 +142,8 @@ end
 --- none kept costs only time.
 local function zig_build(host: QueueStage.Host, temp: string, zig: string,
                          key: string, exact: string, restored: string): string
-  if key == "" or Fs.is_dir(temp .. "/zig-build") ~= true then return "" end
+  local built, _ = Fs.is_dir(temp .. "/zig-build")
+  if key == "" or built ~= true then return "" end
   if restored:sub(1, #exact) == exact then return "" end
   local tar = zig .. "/zig-build.tar"
   local ok, why = Fs.mkdirs(zig)
@@ -196,7 +198,7 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   end
   keys[#keys + 1] = zig_build(host, temp, zig, get("ZIG_BUILD_KEY"), get("ZIG_BUILD_EXACT"),
     get("ZIG_BUILD_RESTORED"))
-  local marker = Fs.stat(temp .. "/driver-checked/key")
+  local marker, _ = Fs.stat(temp .. "/driver-checked/key")
   if marker ~= nil and marker.kind == "file" then
     ok, why = Fs.copy_tree(temp .. "/driver-checked", seed .. "/driver-checked")
     if not ok then return failed(why) end

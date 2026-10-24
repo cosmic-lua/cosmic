@@ -33,6 +33,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
+local Maps = require("cosmic_ci.maps")
 local Predicate = require("cosmic_ci.fs_predicate")
 local ZigPrune = require("cosmic_ci.zig_prune")
 local sys = require("cosmic.sys")
@@ -129,7 +130,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
                 local digest = digests[file]
                 if digest == nil then
                   local bytes, _ = Fs.read(file)
-                  digest = bytes and ZigPrune.siphash128(ZigPrune.key, bytes) or ""
+                  digest = bytes and ZigPrune.siphash128(ZigPrune.key(), bytes) or ""
                   digests[file] = digest
                 end
                 if digest == record.digest then
@@ -178,25 +179,25 @@ end
 --- fails (0): a cache it cannot read is left as it was and said so,
 --- since a cache left so costs only time.
 function ZigRestat.command(project: string, shared: string | nil, root: string,
-                           lib?: string): integer, string, string
+                           lib?: string): ZigPrune.Command
   if not Predicate.is_dir(project .. "/h") then
-    return 0, "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", ""
+    return { code = 0, out = "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", err = "" }
   end
   local caches: {ZigPrune.Cache} = { { path = project, prefix = 2 } }
   local roots: {integer:string} = { [0] = root, [4] = root }
   if lib ~= nil then roots[1] = lib end
   if shared ~= nil and Predicate.is_dir(shared .. "/h") then
-    caches[2] = { path = shared, prefix = 3 }
+    caches[#caches + 1] = { path = shared, prefix = 3 }
     roots[3] = shared
   end
   local result, trouble = ZigRestat.restat(caches, roots)
   if result == nil then
-    return 0, "", "zig-restat: left as restored: " .. trouble .. "\n"
+    return { code = 0, out = "", err = "zig-restat: left as restored: " .. trouble .. "\n" }
   end
-  return 0, "zig-restat: " .. Plural.count(result.records, "file") .. " listed: " ..
-    tostring(result.adopted) .. " given their new inode, " .. tostring(result.rehashed) ..
-    " re-hashed and taken, " .. tostring(result.left) .. " left; " ..
-    Plural.count(result.manifests, "manifest") .. " rewritten\n", ""
+  return { code = 0, out = "zig-restat: " .. Plural.count(result.records, "file") .. " listed: " ..
+      tostring(result.adopted) .. " given their new inode, " .. tostring(result.rehashed) ..
+      " re-hashed and taken, " .. tostring(result.left) .. " left; " ..
+      Plural.count(result.manifests, "manifest") .. " rewritten\n", err = "" }
 end
 
 --- [`ZigRestat.command`] for the tree at `root`, asking its `bin/zig
@@ -204,11 +205,10 @@ end
 --- cache bin/zig names, so that asking makes no cache of its own --
 --- only where `project` holds manifests to restat, and leaving the files
 --- under the lib directory where zig cannot say.
-function ZigRestat.run(root: string, project: string, shared: string | nil): integer, string, string
+function ZigRestat.run(root: string, project: string, shared: string | nil): ZigPrune.Command
   if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
-  local env = Env.all()
-  env["COSMIC_ZIG_CACHE"] = project
-  if shared ~= nil then env["COSMIC_ZIG_GLOBAL_CACHE"] = shared end
+  local env = Maps.with(Env.all(), { COSMIC_ZIG_CACHE = project })
+  if shared ~= nil then env = Maps.with(env, { COSMIC_ZIG_GLOBAL_CACHE = shared }) end
   local lib: string | nil = nil
   local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture" })
@@ -225,10 +225,10 @@ function ZigRestat.restat_command(_argv: {string}): integer
   local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
   local kept: string | nil = nil
   if shared ~= nil and shared ~= "" then kept = shared end
-  local code, out, err = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)
-  if out ~= "" then local _, _ = Fs.put(Fs.stdout, out) end
-  if err ~= "" then local _, _ = Fs.put(Fs.stderr, err) end
-  return code
+  local command = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)
+  if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end
+  if command.err ~= "" then local _, _ = Fs.put(Fs.stderr, command.err) end
+  return command.code
 end
 
 return ZigRestat

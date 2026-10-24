@@ -8,6 +8,12 @@ local Proc = require("cosmic.proc")
 local Project = require("cosmic.project")
 
 local record BuildPaths
+  --- How to start the running driver: its command line, environment and descriptors.
+  record Driver
+    argv: {string}
+    env: {string:string}
+    fds: {integer:integer | string}
+  end
 end
 
 local directories: {string:string} = {}
@@ -15,13 +21,12 @@ local directories: {string:string} = {}
 --- A command line of the driver that is already running, past its
 --- launcher where it has one, with `words` after it, and the environment
 --- and descriptors to start it with (`values` added to the launcher's).
-function BuildPaths.driver(words: {string}, values: {string:string}):
-    {string}, {string:string}, {integer:integer | string}
+function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths.Driver
   local argv: {string} = {}
   local env: {string:string} = {}
   local fds: {integer:integer | string} = {}
   for name, value in pairs(values) do env[name] = value end
-  local relaunch = Proc.relaunch()
+  local relaunch, _why = Proc.relaunch()
   if relaunch then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
     for name, value in pairs(relaunch.env) do env[name] = value end
@@ -30,7 +35,7 @@ function BuildPaths.driver(words: {string}, values: {string:string}):
     argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  return argv, env, fds
+  return { argv = argv, env = env, fds = fds }
 end
 
 --- Where the running driver builds the project at `root`, which a
@@ -56,9 +61,9 @@ function BuildPaths.directory(root: string, environment?: {string:string}, sourc
   local key = Hash.hex_sha256(table.concat(parts, "\0"))
   local known = directories[key]
   if known ~= nil then return known end
-  local argv, env, fds = BuildPaths.driver({ "--standalone", resolver, root }, values)
-  local answer, why = Child.run(argv,
-    { env = env, fds = fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local driver = BuildPaths.driver({ "--standalone", resolver, root }, values)
+  local answer, why = Child.run(driver.argv,
+    { env = driver.env, fds = driver.fds, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   assert(answer, why)
   assert(answer.ok, "build directory: " .. (answer.stderr or "") ..
       " (status " .. tostring(Child.shell_status(answer)) .. ")")

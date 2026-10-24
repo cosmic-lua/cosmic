@@ -12,6 +12,45 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
 local record Local
+  --- The calls into the host that a test stands another in for: the new checker holds a library's functions
+  --- fixed, so [`Local.calls`] hands out this record, which the run reads each call from. This file runs
+  --- standalone on the pinned library and cannot require a module of its own project to hold them.
+  record Calls
+    child_run: function(argv: {string}, options?: Child.Options): Child.Result | nil, string
+    env_all: function(): {string:string}
+    fs_put: function(fd: integer, bytes: string): boolean, string
+    fs_read: function(path: string): string | nil, string
+    proc_user: function(name: string): Proc.User | nil, string
+    signal_close: function(guard: Signal.Guard): boolean, string
+    signal_guard: function(): Signal.Guard | nil, string
+    sys_getuid: function(): integer
+    sys_mkdtemp: function(template: string): string | nil, string, integer
+    sys_pread: function(fd: integer, count: integer, offset: integer): string | nil, string, integer
+  end
+  --- The calls in force: the library's, until a test assigns its own to a field and puts the library's back.
+  calls: function(): Calls
+end
+
+--- [`Signal.Guard:close`], as a function of the guard.
+local function close_guard(guard: Signal.Guard): boolean, string
+  return guard:close()
+end
+
+local current: Local.Calls = {
+  child_run = Child.run,
+  env_all = Env.all,
+  fs_put = Fs.put,
+  fs_read = Fs.read,
+  proc_user = Proc.user,
+  signal_close = close_guard,
+  signal_guard = Signal.guard,
+  sys_getuid = sys.getuid,
+  sys_mkdtemp = sys.mkdtemp,
+  sys_pread = sys.pread,
+}
+
+function Local.calls(): Local.Calls
+  return current
 end
 
 --- The private copy of the core a dropped user runs: its directory and the descriptor that names it.
@@ -94,14 +133,13 @@ local function dropped_user(values: {string:string}): string
   return "nobody"
 end
 
-local function copy(values: {string:string}): {string:string}
-  local out: {string:string} = {}
-  for name, value in pairs(values) do out[name] = value end
-  return out
+--- Adds the entries of `from` to `into`.
+local function fill(into: {string:string}, from: {string:string})
+  for name, value in pairs(from) do into[name] = value end
 end
 
 local function say(text: string)
-  assert(Fs.put(Fs.stderr, "run-local: " .. text .. "\n"))
+  assert(current.fs_put(Fs.stderr, "run-local: " .. text .. "\n"))
 end
 
 local function successful(result: Child.Result, program: string)
@@ -119,8 +157,8 @@ end
 --- Resolve the existing prefix before appending missing components.
 --- Containment checks must also hold when a parent is a symbolic link.
 local function resolved(path: string): string
-  local actual = Fs.absolute(path)
-  if actual then return actual end
+  local actual, _ = Fs.absolute(path)
+  if actual ~= nil then return actual end
   local stat, why, errno = sys.lstat(path)
   assert(stat == nil and errno == sys.ENOENT, path .. ": " .. tostring(why))
   local parent = Fs.dirname(path)
@@ -139,10 +177,11 @@ end
 
 local function execute(argv: {string}, program: string, held: Held): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
-  local caller_env = Env.all()
+  local caller_env = current.env_all()
   local relaunch = assert(Proc.relaunch())
   local resolver_argv: {string} = {}
-  local resolver_env = copy(caller_env)
+  local resolver_env: {string:string} = {}
+  fill(resolver_env, caller_env)
   local resolver_fds: {integer:integer | string} = {}
   for _, word in ipairs(relaunch.argv) do resolver_argv[#resolver_argv + 1] = word end
   for name, value in pairs(relaunch.env) do resolver_env[name] = value end
@@ -150,13 +189,14 @@ local function execute(argv: {string}, program: string, held: Held): integer
   resolver_argv[#resolver_argv + 1] = "--standalone"
   resolver_argv[#resolver_argv + 1] = root .. "/build/paths.tl"
   resolver_argv[#resolver_argv + 1] = root
-  local named = assert(Child.run(resolver_argv, { env = resolver_env, fds = resolver_fds,
+  local named = assert(current.child_run(resolver_argv, { env = resolver_env, fds = resolver_fds,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   successful(named, "build directory")
   local build_directory = assert((named.stdout or ""):match("^([^\n]+)\n$"),
     "build directory resolver did not print one path")
   local cosmic = build_directory .. "/bin/cosmic"
-  assert(sys.access(cosmic, sys.X_OK), "no " .. cosmic .. "; run bin/zig build boot")
+  local runnable, _ = sys.access(cosmic, sys.X_OK)
+  assert(runnable, "no " .. cosmic .. "; run bin/zig build boot")
   local platform = assert(sys.uname())
   local target: string
   if platform.sysname == "Linux" and platform.machine == "x86_64" then
@@ -168,14 +208,15 @@ local function execute(argv: {string}, program: string, held: Held): integer
   else
     error("unsupported host: " .. platform.sysname .. " " .. platform.machine)
   end
-  local env = copy(caller_env)
-  local uid = sys.getuid()
+  local env: {string:string} = {}
+  fill(env, caller_env)
+  local uid = current.sys_getuid()
   local cache = fallback_value(env, "XDG_CACHE_HOME", (env["HOME"] or "") .. "/.cache") .. "/cosmic"
   local zig_global = fallback_value(env, "COSMIC_ZIG_GLOBAL_CACHE", cache .. "/zig-global")
   local seed = fallback_value(env, "COSMIC_ZIG_CACHE", cache .. "/zig-project")
   local git = assert(Proc.find("git"))
   local cksum = assert(Proc.find("cksum"))
-  local sum = assert(Child.run({ cksum }, { input = root, stdout = "capture", stderr = "capture" }))
+  local sum = assert(current.child_run({ cksum }, { input = root, stdout = "capture", stderr = "capture" }))
   successful(sum, "cksum")
   local key = assert((sum.stdout or ""):match("^(%d+) %d+\n$"), "cksum returned an invalid checksum")
   -- TODO: prune state for checkouts that no longer exist, once each state
@@ -197,7 +238,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
   local user = ""
   if uid == 0 then
     user = dropped_user(env)
-    local account, why = Proc.user(user)
+    local account, why = current.proc_user(user)
     local reason = why
     if reason == "" then reason = "no user " .. user .. "; set COSMIC_CI_LOCAL_USER" end
     assert(account ~= nil, reason)
@@ -212,7 +253,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
   local runtime: Runtime = held.runtime
   local core_slot: integer | nil = nil
   if credentials then
-    runtime.path = assert(sys.mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
+    runtime.path = assert(current.sys_mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
     local source: integer | nil = nil
     local from: integer
     if relaunch.env["COSMIC_PORTABLE_CORE_FD"] then
@@ -227,9 +268,9 @@ local function execute(argv: {string}, program: string, held: Held): integer
     local output = hold(held, (assert(sys.open(native, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180))))
     local offset = 0
     while true do
-      local bytes = assert(sys.pread(from, 65536, offset))
+      local bytes = assert(current.sys_pread(from, 65536, offset))
       if #bytes == 0 then break end
-      assert(Fs.put(output, bytes))
+      assert(current.fs_put(output, bytes))
       offset = offset + #bytes
     end
     assert(Fs.chmod(native, 0x16d))
@@ -241,7 +282,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
     -- Nor can it reach root's build directory, its user's alone (0700):
     -- it runs a copy of the tool beside the core.
     local tool = runtime.path .. "/cosmic"
-    assert(Fs.write(tool, assert(Fs.read(cosmic)), 0x1ed))
+    assert(Fs.write(tool, assert(current.fs_read(cosmic)), 0x1ed))
     cosmic = tool
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
@@ -257,7 +298,8 @@ local function execute(argv: {string}, program: string, held: Held): integer
     end
     words[#words + 1] = "-e"
     words[#words + 1] = code
-    local child_env = copy(values or env)
+    local child_env: {string:string} = {}
+    fill(child_env, values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
     local fds: {integer:integer} = {}
     for destination, given in pairs(relaunch.fds) do
@@ -267,12 +309,12 @@ local function execute(argv: {string}, program: string, held: Held): integer
         fds[destination] = given
       end
     end
-    local answer, why = Child.run(words, { cwd = "/", env = child_env, fds = fds,
+    local answer, why = current.child_run(words, { cwd = "/", env = child_env, fds = fds,
       credentials = credentials, input = input, stdout = "capture", stderr = "capture" })
     return (assert(answer, why))
   end
   local function privileged(words: {string}, options?: Child.Options): Child.Result
-    local answer, why = Child.run(words, options)
+    local answer, why = current.child_run(words, options)
     return (assert(answer, why))
   end
   local chown: string | nil = nil
@@ -316,7 +358,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
           assert(Fs.mkdirs(ca))
           assert(Fs.chmod(ca, 0x1ed))
           local to = ca .. "/" .. name .. ".pem"
-          assert(Fs.write(to, assert(Fs.read(path)), 0x1a4))
+          assert(Fs.write(to, assert(current.fs_read(path)), 0x1a4))
           assert(Fs.chmod(to, 0x1a4))
           env[name] = to
         end
@@ -379,10 +421,11 @@ local function execute(argv: {string}, program: string, held: Held): integer
   for _, phase in ipairs(phases) do
     assert(phase:match("^[%w_-]+$"), "invalid phase: " .. phase)
     if phase == "build" then
-      local index_dir = assert(sys.mkdtemp(fallback_value(caller_env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-index.XXXXXX"))
+      local index_dir = assert(current.sys_mkdtemp(fallback_value(caller_env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-index.XXXXXX"))
       local taken: Snapshot = { commit = "" }
       local worked, raised = pcall(function()
-        local values = copy(caller_env)
+        local values: {string:string} = {}
+        fill(values, caller_env)
         local index_file = index_dir .. "/index"
         values["GIT_INDEX_FILE"] = index_file
         -- Keep the caller's tracked set, including force-added ignored files.
@@ -390,7 +433,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
         local original = git_run({ "rev-parse", "--git-path", "index" })
         if original:sub(1, 1) ~= "/" then original = root .. "/" .. original end
         if present(original) then
-          assert(Fs.write(index_file, assert(Fs.read(original)), 0x180))
+          assert(Fs.write(index_file, assert(current.fs_read(original)), 0x180))
         end
         git_run({ "add", "-A" }, values)
         local tree = git_run({ "write-tree" }, values)
@@ -421,13 +464,14 @@ local function execute(argv: {string}, program: string, held: Held): integer
     local path = state .. "/logs/" .. phase .. ".log"
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
     local log = hold(held, (assert(fd, path .. ": " .. tostring(open_why))))
-    local values = copy(env)
+    local values: {string:string} = {}
+    fill(values, env)
     values["GITHUB_WORKSPACE"], values["RUNNER_TEMP"] = candidate, state .. "/runner"
     values["GITHUB_RUN_ID"], values["GITHUB_RUN_ATTEMPT"], values["COSMIC_WORKER"] = "local", "1", "local"
     values["TARGET"], values["XDG_CACHE_HOME"] = target, state .. "/cache"
     values["COSMIC_ZIG_CACHE_FROM"], values["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
     local start = Clock.monotonic_ns()
-    local result, why = Child.run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
+    local result, why = current.child_run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
       { cwd = project, env = values, credentials = credentials, stdout = log, stderr = log })
     local closed, close_why = close_held(held, log)
     assert(result, why)
@@ -452,7 +496,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
           -- A complaint names the trouble; a failing test says FAIL.
           if line:match("^FAIL") ~= nil or line:find(" FAIL", 1, true) ~= nil or line:match("^cosmic: ") ~= nil or
               line:find("timed out", 1, true) ~= nil or line:find("error", 1, true) ~= nil then
-            Fs.put(Fs.stderr, line .. "\n")
+            local _, _ = current.fs_put(Fs.stderr, line .. "\n")
             lines = lines + 1
           end
         end
@@ -472,7 +516,7 @@ function Local.run(argv: {string}, program: string): integer
   -- Keep cancellation caught until private-index/log cleanup completes.
   -- TODO: hold the guard in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
   -- [`Signal.Guard`] as a class: a `<close>` local must be one.
-  local guard = assert(Signal.guard())
+  local guard = assert(current.signal_guard())
   local held: Held = { runtime = { path = "", fd = -1 }, open = {} }
   local ended: Ended = { status = 0 }
   local ok, answer = pcall(function()
@@ -484,7 +528,7 @@ function Local.run(argv: {string}, program: string): integer
     say(tostring(answer))
     status = 2
   end
-  local _, _ = guard:close()
+  local _, _ = current.signal_close(guard)
   return status
 end
 

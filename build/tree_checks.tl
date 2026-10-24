@@ -1168,27 +1168,23 @@ function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean}
   return out
 end
 
---- What ci/cosmic_ci/capabilities.tl returns.
+--- What ci/cosmic_ci/capabilities.json holds.
 local record Capabilities
   legs: {string:{string}}
 end
 
 local CAPABILITIES_SPEC <const> = Shape.record({ legs = Shape.map(Shape.list(Shape.string)) })
 
---- The requirements each CI leg promises, as ci/cosmic_ci/capabilities.tl
+--- The requirements each CI leg promises, as ci/cosmic_ci/capabilities.json
 --- under `root` lists them. ci is a tree of its own, whose modules the
---- tree cannot require: the file is data in text Lua reads, loaded alone.
+--- tree cannot require: the file is JSON, read alone.
 --- @param root the tree's root
 --- @return the names a leg promises, by the leg's name
 function tree_checks.legs(root: string): {string:{string}} | nil, string
-  local path = root .. "/ci/cosmic_ci/capabilities.tl"
+  local path = root .. "/ci/cosmic_ci/capabilities.json"
   local text, read_trouble = Fs.read(path)
   if text == nil then return nil, read_trouble end
-  local chunk, load_trouble = load(text, "=capabilities.tl", "t", {})
-  if chunk == nil then return nil, path .. ": " .. tostring(load_trouble) end
-  local ok, loaded = pcall(chunk)
-  if not ok then return nil, path .. ": " .. tostring(loaded) end
-  local capabilities, shape_trouble: Capabilities | nil, string = Shape.into(loaded, CAPABILITIES_SPEC)
+  local capabilities, shape_trouble: Capabilities | nil, string = Shape.decode_into(text, CAPABILITIES_SPEC)
   if capabilities == nil then return nil, path .. ": " .. shape_trouble end
   return capabilities.legs
 end
@@ -1228,7 +1224,7 @@ function tree_checks.promises(declared: {string:{string}}, legs: {string:{string
     for _, name in ipairs(declared[module]) do
       if not host_names.promised(all, name) then
         out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
-            "(ci/cosmic_ci/capabilities.tl): it would be n/a or skipped on every leg and run " ..
+            "(ci/cosmic_ci/capabilities.json): it would be n/a or skipped on every leg and run " ..
             "nowhere, with no held run to fail for it", module, name)
       end
     end
