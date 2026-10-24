@@ -947,6 +947,83 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   work.close(handle)
 end
 
+--- A method called through a value of the record a module returns is a use
+--- of that method (`tally add`), found by the value's type: a local, a
+--- parameter, a field, a value the constructor made, and `self` inside the
+--- module. A method of the same name on another module's record is another
+--- symbol.
+local function test_uses_of_a_method_follow_the_type_of_the_value_of_the_record_a_module_returns()
+  local root = assert(write_fixture("returned-record-method-uses", {
+    ["tally.tl"] = table.concat({
+      "local record Tally",
+      "  count: integer",
+      "  add: function(Tally, integer): integer",
+      "  bump: function(Tally)",
+      "  new: function(): Tally",
+      "end",
+      "local function add(self: Tally, n: integer): integer",
+      "  self:bump()",
+      "  return self.count + n",
+      "end",
+      "local function bump(self: Tally)",
+      "  self.count = self.count + 1",
+      "end",
+      "function Tally.new(): Tally",
+      "  return { count = 0, add = add, bump = bump }",
+      "end",
+      "return Tally",
+      "",
+    }, "\n"),
+    ["pile.tl"] = table.concat({
+      "local record Pile",
+      "  add: function(Pile, integer): integer",
+      "  new: function(): Pile",
+      "end",
+      "function Pile.new(): Pile",
+      "  return { add = function(_: Pile, n: integer): integer return n end }",
+      "end",
+      "return Pile",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local type Tally = require("tally")',
+      'local Pile = require("pile")',
+      "local record Holder",
+      "  held: Tally",
+      "end",
+      "local record Main",
+      "end",
+      "function Main.run(p: Tally, h: Holder): integer",
+      "  local made = Tally.new()",
+      "  local total = made:add(1)",
+      "  total = total + p:add(2)",
+      "  total = total + h.held:add(3)",
+      "  total = total + Pile.new():add(4)",
+      "  return total + made.count",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test"))
+  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT from_module, module, symbol, line FROM uses WHERE symbol = 'add' OR symbol = 'bump' " ..
+      "ORDER BY from_module, line, module, symbol"))
+  local got = ""
+  for _, row in ipairs(rows) do
+    got = got .. row:text(4) .. " " .. row:text(1) .. ">" .. row:text(2) .. " " .. row:text(3) .. ", "
+  end
+  -- the four calls of main on lines 10 to 13 and `self:bump()` on line 8 of tally
+  local want = "10 main>tally add, 11 main>tally add, 12 main>tally add, 13 main>pile add, 8 tally>tally bump, "
+  assert(got == want, got)
+  assert(shipped:close())
+  work.close(handle)
+end
+
 --- A field a record inherits is a use of the interface that declares
 --- it, through an interface that extends another too; the record's own
 --- field stays the record's.

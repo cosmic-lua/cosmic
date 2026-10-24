@@ -56,6 +56,76 @@ local function test_a_box_grows()
 end
 ]==]
 
+--- A module of the fixture's project with two classes of a method named alike, neither of them the record the module returns.
+local VESSELS <const> = [==[
+--- Holds liquid.
+local class Tank
+  mut level: integer
+
+  --- Pours `by` in.
+  function fill(self, by: integer): integer
+    self.level = self.level + by
+    return self.level
+  end
+
+  --- Pours one in, through `self`.
+  function top_up(self): integer
+    return self:fill(1)
+  end
+end
+
+--- Holds jam.
+local class Jar
+  function fill(self, by: integer): integer
+    return by
+  end
+end
+
+local record Garden
+  tank: Tank
+end
+
+local function drain(tank: Tank): integer
+  return tank:fill(-1)
+end
+
+local record Vessels
+  tank: function(): Tank
+  jar: function(): Jar
+  garden: function(): Garden
+  drain: function(tank: Tank): integer
+  filled: function(): integer
+end
+
+local function tank(): Tank
+  local made: Tank = { level = 0 }
+  return made
+end
+
+local function garden(): Garden
+  return { tank = tank() }
+end
+
+local function filled(): integer
+  local planted = garden()
+  return planted.tank:fill(2)
+end
+
+local vessels: Vessels = { tank = tank, jar = function(): Jar return {} end, garden = garden, drain = drain, filled = filled }
+return vessels
+]==]
+
+local VESSELS_TEST <const> = [==[
+local Vessels = require("vessels")
+
+local function test_a_tank_fills()
+  local tank = Vessels.tank()
+  assert(tank:fill(2) == 2 and tank:top_up() == 3)
+  local jar = Vessels.jar()
+  assert(jar:fill(3) == 3)
+end
+]==]
+
 --- `cosmic <args>` in `root` with `grammar` as COSMIC_GRAMMAR, unsandboxed (a sandbox nested in this test's own may be refused
 --- where the host nests only two deep): what it exited with, and what it said on standard output and on standard error.
 local function ran(root: string, tmp: string, grammar: string, args: {string}): Child.Result, string, string
@@ -113,7 +183,7 @@ local function test_docs_finds_a_symbol_declared_with_what_only_the_new_grammar_
   local queue = looked_up(root, tmp, { "docs", "Queue" })
   holds(queue, "items: mut {string} -- The words waiting, first in line first.")
   holds(queue, "pop: function(self: Queue): string? -- Takes the word at the front, nil when none waits.")
-  -- a class and its method, which `uses` is not asked of here ([`test_a_call_through_a_class_value_is_found_by_no_use_yet`])
+  -- a class and its method, which `uses` is not asked of here ([`test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls`])
   holds((looked_up(root, tmp, { "docs", "Counter.add" })), "counter Counter:add (counter.tl:11)")
   -- the example a lookup shows is the one the new checker read
   holds(queue, "example order (queue_example.tl:7):")
@@ -133,15 +203,26 @@ local function test_uses_finds_a_call_through_a_method_and_a_call_of_a_module_fu
       "Box.width\tshapes_test.tl\t6\nBox.width\tshapes.tl\t18\nnew\tshapes_test.tl\t4\n", rows)
 end
 
---- A call through a value of a class (`counter:add(word)`, `Counter` a class) is no use of `Counter.add` yet, as it is not
---- with the fork: the receiver's record is not nested under its module's ([`build.syntax_receivers`]'s TODO). The answer
---- is pinned so that the day it is found is noticed.
-local function test_a_call_through_a_class_value_is_found_by_no_use_yet(tmp: string)
+--- A call through a value of a class (`counter:add(word)`, `Counter` a class declared at the top of its module's file) is a use
+--- of the method it calls, by the type of the value: the project's `Counter`, and a module of its own whose `Tank` is called
+--- through a local, a parameter, a field, `self` and a value its constructor made, beside a `Jar` that has a method of the
+--- same name, which is no use of `Tank.fill`.
+local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls(tmp: string)
   local root = started(tmp, "class")
+  assert(Fs.write(root .. "/vessels.tl", VESSELS))
+  assert(Fs.write(root .. "/vessels_test.tl", VESSELS_TEST))
   for _, symbol in ipairs({ "Counter.add", "add" }) do
-    local result, out, err = ran(root, tmp, "new", { "uses", symbol })
-    assert(result.code == 1 and out == "" and err:find("nothing refers to '" .. symbol .. "'", 1, true) ~= nil, out .. err)
+    local out = looked_up(root, tmp, { "uses", symbol })
+    assert(out == "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n", symbol .. ": " .. out)
   end
+  local line = looked_up(root, tmp, { "uses", "Counter.line" })
+  assert(line == "cmd/tally/main.tl:18: counter Counter.line\ncounter_test.tl:8: counter Counter.line\n", line)
+  -- `self:fill(1)`, `tank:fill(-1)` through a parameter and `planted.tank:fill(2)` through a field; the constructor's value and
+  -- the jar, which is another class
+  local rows = looked_up(root, tmp, { "sql", "SELECT symbol, from_file, line FROM uses WHERE module = 'vessels' AND symbol LIKE '%.%' " ..
+      "ORDER BY symbol, from_file, line" })
+  assert(rows == "symbol\tfrom_file\tline\nJar.fill\tvessels_test.tl\t7\nTank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t29\n" ..
+      "Tank.fill\tvessels.tl\t51\nTank.fill\tvessels_test.tl\t5\nTank.top_up\tvessels_test.tl\t5\n", rows)
 end
 
 --- A mistyped COSMIC_GRAMMAR is refused by the lookups, as it is by every command that reads it, saying the allowed values.
