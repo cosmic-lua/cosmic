@@ -50,6 +50,15 @@ local record Report
   --- for a type the module keeps to itself and for one inside a function.
   owner_of: function(program: Declarations.Program, decl: Types.Decl): Owner | nil
 
+  --- Where a method of `decl` is a use of, when it is no record nested under its module's own ([`Report.owner_of`]): the
+  --- record or class the module returns, whose methods are `path` "" (the module's own members are `Z.f`, a call of
+  --- which is the syntactic half's), or a record, class or interface declared at the top of its module's file, under
+  --- its own name. nil for an enum, a type inside a function, and any other.
+  home_of: function(program: Declarations.Program, decl: Types.Decl): Owner | nil
+
+  --- Whether `decl` declares the method `name` itself (a class's `function name(self)`, not a field holding a function).
+  has_method: function(decl: Types.Decl, name: string): boolean
+
   --- Whether `decl` declares the field or method `name` itself.
   has_member: function(decl: Types.Decl, name: string): boolean
 
@@ -100,6 +109,33 @@ function Report.owner_of(program: Declarations.Program, decl: Types.Decl): Repor
     return nil
   end
   return { module = decl.module, path = table.concat(decl.names, ".", 2) }
+end
+
+function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report.Owner | nil
+  local kind = decl.kind
+  local name = decl.names[1]
+  if #decl.names ~= 1 or name == nil or decl.module:find("@", 1, true) ~= nil or
+      (kind ~= "record" and kind ~= "class" and kind ~= "interface") then
+    return nil
+  end
+  local root = Report.root_of(program, decl.module)
+  if root ~= nil and root == decl then
+    return { module = decl.module, path = "" }
+  end
+  return { module = decl.module, path = name }
+end
+
+function Report.has_method(decl: Types.Decl, name: string): boolean
+  local body = decl.body
+  if body == nil then
+    return false
+  end
+  for _, m in ipairs(body.methods) do
+    if m.name == name then
+      return true
+    end
+  end
+  return false
 end
 
 function Report.has_member(decl: Types.Decl, name: string): boolean

@@ -947,6 +947,154 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   work.close(handle)
 end
 
+--- A method called through a value of the record a module returns is a use
+--- of that method (`tally add`), found by the value's type: a local, a
+--- parameter, a field, a value the constructor made, and `self` inside the
+--- module. A method of the same name on another module's record is another
+--- symbol.
+local function test_uses_of_a_method_follow_the_type_of_the_value_of_the_record_a_module_returns()
+  local root = assert(write_fixture("returned-record-method-uses", {
+    ["tally.tl"] = table.concat({
+      "local record Tally",
+      "  count: integer",
+      "  add: function(Tally, integer): integer",
+      "  bump: function(Tally)",
+      "  new: function(): Tally",
+      "end",
+      "local function add(self: Tally, n: integer): integer",
+      "  self:bump()",
+      "  return self.count + n",
+      "end",
+      "local function bump(self: Tally)",
+      "  self.count = self.count + 1",
+      "end",
+      "function Tally.new(): Tally",
+      "  return { count = 0, add = add, bump = bump }",
+      "end",
+      "return Tally",
+      "",
+    }, "\n"),
+    ["pile.tl"] = table.concat({
+      "local record Pile",
+      "  add: function(Pile, integer): integer",
+      "  new: function(): Pile",
+      "end",
+      "function Pile.new(): Pile",
+      "  return { add = function(_: Pile, n: integer): integer return n end }",
+      "end",
+      "return Pile",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local type Tally = require("tally")',
+      'local Pile = require("pile")',
+      "local record Holder",
+      "  held: Tally",
+      "end",
+      "local record Main",
+      "end",
+      "function Main.run(p: Tally, h: Holder): integer",
+      "  local made = Tally.new()",
+      "  local total = made:add(1)",
+      "  total = total + p:add(2)",
+      "  total = total + h.held:add(3)",
+      "  total = total + Pile.new():add(4)",
+      "  return total + made.count",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test"))
+  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT from_module, module, symbol, line FROM uses WHERE symbol = 'add' OR symbol = 'bump' " ..
+      "ORDER BY from_module, line, module, symbol"))
+  local got = ""
+  for _, row in ipairs(rows) do
+    got = got .. row:text(4) .. " " .. row:text(1) .. ">" .. row:text(2) .. " " .. row:text(3) .. ", "
+  end
+  -- the four calls of main on lines 10 to 13 and `self:bump()` on line 8 of tally
+  local want = "10 main>tally add, 11 main>tally add, 12 main>tally add, 13 main>pile add, 8 tally>tally bump, "
+  assert(got == want, got)
+  assert(shipped:close())
+  work.close(handle)
+end
+
+--- A record nested in one module's record that is also the record another module returns (a value typed as it) is used
+--- under the nesting, and a record nested in a module that lists the interface another module returns is not taken for
+--- that module's own record: the module's own record is no one's member to be a use of except by a method called through
+--- its values.
+local function test_uses_of_a_nested_record_that_is_also_a_modules_own_are_the_nested_ones()
+  -- The pairs name their modules in both orders ([`build.syntax_receivers_test`] fixes which is walked first).
+  local record_of = "local record Types\n  record Def\n    name: string\n  end\nend\nreturn Types\n"
+  local value_of = function(types: string): string
+    return 'local types = require("' .. types .. '")\nlocal def: types.Def = { name = "d" }\nreturn def\n'
+  end
+  local root = assert(write_fixture("nested-and-own-record-uses", {
+    ["a_types1.tl"] = record_of,
+    ["z_def1.tl"] = value_of("a_types1"),
+    ["z_types2.tl"] = record_of,
+    ["a_def2.tl"] = value_of("z_types2"),
+    ["iface.d.tl"] = table.concat({
+      "local interface Ifc",
+      "  area: function(Ifc): integer",
+      "end",
+      "return Ifc",
+      "",
+    }, "\n"),
+    ["holder.tl"] = table.concat({
+      'local type Ifc = require("iface")',
+      "local record Holder",
+      "  record Item is Ifc",
+      "    w: integer",
+      "  end",
+      "  make: function(): Item",
+      "end",
+      "function Holder.make(): Holder.Item",
+      "  return { w = 1, area = function(self: Holder.Item): integer return self.w end }",
+      "end",
+      "return Holder",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local def1 = require("z_def1")',
+      'local def2 = require("a_def2")',
+      'local Holder = require("holder")',
+      "local record Main",
+      "end",
+      "function Main.run(): string",
+      "  local item = Holder.make()",
+      "  local total = tostring(item:area())",
+      "  total = total .. def1.name",
+      "  total = total .. def2.name",
+      "  return total",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test"))
+  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
+  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT module, symbol, line FROM uses WHERE from_module = 'main' AND symbol LIKE '%.%' ORDER BY line, module, symbol"))
+  local got = ""
+  for _, row in ipairs(rows) do
+    got = got .. row:text(3) .. " " .. row:text(1) .. " " .. row:text(2) .. ", "
+  end
+  -- `item:area()` is on line 8 of main.tl, and the two reads of `.name` below it
+  local want = "8 holder Item.area, 9 a_types1 Def.name, 10 z_types2 Def.name, "
+  assert(got == want, got)
+  assert(shipped:close())
+  work.close(handle)
+end
+
 --- A field a record inherits is a use of the interface that declares
 --- it, through an interface that extends another too; the record's own
 --- field stays the record's.

@@ -170,7 +170,11 @@ end
 function Typed.encode(row: Typed.Row): {{string}}
   local out: {{string}} = { { "A", row.applies and "1" or "0" } }
   for _, r in ipairs(row.refs) do
-    out[#out + 1] = { "R", r.module, r.member, tostring(r.line) }
+    local tag = "R"
+    if r.top == true then
+      tag = "Q"
+    end
+    out[#out + 1] = { tag, r.module, r.member, tostring(r.line) }
   end
   for _, problem in ipairs(row.problems) do
     out[#out + 1] = { "P", problem }
@@ -208,8 +212,12 @@ function Typed.decode(rows: {{string}}): Typed.Row | nil
     if tag == "A" and #fields == 2 then
       applies = fields[2] == "1"
       seen = true
-    elseif tag == "R" and #fields == 4 and n ~= nil then
-      refs[#refs + 1] = { module = fields[2], member = fields[3], line = n }
+    elseif (tag == "R" or tag == "Q") and #fields == 4 and n ~= nil then
+      local beyond: boolean | nil = nil
+      if tag == "Q" then
+        beyond = true
+      end
+      refs[#refs + 1] = { module = fields[2], member = fields[3], line = n, top = beyond }
     elseif tag == "P" and #fields == 2 then
       problems[#problems + 1] = fields[2]
     elseif tag == "U" and #fields == 2 then
@@ -311,6 +319,15 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   for _, at in ipairs(row.known) do
     known[at] = true
   end
+  -- A method of a record at the top of its module's file is a use the fork cannot name ([`Receivers.Reference`]'s `top`):
+  -- counted, and left out of the comparison.
+  local beyond = 0
+  for _, r in ipairs(row.refs) do
+    if r.top == true then
+      beyond = beyond + 1
+    end
+  end
+  counted("typed refs beyond the fork", beyond)
   local lined = true
   local function order(a: Receivers.Reference, b: Receivers.Reference): integer
     if lined and a.line ~= b.line then
@@ -332,15 +349,17 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   end
   local function merged(): Alone
     local alone: Alone = { fork = {}, port = {} }
-    local theirs, ours = fork.refs, row.refs
-    if not lined then
-      theirs, ours = {}, {}
-      for _, r in ipairs(fork.refs) do
-        theirs[#theirs + 1] = r
-      end
-      for _, r in ipairs(row.refs) do
+    local theirs: {Receivers.Reference} = {}
+    local ours: {Receivers.Reference} = {}
+    for _, r in ipairs(fork.refs) do
+      theirs[#theirs + 1] = r
+    end
+    for _, r in ipairs(row.refs) do
+      if r.top ~= true then
         ours[#ours + 1] = r
       end
+    end
+    if not lined then
       table.sort(theirs, function(a: Receivers.Reference, b: Receivers.Reference): boolean
         return order(a, b) < 0
       end)
@@ -376,7 +395,7 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
     lined = false
     alone = merged()
   end
-  counted("typed refs", math.max(#row.refs, #fork.refs))
+  counted("typed refs", math.max(#row.refs - beyond, #fork.refs))
   -- A file whose lines moved has no line to say an error or a position by: its errors explain a use the port lacks.
   local function seen_at(r: Receivers.Reference): boolean
     return (lined and known[r.line .. " " .. last_name(r)] == true) or (not lined and #row.known > 0)

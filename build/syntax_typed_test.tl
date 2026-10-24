@@ -14,11 +14,16 @@ local record Extra
   known?: {string}
 end
 
+--- A use whose text starts with `^` is one the fork cannot find ([`Receivers.Reference`]'s `top`).
 local function row(refs: {string}, extra?: Extra): Typed.Row
   local out: {Receivers.Reference} = {}
   for _, text in ipairs(refs) do
-    local module, member, line = text:match("^(%S+) (%S+) (%d+)$")
-    out[#out + 1] = { module = module, member = member, line = math.tointeger(tonumber(line)) or 0 }
+    local module, member, line = text:match("^%^?(%S+) (%S+) (%d+)$")
+    local beyond: boolean | nil = nil
+    if text:sub(1, 1) == "^" then
+      beyond = true
+    end
+    out[#out + 1] = { module = module, member = member, line = math.tointeger(tonumber(line)) or 0, top = beyond }
   end
   return {
     applies = true, refs = out, problems = extra ~= nil and extra.problems or {}, used = {}, sites = {}, untyped = 0,
@@ -43,6 +48,24 @@ local function test_a_module_the_port_reads_as_the_fork_built_it_differs_nowhere
     fork_file({ "cosmic.zip Writer.close 3", "cosmic.zip Writer.name 4" }))
   assert(#found.differences == 0, table.concat(found.differences, "\n"))
   assert(found.counts["typed refs"] == 2 and found.counts["contracts"] == 1 and found.counts["kind"] == 1)
+end
+
+--- A use of a method through a record at the top of its module's file is one the fork cannot find: counted apart and not
+--- compared, while one it can find, and does not, is still told. The mark survives the memo.
+local function test_a_use_the_fork_cannot_name_is_counted_apart_and_not_compared()
+  local fork = fork_file({ "m A.x 3" })
+  local found = compare("a.tl", row({ "m A.x 3", "^m B.y 4", "^m B.z 5" }), fork)
+  assert(#found.differences == 0, table.concat(found.differences, "\n"))
+  assert(found.counts["typed refs beyond the fork"] == 2 and found.counts["typed refs"] == 1)
+  assert(#compare("a.tl", row({ "^m B.y 4" }), fork).differences == 1)
+  local kept = Typed.decode(Typed.encode(row({ "m A.x 3", "^m B.y 4" })))
+  assert(kept ~= nil)
+  local marks = ""
+  for _, r in ipairs(kept.refs) do
+    marks = marks .. tostring(r.top) .. " "
+  end
+  assert(marks == "nil true ", marks)
+  assert(#compare("a.tl", kept, fork).differences == 0)
 end
 
 local function test_a_use_one_side_lacks_or_reads_on_another_line_is_told_once_for_each_row()

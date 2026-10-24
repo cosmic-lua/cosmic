@@ -252,7 +252,10 @@ function receivers.install(env: compiler.Env): receivers.State
 end
 
 --- Records every record declared under `t` as owned by `module` at
---- its dotted path; the module's own record (path `""`) is not kept.
+--- its dotted path. The module's own record (path `""`) is kept too, but
+--- a record nested under a module takes its place: it is a record some
+--- other module's own may be nested in, and a use of its field is a use
+--- of the nested record's.
 local function walk_owners(state: receivers.State, module: string, t: receivers.Type,
                            path: string, seen: {integer: boolean})
   local found = record_of(t)
@@ -260,7 +263,8 @@ local function walk_owners(state: receivers.State, module: string, t: receivers.
     return
   end
   seen[found.typeid] = true
-  if path ~= "" and state.owners[found.typeid] == nil then
+  local held = state.owners[found.typeid]
+  if held == nil or (held.path == "" and path ~= "") then
     state.owners[found.typeid] = { module = module, path = path }
   end
   local fields, order = found.fields, found.field_order
@@ -274,6 +278,12 @@ local function walk_owners(state: receivers.State, module: string, t: receivers.
     end
   end
 end
+
+-- TODO: attribute a call through a value of a record or class declared at the top of its module's file, and not the record the
+-- module returns, to the method it calls (`counter:add(word)` is a use of `Counter.add`), once the switch makes the new checker
+-- the one that reads the tree (doc/plans/strict-teal.md, "the switch"): tl's types name no module for such a record, so
+-- `cosmic uses` in the default mode finds none, while [`build.syntax_receivers`] finds them ([`build.syntax_typed`] leaves them
+-- out of its comparison with this reader).
 
 --- Every `x.f` read and `x:f(...)` call in `node` (the chunk the
 --- checker just saw) whose `x` the checker typed as a record some
@@ -334,8 +344,10 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     if typed == nil then
       return
     end
+    -- The module's own record (path `""`) has no field a use is found for, only the methods called through its values.
+    local called = op == ":"
     local owner = owners[typed.typeid]
-    if owner == nil then
+    if owner == nil or (owner.path == "" and not called) then
       return
     end
     -- A field the record inherits is a use of the interface that
@@ -343,10 +355,13 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     -- module's type declares that interface.
     local from = declaring(typed, name, {})
     local inherited = from ~= nil and owners[from.typeid] or nil
-    if inherited ~= nil then
+    if inherited ~= nil and (inherited.path ~= "" or owner.path == "") then
       owner = inherited
     end
-    local member = owner.path .. "." .. name
+    local member = name
+    if owner.path ~= "" then
+      member = owner.path .. "." .. name
+    end
     local id = owner.module .. "\n" .. member .. "\n" .. e2.y
     if not seen[id] then
       seen[id] = true

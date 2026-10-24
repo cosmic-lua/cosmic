@@ -2407,7 +2407,7 @@ test/terminal/relay.tl nil_not_allowed 1
 
 # a value that may be nil because an assignment dropped what a test showed: the assignment is of a value that is itself
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
-build/receivers.tl narrowing_dropped 3
+build/receivers.tl narrowing_dropped 1
 
 build/tree_checks.tl narrowing_dropped 7
 
