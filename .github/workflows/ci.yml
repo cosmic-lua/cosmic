@@ -25,13 +25,17 @@
   permissions: {contents: "read"},
 
   env: {
-    # A branch push is `light`: each leg but alpine-x86_64 builds and
-    # runs its native suite, and the checked job, in place of its
-    # suite, the pinned CI driver's check and the format check. The
-    # merge queue, main and a manual run are `full`: every leg, the
-    # checked core, the product and portable suites, the regressions,
-    # attestation and provenance.
-    COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
+    # The scope each job runs (COSMIC_CI_SCOPE, which each job that reads it
+    # sets from the `scope` job's output, below) is `light` for a branch
+    # push that touches nothing a light run leaves unproved, and `full`
+    # for every other run. A `light` run: each leg but alpine-x86_64 builds
+    # and runs its native suite, and the checked job, in place of its
+    # suite, the pinned CI driver's check and the format check. A `full`
+    # run, the merge queue's, main's, a manual run's and a branch push's
+    # whose change touches what a light run leaves out
+    # (.github/scripts/branch-scope.txt): every leg, the checked core,
+    # the product and portable suites, the regressions, attestation and
+    # provenance.
     # Whether this run's platform legs save the caches every run
     # restores: a push to main and the scheduled run, no other (a push
     # to main that reuses the queue's run saves from `seed`, having no
@@ -54,6 +58,45 @@
   },
 
   jobs: {
+    # What a branch push runs: the merge queue's scope (`full`) where its
+    # change touches what a light run leaves out, else `light`
+    # (.github/scripts/branch-scope.sh; the list is branch-scope.txt, held
+    # to what the caches hash by build/workflows_test.tl), so that a failure
+    # that only the queue's legs, regressions and suites show surfaces on the
+    # branch, not a pass and a requeue later. Only a branch push runs it,
+    # which no other run waits on; each job that reads its output names it in
+    # `needs`, and reads `full` where the output is empty (this job skipped,
+    # or failed), so a run it did not decide takes the wider scope. It asks
+    # GitHub for the branch's files (no checkout beyond the script and the
+    # list, and no driver), which keeps it to a runner's start and some
+    # seconds. Its `base`, set only where it chose `full`, is the main commit
+    # the branch grew from: the legs take it as the merge queue's base
+    # (COSMIC_CI_BASE_SHA), so a change that moves build/harness_epoch.tl
+    # runs every test as the queue's does (orchestration.tl's `stands`).
+    scope: {
+      if: "github.event_name == 'push' && github.ref_name != 'main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      permissions: {contents: "read"},
+      outputs: {scope: "${{ steps.decide.outputs.scope }}", base: "${{ steps.decide.outputs.base }}"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/.github/scripts/branch-scope.sh\n/.github/scripts/branch-scope.txt\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "choose the branch push's scope",
+          id: "decide",
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}"},
+          run: "sh .github/scripts/branch-scope.sh decide \"$REPOSITORY\" \"$SHA\"",
+        },
+      ],
+    },
+
     # A push to main tests the commit the merge queue just tested, so it
     # first looks for that run (driver.tl queue-find): found, `seed` saves
     # the queue's caches and relays its products in place of `platform`
@@ -109,7 +152,7 @@
     # in its platform environment, and uploads them for the join; on a
     # push to main whose commit passed the queue, `seed` does instead.
     platform: {
-      needs: "reuse",
+      needs: ["reuse", "scope"],
       if: "!cancelled() && needs.reuse.outputs.run == ''",
       # The leg's name is the check's, so a ruleset needs no matrix; a
       # light run's second linux-x86_64 share (`shard`) is
@@ -123,7 +166,7 @@
           # matrix cannot read) runs no alpine-x86_64 leg, linux-x86_64's
           # runner and target in another image; the merge queue, main and
           # a scheduled or manual run run all four.
-          name: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
+          name: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\", \"alpine-x86_64\"]' || '[\"linux-x86_64\", \"linux-aarch64\", \"macos-aarch64\"]') }}",
           # A light run splits linux-x86_64's native suite, its longest
           # leg's, between two legs on that leg's runner and image
           # (COSMIC_CI_SHARD, `cosmic test --shard`), each its whole
@@ -131,7 +174,7 @@
           # the other legs whole. Each restores and keys as that leg
           # does, and the gate (`ci`) needs every leg. A full run, whose
           # suites gate a merge, runs every leg whole.
-          shard: "${{ fromJSON((github.event_name != 'push' || github.ref == 'refs/heads/main') && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
+          shard: "${{ fromJSON(needs.scope.outputs.scope != 'light' && '[\"\"]' || '[\"1/2\", \"2/2\"]') }}",
           # Of the original combinations, before any entry below is
           # added; on a full run, with no second share, none matches.
           exclude: [{name: "linux-aarch64", shard: "2/2"}, {name: "macos-aarch64", shard: "2/2"}],
@@ -180,6 +223,10 @@
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 45,
       env: {
+        # The run's scope, from the `scope` job: `light` only for a branch
+        # push that touches nothing a light run leaves unproved. The steps
+        # below test it (`env.COSMIC_CI_SCOPE`).
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         # The job's own name (`name` above), which names what it
         # uploads apart from the other linux-x86_64 share's.
         COSMIC_WORKER: "${{ matrix.shard == '2/2' && format('{0}-shard', matrix.name) || matrix.name }}",
@@ -215,11 +262,12 @@
         # join's provenance check holds identical, and the suite (some
         # 190 s on that leg) was its, the queue's longest, critical path.
         # linux-x86_64 still runs its regressions on those bytes and
-        # attests them, as the legs that skip the suite do. A push to
+        # attests them, as the legs that skip the suite do. A branch push
+        # that runs the full scope (`scope`) runs it as the queue does. A push to
         # main that reuses the queue's run runs no legs, so glibc's run
         # of it lands with the scheduled run, or a push to main that
         # found no queue run to reuse.
-        COSMIC_CI_PORTABLE_SUITE: "${{ ((matrix.name == 'linux-x86_64' && github.event_name != 'merge_group') || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
+        COSMIC_CI_PORTABLE_SUITE: "${{ ((matrix.name == 'linux-x86_64' && github.event_name != 'merge_group' && (github.event_name != 'push' || github.ref == 'refs/heads/main')) || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
         COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
@@ -232,9 +280,10 @@
         # Pushes and the merge queue stand on verdicts; a manual and the
         # scheduled run run every test (orchestration.tl's `stands`).
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        # The queue's base, against which a moved build/harness_epoch.tl
-        # runs every test; empty for any other event.
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        # The queue's base, or a full branch push's (its merge base with
+        # main, from `scope`), against which a moved build/harness_epoch.tl
+        # runs every test; empty for any other run.
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -1144,7 +1193,7 @@
     # on every host and runs on one leg in a full run's assemble, is the
     # `format` job's on a light run.
     checked: {
-      needs: ["reuse", "checked-shard"],
+      needs: ["reuse", "scope", "checked-shard"],
       if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
@@ -1152,13 +1201,14 @@
       permissions: {contents: "read", packages: "read", actions: "read"},
       "timeout-minutes": 20,
       env: {
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_CHECKED_SUITE: "gather",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -1528,8 +1578,8 @@
     # and seeds nothing: `checked` saves the verdicts, and linux-x86_64
     # the zig build outputs and compiles. A full run only.
     "checked-shard": {
-      needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'push' || github.ref == 'refs/heads/main')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
       name: "linux-x86_64-checked-shard-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       strategy: {"fail-fast": false, matrix: {part: [1, 2, 3, 4]}},
@@ -1544,7 +1594,7 @@
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -1825,8 +1875,8 @@
     # the native suites of every full run's legs make it on the same
     # core, over tests this one adds to.
     "checked-narrowing": {
-      needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'push' || github.ref == 'refs/heads/main')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1838,7 +1888,7 @@
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -1995,8 +2045,8 @@
     # leaves. A job of a branch push, or of the scheduled run, where
     # `platform` runs.
     format: {
-      needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main') || github.event_name == 'schedule')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'schedule')",
       name: "linux-x86_64-format",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -2394,8 +2444,8 @@
     # cancel job's EXEMPT) in the switch PR, where the new checker replaces the fork and testdata/gate/rehearsal.txt empties
     # (doc/plans/strict-teal.md, "the switch").
     rehearsal: {
-      needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (github.event_name != 'push' || github.ref == 'refs/heads/main')",
+      needs: ["reuse", "scope"],
+      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.scope.outputs.scope != 'light'",
       name: "linux-x86_64-new-grammar",
       "continue-on-error": true,
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
@@ -2408,7 +2458,7 @@
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ github.event_name }}",
-        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha }}",
+        COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
         {
@@ -2596,11 +2646,14 @@
     # attested identical bytes. Steps, not a job of its own, which a
     # branch push would show as skipped.
     ci: {
-      needs: ["reuse", "platform", "checked", "checked-shard", "checked-narrowing", "format", "seed"],
+      needs: ["reuse", "scope", "platform", "checked", "checked-shard", "checked-narrowing", "format", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
-      env: {COSMIC_WORKER: "provenance"},
+      env: {
+        COSMIC_CI_SCOPE: "${{ needs.scope.outputs.scope == 'light' && 'light' || 'full' }}",
+        COSMIC_WORKER: "provenance",
+      },
       steps: [
         {
           name: "every leg passed",

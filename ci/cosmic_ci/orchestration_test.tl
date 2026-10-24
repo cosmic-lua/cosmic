@@ -404,8 +404,53 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
   local ci = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
   local platform = (ci.jobs as {string: {string: any}}).platform
   local env = platform.env as {string: string}
-  assert(env.COSMIC_CI_BASE_SHA == "${{ github.event.merge_group.base_sha }}",
+  assert(env.COSMIC_CI_BASE_SHA == "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
     "ci.yml's platform job names no merge queue base: " .. tostring(env.COSMIC_CI_BASE_SHA))
+end
+
+--- A branch push that runs the queue's scope (ci.yml's `scope` job gives
+--- it its merge base with main as COSMIC_CI_BASE_SHA) decides the harness
+--- as the queue does, so a change that moves build/harness_epoch.tl runs
+--- every test on the branch, and one that leaves it stands on verdicts,
+--- as the queue's run of it will. A base it could not name (`unknown`)
+--- is a move. A push naming none (main's, or a light branch run's) is
+--- not asked, and is never `--bail`ed: only the queue's run is.
+local function test_a_full_branch_push_decides_the_harness_as_the_merge_queue_does(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local root = tmp .. "/checkout"
+  assert(Fs.mkdirs(root .. "/build"))
+  git(root, { "init", "--quiet" })
+  assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 1\n"))
+  git(root, { "add", "." })
+  git(root, { "commit", "--quiet", "-m", "main" })
+  local base = assert(git(root, { "rev-parse", "HEAD" }):match("^(%x+)"))
+  assert(Fs.write(root .. "/README", "branch\n"))
+  git(root, { "add", "." })
+  git(root, { "commit", "--quiet", "-m", "branch, harness untouched" })
+  assert(Orchestration.against_a_base({ COSMIC_CI_EVENT = "push", COSMIC_CI_BASE_SHA = base }))
+  assert(Orchestration.against_a_base({ COSMIC_CI_EVENT = "merge_group" }))
+  for _, event in ipairs({ "push", "schedule", "workflow_dispatch", "" }) do
+    assert(not Orchestration.against_a_base({ COSMIC_CI_EVENT = event, COSMIC_CI_BASE_SHA = "" }), event)
+  end
+  assert(not Orchestration.against_a_base({ COSMIC_CI_EVENT = "schedule", COSMIC_CI_BASE_SHA = base }))
+  local unasked: {string:string} = { COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    GITHUB_WORKSPACE = root }
+  assert(table.concat(Orchestration.suite_run(unasked), " ") == "test" and unasked["COSMIC_CI_HARNESS_MOVED"] == nil,
+    "a push naming no base is asked")
+  local left = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = base })
+  assert(table.concat(left, " ") == "test", "a branch push that leaves the epoch ran --all")
+  assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
+  git(root, { "commit", "--quiet", "-am", "bump" })
+  -- Asked of another checkout: the answer is kept by checkout and base.
+  local moved = tmp .. "/moved"
+  git(tmp, { "clone", "--quiet", root, moved })
+  local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
+  assert(table.concat(words, " ") == "test --all", "a branch push that moves the epoch: " .. table.concat(words, " "))
+  local unknown = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = "unknown" })
+  assert(table.concat(unknown, " ") == "test --all", "a base the scope job could not name stands on verdicts")
 end
 
 --- The portable suite keeps its verdicts in the native suite's file,

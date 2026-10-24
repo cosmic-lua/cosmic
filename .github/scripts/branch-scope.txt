@@ -1,0 +1,67 @@
+# The paths a branch push runs the merge queue's scope for (full, not
+# light) when its change touches one: what a light run leaves out (the
+# alpine-x86_64 leg, the regressions, the product suite, assemble and
+# the checked shares) is where a change to these fails, and only in the
+# queue, a pass and a requeue later. .github/scripts/branch-scope.sh
+# reads it, one shell `case` pattern a line (a `*` takes `/` too, so
+# `ci/*` is every file under ci/), the first word of each line; a line
+# starting `!` takes back the paths it matches. A line's later words
+# and a `#` comment are for the reader.
+#
+# build/workflows_test.tl holds this list to what ci.yml hashes into its
+# caches (the entries below that say so), and every file named in full to
+# exist.
+#
+# Docs and every test file not named here move nothing.
+!*.md
+
+# The CI driver, the pinned tools and what the legs run: the key of the
+# driver's check hashes these (ci.yml's "find a passing CI driver check").
+ci/*
+bin/*
+.github/workflows/ci.yml
+.github/actions/*
+.github/scripts/*
+.github/seccomp/*
+
+# The zig build's inputs: cache-names' `vendor` and `core` hashes.
+build.zig
+build.zig.zon
+build/zig.tl
+vendor/*
+!vendor/tzdata/*
+!vendor/cacert/*
+!vendor/onecrl/*
+!vendor/htmx/*
+!vendor/htmx-ext-sse/*
+!vendor/wpt-url/*
+!vendor/html5lib-tokenizer/*
+!vendor/wpt-html-parsing/*
+patch/*
+core/ares_config.h
+core/curl_config.h
+core/mbedtls_cosmic_config.h
+core/xz_config/*
+core/darwin-compat/*
+core/*.c
+core/*.h
+core/*.zig
+test/portable/*.c
+
+# The harness: a change to a module it names moves this file
+# (build/harness_epoch_test.tl), and a queue run whose change moves it
+# runs every test (orchestration.tl's `harness_moved`).
+build/harness_epoch.tl
+
+# The artifact format, the launcher, boot and the vocabulary a test's
+# `requires` is held to, which the pinned driver the regressions run may
+# not know (a name newer than ci/cosmic-driver.pin fails ci/'s
+# fixtures there, as `all_cores` did).
+build/artifact.tl
+build/embed.tl
+build/boot.tl
+build/reboot.tl
+build/launcher.tl
+build/paths.tl
+build/host_names.tl
+build/host_requires.tl
