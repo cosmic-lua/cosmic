@@ -28,9 +28,9 @@
 --- - the test harness's epoch (build/harness_epoch.tl), in place of
 ---   the harness's own code: each module a worker loads besides its
 ---   test's closure ([`build.test_worker`]'s [`worker.loads`]), the plan of
----   its sandbox's maker ([`build.test`]'s `harness_own`), and the code
----   that makes a key and looks a verdict up under one ([`build.test`]'s
----   `key_code`: build.test, and this module's closure and
+---   its sandbox's maker ([`build.test_key`]'s `harness_own`), and the code
+---   that makes a key and looks a verdict up under one ([`build.test_key`]'s
+---   `key_code`: build.test_key, and this module's closure and
 ---   build.shared_verdicts'), none of which a key holds by what it is
 ---   -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
 ---   bump -- and the timeout its worker runs under (`timeout_ns`);
@@ -93,14 +93,14 @@
 --- module the tool carries that is of neither its closure nor the
 --- harness -- a top-level require added to build.test_worker, a lazy
 --- one a worker reaches -- naming it, so the harness's digest
---- ([`build.test`]'s `harness`) is over all a worker runs. The harness
+--- ([`build.test_key`]'s `harness`) is over all a worker runs. The harness
 --- is what a worker loads, not every module its modules require: a
 --- `local type` require is erased by Teal and loads nothing, and what
 --- an imported type does at run time (an `is` against a record's
 --- `where`, an enum's membership) is compiled into the importer's
 --- bytecode.
 ---
---- A test's closure is walked by the same rule ([`build.test`]'s
+--- A test's closure is walked by the same rule ([`build.test_key`]'s
 --- `type_only_imports`): a module an importer of it requires only by
 --- type is none of its closure, and so none of its key, its store or
 --- the modules its worker may `require`. An edit to one that leaves the
@@ -125,7 +125,7 @@
 --- harness's digest, over each of its modules' source and bytecode, to the one
 --- build/harness_epoch.tl acknowledges, so no edit to it lands without
 --- that choice made, and CI's merge queue runs every test for a change
---- that makes it. That holds what build.test decides of a worker's
+--- that makes it. That holds what build.test_key decides of a worker's
 --- holds as well -- the names of the tree's modules and declarations a
 --- `require` or a lookup in the store refuses -- which it hands a
 --- worker and no other part of a key names. It would be unsound to
@@ -171,7 +171,7 @@ local test_inputs = require("build.test_inputs")
 -- Hashed and spelled through build.digest and build.key_parts, and
 -- timed through the binding, not cosmic.hash, cosmic.codec or
 -- cosmic.clock: a key's value turns on no library module outside the
--- harness (build.test's `harness`).
+-- harness (build.test_key's `harness`).
 local hex, hex_sha256 = key_parts.hex, hashing.hex_sha256
 
 --- The realtime clock, in nanoseconds since the epoch, straight from
@@ -271,7 +271,7 @@ local record declared_key
     --- The environment its worker is given.
     environment: {string:string}
     --- Whether its worker may run this program though its module does
-    --- not declare `tool` ([`build.test`]'s `can_forbid`): o/bin is keyed
+    --- not declare `tool` ([`build.test_key`]'s `can_forbid`): o/bin is keyed
     --- as if it did.
     runs_tool?: boolean
     --- The digest of the bytes of the store of its module's import
@@ -280,7 +280,7 @@ local record declared_key
     --- the whole projection, keyed by its contents.
     closure_store?: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
-    --- ([`build.test`]'s `launch`, unsandboxed),
+    --- ([`build.test_key`]'s `prepare`, unsandboxed),
     --- which sees it where it is: its verdict may turn on that path, so
     --- it stands only in a checkout there. Nil for a sandboxed worker,
     --- whose key names no place of the tree.
@@ -564,7 +564,7 @@ end
 ---
 --- And every sandboxed worker runs this same core. One whose module
 --- declares neither `store` nor `tool` runs it on a sealed database of its
---- closure (build.test's `sealed_for`), which holds none of these rows,
+--- closure (build.test_key's `sealed_for`), which holds none of these rows,
 --- while one that declares `store` or `tool` has the program's database in
 --- reach, which its key holds by the projection's contents or by this
 --- identity, but for these.
@@ -586,7 +586,7 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
     -- carried database again (~0.25 s on a 4-core host, several times
     -- that on a loaded runner), the largest fixed cost of a `cosmic
     -- test` a tool test starts in a checkout of its own whose tests run
-    -- the program (build.test's `program_of` spares one whose tests
+    -- the program (build.test_key's `program_of` spares one whose tests
     -- none do).
     local carried, _ = carried_digest(split.database)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
@@ -1424,7 +1424,7 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
 end
 
 --- A digest of the modules `names` names, each by its name and what
---- `sources` says it is ([`build.test`]'s `harness`: its source's hash
+--- `sources` says it is ([`build.test_key`]'s `harness`: its source's hash
 --- for the harness's digest, and its bytecode's hash beside it for the
 --- closure store's salt), sorted, so their order is no part of it.
 --- Nothing they require is walked. A module no source names is left

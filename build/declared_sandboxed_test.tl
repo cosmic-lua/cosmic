@@ -24,7 +24,7 @@ local checkout, environment, says = fixture.checkout, fixture.environment, fixtu
 --- other, whichever came first: each keys under a runtime of its own.
 --- The two runs differ in COSMIC_TEST_SANDBOX, which every key holds
 --- pinned, and a sandboxed runtime carries " sandboxed". The runtime's
---- " declared" tag (build/test.tl) names the mode in the key itself, so
+--- " declared" tag (build/test_key.tl) names the mode in the key itself, so
 --- the two would stay apart even if neither of those told them apart,
 --- as in an auto-mode run on a host that can sandbox a worker one day
 --- and not the next. This case does not turn on that tag: no test can

@@ -824,13 +824,13 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   closure ([`build/test_worker.tl`]'s `hold_requires`); nothing else in the
   worker holds a lookup in the store to the closure. A worker whose module
   declares neither `store` nor `tool`, a `nests` one among them, also runs on
-  a sealed database of that closure ([`build/test.tl`]'s `sealed_for`) in the
+  a sealed database of that closure ([`build/test_key.tl`]'s `sealed_for`) in the
   program's place, so what it and every process it starts read of the program
   is what its key holds. That leaves ways past it. Any other worker runs the
   program, whose own database holds every module of the tree, which
   [`Store.bytecode`], [`Store.source`], [`Store.requires`],
   [`Store.databases()`], [`Store.meta`] and a searcher called by hand read
-  with no key to hold them ([`build/test.tl`], `seals`). A module the program carries that is no module
+  with no key to hold them ([`build/test_key.tl`], `seals`). A module the program carries that is no module
   of the tree -- in a project's tree, the standard library's -- is held by
   neither, and the runtime's identity names the core and the pins, not
   those modules ([`build/test_worker.tl`], the TODO on `refusal`). An
@@ -862,13 +862,13 @@ its own error. what a declared key rests on beside the list above:
   [`Spec.tree`]). CI moves its checkout, and the tool with it, to a path a hash
   of the commit and the leg chooses ([`ci/cosmic_ci/place_tree.tl`]), so a
   test that breaks the rule fails a run that meets a path it breaks on.
-- *a stat's times and inode*, by rule ([`build/test.tl`], above `declared_of`):
+- *a stat's times and inode*, by rule ([`build/test_key.tl`], above `declared_of`):
   a key holds a file of the tree by its contents, so a test must not depend
   on the times, inode, device, link count or owner of a file it did not make;
   one that needs them makes its own files in its temporary directory and sets
   them. nothing enforces it yet: have a worker's hold answer fixed times and
   inode for a stat of the tree, which takes C and a boot.
-- *the binary's data tables* ([`build/test.tl`], in its `read_identities`): a refresh
+- *the binary's data tables* ([`build/test_key.tl`], in its `runtime_of`): a refresh
   changes `zoneinfo` and `ca_roots` without the runtime identity. every verdict
   is keyed on a digest of them ([`schema.tables_digest`]), computed from the
   running binary's own rows as `cosmic test` starts.
@@ -1654,6 +1654,7 @@ in [roadmap.md](roadmap.md).
 [`build/teal.tl`]: ../build/teal.tl
 [`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
+[`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
 [`build/verb_spec.tl`]: ../build/verb_spec.tl

@@ -860,7 +860,7 @@ repository at another path and leaves its credentials behind. The move
 means a test whose verdict turns on the tree's path meets it on the
 macOS leg (unsandboxed; a Linux leg's workers see the tree at /tree)
 only where its key moved or on the scheduled run, which stands on
-nothing; the TODO on `build/test.tl`'s `launch` would give such a
+nothing; the TODO on `build/test_key.tl`'s `prepare` would give such a
 worker a fixed path.
 
 The CI driver check's marker is keyed by what cosmic_ci's tests read

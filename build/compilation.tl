@@ -132,7 +132,7 @@ local type Interfaced = function(Module): string | nil, string
 --- `decl_imports` rows of the binary's own database, where
 --- [`Store.source`] reads it. Nil and why when that database has no row
 --- of it: every database the program runs on carries each module's, a
---- sealed one too (build/test.tl's `sealed_fill`, [`Store.seal`]).
+--- sealed one too (build/test_key.tl's `sealed_fill`, [`Store.seal`]).
 local function embedded_edges(name: string): {string} | nil, string
   local databases = Store.databases()
   local rows, trouble = Sqlite.text_rows(databases[#databases],

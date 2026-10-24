@@ -308,9 +308,13 @@ allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.
 allowed["build.closure_store.loaded_beside"] = "what build/lua_standalone_test.tl " ..
   "holds a closure store to carrying beside a module of its closure, which a `lua` " ..
   "module's children run from"
-allowed["build.test.value_imports"] = "tested directly: the harness's test reads, " ..
+allow({ "build.test_key.harness", "build.test_key.worker_environment", "build.test_key.scratch" },
+  "tested directly: the tests hand them what the running binary alone gives the runner -- " ..
+    "a tree's or a fixture's modules, an environment with no startup hook of its own, a " ..
+    "directory made as a worker is given one")
+allowed["build.test_key.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
-allowed["build.test.type_only_imports"] = "tested directly: the harness's test holds " ..
+allowed["build.test_key.type_only_imports"] = "tested directly: the harness's test holds " ..
   "it to the edges `value_imports` leaves out; `run` reads it through the projection"
 allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
   "SQLite for the statement's plan, which must read `compiled` once rather " ..
@@ -1071,7 +1075,7 @@ end
 --- open the store, or require a portable host, by the module's path:
 --- the ones whose key holds the launcher, as the working database `build`
 --- (`build.db`) holds their declarations. Every other worker runs
---- sealed ([`build.test`]'s `seals`).
+--- sealed ([`build.test_key`]'s `seals`).
 --- @param build the working database
 --- @return the module paths, as a set
 function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean} | nil, string
@@ -1737,7 +1741,7 @@ plural_exempt["build/confine.tl:paths"] = "a count above the unveil limit, so ne
   "every worker loads build.confine, and none loads build.plural"
 plural_exempt["build/fetch.tl:digests"] = "\"name different sha256 digests\": two differ, so never 1"
 plural_exempt["build/test.tl:seconds"] = "the limit is math.maxinteger // 1000, never 1"
-plural_exempt["build/test.tl:tables"] = "a label before its value (\"tables <digest>\"), not a count"
+plural_exempt["build/test_key.tl:tables"] = "a label before its value (\"tables <digest>\"), not a count"
 plural_exempt["cosmic/net.tl:bytes"] = "SOCKET_NAME_MAX is the platform's sun_path size, never 1"
 plural_exempt["build/patch.tl:matches"] = "runs on the bootstrap release " ..
   "(bin/vendor applies patches), which cannot require build.plural"

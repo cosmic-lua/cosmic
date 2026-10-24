@@ -351,7 +351,7 @@ local function run(argv: {string}): integer
   -- The stores of test modules' closures a sandboxed `cosmic test`
   -- gives its workers ([`build.closure_store`]'s `write`), as a whole:
   -- not the store of no module beside them (`base-<address>.db`,
-  -- build.test's `base_name`), which the census digests and no worker
+  -- build.test_key's `base_name`), which the census digests and no worker
   -- is given.
   if #paths == 0 then
     local stores = layout.stores

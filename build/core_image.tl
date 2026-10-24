@@ -1,5 +1,5 @@
 --- What of a core a run can turn on, as a digest a verdict's key holds
---- (build.test's `runtime`, build.declared_key's `launcher` and
+--- (build.test_key's `runtime_of`, build.declared_key's `launcher` and
 --- `program`), so that a core rebuilt with other debug information keys
 --- the same.
 ---
@@ -48,7 +48,7 @@ local hashing = require("build.digest")
 
 -- Hashed through build.digest, not cosmic.hash: a verdict key that
 -- holds a core's image (build.declared_key) turns on no library module
--- outside the harness (build.test's `harness`).
+-- outside the harness (build.test_key's `harness`).
 local sha256_hasher, hex_sha256 = hashing.sha256_hasher, hashing.hex_sha256
 
 local record core_image

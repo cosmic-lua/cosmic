@@ -106,7 +106,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 --- only inside a function it does not call on that way -- dispatch
 --- requires every verb's modules so -- so its key holds each by what it
 --- is, and every process its tests start runs a sealed database of that closure
---- ([`build.test`]'s `sealed_for`), which carries no other module of the
+--- ([`build.test_key`]'s `sealed_for`), which carries no other module of the
 --- program. A module added to that way is not found by such a process
 --- until it is added here; build/lua_children_test.tl holds a `-e` child
 --- to loading no more.
@@ -175,7 +175,7 @@ local corpora <const> = "testdata/fuzz/"
 --- `type_only` names the edges not followed (importer path, then required
 --- name): the `local type` requires of a module, which Teal erases, so
 --- that nothing of what the required module is loads when the importer
---- runs ([`build.test`]'s `type_only_imports`). What the imported type
+--- runs ([`build.test_key`]'s `type_only_imports`). What the imported type
 --- does at run time (an `is` against a record's `where`, an enum's
 --- test) is compiled into the importer's bytecode, which the closure
 --- holds. A test module's own requires are all followed, so

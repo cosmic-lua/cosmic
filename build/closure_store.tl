@@ -2,7 +2,7 @@
 --- sandboxed worker of a test whose module does not declare `store` is
 --- given at o/cosmic.db in the projection's place ([`build.test_sandbox`]),
 --- derived from the projection [`build.writer`] writes and kept by
---- `cosmic test` under the build directory's stores/ by its address ([`build.test`]), so an
+--- `cosmic test` under the build directory's stores/ by its address ([`build.test_key`]), so an
 --- edit to a module outside the closure leaves the store as it was. A
 --- test's key holds the store by the digest of its bytes
 --- ([`build.declared_key`]'s `store_digest`), not by its address: the
@@ -11,7 +11,7 @@
 --- moves no key.
 ---
 --- It is apart from the projection's writer because its code salts
---- every store's address ([`build.test`]'s `store_writer`), and that
+--- every store's address ([`build.test_key`]'s `store_writer`), and that
 --- writer's need not. What the writer writes reaches a store only
 --- through rows and orderings the address digests
 --- ([`closure_store.basis`]): each module's columns, the stored (deflated)
@@ -76,7 +76,7 @@ end
 
 --- `value`, bound as TEXT: [`build.bind`]'s `text`, restated rather than
 --- required so that what salts a store's address is this module and the
---- schema alone ([`build.test`]'s `store_writer`), and an edit to the
+--- schema alone ([`build.test_key`]'s `store_writer`), and an edit to the
 --- binds the rest of the build shares moves no address.
 local function text(value: string): Sqlite.Value
   return { text = value }
@@ -109,7 +109,7 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- that types it fails rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
 --- declaration: a require of build.analyzer would salt every store's
---- address with it ([`build.test`]'s `store_writer`). [`build.tree_checks`]
+--- address with it ([`build.test_key`]'s `store_writer`). [`build.tree_checks`]
 --- holds the tree to declarations that require only declarations
 --- (`declared`).
 function closure_store.required_by(source: string): {string}
@@ -461,7 +461,7 @@ end
 --- the modules each example module among them could be paired with
 --- (`candidates`), its declarations' lines (`declared`), the basis's
 --- shared digest, and `salt`, which names the code that writes it
---- ([`build.test`] passes a digest of this module's and build.schema's
+--- ([`build.test_key`] passes a digest of this module's and build.schema's
 --- sources and bytecode, and nothing of the projection's writer, whose
 --- edits leave a store's bytes alone). An edit to a module or a
 --- declaration outside the closure moves none of these, and neither
@@ -493,7 +493,7 @@ end
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
 --- [`build.compilation`] reads of a standard-library module on a sealed
---- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
+--- database ([`build.test_key`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -665,7 +665,7 @@ function closure_store.write(whole: string, out: string, names: {string},
     -- other run writes or sweeps meanwhile: only `cosmic test` writes a
     -- checkout's stores, and one run of it at a time holds the
     -- checkout's rebuild lock (build.rebuild_lock), so a `.building`
-    -- that build.test's `sweep_stores` finds is one cut short.
+    -- that build.test_key's `sweep_stores` finds is one cut short.
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
     if not vacuumed then return false, vacuum_trouble end

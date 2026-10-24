@@ -249,7 +249,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- harness's epoch in their place (build/harness_epoch.tl), and the
 --- harness's digests, which build/harness_epoch_test.tl holds to those
 --- acknowledged there, hold each by its source and bytecode
---- ([`build.test`]'s `harness`). `judge` fails a sandboxed test whose
+--- ([`build.test_key`]'s `harness`). `judge` fails a sandboxed test whose
 --- worker loaded a module of the tree the tool carries that is neither
 --- here nor in its closure, so what a worker runs is in its closure or
 --- in those digests. A module added to the worker's way is named here by
@@ -879,7 +879,7 @@ end
 -- that is no portable artifact), once their keys hold the program's own
 -- modules (a digest of its `modules` and `decls` beside the runtime
 -- identity, which names only the core and the pins): the key of a worker
--- on a sealed database holds them already (build.test's `extras_digest`),
+-- on a sealed database holds them already (build.test_key's `extras_digest`),
 -- but today a release that changes only the standard library's Teal leaves
 -- standing a verdict of one of the others that read one of them outside its
 -- closure. In this tree every module the program carries is a module of
@@ -911,7 +911,7 @@ local type Held = function(fn: function(any...): (any...), argument?: any): any
 --- returned or raised, and returns or raises as `fn` did. A lookup that
 --- is not a `require` reads the store the worker is given, and the
 --- program's own, which a sealed database narrows to the closure
---- (build.test's `sealed_for`): this hold is its second guard there, which
+--- (build.test_key's `sealed_for`): this hold is its second guard there, which
 --- says why, and the only one for a worker that declares `store`, `tool` or
 --- `nests`.
 local function hold_requires(module_path: string, closure: {string:boolean},
@@ -1280,7 +1280,7 @@ function worker.run(argv: {string}): integer
   end
   if own_scratch then
     -- The runner made no directory for it: the worker's scratch directory is
-    -- one of the tmpfs it has, as the runner would have made it ([`build.test`]'s
+    -- one of the tmpfs it has, as the runner would have made it ([`build.test_key`]'s
     -- `scratch`), `tmp` a link to `real`.
     local scratch = Fs.dirname(tmp)
     local made_scratch, scratch_trouble = Fs.mkdirs(scratch .. "/real")

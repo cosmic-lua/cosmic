@@ -19,7 +19,7 @@ local String = require("cosmic.string")
 -- Hashed and spelled through build.digest and build.key_parts, not
 -- cosmic.hash or cosmic.codec: a verdict key that holds a program's
 -- identity (build.declared_key) turns on no library module outside the
--- harness (build.test's `harness`).
+-- harness (build.test_key's `harness`).
 local sha256, hex = hashing.sha256, key_parts.hex
 
 local extra: any = select(2, ...)

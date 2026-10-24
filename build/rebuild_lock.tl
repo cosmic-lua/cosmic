@@ -6,7 +6,7 @@
 ---
 --- `cosmic test` holds it for its whole run ([`build.test`]), so a second
 --- run in the checkout waits for the first: one run's closure stores,
---- its sweep of them ([`build.test`]'s `sweep_stores`) and its projection
+--- its sweep of them ([`build.test_key`]'s `sweep_stores`) and its projection
 --- are never another's to remove or write under it. A run that finds
 --- the tool stale holds it from then until it re-enters the command on
 --- the tool it wrote (build/reboot.tl's `serialize`), a `bin/zig build
@@ -111,7 +111,7 @@ local doing: {string:string} = {
 --- One that finds the lock free takes it, so a variable left in an
 --- environment it no longer describes holds nothing up; a `cosmic test`
 --- run never goes on under it, and gives none to its workers
---- ([`build.test`]'s `worker_environment`).
+--- ([`build.test_key`]'s `worker_environment`).
 local handed_variable <const> = "COSMIC_REBUILD_LOCK_HANDED"
 
 --- How long a waiting run waits in one go before it says it still is.

@@ -86,7 +86,7 @@ local record test_sandbox
   output: string
   --- How long, at least, the path of every test's scratch directory is,
   --- on every host. macOS's own is 75 bytes, its temporary directory
-  --- resolved (/private/var/folders/<2>/<30>/T/) and [`build.test`]'s
+  --- resolved (/private/var/folders/<2>/<30>/T/) and [`build.test_key`]'s
   --- `scratch` beneath it, and a path a test builds there runs past a
   --- bound (a socket file's 104 bytes, a tar name's 100) that a shorter
   --- one elsewhere never meets. Padded to this on every host -- a
@@ -193,7 +193,7 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 local parent_place <const> = "/tree-up"
 
 --- A sandboxed worker's environment: of `environment`, the runner's
---- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
+--- view of a worker's ([`build.test_key`]'s `worker_environment`), the pinned
 --- variables and those `effective` declares, and TMPDIR, set to its
 --- scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
@@ -524,7 +524,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- path, which holds every module of the tree. So does one that declares
   -- `lua`, whose children would read what it holds. One that declares
   -- `store` is given the real one; any other runs on a sealed database
-  -- ([`build.test`]'s `sealed_for`) and is given none.
+  -- ([`build.test_key`]'s `sealed_for`) and is given none.
   if (effective.nests or effective.lua) and effective.store and not effective.tool then
     local launched, _ = Proc.relaunch()
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then

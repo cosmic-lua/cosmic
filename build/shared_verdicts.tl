@@ -112,7 +112,7 @@ local declared <const> = cache_formats.declared
 --- The table of what each closure store's bytes digest to, by its
 --- address: `stores_v1`. An address digests everything a store's bytes
 --- follow from -- its rows, the code that writes it and the runtime that
---- runs that code ([`build.test`]'s `address_stores`) -- so one address
+--- runs that code ([`build.test_key`]'s `address_stores`) -- so one address
 --- names one store's bytes wherever it is written, and a checkout can
 --- key a test by a store it has not written. Bounded as `declared` is.
 local stores <const> = cache_formats.stores
@@ -408,7 +408,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for address in pairs(stored) do addresses[#addresses + 1] = address end
     table.sort(addresses)
     -- A digest here that differs from the run's for the same address
-    -- was reported by the run as an error ([`build.test`]'s
+    -- was reported by the run as an error ([`build.test_key`]'s
     -- `mismatched`), which says the run's replaces it.
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..

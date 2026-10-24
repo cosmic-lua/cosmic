@@ -398,7 +398,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
 end
 
 --- `db` counts the closures' stores under o/stores, and not the store of
---- no module beside them (build/test.tl's `base_name`).
+--- no module beside them (build/test_key.tl's `base_name`).
 local function test_db_counts_the_closure_stores_alone(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)

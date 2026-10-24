@@ -308,7 +308,7 @@ end
 --- root by digest, label and bytes, every web asset by name, version and
 --- digest, in key order, under the schema
 --- `qualifier` names. `cosmic test` keys each verdict on it, computed
---- from the running binary's own rows ([`build.test`]), so a test that
+--- from the running binary's own rows ([`build.test_key`]), so a test that
 --- read a zone or a root runs again on a binary that carries others.
 --- `web` false leaves the web assets out, for a database from before
 --- that table, which has none to read.

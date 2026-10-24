@@ -1,12 +1,15 @@
 --- The test harness's epoch, which every sandboxed verdict key holds
 --- ([`build.declared_key`]'s `epoch` part) in place of the harness's own
 --- code: what every worker loads ([`build.test_worker`]'s `loads`), the
---- sandbox's maker ([`build.test`]'s `harness_own`), and the code that
---- makes a key and looks a verdict up under one ([`build.test`] and its
+--- sandbox's maker ([`build.test_key`]'s `harness_own`), and the code that
+--- makes a key and looks a verdict up under one ([`build.test_key`] and its
 --- `key_code`). An edit to that code moves no key by itself, so a
---- comment in build/test.tl runs no test again but those that import
+--- comment in build/test_key.tl runs no test again but those that import
 --- it. `epoch` moves every key, and is bumped by hand for a change that
---- can alter a pass or a fail.
+--- can alter a pass or a fail. The runner around it, [`build.test`], is no
+--- module of the harness: it schedules the workers and keeps the history,
+--- the coverage and the summary, makes no key, and an edit to it moves
+--- no digest here.
 ---
 --- `epoch` is a count and a token of 8 random hex digits,
 --- "N-xxxxxxxx": the token makes each bump its own value. Were it a
@@ -27,7 +30,7 @@
 --- edits of a bump when the harness moves.
 ---
 --- `acknowledged` holds a digest per module of that code as it was when
---- the choice was last made ([`build.test`]'s `harness`, over each
+--- the choice was last made ([`build.test_key`]'s `harness`, over each
 --- module's source and bytecode). It is one module to a line, sorted,
 --- with a blank line between each two, so two changes to different
 --- modules merge cleanly, even two that sort next to each other, and two
@@ -49,11 +52,11 @@
 --- * what every worker loads ([`worker.loads`], which [`worker.judge`] holds
 ---   each worker to);
 --- * the sandbox's maker (`harness_own`);
---- * build.test itself, cosmic.child, which applies a worker's
+--- * build.test_key itself, cosmic.child, which applies a worker's
 ---   sandbox, and cosmic.sandbox and cosmic.sandbox.policy, which decide a
 ---   policy worker's grants (`harness_alone`), each held alone;
 --- * the closure of the key's roots (`key_roots`) over the requires each
----   makes by value, as its bytecode names them ([`test.value_imports`]).
+---   makes by value, as its bytecode names them ([`test_key.value_imports`]).
 ---   A `local type` require is not followed, since Teal erases it and
 ---   what the imported type does at run time is compiled into the
 ---   importer's bytecode, which the digests hold.
@@ -80,7 +83,7 @@ end
 harness_epoch.epoch = "51-fddb0e02" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "e3f8acd5718271deae9f9454a9c49e27bf33777c7124756c766c72090d57b1bf",
+  ["build.artifact"] = "555eea099acf99b5a51b304b02c3cc4106bf8619d7d242f37f3e48ddb7e8ac86",
 
   ["build.assertions"] = "536da1af6ed52bf04f8f8803d77f83f44a9c43cb65f2572eca09c995fa87fe4d",
 
@@ -88,23 +91,23 @@ harness_epoch.acknowledged = {
 
   ["build.cache_formats"] = "c8ff0b082d587dde5b954b9966119e935ea1d2b052f9d9cdb3784a3fddc94ac5",
 
-  ["build.cache_names"] = "f3ffd43d849dcd48fc9d781a0826d9c500484e41fc5c9cc0597a4b37cd650516",
+  ["build.cache_names"] = "4b4f3b1df38b24007ea926f54a8abf937f1358b96a868356504c3580e650052c",
 
   ["build.caches"] = "b39b55b004ea7b8584d1ffbe6dc64fc0f2f4f1c7906bd10bc22510278204d980",
 
   ["build.confine"] = "9f53e093dd7fcc0941c131561d343fa47da3dede1c843fc0578838197be52e80",
 
-  ["build.core_image"] = "b3106284696a578a122a0c4e9b3138a4f337795944c670b908e729ed91b1e2c4",
+  ["build.core_image"] = "438521f7414f628e48873643defe04e22cf920033b1aea7bbf2e0f34b3338201",
 
-  ["build.declared_key"] = "ac1cce7cb85d6d609ab18aef5c3f91ddebdd2df9494b321fd01e954528a8a54b",
+  ["build.declared_key"] = "9a4507583a4fdb4b7ac8c35fc1ddd3752b8a558b7062257df3a1879bf0a6f3dc",
 
-  ["build.digest"] = "918687680d02c908dc1080f10a40dbab03941f70baae7605f3536e0f18e84d49",
+  ["build.digest"] = "22c6cbf8301394d1b91f4ff36c3caebed275d94b1e0f9eb5e451bc7a8b8e2fd1",
 
   ["build.host_names"] = "dc2719fe1bd9e50a757d374b56bd540def3f704191e14a220911a9e7eb581854",
 
   ["build.host_requires"] = "2e4aba92aedb90b23b7e3ad57dda24083044fa1e93da6337b431cc9ce0c635f1",
 
-  ["build.key_parts"] = "2472f14aea015351fe3ab87a2be1bf53ba2eb7980189cdf0e210c9735a7ce8b4",
+  ["build.key_parts"] = "41313ce0ff348328bb5c52f1f3f981250c9a5e14ebf261c0e6ef5f877cd5aaf6",
 
   ["build.launcher"] = "bc52c3884cb494ea6a2e0bb2812bef61e0c273a87485be51e15e0f38e9c0bf97",
 
@@ -114,21 +117,21 @@ harness_epoch.acknowledged = {
 
   ["build.shared_sqlite"] = "5745750ce96c9251747ef491ce4270ea65a4ba12095fbf45538d394e5e8e8553",
 
-  ["build.shared_verdicts"] = "8ebd1caf3241a119bed76eb61f3992b681453bfef5e3cb19f12cee99b2b8ba31",
+  ["build.shared_verdicts"] = "b5bff42619819da164ca805891f632571017a2f72eefeed01a8e03e49a1ffa96",
 
-  ["build.test"] = "9c2b697680cd7417cafeacff2b3abf797ccb0ed5aebc207ac32683eee76618aa",
+  ["build.test_inputs"] = "e2e8fcf6be7a20d3767eb8334ec1f332ab86b542d30d56ec3d7e948e6196451c",
 
-  ["build.test_inputs"] = "c4df041918cc0a05acae546709cdfd912b4b1e8cdb26b51d8e515abf7e58713c",
+  ["build.test_key"] = "48dd7978df8b8901a37946658ec8677d24ad1732a6dbf02bc1024432be8c18ea",
 
-  ["build.test_policy"] = "597348dbe514ef0cee04cbfdcee0f3b3198d9a15a2bd4f51961b3fc1894de607",
+  ["build.test_policy"] = "cf7e9c5f1cd253f68b04f9b7c0bf001c1084e84ab1d0395d9080cb3f7a4d0b7d",
 
-  ["build.test_sandbox"] = "f93f700ed812010d7b58d10d76d4fe912fbf50c059a1a2bfac53be197e979a52",
+  ["build.test_sandbox"] = "f08cc885e5663986395d8cf4e88ae2208499f7ba144296c689376d0ab4fc9d54",
 
-  ["build.test_worker"] = "c5b929fb3a811c3851b3e6205f8a7c8b2be671f8e7e629cf852a7b0c0b438e34",
+  ["build.test_worker"] = "fb641439108b785da8e7cf306ff33a64186c237b0bfa59764e40aa5e94792b1c",
 
   ["build.this_program"] = "a8fd0caa3b712ad0b9e6b31f8db858f20273a3a0d1e83784bb507e24bb7feead",
 
-  ["build.zig_caches"] = "ab1f618e4f1897e2afbe87026d1979e2a4cfaec1f736042aa3e73e9f1fe5f0fe",
+  ["build.zig_caches"] = "608bc930efd6923b4609af94b1fba0bc02bca396340953d76d5da1b676b233f9",
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
@@ -194,7 +197,7 @@ harness_epoch.library = {
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
     "it: the launcher's template (`build.launcher`), the runtime identity " ..
-    "(`build.test`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
+    "(`build.test_key`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
     "header (`build.artifact`) and " ..
     "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..

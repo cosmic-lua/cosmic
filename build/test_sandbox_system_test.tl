@@ -35,7 +35,7 @@ end
 --- paths by its policy's profile "system", which is no path of its plan.
 local function test_a_module_that_declares_system_is_given_the_system_profile(tmp: string)
   local root, scratch = tmp .. "/root", tmp .. "/scratch"
-  -- Laid out as build.test's `scratch` lays one out.
+  -- Laid out as build.test_key's `scratch` lays one out.
   for _, dir in ipairs({ root .. "/o", scratch .. "/real" }) do assert(Fs.mkdirs(dir)) end
   assert(Fs.symlink("real", scratch .. "/tmp"))
   assert(Fs.write(root .. "/o/cosmic.db", "x"))

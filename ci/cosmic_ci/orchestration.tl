@@ -87,7 +87,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- Nothing holds a macOS worker to its declaration, but a Linux leg's
 --- sandbox holds the same test under the same declaration and closure,
 --- so a declaration that lies fails there before it merges. Only what
---- reads something only on macOS is the gap (build/test.tl's `launch`).
+--- reads something only on macOS is the gap (build/test_key.tl's `prepare`).
 ---
 --- The run's event (COSMIC_CI_EVENT) is in `standing_events`: a push,
 --- main's as much as another branch's, or the merge queue's. Each
@@ -388,7 +388,7 @@ end
 --- program (`tool`) or opens the store (`store`) is keyed by the
 --- artifact it ran under, so it reruns under the portable build. A
 --- worker run on a sealed database of its closure never sees an
---- artifact (build/test.tl's `seals`); its key holds the core and the
+--- artifact (build/test_key.tl's `seals`); its key holds the core and the
 --- sealed inputs in the launcher's place, so the same key under either
 --- artifact stands for the same run, and the portable suite stands on
 --- the native suite's verdict rather than running the test twice. A
