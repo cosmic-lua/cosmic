@@ -7656,7 +7656,7 @@ build/work_test.tl cast_refused 2
 
 build/worker_test.tl cast_refused 8
 
-build/workflows_test.tl cast_refused 299
+build/workflows_test.tl cast_refused 296
 
 build/zig_caches_test.tl cast_refused 1
 
@@ -12927,7 +12927,7 @@ ci/cosmic_ci/github_api.tl any_use 1
 
 ci/cosmic_ci/github_fake.tl any_use 1
 
-ci/cosmic_ci/prerelease_test.tl not_assignable 8
+ci/cosmic_ci/prerelease_test.tl any_use 1
 
 cosmic/shape.tl not_assignable 1
 
@@ -12959,13 +12959,9 @@ ci/cosmic_ci/orchestration_test.tl and_ternary 1
 
 ci/cosmic_ci/process.tl view_written 1
 
-ci/cosmic_ci/queue_stage_test.tl and_ternary 1
-
 ci/cosmic_ci/report_test.tl field_fixed 1
 
 ci/run_local.tl view_as_mut 5
-
-ci/run_local_test.tl and_ternary 1
 
 [examples]
 # The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which

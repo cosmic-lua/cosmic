@@ -510,10 +510,10 @@ local function test_a_full_branch_push_decides_the_harness_as_the_merge_queue_do
   assert(not Orchestration.against_a_base({ COSMIC_CI_EVENT = "schedule", COSMIC_CI_BASE_SHA = base }))
   local unasked: {string:string} = { COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
     GITHUB_WORKSPACE = root }
-  assert(table.concat(Orchestration.suite_run(unasked), " ") == "test" and unasked["COSMIC_CI_HARNESS_MOVED"] == nil,
+  assert(table.concat(Orchestration.suite_run(unasked).words, " ") == "test" and unasked["COSMIC_CI_HARNESS_MOVED"] == nil,
     "a push naming no base is asked")
   local left = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = base })
+    GITHUB_WORKSPACE = root, COSMIC_CI_BASE_SHA = base }).words
   assert(table.concat(left, " ") == "test", "a branch push that leaves the epoch ran --all")
   assert(Fs.write(root .. "/build/harness_epoch.tl", "epoch 2\n"))
   git(root, { "commit", "--quiet", "-am", "bump" })
@@ -521,10 +521,10 @@ local function test_a_full_branch_push_decides_the_harness_as_the_merge_queue_do
   local moved = tmp .. "/moved"
   git(tmp, { "clone", "--quiet", root, moved })
   local words = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base })
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = base }).words
   assert(table.concat(words, " ") == "test --all", "a branch push that moves the epoch: " .. table.concat(words, " "))
   local unknown = Orchestration.suite_run({ COSMIC_CI_EVENT = "push", COSMIC_CI_REQUIRE_SANDBOX = "1",
-    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = "unknown" })
+    GITHUB_WORKSPACE = moved, COSMIC_CI_BASE_SHA = "unknown" }).words
   assert(table.concat(unknown, " ") == "test --all", "a base the scope job could not name stands on verdicts")
 end
 
