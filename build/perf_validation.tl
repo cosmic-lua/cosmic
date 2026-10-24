@@ -213,7 +213,7 @@ function Validation.main(argv: {string}): integer
     for _, n in ipairs(case.sizes) do
       local result, ok = simulate(case, index, n)
       results[#results + 1], passed = result, passed and ok
-      assert(Fs.write(argv[1], assert(Json.encode({ protocol = "doc/performance/validation.md",
+      assert(Fs.write(argv[1], assert(Json.encode_any({ protocol = "doc/performance/validation.md",
         trials_per_case = 5000, results = results, passed = passed }, { pretty = true })) .. "\n"))
       print(case.name .. " n=" .. n .. ": " .. (ok and "PASS" or "FAIL"))
     end

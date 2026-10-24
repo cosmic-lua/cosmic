@@ -373,6 +373,10 @@ local function reached(program: Declarations.Program, module: string): Reached
     if array ~= nil then
       walk(array)
     end
+    local named = body.alias
+    if named ~= nil then
+      walk(named)
+    end
     for _, param in ipairs(body.tparams) do
       local bound = param.bound
       if bound ~= nil then

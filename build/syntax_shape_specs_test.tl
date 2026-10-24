@@ -212,6 +212,7 @@ end
 
 local function test_a_field_nested_in_a_list_or_map_is_named_with_its_place()
   refused("local record R\n  l: {function(): integer}\nend", "R.l[]", "a function has no shape")
+  refused("local type V = string | {V}\nlocal record R\n  v: V\nend", "R.v", "a recursive alias has no shape")
   refused("local record R\n  m: {string: string | integer}\nend", "R.m{}", "a union of more than one type has no shape")
   refused("local record R\n  m: {integer: string}\nend", "R.m", "a map keyed by anything but a string has no shape")
 end

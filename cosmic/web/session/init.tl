@@ -313,7 +313,7 @@ local function set_value(st: State, key: string, value: any)
     return
   end
   -- The value sits inside the object of values, one level down.
-  local _, why = Json.encode(value, { max_depth = Session.MAX_DEPTH - 1 })
+  local _, why = Json.encode_any(value, { max_depth = Session.MAX_DEPTH - 1 })
   if why ~= nil and why ~= "" then
     error("session: cannot keep " .. key .. ": " .. why, 0)
   end

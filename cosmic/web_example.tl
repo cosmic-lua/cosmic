@@ -15,20 +15,24 @@ local Example = {}
 --- is a 404 and a wrong method a 405 with `Allow`, in the form the client's
 --- Accept asks for. `app:url_for` builds a URL back from a route's name.
 function Example.api()
-  local items = { { id = 1, title = "tea" }, { id = 2, title = "milk" } }
+  local function item(id: integer, title: string): {string: Json.Value}
+    return { id = id, title = title }
+  end
+  local items = { item(1, "tea"), item(2, "milk") }
   local app = Web.app{ routes = {
     Web.get("/items", function(_req: Web.Request): Web.Response
       return Web.json(Json.array(items))
     end, { name = "items" }),
     Web.get("/items/:id", function(req: Web.Request): Web.Response
-      local item = items[math.tointeger(tonumber(req.params["id"])) or 0]
-      if item == nil then return Web.abort(404, "no such item") end
-      return Web.json(item)
+      local found = items[math.tointeger(tonumber(req.params["id"])) or 0]
+      if found == nil then return Web.abort(404, "no such item") end
+      return Web.json(found)
     end, { name = "item" }),
     Web.post("/items", function(req: Web.Request): Web.Response
-      local added = { id = #items + 1, title = req:text() or "" }
+      local id = #items + 1
+      local added = item(id, req:text() or "")
       items[#items + 1] = added
-      return Web.json(added, { status = 201, headers = { Location = assert(req:url_for("item", { id = added.id })) } })
+      return Web.json(added, { status = 201, headers = { Location = assert(req:url_for("item", { id = id })) } })
     end),
   } }
   local client = Web.test_client(app)

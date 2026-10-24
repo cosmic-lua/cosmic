@@ -136,7 +136,7 @@ local CASES <const>: {Case} = {
   },
   {
     code = "alias_cycle",
-    source = "local type A = {B}\nlocal type B = {A}\n",
+    source = "local type A = B\nlocal type B = A\n",
     msg = "the alias `A` names itself, with no declaration between",
     fix = "declare a record for the part of `A` that reaches itself",
   },
@@ -504,7 +504,7 @@ local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowere
     codes[i] = e.code
   end
   assert(table.concat(codes, " ") == "float_key", table.concat(codes, " "))
-  local cycle = errors_of("local function f()\n  local type A = {B}\n  local type B = {A}\nend\n")
+  local cycle = errors_of("local function f()\n  local type A = B\n  local type B = A\nend\n")
   assert(#cycle >= 1 and cycle[1].code == "alias_cycle", cycle[1] and cycle[1].code or "none")
 end
 
@@ -670,7 +670,7 @@ local function test_aliases_may_be_declared_after_their_use_and_mutual_aliases_a
   local program = fresh()
   local result = Programs.lower(program, "t", "local type Early = {Later}\nlocal type Later = {integer}\nlocal x: Early\n")
   assert(#result.lowered.errors == 0 and #result.scope_errors == 0, Programs.codes(result.lowered))
-  local mutual = errors_of("local type A = {B}\nlocal type B = {A}\n")
+  local mutual = errors_of("local type A = B\nlocal type B = A\n")
   assert(#mutual >= 1 and mutual[1].code == "alias_cycle", mutual[1] and mutual[1].code or "none")
 end
 

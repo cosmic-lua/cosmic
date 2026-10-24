@@ -1837,7 +1837,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   local jobs = jobs_in(assert(decoded_workflows()[DIR .. "/ci.yml"]))
   local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
   assert(table.concat(list_in(checked, "needs"), ",") == "reuse,scope,checked-shard",
-    "the checked job waits on " .. tostring((Json.encode(checked["needs"]))))
+    "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
   -- Past a failed share it runs only where it saves (main's push, the
   -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
   assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
@@ -2060,8 +2060,8 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   end
   for key in pairs(env) do assert(expected[key] ~= nil, "a share sets " .. key) end
   assert(shard["runs-on"] == checked["runs-on"] and
-      Json.encode(shard["defaults"]) == Json.encode(checked["defaults"]) and
-      Json.encode(shard["permissions"]) == Json.encode(checked["permissions"]),
+      Json.encode_any(shard["defaults"]) == Json.encode_any(checked["defaults"]) and
+      Json.encode_any(shard["permissions"]) == Json.encode_any(checked["permissions"]),
     "a share runs on another host than the checked job")
   -- A share's job holds its build and the suite's bound, and fewer
   -- minutes than the whole job had.
@@ -2110,7 +2110,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
       kw["path"] == "${{ runner.temp }}/verdicts/checked.db*" and kw["retention-days"] == 1 and kw["overwrite"] == true and
       kw["if-no-files-found"] == "error" and keep["continue-on-error"] == nil and
       keep["if"] == "always() && steps.verdicts-trim.outcome == 'success'",
-    "a share keeps other verdicts than the suite's, for long, or only on some runs: " .. tostring((Json.encode(kw))))
+    "a share keeps other verdicts than the suite's, for long, or only on some runs: " .. tostring((Json.encode_any(kw))))
   -- The gathering job takes what the shares keep, by the name's pattern.
   local pattern = (tostring(kw["name"]):gsub("%${{ matrix%.part }}", "*"))
   assert(pattern == "verdicts-linux-x86_64-checked-shard-*", "the shares' artifacts are named " .. pattern)
@@ -2705,7 +2705,7 @@ local SKIPPED_ON_A_BRANCH <const>: {string: boolean} = {
 
 --- The object `steps` reach in `value` as a table of values of any type, empty where there is none.
 local function object_at(value: any, steps: Json.Steps): {string: any}
-  local reached = Json.encode((Json.get(value, steps)))
+  local reached = Json.encode_any((Json.get(value, steps)))
   if reached == nil then
     return {}
   end
@@ -2718,7 +2718,7 @@ end
 
 --- How many elements the array `steps` reach in `value` has, none where there is none.
 local function length_at(value: any, steps: Json.Steps): integer
-  local reached = Json.encode((Json.get(value, steps)))
+  local reached = Json.encode_any((Json.get(value, steps)))
   if reached == nil then
     return 0
   end
@@ -2790,7 +2790,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
   local jobs = assert(decoded_workflows()[DIR .. "/ci.yml"])
   local rehearsal, shard = object_at(jobs, { "jobs", "rehearsal" }), object_at(jobs, { "jobs", "checked-shard" })
   assert(rehearsal["continue-on-error"] == true, "the rehearsal fails the run")
-  assert(Json.encode(rehearsal["needs"]) == Json.encode(shard["needs"]) and rehearsal["runs-on"] == shard["runs-on"],
+  assert(Json.encode_any(rehearsal["needs"]) == Json.encode_any(shard["needs"]) and rehearsal["runs-on"] == shard["runs-on"],
     "the rehearsal runs elsewhere")
   local condition = text_at(rehearsal, "if")
   assert(condition:find("needs.reuse.outputs.run == ''", 1, true) ~= nil and
@@ -2800,7 +2800,7 @@ local function test_the_rehearsal_is_a_full_runs_job_that_gates_nothing_and_keep
   assert(name == "linux-x86_64-new-grammar" and text_at(object_at(rehearsal, { "env" }), "COSMIC_WORKER") == name, name)
   -- no job waits on it, whether `needs` is a list or one name
   for other in pairs(object_at(jobs, { "jobs" })) do
-    local needs = Json.encode((Json.get(jobs, { "jobs", other, "needs" }))) or ""
+    local needs = Json.encode_any((Json.get(jobs, { "jobs", other, "needs" }))) or ""
     assert(needs:find('"rehearsal"', 1, true) == nil, other .. " waits on the rehearsal")
   end
   local phases = ""
@@ -2849,7 +2849,7 @@ local function test_a_job_that_gates_nothing_neither_blocks_nor_cancels_the_run(
       local name = text_at(job, "name")
       assert(listed:find("," .. name .. ",", 1, true) ~= nil, id .. " (" .. name .. ") fails without gating, and the cancel job does not pass over it")
       for other in pairs(jobs) do
-        local needs = Json.encode((Json.get(jobs, { other, "needs" }))) or ""
+        local needs = Json.encode_any((Json.get(jobs, { other, "needs" }))) or ""
         assert(needs:find('"' .. id .. '"', 1, true) == nil, other .. " waits on " .. id .. ", which gates nothing")
       end
     end

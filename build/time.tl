@@ -395,7 +395,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local function print_seen(seen: Seen, digits?: integer): integer
     if as_json then
-      local encoded, why = Json.encode(record_of(seen), { pretty = true })
+      local encoded, why = Json.encode_any(record_of(seen), { pretty = true })
       if encoded == nil then
         complain(why)
         return bare.refused
@@ -482,7 +482,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     value = unit == "months" and (span.years or 0) * 12 + (span.months or 0) or Time.format_duration(span)
   end
   if as_json then
-    local encoded, why = Json.encode({
+    local encoded, why = Json.encode_any({
       unit = unit, value = value,
       from = record_of({ ns = first.ns, zone = calendar }),
       to = record_of({ ns = second.ns, zone = calendar }),

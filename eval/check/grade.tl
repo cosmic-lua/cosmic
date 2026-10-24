@@ -1174,7 +1174,7 @@ end
 --- A jobfile's text for `jobs`, each of which is a table the JSON
 --- encoder takes.
 local function jobfile(g: Grade, path: string, jobs: {string: any})
-  write(g, path, (assert(Json.encode(jobs))))
+  write(g, path, (assert(Json.encode_any(jobs))))
 end
 
 --- The report `jobs` printed, by job name, or nil and why.
@@ -1540,7 +1540,7 @@ local function mirror_listings(g: Grade, site: Site)
       local answer = asks(g, site, "GET", target, {}, { 200 })
       if answer ~= nil then
         local got, trouble = Json.decode(answer.body)
-        local expected = assert(Json.decode((assert(Json.encode(entries)))))
+        local expected = assert(Json.decode((assert(Json.encode_any(entries)))))
         check(g, got ~= nil and same(got, expected), "GET " .. target ..
             " lists its entries by name", got == nil and trouble or "got " .. answer.body)
       end

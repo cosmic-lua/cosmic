@@ -410,7 +410,7 @@ function relay_config.encode(config: relay_config.Config): string
     for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
     return Json.array(out)
   end
-  local encoded, why = Json.encode({
+  local encoded, why = Json.encode_any({
     grants = Json.array(config.grants),
     own_addresses = Json.array(config.own_addresses),
     log = config.log,

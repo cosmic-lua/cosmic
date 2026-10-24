@@ -7,7 +7,7 @@ local Result = require("eval.result")
 local stand_in = require("build.stand_in")
 
 local function line(value: {string: any}): string
-  return (assert(Json.encode(value)))
+  return (assert(Json.encode_any(value)))
 end
 
 local function lines(list: {string}): string

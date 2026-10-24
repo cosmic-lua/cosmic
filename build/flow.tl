@@ -628,7 +628,7 @@ end
 local function value_of(text: string): string | nil, string
   local value, trouble = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
   if trouble ~= nil and trouble ~= "" then return nil, trouble end
-  return Json.encode(value)
+  return Json.encode_any(value)
 end
 
 --- Whether two lists hold the same strings, in any order.
@@ -823,7 +823,7 @@ end
 --- reads as no value gets one no value can have.
 local function encoded(value: any, trouble: string, index: integer): string
   if trouble ~= nil and trouble ~= "" then return "\0" .. index end
-  local text, _ = Json.encode(value)
+  local text, _ = Json.encode_any(value)
   return text or "\0" .. index
 end
 

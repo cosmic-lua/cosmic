@@ -156,11 +156,11 @@ end
 
 --- `value`'s canonical text, which must re-read as itself.
 local function canonical(value: any, where: string): string | nil, string
-  local text, err = Json.encode(finite(value), CANONICAL)
+  local text, err = Json.encode_any(finite(value), CANONICAL)
   if text == nil then return nil, where .. ": decoded, but did not encode: " .. err end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return nil, where .. ": encode wrote what decode refuses: " .. berr end
-  local again, aerr = Json.encode(finite(back), CANONICAL)
+  local again, aerr = Json.encode_any(finite(back), CANONICAL)
   if again ~= text then
     return nil, where .. ": not a fixed point: " .. text .. " -> " .. tostring(again or aerr)
   end
@@ -809,7 +809,7 @@ local function text_holds(input: string): boolean, string
       if compact == nil or Json.canonical(compact) ~= jcs then
         return false, where .. ": canonical differs through format: " .. jcs
       end
-      local encoded = Json.encode(finite(value), CANONICAL)
+      local encoded = Json.encode_any(finite(value), CANONICAL)
       if encoded == nil or Json.canonical(encoded) ~= jcs then
         return false, where .. ": canonical differs through decode and encode: " .. jcs
       end
@@ -917,13 +917,13 @@ local function encode_holds(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local opts = recipe_options(r)
   local value = recipe_value(r, 0)
-  local ok, text, err = pcall(Json.encode, value, opts)
+  local ok, text, err = pcall(Json.encode_any, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(text ~= nil and "encoded" or "refused")
   if opts.ascii then
     -- `ascii` changes how a string is written, never whether the value
     -- encodes, and the text has no byte past 0x7f.
-    local plain = Json.encode(value, { pretty = opts.pretty, max_depth = opts.max_depth })
+    local plain = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
     if (plain == nil) ~= (text == nil) then
       return false, "ascii changed whether the value encodes"
     end
@@ -942,13 +942,13 @@ local function encode_holds(input: string): boolean, string
     return true, ""
   end
   if err ~= "" then return false, "a success with a message: " .. err end
-  local expected, eerr = Json.encode(value, { max_depth = opts.max_depth })
+  local expected, eerr = Json.encode_any(value, { max_depth = opts.max_depth })
   if expected == nil then
     return false, "encoded laid out, but not compactly: " .. eerr
   end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
   if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
-  local got, gerr = Json.encode(back, { max_depth = 1000 })
+  local got, gerr = Json.encode_any(back, { max_depth = 1000 })
   if got ~= expected then
     return false, "did not read back the same: " .. expected .. " vs " .. tostring(got or gerr)
   end
@@ -1000,7 +1000,7 @@ local function ascii_holds(input: string): boolean, string
     return false, "did not read back the same: " .. out
   end
   local plain = assert(Json.encode(value))
-  if Json.encode((assert(Json.decode(plain)))) ~= Json.encode(back) then
+  if Json.encode_any((assert(Json.decode(plain)))) ~= Json.encode_any(back) then
     return false, "reads differently from the text without the option: " .. out
   end
   local stray = Json.encode(text .. "\xff", { ascii = true })
@@ -1045,7 +1045,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then
-        local text, eerr = Json.encode(value, { max_depth = limit })
+        local text, eerr = Json.encode_any(value, { max_depth = limit })
         if n <= limit and text == nil then
           return false, ("%d levels encode under a limit of %d: %s"):format(n, limit, eerr)
         end
@@ -1078,14 +1078,14 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
       end
       local written: {string} = {}
       for i = 1, #values do
-        local line, eerr = Json.encode(finite(values[i]))
+        local line, eerr = Json.encode_any(finite(values[i]))
         if line == nil then return false, "decoded line " .. i .. " did not encode: " .. eerr end
         written[i] = line .. "\n"
       end
       local text = table.concat(written)
       local back, berr = Json.decode_lines(text, { null_value = Json.null })
       if back == nil then return false, "encoded lines are what decode_lines refuses: " .. berr end
-      local a, b = Json.encode(finite(values), CANONICAL), Json.encode(finite(back), CANONICAL)
+      local a, b = Json.encode_any(finite(values), CANONICAL), Json.encode_any(finite(back), CANONICAL)
       if a ~= b then
         return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b)
       end

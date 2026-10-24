@@ -401,12 +401,12 @@ end
 --- The response to the request `id` (encoded) failing with `code`.
 function protocol.failure(id: string, code: integer, why: string): string
   local said: protocol.ResponseError = { code = code, message = why }
-  return '{"jsonrpc":"2.0","id":' .. id .. ',"error":' .. assert(Json.encode(said)) .. "}"
+  return '{"jsonrpc":"2.0","id":' .. id .. ',"error":' .. assert(Json.encode_any(said)) .. "}"
 end
 
 --- The `id` of `message`, encoded: "null" for a notification.
 function protocol.id_of(message: protocol.Message): string
-  local id, _ = Json.encode(message.id)
+  local id, _ = Json.encode_any(message.id)
   return id or "null"
 end
 

@@ -170,7 +170,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
       limits.processes ~= nil then
     fields.limits = limits
   end
-  return (assert(Json.encode(fields)))
+  return (assert(Json.encode_any(fields)))
 end
 
 return PolicyJson

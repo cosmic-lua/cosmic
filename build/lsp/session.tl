@@ -165,7 +165,7 @@ local function formatting(s: Session, params: protocol.DocumentParams): string |
       lines.position(held, #document.text + 1, s.encoding)),
     newText = fixed.source,
   }
-  return "[" .. assert(Json.encode(edit)) .. "]", ""
+  return "[" .. assert(Json.encode_any(edit)) .. "]", ""
 end
 
 --- The workspace's root `params` names, if any.
@@ -224,7 +224,7 @@ local function watch_request(): string
     registerOptions = { watchers = { { globPattern = "**/*.tl" }, { globPattern = "**/*.tmpl" } } },
   } } }
   return '{"jsonrpc":"2.0","id":' .. tostring(WATCH_REQUEST) ..
-    ',"method":"client/registerCapability","params":' .. assert(Json.encode(params)) .. "}"
+    ',"method":"client/registerCapability","params":' .. assert(Json.encode_any(params)) .. "}"
 end
 
 --- What [`build.lsp.publish`] reads of `s`.
@@ -266,7 +266,7 @@ local function handle(s: Session, message: protocol.Message): {string}
     elseif params == nil then
       out[#out + 1] = protocol.failure(id, protocol.INVALID_PARAMS, "initialize: " .. trouble)
     else
-      out[#out + 1] = protocol.response(id, (assert(Json.encode(initialize(s, params)))))
+      out[#out + 1] = protocol.response(id, (assert(Json.encode_any(initialize(s, params)))))
     end
     return out
   end
@@ -331,7 +331,7 @@ local function handle(s: Session, message: protocol.Message): {string}
   elseif method == "textDocument/hover" then
     local found = hovered(s, params)
     local result = "null"
-    if found ~= nil then result = assert(Json.encode(found)) end
+    if found ~= nil then result = assert(Json.encode_any(found)) end
     out[#out + 1] = protocol.response(id, result)
   elseif method == "textDocument/formatting" then
     local edits, why = formatting(s, params)

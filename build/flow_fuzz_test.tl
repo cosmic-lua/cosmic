@@ -49,7 +49,7 @@ end
 
 local function value_of(text: string): string
   local value, _ = Json.decode(text, READ)
-  return (assert(Json.encode(value)))
+  return (assert(Json.encode_any(value)))
 end
 
 local function format_holds(input: string): boolean, string
@@ -124,7 +124,7 @@ local function test_write_makes_a_laid_out_text_of_its_value(tmp: string)
     name = "flow write",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      return (assert(Json.encode(gen_teal(src, 3))))
+      return (assert(Json.encode_any(gen_teal(src, 3))))
     end,
     check = function(input: string): boolean, string
       local value, _ = Json.decode(input, { null_value = Json.null })

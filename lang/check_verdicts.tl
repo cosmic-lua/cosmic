@@ -362,7 +362,7 @@ end
 function Verdicts.write_list<T>(list: {T}): string
   local lines: {string} = {}
   for i, entry in ipairs(list) do
-    lines[i] = "  " .. assert(Json.encode(entry))
+    lines[i] = "  " .. assert(Json.encode_any(entry))
   end
   return "[\n" .. table.concat(lines, ",\n") .. "\n]\n"
 end

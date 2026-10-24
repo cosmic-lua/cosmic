@@ -77,10 +77,10 @@ end
 function Example.null_value()
   local text = '{"note": null, "tags": []}'
   local value = Json.decode(text, { null_value = Json.null })
-  assert(Json.encode(value) == text:gsub(" ", ""))
+  assert(Json.encode_any(value) == text:gsub(" ", ""))
   local plain = Json.decode_object(text)
   assert(plain ~= nil and plain["note"] == nil)
-  assert(Json.encode(plain) == '{"tags":[]}')
+  assert(Json.encode_any(plain) == '{"tags":[]}')
 end
 
 --- An empty table encodes as an object unless it is marked an array.
@@ -110,7 +110,7 @@ function Example.decode_lines()
   local events, err = Json.decode_lines('{"level": "info"}\n{"level": "warn"}\n')
   assert(events ~= nil, err)
   assert(#events == 2)
-  for _, event in ipairs(events) do print(assert(Json.encode(event))) end
+  for _, event in ipairs(events) do print(assert(Json.encode_any(event))) end
 end
 
 --- JSON Lines read from a stream a value at a time, in bounded memory
@@ -124,7 +124,9 @@ function Example.lines()
   for line in lines:each() do
     if line:find("%S") then
       local record = assert(Json.decode_object(line))
-      if record["level"] == "warn" then assert(out:write(assert(Json.encode(record)) .. "\n")) end
+      if record["level"] == "warn" then
+        assert(out:write(assert(Json.encode_any(record)) .. "\n"))
+      end
     end
   end
   assert(lines:failure() == "", lines:failure())
@@ -132,11 +134,13 @@ function Example.lines()
   assert(out:result() == '{"level":"warn"}\n')
 end
 
---- A value that cannot be encoded is named by where it is.
+--- A value that cannot be encoded is named by where it is. A function is
+--- refused where it is written, but a NaN is a number, so it is found when
+--- [`Json.encode`] runs.
 function Example.encode_failure()
-  local _, why = Json.encode({ users = { { name = "ada" }, { name = print } } })
+  local _, why = Json.encode({ users = { { name = "ada", score = 3 }, { name = "bob", score = 0 / 0 } } })
   print(why)
-  assert(why == "json: cannot encode a function at pointer \"/users/1/name\"")
+  assert(why == "json: cannot encode NaN at pointer \"/users/1/score\"")
 end
 
 --- Read a list from outside: [`decode_array`] checks the outermost shape.

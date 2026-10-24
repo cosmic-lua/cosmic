@@ -37,7 +37,9 @@
 ---   `__tostring` (which also answers a `string`), and a function of a class with such a name:
 ---   `class_metamethod`, `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
----   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), a bound that
+---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), except in the element of an
+---   array or the value of a map, where the alias is given a name (a declaration of kind `alias`) and the type may be
+---   recursive (`type Json = string | {Json}`), a bound that
 ---   is no interface (`bound_not_interface`), return lists that no position of `true` and `false` tells apart
 ---   (`lists_overlap`), a type argument that does not list the interface its parameter is bounded by
 ---   (`bound_not_met`), a declaration that names the type parameter of
@@ -200,6 +202,12 @@ local record Declarations
     --- What its uses must meet ([`Declarations.Program.lower`] computes it when asked).
     requires?: Requires
     node: Ast.TypeAlias | nil
+    --- How many arrays and maps the lowering in progress was inside when this alias began, so that a use of
+    --- the alias inside itself tells whether an array or a map lies between.
+    collections: integer | nil
+    --- The declaration of kind `alias` that stands for it, once a use inside its own body needs a name to
+    --- hold: the alias is then recursive, and its uses are that declaration's.
+    decl: Decl | nil
   end
 
   --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, which are
@@ -420,8 +428,9 @@ Declarations.catalog = {
   {
     code = "alias_cycle", rule = "an alias names a type",
     why = "an alias creates no type, its use is what it names, so one that reaches itself with no declaration " ..
-      "between names nothing",
-    fix = "declare a record for the part that reaches itself",
+      "between names nothing; one that reaches itself in the elements of an array or the values of a map is given a " ..
+      "name instead, and is refused only where it may be nil, has type parameters, or reaches itself elsewhere",
+    fix = "declare a record for the part that reaches itself, or reach it through an array or a map",
   },
   {
     code = "bound_not_interface", rule = "a constraint is one interface",
@@ -650,6 +659,8 @@ local record Ctx
   uses: {Use}
   tainted: {integer: boolean}
   alias_depth: integer
+  --- How many arrays and maps the type being lowered is inside.
+  collections: integer
   kids: {Ast.Node}
   lowering: boolean
   --- The checks that wait for every declaration of the module to be defined.
@@ -979,6 +990,7 @@ local function lower_alias(ctx: Ctx, alias: AliasInfo)
     return
   end
   alias.state = "lowering"
+  alias.collections = ctx.collections
   local saved = ctx.frames
   ctx.frames = {}
   push_frame(ctx, true, node.typeparams)
@@ -997,6 +1009,26 @@ local function lower_alias(ctx: Ctx, alias: AliasInfo)
   end
   ctx.alias_depth = ctx.alias_depth - 1
   ctx.frames = saved
+  local named = alias.decl
+  if named ~= nil then
+    -- A use inside the body, in an array or a map, needed a name: the alias is that declaration, whose body is
+    -- what was lowered.
+    local store = ctx.store
+    if nilable(body) then
+      report_at(ctx, "alias_cycle", node.type, "the alias " .. quoted(alias.name) .. " names itself and may be nil, " ..
+          "which a name that is no optional type cannot",
+        "write " .. quoted(alias.name) .. "? where nil is wanted, and leave nil out of the alias")
+      body = store.invalid
+    end
+    local whole, name = body, named
+    body = attempt(ctx, node, function(): Type
+      store:define(name, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {}, alias = whole })
+      return store:named(name, {})
+    end)
+    if name.body == nil then
+      store:define(name, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {}, alias = store.invalid })
+    end
+  end
   alias.type = body
   alias.tparams = params
   alias.state = "done"
@@ -1066,8 +1098,16 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
   ensure_alias(ctx, alias)
   local state = alias.state
   if state == "lowering" then
+    if alias.count == 0 and ctx.collections > (alias.collections or 0) then
+      -- The use is in an array or a map of the alias's own body (`type Json = string | {Json}`): the alias
+      -- is named, so that a type does not have to hold itself.
+      local named = alias.decl or store:declare("alias", alias.module, alias.names, 0)
+      alias.decl = named
+      return store:named(named, {})
+    end
     report_at(ctx, "alias_cycle", t, "the alias " .. quoted(alias.name) .. " names itself, with no declaration between",
-      "declare a record for the part of " .. quoted(alias.name) .. " that reaches itself: a record is a name, not an expansion")
+      "declare a record for the part of " .. quoted(alias.name) .. " that reaches itself: a record is a name, not an expansion" ..
+        (alias.count == 0 and ", or reach it through the elements of an array or the values of a map" or ""))
     return store.invalid
   elseif state ~= "done" then
     report_at(ctx, "member_missing", t, "the alias " .. quoted(alias.name) .. " of the module " .. quoted(alias.module) ..
@@ -1302,7 +1342,7 @@ end
 
 --- A collection `{T}` or `{K: V}`, `mut` where `mutable`: refused where the elements are optional or the key
 --- is no key.
-local function lower_collection(ctx: Ctx, t: Ast.Type, mutable: boolean): Type
+local function lower_collection_parts(ctx: Ctx, t: Ast.Type, mutable: boolean): Type
   local store = ctx.store
   if t is Ast.TypeArray then
     local element = lower_type(ctx, t.element)
@@ -1348,6 +1388,14 @@ local function lower_collection(ctx: Ctx, t: Ast.Type, mutable: boolean): Type
     return store:map(key, value, mutable)
   end
   return store.invalid
+end
+
+--- [`lower_collection_parts`], counting that what it lowers is in a collection.
+local function lower_collection(ctx: Ctx, t: Ast.Type, mutable: boolean): Type
+  ctx.collections = ctx.collections + 1
+  local made = lower_collection_parts(ctx, t, mutable)
+  ctx.collections = ctx.collections - 1
+  return made
 end
 
 lower_type = function(ctx: Ctx, t: Ast.Type): Type
@@ -2845,7 +2893,7 @@ local function new_ctx(program: Program, input: Declarations.Input, lowering: bo
     program = program, store = program.store, input = input, module = input.module, filename = input.filename,
     tokens = input.chunk.tokens, scoped = input.scoped, decl_file = input.dialect == "decl", info = info,
     frames = {}, entry_of = {}, by_binding = {}, types = {}, decls = {}, aliases = {}, errors = info.errors,
-    unions = {}, uses = {}, tainted = {}, alias_depth = 0, kids = {}, lowering = lowering, checks = {},
+    unions = {}, uses = {}, tainted = {}, alias_depth = 0, collections = 0, kids = {}, lowering = lowering, checks = {},
     statics = {}, static_done = {},
   }
 end
