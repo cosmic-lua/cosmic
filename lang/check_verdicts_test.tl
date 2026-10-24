@@ -612,11 +612,18 @@ local function test_no_refusal_of_the_fork_is_left_unfound()
     assert(each.reason ~= "unfound", each.template .. " (" .. each.sites .. ") is left unfound")
     if each.reason == "unproven" then
       unproven = unproven + 1
-      assert(each.why:find("no program found: ", 1, true) == 1 and each.why:find("tried", 1, true) ~= nil,
-        "unproven, and not saying what was tried: " .. each.template)
     end
   end
   assert(unproven == 3, tostring(unproven) .. " unproven")
+  -- an unproven reason says what was tried
+  local any = refusals()[1]
+  assert(any ~= nil)
+  local lazy = Verdicts.refusal_problems(rows(), { reasoned(any, "unproven", "none") })
+  local lazy_told = false
+  for _, line in ipairs(lazy) do
+    lazy_told = lazy_told or line:find("is unproven, and `why` does not begin", 1, true) ~= nil
+  end
+  assert(lazy_told, table.concat(lazy, "\n", 1, math.min(#lazy, 3)))
   -- a reason that is none of the reasons is a problem, "unfound" among them
   local one: Verdicts.Refusal | nil = nil
   for _, each in ipairs(refusals()) do

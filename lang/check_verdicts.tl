@@ -615,8 +615,15 @@ function Verdicts.refusal_problems(rows: {Verdicts.Row}, refusals: {Verdicts.Ref
       if REASONS[refusal.reason] ~= true then
         out[#out + 1] = refusal.id .. ": `" .. refusal.reason .. "` is none of the reasons"
       end
+      local lacks = ""
       if refusal.why == "" then
-        out[#out + 1] = refusal.id .. ": `" .. where .. "` has a reason and does not say it"
+        lacks = "has a reason and does not say it"
+      elseif refusal.reason == "unproven" and
+          (refusal.why:sub(1, 18) ~= "no program found: " or refusal.why:find("tried", 1, true) == nil) then
+        lacks = "is unproven, and `why` does not begin `no program found: ` and say what was tried"
+      end
+      if lacks ~= "" then
+        out[#out + 1] = refusal.id .. ": `" .. where .. "` " .. lacks
       end
       local by = covered[refusal.id]
       if by ~= nil then
