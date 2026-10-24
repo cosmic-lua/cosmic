@@ -384,9 +384,12 @@ local function test_a_canonical_stub_keeps_what_tl_reads_of_it()
   assert(long("[==[a]]  b]==]"):find("a]]  b", 1, true))
   assert(stub.canonical(stub_of(with_enum("'it\\'s  here'"))):find("it\\'s  here", 1, true))
   -- A `(` on a line of its own is not a call of what is before it.
-  local call = stub.canonical(stub_of(source("local function g(): integer return 1 end", "local x = g", "(print)(1)", "return x")))
-  local same_line = stub.canonical(stub_of(source("local function g(): integer return 1 end", "local x = g (print)(1)", "return x")))
+  -- Of the text itself: a stub leaves out a statement nothing it keeps names, so the
+  -- stubs of these two sources are no longer alike for want of the `local x`.
+  local call = stub.canonical(source("local x = g", "(print)(1)", "return x"))
+  local same_line = stub.canonical(source("local x = g (print)(1)", "return x"))
   assert(call ~= same_line, "the line break before a ( is kept")
+  assert(stub.canonical("a\n\n   b") == stub.canonical("a\n b"), "how many lines apart is not kept")
   -- An unfinished string is answered as it is.
   assert(stub.canonical("local s = 'a\n  b") == "local s = 'a\n  b")
 end

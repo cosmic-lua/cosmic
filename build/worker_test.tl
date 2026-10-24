@@ -503,6 +503,31 @@ local function test_a_pooled_rebuild_after_an_edit_that_only_moves_lines_compile
   assert(Fs.remove_tree(root))
 end
 
+--- The verdicts on stubs ([`compilation.note_held`]) a pooled, unjudged build keeps
+--- are those of the compiles that were not refused: a refused compile is kept as
+--- a compile and says nothing of its stub, which a module that reaches it
+--- would otherwise be taken to have held.
+local function test_a_pool_keeps_no_verdict_for_a_compile_it_refused()
+  local root = fixture("held", own_tree())
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local pool = pool_of()
+  local result, trouble = importer.compile(handle, built, "worker-test", true, nil, pool)
+  assert(result ~= nil, trouble)
+  assert(result.worked > 0, "the pool compiled nothing")
+  local function held(path: string): integer
+    local rows = assert(Sqlite.rows(handle.db,
+      "SELECT count(*) FROM stub_holds h JOIN plan p ON p.key = h.key WHERE p.path = ?1 AND h.held = 1",
+      { { text = path } }))
+    return assert(rows[1]):integer(1)
+  end
+  assert(held("cosmic.first") == 1, "no verdict on a stub the pool compiled and did not refuse")
+  assert(held("cosmic.casting") == 0, "a verdict on the stub of a compile the contracts refused")
+  pool.close()
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
 --- The compiles and parses every checkout shares, in the file `path`,
 --- as a build is given them.
 local function shared_at(path: string): importer.Shared
