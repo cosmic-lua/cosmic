@@ -226,8 +226,14 @@ local function decide_harness(env: {string:string})
   if moved_by_base[asked] == nil then
     local moved, why = Orchestration.harness_moved(root, base)
     moved_by_base[asked] = moved
-    Fs.put(Fs.stderr, "merge queue: " .. (moved and "every suite runs every test (--all): " or
-      "suites stand on verdicts: ") .. why .. "\n")
+    local gathering = env["COSMIC_CI_GATHER"] == "1"
+    local said = "suites stand on verdicts: "
+    if moved and gathering then
+      said = "the gathering run stands on the shares' verdicts, where every test ran (--all): "
+    elseif moved then
+      said = "every suite runs every test (--all): "
+    end
+    Fs.put(Fs.stderr, "merge queue: " .. said .. why .. "\n")
   end
   env.COSMIC_CI_HARNESS_MOVED = moved_by_base[asked] and "1" or "0"
 end

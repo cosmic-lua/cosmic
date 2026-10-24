@@ -1835,9 +1835,24 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   local platform, checked = assert(jobs["platform"]), assert(jobs["checked"])
   assert(table.concat(list_in(checked, "needs"), ",") == "reuse,checked-shard",
     "the checked job waits on " .. tostring((Json.encode(checked["needs"]))))
+  -- Past a failed share it runs only where it saves (main's push, the
+  -- nightly: a branch push has no shares to fail), to take the failed test's pass out of the cache, and fails.
   assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
-      "needs.checked-shard.result != 'failure'",
-    "the checked job runs other than where the legs do, unless a share failed: " .. tostring(checked["if"]))
+      "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+    "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
+      tostring(checked["if"]))
+  local checked_steps = steps_in(checked)
+  local failing_at = 0
+  for i, step in ipairs(checked_steps) do
+    if step["name"] == "fail where a share failed" then failing_at = i end
+  end
+  assert(failing_at > 0, "the checked job does not fail where a share failed")
+  local failing = assert(checked_steps[failing_at])
+  local _, running_at = step_with_id(checked_steps, "checked-suite")
+  assert(failing["if"] == "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'" and
+      failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
+  local gather_minutes = math.tointeger(checked["timeout-minutes"])
+  assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
   assert(platform["if"] == "!cancelled() && needs.reuse.outputs.run == ''", tostring(platform["if"]))
   local penv, cenv = texts_in(platform, "env"), texts_in(checked, "env")
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
@@ -2071,7 +2086,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local aenv = texts_in(ahead, "env")
   assert(aenv["JOB"] == "linux-x86_64-checked-shard-${{ matrix.part }}" and
       aenv["ARTIFACT"] == "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}" and
-      aenv["READY_SECONDS"] == "420" and aenv["WITHIN_SECONDS"] == "90" and aenv["SUITE_STEP"] == nil,
+      aenv["READY_SECONDS"] == "600" and aenv["WITHIN_SECONDS"] == "90" and aenv["SUITE_STEP"] == nil,
     "a share takes the verdicts of another share or job than its own part's")
   assert(ahead_at > restore_at and ahead_at < suite, "a share takes the verdicts ahead out of its place")
   local trimmed = assert(steps[trim_at])
@@ -2091,7 +2106,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   assert(kw["name"] == "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}" and
       kw["path"] == "${{ runner.temp }}/verdicts/checked.db*" and kw["retention-days"] == 1 and kw["overwrite"] == true and
       kw["if-no-files-found"] == "error" and keep["continue-on-error"] == nil and
-      keep["if"] == "always() && steps.checked-suite.outcome == 'success' && steps.verdicts-trim.outcome == 'success'",
+      keep["if"] == "always() && steps.verdicts-trim.outcome == 'success'",
     "a share keeps other verdicts than the suite's, for long, or only on some runs: " .. tostring((Json.encode(kw))))
   -- The gathering job takes what the shares keep, by the name's pattern.
   local pattern = (tostring(kw["name"]):gsub("%${{ matrix%.part }}", "*"))
@@ -2877,7 +2892,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
           job_name = LEG_NAME, within = 30, ready = "", begun = true, queue_only = true },
       { job = "checked-shard", suite = "checked-suite", file = "checked.db",
           name = "linux-x86_64-checked-shard-${{ matrix.part }}",
-          job_name = "linux-x86_64-checked-shard-${{ matrix.part }}", within = 90, ready = "420", begun = false,
+          job_name = "linux-x86_64-checked-shard-${{ matrix.part }}", within = 90, ready = "600", begun = false,
           queue_only = false } }) do
     local job = jobs[case.job]
     local where = case.job
@@ -2909,8 +2924,12 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     assert(kept.name == artifact and kept.path == "${{ runner.temp }}/verdicts/" .. case.file .. "*" and
         kept["retention-days"] == 1 and kept.overwrite == true, where .. " keeps other verdicts, or for long: " .. tostring(kept.name))
     local condition = keep["if"] as string
-    assert(condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true), where ..
-        " keeps verdicts its suite did not pass: " .. condition)
+    -- A share keeps its rows past a failed suite too, the failed test's
+    -- out of them (the trim then keeps all it restored: `whole`), so the
+    -- gathering job of a saving run can save them.
+    assert(condition:find("steps." .. case.suite .. ".outcome == 'success'", 1, true) or
+        (case.job == "checked-shard" and condition == "always() && steps.verdicts-trim.outcome == 'success'"),
+      where .. " keeps verdicts its suite did not pass: " .. condition)
     if case.queue_only then
       assert(condition:find(QUEUE, 1, true) and keep["continue-on-error"] == true,
         where .. " keeps verdicts off the queue, or fails for it: " .. condition)

@@ -1145,12 +1145,12 @@
     # `format` job's on a light run.
     checked: {
       needs: ["reuse", "checked-shard"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && needs.checked-shard.result != 'failure'",
+      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read", actions: "read"},
-      "timeout-minutes": 45,
+      "timeout-minutes": 20,
       env: {
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
@@ -1375,6 +1375,17 @@
           id: "verdicts-shares",
           if: "env.COSMIC_CI_SCOPE == 'full'",
           run: "for share in \"${{ runner.temp }}\"/verdicts-shares/*/; do cosmic-driver cosmic_ci/driver.tl verdicts-merge \"$share\" || exit 1; done",
+        },
+        # Where a share failed (this job runs then only where it saves,
+        # the nightly and main's push) the run is red, and runs no test
+        # again: its cache is the shares' rows, the failed share's
+        # without the failed test's, so the save below takes that pass
+        # out of main's newest entry as the whole suite's job did.
+        {
+          name: "fail where a share failed",
+          if: "env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result == 'failure'",
+          shell: "sh",
+          run: "echo \"a share of the checked suite failed\"; exit 1",
         },
         {
           name: "run the checked core's suite",
@@ -1695,7 +1706,7 @@
             ARTIFACT: "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}",
             WITHIN_SECONDS: "90",
             WAIT_SECONDS: "15",
-            READY_SECONDS: "420",
+            READY_SECONDS: "600",
           },
           run: "cosmic-driver cosmic_ci/driver.tl queue-ahead",
         },
@@ -1735,7 +1746,7 @@
         },
         {
           name: "keep the share's verdicts for the gathering job and the run behind in the queue",
-          if: "always() && steps.checked-suite.outcome == 'success' && steps.verdicts-trim.outcome == 'success'",
+          if: "always() && steps.verdicts-trim.outcome == 'success'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "verdicts-linux-x86_64-checked-shard-${{ matrix.part }}",

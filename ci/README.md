@@ -479,8 +479,8 @@ in the queue of 2026-09-30, legs waited 97 and 132 s, one on a leg that
 was itself waiting, where the suite stands mostly on what was restored
 anyway. A share of the checked suite waits a minute and a
 half at most for the share of the same part, and not at all for one
-ahead that will not have kept its verdicts by then, some seven minutes
-after it started.
+ahead that will not have kept its verdicts by then, some ten minutes
+after it started (`READY_SECONDS`, a share's build and its quarter of the suite).
 A run, or its leg, that completed without the artifact, a base that
 heads no queue run (main's already, whose verdicts the restore took; a
 restore of the base's own entry skips the lookup), a change that moves
@@ -528,7 +528,10 @@ verdicts, which would otherwise ride along whole in each save.
   `ci-driver-linux-x86_64-checked-shard-<part>`.
 - `checked` (`linux-x86_64-checked`) gathers them, after all four
   passed (`needs`; a failed share skips it, and `ci` fails on the
-  share). It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
+  share), except in a run that saves (main's push, the nightly): there it
+  runs past a failed share, runs no test, fails, and saves the shares' rows (a
+  failed share keeps its own, without the failed test's), so main's newest entry
+  no longer holds that test's pass. It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
   and merges the four artifacts into a verdict cache that holds
   nothing of main's (its restore only looks the entry up, which the
   save compares with), then runs the whole suite, on which every test
