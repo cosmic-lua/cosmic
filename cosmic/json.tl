@@ -476,11 +476,6 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any} | nil
   return refuse("expected a JSON array, got " .. kind(value))
 end
 
--- TODO: move the islands' and ci/'s calls of [`Json.encode`] with a record or a decoded value (build/perf.tl,
--- ci/cosmic_ci/github_api.tl, github_fake.tl, cache_trim_test.tl, report_test.tl) to this function, once
--- ci/cosmic-driver.pin names a release that has it: the pinned release runs those files, and its [`Json`] has no
--- [`encode_any`].
-
 --- Serializes `value` as [`Json.encode`] does, for a value of any type: a
 --- record or a class of your own, a value you decoded, a nil (which
 --- encodes as `null`). The type checker cannot see inside it, so what JSON

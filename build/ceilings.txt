@@ -1054,7 +1054,7 @@ ci/cosmic_ci/rehearsal.tl overload_none 1
 
 build/shape_key.tl view_written 2
 
-ci/cosmic_ci/orchestration.tl view_written 32
+ci/cosmic_ci/orchestration.tl view_written 30
 
 ci/cosmic_ci/rehearsal.tl view_written 13
 
@@ -12921,13 +12921,7 @@ build/new_declarations_test.tl concat_type 6
 
 build/new_declarations_test.tl overload_none 1
 
-build/perf.tl any_use 2
-
-ci/cosmic_ci/github_api.tl any_use 1
-
-ci/cosmic_ci/github_fake.tl any_use 1
-
-ci/cosmic_ci/prerelease_test.tl any_use 1
+build/perf.tl any_use 1
 
 cosmic/shape.tl not_assignable 1
 

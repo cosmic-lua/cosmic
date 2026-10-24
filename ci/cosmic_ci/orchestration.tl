@@ -319,29 +319,6 @@ function Orchestration.promise(env: {string:string}): {string:string}
   return Maps.with(env, { COSMIC_TEST_PROMISES = table.concat(promised, ","), COSMIC_TEST_LEG = worker })
 end
 
---- The promised names the pinned release (ci/cosmic-driver.pin) does not know. A
---- fixture's `cosmic test` runs on that release ([`Proc.executable()`]), not the
---- tree's tool, and a release refuses a promised name it lacks as a typo, so a
---- name the tree added since is not handed to it. No fixture requires one: a
---- fixture is no module of the tree's suites.
--- TODO: drop `all_cores` once ci/cosmic-driver.pin names a release that knows it.
-local newer_than_pin: {string} = { "all_cores" }
-
---- Removes from `env`'s COSMIC_TEST_PROMISES the names of
---- `newer_than_pin`, where it has any, for a run on the pinned
---- release. Every other name, an unknown one among them, is left for it to judge.
-function Orchestration.pinned_promises(env: {string:string}): {string:string}
-  local given = env["COSMIC_TEST_PROMISES"]
-  if given == nil then return env end
-  local newer: {string:boolean} = {}
-  for _, name in ipairs(newer_than_pin) do newer[name] = true end
-  local kept: {string} = {}
-  for name in given:gmatch("[^,]+") do
-    if newer[name] ~= true then kept[#kept + 1] = name end
-  end
-  return Maps.with(env, { COSMIC_TEST_PROMISES = table.concat(kept, ",") })
-end
-
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
@@ -909,7 +886,7 @@ function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir:
   local sandboxed = SANDBOXED_FIXTURES[source] == true
   local verdicts: string | nil = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
-  return Orchestration.pinned_promises(Orchestration.fixture(env, tmpdir, compiles, verdicts))
+  return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
 
 --- What a sandboxed fixture reads of a setup's output, `from` (the
