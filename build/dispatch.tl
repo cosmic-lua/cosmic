@@ -1,6 +1,6 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
---- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`dispatch.main`] every
+--- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`Dispatch.main`] every
 --- command line but a test's worker's (`cosmic test --worker`), which it
 --- runs itself, so a worker loads nothing of this module's. So
 --- `cosmic test --worker` here is `test` refusing an option it does
@@ -712,7 +712,8 @@ local function spec_of(word: string): verb_spec.Spec | nil
   return found
 end
 
-local dispatch = {}
+local record Dispatch
+end
 
 --- Every text `cosmic help` prints, by what asks for it: `""` is the
 --- index, `exit` its page, and each verb of [`cosmic.cli.order`] its own,
@@ -734,7 +735,7 @@ help_source.provide(help_texts)
 
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, the verb at slot 1
-function dispatch.main(argv: {string}): integer
+function Dispatch.main(argv: {string}): integer
   local word = argv[1]
   if word == "-e" then
     -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
@@ -876,4 +877,4 @@ function dispatch.main(argv: {string}): integer
   return run(verb, argv)
 end
 
-return dispatch
+return Dispatch

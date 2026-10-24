@@ -16,8 +16,6 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local type raw_socket = require("cosmic.internal.socket")
 
-local type Searcher = function(string): any, any
-
 local record unix_socket
 end
 
@@ -25,7 +23,7 @@ end
 --- loader, whose `listen` fails with an errno, which [`Net.listen`]'s
 --- message has no shape for.
 local function raw_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+  for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("cosmic.net")
     if type(loader) == "function" and type(extra) == "table" then
       return extra as raw_socket -- cast: the table core/socket.h declares

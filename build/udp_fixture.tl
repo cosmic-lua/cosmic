@@ -7,12 +7,10 @@ local _ = require("cosmic.net") -- in the closure: [`raw_table`] searches for it
 local Poll = require("cosmic.poll")
 local type raw_socket = require("cosmic.internal.socket")
 
-local type Searcher = function(string): any, any
-
 --- The raw socket table the store's searcher hands [`cosmic.net`]'s
 --- loader, which carries the UDP calls [`cosmic.net`] itself does not.
 local function raw_table(): raw_socket
-  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+  for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("cosmic.net")
     if type(loader) == "function" and type(extra) == "table" then
       return extra as raw_socket -- cast: the table core/socket.h declares
