@@ -3546,22 +3546,12 @@ end
 --- file is kept in `memo` under its source and the sources of every module it requires, and of the readers and the checker.
 --- `counts`, when given, gets the rows each dimension compared and the places each rule of the discipline judged.
 function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle, fork?: Typed.Fork,
-                           counts?: {string: integer}, untyped_pins?: {string: integer}): {string}
-  local given_pins = pinned
+                           counts?: {string: integer}): {string}
   local ceilings, why = ceilings_for(root, "typed", pinned)
   if ceilings == nil then
     return { "reading the ceilings: " .. why }
   end
   pinned = ceilings
-  -- The calls no rule judged are held to the `[untyped]` ceilings, which a caller that gave pins of its own leaves to it.
-  local untyped_pins_now: {string: integer} = untyped_pins or {}
-  if untyped_pins == nil and given_pins == nil then
-    local from_file, from_why = ceilings_for(root, "untyped", nil)
-    if from_file == nil then
-      return { "reading the ceilings: " .. from_why }
-    end
-    untyped_pins_now = from_file
-  end
   if fork == nil then
     return { "no compile of the tree to compare with: the working database holds none" }
   end
@@ -3689,7 +3679,6 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
     out[#out + 1] = problem
   end
   local found: {string: integer} = {}
-  local untyped_found: {string: integer} = {}
   local totals: {string: integer} = {}
   local sites: {string: integer} = {}
   local compared = 0
@@ -3727,15 +3716,6 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
             "pinned " .. (pinned[row.file] or 0) .. "; read what the fork reads rather than raise the pin"
         end
       end
-      -- The calls no rule judged, held to a ceiling that only falls.
-      if port.untyped > 0 then
-        untyped_found[row.file] = port.untyped
-        if port.untyped > (untyped_pins_now[row.file] or 0) then
-          out[#out + 1] = row.file .. ": " .. String.counted(port.untyped, "call") .. " the checker gave no function, which " ..
-            "no rule of the discipline judged, pinned " .. (untyped_pins_now[row.file] or 0) .. "; type what it calls through " ..
-            "rather than raise the pin"
-        end
-      end
     end
   end
   local used = Typed.used(read, fork)
@@ -3770,7 +3750,98 @@ function tree_checks.typed(root: string, pinned?: {string: integer}, memo?: Sqli
   for _, line in ipairs(Ceilings.fallen(found, pinned, Ceilings.path .. "'s [typed]")) do
     out[#out + 1] = line
   end
-  for _, line in ipairs(Ceilings.fallen(untyped_found, untyped_pins_now, Ceilings.path .. "'s [untyped]")) do
+  return out
+end
+
+--- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
+--- `untyped`), counted per file of the tree and held to `pinned` (by default the `[untyped]` ceilings): a file with fewer,
+--- and a pin for a file with none, is told to lower the pin; one with more is listed, as the build itself refuses it
+--- ([`build.pipeline`]'s `generate`). The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
+--- its calls of [`Shape.record_of`] resolved): no compile of the fork is read, so the check survives the fork. The answer for a
+--- file is kept in `memo` under its source and those of every module it requires, and of the checker.
+function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle): {string}
+  local given, why = ceilings_for(root, "untyped", pinned)
+  if given == nil then
+    return { "reading the ceilings: " .. why }
+  end
+  local ceilings: {string: integer} = given
+  local files, trouble = lexable(root, true)
+  if files == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local written, written_why = TreeProgram.derived_of(root)
+  if written == nil then
+    return { "reading the derived sources: " .. written_why }
+  end
+  local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
+    "lang/translate.tl", "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
+    "build/teal.tl", "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
+    "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks.tl",
+    "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h", "core/socket.h",
+    "build/new_declarations.tl" }, "untyped 1")
+  local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, true, shaping_of(root, memo))
+  if memo ~= nil then
+    local _, _ = check_memo.prepare(memo, "untyped")
+  end
+  local found: {string: integer} = {}
+  local missed: {DeclareFile} = {}
+  -- A file this check does not count keeps its pin as it stands, which only a count can call stale.
+  local function stands(file: string)
+    local pin = ceilings[file]
+    if pin ~= nil then found[file] = pin end
+  end
+  for _, row in ipairs(tree.rows) do
+    if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) or row.file:find("^ci/") ~= nil or
+        row.file:find("^checker/") ~= nil then
+      -- Not held to the discipline, or no module of the build (`ci/` is a tree of its own, `checker/` the fork's): nothing is
+      -- counted of it.
+      stands(row.file)
+    else
+      local count: integer | nil = nil
+      if memo ~= nil then
+        local text = check_memo.get(memo, "untyped", row.key)
+        if text ~= nil then
+          local kept = check_memo.decode(text)[1]
+          if kept ~= nil then count = math.tointeger(tonumber(kept[1])) end
+        end
+      end
+      if count ~= nil then
+        found[row.file] = count
+      else
+        missed[#missed + 1] = row
+      end
+    end
+  end
+  if #missed > 0 then
+    local build = tree_build(root, tree, true)
+    streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome | nil)
+      local subject: Report.Subject | nil = nil
+      if result ~= nil then subject = Report.of(build.program, result) end
+      if subject == nil then
+        -- A module the checker kept no report of is refused elsewhere ([`checked`]); its pin stands.
+        stands(row.file)
+        return
+      end
+      local count = SyntaxContracts.check(subject).untyped
+      found[row.file] = count
+      if memo ~= nil then
+        check_memo.put(memo, "untyped", row.key, check_memo.encode({ { tostring(count) } }))
+      end
+    end)
+  end
+  if memo ~= nil then
+    check_memo.finish(memo, "untyped")
+  end
+  local out: {string} = {}
+  for _, row in ipairs(tree.rows) do
+    local count, pin = found[row.file], ceilings[row.file] or 0
+    if count ~= nil and count > pin then
+      out[#out + 1] = row.file .. ": " .. String.counted(count, "call") .. " the checker gave no function, which " ..
+        "no rule of the discipline judged, pinned " .. pin .. "; type what it calls through rather than raise the pin"
+    end
+  end
+  for _, line in ipairs(Ceilings.fallen(found, ceilings, Ceilings.path .. "'s [untyped]")) do
     out[#out + 1] = line
   end
   return out

@@ -442,7 +442,7 @@ build/todos_git_test.tl 2
 
 build/todos_test.tl 9
 
-build/tree_checks_test.tl 3
+build/tree_checks_test.tl 2
 
 build/work_test.tl 7
 
@@ -720,8 +720,6 @@ build/rand.tl 2
 build/rebuild_lock.tl 2
 
 build/receivers.tl 1
-
-build/refresh.tl 3
 
 build/release.tl 1
 
@@ -3446,7 +3444,7 @@ build/fix/fix_test.tl view_written 1
 
 build/fix/grammar_tool_test.tl view_written 1
 
-build/fix/init.tl view_written 109
+build/fix/init.tl view_written 110
 
 build/fix/link_build_tool_test.tl view_written 1
 
@@ -3926,9 +3924,9 @@ build/todos_git_test.tl view_written 1
 
 build/todos_test.tl view_written 10
 
-build/tree_checks.tl view_written 323
+build/tree_checks.tl view_written 326
 
-build/tree_checks_test.tl view_written 26
+build/tree_checks_test.tl view_written 25
 
 build/tree_program.tl view_written 14
 
