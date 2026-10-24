@@ -3672,7 +3672,7 @@ build/host_requires.tl view_written 4
 
 build/identity.tl view_written 16
 
-build/importer.tl view_written 45
+build/importer.tl view_written 43
 
 build/importer_boot_test.tl view_written 6
 
@@ -3918,7 +3918,7 @@ build/standalone_test.tl view_written 1
 
 build/stdlib_declarations_test.tl view_written 5
 
-build/stub.tl view_written 22
+build/stub.tl view_written 23
 
 build/stub_test.tl view_written 2
 
@@ -5321,7 +5321,7 @@ build/host_features_test.tl field_fixed 1
 
 build/host_names.tl field_fixed 1
 
-build/importer.tl field_fixed 14
+build/importer.tl field_fixed 12
 
 build/importer_boot_test.tl field_fixed 2
 
