@@ -101,8 +101,6 @@ local record Lexer
     "bad_escape"
     -- a byte, or a run of non-ASCII bytes, that begins no token
     "stray_byte"
-    -- a comment `--#pragma ...`, which the fork read and the grammar leaves out
-    "pragma"
   end
 
   --- A comment, `--` to the end of its line. It is kept on the token that
@@ -729,13 +727,6 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           text = sub(source, pos, ce), offset = pos, length = ce - pos + 1, y = line, x = x,
         }
         pending = comments
-        -- the byte test is no more than a guard, so that a comment that is not a pragma makes no string
-        if source:byte(pos + 2) == 35 and source:sub(pos + 2, pos + 8) == "#pragma" and
-            (ce == pos + 8 or source:sub(pos + 9, pos + 9):find("[ \t\v\f]") ~= nil) then
-          add_error(errors, name, "pragma", "`--#pragma` is not in the grammar",
-            "delete the comment: a call is always held to the arity its function declares, and no pragma changes what is " ..
-              "checked", pos, ce - pos + 1, line, x)
-        end
         pos = ce + 1
       end
     elseif c == 6 then
@@ -1050,7 +1041,7 @@ Lexer.reserved = reserved_set
 Lexer.codes = {
   "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "hashbang",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
-  "unterminated_long_string", "bad_escape", "stray_byte", "pragma",
+  "unterminated_long_string", "bad_escape", "stray_byte",
 }
 Lexer.added = added_words
 Lexer.declaration_words = { "record", "interface", "class", "enum", "type" }

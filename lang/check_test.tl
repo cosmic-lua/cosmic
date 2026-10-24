@@ -899,6 +899,14 @@ end
 
 local TAILED <const> = "local tailed: function(): string... = function() end\n"
 
+local function test_a_pragma_comment_changes_nothing_a_call_is_held_to_its_declared_arity()
+  local call = "local function f(a: integer)\nend\nf(1, 2)\n"
+  assert(codes_of(call) == "arity")
+  assert(codes_of("--#pragma arity off\n" .. call) == "arity")
+  assert(codes_of("--#pragma arity off\nlocal function f(a: integer)\nend\n--#pragma\nf()\n") == "arity")
+  assert(codes_of("--#pragma arity off\nlocal function f(a: integer)\nend\nf(1)\n") == "")
+end
+
 local function test_the_arms_of_an_if_expression_are_held_to_the_type_the_position_wants_when_they_have_no_join()
   local head = "local b: boolean = true\nlocal enum Color \"red\" \"green\" end\n"
   assert(codes_of(head .. "local x: string = if b then 1 else \"a\" end\n") == "not_assignable")

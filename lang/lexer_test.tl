@@ -309,30 +309,17 @@ local function test_a_hashbang_line_is_refused()
   assert(Lexer.token(lexed.tokens, 1).kind == "$ERR$" and Lexer.token(lexed.tokens, 2).text == "local" and Lexer.token(lexed.tokens, 2).y == 2)
 end
 
-local function test_a_pragma_comment_is_refused_and_kept_as_a_comment()
-  for _, written in ipairs({ "--#pragma", "--#pragma arity", "--#pragma arity maybe", "--#pragma\tfoo bar", "--#pragma\v" }) do
+local function test_a_pragma_comment_is_an_ordinary_comment()
+  for _, written in ipairs({ "--#pragma", "--#pragma arity", "--#pragma arity off", "--#pragma\tfoo bar", "--#pragma\v" }) do
     local lexed = lex("local x = 1\n" .. written .. "\nlocal y = 2")
-    assert(#lexed.errors == 1, written)
-    local e = lexed.errors[1]
-    assert(e.code == "pragma" and e.msg == "`--#pragma` is not in the grammar", written)
-    assert(e.y == 2 and e.x == 1 and e.length == #written, written)
-    assert(e.fix:find("delete the comment", 1, true) ~= nil)
-    -- the comment is kept on the token that follows it
+    assert(#lexed.errors == 0, written)
+    -- the comment is kept on the token that follows it, as any other
     local comments = assert(Lexer.token(lexed.tokens, 5).comments)
-    assert(#comments == 1 and comments[1].text == written, written)
+    assert(#comments == 1 and comments[1].text == written and comments[1].y == 2, written)
   end
-  -- another comment, one that merely begins alike, a long one and a third dash are no pragma
-  for _, written in ipairs({ "--#pragmatic", "--# pragma", "-- #pragma", "---#pragma", "--#pragma_x", "--#prag", "--[[ --#pragma ]]" }) do
-    local lexed = lex("local x = 1\n" .. written .. "\nlocal y = 2")
-    local codes: {string} = {}
-    for _, e in ipairs(lexed.errors) do
-      codes[#codes + 1] = e.code
-    end
-    assert(written == "--[[ --#pragma ]]" and table.concat(codes, " ") == "long_comment" or #codes == 0, written)
-  end
-  -- at the end of the file, after a comment, and as the last line without a break
-  assert(lex("--#pragma").errors[1].code == "pragma")
-  assert(lex("-- a\n--#pragma x").errors[1].y == 2)
+  -- at the end of the file, and after another comment
+  assert(#lex("--#pragma").errors == 0)
+  assert(#lex("-- a\n--#pragma x").errors == 0)
 end
 
 local function test_a_hashbang_only_begins_the_file()
@@ -497,11 +484,10 @@ local REFUSALS <const>: {Lexer.Code: string} = {
   unterminated_long_string = "[[x",
   bad_escape = "'\\q'",
   stray_byte = "@",
-  pragma = "--#pragma arity on",
 }
 
 local function test_every_code_has_a_refusal_with_a_message_and_a_fix()
-  assert(#Lexer.codes == 13)
+  assert(#Lexer.codes == 12)
   for _, code in ipairs(Lexer.codes) do
     local source = REFUSALS[code]
     assert(source ~= nil, code .. " has no refusal here")
