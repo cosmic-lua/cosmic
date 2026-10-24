@@ -218,8 +218,11 @@ end
 --- `value` encoded by [`Json.encode`], `application/json` with
 --- `X-Content-Type-Options: nosniff`. A value that cannot be encoded (a
 --- cycle, a function) is the program's fault: this raises, and the
---- exception layer answers 500.
---- @param value any The value
+--- exception layer answers 500. `value` is a [`Json.Value`], so a literal
+--- like `{ id = 1, tags = { "a" } }` is checked as it is written; for a
+--- record of your own, write the body with [`Json.encode_any`] and
+--- [`Response.text`]'s headers by hand, or build the map.
+--- @param value Json.Value The value
 --- @param opts ResponseOptions | nil Status 200 unless it says
 --- @return Types.Response The response
 function Response.json(value: any, opts?: Types.ResponseOptions): Types.Response
@@ -344,7 +347,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string:any}
   end
   body.status = status
   body.detail = detail
-  local text, why = Json.encode(body)
+  local text, why = Json.encode_any(body)
   if text == nil then error("web: problem: " .. unprefixed(why), 2) end
   return { status = status, headers = { ["Content-Type"] = "application/problem+json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }

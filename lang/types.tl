@@ -107,13 +107,17 @@ local record Types
     "var"
   end
 
-  --- What a declaration declares.
+  --- What a declaration declares. An `alias` is the name a recursive alias is given: `type Json = string |
+  --- {Json}` reaches itself through the element of an array, which a type could not hold without a name, so
+  --- the store holds a [`Named`] of kind `alias` whose body is the type the alias names. Nothing but the
+  --- relation and the reading of a value ([`Types.unfold`]) looks through it.
   enum DeclKind
     "record"
     "class"
     "interface"
     "enum"
     "userdata"
+    "alias"
   end
 
   --- What every type holds.
@@ -264,7 +268,8 @@ local record Types
 
   --- What a declaration holds besides its path: the type parameters, the types it lists after
   --- `is` (named types), ordered fields, the array part of `record Node is {Node}`, methods,
-  --- or an enum's values.
+  --- or an enum's values; an alias's body is the type it names (`alias`), which is no `nil`-able type
+  --- and mentions the alias only inside an array or a map.
   record Body
     tparams: {DeclParam}
     supers: {Type}
@@ -272,6 +277,7 @@ local record Types
     array?: Type
     methods: {Method}
     values: {string}
+    alias?: Type
   end
 
   --- A declaration: a path and, once defined, a body. Its identity is the path.
@@ -410,6 +416,12 @@ local record Types
   --- a body whose `supers` have one.
   listing_cycle: function(decl: Decl, supers: {Type}): Decl | nil
 
+  --- The type a recursive alias names, one level of it: for a [`Named`] of kind `alias`, the type its
+  --- declaration names (which mentions the alias again only inside an array or a map), and for any other
+  --- type, or an alias with no body yet, the type itself. A walk over a type does not call it, so that it
+  --- needs no unfold to end; a reader of a value calls it once where it looks at the value's form.
+  unfold: function(t: Type): Type
+
   --- The type in the grammar's own spelling, as an error prints it. `binders` names the
   --- type parameters a free variable stands for, outermost first.
   display: function(t: Type, binders?: {{string}}): string
@@ -455,7 +467,7 @@ local ATOMS <const>: {Tag} = {
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
-  record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata",
+  record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata", alias = "alias",
 }
 
 --- The most a type may nest, in a store and in text being decoded, whose innermost type counts
@@ -1442,6 +1454,17 @@ Types.Store.declarations = function(self: Store): {Decl}
   return out
 end
 
+function Types.unfold(t: Type): Type
+  if t is Named and t.decl.kind == "alias" then
+    local body = t.decl.body
+    local named = body ~= nil and body.alias or nil
+    if named ~= nil then
+      return named
+    end
+  end
+  return t
+end
+
 function Types.listing_cycle(decl: Decl, supers: {Type}): Decl | nil
   local seen: {Decl: boolean} = {}
   local stack: {Decl} = {}
@@ -1476,9 +1499,17 @@ end
 --- not suit `decl`, or lists `decl` itself.
 local function normal_body(store: Store, decl: Decl, body: Body): Body
   local is_enum = decl.kind == "enum"
+  local is_alias = decl.kind == "alias"
   if is_enum and (#body.tparams > 0 or #body.supers > 0 or #body.fields > 0 or #body.methods > 0 or
       body.array ~= nil) then
     error("types: an enum holds values and nothing else", 3)
+  end
+  if is_alias and (#body.tparams > 0 or #body.supers > 0 or #body.fields > 0 or #body.methods > 0 or
+      body.array ~= nil or #body.values > 0 or body.alias == nil) then
+    error("types: an alias holds the type it names and nothing else", 3)
+  end
+  if not is_alias and body.alias ~= nil then
+    error("types: only an alias names a type", 3)
   end
   if not is_enum and #body.values > 0 then
     error("types: only an enum holds values", 3)
@@ -1533,6 +1564,12 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     end
     made.methods[i] = { name = method.name, type = method.type }
     roots[#roots + 1] = method.type
+  end
+  local named = body.alias
+  if named ~= nil then
+    owned(store, named)
+    made.alias = named
+    roots[#roots + 1] = named
   end
   local seen: {string: boolean} = {}
   for i, v in ipairs(body.values) do
@@ -1632,7 +1669,12 @@ local function declaration_text(decl: Decl, body: Body): string
   for _, v in ipairs(body.values) do
     parts[#parts + 1] = " " .. quote(v)
   end
-  parts[#parts + 1] = "))"
+  parts[#parts + 1] = ")"
+  local named = body.alias
+  if named ~= nil then
+    parts[#parts + 1] = " (alias " .. written(named) .. ")"
+  end
+  parts[#parts + 1] = ")"
   return table.concat(parts)
 end
 
@@ -1966,6 +2008,11 @@ local function read_body(r: Reader, decl: Decl): Body
     body.values[#body.values + 1] = string_of(r)
   end
   close(r)
+  if peek(r) == "(" then
+    expect(r, "alias")
+    body.alias = read_type(r)
+    close(r)
+  end
   return body
 end
 

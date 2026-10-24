@@ -19,7 +19,7 @@ local function honest(what: string, fn: function())
 end
 
 local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode({ type = "assistant", message = { content = {
+  return (assert(Json.encode_any({ type = "assistant", message = { content = {
     { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end

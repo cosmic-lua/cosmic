@@ -290,6 +290,19 @@ local function test_a_stub_that_changes_an_enum_or_a_function_signature_is_told_
   assert(second ~= nil and second:find("M.make: ", 1, true) == 1, tostring(second))
 end
 
+local function test_a_stub_that_changes_what_a_recursive_alias_names_is_told_where()
+  local alias = source(
+    "local record M",
+    "  type V = string | {M.V}",
+    "  v: M.V",
+    "end",
+    "return M")
+  assert(difference_of(alias) == nil)
+  local changed = alias:gsub("string | {M.V}", "number | {M.V}")
+  local found = difference_of(alias, changed)
+  assert(found ~= nil and found:find("M.V", 1, true) == 1, tostring(found))
+end
+
 local function test_a_declaration_one_has_and_the_other_lacks_is_told()
   local extra = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  extra: Extra\n  enum Mode")
   local found = difference_of(MODULE, extra)

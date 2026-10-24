@@ -35,7 +35,7 @@ function Example.into()
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
   -- The answer holds what the spec names and nothing else.
-  local text = Json.encode(release)
+  local text = Json.encode_any(release)
   print(text)
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end

@@ -162,10 +162,19 @@ local record Check
 
   --- The rule behind each code of [`lang.check_codes`].
   catalog: {Codes.Row}
+
+  --- What the fix of a value that is none of the arms of a recursive alias adds, by the alias (`<module> <name>`): the library's
+  --- own advice for the type it declares, in words that name its functions.
+  advice: {string: string}
 end
 
 Check.codes = Codes.codes
 Check.catalog = Codes.catalog
+Check.advice = {
+  ["cosmic.json Json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
+    "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
+  ["cosmic.json Json.Value"] = "for a record or a class of your own, or a value you decoded, call `Json.encode_any`, which takes any value",
+}
 
 -- State ----------------------------------------------------------------------------------
 
@@ -471,19 +480,35 @@ local function view(store: Store, t: Type): Type
   return t
 end
 
---- The members of a union (the nil flag as `nil`), or the type alone.
+--- The members of a union (the nil flag as `nil`), or the type alone. A recursive alias is read as the type it
+--- names, one level: its members stand for it, a member of a union that is one as well, so a test or a literal sees
+--- the forms a value of it is. What a member of that holds (`{Json.Value}`) is left as it is.
 local function members_of(store: Store, t: Type): {Type}
-  if t is Types.Union then
-    local out: {Type} = {}
-    for i, m in ipairs(t.members) do
-      out[i] = m
+  local out: {Type} = {}
+  local function add(m: Type)
+    if m is Types.Union then
+      for _, inner in ipairs(m.members) do
+        out[#out + 1] = inner
+      end
+      if m.nilable then
+        out[#out + 1] = store:atom("nil")
+      end
+    else
+      out[#out + 1] = m
     end
-    if t.nilable then
+  end
+  local whole = Types.unfold(t)
+  if whole is Types.Union then
+    for _, m in ipairs(whole.members) do
+      add(Types.unfold(m))
+    end
+    if whole.nilable then
       out[#out + 1] = store:atom("nil")
     end
-    return out
+  else
+    add(whole)
   end
-  return { t }
+  return out
 end
 
 --- Whether `t` is an enum, or a union with one.
@@ -865,6 +890,25 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         quoted(Types.display(r.super, ctx.binders)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
+    local body = Types.unfold(want)
+    if body ~= want then
+      -- A recursive alias is wanted: its arms are what the program has to choose among.
+      local arms: {string} = {}
+      for _, m in ipairs(members_of(ctx.store, body)) do
+        if m.tag ~= "nil" then
+          arms[#arms + 1] = quoted(show(ctx, m))
+        end
+      end
+      table.sort(arms)
+      leaf = leaf .. "; " .. quoted(w) .. " is " .. listed(arms)
+      fix = "make the value one of the arms of " .. quoted(w) .. ": " .. listed(arms) .. ", which " .. quoted(g) .. " is none of"
+      if want is Named then
+        local advised = Check.advice[want.decl.module .. " " .. want.decl.name]
+        if advised ~= nil then
+          fix = fix .. "; " .. advised
+        end
+      end
+    end
     if code == "number_for_integer" then
       fix = "convert with `math.tointeger(" .. text_of(ctx, e) .. ")` or `math.floor(" .. text_of(ctx, e) ..
         ")`, or declare what takes it `number`"
@@ -1547,21 +1591,88 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   return n
 end
 
---- The member of the union `u` that the literal `e` is, or nil with the error reported.
-local function literal_member(ctx: Ctx, e: Ast.Table, u: Union): Type | nil
+--- The member of the union `u` that the literal `e` is, or nil with the error reported. `written` is `u` as the program
+--- names it, where `u` is the type a recursive alias names.
+local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): Type | nil
+  -- Every type of `types` quoted once, in order, without the `nil`: the arms of a type a message names.
+  local function arms_named(types: {Type}): {string}
+    local out: {string} = {}
+    local seen: {integer: boolean} = {}
+    for _, t in ipairs(types) do
+      if t.tag ~= "nil" and not seen[t.id] then
+        seen[t.id] = true
+        out[#out + 1] = tq(ctx, t)
+      end
+    end
+    table.sort(out)
+    return out
+  end
+
+  -- Whether a literal of the given `shape` could make a value of `m`, an array, a map, a record or a class: positional
+  -- items make an array, or a record with an array part; items with keys make a map or a record.
+  local function made_from(m: Type, shape: string): boolean
+    if m is Types.Array then
+      return shape == "positional"
+    elseif m is Types.Map then
+      return shape == "keyed"
+    elseif m is Named then
+      if shape == "positional" then
+        local index = members_index(ctx, m.decl, false)
+        return index ~= nil and index.array ~= nil
+      end
+      return shape ~= "mixed"
+    end
+    return false
+  end
   local candidates: {Type} = {}
-  for _, m in ipairs(u.members) do
-    if (m is Named and (m.decl.kind == "record" or m.decl.kind == "class")) or m is Types.Array or m is Types.Map then
+  for _, m in ipairs(members_of(ctx.store, u)) do
+    if (m is Named and not m.value and (m.decl.kind == "record" or m.decl.kind == "class")) or m is Types.Array or m is Types.Map then
       candidates[#candidates + 1] = m
     end
   end
+  local arms = written ~= u and ", which is " .. listed(arms_named(members_of(ctx.store, u)), "or") or ""
+  if #candidates == 0 then
+    report(ctx, "literal_shape", e, "a table literal is checked against " .. tq(ctx, written) .. arms .. ", which has no member a " ..
+        "table makes",
+      "write a value of one of its members", { show(ctx, written) })
+    return nil
+  end
+  -- The kinds of item tell an array from a map, and a record that has an array part from one that has not.
+  -- `name =` and `[k] =` are one kind of item here: both give a key. Only a positional item beside them mixes.
+  local shape = "empty"
+  local positional, keyed = false, false
+  for _, item in ipairs(e.items) do
+    if item is Ast.Positional then
+      positional = true
+    else
+      keyed = true
+    end
+  end
+  if positional and keyed then
+    shape = "mixed"
+  elseif positional then
+    shape = "positional"
+  elseif keyed then
+    shape = "keyed"
+  end
+  if #candidates > 1 and shape ~= "empty" then
+    local fitting: {Type} = {}
+    for _, m in ipairs(candidates) do
+      if made_from(m, shape) then
+        fitting[#fitting + 1] = m
+      end
+    end
+    if #fitting == 0 then
+      report(ctx, "literal_shape", e, "this literal's items (" .. (shape == "mixed" and "some by position and some by key" or shape == "positional" and
+        "by position" or "by key") .. ") make none of " .. listed(type_names(ctx, candidates), "or") ..
+          ", the tables " .. tq(ctx, written) .. " takes",
+        "write the items by position for an array, or `key = value` for a map, and not both", { show(ctx, written) })
+      return nil
+    end
+    candidates = fitting
+  end
   if #candidates == 1 then
     return candidates[1]
-  elseif #candidates == 0 then
-    report(ctx, "literal_shape", e, "a table literal is checked against " .. tq(ctx, u) .. ", which has no member a " ..
-        "table makes",
-      "write a value of one of its members", { show(ctx, u) })
-    return nil
   end
   -- A tag: a named item whose string value is the one value of an enum a member's field of that name has.
   for _, item in ipairs(e.items) do
@@ -1582,10 +1693,33 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union): Type | nil
       end
     end
   end
-  report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
-    "give the tag field of the member it is (`kind = \"...\"`), or type the literal first: `local v: Member = {...}`")
+  local records = false
+  for _, m in ipairs(candidates) do
+    records = records or m is Named
+  end
+  if records then
+    report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
+      "give the tag field of the member it is (`kind = \"...\"`), or type the literal first: `local v: Member = {...}`")
+  elseif shape == "empty" then
+    local fix = "write an item, or type the literal as the one it is: `local v: " .. show(ctx, candidates[1]) .. " = {}`"
+    if written is Named then
+      local advised = Check.advice[written.decl.module .. " " .. written.decl.name .. " empty"]
+      if advised ~= nil then
+        fix = advised
+      end
+    end
+    report(ctx, "literal_ambiguous", e, "this literal has no items, so it could be any of " .. listed(type_names(ctx, candidates)), fix)
+  else
+    report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
+      "type the literal as the one it is: `local v: " .. show(ctx, candidates[1]) .. " = {...}`")
+  end
   return nil
 end
+
+-- TODO: check a literal given to a parameter declared `any` item by item and answer it without a join, once the plan says
+-- whether a value reaches `any` as the items of a literal or only as the literal (doc/plans/new-checker-types.md, "what
+-- `any` may do"): it is typed by the join of its items today, so `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and
+-- the files that give such a literal to an `any` parameter hold that count in [`build/ceilings.txt`].
 
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
@@ -1631,8 +1765,10 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type | nil): Type
   elseif want.tag == "any" or want.tag == "never" then
     return literal_inferred(ctx, e)
   end
+  local written = want
+  want = Types.unfold(want)
   if want is Union then
-    local member = literal_member(ctx, e, want)
+    local member = literal_member(ctx, e, want, written)
     if member == nil then
       items_unshaped(ctx, e.items)
       return ctx.invalid

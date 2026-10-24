@@ -427,7 +427,7 @@ local function ndjson_writer(): Writer
           return nil, "column " .. (index + 1) .. " is a blob, which JSON has no value for; " ..
             "select its hex() or base64()"
         end
-        local encoded, trouble = Json.encode(value)
+        local encoded, trouble = Json.encode_any(value)
         if encoded == nil then
           return nil, "column " .. (index + 1) .. ": " .. trouble
         end

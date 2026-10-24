@@ -348,7 +348,7 @@ local function bound(value: any): Sqlite.Value | nil, string
   elseif value is number then
     return { number = value }
   elseif value is table then
-    local text, trouble = Json.encode(value)
+    local text, trouble = Json.encode_any(value)
     if text == nil then
       return nil, trouble
     end
@@ -447,7 +447,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
         end
         values[index] = value
       end
-      local text, bad = Json.encode(row)
+      local text, bad = Json.encode_any(row)
       if text == nil then
         return false, "row " .. number .. ": " .. bad
       end

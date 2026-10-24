@@ -13,7 +13,7 @@ local function decoded(text: string, opts?: Json.DecodeOptions): any
 end
 
 local function encoded(value: any): string
-  local text, err = Json.encode(value)
+  local text, err = Json.encode_any(value)
   assert(text ~= nil, "encode failed: " .. err)
   return text
 end

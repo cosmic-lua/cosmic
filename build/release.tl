@@ -509,7 +509,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     if as_json then
       if #shown == 0 then return written(to.out("[]\n")) end
-      local encoded = assert(Json.encode(shown, { pretty = true }))
+      local encoded = assert(Json.encode_any(shown, { pretty = true }))
       return written(to.out(encoded .. "\n"))
     end
     local lines: {string} = {}

@@ -16,6 +16,7 @@ local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Memprobe = require("build.memprobe")
 local LangProof = require("build.lang_proof")
+local NewDeclarations = require("build.new_declarations")
 local Scopes = require("lang.scopes")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Template = require("cosmic.template")
@@ -124,12 +125,19 @@ function TreeProgram.blanked(file: string): boolean
 end
 
 --- What is done to the translation of the file `file`, whose text is `text`: its `where` clauses are blanked where it needs
---- it, and each test of a record they told apart is written as the tag test they were. nil for a file that needs neither.
+--- it, each test of a record they told apart is written as the tag test they were, and the lines it spells for the fork that
+--- the new checker reads otherwise are replaced ([`build.new_declarations`]). nil for a file that needs none.
 local function mended(file: string, text: string, tags: {string: LangProof.Tags}): Driver.Mend | nil
   local blank = BLANKED[file] == true
   local mentions = text:find("lang.ast\"", 1, true) ~= nil or text:find("lang.types\"", 1, true) ~= nil
+  local declared: Driver.Mend | nil = nil
+  if NewDeclarations.edited(file) then
+    declared = function(translated: string): string
+      return NewDeclarations.apply(file, translated, true)
+    end
+  end
   if not blank and not mentions then
-    return nil
+    return declared
   end
   -- The two modules that hold the clauses are known to the rewrite by the name of their file.
   local name = file
@@ -143,7 +151,11 @@ local function mended(file: string, text: string, tags: {string: LangProof.Tags}
     if blank then
       out = LangProof.blank_where(out).text
     end
-    return LangProof.rewrite(out, name, tags).text
+    out = LangProof.rewrite(out, name, tags).text
+    if declared ~= nil then
+      out = declared(out)
+    end
+    return out
   end
 end
 
@@ -153,14 +165,13 @@ function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: 
   if steps and ast_text ~= nil and types_text ~= nil then
     tags = LangProof.tags(ast_text, types_text)
   end
-  local mending = steps and ast_text ~= nil and types_text ~= nil
   local skip = skipped
   if steps then
     skip = skipped_in_own_tree
   end
   return Driver.index(entries, true, skip, function(file: string, text: string): Driver.Extra
     local mend: Driver.Mend | nil = nil
-    if mending then
+    if steps then
       mend = mended(file, text, tags)
     end
     return { tests = kinds[file] == "test", mend = mend }

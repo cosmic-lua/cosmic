@@ -217,7 +217,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
       if not changes.regenerated then created = row:integer(2) end
       if subject == nil and row:kind(4) == "text" then subject = row:text(4) end
     end
-    local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
+    local text, encode_why = Json.encode_any(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
     local subject_value: Sqlite.Value = subject ~= nil and { text = subject } or {}
     if row ~= nil and not changes.regenerated then

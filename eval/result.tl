@@ -115,6 +115,11 @@ function Result.verdict(code: integer | nil): any
   return "ERROR"
 end
 
+-- TODO: type the fields below as [`Json.Value`] (`{string: Json.Value}` and [`Json.Value`] returns), validating the ones read from
+-- the transcript with [`cosmic.shape`] first, once a decoded field can be narrowed to a [`Json.Value`] (a test that tells an
+-- array from a map, [`Json.is_array`], narrows for the checker): the fields are `any` because some come from decoded events, and a
+-- [`Json.null`] or a string stored in an `any` slot is `any_use`, which [`build/ceilings.txt`] holds for this file.
+
 --- The result.json fields, as a table with [`Json.null`] for each value
 --- that is unavailable, for a transcript's text (nil when there is
 --- none), the arena's `files`, the `grade` and what the caller knows.
@@ -224,7 +229,7 @@ function Result.encode(fields: {string: any}): string | nil, string
   for _, key in ipairs(ORDER) do
     local value = fields[key]
     if value == nil then value = Json.null end
-    local text, why = Json.encode(value, { max_depth = 100 })
+    local text, why = Json.encode_any(value, { max_depth = 100 })
     if text == nil then return nil, key .. ": " .. why end
     lines[#lines + 1] = "  " .. (assert(Json.encode(key))) .. ": " .. text
   end

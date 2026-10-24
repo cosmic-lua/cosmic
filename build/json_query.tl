@@ -172,7 +172,7 @@ end
 function json_query.flat_line(steps: Json.Steps, value: any): string | nil, string
   local path, bad = shorthand(steps)
   if path == nil then return nil, bad end
-  local text, err = Json.encode(value)
+  local text, err = Json.encode_any(value)
   if text == nil then return nil, "the value at " .. at_pointer(steps) .. ": " .. err end
   return path .. " = " .. text, ""
 end

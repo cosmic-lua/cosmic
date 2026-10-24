@@ -172,7 +172,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
     body = Url.encode_query(pairs_of(form))
     headers["content-type"] = headers["content-type"] or "application/x-www-form-urlencoded"
   elseif json ~= nil then
-    local text, why = Json.encode(json)
+    local text, why = Json.encode_any(json)
     if text == nil then error("web: test client: json: " .. why, 3) end
     body = text
     headers["content-type"] = headers["content-type"] or "application/json"

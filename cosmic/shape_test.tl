@@ -183,7 +183,7 @@ end
 local function test_a_checked_payload_re_encodes_without_its_extras()
   local text = '{"port": 8080, "host": "h", "debug": {"x": 1}}'
   local s: Server = must(Shape.into(must(Json.decode(text)), SERVER))
-  assert(must(Json.encode(s)) == '{"host":"h","port":8080}')
+  assert(must(Json.encode_any(s)) == '{"host":"h","port":8080}')
 end
 
 local function test_one_of_admits_only_its_values()

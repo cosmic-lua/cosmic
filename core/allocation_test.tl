@@ -604,20 +604,20 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
   -- An object too large for a set of its keys on the C stack, whose
   -- keys go through a Lua table, holding a key twice.
-  local wide_text = assert(Json.encode(wide)):gsub("}$", ',"key1":0}')
+  local wide_text = assert(Json.encode_any(wide)):gsub("}$", ',"key1":0}')
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
     assert(trouble == "", trouble)
     assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
-    assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
+    assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
     local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
     assert(lone[1] == "\u{FFFD}")
     assert(Json.check(text))
     assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
     assert(Json.format("{a: [0x1F, .5]}", { json5 = true }) == '{"a":[31,0.5]}')
-    assert(assert(Json.canonical((assert(Json.encode(wide))))):sub(1, 1) == "{")
+    assert(assert(Json.canonical((assert(Json.encode_any(wide))))):sub(1, 1) == "{")
     local _, twice = Json.decode(wide_text)
     assert(twice:match("^json: duplicate key "), twice)
   end)

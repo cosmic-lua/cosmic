@@ -7,14 +7,14 @@ local arena <const> = "/work/arena"
 local repo <const> = "/src/cosmic"
 
 local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode({ type = "assistant", message = { content = {
+  return (assert(Json.encode_any({ type = "assistant", message = { content = {
     { type = "text", text = "thinking" },
     { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end
 
 local function answer(id: string, content: any, is_error?: boolean): string
-  return (assert(Json.encode({ type = "user", message = { content = {
+  return (assert(Json.encode_any({ type = "user", message = { content = {
     { type = "tool_result", tool_use_id = id, content = content,
       is_error = is_error or false },
   } } })))

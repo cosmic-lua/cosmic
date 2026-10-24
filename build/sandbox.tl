@@ -363,7 +363,7 @@ local function policy_of(request: Request, database: string | nil): Sandbox.Poli
     if named == nil then return nil, named_trouble end
     fields.database = named
   end
-  local json, json_why = Json.encode(fields)
+  local json, json_why = Json.encode_any(fields)
   if json == nil then return nil, json_why end
   return PolicyJson.decode(json)
 end

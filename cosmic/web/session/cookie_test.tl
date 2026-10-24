@@ -91,7 +91,7 @@ end
 --- A token for `body` signed as the store signs, for a payload the store
 --- would never write.
 local function forge(key: string, body: any): string
-  local text = assert(Json.encode(body))
+  local text = assert(Json.encode_any(body))
   local payload = Codec.base64url(text)
   local mac = Hash.hmac("sha256", key, "cosmic.web.session" .. "\0" .. "session" .. "\0" .. payload)
   return payload .. "." .. Codec.base64url(mac)

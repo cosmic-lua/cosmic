@@ -37,6 +37,7 @@ local Check = require("lang.check")
 local Clock = require("cosmic.clock")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
+local NewDeclarations = require("build.new_declarations")
 local Parser = require("lang.parser")
 local RemovedFix = require("build.removed_fix")
 local Scopes = require("lang.scopes")
@@ -401,15 +402,28 @@ end
 function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: function(module: string): boolean):
     Driver.Provider
   return function(module: string): Driver.Source | nil
-    local text = read(module)
-    if text == nil then
+    local found = read(module)
+    if found == nil then
       return nil
     end
+    local text: string = found
     local file = module:gsub("%.", "/")
     if declared ~= nil and declared(module) then
       return Driver.declarations(module, file .. ".d.tl", text, translate == true, {})
     end
-    return make(module, file .. ".tl", text, "tl", translate == true, false, {}, false, "", nil)
+    local name = file .. ".tl"
+    -- The file of a package's module is its `init.tl`, which the edits of [`build.new_declarations`] are kept under.
+    local edited = file .. "/init.tl"
+    if NewDeclarations.edited(name) then
+      edited = name
+    end
+    local mend: Driver.Mend | nil = nil
+    if translate == true and NewDeclarations.edited(edited) then
+      mend = function(translated: string): string
+        return NewDeclarations.apply(edited, translated)
+      end
+    end
+    return make(module, name, text, "tl", translate == true, false, {}, false, "", mend)
   end
 end
 
