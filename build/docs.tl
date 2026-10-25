@@ -125,12 +125,12 @@ local record docs
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
     closest: boolean
-    --- The verb `cosmic <query>` of the same name as the module the query
-    --- names, which [`page`] points to after the module instead of showing
-    --- it; nil for any other query.
+    --- The verb `cosmic <query>` when the query names a library module of
+    --- the same name: [`page`] ends the module's entries with a line
+    --- pointing to it, and it is not one of the entries. Nil otherwise.
     mut verb?: Entry
-    --- How many entries, from the first, are the module's: the see-also
-    --- line for `verb` follows them. Set with `verb`.
+    --- How many entries, from the first, are the modules the query names;
+    --- the line for `verb` follows them. 0 when there are none.
     mut modules: integer
   end
 
@@ -1487,17 +1487,23 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     for _, entry in ipairs(modules) do
       seen[entry.module .. "\n" .. entry.symbol] = true
     end
-    -- The modules answer first, then the other symbols; the verb
-    -- `cosmic <query>` names is a see-also line after them, since a
-    -- person at the library reference asked for the module.
+    -- With a library module of the name, the module answers first, then
+    -- the other symbols, and the verb `cosmic <query>` names is a
+    -- see-also line after the modules. Otherwise (a tool's or a
+    -- project's own module of the name) the verb answers first, as
+    -- `cosmic docs sql` says it does.
     local answers: mut {docs.Entry} = {}
     local rest: mut {docs.Entry} = {}
     local verb: docs.Entry? = nil
+    local library = false
+    for _, entry in ipairs(modules) do
+      if symbols.is_public_module(entry.module) then library = true end
+    end
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
         entry.symbol == query
       if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
-        verb = entry
+        if library then verb = entry else answers[#answers + 1] = entry end
         seen[entry.module .. "\n" .. entry.symbol] = true
       elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
         rest[#rest + 1] = entry
@@ -1661,7 +1667,10 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup?, string
   if not names.exact then
     return lookup(rule, true, #rule), ""
   end
-  return lookup(names, true, names.named + #rule, false, rule), ""
+  local ruled = lookup(names, true, names.named + #rule, false, rule)
+  ruled.verb = names.verb
+  ruled.modules = if names.verb ~= nil then names.modules + #rule else 0 end
+  return ruled, ""
 end
 
 --- The first sentence of `documented`'s first paragraph, on one line:
