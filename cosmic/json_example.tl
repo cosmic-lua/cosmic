@@ -36,7 +36,7 @@ function Example.decode()
   assert(job.cmd[2] == "all" and job.timeout == 30)
   local _, bad = JOB:into((Json.decode('{"cmd": "make all"}')))
   print(bad)
-  assert(bad == 'pointer "/cmd": expected list, got string', bad)
+  assert(bad == 'Job: $.cmd: want list, got string', bad)
 end
 
 --- Test the message, not the value: `null` is a document too, and it

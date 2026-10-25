@@ -22,6 +22,21 @@ local function test_seconds_of_reads_githubs_times()
   assert(Report.duration(nil) == "-")
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release whose Shape failures read
+-- `$.a[0].b: want string, got integer`, match that form only.
+
+--- Whether `said` holds the Shape failure at JSON Pointer `at` that wants `expected`
+--- (`string, got integer`), in the form of the release running the test or the tree's.
+local function shape_failure(said: string, at: string, expected: string): boolean
+  if said:find('pointer "' .. at .. '": expected ' .. expected, 1, true) then return true end
+  local path = "$"
+  for segment in at:gmatch("/([^/]*)") do
+    path = path .. (if segment:find("^%d+$") then "[" .. segment .. "]" else "." .. segment end)
+  end
+  local rest = if expected:find(", got nothing$") then "missing" else "want " .. expected end
+  return said:find(path .. ": " .. rest, 1, true) ~= nil
+end
+
 --- The lists the API answers are checked against the records `Report`
 --- reads: a value of another shape is refused naming where it is, where
 --- the entries once read as empty, were skipped, or were taken as text.
@@ -34,7 +49,7 @@ local function test_an_answer_of_another_shape_is_refused_by_path()
     end)
     assert(not ok, "accepted " .. text)
     local said = tostring(why)
-    assert(said:find("the " .. list .. " list: ", 1, true) and said:find('pointer "' .. at .. '": expected ' .. expected, 1, true),
+    assert(said:find("the " .. list .. " list: ", 1, true) and shape_failure(said, at, expected),
       ("wanted %s at %s, expected %s; got %q"):format(list, at, expected, said))
   end
   refused(function(text: string) local _ = Report.runs(text) end, "[]", "runs", "", "record, got array")

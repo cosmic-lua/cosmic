@@ -59,7 +59,7 @@ function Example.record_of()
   local wrong = Json.decode('{"tag": "v2", "assets": [1]}')
   local _, why = RELEASE:into(wrong)
   print(why)
-  assert(why == "pointer \"/assets/0\": expected string, got integer", why)
+  assert(why == "Entry: $.assets[0]: want string, got integer", why)
 end
 
 --- Text that is JSON is decoded and checked in one call: the answer is a
@@ -77,7 +77,7 @@ function Example.decode_into()
   assert(release.tag == "v1" and release.assets[1] == "lua")
   local _, shape: Release?, string = Shape.decode_into('{"tag": 1, "assets": []}', RELEASE)
   print(shape)
-  assert(shape == "pointer \"/tag\": expected string, got integer", shape)
+  assert(shape == "$.tag: want string, got integer", shape)
 end
 
 --- A value that does not fit names the first place it went wrong.
@@ -88,7 +88,7 @@ function Example.into_failure()
   })
   local _, err: Release?, string = Shape.into(decoded(), RELEASE)
   print(err)
-  assert(err == "pointer \"/assets/0\": expected integer, got string", err)
+  assert(err == "$.assets[0]: want integer, got string", err)
 end
 
 --- `into` answers the first value that does not fit, in the order the
@@ -104,7 +104,7 @@ function Example.first_failure_only()
   local release, err: Release?, string = Shape.into(decoded(), RELEASE)
   assert(release == nil)
   print(err)
-  assert(err == "pointer \"/assets/0\": expected integer, got string", err)
+  assert(err == "$.assets[0]: want integer, got string", err)
 end
 
 --- An enumeration: a level is one of a few strings, and anything else
@@ -113,7 +113,7 @@ function Example.one_of()
   local LEVEL <const> = Shape.one_of("debug", "info", "warn")
   local _, err: string?, string = Shape.into("loud", LEVEL)
   print(err)
-  assert(err == 'pointer "": expected one of "debug", "info", "warn", got "loud"', err)
+  assert(err == '$: want one of "debug", "info", "warn", got "loud"', err)
 end
 
 --- A config file refuses a key its spec does not name, so a misspelled
@@ -126,7 +126,7 @@ function Example.strict_record()
   local _, err: {string: any}?, string =
     Shape.into(Json.decode('{"host": "localhost", "prot": 8080}'), SERVER)
   print(err)
-  assert(err == "pointer \"/prot\": unknown key", err)
+  assert(err == "$.prot: unknown key", err)
 end
 
 --- A map from names to numbers: `map` checks every value, and `number`
@@ -161,7 +161,7 @@ function Example.any()
   local mixed = Json.decode('["a", 3]')
   local _, bad: {string}?, string = Shape.into(mixed, NAMES)
   print(bad)
-  assert(bad == "pointer \"/1\": expected string, got integer", bad)
+  assert(bad == "$[1]: want string, got integer", bad)
 end
 
 return Example

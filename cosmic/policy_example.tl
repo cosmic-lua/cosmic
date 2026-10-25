@@ -22,7 +22,7 @@ function Example.decode()
   assert(why:find("/grants/0/letters", 1, true), why)
   local unknown, trouble = PolicyJson.decode('{"network":true}')
   assert(unknown == nil)
-  assert(trouble:find("/network", 1, true), trouble)
+  assert(trouble:find("$.network", 1, true), trouble)
 end
 
 --- A merged policy as canonical text, the same for the same policy, for
