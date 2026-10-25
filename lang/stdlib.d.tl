@@ -508,6 +508,7 @@ do
     rawlen: function<A>({A}): integer
 
     -- TODO: a record whose fields all share a type reads as that map, so `rawset(r, "undeclared", v)` still writes a key it does not declare; refuse it once a record no longer reads as a map (closed records).
+    -- TODO: take an array too, so that `rawset(xs, #xs + 1, v)` on a `mut {T}` is typed: it is `not_assignable` now, as `mut {T}` is not a `mut {integer: T}`, and the fork accepted it; wait for the array and map relation of `rawset` to be declared (an overload over `mut {A}` with an integer key).
     rawset: function<K, V>(mut {K:V}, K, V): mut {K:V}
 
     require: function(string): any

@@ -330,7 +330,7 @@ end
 --- The files of ci/islands.txt stay on the fork: the pinned release reads them in Teal alone, and the new checker refuses a
 --- write to a view that the fork lets by.
 local function test_a_file_of_the_islands_stays_on_the_fork(tmp: string)
-  local source = "local lines: {string} = {}\nlines[#lines + 1] = \"x\"\nreturn function(): integer\n  return #lines\nend\n"
+  local source = "local lines: {string} = {}\nlocal function add() lines[#lines + 1] = \"x\" end\nadd()\nreturn function(): integer\n  return #lines\nend\n"
   assert(Fs.mkdirs(tmp .. "/checkout/ci") and Fs.mkdirs(tmp .. "/checkout/build"))
   assert(Fs.write(tmp .. "/checkout/ci/islands.txt", "# the islands\nbuild/zig.tl\nci/\n"))
   assert(Fs.write(tmp .. "/checkout/build/zig.tl", source) and Fs.write(tmp .. "/checkout/build/other.tl", source))

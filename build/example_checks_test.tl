@@ -222,6 +222,8 @@ local function test_an_example_missing_a_require_is_refused_in_the_new_checkers_
   assert(#found >= 1 and assert(found[1]):find("`tmp` is not declared (unknown_variable)", 1, true) ~= nil, table.concat(found, "\n"))
 end
 
+--- (The write is in a local function: the translator declares `mut` a local that the function declaring it writes, so a direct
+--- `words[#words + 1] = v` no longer reaches the checker as a view.)
 --- An array an example writes is a view until it is declared `mut`, which the fork has no word for: the example is refused
 --- with the fix, and passes the fork.
 local function test_an_example_writing_a_view_is_refused_by_the_new_checker_alone(dir: string)
@@ -230,7 +232,10 @@ local function test_an_example_writing_a_view_is_refused_by_the_new_checker_alon
     "--- Collects words.",
     "function Example.collect()",
     "  local words: {string} = {}",
-    '  words[#words + 1] = "a"',
+    "  local function add()",
+    '    words[#words + 1] = "a"',
+    "  end",
+    "  add()",
     "  print(#words)",
     "end",
     "return Example")
@@ -248,7 +253,10 @@ local function test_a_finding_within_its_pin_is_not_told_and_one_over_it_or_a_pi
     "--- Collects words.",
     "function Example.collect()",
     "  local words: {string} = {}",
-    '  words[#words + 1] = "a"',
+    "  local function add()",
+    '    words[#words + 1] = "a"',
+    "  end",
+    "  add()",
     "  print(#words)",
     "end",
     "return Example")
