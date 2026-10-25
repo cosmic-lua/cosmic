@@ -10,8 +10,8 @@ local reentered <const> = "COSMIC_FIXTURE_PROBE_REENTERED"
 
 return function(argv: {string}): integer
   local artifact = assert(Store.meta("artifact"))
-  assert(Proc.executable() == artifact)
-  assert(sys.executable() == artifact)
+  assert(assert(Proc.executable()) == artifact)
+  assert(assert(sys.executable()) == artifact)
   local script, first, second = assert(argv[0]), assert(argv[1]), assert(argv[2])
   if argv[3] == "reenter" and Env.get(reentered) == nil then
     -- Replace this process with the same artifact: the portable startup
@@ -24,6 +24,6 @@ return function(argv: {string}): integer
       { env = environment })
     error(trouble)
   end
-  Fs.put(Fs.stdout, "script " .. first .. " " .. second .. "\n")
+  assert(Fs.put(Fs.stdout, "script " .. first .. " " .. second .. "\n"))
   return 0
 end

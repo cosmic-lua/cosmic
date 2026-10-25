@@ -54,7 +54,7 @@ local function same(a: string, b: string): boolean
 end
 
 local function hex(bytes: string): string
-  return (bytes:gsub(".", function(c: string): string return string.format("%02x", c:byte()) end))
+  return (bytes:gsub(".", function(c: string): string return string.format("%02x", assert(c:byte())) end))
 end
 
 --- The terminal's state is as it was at the start.
@@ -108,13 +108,13 @@ end
 --- `cosmic sandbox` running `script` under sh, with the caller's streams
 --- as `opts` says (a terminal where it names the slave).
 local function start(script: string, opts: Child.Options): Child.Handle
-  opts.timeout_ns = Clock.seconds(60)
   -- The root, which the system profile lets a program read: a shell
   -- started in a directory the profile does not grant prints a getcwd
   -- error of its own on macOS, into what these tests compare byte for byte.
-  opts.cwd = "/"
+  local started: Child.Options = { stdin = opts.stdin, stdout = opts.stdout, stderr = opts.stderr,
+    timeout_ns = Clock.seconds(60), cwd = "/" }
   local child, why = Child.start({ exe, "sandbox", "--system", "--env", "PATH", "--promise", "fork",
-    "--", "/bin/sh", "-c", script }, opts)
+    "--", "/bin/sh", "-c", script }, started)
   assert(child, why)
   return child
 end
@@ -241,7 +241,7 @@ do
   assert(child, why)
   local result = assert(child:wait())
   drain(caller)
-  if result.code == 125 and caller.shown:find("relay", 1, true) then
+  if result.code == 125 and caller.shown:find("relay", 1, true) ~= nil then
     -- A host that cannot give the program a network of its own (no user
     -- namespaces) cannot start the relay: nothing here is about that.
     print("relay: SKIP the relay's lines on the terminal: the relay cannot start here:" .. shown_of(caller))

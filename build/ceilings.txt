@@ -1632,8 +1632,6 @@ test/sqlite_rowid_test.tl nil_not_allowed 2
 
 test/sqlite_transaction_test.tl nil_not_allowed 1
 
-test/terminal/relay.tl nil_not_allowed 1
-
 # a value that may be nil because an assignment dropped what a test showed: the assignment is of a value that is itself
 # optional (`owner, why = find()` after `if owner == nil`), so it narrows nothing; the rewrite tests again after the assignment
 
@@ -2316,8 +2314,6 @@ test/portable/tool.tl index_may_be_nil 7
 test/sqlite_json_test.tl index_may_be_nil 1
 
 test/sqlite_row_test.tl index_may_be_nil 1
-
-test/terminal/pty.tl index_may_be_nil 2
 
 # an index write through a collection that is a view: the translator writes `mut` on the parameters a function
 # changes and not yet on the locals, which are declared `{T}`
@@ -3535,10 +3531,6 @@ lang/types_programs.tl field_fixed 2
 lang/warnings.tl field_fixed 2
 
 test/portable/tool.tl field_fixed 1
-
-test/terminal/pty.tl field_fixed 6
-
-test/terminal/relay.tl field_fixed 2
 
 # a field the record does not declare: a field an interface gives a record that lists it (declared again by the
 # rewrite), a field of a member of a union read without a test, and a method of the standard library the
@@ -5431,8 +5423,6 @@ test/sqlite_result_test.tl cast_refused 1
 
 test/sqlite_row_test.tl cast_refused 2
 
-test/terminal/pty.tl cast_refused 1
-
 # an `is` of a record, an interface or a collection, whose tag no program can read: the tagged unions of the plan
 # replace the `where` clause
 
@@ -6888,10 +6878,6 @@ test/sqlite_prepare_test.tl or_mix 4
 
 test/sqlite_row_test.tl or_mix 1
 
-test/terminal/pty.tl or_mix 1
-
-test/terminal/relay.tl or_mix 1
-
 # a ternary `c and x or y`, which the translator writes as an `if` expression where it can
 build/alias_members.tl and_ternary 1
 
@@ -8080,8 +8066,6 @@ lang/types_test.tl concat_type 2
 test/coverage_native_test.tl concat_type 2
 
 test/portable/tool.tl concat_type 1
-
-test/terminal/pty.tl concat_type 1
 
 # an operand an operator does not take: a string in arithmetic, a map under `#`
 # an `==` of two types that share no value: mostly a comparison with nil of a value its declaration says is never nil

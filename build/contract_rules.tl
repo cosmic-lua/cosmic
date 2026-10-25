@@ -55,10 +55,6 @@ local casts: {string: string} = {
     "a stored row is a record with an array part for its slots, and the grammar has no record " ..
     "with an array part that also implements Sqlite.Row",
 
-  ["test/terminal/pty.tl:process_table"] =
-    "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
-    "the controlling-terminal spawn step; core/process.h declares its shape",
-
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
