@@ -30,11 +30,8 @@
 ---
 --- Every error has a `code`, a `msg` that says what is wrong and a `fix`
 --- that says how to put it right in the program's own terms. [`Code`]
---- catalogues the codes. They are not yet in [`build/compiler.d.tl`]'s
---- `ErrorCode`: that enum belongs to the fork. Once the new checker
---- replaces the fork, the enum is [`Code`] with the parser's and
---- the checker's codes beside it, and a hint in [`build/teal.tl`] reads
---- `fix` as it reads the fork's `msg` today.
+--- catalogues the codes, with the parser's and the checker's beside it
+--- ([`build.error_catalog`]).
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
 local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
@@ -70,10 +67,6 @@ local record Lexer
     "$EOF$"
   end
 
-  -- TODO: add these codes to the `ErrorCode` of build/compiler.d.tl and have
-  -- build/teal.tl show `fix`, once the new checker replaces the fork's
-  -- compiler in the tree (doc/plans/new-checker-grammar.md, "the interface").
-
   --- What an error is, so that a reader does not parse its `msg`. Every code
   --- is a lexical error and sets the fields of [`Error`].
   enum Code
@@ -85,8 +78,6 @@ local record Lexer
     "long_comment"
     -- a long comment with no closing bracket: the token runs to the end
     "unterminated_long_comment"
-    -- a `#!` first line
-    "hashbang"
     -- a `_` between digits: the token is the number without it
     "digit_separator"
     -- a hexadecimal float: the token is the number
@@ -128,12 +119,12 @@ local record Lexer
     text: string
     --- A string's contents, escapes decoded and, for a long string, without
     --- the line break after its opening bracket. Nil for any other token.
-    value: string | nil
+    value: string?
     --- A number's value. Nil for any other token.
-    number: number | nil
+    number: number?
     --- True for a long string; nil for any other token, a short string
     --- among them.
-    long: boolean | nil
+    long: boolean?
     --- The byte offset of the first byte, from 1.
     offset: integer
     --- The length in bytes.
@@ -144,7 +135,7 @@ local record Lexer
     xend: integer
     --- The comments before the token, in source order. Nil where there are
     --- none.
-    comments: {Comment} | nil
+    comments: {Comment}?
   end
 
   --- The tokens of a source, in source order, the last an `$EOF$`: parallel
@@ -159,31 +150,31 @@ local record Lexer
   --- [`Lexer.long`]). A column is derived ([`Lexer.x`]). [`Lexer.token`]
   --- copies one token out as a [`Token`].
   record Tokens
-    kind: {Kind}
+    kind: mut {Kind}
     --- The source bytes of the token, exactly. A string token holds its
     --- quotes and a long string its brackets. The length of a token is the
     --- length of its text.
-    text: {string}
+    text: mut {string}
     --- The byte offset of the first byte, from 1.
-    offset: {integer}
+    offset: mut {integer}
     --- The line, from 1, of the first byte.
-    y: {integer}
+    y: mut {integer}
     --- The offset of the first byte of each line, by line number.
-    line: {integer}
+    line: mut {integer}
     --- Where the last byte is, for a token whose last byte is not on its line
     --- (`yend`) or not at its column plus the length minus one (`xend`). Use
     --- [`Lexer.yend`] and [`Lexer.xend`].
-    yend: {integer: integer}
-    xend: {integer: integer}
+    yend: mut {integer: integer}
+    xend: mut {integer: integer}
     --- A string's contents, escapes decoded and, for a long string, without
     --- the line break after its opening bracket. Absent for any other token.
-    value: {integer: string}
+    value: mut {integer: string}
     --- A number's value. Absent for any other token and for a number Lua
     --- cannot read.
-    number: {integer: number}
+    number: mut {integer: number}
     --- The comments before the token, in source order. Absent where there
     --- are none.
-    comments: {integer: {Comment}}
+    comments: mut {integer: {Comment}}
   end
 
   --- A lexical error. `y`, `x`, `offset` and `length` place the bytes at
@@ -202,7 +193,7 @@ local record Lexer
   end
 
   --- What `lex` answers. A record, not two results: an exported function
-  --- answers one ([`build.contracts`]).
+  --- answers one (build.syntax_contracts).
   record Lexed
     --- Every token in source order, the last an `$EOF$`.
     tokens: Tokens
@@ -277,7 +268,7 @@ local lua_words: {string} = {
 
 local added_words: {string} = { "match", "continue", "mut", "is", "asserts", "userdata", "as" }
 
-local words: {string: boolean} = {}
+local words: mut {string: boolean} = {}
 for _, w in ipairs(lua_words) do
   words[w] = true
 end
@@ -285,7 +276,7 @@ for _, w in ipairs(added_words) do
   words[w] = true
 end
 
-local reserved_set: {string: boolean} = {}
+local reserved_set: mut {string: boolean} = {}
 for w in pairs(words) do
   reserved_set[w] = true
 end
@@ -294,7 +285,7 @@ end
 -- one byte (4), a digit (5), a quote (6), an operator of one byte or two
 -- (7), `-` (8), `.` (9), `:` (10) or `[` (11). Any other byte is looked at
 -- singly.
-local class: {integer: integer} = {}
+local class: mut {integer: integer} = {}
 for c = byte("a"), byte("z") do class[c] = 1 end
 for c = byte("A"), byte("Z") do class[c] = 1 end
 class[byte("_")] = 1
@@ -324,8 +315,8 @@ local bracket_kinds: {string: Lexer.Kind} = {
   ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?",
   ["#"] = "op", ["+"] = "op", ["*"] = "op", ["%"] = "op", ["^"] = "op", ["&"] = "op", ["|"] = "op",
 }
-local one_text: {integer: string} = {}
-local one_kind: {integer: Lexer.Kind} = {}
+local one_text: mut {integer: string} = {}
+local one_kind: mut {integer: Lexer.Kind} = {}
 for text, kind in pairs(bracket_kinds) do
   one_text[byte(text)] = text
   one_kind[byte(text)] = kind
@@ -344,7 +335,7 @@ local simple_escape: {integer: string} = {
 local NEWLINE <const> = 10
 local CARRIAGE_RETURN <const> = 13
 
-local function add_error(errors: {Lexer.Error}, name: string, code: Lexer.Code,
+local function add_error(errors: mut {Lexer.Error}, name: string, code: Lexer.Code,
                          msg: string, fix: string, offset: integer, length: integer,
                          y: integer, x: integer)
   errors[#errors + 1] = {
@@ -363,7 +354,7 @@ local function shown(text: string): string
   if #text > 1 and utf8.len(text) ~= nil and not find(text, "[%c]") then
     return text
   end
-  local hex: {string} = {}
+  local hex: mut {string} = {}
   for i = 1, #text do
     hex[i] = string.format("\\x%02X", byte(text, i))
   end
@@ -422,7 +413,7 @@ end
 
 --- `text` with each line break written `\n`.
 local function normalised(text: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local n = 0
   local p = 1
   while true do
@@ -495,7 +486,7 @@ end
 --- every one is good), its length and what to do about it.
 local function read_string(source: string, pos: integer, quote: integer
 ): integer, integer, integer, integer, string
-  local pattern = quote == 34 and "[\"\\\r\n]" or "['\\\r\n]"
+  local pattern = if quote == 34 then "[\"\\\r\n]" else "['\\\r\n]" end
   local i = pos + 1
   local bad_at, bad_length = 0, 0
   local bad_fix = ""
@@ -524,7 +515,7 @@ end
 --- The contents of a short string's source (`inner`, without its quotes) with
 --- every escape decoded. `inner` holds only good escapes.
 local function decode(inner: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local n = 0
   local i = 1
   while true do
@@ -574,7 +565,7 @@ end
 --- the letters and `_` that make it malformed.
 local function numeral_end(source: string, pos: integer): integer
   local hex = byte(source, pos) == 48 and (byte(source, pos + 1) == 120 or byte(source, pos + 1) == 88)
-  local i = hex and pos + 2 or pos
+  local i = if hex then pos + 2 else pos end
   while true do
     local c = byte(source, i)
     if c == nil then
@@ -642,15 +633,12 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   local pos = 1
   local line = 1
   local line_start = 1
-  local pending: {Lexer.Comment} | nil = nil
+  local pending: {Lexer.Comment}? = nil
 
+  -- A `#!` first line is the shell's, for a script run by its own name (`#!/usr/bin/env cosmic`), as Lua skips it: it is no
+  -- token and no comment, and its line break is read as any other, so every later token keeps its line.
   if sub(source, 1, 2) == "#!" then
-    local e = (find(source, "[\r\n]", 3) or len + 1) - 1
-    n = 1
-    kinds[#kinds + 1], texts[#texts + 1], offsets[#offsets + 1], ys[#ys + 1] = "$ERR$", sub(source, 1, e), 1, 1
-    add_error(errors, name, "hashbang", "a `#!` first line is not in the grammar",
-      "delete the line; run the file with `cosmic " .. name .. "`", 1, e, 1, 1)
-    pos = e + 1
+    pos = (find(source, "[\r\n]", 3) or len + 1)
   end
 
   -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
@@ -659,13 +647,13 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     local b = byte(source, pos)
     local c = class[b]
     local first_line = line
-    local kind: Lexer.Kind | nil = nil
+    local kind: Lexer.Kind? = nil
     local text = ""
     local e = pos
     if c == 1 then
       text = capture(source, "^[%a_][%w_]*", pos)
       e = pos + #text - 1
-      kind = words[text] and "keyword" or "identifier"
+      kind = if words[text] then "keyword" else "identifier" end
     elseif c == 2 then
       pos = pos + 1
       if class[byte(source, pos)] == 2 then
@@ -731,7 +719,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       end
     elseif c == 6 then
       local x = pos - line_start + 1
-      local s = find(source, b == 34 and "[\"\\\r\n]" or "['\\\r\n]", pos + 1)
+      local s = find(source, if b == 34 then "[\"\\\r\n]" else "['\\\r\n]" end, pos + 1)
       if s and byte(source, s) == b then
         -- No escape and no line break: the common string, on one line.
         kind = "string"
@@ -741,12 +729,12 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       else
         local close, stop, bad_at, bad_length, bad_fix = read_string(source, pos, b)
         local token_text = sub(source, pos, stop)
-        local value: string | nil = nil
+        local value: string? = nil
         if close > 0 and bad_at == 0 then
           value = decode(sub(source, pos + 1, close - 1))
         end
         local yend, yend_start, end_y, end_x = span_end(tokens, token_text, pos, line, line_start)
-        kind = close > 0 and bad_at == 0 and "string" or "$ERR$"
+        kind = if close > 0 and bad_at == 0 then "string" else "$ERR$" end
         text = token_text
         e = stop
         if value ~= nil then
@@ -754,7 +742,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         end
         mark_end(tokens, n + 1, line, x, stop - pos + 1, end_y, end_x)
         if close == 0 then
-          local quote = b == 34 and "\"" or "'"
+          local quote = if b == 34 then "\"" else "'" end
           add_error(errors, name, "unterminated_string", "unterminated string",
             "close the string with a matching `" .. quote .. "` before the end of its line; to carry it onto the" ..
               " next line end this line with `\\`, or write a long string `[[ ... ]]`",
@@ -786,7 +774,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         local stripped = number_text:gsub("_", "")
         local plain = tonumber(stripped)
         if plain ~= nil and find(number_text, "_", 1, true) then
-          number_kind = math_type(plain) == "integer" and "integer" or "number"
+          number_kind = if math_type(plain) == "integer" then "integer" else "number" end
           value = plain
           add_error(errors, name, "digit_separator", "`_` in a number is not in the grammar",
             "write the number without `_`: `" .. stripped .. "`", pos, ne - pos + 1, line, x)
@@ -795,7 +783,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
             pos, ne - pos + 1, line, x)
         end
       else
-        number_kind = math_type(value) == "integer" and "integer" or "number"
+        number_kind = if math_type(value) == "integer" then "integer" else "number" end
         if find(number_text, "^0[xX]") and find(number_text, "[%.pP]") then
           add_error(errors, name, "hex_float", "a hexadecimal float is not in the grammar",
             hex_float_fix(value), pos, ne - pos + 1, line, x)
@@ -831,8 +819,8 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         kind = "$ERR$"
         text = sub(source, pos, e)
         add_error(errors, name, "label_or_goto",
-          label and "the label `" .. text .. "` is not in the grammar" or "`::` is not in the grammar",
-          "delete the label, and write `continue` where a `goto" .. (label and " " .. label or "") ..
+          if label then "the label `" .. text .. "` is not in the grammar" else "`::` is not in the grammar" end,
+          "delete the label, and write `continue` where a `goto" .. (if label then " " .. label else "" end) ..
             "` skipped the rest of a pass of a loop; restructure any other jump with an `if` around the code to" ..
             " skip, or move the code into a function and `return` from it", pos, e - pos + 1, line, x)
       end
@@ -848,7 +836,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         local last = ce or len
         local token_text = sub(source, pos, last)
         local yend, yend_start, end_y, end_x = span_end(tokens, token_text, pos, line, line_start)
-        local value: string | nil = nil
+        local value: string? = nil
         if cs then
           local contents = sub(source, open_end + 1 + break_at(source, open_end + 1), cs - 1)
           if find(contents, "\r", 1, true) then
@@ -859,7 +847,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           add_error(errors, name, "unterminated_long_string", "unterminated long string",
             "close the string with `" .. close .. "`", pos, last - pos + 1, line, x)
         end
-        kind = cs and "string" or "$ERR$"
+        kind = if cs then "string" else "$ERR$" end
         text = token_text
         e = last
         if value ~= nil then
@@ -884,11 +872,11 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       else
         local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
         if b == 33 then
-          fix = byte(source, pos + 1) == 61 and "write `~=` for \"not equal\"" or "write `not` for negation"
+          fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end
         elseif b >= 128 then
           if text == "\239\187\191" then
-            fix = pos == 1 and "delete the byte order mark at the start of the file" or
-              "delete the byte order mark; one marks the start of a file and is no part of a program"
+            fix = if pos == 1 then "delete the byte order mark at the start of the file" else
+              "delete the byte order mark; one marks the start of a file and is no part of a program" end
           else
             fix = "names are ASCII letters, digits and `_`; a character like this can stand only inside a " ..
               "string or a comment"
@@ -1026,7 +1014,7 @@ function Lexer.token(tokens: Lexer.Tokens, i: integer): Lexer.Token
     error("there is no line " .. tostring(y), 2)
   end
   local x = offset - first + 1
-  local long: boolean | nil = nil
+  local long: boolean? = nil
   if kind == "string" and text >= "[" then
     long = true
   end
@@ -1039,7 +1027,7 @@ end
 
 Lexer.reserved = reserved_set
 Lexer.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "hashbang",
+  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }

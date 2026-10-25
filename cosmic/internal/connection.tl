@@ -36,14 +36,14 @@ local record Connection
     --- was made with: [`Net.connect`]'s, or its listener's or server's.
     --- A value no wait can last raises, naming `timeout_ns`, at the
     --- caller.
-    set_timeout: function(Conn, timeout_ns: integer | nil)
+    set_timeout: function(Conn, timeout_ns: integer?)
     --- What has arrived, at most `max_bytes` bytes (64 KiB by default), once
     --- something has; nil and "" once the peer has ended what it sends.
     --- nil and [`Poll.TIMEOUT`], "interrupted" or "cancelled" (in a task of
     --- [`Poll.run`]) takes nothing, and a later read may still answer; nil
     --- and any other failure is every read's after. A failed read leaves
     --- writing be. A `max_bytes` below 1 raises.
-    read: function(Conn, max_bytes?: integer): string | nil, string
+    read: function(Conn, max_bytes?: integer): string?, string
     --- Sends all of `data`, waiting as the peer takes it. False and
     --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
     --- or why not may leave part of it sent,
@@ -58,7 +58,7 @@ local record Connection
     -- TODO: answer a unix connection's peer too, once core/socket.c's
     -- `peer` does (its Address needs a path, which an unbound client
     -- has none of).
-    peer: function(Conn): Address | nil, string
+    peer: function(Conn): Address?, string
     --- Ends one direction, or both: after "write" the peer reads the
     --- end of what was sent, and this side can still read its answer.
     --- A `how` that is none of "read", "write" and "both" raises.
@@ -67,7 +67,7 @@ local record Connection
     close: function(Conn): boolean, string
     --- The same as `close`: nothing sent can be taken back.
     abort: function(Conn): boolean, string
-    metamethod __close: function(Conn)
+    __close: function(Conn)
   end
 
   --- Connects to numeric TCP addresses through the sandbox's native
@@ -99,7 +99,7 @@ local record Connection
     --- relay's starter handed it over (a relay's connectors are not started
     --- again). An `address` that is no tcp
     --- [`Net.Address`], or a `timeout_ns` that is no integer from 0, raises.
-    connect: function(Connector, address: Address, opts?: ConnectOptions): Conn | nil, string
+    connect: function(Connector, address: Address, opts?: ConnectOptions): Conn?, string
     --- Whether the connector serves no request any more: it is closed, or
     --- its process, one the relay's starter handed over, has ended or its
     --- stream fell out of step, so it cannot be started again.
@@ -108,7 +108,7 @@ local record Connection
     --- are theirs and stay open. Safe to call more than once; a connector
     --- dropped unclosed is ended when it is collected.
     close: function(Connector): boolean, string
-    metamethod __close: function(Connector)
+    __close: function(Connector)
   end
 end
 

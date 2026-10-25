@@ -53,14 +53,14 @@ local record Tar
     --- This entry's body, as a Stream.Reader bounded to its size. Valid only
     --- until the next `Reader.next` call; reading it afterwards
     --- fails, and so does opening it twice.
-    open: function(Entry): Stream.Reader | nil, string
+    open: function(Entry): Stream.Reader?, string
   end
 
   interface Reader is Stream.ArchiveReader
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
-    next: function(Reader): Entry | nil, string
+    next: function(Reader): Entry?, string
     --- Closes the Stream.Reader this one reads from.
     close: function(Reader): boolean, string
   end
@@ -137,10 +137,10 @@ local SPECIAL_BODY_LIMIT <const> = 1 << 20
 --- A base-256 value an integer cannot hold (a 12-byte field holds 95
 --- bits) answers nil, for the header to be refused, as GNU tar does,
 --- rather than read as whatever its low 64 bits say.
-local function numeric(field: string): integer | nil
+local function numeric(field: string): integer?
   if #field > 0 and (field:byte(1) & 0x80) ~= 0 then
     local negative = (field:byte(1) & 0x40) ~= 0
-    local value: integer = negative and -1 or 0
+    local value: integer = if negative then -1 else 0 end
     value = (value << 7) | (field:byte(1) & 0x7f)
     for i = 2, #field do
       -- Past this range, shifting in another byte drops bits the
@@ -161,7 +161,7 @@ end
 --- field, digits right up to the field's end, NUL padding before the
 --- terminator) takes `numeric`'s slower, general path, and answers
 --- nil as it does.
-local function numeric_at(block: string, off: integer, len: integer): integer | nil
+local function numeric_at(block: string, off: integer, len: integer): integer?
   local stop = off + len - 2
   local last = block:byte(stop + 1)
   if last == 0 or last == 32 then
@@ -200,7 +200,7 @@ end
 --- One 512-byte block, `false` and no error; nil, true, "" at a clean
 --- end of stream before any of it arrived; or nil, false, an error --
 --- including a short read that never reaches a full block.
-local function read_block_or_eof(raw: Stream.Reader): string | nil, boolean, string
+local function read_block_or_eof(raw: Stream.Reader): string?, boolean, string
   local block, trouble = Stream.read_up_to(raw, BLOCK)
   if block == nil then return nil, false, trouble end
   if block == "" then return nil, true, "" end
@@ -218,7 +218,7 @@ end
 
 --- Reads `size` raw bytes and the padding after them, up to the next
 --- block boundary, for an `L`/`K`/`x`/`g` special entry's own body.
-local function read_special_body(raw: Stream.Reader, size: integer): string | nil, string
+local function read_special_body(raw: Stream.Reader, size: integer): string?, string
   if size < 0 or size > SPECIAL_BODY_LIMIT then
     return refuse("a long-name or pax header body of " .. String.counted(size, "byte") ..
         " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
@@ -239,7 +239,7 @@ local function nul_refusal(text: string, what: string): string
 end
 
 --- A GNU `L`/`K` body: a name with trailing NULs, which are dropped.
-local function long_field(data: string): string | nil, string
+local function long_field(data: string): string?, string
   local name = data:gsub("%z+$", "")
   local refusal = nul_refusal(name, "inside a GNU long name")
   if refusal ~= "" then return nil, refusal end
@@ -253,7 +253,7 @@ end
 --- for the reader's lifetime, retain a handful of values however many
 --- distinct keys an archive sends.
 local function parse_pax(body: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   local at = 1
   while at <= #body do
     local sp = body:find(" ", at, true)
@@ -278,17 +278,17 @@ end
 
 --- What a regular header says, the pax records and long names applied.
 local record Fields
-  name: string
-  linkname: string
-  size: integer
-  mtime: integer
-  uid: integer
-  gid: integer
+  mut name: string
+  mut linkname: string
+  mut size: integer
+  mut mtime: integer
+  mut uid: integer
+  mut gid: integer
   mode: integer
   typeflag: string
-  kind?: Stream.EntryKind
+  mut kind?: Stream.EntryKind
   --- Whether a pax record named a GNU sparse file, which `kind` says too.
-  sparse: boolean
+  mut sparse: boolean
 end
 
 local function apply_pax(fields: {string:string}, f: Fields): boolean, string
@@ -328,8 +328,8 @@ end
 --- (`pax_local`) and of every `g` header so far (`pax_global`) are
 --- applied over what the block says, the entry's own first. Nil and why
 --- when a field is refused.
-local function parse_header(block: string, long_name: string | nil, long_link: string | nil,
-                            pax_local: {string:string} | nil, pax_global: {string:string}): Fields | nil, string
+local function parse_header(block: string, long_name: string?, long_link: string?,
+                            pax_local: {string:string}?, pax_global: {string:string}): Fields?, string
   local name = long_name
   if name == nil then
     name = text_at(block, 1, 100)
@@ -363,7 +363,7 @@ local function parse_header(block: string, long_name: string | nil, long_link: s
   if f.size > math.maxinteger - BLOCK then
     return refuse("entry size " .. tostring(f.size) .. " is too large")
   end
-  f.kind = (typeflag == "S" or f.sparse) and "other" or kind_of(typeflag)
+  f.kind = if (typeflag == "S" or f.sparse) then "other" else kind_of(typeflag) end
   return f, ""
 end
 
@@ -376,119 +376,47 @@ local READ_AHEAD <const> = 1 << 16
 --- a read per body and a seek per padding. A read at least that big
 --- with nothing held goes straight through, and a skip past what is
 --- held goes to the underlying Reader's own skip.
-local record BufferedReader is Stream.Reader
+local class BufferedReader is Stream.Reader
   raw: Stream.Reader
-  buf: string
-  at: integer
-  read: function(BufferedReader, max_bytes?: integer): string | nil, string
-  skip: function(BufferedReader, n: integer): boolean, string
-  close: function(BufferedReader): boolean, string
-end
+  mut buf: string
+  mut at: integer
 
-local buffered_reader_mt: metatable<BufferedReader> = { __index = BufferedReader }
-
-function BufferedReader:read(max_bytes?: integer): string | nil, string
-  local buf, at = self.buf, self.at
-  local avail = #buf - at + 1
-  if avail <= 0 then
-    if max_bytes ~= nil and max_bytes >= READ_AHEAD then return self.raw:read(max_bytes) end
-    local chunk, trouble = self.raw:read(READ_AHEAD)
-    if chunk == nil then return nil, trouble end
-    buf, at, avail = chunk, 1, #chunk
-    self.buf = buf
+  function read(self, max_bytes?: integer): string?, string
+    local buf, at = self.buf, self.at
+    local avail = #buf - at + 1
+    if avail <= 0 then
+      if max_bytes ~= nil and max_bytes >= READ_AHEAD then return self.raw:read(max_bytes) end
+      local chunk, trouble = self.raw:read(READ_AHEAD)
+      if chunk == nil then return nil, trouble end
+      buf, at, avail = chunk, 1, #chunk
+      self.buf = buf
+    end
+    local n = max_bytes or avail
+    if n > avail then n = avail end
+    self.at = at + n
+    if at == 1 and n == #buf then return buf, "" end
+    return buf:sub(at, at + n - 1), ""
   end
-  local n = max_bytes or avail
-  if n > avail then n = avail end
-  self.at = at + n
-  if at == 1 and n == #buf then return buf, "" end
-  return buf:sub(at, at + n - 1), ""
-end
 
-function BufferedReader:skip(n: integer): boolean, string
-  local avail = #self.buf - self.at + 1
-  if n <= avail then
-    self.at = self.at + n
-    return true, ""
+  function skip(self, n: integer): boolean, string
+    local avail = #self.buf - self.at + 1
+    if n <= avail then
+      self.at = self.at + n
+      return true, ""
+    end
+    self.buf, self.at = "", 1
+    return Stream.skip(self.raw, n - avail)
   end
-  self.buf, self.at = "", 1
-  return Stream.skip(self.raw, n - avail)
-end
 
-function BufferedReader:close(): boolean, string
-  self.buf, self.at = "", 1
-  return self.raw:close()
+  function close(self): boolean, string
+    self.buf, self.at = "", 1
+    return self.raw:close()
+  end
 end
 
 local function buffered(raw: Stream.Reader): BufferedReader
-  local b: BufferedReader = setmetatable({ raw = raw, buf = "", at = 1 }, buffered_reader_mt)
+  local b: BufferedReader = { raw = raw, buf = "", at = 1 }
   return b
-end
-
---- What [`Tar.reader`] answers. Its entries' bodies share its state:
---- a body reads through `src`, and counts down `pending_skip`, only
---- while `generation` is still the one it was opened in.
-local record EntryReader is Tar.Reader
-  --- What the reader was given, which `close` closes, and what the
-  --- headers and bodies are read through.
-  raw: Stream.Reader
-  src: BufferedReader
-  pax_global: {string:string}
-  ended: boolean
-  closed: boolean
-  failed?: string
-  pending_skip: integer
-  generation: integer
-  --- The entry `next` last returned, and whether it has been opened.
-  current?: Tar.Entry
-  opened: boolean
-  --- The current entry's body size, as its header gave it.
-  size: integer
-  --- What every entry of this reader gets as its metatable.
-  entry_mt?: metatable<Tar.Entry>
-  next: function(EntryReader): Tar.Entry | nil, string
-  close: function(EntryReader): boolean, string
-end
-
-local entry_reader_mt: metatable<EntryReader> = { __index = EntryReader }
-
---- An entry's body: a Reader bounded to the entry's size.
-local record BodyReader is Stream.Reader
-  state: EntryReader
-  generation: integer
-  left: integer
-  failed?: string
-  closed: boolean
-  read: function(BodyReader, max_bytes?: integer): string | nil, string
-  close: function(BodyReader): boolean, string
-end
-
-local body_reader_mt: metatable<BodyReader> = { __index = BodyReader }
-
-function BodyReader:read(max_bytes?: integer): string | nil, string
-  local failed = self.failed
-  if failed then return nil, failed end
-  if self.closed then return refuse("the entry body is closed") end
-  local state = self.state
-  if self.generation ~= state.generation then
-    return refuse("entry is no longer current")
-  end
-  local left = self.left
-  if left <= 0 then return nil, "" end
-  local want = max_bytes or chunk_size
-  if want > left then want = left end
-  local chunk, rtrouble = state.src:read(want)
-  if chunk == nil then
-    self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
-    return nil, self.failed
-  end
-  self.left = left - #chunk
-  state.pending_skip = state.pending_skip - #chunk
-  return chunk, ""
-end
-
-function BodyReader:close(): boolean, string
-  self.closed = true
-  return true, ""
 end
 
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
@@ -498,109 +426,168 @@ local function fail(self: EntryReader, trouble: string): nil, string
   return nil, self.failed
 end
 
-function EntryReader:next(): Tar.Entry | nil, string
-  local failed = self.failed
-  if failed then return nil, failed end
-  if self.closed then return refuse("the reader is closed") end
-  if self.ended then return nil, "" end
-  local src = self.src
-  self.generation = self.generation + 1
-  self.current = nil
-  local skipped, dtrouble = Stream.skip(src, self.pending_skip)
-  self.pending_skip = 0
-  -- The skip's own reason says whether the archive ended early or a
-  -- read failed; this says what was being done.
-  if not skipped then return fail(self, "tar: cannot skip to the next entry: " .. dtrouble) end
+--- What [`Tar.reader`] answers. Its entries' bodies share its state:
+--- a body reads through `src`, and counts down `pending_skip`, only
+--- while `generation` is still the one it was opened in.
+local class EntryReader is Tar.Reader
+  --- What the reader was given, which `close` closes, and what the
+  --- headers and bodies are read through.
+  raw: Stream.Reader
+  src: BufferedReader
+  pax_global: mut {string:string}
+  mut ended: boolean
+  mut closed: boolean
+  mut failed?: string
+  mut pending_skip: integer
+  mut generation: integer
+  --- The entry `next` last returned, and whether it has been opened.
+  mut current?: Tar.Entry
+  mut opened: boolean
+  --- The current entry's body size, as its header gave it.
+  mut size: integer
+  --- What every entry of this reader gets as its metatable.
+  mut entry_mt?: metatable<Tar.Entry>
 
-  local long_name: string | nil
-  local long_link: string | nil
-  local pax_local: {string:string} | nil
+  function next(self): Tar.Entry?, string
+    local failed = self.failed
+    if failed then return nil, failed end
+    if self.closed then return refuse("the reader is closed") end
+    if self.ended then return nil, "" end
+    local src = self.src
+    self.generation = self.generation + 1
+    self.current = nil
+    local skipped, dtrouble = Stream.skip(src, self.pending_skip)
+    self.pending_skip = 0
+    -- The skip's own reason says whether the archive ended early or a
+    -- read failed; this says what was being done.
+    if not skipped then return fail(self, "tar: cannot skip to the next entry: " .. dtrouble) end
 
-  while true do
-    local block, at_eof, trouble = read_block_or_eof(src)
-    if at_eof then
-      self.ended = true
-      return nil, ""
-    end
-    if block == nil then return fail(self, trouble) end
-    local chksum = numeric_at(block, 149, 8)
-    if chksum == 0 and is_zero_block(block) then
-      local _second, _second_eof, strouble = read_block_or_eof(src)
-      if strouble ~= "" then return fail(self, strouble) end
-      self.ended = true
-      return nil, ""
-    end
-    if header_sum(block) ~= chksum then
-      return fail(self, "tar: bad header checksum")
-    end
-    local typeflag = block:sub(157, 157)
-    if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
-      local special_size = numeric_at(block, 125, 12)
-      if special_size == nil then return fail(self, out_of_range("size")) end
-      local data, rtrouble = read_special_body(src, special_size)
-      if data == nil then return fail(self, rtrouble) end
-      if typeflag == "L" or typeflag == "K" then
-        local value, ltrouble = long_field(data)
-        if value == nil then return fail(self, ltrouble) end
-        if typeflag == "L" then long_name = value else long_link = value end
-      elseif typeflag == "x" then
-        pax_local = parse_pax(data)
-      else
-        for key, value in pairs(parse_pax(data)) do self.pax_global[key] = value end
+    local long_name: string?
+    local long_link: string?
+    local pax_local: {string:string}?
+
+    while true do
+      local block, at_eof, trouble = read_block_or_eof(src)
+      if at_eof then
+        self.ended = true
+        return nil, ""
       end
-    else
-      local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
-      if f == nil then return fail(self, ftrouble) end
-      self.pending_skip = f.size + padding_of(f.size)
-      local entry: Tar.Entry = setmetatable({
-        path = f.name,
-        kind = f.kind,
-        mode = f.mode,
-        size = f.size,
-        mtime = f.mtime,
-        linkpath = f.linkname,
-        uid = f.uid,
-        gid = f.gid,
-        typeflag = typeflag,
-      }, assert(self.entry_mt))
-      self.current = entry
-      self.opened = false
-      self.size = f.size
-      return entry, ""
+      if block == nil then return fail(self, trouble) end
+      local chksum = numeric_at(block, 149, 8)
+      if chksum == 0 and is_zero_block(block) then
+        local _second, _second_eof, strouble = read_block_or_eof(src)
+        if strouble ~= "" then return fail(self, strouble) end
+        self.ended = true
+        return nil, ""
+      end
+      if header_sum(block) ~= chksum then
+        return fail(self, "tar: bad header checksum")
+      end
+      local typeflag = block:sub(157, 157)
+      if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
+        local special_size = numeric_at(block, 125, 12)
+        if special_size == nil then return fail(self, out_of_range("size")) end
+        local data, rtrouble = read_special_body(src, special_size)
+        if data == nil then return fail(self, rtrouble) end
+        if typeflag == "L" or typeflag == "K" then
+          local value, ltrouble = long_field(data)
+          if value == nil then return fail(self, ltrouble) end
+          if typeflag == "L" then long_name = value else long_link = value end
+        elseif typeflag == "x" then
+          pax_local = parse_pax(data)
+        else
+          for key, value in pairs(parse_pax(data)) do self.pax_global[key] = value end
+        end
+      else
+        local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
+        if f == nil then return fail(self, ftrouble) end
+        self.pending_skip = f.size + padding_of(f.size)
+        local entry: Tar.Entry = setmetatable({
+          path = f.name,
+          kind = f.kind,
+          mode = f.mode,
+          size = f.size,
+          mtime = f.mtime,
+          linkpath = f.linkname,
+          uid = f.uid,
+          gid = f.gid,
+          typeflag = typeflag,
+        }, assert(self.entry_mt))
+        self.current = entry
+        self.opened = false
+        self.size = f.size
+        return entry, ""
+      end
     end
+  end
+
+  function close(self): boolean, string
+    if self.closed then return true, "" end
+    self.closed = true
+    self.generation = self.generation + 1
+    self.current = nil
+    return self.raw:close()
   end
 end
 
-function EntryReader:close(): boolean, string
-  if self.closed then return true, "" end
-  self.closed = true
-  self.generation = self.generation + 1
-  self.current = nil
-  return self.raw:close()
+--- An entry's body: a Reader bounded to the entry's size.
+local class BodyReader is Stream.Reader
+  state: EntryReader
+  generation: integer
+  mut left: integer
+  mut failed?: string
+  mut closed: boolean
+
+  function read(self, max_bytes?: integer): string?, string
+    local failed = self.failed
+    if failed then return nil, failed end
+    if self.closed then return refuse("the entry body is closed") end
+    local state = self.state
+    if self.generation ~= state.generation then
+      return refuse("entry is no longer current")
+    end
+    local left = self.left
+    if left <= 0 then return nil, "" end
+    local want = max_bytes or chunk_size
+    if want > left then want = left end
+    local chunk, rtrouble = state.src:read(want)
+    if chunk == nil then
+      self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
+      return nil, self.failed
+    end
+    self.left = left - #chunk
+    state.pending_skip = state.pending_skip - #chunk
+    return chunk, ""
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
 end
 
 --- A streaming reader over `raw`'s tar bytes. Closing it closes `raw`.
 function Tar.reader(raw: Stream.Reader): Tar.Reader
-  local r: EntryReader = setmetatable({
+  local r: EntryReader = {
     raw = raw, src = buffered(raw), pax_global = {}, ended = false, closed = false,
     pending_skip = 0, generation = 0, opened = false, size = 0,
-  }, entry_reader_mt)
+  }
   -- Every entry this reader makes shares one `open`, through its
   -- metatable: only the current entry can be opened, and only once. It
   -- is one closure for the whole reader, not one for each entry, and
   -- the entry's fields stay those [`Tar.Entry`] declares.
   r.entry_mt = {
     __index = {
-      open = function(e: Tar.Entry): Stream.Reader | nil, string
+      open = function(e: Tar.Entry): Stream.Reader?, string
         if e ~= r.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and
         -- `pending_skip` with the first and read wherever that one
         -- left off, silently -- refuse it.
         if r.opened then return refuse("entry already opened once") end
         r.opened = true
-        local body: BodyReader = setmetatable({
+        local body: BodyReader = {
           state = r, generation = r.generation, left = r.size, closed = false,
-        }, body_reader_mt)
+        }
         return body, ""
       end,
     },
@@ -635,7 +622,7 @@ end
 --- false when no split works and the path needs a pax header instead.
 local function split_ustar(path: string): string, string, boolean
   if #path <= 100 then return "", path, true end
-  local best: integer | nil
+  local best: integer?
   for i = 1, #path do
     if path:byte(i) == 47 then -- '/'
       local prefix_len = i - 1
@@ -686,40 +673,21 @@ end
 
 --- What a body is copied to: the writer's sink, which keeps a write's
 --- failure.
-local record BodyWriter is Stream.Writer
+local class BodyWriter is Stream.Writer
   sink: Stream.Sticky
-  write: function(BodyWriter, string): boolean, string
-  close: function(BodyWriter): boolean, string
-  abort: function(BodyWriter): boolean, string
+
+  function write(self, data: string): boolean, string
+    return self.sink:put(data)
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+
+  function abort(self): boolean, string
+    return true, ""
+  end
 end
-
-local body_writer_mt: metatable<BodyWriter> = { __index = BodyWriter }
-
-function BodyWriter:write(data: string): boolean, string
-  return self.sink:put(data)
-end
-
-function BodyWriter:close(): boolean, string
-  return true, ""
-end
-
-function BodyWriter:abort(): boolean, string
-  return true, ""
-end
-
---- What [`Tar.writer`] answers.
-local record EntryWriter is Tar.Writer
-  sink: Stream.Sticky
-  deterministic: boolean
-  add_file: function(EntryWriter, path: string, data: string | Stream.Reader,
-    opts?: Stream.EntryOptions): boolean, string
-  add_dir: function(EntryWriter, path: string, opts?: Stream.EntryOptions): boolean, string
-  add_symlink: function(EntryWriter, path: string, target: string, opts?: Stream.EntryOptions): boolean, string
-  close: function(EntryWriter): boolean, string
-  abort: function(EntryWriter): boolean, string
-end
-
-local entry_writer_mt: metatable<EntryWriter> = { __index = EntryWriter }
 
 local function put_entry(self: EntryWriter, path: string, typeflag: string, size: integer,
                          mode: integer, mtime: integer, linkname: string): boolean, string
@@ -735,7 +703,7 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
   local size_fits = size < OCTAL_11_LIMIT
   local mtime_fits = mtime >= 0 and mtime < OCTAL_11_LIMIT
   if not (fits and link_fits and size_fits and mtime_fits) then
-    local records: {string} = {}
+    local records: mut {string} = {}
     if not fits then records[#records + 1] = pax_record("path", path) end
     if not link_fits then records[#records + 1] = pax_record("linkpath", linkname) end
     if not size_fits then records[#records + 1] = pax_record("size", tostring(size)) end
@@ -745,80 +713,86 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
     if not fits then prefix, name = "", path:sub(-100) end
   end
   local header_size = size_fits and size or 0
-  local header_mtime = mtime_fits and mtime or (mtime < 0 and 0 or OCTAL_11_LIMIT - 1)
+  local header_mtime = mtime_fits and mtime or (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end)
   local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
     header_mtime, linkname:sub(1, 100))
   return sink:put(header)
 end
 
-function EntryWriter:add_file(path: string, data: string | Stream.Reader,
-                              fopts?: Stream.EntryOptions): boolean, string
-  fopts = fopts or {}
-  local given = fopts.size
-  if given ~= nil and (math.type(given) ~= "integer" or given < 0) then
-    error("tar: opts.size must be an integer of at least 0", 2)
-  end
-  local size: integer
-  if given ~= nil then
-    size = given
-  elseif data is string then
-    size = #data
-  else
-    return false, "tar: add_file needs opts.size for a Reader body"
-  end
-  local mode = fopts.mode or 0x1a4
-  local mtime = fopts.mtime or 0
-  local ok, trouble = put_entry(self, path, "0", size, mode, mtime, "")
-  if not ok then return false, trouble end
-  local sink = self.sink
-  if data is string then
-    if #data ~= size then
-      return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
+--- What [`Tar.writer`] answers.
+local class EntryWriter is Tar.Writer
+  sink: Stream.Sticky
+  deterministic: boolean
+
+  function add_file(self, path: string, data: string | Stream.Reader,
+                                fopts?: Stream.EntryOptions): boolean, string
+    fopts = fopts or {}
+    local given = fopts.size
+    if given ~= nil and (math.type(given) ~= "integer" or given < 0) then
+      error("tar: opts.size must be an integer of at least 0", 2)
     end
-    ok, trouble = sink:put(data)
+    local size: integer
+    if given ~= nil then
+      size = given
+    elseif data is string then
+      size = #data
+    else
+      return false, "tar: add_file needs opts.size for a Reader body"
+    end
+    local mode = fopts.mode or 0x1a4
+    local mtime = fopts.mtime or 0
+    local ok, trouble = put_entry(self, path, "0", size, mode, mtime, "")
     if not ok then return false, trouble end
-  else
-    local body_sink: BodyWriter = setmetatable({ sink = sink }, body_writer_mt)
-    ok, trouble = Stream.copy_n(data, body_sink, size)
-    if not ok then
-      -- A failed write is the sink's already, said as the Writer said it.
-      local usable, failure = sink:usable()
-      if not usable then return false, failure end
-      return sink:fail("tar: add_file: " .. trouble)
+    local sink = self.sink
+    if data is string then
+      if #data ~= size then
+        return sink:fail("tar: add_file: body is " .. String.counted(#data, "byte") .. ", not " .. String.counted(size, "byte"))
+      end
+      ok, trouble = sink:put(data)
+      if not ok then return false, trouble end
+    else
+      local body_sink: BodyWriter = { sink = sink }
+      ok, trouble = Stream.copy_n(data, body_sink, size)
+      if not ok then
+        -- A failed write is the sink's already, said as the Writer said it.
+        local usable, failure = sink:usable()
+        if not usable then return false, failure end
+        return sink:fail("tar: add_file: " .. trouble)
+      end
     end
+    return sink:put(pad_bytes(size))
   end
-  return sink:put(pad_bytes(size))
-end
 
-function EntryWriter:add_dir(path: string, fopts?: Stream.EntryOptions): boolean, string
-  fopts = fopts or {}
-  local mode = fopts.mode or 0x1ed
-  local mtime = fopts.mtime or 0
-  local dirpath = path:sub(-1) == "/" and path or (path .. "/")
-  return put_entry(self, dirpath, "5", 0, mode, mtime, "")
-end
+  function add_dir(self, path: string, fopts?: Stream.EntryOptions): boolean, string
+    fopts = fopts or {}
+    local mode = fopts.mode or 0x1ed
+    local mtime = fopts.mtime or 0
+    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
+    return put_entry(self, dirpath, "5", 0, mode, mtime, "")
+  end
 
-function EntryWriter:add_symlink(path: string, target: string, fopts?: Stream.EntryOptions): boolean, string
-  fopts = fopts or {}
-  local mode = fopts.mode or 0x1ff
-  local mtime = fopts.mtime or 0
-  return put_entry(self, path, "2", 0, mode, mtime, target)
-end
+  function add_symlink(self, path: string, target: string, fopts?: Stream.EntryOptions): boolean, string
+    fopts = fopts or {}
+    local mode = fopts.mode or 0x1ff
+    local mtime = fopts.mtime or 0
+    return put_entry(self, path, "2", 0, mode, mtime, target)
+  end
 
-function EntryWriter:close(): boolean, string
-  return self.sink:close(string.rep("\0", 2 * BLOCK))
-end
+  function close(self): boolean, string
+    return self.sink:close(string.rep("\0", 2 * BLOCK))
+  end
 
-function EntryWriter:abort(): boolean, string
-  return self.sink:abort()
+  function abort(self): boolean, string
+    return self.sink:abort()
+  end
 end
 
 --- A streaming writer over `w`.
 function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
-  local tw: EntryWriter = setmetatable({
+  local tw: EntryWriter = {
     sink = Stream.sticky(w, "tar"), deterministic = opts.deterministic or false,
-  }, entry_writer_mt)
+  }
   return tw
 end
 

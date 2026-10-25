@@ -80,7 +80,7 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(any...): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "a degenerate argument must raise")
 end
 
@@ -565,7 +565,7 @@ end
 --- every one of this process's as it was.
 local function test_a_child_s_descriptors_are_its_own(tmp: string)
   local probe = probe_in(tmp)
-  local held: {integer} = {}
+  local held: mut {integer} = {}
   local target = 0
   for i = 1, 4 do
     held[i] = create(tmp .. "/held" .. i)
@@ -640,7 +640,7 @@ end
 local function test_descriptors_handed_crosswise_are_each_where_asked(tmp: string)
   local probe = probe_in(tmp)
   local first, second = 140, 141
-  local files: {integer: integer} = {}
+  local files: mut {integer: integer} = {}
   for _, fd in ipairs({ first, second }) do
     failed_with(sys.EBADF, sys.fd_flags(fd))
     files[fd] = create(tmp .. "/" .. fd)
@@ -730,12 +730,12 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   end
   local cpuinfo = read_file("/proc/cpuinfo")
   if cpuinfo == "" then return end
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for line in cpuinfo:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("%S+") do listed[flag] = true end
   end
-  local expected: {string} = {}
+  local expected: mut {string} = {}
   for name in pairs(known) do
     if listed[name] then expected[#expected + 1] = name end
   end
@@ -777,7 +777,7 @@ local function test_getifaddrs_lists_the_loopback_on_darwin_and_fails_enosys_els
     local shown = entry.name .. " " .. entry.address .. "/" .. entry.prefix
     assert(#entry.name > 0 and (entry.family == "ipv4" or entry.family == "ipv6"), shown)
     local bytes = Address.parse(entry.address)
-    assert(bytes ~= nil and #bytes == (entry.family == "ipv4" and 4 or 16), shown)
+    assert(bytes ~= nil and #bytes == (if entry.family == "ipv4" then 4 else 16 end), shown)
     assert(entry.prefix >= 0 and entry.prefix <= #bytes * 8, shown)
     if #bytes == 16 and bytes[1] == 0xfe and bytes[2] & 0xc0 == 0x80 then
       assert(bytes[3] == 0 and bytes[4] == 0, "a link-local address keeps its scope: " .. shown)
@@ -886,11 +886,11 @@ local function test_getgid_and_getgroups_answer_the_groups_the_process_runs_with
   local status = read_file("/proc/self/status")
   if status == "" then return end
   assert(status:match("\nGid:%s+(%d+)") == tostring(gid), status)
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for group in (status:match("\nGroups:([^\n]*)") or ""):gmatch("%d+") do
     listed[#listed + 1] = group
   end
-  local answered: {string} = {}
+  local answered: mut {string} = {}
   for i, group in ipairs(groups) do answered[i] = tostring(group) end
   assert(table.concat(answered, " ") == table.concat(listed, " "),
     table.concat(answered, " ") .. " | " .. table.concat(listed, " "))
@@ -1224,7 +1224,7 @@ end
 local record Restored
   fds: {integer}
   limits: sys.Limits
-  metamethod __close: function(Restored)
+  __close: function(Restored)
 end
 
 local restored_mt: metatable<Restored> = {
@@ -1244,9 +1244,9 @@ local function test_poll_watches_past_a_thousand_descriptors()
   local ends = assert(process.pipe())
   held.fds[1], held.fds[2] = ends.reader, ends.writer
   assert(sys.write(ends.writer, "x") == 1)
-  local fds: {integer} = {}
-  local events: {integer} = {}
-  local trouble: string | nil
+  local fds: mut {integer} = {}
+  local events: mut {integer} = {}
+  local trouble: string?
   while #fds < wanted do
     local copy: integer
     copy, trouble = sys.dup(ends.reader)
@@ -1614,7 +1614,7 @@ local function test_the_errnos_only_macos_has_are_named_there()
   if uname.sysname ~= "Darwin" then
     return
   end
-  local names: {string:string} = {}
+  local names: mut {string:string} = {}
   for number = 1, 4095 do
     local name = sys.errno_name(number)
     if name ~= nil then

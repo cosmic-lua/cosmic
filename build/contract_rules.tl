@@ -1,9 +1,8 @@
---- The data the error-slot discipline ([`build.contracts`] and [`build.syntax_contracts`]) is held to apart from its rules:
---- the functions each rule lets off, the methods whose failure a statement may ignore, the tables of C bindings, and
---- which modules the discipline covers. It is a module of its own so the port ([`build.syntax_contracts`]) reads it without
---- the fork's checker, and the fork's [`build.contracts`] can go at the switch without taking the entries with it.
+--- The data the error-slot discipline ([`build.syntax_contracts`]) is held to apart from its rules: the functions each rule
+--- lets off, the methods whose failure a statement may ignore, the tables of C bindings, and which modules the discipline
+--- covers.
 ---
---- The exemption tables key a function as `"file:function"`: see [`build.contracts`] for how a function is named.
+--- The exemption tables key a function as `"file:function"`: see [`build.syntax_contracts`] for how a function is named.
 
 local record rules
   --- The functions the rules let off, each table `"file:function"` to
@@ -56,10 +55,6 @@ local casts: {string: string} = {
     "a stored row is a record with an array part for its slots, and the grammar has no record " ..
     "with an array part that also implements Sqlite.Row",
 
-  ["test/terminal/pty.tl:process_table"] =
-    "the CI fixture reaches cosmic.child's raw process loader argument to test " ..
-    "the controlling-terminal spawn step; core/process.h declares its shape",
-
   ["build/sandbox_probe.tl:raw_process_table"] =
     "the store's searcher hands cosmic.child's loader the raw process " ..
     "table as its extra value, untyped as package.searchers returns it; " ..
@@ -76,50 +71,6 @@ local casts: {string: string} = {
     "a record read raw, as the core reads it, so no metamethod answers for a field",
   ["build/confine.tl:plain_sandbox"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
-  ["build/ast/match.tl:arr"] =
-    "tl's AST reached by reflection: a node's own array part, " ..
-    "whose elements' shape depends on their kind",
-  ["build/ast/match.tl:attach_predicates"] =
-    "a cast node's casttype is a parsed type no Node field names",
-  ["build/ast/match.tl:match_value"] =
-    "a pattern matched field by field, by reflection: a candidate " ..
-    "found under any field is bound as the Node it is",
-  ["build/ast/match_cast.tl:matched"] =
-    "a candidate cast node, reached by reflection, bound as the Node it is",
-  ["build/ast/match_cast.tl:type_array"] =
-    "a parsed type's fields, which no Node field names, by reflection",
-  ["build/ast/match_cast.tl:type_view"] =
-    "a parsed type's fields, which no Node field names, by reflection",
-  ["build/ast/node.tl:parse"] =
-    "tl hands its checked AST and type objects as any " ..
-    "(build/compiler.d.tl)",
-  ["build/ast/walk.tl:map_of"] =
-    "a node's fields read by reflection: which it has depends on its kind",
-  ["build/contracts.tl:exported_functions"] =
-    "tl hands a module's checked type as any (build/compiler.d.tl)",
-  ["build/contracts.tl:check_function"] =
-    "build.ast declares tl's type objects as TypeNode and " ..
-    "build.receivers as Type: two declarations of one thing",
-  ["build/receivers.tl:receivers.record_named"] =
-    "tl hands its checked AST and type objects as any " ..
-    "(build/compiler.d.tl)",
-  ["build/receivers.tl:receivers.references"] =
-    "tl hands its checked AST and type objects as any " ..
-    "(build/compiler.d.tl)",
-  ["build/receivers.tl:reporter_for"] =
-    "tl hands its checked AST and type objects as any " ..
-    "(build/compiler.d.tl)",
-  ["build/shape_specs.tl:view_of_node"] =
-    "tl hands its type objects as TypeNode and any (build/compiler.d.tl)",
-  ["build/shape_specs.tl:view_of_type"] =
-    "tl hands its type objects as Type and any (build/compiler.d.tl)",
-  ["build/teal.tl:teal.lazy.real"] =
-    "the loaded compiler, indexed by whatever key the capsule is asked for",
-  ["build/teal.tl:teal.lazy"] =
-    "a capsule standing for the compiler until it loads",
-  ["build/teal.tl:teal.load"] =
-    "the one boundary where the compiler's untyped chunk " ..
-    "becomes its declared surface (build/compiler.d.tl)",
   ["cosmic/shape.tl:Shape.into"] =
     "the one cast from any, to the caller's annotation, of a value " ..
     "walk has just built to the spec",
@@ -152,7 +103,7 @@ local own_exemptions: rules.Exemptions = {
 --- is let through; a result used any other way is held to rule 1 too.
 --- A stale entry, one whose record no module declares or whose method
 --- the record lacks, is refused by [`build.tree_checks`] over the whole
---- tree's projection, not here: [`build.contracts`]'s `quiet_records` resolves them against
+--- tree's projection, not here: [`build.syntax_contracts`]'s `quieted` resolves them against
 --- whatever environment compiles the module at hand, which need not
 --- have loaded the record's module, so a miss here is no proof.
 local quieted: {string: rules.Quiet} = {
@@ -177,7 +128,7 @@ end
 --- What `quieted` names, each as `<module> <symbol>`, sorted: every
 --- record, and every method as `<record>.<method>`.
 function rules.quieted_names(): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for key, entry in pairs(quieted) do
     out[#out + 1] = key
     for method in pairs(entry.methods) do

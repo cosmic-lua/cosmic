@@ -87,7 +87,7 @@ end
 --- The one public core a cache holds: a plain file whose name does not
 --- begin with ".", the launcher's or startup's own.
 function LauncherFixture.only_core(cache: string): string
-  local found: string | nil = nil
+  local found: string? = nil
   for _, name in ipairs((assert(Fs.list(cache)))) do
     local path = cache .. "/" .. name
     local st = assert(sys.lstat(path))

@@ -11,7 +11,7 @@ local Example = {}
 
 local record Signup
   email: string
-  age: integer | nil
+  age: integer?
   news: boolean
   tags: {string}
 end
@@ -68,7 +68,7 @@ end
 
 local record Note
   title: string
-  tags: {string} | nil
+  tags: {string}?
 end
 local NOTE <const> = Shape.record_of("Note")
 
@@ -108,7 +108,7 @@ function Example.check_spec()
 end
 
 local record Query
-  page: integer | nil
+  page: integer?
 end
 local PAGE <const> = Shape.record_of("Query")
 
@@ -164,14 +164,14 @@ local PROFILE <const> = Shape.record_of("Profile")
 --- spooled under a random name, with the client's filename kept for display
 --- alone, and removed when the handler returns unless it moves the file.
 function Example.upload()
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local app = Web.app{ routes = {
     Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
         local avatars = assert(assert(Input.multipart(req).value).files["avatar"])
         local avatar = assert(avatars[1])
         assert(avatar.path:find(avatar.filename, 1, true) == nil, "the client's name is no part of the path")
-        kept[1] = assert(Fs.read(avatar.path))
+        kept[#kept + 1] = assert(Fs.read(avatar.path))
         return Web.text(form.display_name .. ":" .. avatar.filename .. (":%d"):format(avatar.size))
       end, { input_options = { max_file_bytes = 1024 } }),
   } }

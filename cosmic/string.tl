@@ -19,7 +19,7 @@ function String.split(text: string, separator: string): {string}
   if separator == "" then
     error("string: split's separator is empty", 2)
   end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local from = 1
   while true do
     local at, stop = text:find(separator, from, true)

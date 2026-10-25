@@ -93,13 +93,14 @@ end
 return Example
 ```
 
-## a record with methods
+## a class with methods
 
-A record is also how a module makes values that carry methods. The
-methods are functions on the record's own table, and each value finds
-them through a metatable whose `__index` is that table: a value made
-without `setmetatable` type-checks, then fails when a method is called,
-with `attempt to call a nil value (method 'add')`.
+A class is how a module makes values that carry methods. Its methods are
+declared inside it, with `self` as the first parameter, and a value is a
+table literal typed as the class: there is no metatable to set, and a
+method is always found. A module that offers such values declares what
+they do in an interface and returns a record that names it, so another
+module never sees the class itself.
 
 ```teal file=counts.tl
 --- How many times each word appears in some text.
@@ -113,64 +114,71 @@ local record Counts
     times: integer
   end
 
-  --- Each word seen, and how many times.
-  seen: {string:integer}
+  --- What a count of words does.
+  interface Tally
+    add: function(self: Tally, text: string)
+    top: function(self: Tally): {Counts.Entry}
+  end
+
+  new: function(): Counts.Tally
+  open: function(path: string): Counts.Tally?, string
 end
 
--- A value's methods: those of the Counts table.
-local counts_mt: metatable<Counts> = { __index = Counts }
+--- Each word seen, and how many times.
+local class Seen is Counts.Tally
+  words: mut {string:integer}
+
+  --- Counts each word of `text`, split on whitespace.
+  function add(self, text: string)
+    for word in text:gmatch("%S+") do
+      self.words[word] = (self.words[word] or 0) + 1
+    end
+  end
+
+  --- Every word seen, the most frequent first, then in byte order.
+  function top(self): {Counts.Entry}
+    local out: mut {Counts.Entry} = {}
+    for word, times in pairs(self.words) do
+      out[#out + 1] = { word = word, times = times }
+    end
+    table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
+      if a.times ~= b.times then return a.times > b.times end
+      return a.word < b.word
+    end)
+    return out
+  end
+end
 
 --- Counts with no words in them yet.
-function Counts.new(): Counts
-  return setmetatable({ seen = {} }, counts_mt)
+function Counts.new(): Counts.Tally
+  local made: Seen = { words = {} }
+  return made
 end
 
 --- Counts the words in the file at `path`, or nil and why it could not be
---- read. A constructor that can fail returns `Counts | nil, string`.
-function Counts.open(path: string): Counts | nil, string
+--- read. A constructor that can fail returns `Counts.Tally?, string`.
+function Counts.open(path: string): Counts.Tally?, string
   local text, why = Fs.read(path)
   if text == nil then
     return nil, why
   end
-  local seen: {string:integer} = {}
-  for word in text:gmatch("%S+") do
-    seen[word] = (seen[word] or 0) + 1
-  end
-  return setmetatable({ seen = seen }, counts_mt), ""
-end
-
---- Counts each word of `text`, split on whitespace.
-function Counts:add(text: string)
-  for word in text:gmatch("%S+") do
-    self.seen[word] = (self.seen[word] or 0) + 1
-  end
-end
-
---- Every word seen, the most frequent first, then in byte order.
-function Counts:top(): {Counts.Entry}
-  local out: {Counts.Entry} = {}
-  for word, times in pairs(self.seen) do
-    out[#out + 1] = { word = word, times = times }
-  end
-  table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
-    if a.times ~= b.times then return a.times > b.times end
-    return a.word < b.word
-  end)
-  return out
+  local made: Seen = { words = {} }
+  made:add(text)
+  return made, ""
 end
 
 return Counts
 ```
 
 `Counts.open` shows the usual shape of a constructor that can fail: it
-returns `Counts | nil, string`, and `setmetatable` may be returned
+returns `Counts.Tally?, string`, and the class value may be returned
 straight from it.
 
 A record declared inside another, like `Entry` here, is `Counts.Entry`
 to every module; `record Counts.Entry` written outside the record's body
 is refused. Another module names the types through the same `require`:
-`local Counts = require("counts")` is the module, `Counts` the type of
-a value `Counts.new()` makes, and `Counts.Entry` the nested one. A
+`local Counts = require("counts")` is the module, `Counts.Tally` the type
+of a value `Counts.new()` makes, and `Counts.Entry` the nested one. A
 module that only names the types, and calls nothing, writes `local
 type Counts = require("counts")`.
 
@@ -181,8 +189,9 @@ local function test_top()
   local counts = Counts.new()
   counts:add("b a b")
   local top: {Counts.Entry} = counts:top()
-  assert(top[1].word == "b" and top[1].times == 2)
-  assert(top[2].word == "a" and top[2].times == 1)
+  local first, second = assert(top[1]), assert(top[2])
+  assert(first.word == "b" and first.times == 2)
+  assert(second.word == "a" and second.times == 1)
 end
 ```
 
@@ -210,7 +219,7 @@ local log = Log.new("tally")
 
 --- The file a command names, or standard input; nil once it has said
 --- why it could not read it.
-local function input(got: Flags.Parsed): string | nil
+local function input(got: Flags.Parsed): string?
   local text, trouble = Fs.read(got.words[1] or "/dev/stdin")
   if text == nil then
     log:complain(trouble)
@@ -219,7 +228,7 @@ local function input(got: Flags.Parsed): string | nil
 end
 
 local function show(entry: Counts.Entry)
-  print(entry.word .. "\t" .. entry.times)
+  print(entry.word .. "\t" .. tostring(entry.times))
 end
 
 local commands: {string:Flags.Command} = {
@@ -230,7 +239,7 @@ local commands: {string:Flags.Command} = {
     run = function(got: Flags.Parsed): integer
       local text = input(got)
       if text == nil then return 1 end
-      if got.set["--lines"] then
+      if got.set["--lines"] == true then
         local lines = 0
         for _ in text:gmatch("[^\n]+") do
           lines = lines + 1
@@ -332,7 +341,8 @@ local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 
 local relaunch = assert(Proc.relaunch())
-local env = Env.all()
+local env: mut {string: string} = {}
+for name, value in pairs(Env.all()) do env[name] = value end
 for name, value in pairs(relaunch.env) do env[name] = value end
 env["COSMIC_TEST_SANDBOX"] = "0"
 local function cosmic_in(dir: string, ...: string): Child.Result
@@ -384,34 +394,6 @@ build exited 0
 5
 test: 3 tests passed
 tally (tally.tl)
-```
-
-## a generic record
-
-A generic record nested in another is declared with its type parameters
-(`record Lru<K, V>`), and a function of it takes them on its own name and
-`self` as an explicit first parameter. `function Kv.Lru:get(k: K): V` is
-refused with `missing type arguments in record<K, V> Lru`, and Teal has no
-`function Kv.Lru<K, V>:get`. A generic record at the top of its file
-takes `function Lru:get(k: K): V` as any record does.
-
-```teal
-local record Kv
-  record Lru<K, V>
-    map: {K: V}
-  end
-end
-
-function Kv.Lru.get<K, V>(self: Kv.Lru<K, V>, key: K): V
-  return self.map[key]
-end
-
-local cache: Kv.Lru<string, integer> = { map = { a = 1 } }
-print(Kv.Lru.get(cache, "a"))
-```
-
-```output
-1
 ```
 
 ## migrating a project to the new grammar

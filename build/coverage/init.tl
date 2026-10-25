@@ -6,72 +6,34 @@
 
 local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")
-local lines = require("build.coverage.lines")
 local syntax_lines = require("build.coverage.syntax_lines")
-local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
-local type compiler = require("build.compiler")
 
 local type Module = importer.Module
 
 local record coverage
   --- One module's own executable lines, hit (true) or not (false).
   type LineHits = {integer: boolean}
-
-  --- The executable lines of `source`, a module's own Teal, read by the fork's tree: what [`coverage.lines_of`] counts.
-  --- nil and why on a parse failure.
-  executable: function(built: compiler, source: string, name: string): {integer: boolean} | nil, string
-
-  --- The executable lines of `source`, a file in the new grammar, read by the new syntax tree
-  --- ([`build.coverage.syntax_lines`]).
-  syntax_executable: function(source: string, name: string): {integer: boolean} | nil, string
-end
-
-function coverage.executable(built: compiler, source: string, name: string): {integer: boolean} | nil, string
-  local found, why = lines.executable(built, source, name)
-  if found == nil then
-    return nil, why
-  end
-  return found, ""
-end
-
-function coverage.syntax_executable(source: string, name: string): {integer: boolean} | nil, string
-  local found, why = syntax_lines.executable(source, name)
-  if found == nil then
-    return nil, why
-  end
-  return found, ""
 end
 
 --- Every executable line of `m`'s own source, hit or not: the form a
 --- caller writes into `build.db`'s `coverage` table, one row per line,
 --- so a line never hit can be named and a percentage is a plain count
 --- over the result (`hit`/`#total`). The lines come from
---- [`lines.executable_cached`], keyed by `m.source_hash` in `db`'s
+--- [`syntax_lines.executable_cached`], keyed by `m.source_hash` in `db`'s
 --- `executable` table, so a module whose source has not changed since a
 --- previous run is not reparsed. A source that fails to parse, which
 --- should not happen since `m` holds only source that compiled earlier in
 --- the run, returns the parse failure rather than a made-up count.
 ---
---- With `grammar` `new` the lines are those of the new checker's syntax tree over the text it read
---- ([`coverage.syntax_executable`]): the source translated to the new grammar, which a module written in it (`mut`, a class,
---- `T?`) is its own translation of. The fork's tree does not read such a module.
+--- The lines are those of the new checker's syntax tree over the text it read ([`build.coverage.syntax_lines`]).
 --- @param db Sqlite.Handle The working database ([`work.open`]'s `.db`)
---- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @param m Module The module to compute lines for
 --- @param hits Coverage.Hits Every line hit, by module import path
---- @param grammar The checker that compiled `m`: the fork's where not given
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
-function coverage.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
-                           hits: Coverage.Hits, grammar?: GrammarMode.Mode): coverage.LineHits | nil, string
-  local executable: {integer: boolean} | nil
-  local trouble: string
-  if grammar == "new" then
-    executable, trouble = syntax_lines.executable_cached(db, m.source_hash, m.source, m.file, true)
-  else
-    executable, trouble = lines.executable_cached(db, built, m.source_hash, m.source, m.file)
-  end
+function coverage.lines_of(db: Sqlite.Handle, m: Module, hits: Coverage.Hits): coverage.LineHits?, string
+  local executable, trouble = syntax_lines.executable_cached(db, m.source_hash, m.source, m.file)
   if executable == nil then
     return nil, trouble
   end

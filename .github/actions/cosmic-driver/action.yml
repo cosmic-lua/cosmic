@@ -16,7 +16,7 @@
 # user as `owner` too, and uses this action after its hand-over. The
 # restore runs as root, like every action in a job container, so the
 # action hands what it restored to `owner` before the bootstrap runs as
-# that user, which then owns the driver's link and cache. ci.yml's Linux
+# that user, which then owns the driver's wrapper and cache. ci.yml's Linux
 # legs run their actions on the host, as a user of the container's
 # `runner`'s uid, and pass none.
 #

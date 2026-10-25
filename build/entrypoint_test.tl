@@ -63,7 +63,7 @@ end
 --- environment.
 local function run(tmp: string, root: string, bootstrap: string, cwd: string,
                    args: {string}, extra?: {string:string}): Child.Result
-  local env: {string:string} = {
+  local env: mut {string:string} = {
     PATH = assert(Env.get("PATH")), COSMIC_BOOTSTRAP = bootstrap, ZIG_CALLS = tmp .. "/zig calls",
   }
   for name, value in pairs(extra or {}) do env[name] = value end

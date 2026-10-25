@@ -178,7 +178,7 @@ local function test_cooperative_cancel_releases_drain_ownership()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult | nil }
+    local got = { value = nil as Child.DrainResult? }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     task:cancel()
@@ -194,7 +194,7 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
     { stdin = "stream", stdout = "stream" })
   local guard = assert(Signal.guard())
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult | nil }
+    local got = { value = nil as Child.DrainResult? }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -211,7 +211,7 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
     { stdin = "stream", stdout = "stream" })
   local outer = assert(Signal.guard())
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult | nil }
+    local got = { value = nil as Child.DrainResult? }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     local inner = assert(Signal.guard())
@@ -228,7 +228,7 @@ local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult | nil }
+    local got = { value = nil as Child.DrainResult? }
     local task = Poll.spawn(function() got.value = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     assert(h:close())
@@ -290,7 +290,7 @@ local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit(
   local fd = assert(h._streams)[1].fd
   local read = sys.read
   local seen = { value = false }
-  sys.read = function(which: integer, count: integer): string | nil, string, integer
+  sys.read = function(which: integer, count: integer): string?, string, integer
     if which == fd and seen.value then
       return nil, "read: cancelled-looking real error", sys.EBADF
     end
@@ -381,7 +381,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     { stdin = "stream", stdout = "stream" })
   Poll.run(function()
-    local got = { value = nil as Child.DrainResult | nil }
+    local got = { value = nil as Child.DrainResult? }
     local sink = Stream.collect()
     local task = Poll.spawn(function()
       Poll.shielded(function() got.value = h:drain(options(sink)) end)

@@ -24,7 +24,7 @@ local function crc32_reference(data: string): integer
 end
 
 local function gen_path(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   repeat parts[#parts + 1] = Fuzz.pick(src, PARTS) until not Fuzz.more(src, #parts, 3)
   return table.concat(parts, "/")
 end
@@ -32,7 +32,7 @@ end
 --- Entries as [`Fuzz.pack`] fields: a kind ("file" or "dir"), a path, a
 --- method, and a body, repeated.
 local function gen_entries(src: Fuzz.Source): {string}
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   while Fuzz.more(src, #fields // 4, 4) do
     local kind = Fuzz.pick(src, { "file", "file", "dir" })
     fields[#fields + 1] = kind
@@ -49,7 +49,7 @@ local function gen_entries(src: Fuzz.Source): {string}
 end
 
 --- The archive the writer makes of `fields`, or nil when it refuses one.
-local function write(fields: {string}): string | nil
+local function write(fields: {string}): string?
   local out = Stream.collect()
   local zw = Zip.writer(out, { deterministic = true })
   for i = 1, #fields, 4 do
@@ -57,7 +57,7 @@ local function write(fields: {string}): string | nil
     -- A shrunk input may name no method at all, which the writer
     -- would refuse.
     if kind == "file" and name ~= "store" and name ~= "deflate" then return nil end
-    local method: Zip.Method = name == "store" and "store" or "deflate"
+    local method: Zip.Method = if name == "store" then "store" else "deflate" end
     local ok: boolean
     if kind == "file" then
       -- Half the bodies go in streamed, with a data descriptor: the
@@ -82,7 +82,7 @@ local function walk(input: string): boolean, string
   local zr, trouble = Zip.open_string(input)
   if zr == nil then
     if trouble == "" then return false, "open: nil without a reason" end
-    Fuzz.label(trouble:find("not found", 1, true) and "no end record" or "refused at open")
+    Fuzz.label(if trouble:find("not found", 1, true) then "no end record" else "refused at open" end)
     return true, ""
   end
   Fuzz.label("opened")
@@ -91,7 +91,7 @@ local function walk(input: string): boolean, string
     local e, ntrouble = zr:next()
     if e == nil then
       if ntrouble == nil then return false, "next: nil without a reason" end
-      Fuzz.label(ntrouble == "" and "ended" or "refused")
+      Fuzz.label(if ntrouble == "" then "ended" else "refused" end)
       ended = true
       break
     else
@@ -101,8 +101,8 @@ local function walk(input: string): boolean, string
       end
       local body, otrouble = e:open()
       if body == nil then
-        Fuzz.label(otrouble:find("local file header", 1, true) and "local header refused" or
-            "body refused")
+        Fuzz.label(if otrouble:find("local file header", 1, true) then "local header refused" else
+            "body refused" end)
       end
       if body ~= nil then
         local data = Stream.read_all(body)
@@ -159,7 +159,7 @@ end
 --- bit alone, one of `marks` (where the archive's records start, and its
 --- length) give or take a little, or anything that fits.
 local function hostile(src: Fuzz.Source, v: integer, fmt: string, marks: {integer}): integer
-  local bits = fmt == "I2" and 16 or fmt == "I4" and 32 or 64
+  local bits = if fmt == "I2" then 16 elseif fmt == "I4" then 32 else 64 end
   local k = src:int(1, 7)
   local w: integer
   if k == 1 then
@@ -191,9 +191,9 @@ local ATTRS <const> = { 0x81A4 << 16, 0x41ED << 16, 0xA1FF << 16, 0 }
 --- records, bytes before it and a comment after it that may hold a
 --- forged end record -- then up to a few of its fields made hostile.
 local function gen_laid_out(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local recs: {Rec} = {}
-  local marks: {integer} = {}
+  local marks: mut {integer} = {}
   local pos = { value = 0 }
   local function put(r: Rec)
     recs[#recs + 1] = r
@@ -203,9 +203,9 @@ local function gen_laid_out(src: Fuzz.Source): string
   local prefix = src:int(0, 3) == 0 and Fuzz.bytes(src, 16) or ""
   pos.value = #prefix
 
-  local centrals: {Rec} = {}
-  local wides: {Rec} = {}
-  local comments: {string} = {}
+  local centrals: mut {Rec} = {}
+  local wides: mut {Rec} = {}
+  local comments: mut {string} = {}
   local n = 0
   while Fuzz.more(src, n, 4) do
     n = n + 1
@@ -228,7 +228,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     -- A central header's zip64 field holds the values its sentinels
     -- stand for, in order; an unknown field may come before it.
     local usize, csize, loff = #data, #body, offset
-    local wide: {integer} = {}
+    local wide: mut {integer} = {}
     if src:int(0, 2) == 0 then
       if src:int(0, 1) == 1 then
         wide[#wide + 1] = usize
@@ -248,14 +248,14 @@ local function gen_laid_out(src: Fuzz.Source): string
       local junk = Fuzz.bytes(src, 8)
       before = string.pack("<I2s2", 0xCAFE, junk)
     end
-    local fmts: {string} = { "I2", "I2" }
-    local vals: {any} = { 1, 8 * #wide }
+    local fmts: mut {string} = { "I2", "I2" }
+    local vals: mut {any} = { 1, 8 * #wide }
     for i, v in ipairs(wide) do
       fmts[i + 2] = "i8"
       vals[i + 2] = v
     end
     local z64: Rec = { fields = fmts, values = vals, tail = "" }
-    local extra_len = #before + (#wide > 0 and #packed(z64) or 0)
+    local extra_len = #before + (if #wide > 0 then #packed(z64) else 0 end)
     local comment = src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or ""
     centrals[n] = {
       fields = CDFH_FIELDS,
@@ -285,7 +285,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     total, eocd_size, eocd_offset = 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF
   end
   -- A comment may hold a forged end record of its own.
-  local comment = src:int(0, 3) == 0 and "PK\5\6" .. Fuzz.bytes(src, 24) or Fuzz.bytes(src, 4)
+  local comment = if src:int(0, 3) == 0 then "PK\5\6" .. Fuzz.bytes(src, 24) else Fuzz.bytes(src, 4) end
   put({
     fields = EOCD_FIELDS,
     values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment },
@@ -297,7 +297,7 @@ local function gen_laid_out(src: Fuzz.Source): string
   while Fuzz.more(src, edits, 3) do
     edits = edits + 1
     local r = recs[src:int(1, #recs)]
-    local at: integer | nil
+    local at: integer?
     if n > 0 and src:int(0, 2) == 0 then
       -- An entry's local header offset, which only reading its body
       -- follows: few of the fields drawn at random are one.
@@ -305,7 +305,7 @@ local function gen_laid_out(src: Fuzz.Source): string
       at = #CDFH_FIELDS
     elseif #r.fields > 0 then
       -- Leave the signature, the one field every check starts from.
-      at = src:int(r.fields[1] == "c4" and 2 or 1, #r.fields)
+      at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields)
     end
     if at ~= nil then
       r.values[at] = hostile(src, r.values[at] as integer, r.fields[at], marks)

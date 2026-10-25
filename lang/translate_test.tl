@@ -221,7 +221,7 @@ local function test_a_goto_that_is_not_a_continue_is_left_to_be_refused()
     "  end",
     "  ::continue::",
     "end"), "t.tl")
-  local codes: {string: integer} = {}
+  local codes: mut {string: integer} = {}
   for _, e in ipairs(result.errors) do
     codes[e.code] = (codes[e.code] or 0) + 1
   end
@@ -928,7 +928,7 @@ local function test_a_name_in_the_initializer_of_a_local_is_not_that_local()
 end
 
 local function test_every_row_a_translation_counts_is_listed_in_the_rows()
-  local listed: {string: boolean} = {}
+  local listed: mut {string: boolean} = {}
   for _, row in ipairs(Translate.rows) do
     listed[row] = true
   end
@@ -1672,8 +1672,8 @@ local function test_a_respelling_keeps_every_line_where_it_was()
   local got = Lexer.lex(result.text, "t.tl").tokens
   -- The first token of each statement is on the line it was on.
   for _, word in ipairs({ "local", "for" }) do
-    local before: {integer} = {}
-    local after: {integer} = {}
+    local before: mut {integer} = {}
+    local after: mut {integer} = {}
     for i, text in ipairs(want.text) do
       if text == word and want.kind[i] == "keyword" then before[#before + 1] = Lexer.y(want, i) end
     end
@@ -1734,7 +1734,7 @@ local function test_a_source_with_errors_of_its_own_is_translated_as_far_as_it_g
 end
 
 local function test_the_forms_the_draft_has_rewritten_by_hand_are_the_errors_left()
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   local result = Translate.translate(lines(
     "local a: {{string, integer}}",
     "local match = 1",
@@ -1837,7 +1837,7 @@ local function test_a_literal_the_function_reads_moves_with_it_and_a_value_made_
     "  return bump(self)",
     "end"))
   local result = kept
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, h in ipairs(result.hazards) do
     names[#names + 1] = h.name
   end

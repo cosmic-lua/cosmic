@@ -6,16 +6,14 @@
 --- `require` may use), [`Driver.standard`] (the `cosmic.*` modules, each its source or its stub, from wherever the
 --- host keeps them) and [`Driver.stubs`] (modules whose text is given, left unchecked). The *global* sources, the
 --- declaration files of the standard library, are lowered first and declare the globals every module may use; the
---- text of the standard library is [`lang/stdlib.d.tl`], in the new grammar like the rest of the globals. A source in the
---- fork's Teal ([`Driver.Source.translate`]) is
---- translated first ([`lang.translate`]).
+--- text of the standard library is [`lang/stdlib.d.tl`], in the new grammar like the rest of the globals. A source is read as
+--- written.
 ---
 --- A module is lexed, parsed and scoped when first asked for, lowered ([`lang.declarations`]) after what it requires
 --- (a cycle is lowered in the order it is met: the provider declares the other side first) and checked
 --- ([`lang.check`]) on request. Each [`Driver.Outcome`] carries the errors of every stage and the warnings
 --- ([`lang.warnings`]), each in source order, and the type of every node the checker typed, by the id of the node:
---- the report that [`build.receivers`], [`build.links`], [`build.shape_specs`] and [`build.contracts`] will read in
---- place of the fork's. A module that is not checked (a library, a stub, a binding) is lowered and has no body errors.
+--- the report that [`build.syntax_receivers`], [`build.syntax_shape_specs`] and [`build.syntax_contracts`] read. A module that is not checked (a library, a stub, a binding) is lowered and has no body errors.
 ---
 --- An error about a name cosmic removed (`os`, `Hash.hex`, `Zip.ZipReader`) has the replacement as its fix
 --- ([`build.removed_fix`]).
@@ -28,20 +26,17 @@
 --- above its ceiling is refused, with the same words as the check of the tree. A module that did not parse is refused
 --- for that alone.
 ---
---- Its callers are [`build.tree_checks`], `cosmic compile --grammar new` ([`build.compile_grammar`]) and the pipeline of the
---- new checker ([`build.pipeline`]), which the build's own compile calls in the mode `COSMIC_GRAMMAR=new` chooses
---- ([`build.importer`]).
+--- Its callers are [`build.tree_checks`], `cosmic compile` ([`build.compile_grammar`]) and the pipeline of the
+--- new checker ([`build.pipeline`]), which the build's own compile calls ([`build.importer`]).
 local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Clock = require("cosmic.clock")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
-local NewDeclarations = require("build.new_declarations")
 local Parser = require("lang.parser")
 local RemovedFix = require("build.removed_fix")
 local Scopes = require("lang.scopes")
-local Translate = require("lang.translate")
 local Truthiness = require("lang.truthy")
 local Types = require("lang.types")
 
@@ -53,8 +48,6 @@ local record Driver
     filename: string
     text: string
     dialect: Ast.Dialect
-    --- Whether the text is the fork's Teal, which [`lang.translate`] writes in the new grammar first.
-    translate: boolean
     --- Whether its bodies are checked and its result carried. A library, a stub and a binding are lowered and not checked.
     checked: boolean
     --- Whether its top-level `local function test_*` are called from outside the file (a test module), so that they are
@@ -66,32 +59,24 @@ local record Driver
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
     --- the tree has, where its `filename` names the text written.
     pinned: string
-    --- Made of the text after it is corrected and translated, before it is parsed, where given: the steps a source needs
-    --- to be read in the new grammar that no translation makes ([`build.pipeline`]). It keeps the lines.
-    mend: Mend | nil
   end
 
   --- What answers for the module a `require` names: its source, or nil where it has none.
-  type Provider = function(module: string): Source | nil
+  type Provider = function(module: string): Source?
 
   --- Whether an expression can be neither false nor nil ([`Driver.Outcome.never_false`]).
   type Truthy = function(e: Ast.Exp): boolean
 
-  --- What is done to the text of a source after it is translated: the text the checker reads.
-  type Mend = function(text: string): string
-
-  --- What a caller knows of a file of an index that its name does not say: whether it is a test module, and the steps its
-  --- text needs after it is translated ([`Driver.Source.mend`]).
+  --- What a caller knows of a file of an index that its name does not say: whether it is a test module.
   record Extra
     tests: boolean
-    mend: Mend | nil
   end
 
   --- What a caller knows of the file `file`, whose text is `text`.
   type Extras = function(file: string, text: string): Extra
 
   --- What reads the text of a `cosmic.*` module for [`Driver.standard`]: its source or its stub, nil where there is none.
-  type Reader = function(module: string): string | nil
+  type Reader = function(module: string): string?
 
   --- An error or a warning of a module.
   record Problem
@@ -113,24 +98,22 @@ local record Driver
   record Outcome
     module: string
     source: Source
-    --- The text the checker reads, in the new grammar: the source's text translated where it says so, or
-    --- the text a [`Driver.Build.replace`] gave.
+    --- The text the checker reads: the source's text, or the text a [`Driver.Build.replace`] gave.
     text: string
     --- Whether an expression can be neither false nor nil, from its syntax alone ([`lang.truthy`]),
-    --- for the code generator's `if` expressions: set for every source, the translated and the written in the new
-    --- grammar alike. The translator writes an `if` expression only for a value that cannot be false, and a file written
-    --- in the new grammar holds the same form; the generator is told what the rule knows, or it writes a function called
-    --- on the spot where the fork writes `and`/`or`, and a file's Lua would depend on how the file came.
-    never_false: Truthy | nil
+    --- for the code generator's `if` expressions: set for every source. A file writes an `if` expression only for a value
+    --- that cannot be false; the generator is told what the rule knows, or it writes a function called on the spot where a
+    --- file writes `and`/`or`.
+    never_false: Truthy?
     chunk: Ast.Chunk
     scoped: Scopes.Scoped
     --- Whether the text did not parse: it is lowered as far as its tree goes, for the modules that require it, and a
     --- check counts nothing of it.
     broken: boolean
     --- What lowering made: nil until the module is lowered.
-    lowered: Declarations.Lowered | nil
+    lowered: Declarations.Lowered?
     --- What checking made: nil until the module is checked, and for a module that is not.
-    checked: Check.Checked | nil
+    checked: Check.Checked?
     --- The errors of each stage, in source order.
     syntax: {Problem}
     scope_errors: {Problem}
@@ -147,7 +130,7 @@ local record Driver
 
   --- The nanoseconds a build spent in each phase, for the speed of a run.
   record Timing
-    --- Translating, correcting, lexing, parsing and scoping.
+    --- Lexing, parsing and scoping.
     prepare: integer
     lower: integer
     check: integer
@@ -158,7 +141,7 @@ local record Driver
     globals: {Source}
     --- Called with the globals the sources declared, to take away the ones the host withholds and add the ones it
     --- provides.
-    adjust: function(globals: {string: Scopes.Global}) | nil
+    adjust: (function(globals: {string: Scopes.Global}))?
     --- The modules that are bindings of C, whose types the checker does not read: a type name of one is `invalid`.
     external: {string}
     --- Whether the checker keeps the type of each node: the `types` of a result. A run that reads none leaves it, and saves the
@@ -175,7 +158,7 @@ local record Driver
     --- Asks `provider` for a module after the providers added before it.
     provide: function(Build, provider: Provider)
     --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
-    parsed: function(Build, name: string): Outcome | nil
+    parsed: function(Build, name: string): Outcome?
     --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
     --- to tell.
     provides: function(Build, name: string): boolean
@@ -184,21 +167,17 @@ local record Driver
     --- The result for `name`, lowered with what it requires. With `bodies` its bodies are checked too. nil where no
     --- provider has it. Call it for the modules you want, after [`Driver.Build.lower`] of all of them, since the
     --- errors of a module's declarations include checks that waited for a module lowered later.
-    result: function(Build, name: string, bodies: boolean): Outcome | nil
+    result: function(Build, name: string, bodies: boolean): Outcome?
     --- The lines that refuse `result` against `ceilings`: its syntax errors, and for each stage the errors of a code above
     --- its ceiling, each with its place and fix and then the count and `pinned N`. None where the module is held. The stages
-    --- are those of the tree's checks, over the same text: a module read in the new grammar is held to `[scoped]`,
-    --- `[declared]` and `[checked]`, and to no syntax error; a module of the fork's Teal, which the driver translates, to
-    --- `[declared]` and `[checked]` and, where its translation does not parse, to `[translated]` (its scope errors are
-    --- the translation's hazards, counted in `[hazards]`). A module whose bodies were not checked is told so.
+    --- are those of the tree's checks, over the same text: a module is held to `[scoped]`, `[declared]` and `[checked]`, and
+    --- to no syntax error. A module whose bodies were not checked is told so.
     held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
-    --- Replaces the text of the module `name` with `text`, in the grammar the checker reads (it is neither corrected,
-    --- translated nor mended again, though the module stays what it was: held to the ceilings of a translation, say),
-    --- and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
+    --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the build begins a new one: every module is lowered again, when it is next asked for, from the syntax tree it has
     --- already, and an outcome answered before is no longer the build's. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
-    replace: function(Build, name: string, text: string): Outcome | nil
+    replace: function(Build, name: string, text: string): Outcome?
     -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
     -- and read them back when a module requires it, once [`Declarations.Program`] can load a module from rows: its entries,
     -- aliases, statics and values have no text, and a store reads only declarations through [`Types.Loader`]. Measured over the
@@ -227,12 +206,12 @@ local record Driver
   --- A build over `options`.
   new: function(options: Options): Build
 
-  --- A source with the defaults: checked, not translated, not corrected, no alias, and a test module only where `tests`.
+  --- A source with the defaults: checked, no alias, and a test module only where `tests`.
   source: function(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Source
 
-  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, translated when
-  --- `translate`, answering to `aliases` as well.
-  declarations: function(module: string, filename: string, text: string, translate: boolean, aliases: {string}): Source
+  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, answering to `aliases` as
+  --- well.
+  declarations: function(module: string, filename: string, text: string, aliases: {string}): Source
 
   --- The sources of a tree and the names they answer to.
   record Index
@@ -241,32 +220,36 @@ local record Driver
   end
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
-  --- path ([`Declarations.module_of`]), checked, in the fork's Teal (`translate`) when `translate`. A module is also
+  --- path ([`Declarations.module_of`]), checked. A module is also
   --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
   --- directory) names its modules from its own root. `skip` says which paths are left out. Where a module is given as
-  --- `.tl` and `.d.tl` the declaration is the one answered, under every name. A `*_test.tl` is a test module
+  --- `.tl` and `.d.tl` the declaration is the one answered, under every name, and the source is the module
+  --- [`Driver.implementation`] names. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
-  --- what its name does not: a test module ([`Driver.Source.tests`]) and the steps its text needs ([`Driver.Source.mend`]).
-  index: function(entries: {{string}}, translate: boolean, skip: function(path: string): boolean, extras?: Extras): Index
+  --- what its name does not: a test module ([`Driver.Source.tests`]).
+  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
+
+  --- The name a build holds the implementation of `module` under where a declaration file is written for it too: requirers
+  --- of `module` get the declaration, and the implementation is checked and written as a module of its own, that name.
+  implementation: function(module: string): string
 
   --- The provider of `index`.
   files: function(index: Index): Provider
 
   --- The provider of the `cosmic.*` modules `read` finds, each its stub or its source: `read` answers the text of a
-  --- module, or nil. They are lowered for the types they give and never checked. The binary keeps them in the fork's
-  --- Teal, which `translate` says is translated first ([`lang.translate`]). A module `declared` says is one is read as a
+  --- module, or nil. They are lowered for the types they give and never checked. A module `declared` says is one is read as a
   --- declaration file, which has no code.
-  standard: function(read: Reader, translate?: boolean, declared?: function(module: string): boolean): Provider
+  standard: function(read: Reader, declared?: function(module: string): boolean): Provider
 
   --- The provider of the modules whose text is `texts`, by name, unchecked.
   stubs: function(texts: {string: string}): Provider
 
   --- The globals the `sources` declare, `adjust`ed: what a scope builder is given for a module.
-  globals: function(sources: {Source}, adjust: function(globals: {string: Scopes.Global}) | nil): {string: Scopes.Global}
+  globals: function(sources: {Source}, adjust: (function(globals: {string: Scopes.Global}))?): {string: Scopes.Global}
 
-  --- A source as a build reads it, and no more: its text corrected, translated and mended where it says so, lexed and parsed.
+  --- A source as a build reads it, and no more: its text lexed and parsed.
   --- The readers of the syntax tree ([`build.syntax_derivation`]) take their tree from this, with the text it was parsed from.
   record Parsed
     text: string
@@ -277,56 +260,63 @@ local record Driver
   parse: function(source: Source): Parsed
 end
 
-local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, translate: boolean,
-                    checked: boolean, aliases: {string}, tests: boolean, pinned: string, mend: Driver.Mend | nil): Driver.Source
+local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, checked: boolean,
+                    aliases: {string}, tests: boolean, pinned: string): Driver.Source
   return {
-    module = module, filename = filename, text = text, dialect = dialect, translate = translate,
-    checked = checked, tests = tests, aliases = aliases, pinned = pinned, mend = mend,
+    module = module, filename = filename, text = text, dialect = dialect,
+    checked = checked, tests = tests, aliases = aliases, pinned = pinned,
   }
 end
 
 function Driver.source(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Driver.Source
-  return make(module, filename, text, dialect, false, true, {}, tests == true, "", nil)
+  return make(module, filename, text, dialect, true, {}, tests == true, "")
 end
 
-function Driver.declarations(module: string, filename: string, text: string, translate: boolean, aliases: {string}): Driver.Source
-  return make(module, filename, text, "decl", translate, false, aliases, false, "", nil)
+function Driver.declarations(module: string, filename: string, text: string, aliases: {string}): Driver.Source
+  return make(module, filename, text, "decl", false, aliases, false, "")
 end
 
---- The text of a source as the checker reads it: translated and mended where it says so.
-local function text_of(source: Driver.Source): string
-  local text = source.text
-  if source.translate then
-    text = Translate.translate(text, source.filename).text
-  end
-  local mend = source.mend
-  if mend ~= nil then
-    text = mend(text)
-  end
-  return text
-end
-
---- A source, read: its text translated, parsed.
+--- A source, read: its text parsed.
 local record Read
   source: Driver.Source
   text: string
-  never_false: Driver.Truthy | nil
+  never_false: Driver.Truthy?
   chunk: Ast.Chunk
   errors: {Parser.Error}
 end
 
-local function read_source(source: Driver.Source, written?: boolean): Read
-  local text = source.text
-  if written ~= true then
-    text = text_of(source)
-  end
+local function read_source(source: Driver.Source, written?: string): Read
+  local text = written or source.text
   local parsed = Parser.parse(Lexer.lex(text, source.filename), source.filename, source.dialect)
   return { source = source, text = text, never_false = Truthiness.never_false, chunk = parsed.chunk, errors = parsed.errors }
 end
 
+--- The last read of each declaration file that declares the globals, by the file's name. A process that builds many trees
+--- (a compile of each step of an edit) lowers the same prelude and standard library into each build's own program, and
+--- would parse them again for each: the syntax of a source is read-only to a program, and a build already lowers the same
+--- one into a new program ([`Driver.Build`]'s restart), so a read is kept while the text, the dialect and the name of the
+--- file are those it was made from. A file with other text is read again, and replaces the one kept: a changed declaration
+--- is never served stale.
+local record Remembered
+  mut reads: mut {string: Read}
+end
+
+local remembered: Remembered = { reads = {} }
+
+local function global_read(source: Driver.Source): Read
+  local held = remembered.reads[source.filename]
+  if held ~= nil and held.text == source.text and held.source.dialect == source.dialect and
+      held.source.module == source.module then
+    return { source = source, text = held.text, never_false = held.never_false, chunk = held.chunk, errors = held.errors }
+  end
+  local read = read_source(source)
+  remembered.reads[source.filename] = read
+  return read
+end
+
 function Driver.parse(source: Driver.Source): Driver.Parsed
   local read = read_source(source)
-  local syntax: {Driver.Problem} = {}
+  local syntax: mut {Driver.Problem} = {}
   for _, e in ipairs(read.errors) do
     syntax[#syntax + 1] = {
       kind = "error", stage = "syntax", code = tostring(e.code), msg = e.msg, fix = e.fix, y = e.y, x = e.x, offset = e.offset,
@@ -336,9 +326,9 @@ function Driver.parse(source: Driver.Source): Driver.Parsed
   return { text = read.text, chunk = read.chunk, syntax = syntax }
 end
 
-function Driver.globals(sources: {Driver.Source}, adjust: function(globals: {string: Scopes.Global}) | nil):
+function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {string: Scopes.Global}))?):
     {string: Scopes.Global}
-  local out: {string: Scopes.Global} = {}
+  local out: mut {string: Scopes.Global} = {}
   for _, source in ipairs(sources) do
     for name, g in pairs(Scopes.declared(read_source(source).chunk)) do
       out[name] = g
@@ -350,9 +340,16 @@ function Driver.globals(sources: {Driver.Source}, adjust: function(globals: {str
   return out
 end
 
-function Driver.index(entries: {{string}}, translate: boolean, skip: function(path: string): boolean,
-                      extras?: Driver.Extras): Driver.Index
+function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
+  -- The modules a declaration file is written for: a source of the same name is their implementation.
+  local declared: mut {string: boolean} = {}
+  for _, entry in ipairs(entries) do
+    local file = entry[1]
+    if file ~= nil and entry[2] ~= nil and not skip(file) and file:match("%.d%.tl$") ~= nil then
+      declared[entry[3] or Declarations.module_of(file)] = true
+    end
+  end
   for _, entry in ipairs(entries) do
     local file = entry[1]
     local text = entry[2]
@@ -361,15 +358,20 @@ function Driver.index(entries: {{string}}, translate: boolean, skip: function(pa
       if file:match("%.d%.tl$") then
         dialect = "decl"
       end
-      local extra: Driver.Extra = { tests = false, mend = nil }
+      local extra: Driver.Extra = { tests = false }
       if extras ~= nil then
         extra = extras(file, text)
       end
-      local source = make(entry[3] or Declarations.module_of(file), file, text, dialect, translate, true, {},
-        extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "", extra.mend)
+      local module = entry[3] or Declarations.module_of(file)
+      local implementing = dialect == "tl" and declared[module] == true
+      if implementing then
+        module = Driver.implementation(module)
+      end
+      local source = make(module, file, text, dialect, true, {},
+        extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "")
       index.sources[#index.sources + 1] = source
       local held = index.by_module[source.module]
-      -- A declaration is read ahead of a source of the same name, as the fork reads it.
+      -- A declaration is read ahead of a source of the same name; the source is the module of the name beside it.
       if held == nil or dialect == "decl" then
         index.by_module[source.module] = source
       end
@@ -393,15 +395,18 @@ function Driver.index(entries: {{string}}, translate: boolean, skip: function(pa
   return index
 end
 
+function Driver.implementation(module: string): string
+  return module .. "~impl"
+end
+
 function Driver.files(index: Driver.Index): Driver.Provider
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     return index.by_module[module]
   end
 end
 
-function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: function(module: string): boolean):
-    Driver.Provider
-  return function(module: string): Driver.Source | nil
+function Driver.standard(read: Driver.Reader, declared?: function(module: string): boolean): Driver.Provider
+  return function(module: string): Driver.Source?
     local found = read(module)
     if found == nil then
       return nil
@@ -409,44 +414,33 @@ function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: fu
     local text: string = found
     local file = module:gsub("%.", "/")
     if declared ~= nil and declared(module) then
-      return Driver.declarations(module, file .. ".d.tl", text, translate == true, {})
+      return Driver.declarations(module, file .. ".d.tl", text, {})
     end
     local name = file .. ".tl"
-    -- The file of a package's module is its `init.tl`, which the edits of [`build.new_declarations`] are kept under.
-    local edited = file .. "/init.tl"
-    if NewDeclarations.edited(name) then
-      edited = name
-    end
-    local mend: Driver.Mend | nil = nil
-    if translate == true and NewDeclarations.edited(edited) then
-      mend = function(translated: string): string
-        return NewDeclarations.apply(edited, translated)
-      end
-    end
-    return make(module, name, text, "tl", translate == true, false, {}, false, "", mend)
+    return make(module, name, text, "tl", false, {}, false, "")
   end
 end
 
 function Driver.stubs(texts: {string: string}): Driver.Provider
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     local text = texts[module]
     if text == nil then
       return nil
     end
-    return make(module, module:gsub("%.", "/") .. ".tl", text, "tl", false, false, {}, false, "", nil)
+    return make(module, module:gsub("%.", "/") .. ".tl", text, "tl", false, {}, false, "")
   end
 end
 
 --- Whether a build has started.
 local record Flag
-  done: boolean
+  mut done: boolean
 end
 
 --- A module the build has read: its input, and whether it is lowered and checked.
 local record Entry
   result: Driver.Outcome
   input: Declarations.Input
-  lowered: boolean
+  mut lowered: boolean
   --- Whether it and everything it requires is lowered.
   closed: boolean
   checked: boolean
@@ -484,8 +478,8 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
 end
 
 --- `list` in source order: by offset, and where two are at one offset in the order they were found.
-local function in_order(list: {Driver.Problem}): {Driver.Problem}
-  local place: {Driver.Problem: integer} = {}
+local function in_order(list: mut {Driver.Problem}): {Driver.Problem}
+  local place: mut {Driver.Problem: integer} = {}
   for index, p in ipairs(list) do
     place[p] = index
   end
@@ -500,7 +494,7 @@ end
 
 --- The top-level `local function test_*` of a module: the offsets of their names, which a test module's runner calls.
 local function test_functions(scoped: Scopes.Scoped, tokens: Lexer.Tokens): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for _, v in ipairs(scoped.list) do
     if v.kind == "function" and v.top and v.name:sub(1, 5) == "test_" then
       local offset = tokens.offset[v.declared]
@@ -525,18 +519,18 @@ function Driver.new(options: Driver.Options): Driver.Build
   local build: Driver.Build = {
     program = program_of(options.external), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
     provide = function(_self: Driver.Build, _provider: Driver.Provider) end,
-    parsed = function(_self: Driver.Build, _name: string): Driver.Outcome | nil return nil end,
+    parsed = function(_self: Driver.Build, _name: string): Driver.Outcome? return nil end,
     provides = function(_self: Driver.Build, _name: string): boolean
       return false
     end,
     lower = function(_self: Driver.Build, _names: {string}) end,
-    result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome | nil
+    result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome?
       return nil
     end,
     held = function(_self: Driver.Build, _result: Driver.Outcome, _ceilings: Ceilings.Table): {string}
       return {}
     end,
-    replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome | nil
+    replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome?
       return nil
     end,
     retire = function(_self: Driver.Build, _name: string) end,
@@ -558,7 +552,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local retired: {string: boolean} = {}
   local scratches: {Driver.Build} = {}
 
-  local function find(module: string): Driver.Source | nil
+  local function find(module: string): Driver.Source?
     for _, provider in ipairs(providers) do
       local source = provider(module)
       if source ~= nil then
@@ -572,7 +566,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local function entry_of(read: Read): Entry
     local source = read.source
     local scoped = Scopes.build(read.chunk, source.filename, globals)
-    local syntax: {Driver.Problem} = {}
+    local syntax: mut {Driver.Problem} = {}
     for _, e in ipairs(read.errors) do
       syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
     end
@@ -626,9 +620,9 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
     started_up.done = true
     local started = Clock.monotonic_ns()
-    local reads: {Read} = {}
+    local reads: mut {Read} = {}
     for _, source in ipairs(options.globals) do
-      local read = read_source(source)
+      local read = global_read(source)
       reads[#reads + 1] = read
       for name, g in pairs(Scopes.declared(read.chunk)) do
         globals[name] = g
@@ -652,7 +646,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
   end
 
-  local function prepare(name: string): Entry | nil
+  local function prepare(name: string): Entry?
     start()
     local held = entries[name]
     if held ~= nil then
@@ -715,7 +709,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     return entries[name] ~= nil or retired[name] == true or find(name) ~= nil
   end
 
-  build.parsed = function(_self: Driver.Build, name: string): Driver.Outcome | nil
+  build.parsed = function(_self: Driver.Build, name: string): Driver.Outcome?
     local entry = prepare(name)
     if entry == nil then
       if retired[name] == true then
@@ -735,16 +729,15 @@ function Driver.new(options: Driver.Options): Driver.Build
   -- module (lang/declarations.tl): after the replacement of a module this program has met, every module is lowered again,
   -- the retired ones read from their sources and kept until their callers retire them. The splice of [`Shape.record_of`] does
   -- not meet the module here: it reads it in [`Driver.Build.scratch`], so that the replacement takes the first branch below.
-  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome | nil
+  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome?
     local held = prepare(name)
     if held == nil then
       return nil
     end
     local old = held.result.source
-    local source = make(old.module, old.filename, text, old.dialect, old.translate, old.checked, old.aliases, old.tests,
-      old.pinned, nil)
+    local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned)
     local started = Clock.monotonic_ns()
-    local fresh = entry_of(read_source(source, true))
+    local fresh = entry_of(read_source(source, text))
     timing.prepare = timing.prepare + Clock.monotonic_ns() - started
     if build.program.modules[old.module] == nil then
       -- The program has not met the module, so nothing in it depends on the text that goes: the text that replaces it
@@ -773,7 +766,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
       return kept
     end
-    local names: {string: Entry} = {}
+    local names: mut {string: Entry} = {}
     for key, entry in pairs(entries) do
       names[key] = again(entry)
     end
@@ -858,7 +851,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     return held
   end
 
-  build.result = function(self: Driver.Build, name: string, bodies: boolean): Driver.Outcome | nil
+  build.result = function(self: Driver.Build, name: string, bodies: boolean): Driver.Outcome?
     local entry = prepare(name)
     if entry == nil then
       return nil
@@ -913,7 +906,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         end
       end
     end
-    local all: {Driver.Problem} = {}
+    local all: mut {Driver.Problem} = {}
     for _, list in ipairs({ result.syntax, result.scope_errors, result.declared, result.bodies }) do
       for _, p in ipairs(list) do
         all[#all + 1] = p
@@ -924,14 +917,14 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
 
   build.held = function(_self: Driver.Build, result: Driver.Outcome, ceilings: Ceilings.Table): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     local source = result.source
     local file = source.filename
     if source.pinned ~= "" then
       file = source.pinned
     end
     local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage, what: string)
-      local findings: {Ceilings.Finding} = {}
+      local findings: mut {Ceilings.Finding} = {}
       for _, p in ipairs(list) do
         findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
       end
@@ -941,31 +934,11 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
     end
     if result.broken then
-      if source.translate then
-        -- The text is the fork's Teal, and the errors of its translation are what `[translated]` counts.
-        local codes: {string} = {}
-        for _, p in ipairs(result.syntax) do
-          codes[#codes + 1] = p.code
-        end
-        stage(result.syntax, codes, "translated", "translation")
-      else
-        for _, p in ipairs(result.syntax) do
-          out[#out + 1] = file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": " .. p.msg .. " (" .. p.code .. "): " ..
-            p.fix
-        end
+      for _, p in ipairs(result.syntax) do
+        out[#out + 1] = file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": " .. p.msg .. " (" .. p.code .. "): " .. p.fix
       end
       return out
     end
-    -- A translated module's scope errors are those of its source, which `[scoped]` counts as the fork reads it (a name that is
-    -- none, a type that is none), and those of the translation (a method moved above a name it reads, which `[hazards]`
-    -- counts): the fork would have refused the first, and the Lua of the second reads a global.
-    -- A hazard of the translation that is no scope error (a shadow, a changed signature) is seen by the tree check `[hazards]`
-    -- alone, so a project or a lone file outside the tree, which the new mode builds from the declarations the tool carries
-    -- ([`build.checker_declarations`]), would meet it silently.
-    --
-    -- TODO: count the shadow and signature hazards of a translation here, if a project is to be built in the fork's Teal by
-    -- the new mode for longer than the rehearsal: the switch deletes the translator and with it the hazards
-    -- (doc/plans/strict-teal.md, "the switch"), so it is left until then.
     stage(result.scope_errors, Scopes.codes, "scoped", "scopes")
     stage(result.declared, Declarations.codes, "declared", "declarations")
     stage(result.bodies, Check.codes, "checked", "bodies")

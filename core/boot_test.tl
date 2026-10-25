@@ -1,8 +1,8 @@
 --- core/boot.c, the `--boot` bridge a bare core runs a tree's
 --- [`build.boot`] through. `bin/zig build boot` runs it over this whole
---- tree from the pinned release's seed; here a tree of three stand-in modules
---- and a compiler that passes its source through unchanged drive the same
---- C in a fraction of a second: the tree's own bridge, the compiler's load, the
+--- tree from the pinned release's seed; here a tree of stand-in modules
+--- and a seed that passes its source through unchanged drive the same
+--- C in a fraction of a second: the tree's own bridge, the seed's load, the
 --- syscall declaration, the raw modules preloaded for the tree, and the
 --- exit status or failure [`build.boot`] ends with.
 
@@ -16,40 +16,41 @@ local Clock = require("cosmic.clock")
 --- which its tests start.
 Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
---- A compiler with the three members the bridge reaches for; `gen`
---- hands back its source, so each stand-in below is plain Lua -- the
---- tree's checker, [`checker/tl.tl`], included, which the bridge compiles with
---- it and loads as the compiler the tree is built with.
-local compiler <const> = [[
+--- The entry of a stand-in seed: its `compile` passes each file through as its Lua, and its `program` answers the two
+--- modules a boot asks for, whose Lua is their text here, by name: the generator of the syscall declaration, and
+--- [`build.boot`], which reaches a raw module the core preloads for the tree and then ends as its argument asks.
+local entry <const> = [==[
 return {
-  search_module = function() return nil end,
-  new_env = function() return {} end,
-  gen = function(source) return source, {} end,
+  compile = function(files)
+    local out = {}
+    for index, file in ipairs(files) do
+      out[index] = { path = file.path, code = file.text, syntax_errors = {}, type_errors = {}, trouble = "" }
+    end
+    return out
+  end,
+  program = function(_root, _declared)
+    local modules = {
+      ["build.gen_syscalls"] = [=[
+        return {
+          targets = { { path = "cosmic.sys", target = { header = "core/syscalls.h" } } },
+          declaration = function() return "return {}" end,
+        }
+      ]=],
+      ["build.boot"] = [=[
+        local store = require("cosmic.internal.store")
+        return function(root, argv)
+          if argv[4] == "raise" then error("asked to raise in " .. root, 0) end
+          return type(store) == "table" and 7 or 3
+        end
+      ]=],
+    }
+    return { module = function(name)
+      if modules[name] then return { file = name:gsub("%.", "/") .. ".tl", code = modules[name] } end
+      return nil, ""
+    end }
+  end,
 }
-]]
-
---- The seed's wrapper, which joins a checker's parts into the Lua the tool
---- carries: the stand-in checker has none.
-local wrapper <const> = [[
-return { wrapped = function(code) return code end }
-]]
-
-local gen_syscalls <const> = [[
-return {
-  targets = { { path = "cosmic.sys", target = { header = "core/syscalls.h" } } },
-  declaration = function() return "return {}" end,
-}
-]]
-
---- Reaches a raw module the core preloads for the tree, then ends as
---- its argument asks.
-local boot <const> = [[
-local store = require("cosmic.internal.store")
-return function(root, argv)
-  if argv[4] == "raise" then error("asked to raise in " .. root, 0) end
-  return type(store) == "table" and 7 or 3
-end
-]]
+]==]
 
 --- Boots the stand-in tree under `tmp` with a bare core, asking
 --- [`build.boot`] to end as `mode` says. The tree holds this tree's own
@@ -61,19 +62,15 @@ local function run_boot(tmp: string, mode: string, bridge?: boolean): Child.Resu
   assert(Fs.mkdirs(tmp .. "/tree/core"))
   assert(Fs.mkdirs(tmp .. "/tree/build"))
   assert(Fs.mkdirs(tmp .. "/tl"))
-  assert(Fs.mkdirs(tmp .. "/tree/checker"))
   assert(Fs.write(tmp .. "/tree/core/syscalls.h", "/* stand-in */\n"))
   if bridge ~= false then
     assert(Fs.write(tmp .. "/tree/core/bridge.lua", (assert(Fs.read("core/bridge.lua")))))
   end
-  assert(Fs.write(tmp .. "/tree/build/gen_syscalls.tl", gen_syscalls))
-  assert(Fs.write(tmp .. "/tree/build/boot.tl", boot))
-  assert(Fs.write(tmp .. "/tl/tl.lua", compiler))
-  assert(Fs.write(tmp .. "/tl/checker_wrapper.lua", wrapper))
-  assert(Fs.write(tmp .. "/tree/checker/tl.tl", compiler))
-  assert(Fs.write(tmp .. "/tree/checker/stdlib.d.tl", "do\nend\n"))
+  assert(Fs.write(tmp .. "/tree/build/seed.txt", "build/seed.tl\n"))
+  assert(Fs.write(tmp .. "/tree/build/seed.tl", entry))
+  assert(Fs.write(tmp .. "/tl/seed.lua", entry))
   return (assert(Child.run({ path, "--boot", tmp .. "/tree", tmp .. "/tl", mode },
-    { stdout = "capture", stderr = "capture",
+    { env = { COSMIC_BUILD_CACHE = "0" }, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })))
 end
 

@@ -27,16 +27,16 @@ local record Process
     input_fd?: integer
     out: string
     err: string
-    closed: boolean
+    mut closed: boolean
   end
   record Fleet
-    children: {Process.Running}
+    children: mut {Process.Running}
   end
 end
 
 --- Whether the child exited before the reader did, kept where the function that waits can read it.
 local record Early
-  exited: boolean
+  mut exited: boolean
 end
 
 function Process.chmod(path: string, mode: integer)
@@ -65,7 +65,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
     local _, _ = Fs.close(out_fd)
     error(label .. ": " .. err_trouble)
   end
-  local input_fd: integer | nil = nil
+  local input_fd: integer? = nil
   if input then
     local opened, input_trouble = Fs.open_read(input)
     if opened == nil then

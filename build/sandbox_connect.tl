@@ -47,12 +47,12 @@ local record sandbox_connect
   --- Where the client reads, writes and complains.
   record Io
     --- A variable of the environment, or nil.
-    getenv: function(name: string): string | nil
+    getenv: function(name: string): string?
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The next bytes of the standard input the connection is sent, "" at
     --- its end; nil and why where it fails.
-    read: function(): string | nil, string
+    read: function(): string?, string
     --- Writes all of `data` to the standard output the connection is
     --- written to. False and why where it fails.
     write: function(data: string): boolean, string
@@ -76,7 +76,7 @@ local ANSWER_NS <const> = Clock.seconds(30)
 local PROXY <const> = "socks5h://127.0.0.1:" .. RelayConfig.socks_port
 
 --- The port of `text`, a whole number from 1 to 65535, or nil.
-local function port_of(text: string): integer | nil
+local function port_of(text: string): integer?
   if not text:match("^%d+$") or #text > 5 then return nil end
   local port = math.tointeger(tonumber(text))
   if port == nil or port < 1 or port > 65535 then return nil end
@@ -91,7 +91,7 @@ end
 --- many bytes it took and why it refused
 --- @return the bytes read beyond what the reader took, or nil
 --- @return why it refused or the connection failed, when nil
-local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string | nil): string | nil, string
+local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string?): string?, string
   while true do
     local data, why = conn:read(CHUNK)
     if data == nil then
@@ -135,7 +135,7 @@ end
 local function standard_io(input: integer, output: integer): sandbox_connect.Io
   return {
     getenv = sys.getenv, err = bare.err,
-    read = function(): string | nil, string
+    read = function(): string?, string
       while true do
         local ready, ready_why = Poll.readable(input)
         if not ready then return nil, ready_why end
@@ -174,7 +174,7 @@ end
 --- sandbox's has the relay's port, and its network holds nothing else), with
 --- the userinfo that is the sandbox's token where it has one, or nil and why
 --- not. The reason never holds the value where it has a userinfo.
-local function proxy_of(io: sandbox_connect.Io): Proxy | nil, string
+local function proxy_of(io: sandbox_connect.Io): Proxy?, string
   local value: string = io.getenv("ALL_PROXY") or io.getenv("all_proxy") or ""
   if value == "" then
     return nil, "ALL_PROXY is not set: this is ssh's ProxyCommand inside `cosmic sandbox --connect HOST:PORT`, " ..
@@ -185,7 +185,7 @@ local function proxy_of(io: sandbox_connect.Io): Proxy | nil, string
   local port = port_of(text or "")
   if port == nil then
     -- A value with an "@" may hold the token, wherever the pattern failed.
-    local shown = value:find("@", 1, true) and "not shown, as it holds a userinfo" or bare.escape(value)
+    local shown = if value:find("@", 1, true) then "not shown, as it holds a userinfo" else bare.escape(value) end
     return nil, "ALL_PROXY is " .. shown .. ", not a socks5h://127.0.0.1:PORT like " .. PROXY ..
       " (or socks5h://user:token@127.0.0.1:PORT), the sandbox relay's; no other proxy is served"
   end
@@ -220,11 +220,11 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       if data == "" then
         -- What the program sends has ended: the far side hears it as one.
         local shut, shut_why = conn:shutdown("write")
-        trace("up: end of input, shutdown(write) " .. (shut and "ok" or "failed: " .. tostring(shut_why)))
+        trace("up: end of input, shutdown(write) " .. (if shut then "ok" else "failed: " .. tostring(shut_why) end))
         return
       end
       local sent, send_why = conn:write(data)
-      trace("up: wrote " .. plural.count(#data, "byte") .. " to the relay: " .. (sent and "ok" or tostring(send_why)))
+      trace("up: wrote " .. plural.count(#data, "byte") .. " to the relay: " .. (if sent then "ok" else tostring(send_why) end))
       if not sent then
         -- Whether this is a fault or the far side's closing is known once
         -- the other task has read to the end of what it sends.
@@ -238,7 +238,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
     while true do
       if data ~= "" then
         local wrote, write_why = io.write(data)
-        trace("down: wrote " .. plural.count(#data, "byte") .. " to standard output: " .. (wrote and "ok" or tostring(write_why)))
+        trace("down: wrote " .. plural.count(#data, "byte") .. " to standard output: " .. (if wrote then "ok" else tostring(write_why) end))
         if not wrote then return fail("standard output: " .. write_why) end
       end
       trace("down: waiting for the relay")
@@ -250,7 +250,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
         -- standard output.
         ends.far_ended = true
         local closed, closed_why = io.finish()
-        trace("down: standard output closed " .. (closed and "ok" or tostring(closed_why)))
+        trace("down: standard output closed " .. (if closed then "ok" else tostring(closed_why) end))
         return
       end
       data = more
@@ -303,7 +303,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     complain(proxy_why)
     return bare.refused
   end
-  local login: string | nil
+  local login: string?
   local password = proxy.password
   if password ~= nil then
     local message, login_why = RelayWire.socks_client_auth(assert(proxy.user), password)
@@ -333,7 +333,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if not sent then return fail("writing to the relay: " .. sent_why) end
   trace("greeting sent")
   local method = RelayWire.socks_method_reader(login ~= nil)
-  local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
+  local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string?
     local seen = method:feed(chunk)
     return seen.status, seen.consumed, seen.reason
   end)
@@ -346,7 +346,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
     local auth = { accepted = false }
-    local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
+    local after_auth, auth_why = answered(conn, relay, function(chunk: string): string, integer, string?
       local seen = verdict:feed(chunk)
       auth.accepted = seen.accepted
       return seen.status, seen.consumed, seen.reason
@@ -361,7 +361,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
   local reply = { code = 0 }
-  local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string | nil
+  local rest, answer_why = answered(conn, relay, function(chunk: string): string, integer, string?
     local seen = reader:feed(chunk)
     reply.code = seen.code
     return seen.status, seen.consumed, seen.reason

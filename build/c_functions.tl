@@ -144,7 +144,7 @@ local prerequisites: {string: string} = {
 --- the obligations [`tally`] holds. The runner probes them before workers
 --- start, and the whole-tree check requires a CI leg to promise each.
 function c_functions.prerequisites(): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for key, name in pairs(prerequisites) do out[key] = name end
   return out
 end
@@ -153,7 +153,7 @@ end
 --- held run's list, nil for an unheld one: no promised absence, refused
 --- name or failed probe can remove a function's obligation.
 function c_functions.unavailable(answers: {host_requires.Answer}, promises?: {string}): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, answer in ipairs(answers) do
     if (answer.kind == "skipped" or answer.kind == "na") and
         (promises == nil or not host_names.promised(promises, answer.name)) then
@@ -170,7 +170,7 @@ end
 
 --- Whether `here`, one file's hits, holds a line from `first` up to but
 --- not including `stop` (nil for the end of the file).
-local function hit_between(here: {integer: boolean}, first: integer, stop: integer | nil): boolean
+local function hit_between(here: {integer: boolean}, first: integer, stop: integer?): boolean
   for line in pairs(here) do
     if line >= first and (stop == nil or line < stop) then return true end
   end
@@ -181,7 +181,7 @@ end
 --- `lines`, its file's source: the tree's C layout closes a function
 --- with a `}` alone at the start of a line, or on its first line when
 --- that line opens and closes it. Nil when no such line follows.
-local function after_end(lines: {string}, first: integer): integer | nil
+local function after_end(lines: {string}, first: integer): integer?
   local text = lines[first]
   if text ~= nil and text:match("^%S.*{.*}%s*$") ~= nil then return first + 1 end
   for at = first + 1, #lines do
@@ -194,7 +194,7 @@ end
 --- the tree's C layout starts a definition at the start of a line and
 --- writes `name (`, and a declaration that reaches `;` before `{` is only
 --- a prototype.
-local function definition(lines: {string}, name: string): integer | nil
+local function definition(lines: {string}, name: string): integer?
   local spaced = " " .. name .. " ("
   local pointed = "*" .. name .. " ("
   for at, text in ipairs(lines) do
@@ -213,12 +213,12 @@ end
 --- The lines of each C file `functions` names, read under `root`, by
 --- path; a file that cannot be read is left out.
 function c_functions.sources(root: string, functions: {Coverage.Function}): {string: {string}}
-  local sources: {string: {string}} = {}
+  local sources: mut {string: {string}} = {}
   for _, fn in ipairs(functions) do
     if sources[fn.path] == nil and fn.path:match("%.c$") ~= nil then
       local text, _ = Fs.read(root .. "/" .. fn.path)
       if text ~= nil then
-        local lines: {string} = {}
+        local lines: mut {string} = {}
         for line in String.lines(text) do lines[#lines + 1] = line end
         sources[fn.path] = lines
       end
@@ -252,7 +252,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
   end
-  local starts: {string: {integer}} = {}
+  local starts: mut {string: {integer}} = {}
   for _, fn in ipairs(functions) do
     local lines = starts[fn.path]
     if lines == nil then
@@ -262,14 +262,14 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
     lines[#lines + 1] = fn.line
   end
   for _, lines in pairs(starts) do table.sort(lines) end
-  local entered: {string: boolean} = {}
+  local entered: mut {string: boolean} = {}
   for _, fn in ipairs(functions) do
     if fn.path:match("%.c$") ~= nil then
       local key = key_of(fn)
       local here = hits[fn.path]
       local source = sources ~= nil and sources[fn.path] or nil
       local first = fn.line
-      local stop: integer | nil = nil
+      local stop: integer? = nil
       if source ~= nil then
         first = definition(source, fn.name) or fn.line
         stop = after_end(source, first)
@@ -285,7 +285,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
         (here ~= nil and hit_between(here, first, stop))
     end
   end
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(entered) do
     keys[#keys + 1] = key
   end

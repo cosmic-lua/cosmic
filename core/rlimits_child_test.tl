@@ -30,7 +30,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 
 --- What `script` printed in a stand-in started with `rlimits`, or nil and why
 --- the start was refused.
-local function run(tmp: string, rlimits: {string:integer}, script: string): string | nil, string, integer
+local function run(tmp: string, rlimits: {string:integer}, script: string): string?, string, integer
   local program = assert(stand_in.build(tmp .. "/stand-in"))
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))

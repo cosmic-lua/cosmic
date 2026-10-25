@@ -34,7 +34,7 @@ local parse_rows = parses_fixture.rows
 --- The project every case builds: `a` requires `b`, which requires
 --- `c`; `c` documents a record and its field, `b` reads that field, and
 --- the guide is extracted to a test module whose example's line is the
---- guide's own ([`build.derivation`]'s `origin_lines`).
+--- guide's own ([`build.syntax_derivation`]'s `origin_lines`).
 local project: {string:string} = {
   ["c.tl"] = [[
 --- Boxes.
@@ -91,7 +91,7 @@ print(42)
 --- A checkout of the project at `root`, with `changed` written over it
 --- (a file to "" is left out).
 local function checkout(root: string, changed?: {string:string})
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(project) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do

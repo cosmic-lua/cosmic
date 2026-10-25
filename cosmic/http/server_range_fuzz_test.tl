@@ -44,7 +44,7 @@ end
 --- against. Each way to make it one the server ignores is drawn rarely,
 --- so most are one range to read.
 local function gen_range(src: Fuzz.Source): string
-  local elements: {string} = { (src:int(0, 7) == 0 and Fuzz.pick(src, SPACES) or "") .. draw_spec(src) }
+  local elements: mut {string} = { (src:int(0, 7) == 0 and Fuzz.pick(src, SPACES) or "") .. draw_spec(src) }
   while src:int(0, 5) == 0 and Fuzz.more(src, #elements - 1, 2) do
     local spec = src:int(0, 2) == 0 and draw_spec(src) or ""
     elements[#elements + 1] = Fuzz.pick(src, SPACES) .. spec .. Fuzz.pick(src, SPACES)
@@ -69,7 +69,7 @@ local function less(a: string, b: string): boolean
 end
 
 --- The count in `digits` where it fits an integer, or nil.
-local function small(digits: string): integer | nil
+local function small(digits: string): integer?
   local bare = digits:match("^0*(%d*)$")
   if #bare > #tostring(math.maxinteger) then return nil end
   -- One past the largest integer reads as a float, which this refuses.
@@ -79,10 +79,10 @@ end
 --- The one range-spec of `header` where it is one well-formed bytes
 --- range, by RFC 9110's grammar: its first and last digits ("" for a
 --- form without one); nil otherwise.
-local function well_formed(header: string): string | nil, string
+local function well_formed(header: string): string?, string
   local unit, set = trim(header):match("^([^=]*)=(.*)$")
   if unit == nil or unit:lower() ~= "bytes" or set:match("^[ \t]") then return nil, "" end
-  local specs: {string} = {}
+  local specs: mut {string} = {}
   for element in (set .. ","):gmatch("([^,]*),") do
     if trim(element) ~= "" then specs[#specs + 1] = trim(element) end
   end
@@ -144,7 +144,7 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
           return false, "the suffix's span differs"
         end
       elseif a ~= nil and (b ~= nil or last == "") then
-        local want_last = last == "" and size - 1 or math.min(assert(b), size - 1)
+        local want_last = if last == "" then size - 1 else math.min(assert(b), size - 1) end
         if last == "" then
           Fuzz.label("open")
         elseif assert(b) > size - 1 then
@@ -167,7 +167,7 @@ local ETAGC <const> = { "a", "v1", ",", "W", "/", "*", "\x80", "~", "!", " x", "
 --- An opaque tag's bytes: some drawn from what a tag may hold, and now
 --- and then a byte it may not, which makes no tag.
 local function draw_opaque(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 3) do
     parts[#parts + 1] = src:int(0, 7) == 0 and string.char(src:int(0, 255)) or Fuzz.pick(src, ETAGC)
   end
@@ -176,7 +176,7 @@ end
 
 --- One entity tag as fields: whether it is weak, and its opaque bytes.
 local function draw_tag(src: Fuzz.Source): string
-  return (src:int(0, 1) == 0 and "W" or "S") .. draw_opaque(src)
+  return (if src:int(0, 1) == 0 then "W" else "S" end) .. draw_opaque(src)
 end
 
 --- A server's tag, then a list of tags, one of them now and then the
@@ -184,10 +184,10 @@ end
 --- comma, with spaces and empty elements around it, or none.
 local function gen_none_match(src: Fuzz.Source): string
   local own = draw_tag(src)
-  local fields: {string} = { own }
+  local fields: mut {string} = { own }
   while Fuzz.more(src, #fields // 2, 4) do
-    fields[#fields + 1] = src:int(0, 2) == 0 and ((src:int(0, 1) == 0 and "W" or "S") .. own:sub(2)) or
-      draw_tag(src)
+    fields[#fields + 1] = if src:int(0, 2) == 0 then ((if src:int(0, 1) == 0 then "W" else "S" end) .. own:sub(2)) else
+      draw_tag(src) end
     fields[#fields + 1] = Fuzz.pick(src, SPACES) .. Fuzz.pick(src, { ",", ",", ", ,", "" }) ..
       Fuzz.pick(src, SPACES)
   end
@@ -201,7 +201,7 @@ end
 
 --- The tag `field` writes, as a server sends it.
 local function tag_of(field: string): string
-  return (field:sub(1, 1) == "W" and "W/" or "") .. '"' .. field:sub(2) .. '"'
+  return (if field:sub(1, 1) == "W" then "W/" else "" end) .. '"' .. field:sub(2) .. '"'
 end
 
 -- A tag matches itself in every list of well-formed tags, weak or
@@ -227,7 +227,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
           return false, "a tag did not match itself, weak or strong"
         end
       end
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       local every_ok, listed = true, false
       for i = 2, #fields, 2 do
         local tag, separator = fields[i], fields[i + 1] or ""
@@ -242,7 +242,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
       if #parts == 0 then
         if got then return false, "an empty header matched" end
       elseif every_ok then
-        Fuzz.label(listed and "listed" or "unlisted")
+        Fuzz.label(if listed then "listed" else "unlisted" end)
         if got ~= listed then
           return false, ("%q in %q: %s"):format(etag, header, tostring(got))
         end
@@ -266,7 +266,7 @@ local function test_none_match_is_total_over_any_header(tmp: string)
     end,
     check = function(input: string): boolean, string
       local got = Server.none_match(input, '"v1"')
-      Fuzz.label(got and "matched" or "unmatched")
+      Fuzz.label(if got then "matched" else "unmatched" end)
       return true, ""
     end,
     requires = { "matched", "unmatched" },

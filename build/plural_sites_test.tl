@@ -1,15 +1,10 @@
---- Tests of [`build.plural_sites`]: the new checker's reading of a source finds the literal plurals after numbers that
---- the fork's reading finds, with the same lines, snippets and fixes, in programs the check refuses and programs it
---- passes over.
+--- Tests of [`build.plural_sites`]: the new checker's reading of a source finds the literal plurals after numbers, with
+--- their lines, snippets and fixes, in programs the check refuses and programs it passes over.
 local PluralSites = require("build.plural_sites")
 local SyntaxNode = require("build.syntax_node")
 local Test = require("cosmic.test")
-local ast = require("build.ast")
-local teal = require("build.teal")
 
 Test.policy{}
-
-local built = assert(teal.load(true))
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -21,14 +16,9 @@ local function told(site: {string}): string
 end
 
 local function told_all(sites: {{string}}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, site in ipairs(sites) do out[#out + 1] = told(site) end
   return out
-end
-
---- What the fork's reader finds in `text`, in order.
-local function forked(text: string): {string}
-  return told_all(PluralSites.of_fork((assert(ast.parse(built, text, "p.tl")))))
 end
 
 --- What the new checker's reader finds in `text`, in order.
@@ -129,26 +119,22 @@ local CASES: {Case} = {
     "local b = \"tests\" .. #rows"), found = {} },
 }
 
-local function test_the_readers_find_the_same_sites_in_every_case()
+local function test_the_reader_finds_a_site_in_every_case_that_has_one()
   local total = 0
   for _, case in ipairs(CASES) do
-    local old, new = forked(case.text), read(case.text)
-    assert(#old == #new, case.name .. ": the fork finds " .. tostring(#old) .. ", the new reader " .. tostring(#new) .. "\n" ..
-        table.concat(old, "\n") .. "\n--\n" .. table.concat(new, "\n"))
-    for i, site in ipairs(old) do
-      local other = assert(new[i])
-      assert(site == other, case.name .. ": site " .. tostring(i) .. " is `" .. site .. "` and `" .. other .. "`")
-    end
-    total = total + #old
+    local found = read(case.text)
+    assert(#found == #case.found, case.name .. ": the reader finds " .. tostring(#found) .. ", the case says " ..
+        tostring(#case.found) .. "\n" .. table.concat(found, "\n"))
+    total = total + #found
   end
-  assert(total >= 25, "the cases compare " .. tostring(total) .. " sites")
+  assert(total >= 25, "the cases hold " .. tostring(total) .. " sites")
 end
 
 local function test_the_sites_are_the_ones_each_case_says()
   for _, case in ipairs(CASES) do
-    local expected: {string} = {}
+    local expected: mut {string} = {}
     for _, each in ipairs(case.found) do expected[#expected + 1] = each end
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     for _, site in ipairs(read(case.text)) do
       local line, noun = site:match("^(%d+)|([^|]*)|")
       seen[#seen + 1] = assert(line) .. " " .. assert(noun)

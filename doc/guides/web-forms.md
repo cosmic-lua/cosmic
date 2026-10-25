@@ -61,8 +61,8 @@ local record data
   record Form
     email: string
     age: string
-    email_error: string | nil
-    age_error: string | nil
+    email_error?: string
+    age_error?: string
   end
 end
 
@@ -97,7 +97,7 @@ end
 
 local record Signup
   email: string
-  age: integer | nil
+  age: integer?
 end
 local SIGNUP <const> = Shape.record_of("Signup")
 
@@ -106,7 +106,7 @@ local function refuse(_req: Web.Request, bad: Web.Invalid): Web.Response
   local errors = Input.errors_by_field(bad)
   return Web.html(page.render({
     email = Input.value(bad, "email"), age = Input.value(bad, "age"),
-    email_error = errors.email, age_error = errors.age,
+    email_error = errors["email"], age_error = errors["age"],
   }), { status = bad.status })
 end
 
@@ -161,7 +161,7 @@ end
 
 local function test_a_rule_of_the_handler_is_reported_like_a_spec()
   local reply = client():post("/signup", { form = { email = "ada" } })
-  assert(reply.status == 422 and reply.body:find("not an email address", 1, true))
+  assert(reply.status == 422 and reply.body:find("not an email address", 1, true) ~= nil)
 end
 
 local function test_input_that_cannot_be_decoded_is_400()
@@ -225,8 +225,10 @@ function Upload.routes(): {Web.Route}
   return {
     Web.post_typed("/avatar", Web.input(Web.NONE, Web.NONE, Web.multipart_body(AVATAR)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Avatar): Web.Response
-        local file = assert(Input.multipart(req).value).files["avatar"][1]
-        return Web.text(form.name .. ":" .. file.filename .. ":" .. file.size)
+        local avatars = assert(Input.multipart(req).value).files["avatar"]
+        local file = if avatars ~= nil then avatars[1] else nil end
+        if file == nil then return Web.abort(422, "send an avatar file") end
+        return Web.text(form.name .. ":" .. file.filename .. ":" .. tostring(file.size))
       end, { input_options = { max_bytes = 2 * 1024 * 1024, max_file_bytes = 1024 * 1024 } }),
   }
 end

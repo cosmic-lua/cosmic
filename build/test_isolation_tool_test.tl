@@ -148,7 +148,7 @@ end
   assert(text:find("1 of 2 tests failed", 1, true), text)
   assert(text:find("its directory is kept: " .. assert(Fs.absolute(temp)) .. "/cosmic-test-",
     1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
       left[#left + 1] = name
@@ -206,7 +206,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   local text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGTERM, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
       left[#left + 1] = name

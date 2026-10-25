@@ -39,7 +39,7 @@ end
 --- (a `sandbox` that unveils); then the process is found by the last
 --- number of its NSpid, and the result is nil if none matches. A process
 --- started without one is in the worker's namespace, sandboxed or not.
-local function host_pid(within: integer, pid: integer): integer | nil
+local function host_pid(within: integer, pid: integer): integer?
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
   if theirs == nil or theirs == own then return pid end
@@ -65,7 +65,7 @@ end
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: {string} = { "-e", chunk }
+  local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   local started = this_program.program(words, opts)
   return started.argv, started.options
@@ -90,25 +90,28 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string, word?: string): {string}
-  local argv = { table.unpack(relaunch.argv) }
+  local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = chunk
-  argv[#argv + 1] = word
+  if word ~= nil then argv[#argv + 1] = word end
   return argv
 end
 return function(argv: {string}): integer
-  Fs.close(11)
-  local invalid = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
-  if invalid then invalid:close(); return 20 end
+  local _, _ = Fs.close(11)
+  local invalid, _ = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
+  if invalid ~= nil then
+    local _, _ = invalid:close()
+    return 20
+  end
   -- A file of its own, not /dev/null: a child whose fd 0 exec closed
   -- starts with /dev/null there, and would read nothing.
   assert(Fs.close(0))
-  local fd = assert(Fs.open_read(argv[1]))
+  local fd = assert(Fs.open_read((argv[1] or "")))
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
     "return Fs.take(0, 64) == ... and 0 or 1", "stdin's own"),
     { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
-  return result.ok and 0 or 21
+  return if result.ok then 0 else 21 end
 end
 ]]))
   local stdin = tmp .. "/stdin"
@@ -134,8 +137,8 @@ return function(argv: {string}): integer
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
-  words[#words + 1] = argv[1]
-  words[#words + 1] = argv[2]
+  words[#words + 1] = (argv[1] or "")
+  words[#words + 1] = (argv[2] or "")
   local result, trouble = Child.run(words, { env = relaunch.env, fds = relaunch.fds })
   if not result then error(trouble) end
   local finished = assert(result)
@@ -268,14 +271,14 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): Child.Handle
-  local words = { table.unpack(relaunch.argv) }
+  local words: mut {string} = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = chunk
   return (assert(Child.start(words, { env = relaunch.env, fds = relaunch.fds })))
 end
 return function(argv: {string}): integer
   do
-    local guard <close> = assert(Signal.guard())
+    local guard = assert(Signal.guard())
     local timed = this("require('cosmic.clock').sleep_ns(30000000000)")
     local untimed = this("require('cosmic.clock').sleep_ns(30000000000)")
     local done = this("return 3")
@@ -292,27 +295,30 @@ return function(argv: {string}): integer
       local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
       local by = Clock.monotonic_ns() + Clock.seconds(8)
       while true do
-        local stat = Fs.read(stat_path)
+        local stat, _ = Fs.read(stat_path)
         if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
         assert(Clock.monotonic_ns() < by, "the child did not exit")
-        Clock.sleep_ns(Clock.ms(10))
+        local _, _ = Clock.sleep_ns(Clock.ms(10))
       end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    local answers: {string} = {}
-    for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
-        function(): Child.Result | nil, string return untimed:wait() end }) do
+    local answers: mut {string} = {}
+    for _, wait in ipairs({ function(): Child.Result?, string return timed:wait(0) end,
+        function(): Child.Result?, string return untimed:wait() end }) do
       local r, trouble = wait()
       answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
     end
-    answers[#answers + 1] = tostring(not sys.kill(timed.pid, 0))
-    answers[#answers + 1] = tostring(not sys.kill(untimed.pid, 0))
+    local timed_alive, _ = sys.kill(timed.pid, 0)
+    answers[#answers + 1] = tostring(not timed_alive)
+    local untimed_alive, _ = sys.kill(untimed.pid, 0)
+    answers[#answers + 1] = tostring(not untimed_alive)
     local later, _ = timed:wait()
     answers[#answers + 1] = tostring(later ~= nil)
     local finished = assert(done:wait())
     answers[#answers + 1] = tostring(finished.code) .. " " .. tostring(finished.timed_out)
     answers[#answers + 1] = tostring(guard:cancelled())
-    assert(Fs.write(argv[1], table.concat(answers, "|")))
+    assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
+    assert(guard:close())
   end
   return 0
 end
@@ -345,13 +351,13 @@ local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 local relaunch = assert(Proc.relaunch())
 local function this(chunk: string): {string}
-  local words = { table.unpack(relaunch.argv) }
+  local words: mut {string} = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = chunk
   return words
 end
 return function(argv: {string}): integer
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local guard = assert(Signal.guard())
   local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Clock.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
@@ -361,8 +367,9 @@ return function(argv: {string}): integer
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))
   answers[#answers + 1] = tostring(after.code)
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  local released, _ = guard:release()
+  answers[#answers + 1] = tostring(released)
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
   return 0
 end
 ]]))

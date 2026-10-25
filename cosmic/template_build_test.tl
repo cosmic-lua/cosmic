@@ -4,24 +4,18 @@
 --- small project into the temporary directory and compiles it with
 --- [`importer.compile`], as the build does for any project.
 
--- In the mode `COSMIC_GRAMMAR=new` (which a sandboxed worker sees only because the policy passes it) the project is built with
--- the new checker ([`importer.compile`]'s `grammar`), which holds it to no ceiling: the Teal that [`cosmic.template`] writes
--- is the new grammar's then ([`cosmic.template`]'s `Options`), and the guarantee these tests hold, that a slot of the wrong safe
--- type is refused, is the new checker's. What a refusal says is the mode's own.
+-- The project is built with the checker, which holds it to no ceiling: the Teal that [`cosmic.template`] writes is the
+-- new grammar's, and the guarantee these tests hold, that a slot of the wrong safe type is refused, is the checker's.
 local Fs = require("cosmic.fs")
 local Html = require("cosmic.html")
 local GrammarMode = require("build.grammar_mode")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 local profile_page = require("test.profile_page")
 local sample = require("test.profile_page_sample")
 
-Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
-local built = assert(teal.load())
-local grammar = assert(GrammarMode.mode())
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local DATA <const> = [[
 local html = require("cosmic.html")
@@ -48,8 +42,7 @@ end
 
 --- Stages and compiles the project at `root`: the Lua of each module by
 --- import path, or nil and what refused.
-local function compile(root: string, mode?: GrammarMode.Mode): {string: string} | nil, string
-  local checker = mode or grammar
+local function compile(root: string): {string: string}?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -59,7 +52,7 @@ local function compile(root: string, mode?: GrammarMode.Mode): {string: string} 
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, trouble = importer.compile(handle, built, GrammarMode.tool("template-build-test", checker), false, nil, nil, nil, checker)
+  local result, trouble = importer.compile(handle, GrammarMode.tool("template-build-test", "new"), false)
   local _, _ = work.close(handle)
   if result == nil then
     return nil, trouble
@@ -68,7 +61,7 @@ local function compile(root: string, mode?: GrammarMode.Mode): {string: string} 
   if #result.refused > 0 then
     return nil, table.concat(result.refused, "\n")
   end
-  local lua: {string: string} = {}
+  local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
     lua[m.path] = m.lua
   end
@@ -76,16 +69,16 @@ local function compile(root: string, mode?: GrammarMode.Mode): {string: string} 
 end
 
 --- Writes `files` to the fresh project `case` of `tmp` and compiles it.
-local function project(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string} | nil, string
+local function project(tmp: string, case: string, files: {string: string}): {string: string}?, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   write(root, files)
-  return compile(root, mode)
+  return compile(root)
 end
 
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
-local function load_module(lua: {string: string}, path: string, loaded?: {string: any}): any
+local function load_module(lua: {string: string}, path: string, loaded?: mut {string: any}): any
   loaded = loaded or {}
   local function req(name: string): any
     if name == "cosmic.html" then
@@ -261,77 +254,31 @@ local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed
   end
 end
 
-local VALUE_REFUSAL <const> = " -- data, which {{type Page from data}} names, must return its " ..
-  "record type, as `local record M ... end return M` or a `.d.tl` does, not a value"
-
---- The record's module is required for its type alone, which Teal
---- refuses when the module returns a value of its record: the refusal
---- says, on the `{{type}}`'s line, what the module must return. The
---- checker's errors that follow stand, but `unknown type data.Page` is
---- told no hint that data lacks Page: its record declares it.
--- TODO: delete the fork's leg of this test with the fork's checker, whose rule it holds: a module that a template names for its
--- record type must return the record type itself, as `local record M ... end return M` does, and a module that returns a value of
--- it is refused at the `{{type}}`'s line. The new checker types the record through a value of it, so its leg builds the template
--- and renders it (doc/plans/strict-teal.md, "the switch").
-local function test_a_records_module_that_returns_a_value_is_refused_by_the_fork_and_typed_by_the_new_checker(tmp: string)
-  if grammar == "new" then
-    -- The record's module is required for its type alone, so it is never loaded and its value is never used as a type.
-    local built_lua, built_trouble = project(tmp, "value-type-only", {
-      ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
-        "local data: Data = {}\nreturn data\n",
-      ["page.tmpl"] = HEAD .. "<p>{{.title}}</p>" })
-    assert(built_lua ~= nil, built_trouble)
-    assert(rendered(built_lua, "page", { title = "t" }) == "\n<p>t</p>")
-    return
-  end
-  local lua, trouble = project(tmp, "value", {
+--- The record's module is required for its type alone, so it is never loaded and its value is never used as a type: a module
+--- that returns a value of its record builds.
+local function test_a_records_module_that_returns_a_value_builds_when_only_its_type_is_read(tmp: string)
+  local built_lua, built_trouble = project(tmp, "value-type-only", {
     ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
       "local data: Data = {}\nreturn data\n",
-    ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
-  assert(lua == nil, "built a record's module that returns a value")
-  local lines: {string} = {}
-  for line in trouble:gmatch("[^\n]+") do
-    lines[#lines + 1] = line
-  end
-  assert(#lines == 4 and lines[1] == "page.tmpl: the compiler refused it", trouble)
-  assert(lines[2]:match("^page%.tmpl:1:%d+: 'require' did not return a type, got record Data") ~= nil and
-      lines[2]:sub(-#VALUE_REFUSAL) == VALUE_REFUSAL, trouble)
-  assert(lines[3]:match("^page%.tmpl:1:%d+: unknown type data%.Page$") ~= nil, trouble)
-  assert(lines[4]:match("^page%.tmpl:1:%d+: cannot index key 'title' in variable 'd' of type data%.Page$") ~= nil,
-    trouble)
+    ["page.tmpl"] = HEAD .. "<p>{{.title}}</p>" })
+  assert(built_lua ~= nil, built_trouble)
+  assert(rendered(built_lua, "page", { title = "t" }) == "\n<p>t</p>")
 end
 
---- A data module whose value's type names its record is refused with the
---- same answer, though the refusal names `data.Page` itself.
+--- A data module that returns a function is refused: it declares no type for the record to be read from.
 local function test_a_records_module_that_returns_a_function_of_it_is_refused(tmp: string)
   local lua, trouble = project(tmp, "value-function", {
     ["data.tl"] = "local record data\n  record Page\n    title: string\n  end\nend\n" ..
       "return function(p: data.Page): string\n  return p.title\nend\n",
     ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
   assert(lua == nil, "built a record's module that returns a function")
-  if grammar == "new" then
-    -- the module returns no declaration, which the new checker says on the `{{type}}`'s line
-    assert(trouble:find("page.tmpl:1:", 1, true) ~= nil and trouble:find("(member_missing)", 1, true) ~= nil, trouble)
-    return
-  end
-  local refusal = trouble:match("page%.tmpl:1:%d+: 'require' did not return a type, got [^\n]*")
-  assert(refusal ~= nil and refusal:find("data.Page", 1, true) ~= nil and
-      refusal:sub(-#VALUE_REFUSAL) == VALUE_REFUSAL, trouble)
-  assert(trouble:find("has no type", 1, true) == nil, trouble)
+  -- the module returns no declaration, which the checker says on the `{{type}}`'s line
+  assert(trouble:find("page.tmpl:1:", 1, true) ~= nil and trouble:find("(member_missing)", 1, true) ~= nil, trouble)
 end
 
 --- Blank lines before the `{{type}}` keep line N of the template line N
---- of the module: the refusal of its record's module names the
---- `{{type}}`'s line, and a slot's error its own.
+--- of the module: a slot's error names its own line.
 local function test_blank_lines_before_the_type_keep_each_line(tmp: string)
-  if grammar ~= "new" then
-    local value, value_trouble = project(tmp, "blank-value", {
-      ["data.tl"] = "local record Data\n  record Page\n    title: string\n  end\nend\n" ..
-        "local data: Data = {}\nreturn data\n",
-      ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}{{.title}}" })
-    assert(value == nil, "built a record's module that returns a value")
-    assert(value_trouble:match("\npage%.tmpl:3:%d+: 'require' did not return a type") ~= nil, value_trouble)
-  end
   local slot, slot_trouble = project(tmp, "blank-slot", { ["data.tl"] = DATA,
     ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}\n{{.nope}}" })
   assert(slot == nil and slot_trouble:match("\npage%.tmpl:4:%d+: ") ~= nil, tostring(slot_trouble))
@@ -357,23 +304,23 @@ local function test_a_records_module_that_returns_a_value_builds_when_a_stage_re
   assert(mod is Loaded and mod.render({ title = "t" }) == "T")
 end
 
---- Whatever the suite asks for, the new checker builds a template and holds the guarantee: the Teal [`cosmic.template`] writes
---- for it is the new grammar's, which a project is held to with no ceiling.
-local function test_a_template_builds_and_is_held_to_its_slots_by_the_new_checker(tmp: string)
+--- The checker builds a template and holds the guarantee: the Teal [`cosmic.template`] writes for it is the new grammar's,
+--- which a project is held to with no ceiling.
+local function test_a_template_builds_and_is_held_to_its_slots_by_the_checker(tmp: string)
   local lua, trouble = project(tmp, "new-ok", { ["data.tl"] = DATA,
-    ["page.tmpl"] = HEAD .. '<h1>{{.title}}</h1>{{.h}}<a href="{{.url}}">x</a>\n' }, "new")
+    ["page.tmpl"] = HEAD .. '<h1>{{.title}}</h1>{{.h}}<a href="{{.url}}">x</a>\n' })
   assert(lua ~= nil, trouble)
   assert(assert(lua["page"]):find("render", 1, true) ~= nil, "the module has no render")
   -- a SafeHtml into a URL is refused on the template's own line, in the checker's words, with no pin to raise
   local wrong, wrong_trouble = project(tmp, "new-wrong", { ["data.tl"] = DATA,
-    ["page.tmpl"] = HEAD .. "<p>fine</p>\n<a href=\"{{.h}}\">x</a>\n" }, "new")
+    ["page.tmpl"] = HEAD .. "<p>fine</p>\n<a href=\"{{.h}}\">x</a>\n" })
   assert(wrong == nil, "built a SafeHtml into a URL")
   assert(wrong_trouble:find("page.tmpl:3:", 1, true) ~= nil and wrong_trouble:find("SafeHtml", 1, true) ~= nil and
       wrong_trouble:find("(not_assignable)", 1, true) ~= nil, tostring(wrong_trouble))
   assert(wrong_trouble:find("pinned", 1, true) == nil and wrong_trouble:find("page.tl", 1, true) == nil, wrong_trouble)
   -- a condition on a string says what is wrong, on the template's line
   local text, text_trouble = project(tmp, "new-condition", { ["data.tl"] = DATA,
-    ["page.tmpl"] = HEAD .. "{{if .title}}t{{end}}\n" }, "new")
+    ["page.tmpl"] = HEAD .. "{{if .title}}t{{end}}\n" })
   assert(text == nil and text_trouble:find("page.tmpl:2:", 1, true) ~= nil and
       text_trouble:find("(condition_type)", 1, true) ~= nil and
       text_trouble:find("`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or drop the `{{if}}`",

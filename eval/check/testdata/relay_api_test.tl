@@ -34,7 +34,7 @@ end
 --- `a` and `target` the far end of `b`, and answers what pipe answered.
 local function piped(options: relay.Options,
                      body: function(client: Net.Conn, target: Net.Conn)): relay.Stats
-  local stats = { value = nil as relay.Stats | nil }
+  local stats = { value = nil as relay.Stats? }
   Poll.run(function()
     local client, a = pair()
     local target, b = pair()

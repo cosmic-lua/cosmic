@@ -25,7 +25,7 @@ end
 
 local function keys(path: string): string
   local db = assert(Sqlite.open(path))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v2 ORDER BY key")))) do
     out[#out + 1] = row:text(1)
   end
@@ -89,7 +89,7 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
 end
 
 local function test_digest_ignores_usage_stamps_and_snapshot_absence_counts_fresh(tmp: string)
-  local digests: {string} = {}
+  local digests: mut {string} = {}
   for i, used in ipairs({ { 1, 6 }, { 1, 9 }, { 1, 6, 7 } }) do
     local dir = tmp .. "/" .. tostring(i)
     assert(Fs.mkdirs(dir))

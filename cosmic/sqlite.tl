@@ -210,10 +210,10 @@ local record Sqlite
 
   --- A query's rows read one at a time: see [`Sqlite.query`].
   interface Query
-    metamethod __close: function(Query)
+    __close: function(Query)
     --- The next row, and ""; nil and "" after the last; nil and why
     --- when stepping failed, the same again on every later read.
-    read: function(Query): Row | nil, string
+    read: function(Query): Row?, string
     --- An iterator for a `for` loop over the rows still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
     ---
@@ -262,7 +262,7 @@ end
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits,
 --- `"attached"` among them, and answers the old one.
-function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
   local given: any = opts
   if given ~= nil and type(given) ~= "table" then
     error("sqlite: open: options is a table such as { writable = true }, not a " ..
@@ -284,7 +284,7 @@ end
 
 --- A writable database held in memory: it is gone when the handle
 --- closes.
-function Sqlite.memory(): Sqlite.Handle | nil, string
+function Sqlite.memory(): Sqlite.Handle?, string
   return sqlite.open(":memory:", true)
 end
 
@@ -407,7 +407,7 @@ end
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
 --- statement that does not bind is finalized.
 local function prepared(handle: Sqlite.Handle, sql: string,
-                        given?: {Sqlite.Value}): Sqlite.Statement | nil, string
+                        given?: {Sqlite.Value}): Sqlite.Statement?, string
   local values = given or {}
   local highest = checked(values)
   local statement, trouble = handle:prepare(sql)
@@ -454,7 +454,7 @@ end
 -- [`Sqlite.Row`] but is not declared to implement it: a record that has an
 -- array part takes no interface, so the rows are cast where they are made.
 -- TODO: once the grammar lets a record carry an array part and an interface, or a stored row is a class, delete
--- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contracts.tl's casts) and list
+-- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contract_rules.tl's casts) and list
 -- [`Sqlite.Row`] on [`Stored`] and [`TextStored`].
 local record Stored is {any}
   count: function(Stored): integer
@@ -500,7 +500,7 @@ local function cell_at(row: Stored, index: integer, name: string): Sqlite.Kind, 
   local count = #row // 2
   if index < 1 or index > count then
     error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
-        (count == 1 and " column" or " columns"), 3)
+        (if count == 1 then " column" else " columns" end), 3)
   end
   local at = 2 * index - 1
   return kind_of(row[at]), row[at + 1]
@@ -560,7 +560,7 @@ function Stored.bytes(self: Stored, index: integer): string
 end
 
 function Stored.texts(self: Stored): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index = 1, #self // 2 do
     local kind, held = cell_at(self, index, "texts")
     if kind == "text" and held is string then
@@ -611,7 +611,7 @@ local function text_at(row: TextStored, index: integer, name: string): string
   end
   local count = #row
   error("sqlite: row:" .. name .. "(" .. index .. "): the row has " .. count ..
-      (count == 1 and " column" or " columns"), 3)
+      (if count == 1 then " column" else " columns" end), 3)
 end
 
 function TextStored.count(self: TextStored): integer
@@ -652,7 +652,7 @@ function TextStored.bytes(self: TextStored, index: integer): string
 end
 
 function TextStored.texts(self: TextStored): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index = 1, #self do
     local held = self[index]
     if held is string then out[index] = held end
@@ -701,7 +701,7 @@ end
 --- [`Sqlite.query`] all step through it, so they agree on what a failure
 --- says.
 local function step_row<T>(statement: Sqlite.Statement,
-                           project: function(Sqlite.Statement): T): T | nil, string
+                           project: function(Sqlite.Statement): T): T?, string
   local state, failure = statement:step()
   if state == nil then
     return nil, failure ~= "" and failure or "sqlite: the step failed"
@@ -715,8 +715,8 @@ end
 --- Every row of `statement` as `project` gives it, and the statement
 --- finalized: the rows, or `nil` and why a step failed.
 local function each_row<T>(statement: Sqlite.Statement,
-                           project: function(Sqlite.Statement): T): {T} | nil, string
-  local out: {T} = {}
+                           project: function(Sqlite.Statement): T): {T}?, string
+  local out: mut {T} = {}
   while true do
     local row, failure = step_row(statement, project)
     if row == nil then
@@ -734,7 +734,7 @@ end
 --- columns' SQLite types. Answers the rows, or `nil` and why. `values`
 --- follows [`Sqlite.run`]'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
-                     values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+                     values?: {Sqlite.Value}): Sqlite.Rows?, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
@@ -761,13 +761,13 @@ end
 ---         return { name = r:text(1), n = r:integer(2) }
 ---       end))
 ---     print(#found, found[2].name) -- 2  b
-function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value} | nil,
-                       project: function(Sqlite.Row): T): {T} | nil, string
+function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value}?,
+                       project: function(Sqlite.Row): T): {T}?, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
   end
-  local out: {T} = {}
+  local out: mut {T} = {}
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -794,25 +794,6 @@ end
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
 
---- The Query over one prepared statement, which it finalizes.
-local record StatementQuery is Sqlite.Query
-  statement: Sqlite.Statement
-  open: boolean
-  ended: boolean
-  failed: string
-  read: function(StatementQuery): Sqlite.Row | nil, string
-  each: function(StatementQuery): function(): Sqlite.Row
-  failure: function(StatementQuery): string
-  close: function(StatementQuery)
-end
-
-local statement_query_mt: metatable<StatementQuery> = {
-  __index = StatementQuery,
-  __close = function(self: StatementQuery)
-    self:close()
-  end,
-}
-
 --- Finalizes `query`'s statement, once.
 local function finish(query: StatementQuery)
   if query.open then
@@ -821,40 +802,52 @@ local function finish(query: StatementQuery)
   end
 end
 
-function StatementQuery:read(): Sqlite.Row | nil, string
-  if self.failed ~= "" then return nil, self.failed end
-  if self.ended then return nil, "" end
-  if not self.open then return nil, "sqlite: the query is closed" end
-  local row, failure = step_row(self.statement, cells_of)
-  if row == nil then
-    if failure == "" then
-      self.ended = true
-    else
-      self.failed = failure
+--- The Query over one prepared statement, which it finalizes.
+local class StatementQuery is Sqlite.Query
+  statement: Sqlite.Statement
+  mut open: boolean
+  mut ended: boolean
+  mut failed: string
+
+  function read(self): Sqlite.Row?, string
+    if self.failed ~= "" then return nil, self.failed end
+    if self.ended then return nil, "" end
+    if not self.open then return nil, "sqlite: the query is closed" end
+    local row, failure = step_row(self.statement, cells_of)
+    if row == nil then
+      if failure == "" then
+        self.ended = true
+      else
+        self.failed = failure
+      end
+      finish(self)
+      return nil, failure
     end
+    return row, ""
+  end
+
+  function each(self): function(): Sqlite.Row
+    -- TODO: the iterator answers nil after the last row, which `function():
+    -- Sqlite.Row` does not admit; declare it `| nil` (here and in
+    -- [`Query`]'s `each`) once the checker reads the nil that ends a `for`
+    -- loop's iterator as the end.
+    return function(): Sqlite.Row
+      local row, _ = self:read()
+      return row
+    end
+  end
+
+  function failure(self): string
+    return self.failed
+  end
+
+  function close(self)
     finish(self)
-    return nil, failure
   end
-  return row, ""
-end
 
-function StatementQuery:each(): function(): Sqlite.Row
-  -- TODO: the iterator answers nil after the last row, which `function():
-  -- Sqlite.Row` does not admit; declare it `| nil` (here and in
-  -- [`Query`]'s `each`) once the checker reads the nil that ends a `for`
-  -- loop's iterator as the end.
-  return function(): Sqlite.Row
-    local row, _ = self:read()
-    return row
+  function __close(self)
+    self:close()
   end
-end
-
-function StatementQuery:failure(): string
-  return self.failed
-end
-
-function StatementQuery:close()
-  finish(self)
 end
 
 --- A query whose rows are read one at a time, as `rows` gives them but
@@ -877,14 +870,14 @@ end
 ---     for row in q:each() do print(row:integer(1), row:text(2)) end
 ---     assert(q:failure() == "", q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
-                      values?: {Sqlite.Value}): Sqlite.Query | nil, string
+                      values?: {Sqlite.Value}): Sqlite.Query?, string
   local opened, trouble = prepared(handle, sql, values)
   if opened == nil then
     return nil, trouble
   end
-  local q: StatementQuery = setmetatable({
+  local q: StatementQuery = {
     statement = opened, open = true, ended = false, failed = "",
-  }, statement_query_mt)
+  }
   return q, ""
 end
 
@@ -897,7 +890,7 @@ end
 --- every column and [`is_null`] as false, and raises from `integer`,
 --- `number` and `blob`: read those from [`Sqlite.rows`].
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
-                          values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+                          values?: {Sqlite.Value}): Sqlite.Rows?, string
   local statement, trouble = prepared(handle, sql, values)
   if statement == nil then
     return nil, trouble
@@ -952,8 +945,8 @@ end
 --- The typed step surface allocates a guard once per statement, reusing it
 --- for successful rows. Only a failure makes a result record for a step.
 local function collect_result<T>(statement: Sqlite.Statement,
-                                 project: function(Sqlite.Statement): T, outcome: Outcome): {T} | nil
-  local rows: {T} = {}
+                                 project: function(Sqlite.Statement): T, outcome: Outcome): {T}?
+  local rows: mut {T} = {}
   while true do
     local state = statement:step_result()
     if state is Sqlite.ExecResult then

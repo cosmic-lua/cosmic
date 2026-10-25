@@ -109,7 +109,7 @@ local PHRASES <const>: {string: string} = {
 --- never raises.
 --- @param address string The text to read
 --- @return {integer}|nil The bytes
-function relay_address.parse(address: string): {integer} | nil
+function relay_address.parse(address: string): {integer}?
   return Grant.address(address)
 end
 
@@ -182,7 +182,7 @@ local DENY <const>: {Deny} = {
 --- and not a prefix here.
 --- @return {string} The prefixes, in the order a refusal names them
 function relay_address.deny_cidrs(): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, entry in ipairs(DENY) do out[i] = entry.cidr end
   return out
 end
@@ -194,7 +194,7 @@ local record Prefix
 end
 
 local PREFIXES <const>: {Prefix} = (function(): {Prefix}
-  local out: {Prefix} = {}
+  local out: mut {Prefix} = {}
   for _, entry in ipairs(DENY) do
     local address, bits = entry.cidr:match("^(.-)/(%d+)$")
     out[#out + 1] = { bytes = assert(relay_address.parse(address)), bits = math.tointeger(tonumber(bits)),
@@ -218,7 +218,7 @@ end
 
 --- The class an address is refused as, or nil. `own` holds the host's
 --- addresses as bytes.
-local function classify(b: {integer}, own: {{integer}}): string | nil
+local function classify(b: {integer}, own: {{integer}}): string?
   for _, prefix in ipairs(PREFIXES) do
     if prefix.class == "metadata" and within(b, prefix) then return "metadata" end
   end
@@ -234,7 +234,7 @@ end
 
 --- `address` as the host of a `connect` grant.
 local function target(address: string, port: integer): string
-  local host = address:find(":", 1, true) and "[" .. address .. "]" or address
+  local host = if address:find(":", 1, true) then "[" .. address .. "]" else address end
   return host .. ":" .. port
 end
 
@@ -275,7 +275,7 @@ end
 --- @param own {string} The addresses, as text
 --- @return {{integer}} Each one's bytes
 function relay_address.own_addresses(own: {string}): {{integer}}
-  local out: {{integer}} = {}
+  local out: mut {{integer}} = {}
   for _, text in ipairs(own) do
     local bytes = relay_address.parse(text)
     if bytes == nil then error("own address \"" .. tostring(text) .. "\" is not numeric", 2) end
@@ -332,10 +332,10 @@ end
 --- @return {Answer}|nil The allowed answers, at least one
 --- @return string Why none is allowed, "" when one is
 function relay_address.permitted(answers: {relay_address.Answer}, port: integer,
-                                 grants: {string}, own: {{integer}}): {relay_address.Answer} | nil, string
+                                 grants: {string}, own: {{integer}}): {relay_address.Answer}?, string
   if #answers == 0 then return nil, "the name has no addresses" end
-  local why: {string} = {}
-  local allowed: {relay_address.Answer} = {}
+  local why: mut {string} = {}
+  local allowed: mut {relay_address.Answer} = {}
   for _, answer in ipairs(answers) do
     local ok, reason = relay_address.check(answer.address, port, grants, own)
     if ok then

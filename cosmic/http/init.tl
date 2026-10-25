@@ -204,7 +204,7 @@ local record Http
   --- response when it goes out of scope, and a `read` after either
   --- fails. `sent` after close raises.
   interface Response is Stream.Reader
-    metamethod __close: function(Response)
+    __close: function(Response)
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
     --- The response's headers, keyed by lowercased name.
@@ -233,13 +233,13 @@ local record Http
     --- Empty on success; otherwise the human reason, without an added URL.
     reason: string
     --- Present only for `http_status`: the rejected response's status.
-    status: integer | nil
+    status: integer?
     --- Present only for `digest_mismatch`: the checked algorithm.
-    algorithm: Hash.Algorithm | nil
+    algorithm: Hash.Algorithm?
     --- The supplied checksum, lowercased; an empty option requests no check.
-    expected: string | nil
+    expected: string?
     --- The computed digest as lower-case hex.
-    actual: string | nil
+    actual: string?
   end
 
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole
@@ -304,45 +304,39 @@ local SECOND <const> = Clock.seconds(1)
 -- cosmic/stream.tl.
 
 --- The Response over a curl handle, which it owns.
-local record CurlResponse is Http.Response
+local class CurlResponse is Http.Response
   handle: raw_http.Handle
-  closed: boolean
-  read: function(CurlResponse, max_bytes?: integer): string | nil, string
-  close: function(CurlResponse): boolean, string
-  sent: function(CurlResponse): string
-end
+  mut closed: boolean
 
-local curl_response_mt: metatable<CurlResponse> = {
-  __index = CurlResponse,
-  __close = function(self: CurlResponse)
+  function read(self, max_bytes?: integer): string?, string
+    if self.closed then return nil, "http: the response is closed" end
+    return self.handle:read(max_bytes)
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    self.handle:close()
+    return true, ""
+  end
+
+  function sent(self): string
+    return self.handle:sent()
+  end
+
+  function __close(self)
     local _, _ = self:close()
-  end,
-}
-
-function CurlResponse:read(max_bytes?: integer): string | nil, string
-  if self.closed then return nil, "http: the response is closed" end
-  return self.handle:read(max_bytes)
-end
-
-function CurlResponse:close(): boolean, string
-  self.closed = true
-  self.handle:close()
-  return true, ""
-end
-
-function CurlResponse:sent(): string
-  return self.handle:sent()
+  end
 end
 
 --- The Response over a handle whose final headers are known.
 local function respond(handle: raw_http.Handle): Http.Response
-  local response: CurlResponse = setmetatable({
+  local response: CurlResponse = {
     status = handle:status(),
     headers = handle:headers(),
     url = handle:url(),
     handle = handle,
     closed = false,
-  }, curl_response_mt)
+  }
   return response
 end
 
@@ -358,8 +352,8 @@ local CALLER <const> = 5
 --- nil stays nil, the raw module's default. Raises at the caller of the
 --- public entry point (`CALLER`), naming `name` as the raw module's own
 --- refusals do, for what is no integer from 0 to `most_ns`.
-local function counted(ns: integer | nil, unit: integer, most_ns: integer,
-                       name: string): integer | nil
+local function counted(ns: integer?, unit: integer, most_ns: integer,
+                       name: string): integer?
   if ns == nil then return nil end
   if math.type(ns) ~= "integer" then
     error(("http: opts.%s must be an integer"):format(name), CALLER)
@@ -376,21 +370,21 @@ local record Trust
   --- What names the blob these roots make for every request that chooses
   --- them, when one does ("minimal", "none"): nil when `ca` or a list of
   --- digests makes it the request's own.
-  key: string | nil
+  key: string?
   --- Every carried root, rather than only those `wanted` names.
   all: boolean
   --- Carried roots by the SHA-256 of their DER.
   wanted: {string:boolean}
   --- Whether the certificates $SSL_CERT_FILE names are trusted too.
   extra: boolean
-  ca: string | nil
+  ca: string?
 end
 
 --- The roots a request that names none trusts, "minimal" or "mozilla",
 --- and "": `COSMIC_CA_ROOTS` when it is set, else what `cosmic build
 --- --roots` recorded in this executable, else "minimal". Nil and why
 --- when either names anything else.
-function Http.default_roots(): string | nil, string
+function Http.default_roots(): string?, string
   local chosen = Env.get("COSMIC_CA_ROOTS")
   local from = "COSMIC_CA_ROOTS"
   if chosen == nil or chosen == "" then
@@ -411,7 +405,7 @@ end
 --- "", or why the roots a request naming none trusts cannot be told
 --- ([`Http.default_roots`]). Raises at `CALLER` for either of the wrong
 --- shape, naming it.
-local function trust_of(opts: Http.Options): Trust | nil, string
+local function trust_of(opts: Http.Options): Trust?, string
   local roots = opts.roots
   local ca = opts.ca
   if ca ~= nil and type(ca) ~= "string" then
@@ -424,7 +418,7 @@ local function trust_of(opts: Http.Options): Trust | nil, string
     end
     roots = default
   end
-  local wanted: {string:boolean} = {}
+  local wanted: mut {string:boolean} = {}
   if roots == "mozilla" then
     if ca == nil then return nil, "" end
     return { key = nil, all = true, wanted = wanted, extra = true, ca = ca }, ""
@@ -432,11 +426,11 @@ local function trust_of(opts: Http.Options): Trust | nil, string
     for _, hex in ipairs(MINIMAL_ROOTS) do
       wanted[assert(Codec.unhex(hex))] = true
     end
-    local key: string | nil = nil
+    local key: string? = nil
     if ca == nil then key = "minimal" end
     return { key = key, all = false, wanted = wanted, extra = true, ca = ca }, ""
   elseif roots == "none" then
-    local key: string | nil = nil
+    local key: string? = nil
     if ca == nil then key = "none" end
     return { key = key, all = false, wanted = wanted, extra = false, ca = ca }, ""
   elseif type(roots) == "table" then
@@ -460,7 +454,7 @@ end
 --- Raises at `CALLER` for one of the wrong shape: each pin is
 --- `sha256//` and the base64 of 32 bytes, as [`Http.public_key_pin`]
 --- makes it.
-local function pin_of(opts: Http.Options): string | nil
+local function pin_of(opts: Http.Options): string?
   local pin = opts.pin
   if pin == nil then return nil end
   local pins: {string}
@@ -487,7 +481,7 @@ end
 --- `der` as PEM.
 local function pem(der: string): string
   local encoded = Codec.base64(der)
-  local lines: {string} = { "-----BEGIN CERTIFICATE-----" }
+  local lines: mut {string} = { "-----BEGIN CERTIFICATE-----" }
   for at = 1, #encoded, 64 do
     lines[#lines + 1] = encoded:sub(at, at + 63)
   end
@@ -502,14 +496,14 @@ local END <const> = "%-%-%-%-%-END CERTIFICATE%-%-%-%-%-"
 --- itself when it holds none and is one DER certificate. Nil and why
 --- when one is not closed, not base64, or not a certificate the TLS
 --- stack reads.
-local function certificates(text: string): {string} | nil, string
+local function certificates(text: string): {string}?, string
   if not text:find("-----BEGIN", 1, true) then
     local ok, why = http.check_certificate(text)
     if not ok then return nil, why end
     return { text }, ""
   end
   local _, begun = text:gsub(BEGIN, "")
-  local ders: {string} = {}
+  local ders: mut {string} = {}
   for body in text:gmatch(BEGIN .. "(.-)" .. END) do
     local der, why = Codec.unbase64((body:gsub("%s", "")))
     if der == nil then
@@ -539,16 +533,16 @@ end
 --- The trust store's certificates, read once: the carried roots with
 --- their digests, and those $SSL_CERT_FILE named.
 local record Held
-  carried: {Carried} | nil
-  extra: {string}
+  mut carried: {Carried}?
+  mut extra: {string}
   --- The blob of each [`Trust`] with a `key`, by it, made once.
-  blobs: {string:string}
+  blobs: mut {string:string}
 end
 local store: Held = { carried = nil, extra = {}, blobs = {} }
 
 --- The carried roots with their digests, read from the trust store
 --- the first time, or nil and why when it cannot be made.
-local function carried_roots(): {Carried} | nil, string
+local function carried_roots(): {Carried}?, string
   local held = store.carried
   if held ~= nil then
     return held, ""
@@ -557,7 +551,7 @@ local function carried_roots(): {Carried} | nil, string
   if roots == nil then
     return nil, trouble
   end
-  local read: {Carried} = {}
+  local read: mut {Carried} = {}
   for _, der in ipairs(roots.carried) do
     read[#read + 1] = { der = der, digest = Hash.sha256(der) }
   end
@@ -569,7 +563,7 @@ end
 --- The PEM of every certificate `trust` names, or nil and why: when the
 --- trust store cannot be made, `trust.ca` holds what the TLS stack
 --- cannot read, or nothing is left to trust.
-local function trusted(trust: Trust): string | nil, string
+local function trusted(trust: Trust): string?, string
   local key = trust.key
   if key ~= nil then
     local made = store.blobs[key]
@@ -581,7 +575,7 @@ local function trusted(trust: Trust): string | nil, string
   if carried == nil then
     return nil, trouble
   end
-  local pems: {string} = {}
+  local pems: mut {string} = {}
   for _, root in ipairs(carried) do
     if trust.all or trust.wanted[root.digest] == true then
       pems[#pems + 1] = pem(root.der)
@@ -617,8 +611,8 @@ end
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
 --- chooses ([`trust_of`], [`trusted`]); or nil and why when those cannot
 --- be made. `method`, when given, stands in for `opts.method`.
-local function raw_options(given: Http.Options | nil, method?: string,
-                           trusting?: boolean): raw_http.Options | nil, string
+local function raw_options(given: Http.Options?, method?: string,
+                           trusting?: boolean): raw_http.Options?, string
   local opts: Http.Options = given or {}
   local via = opts.via
   local follow = opts.follow
@@ -634,7 +628,7 @@ local function raw_options(given: Http.Options | nil, method?: string,
   if untold ~= "" then
     return nil, untold
   end
-  local blob: string | nil = nil
+  local blob: string? = nil
   if trusting == true and trust ~= nil then
     local made, why = trusted(trust)
     if made == nil then
@@ -665,7 +659,7 @@ end
 --- control byte, a byte past ASCII, and `"` `<` `>` `\` `^` `` ` `` `{`
 --- `|` `}` -- the bytes Python requests' requote_uri escapes. Every
 --- reserved byte and `%` are left out: what they mean is the caller's.
-local escape_unsafe: {string:string} = {}
+local escape_unsafe: mut {string:string} = {}
 do
   for byte = 0, 255 do
     local ch = string.char(byte)
@@ -685,13 +679,13 @@ end
 --- as "Malformed input to a URL function". The scheme is read as curl
 --- reads it, with any number of slashes after its `:`, and a URL with
 --- none starts with its authority.
-local function sendable(url: string): string | nil, string
+local function sendable(url: string): string?, string
   local _, scheme_end = url:find("^[A-Za-z][A-Za-z0-9+.-]*:/*")
   local rest = url:find("[/?#]", (scheme_end or 0) + 1) or #url + 1
   local at = url:sub(1, rest - 1):find("[\0-\32\127]")
   if at ~= nil then
     local byte = url:byte(at)
-    local what = byte == 32 and "a space" or byte == 0 and "a NUL" or ("control byte 0x%02x"):format(byte)
+    local what = if byte == 32 then "a space" elseif byte == 0 then "a NUL" else ("control byte 0x%02x"):format(byte) end
     local user_end = url:find("@", at, true)
     if user_end ~= nil and user_end < rest then
       return nil, ("http: the URL holds %s at byte %d, in its user info; " ..
@@ -701,7 +695,7 @@ local function sendable(url: string): string | nil, string
   end
   local tail = url:sub(rest)
   local percents = tail:gsub("()%%", function(percent: integer): string
-    return tail:find("^%x%x", percent + 1) and "%" or "%25"
+    return if tail:find("^%x%x", percent + 1) then "%" else "%25" end
   end)
   local escaped = percents:gsub('[\0-\32\127-\255"<>\\^`{|}]', escape_unsafe)
   return url:sub(1, rest - 1) .. escaped, ""
@@ -710,7 +704,7 @@ end
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
-local function opened(url: string, opts: Http.Options | nil, method: string | nil): Http.Response | nil, string
+local function opened(url: string, opts: Http.Options?, method: string?): Http.Response?, string
   local sent, refused = sendable(url)
   if sent == nil then
     return nil, refused
@@ -728,7 +722,7 @@ local function opened(url: string, opts: Http.Options | nil, method: string | ni
 end
 
 --- `response`'s whole body, read and closed, as [`Http.Body`].
-local function whole(response: Http.Response): Http.Body | nil, string
+local function whole(response: Http.Response): Http.Body?, string
   local body, read_trouble = Stream.read_all(response)
   local _, _ = response:close()
   if body == nil then
@@ -755,7 +749,7 @@ end
 --- in through [`Url.escape`], a path segment or query value at a time.
 --- A space or control byte in the host or user info fails, naming
 --- the byte; a user name or password goes in through [`Url.escape`].
-function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
+function Http.open(url: string, opts?: Http.Options): Http.Response?, string
   local response, trouble = opened(url, opts, nil)
   if response == nil then
     return nil, trouble
@@ -770,7 +764,7 @@ end
 --- `result.status`. An `opts.method` other than "GET", or an
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
-function Http.get(url: string, opts?: Http.Options): Http.Body | nil, string
+function Http.get(url: string, opts?: Http.Options): Http.Body?, string
   local method = opts and opts.method
   if method ~= nil and method ~= "GET" then
     error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
@@ -804,7 +798,7 @@ end
 --- An empty `method`, an `opts.method` that differs from it, or an
 --- `opts.body` with "GET" or "HEAD" raises: the request would not be
 --- the one asked for.
-function Http.request(method: string, url: string, opts?: Http.Options): Http.Body | nil, string
+function Http.request(method: string, url: string, opts?: Http.Options): Http.Body?, string
   if method == nil or method == "" then
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
@@ -827,43 +821,39 @@ end
 
 --- A Reader over a Response that fails with "interrupted" once
 --- `cancelled` answers true.
-local record CancellableReader is Stream.Reader
+local class CancellableReader is Stream.Reader
   response: Http.Response
   cancelled: function(): boolean
-  read: function(CancellableReader, max_bytes?: integer): string | nil, string
-  close: function(CancellableReader): boolean, string
-end
 
-local cancellable_reader_mt: metatable<CancellableReader> = { __index = CancellableReader }
+  function read(self, max_bytes?: integer): string?, string
+    if self.cancelled() then return nil, "interrupted" end
+    local chunk, why = self.response:read(max_bytes)
+    if chunk ~= nil then return chunk, "" end
+    if why == "" and self.cancelled() then return nil, "interrupted" end
+    return nil, why
+  end
 
-function CancellableReader:read(max_bytes?: integer): string | nil, string
-  if self.cancelled() then return nil, "interrupted" end
-  local chunk, why = self.response:read(max_bytes)
-  if chunk ~= nil then return chunk, "" end
-  if why == "" and self.cancelled() then return nil, "interrupted" end
-  return nil, why
-end
-
-function CancellableReader:close(): boolean, string
-  return self.response:close()
+  function close(self): boolean, string
+    return self.response:close()
+  end
 end
 
 --- `response` as a Reader that fails with "interrupted" once `cancelled`
 --- answers true: asked before each read and once more at the end of the
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Http.Response, cancelled: function(): boolean): Stream.Reader
-  local reader: CancellableReader = setmetatable({
+  local reader: CancellableReader = {
     response = response, cancelled = cancelled,
-  }, cancellable_reader_mt)
+  }
   return reader
 end
 
 -- Own both resources while user cancellation code may raise: a failed
 -- call must not leave a staged file waiting for garbage collection.
 local record PendingDownload
-  response?: Http.Response
-  file?: Stream.FileWriter
-  metamethod __close: function(PendingDownload)
+  mut response?: Http.Response
+  mut file?: Stream.FileWriter
+  __close: function(PendingDownload)
 end
 
 local pending_mt: metatable<PendingDownload> = {
@@ -878,7 +868,7 @@ local pending_mt: metatable<PendingDownload> = {
 --- [`Http.download_result`]'s work, which each public entry point that
 --- downloads calls itself (`CALLER`).
 local function downloading(url: string, path: string,
-                           opts: Http.Options | nil): Http.DownloadResult
+                           opts: Http.Options?): Http.DownloadResult
   opts = opts or {}
   local record Given
     algorithm: Hash.Algorithm
@@ -894,7 +884,7 @@ local function downloading(url: string, path: string,
     { algorithm = "sha512", wanted = opts.sha512 or "" },
     { algorithm = "sha3-256", wanted = opts.sha3_256 or "" },
   }
-  local checks: {Check} = {}
+  local checks: mut {Check} = {}
   for _, pair in ipairs(given) do
     local algorithm, wanted = pair.algorithm, pair.wanted
     if wanted ~= "" then
@@ -1001,7 +991,7 @@ end
 ---
 ---     local pin = assert(Http.public_key_pin(assert(Fs.read("server.pem"))))
 ---     local got = assert(Http.get("https://internal.example/", { pin = pin }))
-function Http.public_key_pin(cert: string): string | nil, string
+function Http.public_key_pin(cert: string): string?, string
   local spki, why = http.public_key(cert)
   if spki == nil then
     return nil, why

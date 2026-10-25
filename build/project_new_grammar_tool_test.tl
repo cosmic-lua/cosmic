@@ -1,22 +1,20 @@
 --- A project written in the new grammar (`mut`, a class, function fields called as `queue:push(word)`, `T?`) with a template
---- and an example, as the tool runs it with the new checker (`COSMIC_GRAMMAR=new`): the fixture of [`build.new_grammar_project`].
---- It is tested, its coverage is counted from the syntax tree of the new checker (the fork's parser reads none of it), a
---- planted error is refused with the new checker's fix, and the words speak of no pin: a project has no ceilings to raise.
---- `cosmic build` of the same project is in build/embed_tool_test.tl. CI's rehearsal job runs this test in its full suite.
+--- and an example, as the tool runs it: the project of testdata/projects/new_grammar. It is tested, its coverage is counted
+--- from the syntax tree, a planted error is refused with the checker's fix, and the words speak of no pin: a project has no
+--- ceilings to raise. `cosmic build` of the same project is in build/embed_tool_test.tl.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local NewGrammarProject = require("build.new_grammar_project")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project it builds.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
 
 --- A copy of the fixture under `tmp`, a tree of its own for the run `name`.
 local function copy_of(tmp: string, name: string): string
   local root = tmp .. "/" .. name
-  assert(NewGrammarProject.write(root))
+  assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   return root
 end
 
@@ -79,21 +77,22 @@ local function test_a_project_in_the_new_grammar_is_tested_and_its_coverage_coun
   local hits, lines = tonumber(hit), tonumber(total)
   assert(hits ~= nil and lines ~= nil and hits > 40 and lines > hits, text)
   assert(text:find("ERROR", 1, true) == nil and text:find("syntax error", 1, true) == nil, text)
-  -- the fork does not read the grammar it is not
+  -- the fork's grammar is gone: the mode that names it is refused, naming the verb that rewrites a project to the new one
   local forked, forked_text = tested(copy_of(tmp, "forked"), tmp, "teal")
-  assert(not forked.ok and forked_text:find("syntax error", 1, true) ~= nil, forked_text)
+  assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
+      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
 end
 
---- `cosmic fix --check` reads the project with the new parser where the fork's cannot (the three files that spell `mut`,
---- a class or `T?`) and lays out the rest; the fork's mode refuses those three.
-local function test_a_project_in_the_new_grammar_is_checked_by_fix_and_the_fork_refuses_it(tmp: string)
+--- `cosmic fix --check` reads and checks the project, and lays out none of it; the fork's mode is refused.
+local function test_a_project_in_the_new_grammar_is_checked_by_fix_and_the_fork_mode_is_refused(tmp: string)
   local result, text = checked(copy_of(tmp, "fix_new"), tmp, "new")
   assert(result.ok, text)
   assert(text:find("fix: 7 Teal + 1 template files, 0 to fix, ", 1, true) ~= nil, text)
-  assert(text:find("Teal layout is not applied in the new grammar (3 files read, not laid out)", 1, true) ~= nil, text)
+  assert(text:find("fix: note  Teal is read and checked, not laid out: `cosmic fix` has no layout for the new grammar yet",
+    1, true) ~= nil, text)
   local forked, forked_text = checked(copy_of(tmp, "fix_forked"), tmp, "teal")
-  assert(not forked.ok and forked_text:find("syntax error", 1, true) ~= nil, forked_text)
-  assert(forked_text:find("not applied", 1, true) == nil, forked_text)
+  assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
+      "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, forked_text)
 end
 
 local function test_a_method_called_on_a_record_is_refused_with_the_class_and_function_field_fix(tmp: string)

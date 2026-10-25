@@ -1,5 +1,4 @@
---- Tests of [`build.syntax_derivation`]: the rows of a parse, read off the tree, are the rows [`build.derivation`]
---- writes of the same source.
+--- Tests of [`build.syntax_derivation`]: the rows of a parse, read off the tree, that [`build.work`]'s tables hold.
 local Ast = require("lang.ast")
 local Derivation = require("build.syntax_derivation")
 local Fs = require("cosmic.fs")
@@ -7,13 +6,9 @@ local Node = require("build.syntax_node")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
-local derivation = require("build.derivation")
-local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{}
-
-local built = assert(teal.load(true))
 
 local function parsed(source: string, name: string): Ast.Chunk
   local chunk, why = Node.parse(source, name)
@@ -24,7 +19,7 @@ end
 local function rows(db: Sqlite.Handle, statement: string): {string}
   local found, why = Sqlite.text_rows(db, statement)
   assert(found ~= nil, why)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(found) do
     out[#out + 1] = row:text(1)
   end
@@ -137,13 +132,13 @@ local TEST <const> = table.concat({
 
 --- The text of every row of the analysis tables the database holds, one string for each table.
 local function tables_of(db: Sqlite.Handle): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, name in ipairs(analysis_schema.tables) do
     local found, why = Sqlite.rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2")
     assert(found ~= nil, why)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, row in ipairs(found) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for index = 2, row:count() do
         local kind = row:kind(index)
         cells[#cells + 1] = kind == "integer" and tostring(row:integer(index)) or kind == "text" and row:text(index) or
@@ -156,45 +151,33 @@ local function tables_of(db: Sqlite.Handle): {string: string}
   return out
 end
 
-local function test_every_row_of_a_parse_is_the_one_the_fork_writes(tmp: string)
+local function test_every_table_a_source_fills_gets_its_rows(tmp: string)
   for _, case in ipairs({ { "module.tl", MODULE, "m" }, { "t_test.tl", TEST, "t" } }) do
     local file, source = case[1], case[2]
-    assert(Fs.mkdirs(tmp .. "/" .. case[3] .. "-fork") and Fs.mkdirs(tmp .. "/" .. case[3] .. "-port"))
-    local fork = assert(work.open(tmp .. "/" .. case[3] .. "-fork"))
-    local tally: derivation.Parses = { parsed = 0, shared = 0, worked = 0 }
-    local ok, why = derivation.parse_fresh(fork.db, built,
-      { { source_hash = "h", file = file, source = source, mapped = false } }, tally, {})
-    assert(ok, why)
+    assert(Fs.mkdirs(tmp .. "/" .. case[3] .. "-port"))
     local port = assert(work.open(tmp .. "/" .. case[3] .. "-port"))
-    ok, why = Derivation.insert(port.db, "h", file, source, parsed(source, file), false)
+    local ok, why = Derivation.insert(port.db, "h", file, source, parsed(source, file), false)
     assert(ok, why)
-    local old, new = tables_of(fork.db), tables_of(port.db)
-    for _, name in ipairs(analysis_schema.tables) do
-      assert(old[name] == new[name], file .. ": " .. name .. ":\n" .. old[name] .. "\nagainst\n" .. new[name])
-    end
-    -- Each table the source fills is held, so that no table is compared empty with empty.
+    local new = tables_of(port.db)
+    -- Each table the source fills is held, so that no table is empty where the source has rows for it.
     local filled: {string} = { "parsed", "tests", "test_inputs" }
     if case[3] == "m" then
       filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs" }
     end
     for _, name in ipairs(filled) do
-      assert(#old[name] > 0, file .. ": the fork writes nothing to " .. name)
+      assert(#new[name] > 0, file .. ": nothing is written to " .. name)
     end
-    assert(work.close(fork) and work.close(port))
+    assert(work.close(port))
   end
 end
 
-local function test_a_source_whose_policy_the_build_cannot_read_is_refused_in_the_forks_words(tmp: string)
+local function test_a_source_whose_policy_the_build_cannot_read_is_refused(tmp: string)
   local file = "t_test.tl"
-  assert(Fs.mkdirs(tmp .. "/port") and Fs.mkdirs(tmp .. "/fork"))
+  assert(Fs.mkdirs(tmp .. "/port"))
   local source = 'local Test = require("cosmic.test")\nTest.policy{ profiles = { "nobody" } }\n'
   local ok, why = Derivation.insert((assert(work.open(tmp .. "/port"))).db, "h", file, source, parsed(source, file),
     false)
-  local fork = assert(work.open(tmp .. "/fork"))
-  local tally: derivation.Parses = { parsed = 0, shared = 0, worked = 0 }
-  local old_ok, old_why = derivation.parse_fresh(fork.db, built,
-    { { source_hash = "h", file = file, source = source, mapped = false } }, tally, {})
-  assert(not ok and not old_ok and why == old_why and why:find("profiles: no profile nobody", 1, true) ~= nil, why)
+  assert(not ok and why:find("profiles: no profile nobody", 1, true) ~= nil, why)
 end
 
 local function test_a_derived_source_keeps_its_symbols_at_the_lines_of_the_file_it_came_from_and_no_links()

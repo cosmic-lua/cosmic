@@ -74,7 +74,7 @@ local function test_the_accepted_hits_are_reported_in_source_order_with_their_no
   local result = rewritten(source, "os.execute($CMD)", "assert(os.execute($CMD))")
   assert(#result.refused == 0, "the comment is in a capture the template reuses")
   local chunk = assert(Node.parse(source, "t.tl"))
-  local lines: {integer} = {}
+  local lines: mut {integer} = {}
   for _, edit in ipairs(result.edits) do
     lines[#lines + 1] = Node.span(chunk, edit.node).y
   end

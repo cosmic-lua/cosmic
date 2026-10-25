@@ -10,13 +10,11 @@ local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 
-local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
 --- one build/writer_test.tl projects, restated here since a test module
@@ -49,7 +47,7 @@ local function build_and_write(root: string, whom: string, out: string,
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool or "closure-store-test"))
+  local result = assert(importer.compile(handle, tool or "closure-store-test"))
   assert(writer.write_result(handle, out, result))
   return handle
 end
@@ -332,7 +330,8 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(Fs.write(root .. "/other.tl", table.concat({
     'local greet = require("greet")',
     "-- Wraps [`greet.hello`].",
-    "return greet.hello",
+    "local other: function(): string = greet.hello",
+    "return other",
     "",
   }, "\n")))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
@@ -344,7 +343,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   local view = assert(docs.view({ db }))
   local found = assert(docs.uses(view, "greet.hello"))
   assert(db:close())
-  local links: {string} = {}
+  local links: mut {string} = {}
   for _, use in ipairs(found) do
     if use.link then links[#links + 1] = use.from_file .. ":" .. use.line end
   end
@@ -361,7 +360,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   local function raw(parameter: string)
     assert(Fs.write(root .. "/raw.d.tl", table.concat({
       "local record raw",
-      "  meta: function(" .. parameter .. ": string): string | nil",
+      "  meta: function(" .. parameter .. ": string): string?",
       "end",
       "return raw",
       "",
@@ -369,7 +368,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   end
   raw("key")
   assert(Fs.write(root .. "/wrap.tl", table.concat({
-    'local type raw_store = require("raw")',
+    'local raw_store = require("raw")',
     "local record wrap",
     "  raw: raw_store",
     "end",
@@ -379,7 +378,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
   assert(Fs.write(root .. "/wrap_test.tl", table.concat({
     'local wrap = require("wrap")',
     "local function test_wrap()",
-    "  assert(wrap ~= nil)",
+    "  assert(type(wrap) == \"table\")",
     "end",
     "",
   }, "\n")))
@@ -394,11 +393,11 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     write_project(root, "world")
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
-    local result = assert(importer.compile(handle, built, "closure-store-test"))
+    local result = assert(importer.compile(handle, "closure-store-test"))
     assert(writer.write_result(handle, tmp .. "/whole.db", result))
-    local by_path: {string:importer.Module} = {}
+    local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
-    local declarations: {string:string} = {}
+    local declarations: mut {string:string} = {}
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT path, file FROM inputs WHERE kind = 'decl'"))
     for _, row in ipairs(rows) do
@@ -406,7 +405,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     end
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-    local out: {string:string} = {}
+    local out: mut {string:string} = {}
     for _, path in ipairs({ "wrap_test", "greet_test" }) do
       local names = test_inputs.modules(assert(by_path[path]), by_path, declarations)
       out[path] = closure_store.address(basis, names, "salt")

@@ -18,7 +18,7 @@ local MAX_LENGTH <const> = 300
 --- (docker-compose names have them) joined by dots, none empty or starting or
 --- ending in a dash (or a bracketed IP literal), an optional port from 1 to 65535, in lowercase, the scheme's
 --- default port dropped.
-local function reduce(scheme: string, authority: string): string | nil
+local function reduce(scheme: string, authority: string): string?
   scheme = scheme:lower()
   if DEFAULT_PORT[scheme] == nil then return nil end
   local host, port = authority:match("^(%[[%x:.]+%])(:%d+)$")
@@ -33,14 +33,14 @@ local function reduce(scheme: string, authority: string): string | nil
       if label == "" or label:find("^%-") or label:find("%-$") then return nil end
     end
   end
-  local number: string | nil = nil
+  local number: string? = nil
   if port ~= nil then
     local n = tonumber(port:sub(2))
     if n == nil or n < 1 or n > 65535 or #port > 6 then return nil end
     number = tostring(math.tointeger(n))
   end
   if number == DEFAULT_PORT[scheme] then number = nil end
-  return scheme .. "://" .. host:lower() .. (number ~= nil and (":" .. number) or "")
+  return scheme .. "://" .. host:lower() .. (if number ~= nil then (":" .. number) else "" end)
 end
 
 --- `text` as an origin in one spelling: it must be exactly an origin, with
@@ -49,7 +49,7 @@ end
 --- ", ").
 --- @param text string An Origin header, or an origin an app lists
 --- @return string | nil The origin, "http://example.com:8080"
-function Origin.normalize(text: string): string | nil
+function Origin.normalize(text: string): string?
   if #text > MAX_LENGTH then return nil end
   local scheme, authority = text:match("^(%a[%w+.-]*)://([^/?#@%s,]*)$")
   if scheme == nil then return nil end
@@ -60,7 +60,7 @@ end
 --- fragment (a `Referer`); nil where it names none, or carries userinfo.
 --- @param text string The URL
 --- @return string | nil The origin, in [`Origin.normalize`]'s spelling
-function Origin.of_url(text: string): string | nil
+function Origin.of_url(text: string): string?
   if #text > 8192 then return nil end
   local scheme, authority = text:match("^(%a[%w+.-]*)://([^/?#]*)")
   if scheme == nil or authority:find("[@%s,]") then return nil end
@@ -71,7 +71,7 @@ end
 --- proxy's, with `trusted_proxy`). Nil where the request named no host.
 --- @param req Types.Request The request
 --- @return string | nil The origin
-function Origin.of_request(req: Types.Request): string | nil
+function Origin.of_request(req: Types.Request): string?
   local host = req.host
   if host == nil then return nil end
   return reduce(req.scheme, host)

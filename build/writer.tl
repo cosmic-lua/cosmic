@@ -142,7 +142,7 @@ local insert_decl_imports =
 --- alone supplies executable rows, import edges, uses and errors.
 ---
 --- The names each planned module and each declaration binds to a
---- module ([`build.analyzer.Bound`]), kept whatever the module they
+--- module ([`build.syntax_analyzer`]'s `Bound`), kept whatever the module they
 --- name: a project's binds the standard library's.
 local insert_bound =
   "INSERT OR IGNORE INTO out.bound (path, name, requires) " ..
@@ -154,7 +154,7 @@ local insert_bound =
   "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN bound b ON b.source_hash = i.source_hash ORDER BY m.path, b.name"
 
---- The documented symbols ([`build.analyzer.DocEntry`]) found while parsing
+--- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
 --- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
 --- source order. Which of them a reader sees is [`build.docs`]'s to
@@ -174,7 +174,7 @@ local insert_docs =
   "WHERE d.path = i.path AND d.kind = 'decl')) " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
---- The uses ([`build.analyzer.Reference`]) found: each
+--- The uses ([`build.syntax_analyzer`]'s `Reference`) found: each
 --- `alias.member` resolved against the module the alias names, as the
 --- canonical member path. Targets need not be in this build plan: bundled and
 --- external definitions are selected from the effective database view later.
@@ -186,7 +186,7 @@ local insert_uses =
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
---- The record-field uses [`build.receivers`] found while each planned
+--- The record-field uses build.receivers found while each planned
 --- module was compiled, kept under the compile's key: `w:add_file(...)`
 --- on a [`Zip.Writer`] is a use of `Writer.add_file` in [`cosmic.zip`].
 local insert_typed_uses =
@@ -197,7 +197,7 @@ local insert_typed_uses =
   "JOIN typed_refs r ON r.key = p.key " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
---- The worked examples ([`build.analyzer.ExampleEntry`]) found: a
+--- The worked examples ([`build.syntax_analyzer`]'s `ExampleEntry`) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with. That is a planned module
 --- or a declaration (as [`cosmic.sys`] is), never a test or another
@@ -237,10 +237,10 @@ local insert_examples =
   "WHERE x.module IS NOT NULL " ..
   "ORDER BY x.module, x.file, e.line"
 
---- The stub ([`build.stub`]) of each planned `cosmic.*` module, in
+--- The stub (build.stub) of each planned `cosmic.*` module, in
 --- cosmic's own tree, where the planned modules are its standard library;
 --- a project's `cosmic.*` module, were it to have one, is no binary's.
---- [`build.compilation`]'s `generate` has held each to its source's type.
+--- [`build.pipeline`]'s `generate` has held each to its source's type.
 local insert_stubs =
   "INSERT INTO out.stubs (path, source) " ..
   "SELECT p.path, deflate(s.text) FROM plan p " ..
@@ -254,7 +254,7 @@ local unstubbed_modules =
   "WHERE p.path GLOB 'cosmic.*' AND p.path NOT IN (SELECT path FROM out.stubs) " ..
   "ORDER BY p.path"
 
---- The catalog entries ([`build.analyzer.CatalogEntry`]) found while parsing
+--- The catalog entries ([`build.syntax_analyzer`]'s `CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
 --- top-level function. The guidance a match prints is that function's
 --- own documentation, joined from `docs` at lookup, so `text` is left
@@ -423,7 +423,7 @@ end
 --- The signature of the projection of `result`, whose links are
 --- `pending`, as the writer whose identity is `binary` would write it.
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
-                      binary: string): string | nil, string
+                      binary: string): string?, string
   local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
     { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
       text(pending.digest) })
@@ -437,8 +437,8 @@ end
 --- symbols: nothing in cosmic's own tree, whose projection documents its
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
-local function library_for(root: string, given: link_index.Library | nil):
-    link_index.Library | nil, string
+local function library_for(root: string, given: link_index.Library?):
+    link_index.Library?, string
   local own, trouble = tree.is_own(root)
   if own == nil then
     return nil, trouble
@@ -454,8 +454,8 @@ end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
-local function pending_links(handle: work.Handle, given: link_index.Library | nil, by: string):
-    link_index.Pending | nil, string
+local function pending_links(handle: work.Handle, given: link_index.Library?, by: string):
+    link_index.Pending?, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
@@ -468,7 +468,7 @@ end
 --- @param library in a project, the standard library its links may
 --- name, in place of the running binary's ([`link_index.running`])
 function writer.signature(handle: work.Handle, result: importer.Result,
-                          binary: string, library?: link_index.Library): string | nil, string
+                          binary: string, library?: link_index.Library): string?, string
   local pending, trouble = pending_links(handle, library, binary)
   if pending == nil then
     return nil, trouble
@@ -524,8 +524,8 @@ local vendored_key <const> = "projection_vendored"
 --- tree at `root`, each by its bytes or `-` where it is not there: the
 --- tables they fill are a function of these and of those modules' code, which
 --- the writer's identity holds. Nil where a file is there and cannot be read.
-local function vendored_digest(root: string): string | nil
-  local function digest_of(path: string): string | nil
+local function vendored_digest(root: string): string?
+  local function digest_of(path: string): string?
     local there, _ = Fs.exists(path)
     if there == nil then
       return nil
@@ -548,7 +548,7 @@ local function vendored_digest(root: string): string | nil
 end
 
 --- Whether the first column of the first row of `rows` is `answer`.
-local function says(rows: Sqlite.Rows | nil, answer: string): boolean
+local function says(rows: Sqlite.Rows?, answer: string): boolean
   if rows == nil then
     return false
   end
@@ -558,7 +558,7 @@ end
 
 --- Whether the first column of the first row of `rows` is `1`: the answer
 --- of a `SELECT` of a condition, false where there was none.
-local function holds(rows: Sqlite.Rows | nil): boolean
+local function holds(rows: Sqlite.Rows?): boolean
   return says(rows, "1")
 end
 
@@ -671,7 +671,7 @@ local function project(handle: work.Handle,
   end
   local usable = based and usable_base(db, by, result.tool)
   local reusing = usable and find_reused(db)
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
@@ -758,7 +758,7 @@ local function project(handle: work.Handle,
   -- pin's, a tool file, so `boot_hash`, which the signature covers,
   -- moves when one does. It also carries its standard
   -- library's stubs (`insert_stubs`): a stub is a function of its
-  -- module's source, which the module's key holds, and of [`build.stub`],
+  -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. A project's tables
   -- stay empty.
   local own, own_trouble = tree.is_own(handle.root)
@@ -836,7 +836,7 @@ end
 --- a tool it rebuilt is never taken for one the tree's writer wrote
 --- ([`build.reboot`]).
 local function running(handle: work.Handle, identities: identity.Identities,
-                       tree_code: boolean): string | nil, string
+                       tree_code: boolean): string?, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil or tree_code then
     return identities.writer
@@ -877,7 +877,7 @@ end
 --- the read fails.
 --- @param compiler the compiler identity a build in this process
 --- compiles under ([`rebuild.compiled_by`])
-function writer.other_code(db: Sqlite.Handle, compiler: string): string | nil, string
+function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   -- "" for a row it lacks, a value no identity is.
   local function value(key: string): string
     return "coalesce((SELECT value FROM meta WHERE key = '" .. key .. "'), '')"
@@ -998,7 +998,7 @@ function writer.write_result(handle: work.Handle, out: string,
   local took = false
   local directory = build_paths.resolve(handle.root).directory
   if Fs.within(out, directory) then
-    local taken, lock_trouble: boolean | nil, string
+    local taken, lock_trouble: boolean?, string
     if reader ~= nil then
       taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
       if taken == nil and lock_trouble == "" then
@@ -1078,7 +1078,7 @@ local nested_type <const> =
 --- module binding: the `signature` of each public alias (`type Handle =
 --- raw_sqlite.Handle`) or declaration with bases (`record Options is
 --- raw_http.Options`), beside each module `requires` its module binds,
---- and the `name` it binds it to ([`build.analyzer.Bound`]). It follows
+--- and the `name` it binds it to ([`build.syntax_analyzer`]'s `Bound`). It follows
 --- `dropped` as one more common table expression, materialized so that
 --- it is computed once, not for each internal doc row
 --- [`carried_internal_types`] asks about.
@@ -1095,7 +1095,7 @@ local carried_alias_signatures <const> =
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
 --- raw_http.Options`), whose page lists them, through the name its
---- module binds `d`'s to ([`build.analyzer.Bound`]). [`symbols.shown_docs`]
+--- module binds `d`'s to ([`build.syntax_analyzer`]'s `Bound`). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
 --- resolution ([`build.docs`]) reads them. Written as a join, which
 --- looks each doc row's module up among the aliases once: an `EXISTS` that
@@ -1204,7 +1204,7 @@ local carry: {string} = {
 --- `compiled_by`, one of which every rebuild moves.
 function writer.carried(whole: string, out: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
-    local statements: {string} = {}
+    local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do
       statements[#statements + 1] = statement
     end

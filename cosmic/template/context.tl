@@ -40,19 +40,19 @@ end
 --- outcome from each place it was walked from, by [`Markup.key`].
 local record Walk
   name: string
-  seen: {types.Node: {string: Outcome}}
+  seen: mut {types.Node: {string: Outcome}}
 end
 
 --- How two places that `same` found different differ, for a message.
 local function difference(a: markup.Place, b: markup.Place): string
   local raw = markup.differ(a, b)
-  return raw ~= "" and " (" .. raw .. ")" or " (a tag, attribute or comment is left open in one way and not another)"
+  return if raw ~= "" then " (" .. raw .. ")" else " (a tag, attribute or comment is left open in one way and not another)" end
 end
 
-local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place | nil, string
+local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place?, string
 
 --- The place after the `range` `node`, which begins at `from`.
-local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place | nil, string
+local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
   local body = node.branches[1].body
   local walked, why = walk(w, body, from, marks)
   if walked == nil then
@@ -95,8 +95,8 @@ local function range_after(w: Walk, node: types.Node, from: markup.Place, marks:
 end
 
 --- The place after the `if` or `with` `node`, whose arms start at `from`.
-local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place | nil, string
-  local ends: {markup.Place} = {}
+local function arms_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
+  local ends: mut {markup.Place} = {}
   local closed = false
   for _, arm in ipairs(node.branches) do
     local after, why = walk(w, arm.body, from, marks)
@@ -124,7 +124,7 @@ end
 --- again from a place already seen would take time exponential in how deep
 --- ranges nest. A walk not taken again still sets the places it set on
 --- its interpolations, as taking it again would.
-local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place | nil, string
+local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
   local outcomes = w.seen[node]
   if outcomes == nil then
     outcomes = {}
@@ -156,7 +156,7 @@ local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks
   return markup.copy(outcome.after), ""
 end
 
-walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place | nil, string
+walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place?, string
   local name = w.name
   local at = markup.copy(from)
   for _, node in ipairs(body) do

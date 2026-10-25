@@ -28,9 +28,9 @@ local REDIRECTS <const>: {integer:boolean} = {
 }
 
 --- The name under which `headers` holds `name`, in any case, or nil.
-local function key_of(headers: {string: string | {string}}, name: string): string | nil
+local function key_of(headers: {string: string | {string}}, name: string): string?
   local want = name:lower()
-  local found: string | nil = nil
+  local found: string? = nil
   for key in pairs(headers) do
     if key:lower() == want and (found == nil or key < found) then found = key end
   end
@@ -40,10 +40,10 @@ end
 --- Sets header `name` of `res` to a string or a list, replacing the
 --- header in any case; the first of the two helpers below.
 local function put(res: Types.Response, name: string, value: string | {string})
-  local headers: {string: string | {string}} = res.headers or {}
+  local headers: mut {string: string | {string}} = res.headers or {}
   res.headers = headers
   local want = name:lower()
-  local stale: {string} = {}
+  local stale: mut {string} = {}
   for key in pairs(headers) do
     if key:lower() == want then stale[#stale + 1] = key end
   end
@@ -51,7 +51,7 @@ local function put(res: Types.Response, name: string, value: string | {string})
   if value is string then
     headers[name] = value
   else
-    local copy: {string} = {}
+    local copy: mut {string} = {}
     for i, line in ipairs(value) do copy[i] = line end
     headers[name] = copy
   end
@@ -62,7 +62,7 @@ end
 --- @param res Types.Response The response
 --- @param name string The header's name
 --- @return string | nil The first line of its value
-function Response.header(res: Types.Response, name: string): string | nil
+function Response.header(res: Types.Response, name: string): string?
   local headers = res.headers
   if headers == nil then return nil end
   local key = key_of(headers, name)
@@ -87,7 +87,7 @@ end
 
 --- The tokens of a Vary line, lowercase.
 local function tokens(value: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for token in value:gmatch("[^,%s]+") do out[#out + 1] = token:lower() end
   return out
 end
@@ -101,12 +101,12 @@ end
 --- @param res Types.Response The response
 --- @return Types.Response The copy
 function Response.copy(res: Types.Response): Types.Response
-  local headers: {string: string | {string}} = {}
+  local headers: mut {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do
     if value is string then
       headers[name] = value
     else
-      local lines: {string} = {}
+      local lines: mut {string} = {}
       for i, line in ipairs(value) do lines[i] = line end
       headers[name] = lines
     end
@@ -127,7 +127,7 @@ end
 --- @param name string The header's name
 --- @param value string The line to add
 function Response.add_header(res: Types.Response, name: string, value: string)
-  local headers: {string: string | {string}} = res.headers or {}
+  local headers: mut {string: string | {string}} = res.headers or {}
   res.headers = headers
   local key = key_of(headers, name)
   if name:lower() == "vary" then
@@ -140,10 +140,10 @@ function Response.add_header(res: Types.Response, name: string, value: string)
         old = table.concat(lines, ", ")
       end
     end
-    local have: {string:boolean} = {}
+    local have: mut {string:boolean} = {}
     for _, token in ipairs(tokens(old)) do have[token] = true end
     if have["*"] then return end
-    local add: {string} = {}
+    local add: mut {string} = {}
     for piece in value:gmatch("[^,%s]+") do
       local token = piece:lower()
       if token == "*" then
@@ -186,7 +186,7 @@ local function check_status(status: any, level: integer)
 end
 
 --- Applies `opts` to `res`.
-local function finish(res: Types.Response, opts: Types.ResponseOptions | nil): Types.Response
+local function finish(res: Types.Response, opts: Types.ResponseOptions?): Types.Response
   if opts == nil then return res end
   local status = opts.status
   if status ~= nil then
@@ -225,7 +225,7 @@ end
 --- @param value Json.Value The value
 --- @param opts ResponseOptions | nil Status 200 unless it says
 --- @return Types.Response The response
-function Response.json(value: any, opts?: Types.ResponseOptions): Types.Response
+function Response.json(value: Json.Value, opts?: Types.ResponseOptions): Types.Response
   local text, why = Json.encode(value)
   if text == nil then error("web: json: " .. unprefixed(why), 2) end
   return finish({ status = 200, headers = { ["Content-Type"] = "application/json",
@@ -286,7 +286,7 @@ function Response.redirect(location: string, opts?: Types.ResponseOptions): Type
     local absolute, why = absolute_url(location)
     if not absolute then
       error(("web: redirect to %q: not a local path or an http(s) URL%s"):format(location,
-        why ~= "" and " (" .. why .. ")" or ""), 2)
+        if why ~= "" then " (" .. why .. ")" else "" end), 2)
     end
   end
   return finish({ status = status, headers = { Location = location } }, opts)
@@ -297,7 +297,7 @@ end
 --- @param input string | nil What the client sent
 --- @param default string Where to go otherwise, a local path
 --- @return string The target
-function Response.safe_next(input: string | nil, default: string): string
+function Response.safe_next(input: string?, default: string): string
   if input ~= nil and Response.local_path(input) then return input end
   return default
 end
@@ -341,7 +341,7 @@ end
 function Response.problem(status: integer, detail?: string, extra?: {string:any}): Types.Response
   check_status(status, 3)
   local reason = Server.reason(status)
-  local body: {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" }
+  local body: mut {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" }
   if extra ~= nil then
     for name, value in pairs(extra) do body[name] = value end
   end
@@ -372,7 +372,7 @@ end
 --- The abort `err` is, or nil when it is any other raise.
 --- @param err any What was raised
 --- @return Response.Abort | nil The abort
-function Response.aborted(err: any): Response.Abort | nil
+function Response.aborted(err: any): Response.Abort?
   if not (err is {string:any} and err.web_abort == true) then return nil end
   local status, detail, extra = err.status, err.detail, err.extra
   if not status is integer then return nil end

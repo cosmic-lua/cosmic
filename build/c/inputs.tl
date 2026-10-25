@@ -68,7 +68,7 @@ local record inputs
   reader: function(dirs: {string}, command: {string}): inputs.Reader
   --- The key for compiling `file` (an absolute path) with `command` under `install`, the zig the compiler runs from; nil
   --- where it cannot be known.
-  key: function(reader: inputs.Reader, file: string, command: {string}, install: string): string | nil
+  key: function(reader: inputs.Reader, file: string, command: {string}, install: string): string?
 end
 
 --- How a macro's text is defined, as a [`Define`] says.
@@ -90,7 +90,7 @@ local function definition(name: string, text: string): inputs.Define
 end
 
 function inputs.reader(dirs: {string}, command: {string}): inputs.Reader
-  local defined: {inputs.Define} = {}
+  local defined: mut {inputs.Define} = {}
   for _, argument in ipairs(command) do
     local name, text = argument:match("^%-D([%a_][%w_]*)=(.*)$")
     if name ~= nil and text ~= nil then
@@ -120,7 +120,7 @@ end
 
 --- The path `name` names for an include of the file at `from`, as the compiler finds it: `quoted` names are looked for
 --- beside the includer first. Nil where no directory holds it.
-local function resolved(reader: inputs.Reader, from: string, name: string, quoted: boolean): string | nil
+local function resolved(reader: inputs.Reader, from: string, name: string, quoted: boolean): string?
   if name:sub(1, 1) == "/" then
     if present(name) then
       return name
@@ -166,11 +166,11 @@ local function read_header(reader: inputs.Reader, path: string): inputs.Header
   if text == nil or opaque(text) then
     return unreadable_header()
   end
-  local found: {string} = {}
-  local system: {string} = {}
-  local macros: {string} = {}
-  local defines: {inputs.Define} = {}
-  local probes: {string} = {}
+  local found: mut {string} = {}
+  local system: mut {string} = {}
+  local macros: mut {string} = {}
+  local defines: mut {inputs.Define} = {}
+  local probes: mut {string} = {}
   -- A directive continued on the next line is one line.
   local joined = text
   if text:find("\\\n", 1, true) ~= nil or text:find("\\\r", 1, true) ~= nil then
@@ -193,7 +193,7 @@ local function read_header(reader: inputs.Reader, path: string): inputs.Header
       return unreadable_header()
     elseif word == "include" then
       local line = joined:match("^[ \t]*([^\n]*)", after) or ""
-      local name: string | nil
+      local name: string?
       local quoted = false
       local first = line:sub(1, 1)
       local through = false
@@ -238,7 +238,7 @@ local function read_header(reader: inputs.Reader, path: string): inputs.Header
   if joined:find("__has_include", 1, true) ~= nil then
     -- Where `__has_include` is asked of a literal name, directly or through a macro that wraps it, the names; any other use
     -- is not read. Asking whether the compiler has it at all is the pinned compiler's answer.
-    local wrappers: {string: boolean} = { __has_include = true }
+    local wrappers: mut {string: boolean} = { __has_include = true }
     local wrapper_defines = 0
     for wrapper in joined:gmatch("#%s*define%s+([%a_][%w_]*)%s*%(%s*[%a_][%w_]*%s*%)%s*__has_include%s*%(%s*[%a_][%w_]*%s*%)") do
       wrappers[wrapper] = true
@@ -277,11 +277,11 @@ end
 
 --- The strings the macro `name` can be, as the strings it is defined as in `defines` with whether each was written `"`,
 --- following the macros it is defined as; nil where one definition is neither, or the chain is long.
-local function targets_of(defines: {string: {inputs.Define}}, name: string, depth: integer): {inputs.Target} | nil
+local function targets_of(defines: {string: {inputs.Define}}, name: string, depth: integer): {inputs.Target}?
   if depth > 8 then
     return nil
   end
-  local out: {inputs.Target} = {}
+  local out: mut {inputs.Target} = {}
   for _, d in ipairs(defines[name] or {}) do
     if d.kind == "string" or d.kind == "angle" then
       out[#out + 1] = { quoted = d.kind == "string", text = d.text }
@@ -300,10 +300,10 @@ local function targets_of(defines: {string: {inputs.Define}}, name: string, dept
   return out
 end
 
-function inputs.key(reader: inputs.Reader, file: string, command: {string}, install: string): string | nil
-  local entries: {string} = {}
-  local seen: {string: boolean} = {}
-  local stack: {string} = { file }
+function inputs.key(reader: inputs.Reader, file: string, command: {string}, install: string): string?
+  local entries: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  local stack: mut {string} = { file }
   seen[file] = true
   local defines: {string: {inputs.Define}} = {}
   local function define(d: inputs.Define)
@@ -318,8 +318,8 @@ function inputs.key(reader: inputs.Reader, file: string, command: {string}, inst
     define(d)
   end
   -- The macros included through, by the file that includes through them.
-  local pending: {inputs.Pending} = {}
-  local pending_seen: {string: boolean} = {}
+  local pending: mut {inputs.Pending} = {}
+  local pending_seen: mut {string: boolean} = {}
   while true do
     while #stack > 0 do
       local path = table.remove(stack) or file
@@ -362,7 +362,7 @@ function inputs.key(reader: inputs.Reader, file: string, command: {string}, inst
     -- Each macro included through names what the headers read define it as so far; a definition read later is found in
     -- the next round.
     local grew = false
-    local marks: {string} = {}
+    local marks: mut {string} = {}
     for _, entry in ipairs(pending) do
       local from, macro = entry.path, entry.macro
       local targets = targets_of(defines, macro, 0)
@@ -373,7 +373,7 @@ function inputs.key(reader: inputs.Reader, file: string, command: {string}, inst
       local mark = from .. " macro " .. macro .. "="
       for _, t in ipairs(targets) do
         local at = resolved(reader, from, t.text, t.quoted)
-        mark = mark .. (t.quoted and '"' or "<") .. t.text .. ">" .. (at or "-") .. ";"
+        mark = mark .. (if t.quoted then '"' else "<" end) .. t.text .. ">" .. (at or "-") .. ";"
         if at ~= nil and seen[at] == nil then
           seen[at] = true
           stack[#stack + 1] = at

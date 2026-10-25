@@ -9,20 +9,20 @@ local Rand = require("cosmic.rand")
 local rand = require("build.rand")
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local record Stand
   stdin?: string
-  entropy: function(count: integer): string | nil, string
+  entropy: function(count: integer): string?, string
   now_ns: function(): integer
   out: function(text: string): boolean, string
 end
 
 local function run(words: {string}, stand?: Stand): Ran
-  local argv: {string} = { "rand" }
+  local argv: mut {string} = { "rand" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local given: Stand = stand or {}
   local ran: Ran = { code = -1, out = "", err = "" }
@@ -32,7 +32,7 @@ local function run(words: {string}, stand?: Stand): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
+    stdin = function(): string?, string
       local stdin = given.stdin
       if stdin == nil then return nil, "no standard input in this test" end
       return stdin, ""
@@ -44,7 +44,7 @@ local function run(words: {string}, stand?: Stand): Ran
 end
 
 local function lines(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("[^\n]+") do out[#out + 1] = line end
   return out
 end
@@ -52,7 +52,7 @@ end
 local function test_uuid_v4_layout_and_bits()
   local ran = run({ "uuid", "-n", "50" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, id in ipairs(lines(ran.out)) do
     assert(id:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"), id)
     assert(id == id:lower(), id)
@@ -68,11 +68,11 @@ end
 
 local function test_uuid_v4_is_made_of_entropy_alone()
   -- All bits set: the version and variant bits are forced, the rest kept.
-  local ran = run({ "uuid" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "uuid" }, { entropy = function(count: integer): string?, string
     return string.rep("\255", count), ""
   end })
   assert(ran.out == "ffffffff-ffff-4fff-bfff-ffffffffffff\n", ran.out)
-  local zero = run({ "uuid" }, { entropy = function(count: integer): string | nil, string
+  local zero = run({ "uuid" }, { entropy = function(count: integer): string?, string
     return string.rep("\0", count), ""
   end })
   assert(zero.out == "00000000-0000-4000-8000-000000000000\n", zero.out)
@@ -80,7 +80,7 @@ end
 
 local function test_uuid_v7_layout_and_bits()
   -- 1700000000123 ms, 456789 ns into it: 456789 * 4096 // 1e6 = 1871.
-  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "uuid", "--v7" }, { entropy = function(count: integer): string?, string
     return string.rep("\255", count), ""
   end })
   assert(ran.code == 0, ran.err)
@@ -195,7 +195,7 @@ end
 local function test_int_seeded_covers_the_range_evenly_enough()
   local ran = run({ "int", "1", "6", "-n", "600", "--seed", "1" })
   assert(ran.code == 0, ran.err)
-  local counts: {integer:integer} = {}
+  local counts: mut {integer:integer} = {}
   for _, line in ipairs(lines(ran.out)) do
     local value = assert(math.tointeger(tonumber(line)))
     counts[value] = (counts[value] or 0) + 1
@@ -215,9 +215,9 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   -- be drawn again, not reduced modulo 3 to 0.
   local draws = { 3, 3, 1, 2, 0 }
   local calls = { value = 0 }
-  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string?, string
     calls.value = calls.value + 1
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for index = 1, count // 8 do parts[index] = string.pack("<i8", draws[(index - 1) % 5 + 1]) end
     return table.concat(parts), ""
   end })
@@ -227,17 +227,17 @@ end
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()
   -- The entropy is a fixed stream, so the count below is fixed too.
   local source = Rand.new(11)
-  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): string | nil, string
+  local ran = run({ "int", "-1", "1", "-n", "300" }, { entropy = function(count: integer): string?, string
     return source:bytes(count), ""
   end })
-  local counts: {integer:integer} = {}
+  local counts: mut {integer:integer} = {}
   for _, line in ipairs(lines(ran.out)) do
     local value = assert(math.tointeger(tonumber(line)))
     counts[value] = (counts[value] or 0) + 1
   end
   for value = -1, 1 do assert(counts[value] ~= nil and counts[value] > 60, value) end
   -- Seeded runs never ask the entropy source.
-  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string | nil, string
+  local untouched = run({ "int", "1", "9", "--seed", "3" }, { entropy = function(_count: integer): string?, string
     error("a seeded draw read the entropy source")
   end })
   assert(untouched.code == 0, untouched.err)
@@ -258,7 +258,7 @@ end
 
 local function test_shuffle_keeps_every_line_and_visits_every_order()
   local input = "x\ny\nz\n"
-  local orders: {string:boolean} = {}
+  local orders: mut {string:boolean} = {}
   for seed = 1, 60 do
     local ran = run({ "shuffle", "--seed", tostring(seed) }, { stdin = input })
     local got = lines(ran.out)
@@ -336,7 +336,7 @@ local function test_a_failed_write_to_standard_output_is_exit_2()
 end
 
 local function test_a_failing_entropy_source_is_exit_1_and_says_so()
-  local ran = run({ "uuid" }, { entropy = function(_count: integer): string | nil, string
+  local ran = run({ "uuid" }, { entropy = function(_count: integer): string?, string
     return nil, "rand: entropy: no source"
   end })
   assert(ran.code == 1 and ran.out == "", ran.out)
@@ -359,7 +359,7 @@ local function test_v7_counter_carries_into_the_milliseconds_at_4095()
   -- same instant would be fraction 4096, which carries into the ms.
   local ns = 7000000000 + 999756
   local ran = run({ "uuid", "--v7", "-n", "3" }, { now_ns = function(): integer return ns end,
-    entropy = function(count: integer): string | nil, string return string.rep("\0", count), "" end })
+    entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
   local ids = lines(ran.out)
   local ms = ("%012x"):format(7000)
   local next_ms = ("%012x"):format(7001)

@@ -66,9 +66,9 @@ local METHOD <const> = "^[A-Z][A-Z0-9_-]*$"
 --- where `slash` says and a segment precedes it.
 local function path_of(segments: {string}, slash: boolean): string
   if #segments == 0 then return "/" end
-  local escaped: {string} = {}
+  local escaped: mut {string} = {}
   for i, segment in ipairs(segments) do escaped[i] = Url.escape(segment) end
-  return "/" .. table.concat(escaped, "/") .. (slash and "/" or "")
+  return "/" .. table.concat(escaped, "/") .. (if slash then "/" else "" end)
 end
 
 --- `path` in its canonical form, or nil and why when it is refused: not an
@@ -79,7 +79,7 @@ end
 --- @param path string The request's path as sent
 --- @return Router.Canon | nil The canonical path
 --- @return string Why it is refused
-function Router.canonical(path: string): Router.Canon | nil, string
+function Router.canonical(path: string): Router.Canon?, string
   local segments, why = Url.segments(path)
   if segments == nil then return nil, why end
   local rest = path:sub(2)
@@ -94,15 +94,15 @@ end
 --- A pattern read: its segments, whether it ends in "/", and the names of
 --- its parameters in order; or nil and why.
 local record Parsed
-  segments: {Types.Segment}
-  slash: boolean
-  names: {string}
-  wild: boolean
+  segments: mut {Types.Segment}
+  mut slash: boolean
+  names: mut {string}
+  mut wild: boolean
 end
 
 --- Reads `pattern`. Literal segments are decoded text; `:name` is one
 --- segment, `*name` the rest and last; a segment mixes none of these.
-local function parse(pattern: string, mount: boolean): Parsed | nil, string
+local function parse(pattern: string, mount: boolean): Parsed?, string
   if pattern:sub(1, 1) ~= "/" then return nil, "the pattern must start with '/'" end
   if pattern:find("[%z\1-\31\127]") then return nil, "the pattern holds a control byte" end
   local parsed: Parsed = { segments = {}, slash = false, names = {}, wild = false }
@@ -112,7 +112,7 @@ local function parse(pattern: string, mount: boolean): Parsed | nil, string
     parsed.slash = true
     rest = rest:sub(1, -2)
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local at = 1
   while at <= #rest + 1 do
     local slash = rest:find("/", at, true) or #rest + 1
@@ -164,12 +164,12 @@ end
 
 --- The text of a pattern's segments: "/items/:id".
 local function pattern_text(segments: {Types.Segment}, slash: boolean): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, segment in ipairs(segments) do
     out[i] = segment.kind == "literal" and segment.text or
-      (segment.kind == "param" and ":" or "*") .. segment.text
+      (if segment.kind == "param" then ":" else "*" end) .. segment.text
   end
-  return "/" .. table.concat(out, "/") .. (slash and #out > 0 and "/" or "")
+  return "/" .. table.concat(out, "/") .. (if slash and #out > 0 then "/" else "" end)
 end
 
 --- Raises for a route that cannot be registered, naming `what`.
@@ -208,7 +208,7 @@ local function descend(root: Types.Node, segments: {Types.Segment}, what: string
 end
 
 --- Adds `entry` under `full` to `names`, raising where the name is taken.
-local function name_it(names: {string: Types.ReverseEntry}, full: string, entry: Types.ReverseEntry,
+local function name_it(names: mut {string: Types.ReverseEntry}, full: string, entry: Types.ReverseEntry,
                        what: string)
   if names[full] ~= nil then
     refuse(what, ("the name '%s' is already used"):format(full))
@@ -218,7 +218,7 @@ end
 
 --- The segments of the prefix of the router built so far plus `segments`.
 local function joined(prefix: {string}, segments: {Types.Segment}): {Types.Segment}
-  local out: {Types.Segment} = {}
+  local out: mut {Types.Segment} = {}
   for i, text in ipairs(prefix) do out[i] = { kind = "literal", text = text } end
   for _, segment in ipairs(segments) do out[#out + 1] = segment end
   return out
@@ -259,11 +259,11 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   end
   local full_segments = joined(ctx.prefix, segments)
   local full_pattern = pattern_text(full_segments, slash)
-  local stack: {Types.Middleware} = {}
+  local stack: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do stack[#stack + 1] = mw end
   for _, mw in ipairs(route.middleware or {}) do stack[#stack + 1] = mw end
   local handler = Middleware.compose(stack, assert(route.handler))
-  local full_name = route.name ~= "" and ctx.name_prefix .. route.name or ""
+  local full_name = if route.name ~= "" then ctx.name_prefix .. route.name else "" end
   local info: Types.RouteInfo = { name = full_name, pattern = full_pattern, methods = route.methods }
   for _, method in ipairs(route.methods) do
     if not method:find(METHOD) then
@@ -300,7 +300,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   end
   local full_segments = joined(ctx.prefix, segments)
   local full_prefix = pattern_text(full_segments, false)
-  local own: {Types.Middleware} = {}
+  local own: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do own[#own + 1] = mw end
   for _, mw in ipairs(route.middleware or {}) do own[#own + 1] = mw end
   if route.name ~= "" and route.name:find(":", 1, true) then
@@ -309,17 +309,17 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   local mount: Types.Mount = { prefix = full_prefix }
   if route.fallback ~= nil then
     mount.handler = Middleware.compose(own, route.fallback)
-    mount.info = { name = route.name ~= "" and ctx.name_prefix .. route.name or "",
-      pattern = full_prefix == "/" and "/*" or full_prefix .. "/*", methods = {} }
+    mount.info = { name = if route.name ~= "" then ctx.name_prefix .. route.name else "" end,
+      pattern = if full_prefix == "/" then "/*" else full_prefix .. "/*" end, methods = {} }
   else
-    local inner_prefix: {string} = {}
+    local inner_prefix: mut {string} = {}
     for i, text in ipairs(ctx.prefix) do inner_prefix[i] = text end
     for _, part in ipairs(segments) do inner_prefix[#inner_prefix + 1] = part.text end
     local inner: Router.Context = {
       policy = ctx.policy, terminal = ctx.terminal, miss = Middleware.compose(own, ctx.terminal),
       chain = own,
       prefix = inner_prefix, keep_prefix = ctx.keep_prefix, mount_path = full_prefix,
-      name_prefix = route.name ~= "" and ctx.name_prefix .. route.name .. ":" or ctx.name_prefix,
+      name_prefix = if route.name ~= "" then ctx.name_prefix .. route.name .. ":" else ctx.name_prefix end,
       names = ctx.names, verbs = ctx.verbs,
     }
     local sub: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names,
@@ -361,7 +361,7 @@ end
 --- the path reached that answers some other method.
 local record Walk
   method: string
-  other?: Hit
+  mut other?: Hit
 end
 
 --- Whether `methods` answers `method` (HEAD by a GET).
@@ -371,7 +371,7 @@ end
 
 --- The hit at `methods` for `walk`, or nil where it lacks the method; the
 --- first such node is kept as the walk's `other`, for a 405 to name.
-local function settle(walk_: Walk, methods: Types.Methods, values: {string}, rest_from: integer): Hit | nil
+local function settle(walk_: Walk, methods: Types.Methods, values: {string}, rest_from: integer): Hit?
   if answers(methods, walk_.method) then
     return { methods = methods, values = values, rest_from = rest_from }
   end
@@ -381,8 +381,8 @@ local function settle(walk_: Walk, methods: Types.Methods, values: {string}, res
   return nil
 end
 
-local function walk(node: Types.Node, segments: {string}, i: integer, values: {string},
-                    state: Walk): Hit | nil
+local function walk(node: Types.Node, segments: {string}, i: integer, values: mut {string},
+                    state: Walk): Hit?
   local node_mount = node.mount
   if node_mount ~= nil then
     return { mount = node_mount, at = i, values = values, rest_from = 0 }
@@ -420,7 +420,7 @@ end
 --- The `Allow` header for the routes of `methods`: HEAD where there is a
 --- GET, OPTIONS always.
 local function allow_of(verbs: {string:boolean}): string
-  local list: {string} = {}
+  local list: mut {string} = {}
   for method in pairs(verbs) do list[#list + 1] = method end
   if verbs["GET"] and not verbs["HEAD"] then list[#list + 1] = "HEAD" end
   if not verbs["OPTIONS"] then list[#list + 1] = "OPTIONS" end
@@ -430,7 +430,7 @@ end
 
 --- The methods answered at `methods`.
 local function verbs_of(methods: Types.Methods): {string:boolean}
-  local verbs: {string:boolean} = {}
+  local verbs: mut {string:boolean} = {}
   for method in pairs(methods.by_method) do verbs[method] = true end
   return verbs
 end
@@ -479,7 +479,7 @@ function Router.lookup(router: Types.Router, method: string, segments: {string},
     return { kind = "redirect", location = path_of(segments, terminal.slash), handler = router.miss,
       mount_path = router.mount_path }
   end
-  local params: {string:string} = {}
+  local params: mut {string:string} = {}
   for i, name in ipairs(terminal.names) do
     if i <= #hit.values then
       params[name] = hit.values[i]
@@ -522,10 +522,10 @@ local function matched(self: Types.Router, method: string, path: string): Types.
 end
 
 local function reverse(self: Types.Router, name: string, params?: {string: string | integer},
-                       query?: {string:string}): string | nil, string
+                       query?: {string:string}): string?, string
   local entry = self.names[name]
   if entry == nil then return nil, ('url_for: no route named "%s"'):format(name) end
-  local strings: {string:string} = {}
+  local strings: mut {string:string} = {}
   for key, value in pairs(params or {}) do
     strings[key] = value is string and value or ("%d"):format(value)
   end
@@ -536,8 +536,8 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
     if url == nil then return nil, why end
     path = url
   else
-    local used: {string:boolean} = {}
-    local parts: {string} = {}
+    local used: mut {string:boolean} = {}
+    local parts: mut {string} = {}
     local open_rest = false
     for _, segment in ipairs(assert(entry.segments)) do
       if segment.kind == "literal" then
@@ -570,14 +570,14 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
     if (entry.slash or open_rest) and #parts > 0 then path = path .. "/" end
   end
   if query ~= nil and next(query) ~= nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for key in pairs(query) do names[#names + 1] = key end
     table.sort(names)
-    local entries: {{string}} = {}
+    local entries: mut {{string}} = {}
     for i, key in ipairs(names) do entries[i] = { key, query[key] } end
     local part, why = Html.url_query(entries)
     if part == nil then return nil, "url_for: " .. why end
-    path = path .. (path:find("?", 1, true) and "&" or "?") .. Html.raw_url_part(part)
+    path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)
   end
   return path, ""
 end

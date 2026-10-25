@@ -32,7 +32,7 @@ function Example.guard()
   local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child exiting with its i.
   local again = assert(Proc.relaunch())
-  local running: {Child.Handle} = {}
+  local running: mut {Child.Handle} = {}
   for i = 1, 3 do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
@@ -42,7 +42,7 @@ function Example.guard()
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-    local still: {Child.Handle} = {}
+    local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
         local result = assert(h:wait())
@@ -66,8 +66,8 @@ function Example.supervisor()
   local guard <close> = assert(Signal.guard())
   -- This program again, past its launcher, each child sleeping a minute.
   local again = assert(Proc.relaunch())
-  local running: {Child.Handle} = {}
-  local names: {Child.Handle:string} = {}
+  local running: mut {Child.Handle} = {}
+  local names: mut {Child.Handle:string} = {}
   for _, name in ipairs({ "build", "upload" }) do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
@@ -76,15 +76,15 @@ function Example.supervisor()
     running[#running + 1] = h
     names[h] = name
   end
-  local report: {string} = {}
+  local report: mut {string} = {}
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
     if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-    local still: {Child.Handle} = {}
+    local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
         local result = assert(h:wait())
-        report[#report + 1] = assert(names[h]) .. (result.ok and " ok" or " failed")
+        report[#report + 1] = assert(names[h]) .. (if result.ok then " ok" else " failed" end)
       else
         still[#still + 1] = h
       end
@@ -101,7 +101,7 @@ function Example.supervisor()
   for _, line in ipairs(report) do print(line) end
   -- A program would exit with this status, as a shell's does for a
   -- command a signal ended.
-  local status = caught ~= 0 and 128 + caught or 0
+  local status = if caught ~= 0 then 128 + caught else 0 end
   assert(status == 128 + sys.SIGTERM, tostring(status))
 end
 
@@ -119,7 +119,7 @@ function Example.release()
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = ""
   local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
-  local result: Child.Result | nil
+  local result: Child.Result?
   while result == nil do
     local state = assert(h:try_wait())
     if state.finished then

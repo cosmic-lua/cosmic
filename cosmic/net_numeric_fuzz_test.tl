@@ -9,7 +9,7 @@ local function gen_host(src: Fuzz.Source): string
   if mode == 0 then return "127.0.0.1" end
   if mode == 1 then return "::1%" .. Fuzz.bytes(src, 32) end
   if mode == 2 then return "127.0.0.1\0" .. Fuzz.bytes(src, 32) end
-  local parts: {string} = { "127" }
+  local parts: mut {string} = { "127" }
   while Fuzz.more(src, #parts, 6) do
     local part = tostring(src:int(0, 512))
     if src:int(0, 3) == 0 then part = "0" .. part end

@@ -9,7 +9,7 @@ end
 --- The same, fed in the pieces `cuts` ends (offsets into `input`).
 local function pieces(input: string, cuts: {integer}): string, string
   local filter = TermFilter.new()
-  local passed, answered: {string}, {string} = {}, {}
+  local passed, answered: mut {string}, mut {string} = {}, {}
   local from = 1
   for _, cut in ipairs(cuts) do
     local out, replies = filter:feed(input:sub(from, cut))
@@ -34,7 +34,7 @@ local function check(name: string, input: string, passed: string, answered?: str
     assert(split_out == passed and split_replies == answered,
       name .. ": cut at " .. cut .. " passed " .. string.format("%q", split_out))
   end
-  local every: {integer} = {}
+  local every: mut {integer} = {}
   for cut = 1, #input do every[cut] = cut end
   local byte_out, byte_replies = pieces(input, every)
   assert(byte_out == passed and byte_replies == answered, name .. ": a byte at a time")

@@ -175,60 +175,60 @@ local record Markup
   --- but whitespace so far.
   record Place
     --- The tokenizer's state, which decides what a slot may be.
-    phase: Phase
+    mut phase: Phase
     --- The tag being read or last read, whose name decides the raw text it
     --- opens and which of its attributes mean what.
-    tag: string
+    mut tag: string
     --- The attribute being read or last read, lower case: `on...` and `href`
     --- are judged by it.
-    attr: string
+    mut attr: string
     --- Whether the tag is an end tag, whose attributes the browser ignores.
-    closing: boolean
+    mut closing: boolean
     --- A URL slot must begin its value: true until text or a slot is in it.
-    fresh: boolean
+    mut fresh: boolean
     --- The `<svg>` and `<math>` open, and the elements inside them that
     --- the browser reads HTML in, innermost last, each name after a space.
-    stack: string
+    mut stack: string
     --- Set when the browser may read what follows by rules this tracker
     --- does not follow, so every later slot is refused: raw text or
     --- RCDATA inside `<svg>` or `<math>` that holds a `<`, `<noscript>`
     --- text that a browser with scripting off leaves outside plain text
     --- (see `off`), most raw text or RCDATA in `<select>` or after
     --- `<frameset>`.
-    murky: boolean
+    mut murky: boolean
     --- Whether a `<select>` is open in HTML, where an `<svg>`, a `<template>`
     --- and most raw text or RCDATA tags make the place murky, and text
     --- takes no markup (`ftext`).
-    select: boolean
+    mut select: boolean
     --- Whether a `<frameset>` has started in HTML. A parser in frameset
     --- stays there to the end of the document and ignores most tags.
-    frameset: boolean
+    mut frameset: boolean
     --- Whether the `<font>` being read has `color`, `face` or `size`.
-    fontattr: boolean
+    mut fontattr: boolean
     --- Whether the last byte read was the `/` of a tag, which a `>` at the
     --- start of the next run of text then closes as self-closing.
-    slash: boolean
+    mut slash: boolean
     --- Whether the literal text since a URL slot, in the same value, has
     --- not yet reached a `/`, `?` or `#`.
-    after_url: boolean
+    mut after_url: boolean
     --- Set when that text held a `:`.
-    colon: boolean
+    mut colon: boolean
     --- Whether no literal text has followed a URL slot yet in its value (a
     --- tab, line feed or carriage return, which a URL parser drops, aside).
-    bare: boolean
+    mut bare: boolean
     --- Set when the first such text began with `/` or `\`: a slot value of
     --- `/` and that text would make `//host`.
-    rooted: boolean
+    mut rooted: boolean
     --- In a URL attribute's value, the literal text so far that has not yet
     --- fixed the URL's scheme (see `pinned`): one text per way the value may
     --- have begun, joined by NUL, with tab, line feed and carriage return
     --- (which a URL parser drops) removed. "" before any text.
-    lead: string
+    mut lead: string
     --- Whether the value's literal text, or a whole-URL slot, has fixed the
     --- URL's scheme and left the position of the next byte in the path, query
     --- or fragment, which is where a part slot may stand (see `judge`). `lead`
     --- is then empty and unused.
-    pinned: boolean
+    mut pinned: boolean
     --- The URL path segment being read in a URL attribute's value, one
     --- text per way it may have gone, joined by NUL, kept only while it is a
     --- start of a dot segment: up to two dots, each `.` or `%2e` (read as
@@ -237,75 +237,75 @@ local record Markup
     --- carriage return aside. "!" is a segment that cannot be one, "" an
     --- empty one. A part slot after a dot segment's start could make a `..`
     --- or a `%2e` escape with its value (`/.` and a part `.`, `/%` and `2e`).
-    seg: string
+    mut seg: string
     --- Whether the value's literal text has reached a `?` or `#`, where
     --- the query or fragment begins.
-    query: boolean
+    mut query: boolean
     --- Set when the literal text before that held an `&`, which a browser
     --- reads as a character reference (`&sol;` is a `/`, `&#46;` a `.`)
     --- before it parses the URL, in a place the tracker reads as the path.
-    amp: boolean
+    mut amp: boolean
     --- Set after a whole-URL slot until literal text reaches a `?` or `#`:
     --- the slot's value may be a bare origin (`https://host`) or `http:`, so
     --- a part right after it could be the host or the path's first byte.
-    wait: boolean
+    mut wait: boolean
     --- In a value of an attribute a dialect gives the class `selector`,
     --- whether the literal text and slots so far end in the middle of an
     --- identifier after a `#` or `.`, where a selector slot may stand.
-    ident: boolean
+    mut ident: boolean
     --- After a `json` slot, which is the whole value: set until the value
     --- ends.
-    sole: boolean
+    mut sole: boolean
     --- Set when non-blank literal text followed such a slot in its value.
-    sole_trail: boolean
+    mut sole_trail: boolean
     --- What the dialects of the template say of an attribute.
     dialect: dialect.Table
     --- Whether the tag has an `http-equiv` attribute.
-    equiv: boolean
+    mut equiv: boolean
     --- Where a slot in the `content` of a `<meta>` stood (the line, then
     --- the column; 0 for none), in case the tag turns out to hold `http-equiv`.
-    meta_line: integer
+    mut meta_line: integer
     --- Its column.
-    meta_col: integer
+    mut meta_col: integer
     --- A refusal found at the end of a tag or of a JSON slot's value, for
     --- the slot or byte at `late_line` and `late_col`.
-    late: string
+    mut late: string
     --- The line of that slot.
-    late_line: integer
+    mut late_line: integer
     --- Its column.
-    late_col: integer
+    mut late_col: integer
     --- In the text of a raw text or RCDATA element, the longest end of its
     --- text that the next run could complete into something read here: a
     --- start of `</tag` (`<`, `</`, `</tex`); in `<script>` also `<scr`, `-`,
     --- `--`. The next run,
     --- after a block that emits nothing or a string action, is read after
     --- it, and a slot after it could complete the tag.
-    raw_tail: string
+    mut raw_tail: string
     --- In the text of a `<script>`, whether a `<!--` has opened (and no `-->`
     --- has closed) the escaped state, in which a `<script` opens a nested
     --- script whose `</script>` does not end the element.
-    escaped: boolean
+    mut escaped: boolean
     --- Whether that nested script is open.
-    double: boolean
+    mut double: boolean
     --- Whether a name or an unquoted value in this tag went on, or an
     --- attribute took a value, across an action (`<input a{{if .b}}c{{end}}>`,
     --- `<input a{{if .b}}=c{{end}}>`), which a block's arms may then have done
     --- in ways their places do not show: such a tag is never left apart
     --- (see `apart`).
-    split: boolean
+    mut split: boolean
     --- In the text of a `<noscript>`, where a browser with scripting off,
     --- which reads that text as markup, is in it so far, from the end of
     --- the `<noscript>` start tag; nil elsewhere. At
     --- its `</noscript>` the place is murky unless this one is in plain text
     --- (see [`noscript_clean`]).
-    off?: Place
+    mut off?: Place
     --- The other places this one may be, where the arms of a block left
     --- one tag at different attribute boundaries (`<input{{if .a}} checked{{end}}`):
     --- each as its phase, a `:` and its attribute (empty where the phase
     --- does not read one), sorted and joined by spaces; "" for none. They
     --- share every other field with this place. The text after the block
     --- is read in each until they agree (see `settle`).
-    alts: string
+    mut alts: string
   end
 
   --- A new place: the start of the template, in text, whose attributes are
@@ -331,7 +331,7 @@ local record Markup
 
   --- What a slot at a place is, or why there is none. In an attribute a
   --- dialect classifies it is what the class says.
-  slot: function(p: Place): types.Slot | nil, string
+  slot: function(p: Place): types.Slot?, string
 
   --- Marks that a slot of kind `ctx` was written at a place, at a line and
   --- column: a URL value must begin with its slot, and the literal text
@@ -486,7 +486,7 @@ end
 
 --- The keys in `set` other than `p`'s own, as `alts` holds them.
 local function alts_of(p: Place, set: {string: boolean}): string
-  local list: {string} = {}
+  local list: mut {string} = {}
   for k in pairs(set) do
     if k ~= alt_key(p) then
       list[#list + 1] = k
@@ -523,7 +523,7 @@ local function raw_state(p: Place): string
     out = out .. " after '" .. p.raw_tail .. "'"
   end
   if p.escaped then
-    out = out .. (p.double and " inside a <!-- and a nested <script" or " inside a <!--")
+    out = out .. (if p.double then " inside a <!-- and a nested <script" else " inside a <!--" end)
   end
   return out
 end
@@ -563,7 +563,7 @@ local function judge(lead: string): string
   local rest: string
   if first == "/" or first == "\\" then
     if s:find("^[/\\]", 2) == nil then
-      return s == first and "open" or "yes"
+      return if s == first then "open" else "yes" end
     end
     rest = s:gsub("^[/\\]+", "")
   else
@@ -585,12 +585,12 @@ local function judge(lead: string): string
     end
     rest = s:sub(stop + 1):gsub("^[/\\]+", "")
   end
-  return rest:find("[/\\?#]") and "yes" or "no"
+  return if rest:find("[/\\?#]") then "yes" else "no" end
 end
 
 --- The ways a value may have begun, from `lead`.
 local function ways(lead: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for way in (lead .. "\0"):gmatch("([^%z]*)%z") do
     out[#out + 1] = way
   end
@@ -637,7 +637,7 @@ local function track(p: Place, text: string)
   if text == "" then
     return
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, seg in ipairs(ways(p.seg)) do
     out[#out + 1] = segment(seg, text)
   end
@@ -653,7 +653,7 @@ local function track(p: Place, text: string)
   if p.pinned then
     return
   end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   for _, way in ipairs(ways(p.lead)) do
     way = way .. text
     if judge(way) ~= "yes" then
@@ -693,8 +693,8 @@ end
 --- may stand only if it may after either, and the text may have begun in
 --- any way either holds.
 local function merge(a: Place, b: Place)
-  local set: {string: boolean} = {}
-  local segs: {string} = {}
+  local set: mut {string: boolean} = {}
+  local segs: mut {string} = {}
   for _, one in ipairs(ways(a.seg)) do
     set[one] = true
   end
@@ -716,8 +716,8 @@ local function merge(a: Place, b: Place)
     a.lead = b.lead
     return
   end
-  local seen: {string: boolean} = {}
-  local list: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local list: mut {string} = {}
   for _, way in ipairs(ways(a.lead)) do
     seen[way] = true
   end
@@ -730,7 +730,7 @@ local function merge(a: Place, b: Place)
   table.sort(list)
   -- A value that began in many ways is one the tracker stops following: a
   -- way that never fixes the scheme refuses every part slot after it.
-  a.lead = #list > 8 and "&" or table.concat(list, "\0")
+  a.lead = if #list > 8 then "&" else table.concat(list, "\0") end
 end
 
 local function join(a: Place, b: Place)
@@ -750,7 +750,7 @@ local function join(a: Place, b: Place)
     a.meta_line = b.meta_line
     a.meta_col = b.meta_col
   end
-  local set: {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
+  local set: mut {string: boolean} = { [alt_key(a)] = true, [alt_key(b)] = true }
   for _, alts in ipairs({ a.alts, b.alts }) do
     for k in alts:gmatch("%S+") do
       set[k] = true
@@ -762,7 +762,7 @@ local function join(a: Place, b: Place)
   -- Closed under what a run of spaces or a `/` makes of each, so the body
   -- of a `{{range}}` walked from the set ends in it and a third walk finds
   -- what the second did. The places added refuse no text the others take.
-  local ended: {string} = { "before_attr:" }
+  local ended: mut {string} = { "before_attr:" }
   for k in pairs(set) do
     local name = k:match("^attr_name:(.*)$")
     if name ~= nil then
@@ -794,7 +794,7 @@ end
 --- Where `tag`'s end tag next begins in `text` from `from`, for a tag of
 --- text that has no markup in it (`style`, `textarea`, `title`): the
 --- offset of its `<`, or nil.
-local function plain_end(text: string, from: integer, tag: string): integer | nil
+local function plain_end(text: string, from: integer, tag: string): integer?
   local at = from
   while true do
     local lt = text:find("</", at, true)
@@ -850,7 +850,7 @@ end
 --- script, not at its end, as the standard has it; `-->` leaves the
 --- comment. Those states are `p`'s, so they hold across a block that
 --- emits nothing, and are left as they stand at the end of `text`.
-local function script_end(p: Place, text: string, from: integer): integer | nil
+local function script_end(p: Place, text: string, from: integer): integer?
   local at = from
   while true do
     local hit = text:find("[<%-]", at)
@@ -886,7 +886,7 @@ end
 
 --- The tags that take the HTML parser out of `<svg>` or `<math>` (the
 --- standard's list; `font` only with a `color`, `face` or `size`).
-local BREAKOUT <const>: {string: boolean} = {}
+local BREAKOUT <const>: mut {string: boolean} = {}
 for _, name in ipairs({
     "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div", "dl", "dt", "em", "embed", "h1", "h2",
     "h3", "h4", "h5", "h6", "head", "hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p", "pre",
@@ -961,7 +961,7 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   if p.attr == "http-equiv" and ATTRIBUTED[p.phase] then
     p.equiv = true
   end
-  local before = from >= 3 and text:byte(from - 2) or (p.slash and 47 or 0)
+  local before = from >= 3 and text:byte(from - 2) or (if p.slash then 47 else 0 end)
   count(p, not unquoted and before == 47)
   if p.tag == "meta" and not p.closing and p.equiv and p.meta_line > 0 then
     p.late = "a slot in the content of a <meta> that has http-equiv could be a redirect"
@@ -972,7 +972,7 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   if phase ~= nil and not p.closing and ignored(p) then
     p.murky = true
   end
-  p.phase = (p.closing or phase == nil) and "text" or phase
+  p.phase = if (p.closing or phase == nil) then "text" else phase end
   if p.phase == "raw" and p.tag == "noscript" then
     local off = start(p.dialect)
     off.select = p.select
@@ -1091,7 +1091,7 @@ local function scan(p: Place, text: string)
       elseif b == 61 then
         -- After a name, `=` brings its value; before one it is the first
         -- byte of a name, as the standard has it.
-        p.phase = phase == "after_attr" and "before_value" or "attr_name"
+        p.phase = if phase == "after_attr" then "before_value" else "attr_name" end
         p.attr = phase == "after_attr" and p.attr or "="
         i = i + 1
       else
@@ -1111,7 +1111,7 @@ local function scan(p: Place, text: string)
         elseif d == 62 then
           i = end_tag(p, text, i + 1, false)
         else
-          p.phase = d == 47 and "before_attr" or "after_attr"
+          p.phase = if d == 47 then "before_attr" else "after_attr" end
           i = i + 1
         end
       end
@@ -1119,7 +1119,7 @@ local function scan(p: Place, text: string)
       if space(b) then
         i = i + 1
       elseif b == 34 or b == 39 then
-        p.phase = b == 34 and "value_dq" or "value_sq"
+        p.phase = if b == 34 then "value_dq" else "value_sq" end
         p.fresh = true
         p.ident = false
         p.sole = false
@@ -1137,7 +1137,7 @@ local function scan(p: Place, text: string)
         p.phase = "value_unq"
       end
     elseif phase == "value_dq" or phase == "value_sq" then
-      local close = text:find(phase == "value_dq" and '"' or "'", i, true)
+      local close = text:find(if phase == "value_dq" then '"' else "'" end, i, true)
       local last = (close or n + 1) - 1
       if p.fresh then
         local seen = text:find("[^ \t\r\n\f]", i)
@@ -1271,7 +1271,7 @@ local function scan(p: Place, text: string)
       p.phase = "comment_dash"
       i = dash + 1
     elseif phase == "comment_dash" then
-      p.phase = b == 45 and "comment_end" or "comment"
+      p.phase = if b == 45 then "comment_end" else "comment" end
       i = i + 1
     elseif phase == "comment_end" then
       if b == 62 then
@@ -1302,7 +1302,7 @@ local function scan(p: Place, text: string)
       if p.tag == "plaintext" then
         return
       end
-      local found: integer | nil
+      local found: integer?
       if p.tag == "script" then
         found = script_end(p, text, i)
       else
@@ -1356,7 +1356,7 @@ end
 --- Whether byte `b` carries on the tag name, attribute name or unquoted
 --- value that `phase` is reading, or gives the attribute just named a value,
 --- rather than leaving it whole.
-local function continues(phase: Phase, b: integer | nil): boolean
+local function continues(phase: Phase, b: integer?): boolean
   if b == nil or space(b) or b == 62 then
     return false
   elseif phase == "value_unq" then
@@ -1389,7 +1389,7 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
   local i = 1
   while p.alts ~= "" and i <= #text do
     local c = text:sub(i, i)
-    local places: {Place} = { p }
+    local places: mut {Place} = { p }
     for k in p.alts:gmatch("%S+") do
       places[#places + 1] = as_alt(p, k)
     end
@@ -1412,7 +1412,7 @@ local function settle(p: Place, text: string, line: integer, col: integer): inte
         end
       end
     elseif not extended and together then
-      local set: {string: boolean} = {}
+      local set: mut {string: boolean} = {}
       for _, q in ipairs(places) do
         set[alt_key(q)] = true
       end
@@ -1444,7 +1444,7 @@ feed = function(p: Place, text: string, line: integer, col: integer)
   p.slash = p.phase == "before_attr" and text:byte(#text) == 47
 end
 
-local function slot(p: Place): types.Slot | nil, string
+local function slot(p: Place): types.Slot?, string
   local phase = p.phase
   if p.alts ~= "" then
     return nil, "a slot after a block whose arms leave this tag at different attributes"
@@ -1503,7 +1503,7 @@ local function slot(p: Place): types.Slot | nil, string
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"
       end
       if p.fresh then
-        return class == "url_local" and "url_local" or "url", ""
+        return if class == "url_local" then "url_local" else "url" end, ""
       elseif not fixed(p) then
         return nil, "a slot in the '" .. attr .. "' attribute that does not begin the value is a piece of a URL, " ..
           "and must follow text that fixes where the URL goes: begin the value with '/', '.', '?' or '#', or " ..

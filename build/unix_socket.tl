@@ -58,7 +58,7 @@ end
 --- not host directories.
 local function bound_directories(): {string}
   local table_text, _ = Fs.read("/proc/self/mountinfo")
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in (table_text or ""):gmatch("[^\n]+") do
     -- The fifth field is the mount point.
     local point = line:match("^%S+ %S+ %S+ %S+ (%S+)")
@@ -93,10 +93,10 @@ end
 --- among its grants, a host cache or a private `noexec` scratch.
 --- @param dir a directory the process may make a socket file in
 --- @return the reason, or nil
-function unix_socket.refusal(dir: string): string | nil
+function unix_socket.refusal(dir: string): string?
   local tried = listens(dir)
   if not tried.refused then return nil end
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   local inet = listens_inet()
   if inet.refused then
     reasons[#reasons + 1] = "its module declares no `network`, so it has no network namespace of " ..

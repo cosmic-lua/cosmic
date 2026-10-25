@@ -34,7 +34,7 @@ end
 local function type_of(source: string, name: string): string
   local r = Programs.run(source)
   assert(#r.before == 0 and Programs.codes(r) == "", table.concat(r.before, " ") .. Programs.codes(r) .. " in\n" .. source)
-  local found: Types.Type | nil = nil
+  local found: Types.Type? = nil
   for _, v in ipairs(r.scoped.list) do
     if v.name == name then
       found = r.result.vars[v.id] or found

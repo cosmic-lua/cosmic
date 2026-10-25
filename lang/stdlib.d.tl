@@ -1,5 +1,5 @@
 -- The Lua standard library's declarations, as the new checker reads them: the trust boundary of the type layer, the typing
--- the checker takes without proof. The fork's own copy is checker/stdlib.d.tl, which it reads until the switch deletes it.
+-- the checker takes without proof.
 -- Auditing or changing a declaration is an edit of this file.
 --
 -- A function that answers nil where Lua does says so (`string.find`, `tonumber`, `math.tointeger`), one that changes a
@@ -7,9 +7,9 @@
 -- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 --
--- TODO: declare `Fs.Scratch`, `Signal.Guard` and `Child.Handle` as classes in cosmic/fs.tl, cosmic/signal.tl and
--- cosmic/child.tl (each says `metamethod __close` today), once the stdlib is written in the new grammar: a `<close>`
--- local must be a class, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
+-- TODO: declare [`Fs.Scratch`], [`Signal.Guard`] and [`Child.Handle`] as classes in cosmic/fs.tl, cosmic/signal.tl and
+-- cosmic/child.tl (each declares `__close` as a record field and builds its metatable by hand today), so that a `<close>`
+-- local is a class, which the checker requires, and the TODOs in build/patch.tl, build/zig.tl, build/zig_fetch.tl and ci/ that wait on
 -- ci/cosmic-driver.pin naming a release that declares them cannot be undone until a release does.
 do
   -- What a coroutine's body is given to yield through, since `coroutine.yield` is dynamically scoped and no type says
@@ -326,7 +326,7 @@ do
     char: function(...: integer): string
     dump: function(function(...: any): (any), arg2?: boolean): string
     -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
-    -- pattern (lang/check.tl, `Calls.refine`): a position capture `()` is an integer, and these declarations are the
+    -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations are the
     -- answer for a pattern that is no literal, where every capture is a string.
     find: function(string, string, arg3?: integer, arg4?: boolean): integer?, integer?, string...
     format: function(string, ...: any): string

@@ -17,9 +17,9 @@ local sys = require("cosmic.sys")
 local archive = require("build.archive")
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One member of `list --json`'s array. `mtime` is a `number`, which
@@ -30,13 +30,13 @@ local record Row
   size: integer
   mode: string
   mtime: number
-  linkpath: string | nil
+  linkpath: string?
 end
 local ROW <const> = Shape.record_of("Row")
 
 --- `list --json`'s array, checked against [`Row`].
 local function rows_of(text: string): {Row}
-  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  local rows, why: {Row}?, string = Shape.decode_into(text, Shape.list(ROW.spec))
   assert(rows ~= nil, tostring(why) .. ": " .. text)
   return rows
 end
@@ -45,7 +45,7 @@ end
 --- standard input (bytes, or a Reader for input that is not to be held
 --- whole), and `out_ok` false for a standard output that fails.
 local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boolean): Ran
-  local argv: {string} = { "archive" }
+  local argv: mut {string} = { "archive" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = archive.run(argv, {
@@ -55,7 +55,7 @@ local function run(words: {string}, stdin?: string | Stream.Reader, out_ok?: boo
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): Stream.Reader | nil, string
+    stdin = function(): Stream.Reader?, string
       if stdin == nil then return nil, "no standard input in this test" end
       if stdin is string then return Stream.from_string(stdin), "" end
       return stdin as Stream.Reader, ""
@@ -139,9 +139,9 @@ local function test_list_prints_path_size_mode_and_type_for_each_format(tmp: str
   for format, path in pairs(each_format(tmp)) do
     local ran = run({ "list", path })
     assert(ran.code == 0 and ran.err == "", format .. ": " .. ran.err)
-    local rows: {{string}} = {}
+    local rows: mut {{string}} = {}
     for line in ran.out:gmatch("[^\n]+") do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for cell in (line .. "\t"):gmatch("([^\t]*)\t") do cells[#cells + 1] = cell end
       assert(#cells == 4, format .. ": " .. line)
       rows[#rows + 1] = cells
@@ -222,7 +222,7 @@ local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_
   local made = { value = 0 }
   local real_mkdtemp = Fs.mkdtemp
   local patched = Fs as {string:any}
-  patched.mkdtemp = function(prefix: string): string | nil, string
+  patched.mkdtemp = function(prefix: string): string?, string
     made.value = made.value + 1
     return real_mkdtemp(prefix)
   end
@@ -246,13 +246,13 @@ end
 --- A file of `mib` MiB that deflate cannot shrink, so the .tar.gz
 --- holds about as many bytes as it has.
 local function write_big_tgz(path: string, mib: integer): integer
-  local block: {string} = {}
+  local block: mut {string} = {}
   for i = 1, 1 << 16 do block[i] = string.char(math.random(0, 255)) end
   local chunk = table.concat(block)
   local rounds = mib * 16
   local left = { value = rounds }
   local body: Stream.Reader = {}
-  body.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  body.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if left.value == 0 then return nil, "" end
     left.value = left.value - 1
     return chunk, ""
@@ -277,7 +277,7 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
   local reads = { value = 0 }
   local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     collectgarbage()
     peak.value = math.max(peak.value, collectgarbage("count"))
     reads.value = reads.value + 1
@@ -444,7 +444,7 @@ local function in_dir(dir: string, words: {string}): Ran
 end
 
 local function names(path: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in run({ "list", path }).out:gmatch("[^\n]+") do
     out[#out + 1] = line:match("^([^\t]*)")
   end
@@ -491,12 +491,12 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   local reads = { value = 0 }
   local peak = { value = 0.0 }
   local patched = Stream as {string:any}
-  patched.open = function(path: string): Stream.Reader | nil, string
+  patched.open = function(path: string): Stream.Reader?, string
     local opened, why = real_open(path)
     if opened == nil or path:sub(-7) ~= "big.txt" then return opened, why end
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = {}
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       collectgarbage()
       peak.value = math.max(peak.value, collectgarbage("count"))
       reads.value = reads.value + 1
@@ -540,14 +540,14 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
   local opens = { value = 0 }
   local closes = { value = 0 }
   local patched = Stream as {string:any}
-  patched.open = function(path: string): Stream.Reader | nil, string
+  patched.open = function(path: string): Stream.Reader?, string
     local opened, why = real_open(path)
     if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
     opens.value = opens.value + 1
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = {}
     local grown = { value = false }
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       local got, trouble = inner:read(max_bytes)
       if got == nil and trouble == "" and extra ~= "" and not grown.value then
         grown.value = true
@@ -815,7 +815,7 @@ local function counting_mkdtemp(body: function()): integer
   local made = { value = 0 }
   local real = Fs.mkdtemp
   local patched = Fs as {string:any}
-  patched.mkdtemp = function(prefix: string): string | nil, string
+  patched.mkdtemp = function(prefix: string): string?, string
     made.value = made.value + 1
     return real(prefix)
   end
@@ -831,7 +831,7 @@ end
 local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
   for _, gzip in ipairs({ false, true }) do
     local bytes = assert(Fs.read(make_tar(tmp .. "/t.tar", SAMPLE, gzip)))
-    local dest = tmp .. (gzip and "/tgz" or "/tar")
+    local dest = tmp .. (if gzip then "/tgz" else "/tar" end)
     local made = counting_mkdtemp(function()
       local ran = run({ "extract", "-", "-C", dest }, bytes)
       assert(ran.code == 0 and ran.err == "", ran.err)
@@ -856,13 +856,13 @@ local function both_ways(tmp: string, name: string, bytes: string, words: {strin
                          prepare: function(string)): Ran, Ran, {string}, {string}
   assert(Fs.mkdirs(tmp))
   assert(Fs.write(tmp .. "/" .. name, bytes))
-  local results: {Ran} = {}
-  local trees: {{string}} = {}
+  local results: mut {Ran} = {}
+  local trees: mut {{string}} = {}
   for slot, from in ipairs({ "file", "stdin" }) do
     local dest = tmp .. "/" .. from .. "/dest"
     assert(Fs.mkdirs(tmp .. "/" .. from))
     prepare(dest)
-    local argv: {string} = { "extract", from == "file" and (tmp .. "/" .. name) or "-", "-C", dest }
+    local argv: mut {string} = { "extract", if from == "file" then (tmp .. "/" .. name) else "-" end, "-C", dest }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     results[slot] = run(argv, from == "stdin" and bytes or nil)
     trees[slot] = tree_of(tmp .. "/" .. from)
@@ -891,7 +891,7 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
       local bytes = assert(Fs.read(make_tar(tmp .. "/" .. pair[1] .. ".tgz", archives[pair[1]], true)))
       -- No destination yet, and one that holds a file of its own.
       for _, holds in ipairs({ false, true }) do
-        local case = tmp .. "/" .. pair[1] .. (holds and "-holds" or "-new")
+        local case = tmp .. "/" .. pair[1] .. (if holds then "-holds" else "-new" end)
         assert(Fs.mkdirs(case))
         local dest = case .. "/deep/dest"
         if holds then
@@ -901,7 +901,7 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
         local ran = run({ "extract", "-", "-C", dest }, bytes)
         assert(ran.code == 2 and ran.out == "", pair[1] .. ": " .. ran.code .. ran.err)
         local seen = tree_of(case)
-        local want = holds and "deep,deep/dest,deep/dest/mine.txt" or ""
+        local want = if holds then "deep,deep/dest,deep/dest/mine.txt" else "" end
         assert(table.concat(seen, ",") == want, pair[1] .. " left " .. table.concat(seen, ","))
       end
     end
@@ -1056,7 +1056,7 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   local reads = { value = 0 }
   local peak = { value = 0.0 }
   local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     collectgarbage()
     peak.value = math.max(peak.value, collectgarbage("count"))
     reads.value = reads.value + 1

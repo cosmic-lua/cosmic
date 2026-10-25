@@ -18,7 +18,7 @@ local record link_resolve
     symbol: string
     --- The file that declares it, from the root; nil or `""` when the
     --- context does not say.
-    file: string | nil
+    file: string?
   end
 
   --- What resolution reads beyond the file, so a test can hand it a
@@ -27,20 +27,20 @@ local record link_resolve
     --- The project's root, absolute.
     root: string
     --- "file" or "dir" for what is at the absolute `path`, or nil.
-    kind: function(path: string): string | nil
+    kind: function(path: string): string?
     --- The text of the file at the absolute `path`, or nil.
-    read: function(path: string): string | nil
+    read: function(path: string): string?
     --- Each symbol `query` names (step 2). Nil and why when the
     --- databases cannot be read.
-    symbols: function(query: string): {Symbol} | nil, string
+    symbols: function(query: string): {Symbol}?, string
     --- The symbols of `module` whose name is `member`.
-    member: function(module: string, member: string): {Symbol} | nil, string
+    member: function(module: string, member: string): {Symbol}?, string
     --- The absolute `path` with every symbolic link in it followed, or
     --- nil when it cannot be.
-    real: function(path: string): string | nil
+    real: function(path: string): string?
     --- Why `symbols` cannot answer for the project's own code (it has
     --- no database yet), or nil when it can.
-    unbuilt: function(): string | nil
+    unbuilt: function(): string?
   end
 
   --- Resolves links, remembering what it looked up.
@@ -50,9 +50,9 @@ local record link_resolve
     headings: {string: {string: boolean}}
     symbols: {string: {Symbol}}
     members: {string: {Symbol}}
-    trouble: string | nil
+    trouble: string?
     --- The root with its links followed, once asked.
-    real_root: string | nil
+    real_root: string?
     --- How many links named no symbol while `context.unbuilt` said
     --- the symbols were incomplete, and so were not reported.
     unchecked: integer
@@ -86,7 +86,7 @@ function link_resolve.resolver(context: link_resolve.Context): link_resolve.Reso
 end
 
 --- What `resolver`'s context says is at `path`, asked once.
-local function kind_at(resolver: link_resolve.Resolver, path: string): string | nil
+local function kind_at(resolver: link_resolve.Resolver, path: string): string?
   local cached = resolver.kinds[path]
   if cached == nil then
     cached = resolver.context.kind(path) or ""
@@ -106,7 +106,7 @@ end
 --- but `-` and `_` and its pictographs dropped, each space a `-`.
 local function slug_of(heading: string): string
   local text = heading:gsub("%[([^%]]*)%]%b()", "%1")
-  local out: {string} = {}
+  local out: mut {string} = {}
   if utf8.len(text) == nil then
     -- Not UTF-8: each byte past ASCII is kept as it is.
     for at = 1, #text do
@@ -136,7 +136,7 @@ end
 --- `#` or underlined, a repeated one's taking `-1`, `-2` and so on,
 --- and each `<a id>` or `<a name>`.
 function link_resolve.anchors(text: string): {string: boolean}
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   local count: {string: integer} = {}
   local function heading(line: string)
     local slug = slug_of((line:gsub("%s+#+%s*$", "")))
@@ -149,7 +149,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       out[slug .. "-" .. (seen + 1)] = true
     end
   end
-  local previous: string | nil = nil
+  local previous: string? = nil
   for line in String.lines(link_text.without_code(text)) do
     local atx = line:match("^ ? ? ?#+%s+(.-)%s*$")
     if atx ~= nil then
@@ -174,7 +174,7 @@ end
 --- Why `anchor` names nothing in the file at `path`, or nil when it
 --- names a heading of it. A file other than Markdown takes only a line
 --- anchor (`L12`, `L12-L20`).
-local function anchor_problem(resolver: link_resolve.Resolver, path: string, anchor: string): string | nil
+local function anchor_problem(resolver: link_resolve.Resolver, path: string, anchor: string): string?
   if not String.ends_with(path, ".md") then
     if anchor:match("^L%d+$") ~= nil or anchor:match("^L%d+%-L%d+$") ~= nil then
       return nil
@@ -195,8 +195,8 @@ end
 
 --- `path` with each `.` and `..` taken out, or nil when it climbs past
 --- the top.
-local function normalized(path: string): string | nil
-  local parts: {string} = {}
+local function normalized(path: string): string?
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
       if #parts == 0 then return nil end
@@ -219,16 +219,16 @@ end
 --- none there: the reason the first place gives, of none, the root's
 --- `o/` (a stale build directory an older tool wrote), a `.git` (git's
 --- metadata), a place outside the root, or a link that leads out of it.
-local function located(resolver: link_resolve.Resolver, from: string, target: string): string | nil, string
+local function located(resolver: link_resolve.Resolver, from: string, target: string): string?, string
   local root = resolver.context.root
-  local bases: {string} = { root }
+  local bases: mut {string} = { root }
   if target:sub(1, 1) ~= "/" then
     table.insert(bases, 1, Fs.dirname(from))
   end
-  local why: string | nil = nil
+  local why: string? = nil
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
-    local reason: string | nil = nil
+    local reason: string? = nil
     local relative = path ~= nil and path:sub(#root + 2) or ""
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
@@ -308,7 +308,7 @@ function link_resolve.spelled(symbol: link_resolve.Symbol): string
 end
 
 --- Why `found` is not one answer: none, or more than one.
-local function one_of(found: {string}, none: string): string | nil
+local function one_of(found: mut {string}, none: string): string?
   if #found == 1 then
     return nil
   end
@@ -317,7 +317,7 @@ local function one_of(found: {string}, none: string): string | nil
   end
   table.sort(found)
   return "it names " .. #found .. ": " .. table.concat(found, ", ", 1, math.min(#found, 5)) ..
-    (#found > 5 and ", ..." or "") .. "; link the one meant in full"
+    (if #found > 5 then ", ..." else "" end) .. "; link the one meant in full"
 end
 
 --- Whether the dotted `name` is a value the running tool's globals
@@ -369,7 +369,7 @@ end
 --- names wins over a name.
 function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, target: string,
                               declared: function(): link_text.Declared,
-                              path_first: boolean): link_resolve.Target | nil, string
+                              path_first: boolean): link_resolve.Target?, string
   local function made(kind: string, fields: {string: string}): link_resolve.Target
     return { kind = kind, name = fields.name or "", module = fields.module or "",
       symbol = fields.symbol or "", path = fields.path or "", anchor = fields.anchor or "",
@@ -393,7 +393,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     return made("anchor", { path = shown(resolver, from), anchor = anchor })
   end
   local file, why = located(resolver, from, unescaped(path))
-  local function in_file(at: string): link_resolve.Target | nil, string
+  local function in_file(at: string): link_resolve.Target?, string
     if anchor == nil or anchor == "" then
       return made("file", { path = shown(resolver, at) })
     end
@@ -407,8 +407,8 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   if file ~= nil and path_first then
     return in_file(file)
   end
-  local found: {string} = {}
-  local symbols: {string: link_resolve.Symbol} = {}
+  local found: mut {string} = {}
+  local symbols: mut {string: link_resolve.Symbol} = {}
   local name = link_text.name_of(target)
   local bare = name ~= nil and name:find("[.:]") == nil
   if name ~= nil then
@@ -434,7 +434,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
         resolver.unchecked = resolver.unchecked + 1
         return nil, ""
       end
-      local spelled: {string} = {}
+      local spelled: mut {string} = {}
       for _, member in ipairs(members) do spelled[#spelled + 1] = link_resolve.spelled(member) end
       local problem = one_of(spelled, module .. " has no " .. rest)
       if problem ~= nil then
@@ -494,7 +494,7 @@ end
 --- ([`Resolver.unchecked`]): it is asked, not linked.
 function link_resolve.meant(resolver: link_resolve.Resolver, from: string, content: string,
                             declared: function(): link_text.Declared,
-                            in_tree: boolean): link_resolve.Target | nil
+                            in_tree: boolean): link_resolve.Target?
   local unchecked = resolver.unchecked
   local target, _ = link_resolve.resolve(resolver, from, content, declared, false)
   resolver.unchecked = unchecked
@@ -558,7 +558,7 @@ end
 function link_resolve.linkable(resolver: link_resolve.Resolver, from: string, content: string,
                                declared: function(): link_text.Declared,
                                module_level: function(): {string: boolean},
-                               in_tree: boolean): link_resolve.Target | nil
+                               in_tree: boolean): link_resolve.Target?
   local name = link_text.name_of(content)
   if name == nil and not path_shaped(content) then
     return nil
@@ -595,21 +595,21 @@ end
 --- symbols answered by `symbols` and `member`, and `unbuilt` saying
 --- why they lack the project's own code, or nil.
 function link_resolve.on_disk(root: string,
-                              symbols: function(query: string): {link_resolve.Symbol} | nil, string,
-                              member: function(module: string, member: string): {link_resolve.Symbol} | nil, string,
-                              unbuilt: function(): string | nil): link_resolve.Context
+                              symbols: function(query: string): {link_resolve.Symbol}?, string,
+                              member: function(module: string, member: string): {link_resolve.Symbol}?, string,
+                              unbuilt: function(): string?): link_resolve.Context
   return {
     root = root,
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       local st, _ = Fs.stat(path)
       if st == nil then return nil end
-      return st.kind == "dir" and "dir" or "file"
+      return if st.kind == "dir" then "dir" else "file" end
     end,
-    read = function(path: string): string | nil
+    read = function(path: string): string?
       local text, _ = Fs.read(path)
       return text
     end,
-    real = function(path: string): string | nil
+    real = function(path: string): string?
       local real, _ = Fs.absolute(path)
       return real
     end,

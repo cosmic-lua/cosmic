@@ -53,7 +53,7 @@ end
 local function local_opts(opts?: Web.TestOptions, host?: string): Web.TestOptions
   local made: Web.TestOptions = {}
   for key, value in pairs((opts or {}) as {string:any}) do (made as {string:any})[key] = value end
-  local headers: {string:string} = { host = host or "localhost:8080" }
+  local headers: mut {string:string} = { host = host or "localhost:8080" }
   for name, value in pairs((opts and opts.headers) or {}) do headers[name:lower()] = value end
   made.headers = headers
   return made

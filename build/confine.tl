@@ -65,7 +65,7 @@ local record confine
   --- See below.
   held_variable: string
   --- See below.
-  unseen: function(path: string, use: Use): string | nil
+  unseen: function(path: string, use: Use): string?
 
   --- What a test reads or starts that a process may meet missing.
   enum Use
@@ -79,16 +79,16 @@ end
 --- replace them on [`cosmic.sys`]'s shared table: none of this module's
 --- questions is its test's to bend.
 local record Calls
-  getcwd: function(): string | nil, string, integer
-  realpath: function(path: string): string | nil, string, integer
-  lstat: function(path: string): sys.Stat | nil, string, integer
-  stat: function(path: string): sys.Stat | nil, string, integer
-  readdir: function(path: string): {string:sys.Kind} | nil, string, integer
-  getenv: function(name: string): string | nil
+  getcwd: function(): string?, string, integer
+  realpath: function(path: string): string?, string, integer
+  lstat: function(path: string): sys.Stat?, string, integer
+  stat: function(path: string): sys.Stat?, string, integer
+  readdir: function(path: string): {string:sys.Kind}?, string, integer
+  getenv: function(name: string): string?
   environ: function(): {string:string}
   access: function(path: string, mode: integer): boolean, string, integer
-  open: function(path: string, flags: integer, mode?: integer): integer | nil, string, integer
-  read: function(fd: integer, count: integer): string | nil, string, integer
+  open: function(path: string, flags: integer, mode?: integer): integer?, string, integer
+  read: function(fd: integer, count: integer): string?, string, integer
   close: function(fd: integer): boolean, string, integer
 end
 local asked: Calls = {
@@ -109,7 +109,7 @@ local record Entry
   unseen: {string}
   --- Whether the stand-in has been left, so a reference to it that
   --- outlives it is told.
-  ended: boolean
+  mut ended: boolean
 end
 
 --- Every running stand-in, innermost last: one wraps another when a
@@ -158,7 +158,7 @@ local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/full", "/dev/u
 --- What a confined process has without its test naming it, each where
 --- this host has it (and, in a sandboxed worker, where the worker was
 --- given it): the system's paths and the runtime's.
-local system: {string} = {}
+local system: mut {string} = {}
 for _, path in ipairs(system_paths) do system[#system + 1] = path end
 for _, path in ipairs(runtime_paths) do system[#system + 1] = path end
 
@@ -172,15 +172,15 @@ end
 local record Declared
   --- What the running test declared its processes need, or nil: see
   --- [`confine.confine`].
-  confinement: Resolved | nil
+  mut confinement: Resolved?
   --- How the declaration in `confinement` is held: nil where a process
   --- the kernel cannot confine starts unconfined, and otherwise what
   --- names the call that asked for no fallback, for the failure a spawn
   --- answers instead (see [`confine.must_confine`]).
-  strict: string | nil
+  mut strict: string?
   --- What the library whose work is running declared its processes need,
   --- or nil: see [`confine.declaring`].
-  library: Resolved | nil
+  mut library: Resolved?
 end
 
 local declared_by: Declared = {}
@@ -224,7 +224,7 @@ confine.held_variable = "COSMIC_TEST_HELD"
 --- (`held_variable`), or nil where none does. Read as
 --- [`must_everywhere`] reads its variable: it decides whether a test
 --- fails, never what it reads.
-local function held_by(): string | nil
+local function held_by(): string?
   local module = asked.getenv(confine.held_variable)
   if module == nil or module == "" then return nil end
   return module
@@ -245,10 +245,10 @@ local function absolute(wanted: confine.Confinement): Resolved
   local here, _ = asked.getcwd()
   local function from_here(path: string): string
     if path:sub(1, 1) == "/" or here == nil then return path end
-    return (here == "/" and "" or here) .. "/" .. path
+    return (if here == "/" then "" else here end) .. "/" .. path
   end
-  local reads: {string} = {}
-  local writes: {string} = {}
+  local reads: mut {string} = {}
+  local writes: mut {string} = {}
   for _, path in ipairs(wanted.reads or {}) do reads[#reads + 1] = from_here(path) end
   for _, path in ipairs(wanted.writes or {}) do writes[#writes + 1] = from_here(path) end
   return { reads = reads, writes = writes }
@@ -256,7 +256,7 @@ end
 
 --- `confine`'s work, with `must` naming the call that asked for no
 --- fallback, or nil.
-local function declare(declared: confine.Confinement | nil, must: string | nil)
+local function declare(declared: confine.Confinement?, must: string?)
   if declared == nil then
     declared_by.confinement, declared_by.strict = nil, nil
     return
@@ -290,8 +290,8 @@ end
 --- from the directory this is called in. Nil ends the declaration: a
 --- process started after it is not confined. With COSMIC_SANDBOX=must in
 --- the environment, it is [`must_confine`].
-function confine.confine(declared: confine.Confinement | nil)
-  declare(declared, must_everywhere() and "confine (" .. SANDBOX_MODE .. "=must)" or nil)
+function confine.confine(declared: confine.Confinement?)
+  declare(declared, if must_everywhere() then "confine (" .. SANDBOX_MODE .. "=must)" else nil end)
 end
 
 --- `confine` with no fallback: every process the calling test starts
@@ -321,7 +321,7 @@ end
 --- worker runs unsandboxed, runs unconfined. Only the sandbox's own tests
 --- confine: every other test's processes are the worker's to hold,
 --- which its module's [`Test.policy`] declares for them.
-function confine.must_confine(declared: confine.Confinement | nil)
+function confine.must_confine(declared: confine.Confinement?)
   must_everywhere() -- a misspelt mode raises here too
   declare(declared, "must_confine")
 end
@@ -372,7 +372,7 @@ function confine.grantable(path: string): string
 end
 
 --- Where this program is, as a sandbox can name it ([`confine.grantable`]).
-function confine.executable(): string | nil
+function confine.executable(): string?
   local executable, _ = Proc.executable()
   if executable == nil then return nil end
   return confine.grantable(executable)
@@ -385,7 +385,7 @@ end
 --- the launcher and the core hash the whole core again at every start
 --- (core/startup.c's `stamp_path`).
 function confine.itself(): {string}
-  local program: {string} = {}
+  local program: mut {string} = {}
   local executable = confine.executable()
   if executable ~= nil then program[#program + 1] = executable end
   local launched, _ = Proc.relaunch()
@@ -435,7 +435,7 @@ end
 --- The Landlock ABI version this kernel gives (core/process.h's
 --- `landlock_abi`), 1 and up, or nil and why where there is no Landlock to
 --- be had: not built in, turned off, or refused by a filter.
-function confine.landlock_abi(): integer | nil, string
+function confine.landlock_abi(): integer?, string
   local abi, why, _ = landlock_abi()
   if abi == nil then return nil, why end
   return abi, ""
@@ -477,7 +477,7 @@ end
 --- one and its /proc is the host's, read-only. `cosmic test`'s sandbox
 --- (build/test_sandbox.tl) gives a worker these, and what its test's
 --- module reads.
-function confine.worker_unveil(cwd: string | nil, scratch: string,
+function confine.worker_unveil(cwd: string?, scratch: string,
                                with_system?: boolean, with_program?: boolean,
                                projection?: string): raw_process.Unveil
   local reads: {string} = {}
@@ -559,8 +559,8 @@ end
 -- undeclared.
 function confine.forbid_running(programs: {string}, within?: {string}): boolean, string
   local now = asked
-  local held: {string:boolean} = {}
-  local above: {string:boolean} = {}
+  local held: mut {string:boolean} = {}
+  local above: mut {string:boolean} = {}
   for _, program in ipairs(programs) do
     local real, _ = now.realpath(program)
     for _, path in ipairs({ program, real or program }) do
@@ -589,9 +589,9 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
   walk = function(dir: string)
     -- A directory above a program that cannot be listed is run nothing
     -- beneath: the safe way to be wrong.
-    local listed, _ = now.readdir(dir == "" and "/" or dir)
+    local listed, _ = now.readdir(if dir == "" then "/" else dir end)
     if listed == nil then return end
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(listed) do names[#names + 1] = name end
     table.sort(names)
     for _, name in ipairs(names) do visit(dir .. "/" .. name) end
@@ -611,7 +611,7 @@ end
 --- The running test's own directory, the innermost running stand-in's
 --- (see `enter`), or nil: where a process it starts makes its
 --- temporary files (build.this_program's `environment`).
-function confine.test_directory(): string | nil
+function confine.test_directory(): string?
   for at = #entered, 1, -1 do
     local own = entered[at].own[1]
     if own ~= nil then return own end
@@ -640,7 +640,7 @@ function confine.resolution(path: string): string
     return n
   end
   local finish = #path
-  local real: string | nil = nil
+  local real: string? = nil
   while true do
     local found, _ = realpath(path:sub(1, finish))
     if found ~= nil then
@@ -656,10 +656,10 @@ function confine.resolution(path: string): string
   end
   -- The loop ends only on a path some prefix of which resolved.
   assert(real ~= nil)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in path:sub(finish + 1):gmatch("[^/]+") do names[#names + 1] = name end
   if #names == 0 then return real end
-  return (real == "/" and "" or real) .. "/" .. table.concat(names, "/")
+  return (if real == "/" then "" else real end) .. "/" .. table.concat(names, "/")
 end
 
 --- Why a run of `cosmic test` that `text` is the output of sandboxed no
@@ -705,8 +705,8 @@ local unconfinable: {integer:boolean} = {
 --- A list of strings as the core reads one, raw: its entries from 1 on,
 --- by rawget, to the first nil; nil when it holds anything else, which
 --- the core refuses.
-local function raw_strings(list: any): {string} | nil
-  local out: {string} = {}
+local function raw_strings(list: any): {string}?
+  local out: mut {string} = {}
   if list == nil then return out end
   if not list is {any:any} then return nil end
   local at = 1
@@ -752,7 +752,7 @@ end
 --- for a field -- in a plain table of its own; nil when a field holds
 --- what the core would refuse, for the core to refuse, or one this does
 --- not copy, which the core is given as it is.
-local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox | nil
+local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
   local raw = sandbox as {string:any}
   for key, _ in next, raw do
     if not key is string or not plain_fields[key] then return nil end
@@ -774,7 +774,7 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox 
     plain.unveil = plain_unveil
     local at = rawget(unveil, "at")
     if at is {any:any} then
-      local names: {string:string} = {}
+      local names: mut {string:string} = {}
       for given, name in next, at do
         if not given is string or not name is string then return nil end
         names[given] = name
@@ -809,7 +809,7 @@ confine.unveil_max = UNVEIL_MAX
 --- its longest leading part that is there, resolved, then the rest as
 --- named, since a directory a process is to make need not be there yet.
 --- Nil for a relative path, or one no part of which resolves.
-local function led_to(path: string): string | nil
+local function led_to(path: string): string?
   if path:sub(1, 1) ~= "/" then return nil end
   local realpath = asked.realpath
   local head, rest = path:gsub("/+$", ""), ""
@@ -817,7 +817,7 @@ local function led_to(path: string): string | nil
     local real, _ = realpath(head)
     if real ~= nil then
       if rest == "" then return real end
-      return (real == "/" and "" or real) .. "/" .. rest
+      return (if real == "/" then "" else real end) .. "/" .. rest
     end
     local parent, last = head:match("^(.*)/([^/]+)$")
     if parent == nil or last == ".." then return nil end
@@ -838,7 +838,7 @@ end
 --- when it can: too many of them, or its program beneath none of them
 --- -- where the system's own shell lives elsewhere (/nix/store), it
 --- starts unconfined, or under [`must_confine`] not at all.
-local function unfit_for(program: string, reads: {string}, writes: {string}): Unfit | nil
+local function unfit_for(program: string, reads: {string}, writes: {string}): Unfit?
   if #reads + #writes > UNVEIL_MAX then
     return { why = string.format("%d paths, more than the %d a sandbox unveils",
       #reads + #writes, UNVEIL_MAX), errno = sys.EINVAL }
@@ -916,7 +916,7 @@ end
 -- before it adds its own hint: today a sandboxed start of "sh" says
 -- Proc.find("sh") answers where a shell would find it, which there it
 -- does not.
-local function unseen(path: string, use: confine.Use): string | nil
+local function unseen(path: string, use: confine.Use): string?
   local first = path:match("^/+([^/]+)")
   if first == nil then return nil end
   local top = "/" .. first
@@ -978,7 +978,7 @@ local function refuse_nesting(program: string, module: string): string
 end
 
 --- What ends a stand-in (`enter`).
-local type Leave = function(): string | nil
+local type Leave = function(): string?
 
 --- Stands in for the process table's `spawn` until the function this
 --- answers is called, which puts back what it stood in for and answers
@@ -1003,15 +1003,15 @@ local type Leave = function(): string | nil
 local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   -- The call the stand-in wraps: what `spawn` was as it began.
   local spawn = process.spawn
-  local owned: {string} = {}
+  local owned: mut {string} = {}
   for i, directory in ipairs(own or {}) do owned[i] = directory end
   local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {}, ended = false }
-  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                           stderr: integer | nil, process_group: boolean,
+  process.spawn = function(path: string, argv: {string}, environment: {string:string}?,
+                           cwd: string?, stdin: integer?, stdout: integer?,
+                           stderr: integer?, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
                            credentials?: raw_process.Credentials, terminal?: boolean | string):
-      integer | nil, string, integer
+      integer?, string, integer
     -- Declared as the real spawn is. A process that started is answered by
     -- its pid alone, as the real one answers it: a reason and an errno
     -- come only with a failure (a later slot left out is the failure idiom).
@@ -1077,16 +1077,16 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     if sandbox == nil and declared == nil and declared_by.library ~= nil and not in_sandbox() and
         holder == nil then
       declared = declared_by.library
-      declared_strict = must_everywhere() and "confine (" .. SANDBOX_MODE .. "=must)" or nil
+      declared_strict = if must_everywhere() then "confine (" .. SANDBOX_MODE .. "=must)" else nil end
     end
     if sandbox == nil and declared ~= nil then
-      local reads: {string} = {}
+      local reads: mut {string} = {}
       for _, given in ipairs(system) do
         local there, _ = asked.stat(given)
         if there ~= nil then reads[#reads + 1] = given end
       end
       for _, given in ipairs(declared.reads) do reads[#reads + 1] = given end
-      local writes: {string} = {}
+      local writes: mut {string} = {}
       for _, given in ipairs(owned) do
         local there, _ = asked.stat(given)
         if there ~= nil then writes[#writes + 1] = given end
@@ -1152,7 +1152,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         local cache = (given_environment or asked.environ()).COSMIC_PORTABLE_CACHE
         local leads = cache ~= nil and led_to(cache) or nil
         if leads ~= nil and leads ~= cache then
-          local renamed: {string:string} = {}
+          local renamed: mut {string:string} = {}
           for name, value in pairs(given_environment or asked.environ()) do
             renamed[name] = value
           end
@@ -1201,7 +1201,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     return pid, trouble, errno
   end
   entered[#entered + 1] = entry
-  return function(): string | nil
+  return function(): string?
     entry.ended = true
     process.spawn = spawn
     for at = #entered, 1, -1 do
@@ -1224,7 +1224,7 @@ end
 --- raised itself, where it raised too. What a test worker runs its
 --- module's load and its test under (build.test_worker), and a test of
 --- the sandbox its own nested ones.
-function confine.call(fn: function(any...): (any...), argument?: any, own?: {string},
+function confine.call(fn: function(...: any): (any...), argument?: any, own?: {string},
                       sandboxed?: boolean): confine.Ran
   local leave, heard = enter(own, sandboxed)
   local ok, produced: boolean, any = pcall(fn, argument)

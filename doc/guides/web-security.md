@@ -191,10 +191,12 @@ end
 
 --- The app.
 function Guestbook.app(opts: Guestbook.Options): Web.App
-  local csp = Csp.htmx_default()
-  csp.directives["script-src"] = { "'self'", "{nonce}" }
+  local directives: mut {string: {string}} = {}
+  for name, sources in pairs(Csp.htmx_default().directives) do directives[name] = sources end
+  directives["script-src"] = { "'self'", "{nonce}" }
+  local csp: Csp.Policy = { directives = directives }
   local headers: Headers.Options = { csp = csp, nonce = true }
-  if opts.hsts then headers.hsts = { max_age = 31536000 } end
+  if opts.hsts == true then headers = { csp = csp, nonce = true, hsts = { max_age = 31536000 } } end
   return Web.app{
     routes = Site.routes(),
     middleware = {
@@ -240,9 +242,9 @@ local Guestbook = require("guestbook")
 local Secret = require("cosmic.web.secret")
 local Web = require("cosmic.web")
 
---- The options of an app with a fresh key, to change before making it.
-local function options(): Guestbook.Options
-  return { keys = { Secret.generate() } }
+--- The options of an app with a fresh key, with the settings of a deployment as given.
+local function options(trusted_proxy?: boolean, hsts?: boolean, trusted_hosts?: {string}): Guestbook.Options
+  return { keys = { Secret.generate() }, trusted_proxy = trusted_proxy, hsts = hsts, trusted_hosts = trusted_hosts }
 end
 
 local function app(): Web.App
@@ -267,7 +269,7 @@ end
 local function test_a_cross_site_post_is_refused_even_with_the_token()
   local client = Web.test_client(app())
   local token = token_of(client)
-  local forged = { ["X-CSRF-Token"] = token, Origin = "https://evil.example" }
+  local forged = { ["X-CSRF-Token"] = token, ["Origin"] = "https://evil.example" }
   assert(client:post("/clap", { headers = forged }).status == 403, "another origin")
   local fetched = { ["X-CSRF-Token"] = token, ["Sec-Fetch-Site"] = "cross-site" }
   assert(client:post("/clap", { headers = fetched }).status == 403, "the browser says cross-site")
@@ -276,41 +278,34 @@ end
 local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
   local page = Web.test_client(app()):get("/")
   assert(page.headers["x-content-type-options"] == "nosniff" and page.headers["x-frame-options"] == "DENY")
-  local nonce = assert(page.headers["content-security-policy"]:match("'nonce%-([%w_-]+)'"))
+  local policy = page.headers["content-security-policy"] or ""
+  local nonce = assert(policy:match("'nonce%-([%w_-]+)'"))
   -- The page writes a byte that is no letter or digit as a character reference.
   local written = nonce:gsub("[_-]", function(byte: string): string
-    return ("&#%d;"):format(byte:byte())
+    return ("&#%d;"):format(assert(byte:byte()))
   end)
   assert(page.body:find('nonce="' .. written .. '"', 1, true))
 end
 
 local function test_hsts_is_for_https_and_only_when_asked()
   local secure = { ["X-Forwarded-Proto"] = "https" }
-  local without = options()
-  without.trusted_proxy = true
-  local plain = Web.test_client(Guestbook.app(without))
+  local plain = Web.test_client(Guestbook.app(options(true)))
   assert(plain:get("/", { headers = secure }).headers["strict-transport-security"] == nil)
-  local asked = options()
-  asked.trusted_proxy, asked.hsts = true, true
-  local client = Web.test_client(Guestbook.app(asked))
+  local client = Web.test_client(Guestbook.app(options(true, true)))
   assert(client:get("/", { headers = secure }).headers["strict-transport-security"] == "max-age=31536000")
   assert(client:get("/").headers["strict-transport-security"] == nil, "not on http")
 end
 
 local function test_the_proxy_decides_the_scheme_and_the_cookie()
   local secure = { ["X-Forwarded-Proto"] = "https" }
-  local trusting = options()
-  trusting.trusted_proxy = true
-  local behind = Web.test_client(Guestbook.app(trusting)):get("/", { headers = secure })
-  assert(behind.headers["set-cookie"]:find("Secure", 1, true))
+  local behind = Web.test_client(Guestbook.app(options(true))):get("/", { headers = secure })
+  assert((behind.headers["set-cookie"] or ""):find("Secure", 1, true) ~= nil)
   local alone = Web.test_client(app()):get("/", { headers = secure })
-  assert(not alone.headers["set-cookie"]:find("Secure", 1, true), "a header nobody vouched for is ignored")
+  assert((alone.headers["set-cookie"] or ""):find("Secure", 1, true) == nil, "a header nobody vouched for is ignored")
 end
 
 local function test_a_host_the_app_does_not_name_is_400()
-  local named = options()
-  named.trusted_hosts = { "app.example.com" }
-  local client = Web.test_client(Guestbook.app(named))
+  local client = Web.test_client(Guestbook.app(options(nil, nil, { "app.example.com" })))
   assert(client:get("/", { headers = { Host = "app.example.com" } }).status == 200)
   assert(client:get("/", { headers = { Host = "evil.example" } }).status == 400)
 end

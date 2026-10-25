@@ -59,10 +59,10 @@ end
 --- The resolver options of a connector of the name servers `opts` names,
 --- waiting for each as cosmic.internal.relay_start chooses: its `connector` and the
 --- same servers as `servers`. Nil and why where they cannot be read.
-local function name_server_options(opts: RelayStart.NameServerOptions): Net.ResolveOptions | nil, string
+local function name_server_options(opts: RelayStart.NameServerOptions): Net.ResolveOptions?, string
   local plan, why = RelayStart.name_servers(opts)
   if plan == nil then return nil, why end
-  local servers: {Net.Endpoint} = {}
+  local servers: mut {Net.Endpoint} = {}
   for i, server in ipairs(plan.servers) do
     servers[i] = { host = server.host, port = server.port }
   end
@@ -75,7 +75,7 @@ local TYPE_A <const> = 1
 
 --- The name and type a query asks, and where its question ends.
 local function question(query: string): string, integer, integer
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
@@ -110,15 +110,16 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local RelayStart = require("cosmic.internal.relay_start")
+local Config = require("cosmic.internal.relay_config")
 return function(argv: {string}): integer
-  local request: RelayStart.NameServerOptions = { servers = {} }
-  local asked = assert(request.servers)
-  local servers: {Net.Endpoint} = {}
-  for text in argv[2]:gmatch("[^,]+") do
+  local asked: mut {Config.Endpoint} = {}
+  local servers: mut {Net.Endpoint} = {}
+  for text in (argv[2] or ""):gmatch("[^,]+") do
     local port = assert(math.tointeger(tonumber(text)))
     asked[#asked + 1] = { host = "127.0.0.1", port = port }
     servers[#servers + 1] = { host = "127.0.0.1", port = port }
   end
+  local request: RelayStart.NameServerOptions = { servers = asked }
   local dns: Net.Connector
   if argv[3] == "relay" then
     local plan = assert(RelayStart.name_servers(request))
@@ -126,28 +127,28 @@ return function(argv: {string}): integer
   else
     dns = assert(Net.connector(servers, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
   end
-  local said: {string} = {}
-  local took: {string} = {}
+  local said: mut {string} = {}
+  local took: mut {string} = {}
   for round = 1, 2 do
     local began = Clock.monotonic_ns()
-    local limit = round == 1 and argv[4] ~= nil and Clock.ms(assert(math.tointeger(tonumber(argv[4])))) or
-      Clock.seconds(5)
-    local found, why = Net.resolve(argv[1], { timeout_ns = limit, connector = dns, servers = servers })
+    local limit = if round == 1 and argv[4] ~= nil then Clock.ms(assert(math.tointeger(tonumber(argv[4])))) else
+      Clock.seconds(5) end
+    local found, why = Net.resolve(argv[1] or "", { timeout_ns = limit, connector = dns, servers = servers })
     took[#took + 1] = tostring((Clock.monotonic_ns() - began) // 1000000)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.address end
     table.sort(lines)
-    said[#said + 1] = found == nil and "error " .. why or table.concat(lines, ",")
+    said[#said + 1] = if found == nil then "error " .. why else table.concat(lines, ",") end
   end
   assert(dns:close())
   said[#said + 1] = table.concat(took, ",")
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]
 
 --- Reads exactly `count` bytes of `conn`, or nil at its end.
-local function read_exact(conn: Net.Conn, count: integer): string | nil
+local function read_exact(conn: Net.Conn, count: integer): string?
   local out = ""
   while #out < count do
     local data, _ = conn:read(count - #out)
@@ -160,11 +161,11 @@ end
 --- What a run of SCRIPT saw: the lines it printed, and what the test's
 --- name server saw.
 local record Served
-  lines: {string}
+  lines: mut {string}
   --- Each query, "type name", sorted.
-  queries: {string}
-  datagrams: integer
-  connections: integer
+  queries: mut {string}
+  mut datagrams: integer
+  mut connections: integer
 end
 
 --- Runs SCRIPT for `name` against a TCP name server of the test's own on
@@ -212,7 +213,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
         end
       end
     end)
-    local ports: {string} = {}
+    local ports: mut {string} = {}
     for _, other in ipairs(before ~= nil and before() or {}) do
       ports[#ports + 1] = tostring(other)
     end
@@ -222,7 +223,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
     local started = this_program.program(argv,
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result | nil
+    local result: Child.Result?
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then
@@ -260,7 +261,7 @@ end
 --- what else asks it to connect: a name server that never takes a
 --- connection. `held` gets a closer for the listener and each connection the
 --- queue took.
-local function stuck_server(held: {function()}): {integer}
+local function stuck_server(held: mut {function()}): {integer}
   local stuck = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
   held[#held + 1] = function() local _, _ = stuck:close() end
   -- The queue takes the backlog and one more; the rest wait unanswered.
@@ -381,7 +382,7 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   local servers = assert(Resolv.nameservers(conf))
   assert(#servers == 1 and servers[1].host == "127.0.0.1" and servers[1].port == 53)
   local rows = servers
-  local table_rows: {Net.Endpoint} = {}
+  local table_rows: mut {Net.Endpoint} = {}
   for i, server in ipairs(servers) do table_rows[i] = { host = server.host, port = server.port } end
   local dns <close> = assert(Net.connector(table_rows))
   local conn, why = dns:connect(Net.tcp("127.0.0.1", 80), { timeout_ns = Clock.seconds(5) })
@@ -438,9 +439,9 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair[2], true))
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local asked = { value = nil as string | nil }
-  local found = { value = nil as {Net.Resolved} | nil }
-  local why = { value = nil as string | nil }
+  local asked = { value = nil as string? }
+  local found = { value = nil as {Net.Resolved}? }
+  local why = { value = nil as string? }
   Poll.run(function()
     -- The reply to the lookup's one request, tagged from 1: a socket the
     -- server reset as it was made.
@@ -505,9 +506,9 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair[2], true))
     assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
     local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-    local asked = { value = nil as string | nil }
-    local found = { value = nil as {Net.Resolved} | nil }
-    local why = { value = nil as string | nil }
+    local asked = { value = nil as string? }
+    local found = { value = nil as {Net.Resolved}? }
+    local why = { value = nil as string? }
     Poll.run(function()
       Poll.spawn(function()
         assert(Poll.readable(pair[2], Clock.seconds(5)))
@@ -582,7 +583,7 @@ local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   if assert(sys.uname()).sysname ~= "Linux" then
     Test.skip("the system's DNS configuration answers before resolv.conf here")
   end
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for _, server in ipairs(servers) do listed[#listed + 1] = server.host .. " " .. server.port end
   assert(table.concat(listed, ",") == "192.0.2.53 53,2001:db8::53 53", table.concat(listed, ","))
   -- A link-local server is never answered: refused, or, where the resolver
@@ -648,7 +649,7 @@ end
 local function silent_lookup(count: integer, lookup_ms: integer)
   require_native_connector()
   local held: {function()} = {}
-  local endpoints: {Resolv.Endpoint} = {}
+  local endpoints: mut {Resolv.Endpoint} = {}
   for _ = 1, count do
     local port = stuck_server(held)[1]
     endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
@@ -687,7 +688,7 @@ end
 local function test_more_name_servers_than_a_connector_holds_is_a_failure()
   require_native_connector()
   local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
-  local servers: {Net.Endpoint} = {}
+  local servers: mut {Net.Endpoint} = {}
   for i = 1, 129 do servers[i] = { host = "127.0.0.1", port = 1000 + i } end
   local found, why = Net.resolve("many.example.test", { connector = dns, servers = servers })
   assert(found == nil and why:find("at most 128", 1, true) ~= nil, tostring(why))
@@ -735,8 +736,8 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
-  local found = { value = nil as {Net.Resolved} | nil }
-  local why = { value = nil as string | nil }
+  local found = { value = nil as {Net.Resolved}? }
+  local why = { value = nil as string? }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
       hosts_file = hosts })
@@ -758,8 +759,8 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   local pair = assert(process.connector_pair())
   assert(sys.write(pair[2], string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   local dns <close> = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
-  local found = { value = nil as {Net.Resolved} | nil }
-  local why = { value = nil as string | nil }
+  local found = { value = nil as {Net.Resolved}? }
+  local why = { value = nil as string? }
   local worst, took = ticking_beside(function()
     found.value, why.value = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), connector = dns,
       servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })

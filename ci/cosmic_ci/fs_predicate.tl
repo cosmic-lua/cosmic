@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local record Predicate
 end
 
-local function checked(answer: boolean | nil, trouble: string): boolean
+local function checked(answer: boolean?, trouble: string): boolean
   assert(answer ~= nil, trouble)
   return answer
 end

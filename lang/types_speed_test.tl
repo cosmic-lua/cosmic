@@ -12,7 +12,7 @@ Test.policy{}
 
 --- A store and `n` named types of distinct declarations, each also the element of an array.
 local function populate(store: Types.Store, n: integer): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   for i = 1, n do
     local decl = store:declare("record", "m", { "R" .. i })
     out[i] = store:array(store:named(decl))
@@ -47,7 +47,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   ["a long union of optionals and repeats"] = function(n: integer)
     local store = Types.new()
     local members = populate(store, n * 10)
-    local all: {Types.Type} = {}
+    local all: mut {Types.Type} = {}
     for i, m in ipairs(members) do
       all[i] = store:optional(m)
       all[#all + 1] = m
@@ -56,7 +56,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   end,
   ["a function of many parameters"] = function(n: integer)
     local store = Types.new()
-    local params: {Types.Param} = {}
+    local params: mut {Types.Param} = {}
     for i, t in ipairs(populate(store, n * 10)) do
       params[i] = { type = t, omittable = i % 3 == 0 }
     end
@@ -64,9 +64,9 @@ local FORMS <const>: {string: function(n: integer)} = {
   end,
   ["a function of many alternatives"] = function(n: integer)
     local store = Types.new()
-    local alts: {Types.Alt} = {}
+    local alts: mut {Types.Alt} = {}
     for i, t in ipairs(populate(store, n * 10)) do
-      alts[i] = { items = { store:atom(i % 2 == 0 and "true" or "false"), t } }
+      alts[i] = { items = { store:atom(if i % 2 == 0 then "true" else "false" end), t } }
     end
     local _ = store:fn({ rets = alts })
   end,
@@ -77,7 +77,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   end,
   ["a declaration of many fields"] = function(n: integer)
     local store = Types.new()
-    local fields: {Types.Field} = {}
+    local fields: mut {Types.Field} = {}
     for i, t in ipairs(populate(store, n * 10)) do
       fields[i] = { name = "f" .. i, type = t, mut = i % 2 == 0 }
     end
@@ -123,7 +123,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   end,
   ["the text of a long union"] = function(n: integer)
     local store = Types.new()
-    local members: {Types.Type} = {}
+    local members: mut {Types.Type} = {}
     for i = 1, n * 10 do
       members[i] = store:map(store.string, store:var(0, i))
     end

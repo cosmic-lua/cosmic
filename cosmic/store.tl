@@ -88,13 +88,13 @@ end
 
 --- One module's compiled bytes, for a caller that must load the chunk in
 --- an environment of its own; nil and why for none.
-function Store.bytecode(name: string): string | nil, string
+function Store.bytecode(name: string): string?, string
   return store.bytecode(name)
 end
 
 --- One entry of the meta table, which is where a build records what it
 --- decided. Nil when no database holds that key.
-function Store.meta(key: string): string | nil
+function Store.meta(key: string): string?
   return store.meta(key)
 end
 
@@ -103,7 +103,7 @@ end
 --- to type a `require` of this one's modules. Stored deflated, it is
 --- inflated here; nil beside why when there is no such row or it will
 --- not inflate.
-function Store.source(name: string): string | nil, string
+function Store.source(name: string): string?, string
   return store.source(name)
 end
 
@@ -112,7 +112,7 @@ end
 --- and why when the query failed.
 --- This walks the binary's module graph without a handle on every
 --- module's rows (`databases`).
-function Store.requires(name: string): {string} | nil, string
+function Store.requires(name: string): {string}?, string
   return store.requires(name)
 end
 
@@ -128,7 +128,7 @@ end
 --- of the tz database the binary's own database carries: the only zone
 --- rules [`cosmic.time`] reads. Nil and why when it carries no such zone
 --- or the query failed; [`zone_names`] tells the two apart.
-function Store.zoneinfo(name: string): string | nil, string
+function Store.zoneinfo(name: string): string?, string
   return store.zoneinfo(name)
 end
 
@@ -136,7 +136,7 @@ end
 --- [`cosmic.web`] to serve (`htmx.min.js`, `htmx-ext-sse.min.js`), with its
 --- hashes and version, from the binary's own database. Nil and why when it
 --- carries no such file or the query failed.
-function Store.web_asset(name: string): Store.WebAsset | nil, string
+function Store.web_asset(name: string): Store.WebAsset?, string
   local databases = store.databases()
   local rows, trouble = Sqlite.rows(databases[#databases],
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
@@ -154,7 +154,7 @@ end
 
 --- Every time zone name the binary's own database carries, as a set,
 --- or nil and why when the query failed.
-function Store.zone_names(): {string:boolean} | nil, string
+function Store.zone_names(): {string:boolean}?, string
   return store.zone_names()
 end
 
@@ -203,12 +203,12 @@ end
 
 --- The database whose row of `name` the search order answers with; nil
 --- and why when none holds one or a query failed.
-local function locate(name: string, required?: string): Handle | nil, string
+local function locate(name: string, required?: string): Handle?, string
   local databases = Store.databases()
   local count = #databases
   local binary_first = reserved(name)
   for step = 1, count do
-    local db = databases[binary_first and count + 1 - step or step]
+    local db = databases[if binary_first then count + 1 - step else step end]
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
@@ -219,7 +219,7 @@ local function locate(name: string, required?: string): Handle | nil, string
     end
   end
   return nil, "no module of that name in the store" ..
-    (required ~= nil and ", required by " .. required or "")
+    (if required ~= nil then ", required by " .. required else "" end)
 end
 
 --- [`locate`], raising where it fails: a name no database holds is a
@@ -244,11 +244,11 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
       "instr(m.bytecode, CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
-    { text(name), { integer = types and 1 or 0 } })
+    { text(name), { integer = if types then 1 else 0 end } })
   if rows == nil then
     error("store: " .. name .. ": " .. trouble, 3)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, row in ipairs(rows) do
     out[index] = row:text(1)
   end
@@ -271,17 +271,17 @@ end
 ---
 ---     local names = Store.closure({ "cosmic.json" })
 ---     print(#names, names[1])
--- TODO: follow `pcall(require, ...)` too, once build.ast.requires sees
+-- TODO: follow `pcall(require, ...)` too, once the requires reader sees
 -- it (the TODO in build/embed.tl): until then such a require is no edge.
 function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   if type(roots) ~= "table" then
     error("store: closure: roots is a list of module names, not a " .. type(roots), 2)
   end
   local types = opts ~= nil and opts.types == true
-  local seen: {string:boolean} = {}
-  local names: {string} = {}
-  local stack: {string} = {}
-  local required_by: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local names: mut {string} = {}
+  local stack: mut {string} = {}
+  local required_by: mut {string} = {}
   for _, root in ipairs(roots) do
     stack[#stack + 1] = root
   end
@@ -313,14 +313,14 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
   if rows == nil then
     return false, table_name .. ": " .. trouble
   end
-  local slots: {string} = {}
+  local slots: mut {string} = {}
   for index = 1, #columns do
     slots[index] = "?" .. index
   end
   local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
     table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"
   for _, row in ipairs(rows) do
-    local bound: {Sqlite.Value} = {}
+    local bound: mut {Sqlite.Value} = {}
     for index = 1, row:count() do
       bound[index] = row:value(index)
     end
@@ -367,11 +367,11 @@ local module_columns <const> = { "path", "file", "kind", "source_hash", "key",
 --- Writes the database of `names` at `file` (see [`Store.seal`]), with
 --- `identity`, the meta rows to record, and `main`. False and why on a
 --- failure.
-local function write_database(names: {string}, file: string, main: string | nil,
-                              identity: {{string}}, script: Store.Extra | nil): boolean, string
+local function write_database(names: {string}, file: string, main: string?,
+                              identity: {{string}}, script: Store.Extra?): boolean, string
   local binary = Store.databases()
   local binary_db = binary[#binary]
-  local present: {string:boolean} = {}
+  local present: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     present[name] = true
   end
@@ -572,13 +572,13 @@ end
 ---     local names = Store.closure({ "cosmic.json" })
 ---     local digest = assert(Store.seal(names, "json.db"))
 function Store.seal(names: {string}, path?: string,
-                    opts?: Store.SealOptions): string | nil, string
+                    opts?: Store.SealOptions): string?, string
   local script = opts ~= nil and opts.extra or nil
   if type(names) ~= "table" or (#names == 0 and script == nil) then
     error("store: seal: names is a non-empty list of module names", 2)
   end
-  local sorted: {string} = {}
-  local present: {string:boolean} = {}
+  local sorted: mut {string} = {}
+  local present: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     if not present[name] then
       present[name] = true
@@ -622,7 +622,7 @@ function Store.seal(names: {string}, path?: string,
   if core == nil or core == "" then
     return nil, "this process has no core digest to record"
   end
-  local identity: {{string}} = { { "core_sha256", core }, { "runtime_basis", basis } }
+  local identity: mut {{string}} = { { "core_sha256", core }, { "runtime_basis", basis } }
   local image = Store.meta("image_hash")
   if image ~= nil then
     table.insert(identity, 1, { "image_hash", image })
@@ -632,7 +632,7 @@ function Store.seal(names: {string}, path?: string,
     return nil, scratch_trouble
   end
   local scratch: string = made_scratch
-  local function build(): string | nil, string
+  local function build(): string?, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
       main, identity, script)
     if not written then

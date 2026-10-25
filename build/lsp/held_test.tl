@@ -36,7 +36,7 @@ end
 local function checker_at(root: string): check.Checker
   return check.new(root, function(_line: string) end, function(): check.Hinted
     return { databases = {}, public = {} }
-  end, "new")
+  end)
 end
 
 local function document_of(root: string, name: string, text: string): check.Document
@@ -45,7 +45,7 @@ end
 
 local function test_an_error_appears_when_a_document_is_edited_and_clears_when_it_is_fixed()
   local root = helped()
-  local send = serving(root, "new")
+  local send = serving(root)
   local wrong = (MAIN:gsub("integer", "string"))
   send({ initialize(root), open(root, "main.tl", MAIN) })
   send({ change(root, "main.tl", wrong) })
@@ -67,7 +67,7 @@ end
 
 local function test_the_session_holds_one_program_for_all_its_checks()
   local root = helped()
-  local s = session.new(root, { grammar = "new" })
+  local s = session.new(root)
   local seen = programs_of(s, { initialize(root), open(root, "main.tl", MAIN), change(root, "main.tl", MAIN .. "-- one\n"),
     change(root, "main.tl", MAIN .. "-- two\n"), open(root, "helper.tl", HELPER) })
   local program = assert(seen[1], "no program after the first check")
@@ -82,7 +82,7 @@ end
 local function then_(root: string, first: {string}, between: function(), second: {string}): session_fixture.Ran
   return session_fixture.served_between(root, { first, second }, function(_after: integer)
     between()
-  end, nil, "new")
+  end)
 end
 
 local function test_a_module_changed_on_disk_is_served_to_the_document_open_again()
@@ -106,8 +106,8 @@ end
 --- answers.
 local function test_many_modules_changed_on_disk_make_the_program_again()
   local root = project()
-  local requires: {string} = {}
-  local sum: {string} = {}
+  local requires: mut {string} = {}
+  local sum: mut {string} = {}
   for n = 1, 14 do
     local name = "mod" .. tostring(n)
     assert(Fs.write(root .. "/" .. name .. ".tl", "local record Api\n  n: integer\nend\nlocal api: Api = { n = " .. tostring(n) .. " }\nreturn api\n"))
@@ -116,7 +116,7 @@ local function test_many_modules_changed_on_disk_make_the_program_again()
   end
   local main = table.concat(requires, "\n") .. "\nlocal total: integer = " .. table.concat(sum, " + ") .. "\nreturn total\n"
   assert(Fs.write(root .. "/main.tl", main))
-  local watched: {string} = {}
+  local watched: mut {string} = {}
   for n = 1, 14 do watched[#watched + 1] = changed_on_disk(root, "mod" .. tostring(n) .. ".tl") end
   local ran = session_fixture.served_between(root, { { initialize(root), open(root, "main.tl", main) }, watched },
     function(_after: integer)
@@ -124,7 +124,7 @@ local function test_many_modules_changed_on_disk_make_the_program_again()
         assert(Fs.write(root .. "/mod" .. tostring(n) .. ".tl",
           "local record Api\n  n: string\nend\nlocal api: Api = { n = \"x\" }\nreturn api\n"))
       end
-    end, nil, "new")
+    end)
   assert(counts(ran):match("^0,[1-9]%d*$") ~= nil, counts(ran))
 end
 
@@ -203,12 +203,13 @@ local function test_a_template_that_stops_compiling_is_not_answered_from_its_las
   local main = document_of(root, "main.tl", PAGE_MAIN)
   check.opened(checker, page)
   check.opened(checker, main)
-  assert(#check.diagnose(checker, main, "utf-16") > 0)
-  assert(#check.diagnose(checker, page, "utf-16") > 0)
+  -- A field it does not have is the template's own error: the module it makes still types its dependents.
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(#check.diagnose(checker, page, "utf-16") == 1)
   check.set_text(page, "{{type Page from data}}\n{{mode text}}one {{.title")
   local told = table.concat(check.diagnose(checker, main, "utf-16"), "\n")
   assert(told:find("nope", 1, true) == nil, "answered from the template's last text: " .. told)
-  assert(told:find("page", 1, true) ~= nil, told)
+  assert(told:find("the project has no module `page` (require_unknown)", 1, true) ~= nil, told)
   assert(told == table.concat(check.diagnose(checker, main, "utf-16"), "\n"), "the answer moved")
 end
 
@@ -249,9 +250,9 @@ local function test_a_long_session_of_edits_holds_no_more_than_a_short_one()
   --- Every loop's edits alternate right and wrong, so the errors of an old reading are held too if they are.
   local function edit(n: integer)
     local right = n % 2 == 1
-    check.set_text(main, big_main(12, right and "integer" or "string", n))
+    check.set_text(main, big_main(12, if right then "integer" else "string" end, n))
     local told = check.diagnose(checker, main, "utf-16")
-    assert(#told == (right and 0 or 1), table.concat(told, "\n"))
+    assert(#told == (if right then 0 else 1 end), table.concat(told, "\n"))
   end
   --- Switching documents puts the one left back as its stub; the helper is retyped on disk, which the stage serves again.
   local function switch(n: integer)

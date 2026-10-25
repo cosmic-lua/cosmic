@@ -65,7 +65,7 @@ local function test_only_nil_and_a_type_with_nil_admit_nil()
     s:union({ s.integer, s.string }), s.any, s.never,
   }
   for _, t in ipairs(rest) do
-    refused(w, null, t, t.tag == "never" and "never_target" or t.tag == "any" and "any_sink" or "nil")
+    refused(w, null, t, if t.tag == "never" then "never_target" elseif t.tag == "any" then "any_sink" else "nil" end)
   end
 end
 
@@ -144,7 +144,7 @@ local function test_a_refusal_names_the_position_of_the_member_that_failed()
   local w = world()
   local s = w.store
   -- Whichever order the store keeps the members in, the position is that of the one that failed.
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   -- a member that is below the target, one that is not, and the target
   local cases: {{Types.Type}} = {
     { s.integer, s.string, s.number }, { s.integer, s.boolean, s.number }, { s.integer, s:atom("true"), s.number },
@@ -153,7 +153,7 @@ local function test_a_refusal_names_the_position_of_the_member_that_failed()
   }
   for _, case in ipairs(cases) do
     local given = s:union({ case[1], case[2] })
-    assert(given is Types.Union)
+    assert((given.tag == "union"))
     local r = refusal(w, given, case[3])
     local index = r.path[1].index
     assert(index ~= nil and given.members[index] == case[2] and r.sub == case[2], Relation.trace(r))
@@ -182,7 +182,7 @@ local function test_a_refusal_names_the_position_of_each_member_of_the_union_tha
   local w = world()
   local s = w.store
   local union = s:union({ s.string, named(w, "Node"), named(w, "Tree"), s:array(s.string) })
-  assert(union is Types.Union)
+  assert((union.tag == "union"))
   local r = refused(w, s.integer, union, "union_none")
   local alternatives = r.alternatives
   assert(alternatives ~= nil and #alternatives == 4)
@@ -195,7 +195,7 @@ end
 local function test_a_union_of_many_members_explains_the_first_few()
   local w = world()
   local s = w.store
-  local members: {Types.Type} = {}
+  local members: mut {Types.Type} = {}
   for i = 1, 40 do
     members[i] = s:named(s:declare("record", "many", { "R" .. i }))
   end
@@ -529,7 +529,7 @@ local function test_a_function_wanted_with_alternatives_takes_one_that_gives_any
   local s = w.store
   local yes, no = s:atom("true"), s:atom("false")
   local function result(...: { Types.Type }): Types.Type
-    local alts: {Types.Alt} = {}
+    local alts: mut {Types.Alt} = {}
     for i, items in ipairs({ ... }) do
       alts[i] = { items = items }
     end
@@ -598,7 +598,7 @@ local function test_a_rest_parameter_meets_the_arguments_after_the_last_paramete
   local w = world()
   local s = w.store
   local function with(params: {Types.Type}, rest?: Types.Type): Types.Type
-    local list: {Types.Param} = {}
+    local list: mut {Types.Param} = {}
     for i, p in ipairs(params) do
       list[i] = { type = p }
     end
@@ -919,7 +919,7 @@ local function test_a_pair_that_two_parents_reach_in_one_request_is_explained_un
   assert(r.code == "return_unmatched" and steps(r) == "alternative 1", Relation.trace(r))
   local alternatives = r.alternatives
   assert(alternatives ~= nil and #alternatives == 2)
-  local indexes: {integer: boolean} = {}
+  local indexes: mut {integer: boolean} = {}
   for _, alternative in ipairs(alternatives) do
     local index = alternative.path[1].index
     assert(index ~= nil and steps(alternative) == "target_alternative " .. index .. " > item 1", steps(alternative))
@@ -947,7 +947,7 @@ local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_c
   -- way of wrapping the argument, twice as many for each rung, and the judge stops at 4096.
   local w = world()
   local s = w.store
-  local rungs: {Types.Decl} = {}
+  local rungs: mut {Types.Decl} = {}
   for i = 1, 14 do
     rungs[i] = s:declare("interface", "m", { "Rung" .. i }, 1)
   end
@@ -960,7 +960,7 @@ local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_c
     s:define(rung, { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} })
   end
   local top = s:named(rungs[1], { s.integer })
-  assert(top is Types.Named)
+  assert((top.tag == "named"))
   local listing = w.judge:listed(top)
   assert(#listing.types == 4096 and not listing.complete, #listing.types)
   -- the listings the judge holds are related, and the others are refused
@@ -968,7 +968,7 @@ local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_c
   refused(w, top, named(w, "Event"), "not_listed")
   -- a ladder of fewer rungs is whole
   local middle = s:named(rungs[10], { s.integer })
-  assert(middle is Types.Named)
+  assert((middle.tag == "named"))
   local short = w.judge:listed(middle)
   assert(#short.types == 30 and short.complete, #short.types)
 end
@@ -993,7 +993,7 @@ local function test_a_listing_whose_argument_is_as_deep_as_the_store_allows_ends
   local w = world()
   local s = w.store
   -- Every rung lists the next with its argument in an array: one level deeper at each step.
-  local rungs: {Types.Decl} = {}
+  local rungs: mut {Types.Decl} = {}
   for i = 1, 40 do
     rungs[i] = s:declare("interface", "m", { "Wrap" .. i }, 1)
   end
@@ -1010,7 +1010,7 @@ local function test_a_listing_whose_argument_is_as_deep_as_the_store_allows_ends
     deep = s:array(deep)
   end
   local top = s:named(rungs[1], { deep })
-  assert(top is Types.Named)
+  assert((top.tag == "named"))
   local listing = w.judge:listed(top)
   assert(#listing.types > 1 and #listing.types < 39 and not listing.complete, #listing.types)
   refused(w, top, named(w, "Event"), "not_listed")
@@ -1027,11 +1027,11 @@ end
 local function test_a_chain_of_listings_that_does_not_grow_is_followed_to_its_end()
   local w = world()
   local s = w.store
-  local previous: Types.Type | nil
-  local first: Types.Type | nil
+  local previous: Types.Type?
+  local first: Types.Type?
   for i = 1, 300 do
     local decl = s:declare("interface", "m", { "Chain" .. i }, 0)
-    local supers: {Types.Type} = {}
+    local supers: mut {Types.Type} = {}
     if previous ~= nil then
       supers[1] = previous
     end
@@ -1140,10 +1140,10 @@ local function test_a_refusal_names_the_position_of_the_alternative_that_failed(
   local s = w.store
   local yes, no = s:atom("true"), s:atom("false")
   local wanted = s:fn({ rets = { { items = { yes, s.string } } } })
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   for _, failing in ipairs({ no, s.integer, s.boolean }) do
     local given = s:fn({ rets = { { items = { yes, s.string } }, { items = { failing, s.string } } } })
-    assert(given is Types.Fn)
+    assert((given.tag == "fn"))
     local r = refusal(w, given, wanted)
     local index = r.path[1].index
     assert(r.path[1].kind == "alternative" and index ~= nil, Relation.trace(r))
@@ -1205,22 +1205,22 @@ local function test_the_binder_of_a_declaration_that_is_not_defined_raises()
 end
 
 local record Holder
-  judge?: Relation.Judge
-  store?: Types.Store
-  raised: string
+  mut judge?: Relation.Judge
+  mut store?: Types.Store
+  mut raised: string
 end
 
 local function test_a_loader_that_relates_types_while_a_decode_is_open_is_refused_and_leaves_no_stale_answer()
   -- A decode that fails gives back the ids it made, which a later type reuses: an answer kept for
   -- one would be for another.
   local holder: Holder = { raised = "" }
-  local store = Types.new(function(_: string, _: string): string | nil
+  local store = Types.new(function(_: string, _: string): string?
     local judge, mine = holder.judge, holder.store
     assert(judge ~= nil and mine ~= nil)
     local ok, why = pcall(function()
       local _ = judge:subtype(mine:array(mine.string), mine:array(mine.boolean))
     end)
-    holder.raised = ok and "" or tostring(why)
+    holder.raised = if ok then "" else tostring(why) end
     return nil
   end)
   local judge = Relation.new(store)
@@ -1305,8 +1305,8 @@ end
 local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_as_far_as_it_holds()
   local w = world()
   local s = w.store
-  local decls: {Types.Decl} = {}
-  local uses: {Types.Type} = {}
+  local decls: mut {Types.Decl} = {}
+  local uses: mut {Types.Type} = {}
   for i = 1, 4200 do
     decls[i] = s:declare("interface", "m", { "Long" .. i }, 0)
     uses[i] = s:named(decls[i])
@@ -1314,7 +1314,7 @@ local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_
   -- Defined from the top down, so that the store's check for a cycle stops at a declaration it has no
   -- body for and does not walk the chain below each one (4200 steps each, which took seconds).
   for i = 4200, 1, -1 do
-    s:define(decls[i], { tparams = {}, supers = i > 1 and { uses[i - 1] } or {}, fields = {}, methods = {},
+    s:define(decls[i], { tparams = {}, supers = if i > 1 then { uses[i - 1] } else {} end, fields = {}, methods = {},
       values = {} })
   end
   assert(below(w, uses[4200], uses[200]))
@@ -1327,12 +1327,12 @@ local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is
   local w = world()
   local s = w.store
   -- 100 generic interfaces, each listing the next with its own argument.
-  local decls: {Types.Decl} = {}
+  local decls: mut {Types.Decl} = {}
   for i = 1, 100 do
     decls[i] = s:declare("interface", "m", { "G" .. i }, 1)
   end
   for i = 1, 100 do
-    local supers: {Types.Type} = {}
+    local supers: mut {Types.Type} = {}
     if i < 100 then
       supers[1] = s:named(decls[i + 1], { s:var(0, 0) })
     end
@@ -1356,10 +1356,10 @@ local function test_a_failing_alternative_is_named_by_its_position_whichever_it_
   assert(r.sub == given and r.super == never)
   -- two alternatives wanted, none of which takes the second given
   local wanted = s:fn({ rets = { { items = { yes, s.string } }, { items = { no, s.string } } } })
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   for _, failing in ipairs({ s.integer, s.number, s.boolean }) do
     local one = s:fn({ rets = { { items = { yes, s.string } }, { items = { yes, failing } } } })
-    assert(one is Types.Fn)
+    assert((one.tag == "fn"))
     local reason = refusal(w, one, wanted)
     assert(reason.code == "return_unmatched", Relation.trace(reason))
     local index = reason.path[1].index

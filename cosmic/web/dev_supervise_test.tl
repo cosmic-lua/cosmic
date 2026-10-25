@@ -25,8 +25,8 @@ local function raised(fn: function()): string
 end
 
 --- Starts the chunk `chunk` as the program, given the environment.
-local function program(chunk: string): function(env: {string:string}): Child.Handle | nil, string
-  return function(env: {string:string}): Child.Handle | nil, string
+local function program(chunk: string): function(env: {string:string}): Child.Handle?, string
+  return function(env: {string:string}): Child.Handle?, string
     local started = fixture.lua(chunk, nil, { env = env })
     return Child.start(started.argv, started.options)
   end

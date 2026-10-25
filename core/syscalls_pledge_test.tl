@@ -61,7 +61,7 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   --- What the child and a grandchild of it report of their filters, with
   --- one blank for each run of space; skips the test where `sandbox` is
   --- refused, as the kernel gives no such pledge.
-  local function filtered(sandbox: raw_process.Sandbox | nil): string
+  local function filtered(sandbox: raw_process.Sandbox?): string
     local output = create(tmp .. "/status")
     local pid, trouble, errno = process.spawn(probe, { probe,
       "status-field Seccomp; run " .. probe .. " status-field Seccomp" },

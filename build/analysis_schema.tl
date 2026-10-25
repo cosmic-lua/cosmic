@@ -37,7 +37,7 @@ local apart <const>: {string} = { "static/*", "testdata/*", "*/testdata/*" }
 --- The SQL that holds the path in `column` outside every pattern of
 --- [`apart`], an `AND <column> NOT GLOB '<pattern>'` each.
 function analysis_schema.outside_apart(column: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, pattern in ipairs(apart) do
     out[#out + 1] = "AND " .. column .. " NOT GLOB '" .. pattern .. "'"
   end

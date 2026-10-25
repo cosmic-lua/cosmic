@@ -31,7 +31,7 @@ end
 
 --- What [`prove`] answered, kept where the function that runs it under `pcall` can read it.
 local record Ended
-  status: integer
+  mut status: integer
 end
 
 local function prove(argv: {string}): integer
@@ -41,7 +41,7 @@ local function prove(argv: {string}): integer
   local cached = assert(Fs.stat(program))
   local cache_digest = Hash.hex_sha256((assert(Fs.read(program))))
   local function runtime_scratch(): string
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, name in ipairs((assert(Fs.list("/tmp")))) do
       if name:match("^cosmic%-local%-runtime%.") then names[#names + 1] = name end
     end
@@ -61,7 +61,7 @@ local function prove(argv: {string}): integer
     assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver"))
     assert(Fs.write(root .. "/ci/.hidden", "hidden"))
     assert(Fs.mkdirs(root .. "/build"))
-    assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+    assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
     assert(Fs.write(root .. "/tracked", "initial"))
     assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
     assert(Fs.write(root .. "/o/bin/cosmic", [=[#!/bin/sh
@@ -102,7 +102,7 @@ printf 'error: fixture phase\n'
     assert(Fs.symlink(outside .. "/missing", root .. "/dangling"))
     assert(Fs.mkdirs(state))
     assert(Fs.symlink(outside, state .. "/external-link"))
-    local env: {string:string} = {}
+    local env: mut {string:string} = {}
     for name, value in pairs(Env.all()) do env[name] = value end
     env["GIT_AUTHOR_NAME"], env["GIT_COMMITTER_NAME"] = "Local proof", "Local proof"
     env["GIT_AUTHOR_EMAIL"], env["GIT_COMMITTER_EMAIL"] = "proof@example.invalid", "proof@example.invalid"
@@ -110,6 +110,8 @@ printf 'error: fixture phase\n'
     env["COSMIC_ZIG_CACHE"], env["SSL_CERT_FILE"] = private .. "/seed", private .. "/ca"
     env["PROOF_UID"], env["PROOF_GID"] = tostring(account.uid), tostring(account.gid)
     env["PROOF_CORE_SHA"] = cache_digest
+    -- The runner below is new grammar and `driver` is the pinned release, which reads Teal unless told.
+    env["COSMIC_GRAMMAR"] = "new"
     env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"] = "1", "proof.keep", "original"
     local git = assert(Proc.find("git"))
     local function git_run(args: {string}): string

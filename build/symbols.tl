@@ -61,7 +61,7 @@ end
 --- The condition under which the SQL `column` names a user guide's
 --- module (one of the user guides above).
 function symbols.guide_module(column: string): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs(symbols.guides) do
     names[#names + 1] = "'doc.guides." .. name .. "'"
   end
@@ -247,8 +247,8 @@ end
 --- is never a reason to fail the compile it explains.
 function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
                        query: string): {string}
-  local seen: {string: boolean} = {}
-  local out: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local out: mut {string} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no match: a hint never fails the compile.
     local rows, _ = Sqlite.text_rows(db,
@@ -277,7 +277,7 @@ end
 --- cannot replace the compiler's own diagnostic.
 function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
                                    name: string): boolean
-  local owners: {string: integer} = {}
+  local owners: mut {string: integer} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no owner, and so no example.
     local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
@@ -287,7 +287,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
       end
     end
   end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in name:gmatch("[%w_]+") do words[#words + 1] = word end
   local phrase = '"' .. table.concat(words, " ") .. '"'
   for index, db in ipairs(databases) do
@@ -303,7 +303,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
             "*" .. name .. "[^A-Za-z0-9_]*" },
     }) do
       -- A query that fails is no match.
-      local binds: {Sqlite.Value} = { { text = lookup[2] } }
+      local binds: mut {Sqlite.Value} = { { text = lookup[2] } }
       if lookup[3] ~= nil then binds[2] = { text = lookup[3] } end
       local rows, _ = Sqlite.text_rows(db, lookup[1], binds)
       if rows ~= nil then

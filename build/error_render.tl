@@ -16,16 +16,16 @@
 --- a call or a field the checker refused by the worked example that teaches the form (`-- see also: cosmic docs
 --- records_interfaces_methods`), when the databases the caller hands over hold them.
 ---
---- The build prints the errors of a compile with the new checker through [`ErrorRender.line`] ([`build.pipeline`]); the fork's
---- go through [`build.importer`]'s `complain`.
+--- The build prints the errors of a compile through [`ErrorRender.line`] ([`build.pipeline`]).
 --
 -- TODO: list the fields a record declares in the fix of `field_unknown` where none is near (`R's fields: y`, which the
--- fork's hint says and the checker's fix does not), once lang/check.tl's fix names them; this prints the checker's fix as
+-- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
 --
--- TODO: print every module's problems through this, and delete `complain`, `with_hint` and [`teal.replacement`] of the fork,
--- once the build compiles with the new checker alone (doc/plans/strict-teal.md, "the switch"); [`build.tree_checks`] then
--- reads the queries of [`ErrorRender.queries`] in place of [`importer.diagnostic_queries`].
+-- TODO: point a `not_assignable` of an argument of a call of a standard-library function to `cosmic docs
+-- generics_functions_returns`, as the fork's message did (only `arity`, `overload_none` and `field_unknown` point today,
+-- in [`example_query`]), once [`Driver.Problem`] says a problem is an argument's: it carries a code, a message and a place
+-- and no marker of the call, and the message cannot be read for it.
 local Driver = require("build.driver")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
@@ -76,7 +76,7 @@ function ErrorRender.line(file: string, problem: Driver.Problem): string
 end
 
 --- The name an error about an unresolved name is about: the name read, or the module `require`d. nil for any other error.
-local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem): string | nil
+local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem): string?
   if problem.code ~= "unknown_variable" and problem.code ~= "require_unknown" then
     return nil
   end
@@ -110,7 +110,7 @@ local function docs_pointer(result: Driver.Outcome, problem: Driver.Problem, hin
 end
 
 --- The worked example that teaches the form a problem is about, by the query that finds it: nil for a problem of no form.
-local function example_query(problem: Driver.Problem): string | nil
+local function example_query(problem: Driver.Problem): string?
   if problem.code == "arity" or problem.code == "overload_none" then
     return ErrorRender.queries.arguments
   elseif problem.code == "field_unknown" then
@@ -139,9 +139,9 @@ end
 
 function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {string}
   local file = result.source.filename
-  local out: {string} = {}
-  local first: {string: integer} = {}
-  local repeats: {integer: integer} = {}
+  local out: mut {string} = {}
+  local first: mut {string: integer} = {}
+  local repeats: mut {integer: integer} = {}
   local groups: {{Driver.Problem}} = { result.errors, result.warnings }
   for _, group in ipairs(groups) do
     for _, problem in ipairs(group) do
@@ -159,7 +159,7 @@ function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {
       end
     end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for at, text in ipairs(out) do
     local more = repeats[at]
     if more ~= nil then

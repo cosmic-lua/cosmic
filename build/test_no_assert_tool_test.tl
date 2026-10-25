@@ -24,7 +24,10 @@ local function project(tmp: string): string
   assert(Fs.write(root .. "/checks_test.tl", [[
 local Test = require("cosmic.test")
 
-local check = assert
+-- The checker takes no `assert` as a value, so the "captured" one is a function of its own that calls it.
+local check = function(ok: boolean): boolean
+  return assert(ok)
+end
 
 local function same(a: integer, b: integer)
   assert(a == b, "differ")
@@ -133,15 +136,15 @@ local function test_a_failing_assert_in_tail_position_reports_its_callers_positi
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/tail_test.tl", [[
-local function check(x: integer): any...
-  return assert(x == 2, "boom")
+local function check(x: integer): boolean
+  return assert(x == 2)
 end
 
 local function test_fails_in_a_tail_call()
-  check(1)
+  local _ = check(1)
 end
 ]]))
   local out, code = run(root, {})
   assert(code ~= 0, out)
-  assert(out:find("tail_test test_fails_in_a_tail_call: tail_test:2: boom", 1, true), out)
+  assert(out:find("tail_test test_fails_in_a_tail_call: tail_test:2: assertion failed!", 1, true), out)
 end

@@ -23,13 +23,13 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(any...): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "the call must raise")
 end
 
 --- Asserts calling `fn` with `...` raises, and the message holds `says`.
 local function raises_saying(says: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(any...): (any...), ...)
+  local ok, why = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, "the call must raise")
   assert(tostring(why):find(says, 1, true) ~= nil, tostring(why))
 end
@@ -444,7 +444,7 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
   -- through "..".
   local here = assert(sys.getcwd())
   assert(sys.chdir(tmp))
-  local trouble: string | nil
+  local trouble: string?
   for _, name in ipairs(names) do
     local read, why = Sqlite.open(name, { immutable = true })
     if read == nil then

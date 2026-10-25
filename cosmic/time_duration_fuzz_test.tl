@@ -18,7 +18,7 @@ end
 --- A duration as its own text: units in order, each present or not, from
 --- the fields `gen_duration` draws.
 local function gen_duration_text(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   if src:int(0, 4) == 0 then parts[1] = Fuzz.pick(src, { "-", "+" }) end
   local units = { "y", "mo", "d", "h", "m", "s" }
   -- Each unit drawn after a `more`, so shrinking can drop one.
@@ -53,7 +53,7 @@ local function fields_round_trip(input: string): boolean, string
   local d: Time.Duration = { years = sign * years, months = sign * months, days = sign * days,
     ns = sign * ns }
   local text = Time.format_duration(d)
-  Fuzz.label(sign < 0 and "negative" or "positive")
+  Fuzz.label(if sign < 0 then "negative" else "positive" end)
   local back, why = Time.parse_duration(text)
   if back == nil then return false, text .. " refused: " .. why end
   if back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or

@@ -117,7 +117,7 @@ function Clock.ceil(ns: integer, unit: integer): integer
   if math.type(unit) ~= "integer" or unit < 1 then
     error("clock: unit must be an integer above 0", 2)
   end
-  return ns // unit + (ns % unit ~= 0 and 1 or 0)
+  return ns // unit + (if ns % unit ~= 0 then 1 else 0 end)
 end
 
 return Clock

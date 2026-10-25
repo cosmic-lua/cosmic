@@ -13,13 +13,10 @@ local clock = require("build.clock")
 local importer = require("build.importer")
 local GrammarMode = require("build.grammar_mode")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
-local workers = require("build.workers")
 local writer = require("build.writer")
 local log = require("build.logger").log
-local type compiler = require("build.compiler")
 
 local record rebuild
   --- What [`rebuild.stage`] finds of a directory ([`where`]).
@@ -29,14 +26,14 @@ local record rebuild
     --- Whether it is cosmic's own tree ([`tree.is_own`]).
     own_tree: boolean
     --- Its build directory, or nil where it can have none.
-    directory: string | nil
+    directory: string?
     --- Whether [`rebuild.stage`] staged nothing, another run holding
     --- the working database.
     busy: boolean
     --- The schema [`rebuild.stage`] found the working database of, where
     --- it staged nothing, the file being of another schema than this
     --- tool's ([`work.try_open`]).
-    other_schema: string | nil
+    other_schema: string?
     --- Whether [`rebuild.stage`] staged nothing, the check before the verb
     --- not having held the tool to the tree ([`reboot.unchecked`]): what
     --- its code derived could be older code's than the tree's.
@@ -49,7 +46,7 @@ end
 --- before it does anything else ([`work.open`]), or a projection. It
 --- looks at nothing but those two files, and nothing outside the build
 --- directory. Nil and why where it cannot tell.
-function rebuild.started(directory: string): boolean | nil, string
+function rebuild.started(directory: string): boolean?, string
   local layout = build_paths.under(directory)
   for _, path in ipairs({ layout.working, layout.projection }) do
     local there, trouble = Fs.exists(path)
@@ -68,7 +65,7 @@ end
 --- one a build was started in. Anything else is left alone, whatever it
 --- holds: a lookup never starts a tree of its own in a directory that has
 --- a stray `.tl`, nor below the home directory.
-local function where(root: string): rebuild.Where | nil, string
+local function where(root: string): rebuild.Where?, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then return nil, own_trouble end
   local own_tree = own == true
@@ -102,14 +99,10 @@ local function own_compiler(): string
 end
 
 --- The compiler identity that a build in the mode `grammar` records as the projection's [`compiled_by`]
---- ([`writer.other_code`]): the compiler's own for the fork, which is what every default run records, and for the
---- new checker the compiler's, the mode's and the code that reads ([`build.pipeline`]'s `coded`), so that a projection the
---- other mode wrote, or an older checker did, is told apart from one this process would write.
+--- ([`writer.other_code`]): the compiler's, the mode's and the code that reads ([`build.pipeline`]'s `coded`), so that a
+--- projection an older checker wrote is told apart from one this process would write.
 function rebuild.compiled_by(grammar: GrammarMode.Mode): string
-  if grammar == "new" then
-    return require("build.pipeline").coded(GrammarMode.tool(own_compiler(), grammar))
-  end
-  return own_compiler()
+  return require("build.pipeline").coded(GrammarMode.tool(own_compiler(), grammar))
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -126,7 +119,7 @@ end
 --- `root`'s working database, opened as a build opens it, waiting for
 --- another run that holds it, where `wait`; otherwise opened only where
 --- no run holds it ([`work.try_open`]), with no handle where one does.
-local function opened_for(root: string, wait: boolean): work.Opening | nil, string
+local function opened_for(root: string, wait: boolean): work.Opening?, string
   if not wait then return work.try_open(root) end
   local handle, trouble = work.open(root)
   if handle == nil then return nil, trouble end
@@ -187,34 +180,24 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     local _, _ = work.close(handle)
     return false, stage_trouble
   end
-  -- In the mode the run asks for, as `cosmic test` reads the tree: the new checker reads it in this process, which asks
-  -- no pool ([`importer.compile`]).
-  local pool: importer.Workers | nil = nil
-  if grammar ~= "new" then pool = workers.pool(workers.tool_spec()) end
-  local result, compile_trouble = importer.compile(handle, teal.lazy(),
-    GrammarMode.tool(own_compiler(), grammar), false, shared_compiles.for_build(), pool, nil, grammar, start)
+  local result, compile_trouble = importer.compile(handle,
+    GrammarMode.tool(own_compiler(), grammar), false, shared_compiles.for_build(), nil, start)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     return false, compile_trouble
   end
-  -- The new checker goes on past a module it refuses, to name them all; the fork stops at the first, and a build it stops
-  -- leaves the last projection as it is. A refusal is the same here: the answer is the last build's, with the words of the
-  -- refusal, rather than a projection without the modules that were refused. The modules the tree is known to have refused
-  -- in this mode ([`build.pipeline`]'s `residue`) are no failure of a build.
-  if grammar == "new" then
-    -- Only cosmic's own tree has the residue: a project's file of the same name is its own.
-    local unexpected = result.refused
-    if own_tree then unexpected = require("build.pipeline").unexpected(result.refused) end
-    if #unexpected > 0 then
-      local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
-      local _, _ = work.close(handle)
-      return false, table.concat(unexpected, "\n")
-    end
+  -- The new checker goes on past a module it refuses, to name them all; the answer is the last build's, with the words of
+  -- the refusal, rather than a projection without the modules that were refused.
+  local unexpected = result.refused
+  if #unexpected > 0 then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
+    local _, _ = work.close(handle)
+    return false, table.concat(unexpected, "\n")
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
-  local reader: string | nil = nil
+  local reader: string? = nil
   if not start then reader = verb end
   local written, write_trouble = writer.write_recorded(handle,
     build_paths.resolve(root).projection, result, started, staged, reader)
@@ -227,7 +210,7 @@ end
 --- source, as a build does before it compiles ([`work.stage`],
 --- [`importer.derive`]), so the working database's `inputs` rows and the
 --- `stubs` of their sources are the tree as it stands: no compile, no
---- projection. `built` parses what is new. A directory that is no
+--- projection. A directory that is no
 --- project ([`where`]) is left alone: nothing is staged, and no
 --- build directory is made. A derive that fails leaves the database as
 --- it was, stage and all. Where the check before the verb went on
@@ -237,11 +220,9 @@ end
 --- database ([`work.try_open`]), nothing is staged, and what it answers
 --- is `busy`; where the database is of another schema, nothing is staged
 --- and none of it read, and what it answers names that schema. The
---- sources are read by the checker `asked` names, the one `COSMIC_GRAMMAR`
---- asks for ([`build.grammar_mode`]) where none is given: the new checker's
---- syntax tree, in this process, or the fork's parser. Answers
---- what the directory is, or nil and why it could not be staged.
-function rebuild.stage(root: string, built: compiler, asked?: GrammarMode.Mode): rebuild.Where | nil, string
+--- sources are read by the new checker's syntax tree, in this process.
+--- Answers what the directory is, or nil and why it could not be staged.
+function rebuild.stage(root: string): rebuild.Where?, string
   local found, found_trouble = where(root)
   if found == nil then return nil, found_trouble end
   if not found.project then return found, "" end
@@ -262,22 +243,9 @@ function rebuild.stage(root: string, built: compiler, asked?: GrammarMode.Mode):
     local _, _ = work.abort(handle)
     return nil, stage_trouble
   end
-  local grammar = asked
-  if grammar == nil then
-    local chosen, grammar_trouble = GrammarMode.mode()
-    if chosen == nil then
-      local _, _ = work.abort(handle)
-      return nil, grammar_trouble
-    end
-    grammar = chosen
-  end
   local shared = shared_compiles.for_build()
-  -- The new checker's readers parse in this process ([`importer.derive`]): no pool.
-  local pool: importer.Workers | nil = nil
-  if grammar ~= "new" then pool = workers.pool(workers.tool_spec()) end
-  local parses, derive_trouble = importer.derive(handle, found.own_tree, built, shared, pool, nil, grammar)
+  local parses, derive_trouble = importer.derive(handle, found.own_tree, shared)
   if shared ~= nil then shared.finish() end
-  if pool ~= nil then pool.close() end
   if parses == nil then
     local _, _ = work.abort(handle)
     return nil, derive_trouble
@@ -292,7 +260,7 @@ end
 --- says: a lookup's, which waits for no other run. With `start`, it
 --- builds one no build has been made of yet too, and waits for another
 --- run as a build does: `cosmic fix`, which stages and compiles the
---- directory to check it whatever it holds ([`build.fix.spill`]), so
+--- directory to check it whatever it holds (`build.fix.spill`), so
 --- that what its links name is the tree as it stands rather than
 --- whatever an earlier `cosmic test` left.
 function rebuild.here(verb: string, start?: boolean, root?: string): boolean, string

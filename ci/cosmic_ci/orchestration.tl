@@ -22,7 +22,6 @@ local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local ZigRestat = require("cosmic_ci.zig_restat")
 local Plural = require("cosmic_ci.plural")
-local Rehearsal = require("cosmic_ci.rehearsal")
 local String = require("cosmic.string")
 
 local record Orchestration
@@ -70,7 +69,7 @@ local record Orchestration
   suite_run: function(extra?: {string:string}): SuiteRun
   suite_verdicts: function(env: {string:string}, name: string): string
   darwin_modules: function(text: string): {string}
-  darwin_words: function(words: {string}, modules: {string}): {string} | nil
+  darwin_words: function(words: {string}, modules: {string}): {string}?
   native_ran_every: function(text: string, code: integer): boolean
   replay: function(out: string, err: string, to_out?: integer, to_err?: integer): boolean
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
@@ -191,7 +190,7 @@ local git_timeout_ns <const> = Clock.seconds(60)
 --- Runs git in the checkout at `root`, never asking for credentials
 --- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
 --- printed, or nil and why it failed, its own stderr among it.
-local function git(root: string, words: {string}): string | nil, string
+local function git(root: string, words: {string}): string?, string
   local argv = { "/usr/bin/env", "git", "-C", root }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local env = Maps.with(Env.all(), { GIT_TERMINAL_PROMPT = "0" })
@@ -211,7 +210,7 @@ end
 --- The git object `revision:path` names in the checkout at `root`, or
 --- nil and why where there is none: no such commit here, or no such
 --- file in it.
-local function blob(root: string, revision: string, path: string): string | nil, string
+local function blob(root: string, revision: string, path: string): string?, string
   local out, trouble = git(root, { "rev-parse", "--verify", revision .. ":" .. path })
   if out == nil then return nil, trouble end
   local object = out:match("^(%x+)\n?$")
@@ -242,7 +241,7 @@ function Orchestration.harness_moved(root: string, base: string): Orchestration.
     was, was_trouble = blob(root, base, epoch_file)
     if was == nil then
       return { moved = true, why = "cannot read " .. base .. "'s " .. epoch_file .. ": " .. was_trouble ..
-          (fetch_trouble ~= "" and ("; " .. fetch_trouble) or "") }
+          (if fetch_trouble ~= "" then ("; " .. fetch_trouble) else "" end) }
     end
   end
   if was ~= now then
@@ -253,7 +252,7 @@ end
 
 --- What [`harness_moved`] answered of each checkout and base, asked once
 --- a driver run: every operation's environment asks it.
-local moved_by_base: {string:boolean} = {}
+local moved_by_base: mut {string:boolean} = {}
 
 --- COSMIC_CI_HARNESS_MOVED for `env`, a merge-queue run's, where it
 --- does not say already: "1" where its change moves
@@ -300,7 +299,7 @@ end
 --- suites run the tree's own tool, which parses the flag, never the
 --- pinned release the driver itself runs on.
 function Orchestration.test_words(env: {string:string}): {string}
-  local words: {string} = { "test" }
+  local words: mut {string} = { "test" }
   if not Orchestration.stands(env) then words[#words + 1] = "--all" end
   if env["COSMIC_CI_EVENT"] == "merge_group" then words[#words + 1] = "--bail" end
   return words
@@ -376,7 +375,7 @@ end
 --- decides what the suite does (`stands`, [`test_words`], `shares`) before
 --- this, from the environment it was given.
 function Orchestration.forget_run(env: {string:string}): {string:string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(env) do
     if names_the_run(name) then names[#names + 1] = name end
   end
@@ -428,7 +427,7 @@ end
 
 --- `words`, a suite's `cosmic test` line, with `--census` after `test`, for the key parts its row says.
 local function with_census(words: {string}, shard?: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for at, word in ipairs(words) do
     out[#out + 1] = word
     if at == 1 then out[#out + 1] = "--census" end
@@ -453,7 +452,7 @@ local record Context
 end
 
 --- The environment variable `name`, or nil when it is unset or empty.
-local function named(name: string): string | nil
+local function named(name: string): string?
   local value = Env.get(name)
   if value == "" then return nil end
   return value
@@ -464,7 +463,7 @@ local function request_for(c: Context, command: {string}, timeout: integer,
                            error_output?: string): Runner.Context, Runner.Request
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
-  local child_environment: {string:string} = {}
+  local child_environment: mut {string:string} = {}
   for name, value in pairs(env or environment()) do child_environment[name] = value end
   -- bin/zig shares one project cache among checkouts unless told otherwise
   -- (build/zig.tl). A candidate uses the zig-cache under
@@ -476,7 +475,7 @@ local function request_for(c: Context, command: {string}, timeout: integer,
   -- CI saves the seed's as it stands.
   if (child_environment["COSMIC_ZIG_CACHE"] or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
-    child_environment["COSMIC_ZIG_CACHE"] = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
+    child_environment["COSMIC_ZIG_CACHE"] = if seed then seed .. "/zig-cache" else BuildPaths.directory(c.root, child_environment) .. "/zig-cache" end
   end
   -- The driver boots the candidate itself; a tool that finds its core
   -- stale is a fault to report, not one to boot past (build/reboot.tl).
@@ -667,26 +666,6 @@ local checked_suite_test_timeout_s <const> = "120"
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1800)
 local checked_narrowing_test_timeout_s <const> = "120"
 
---- The whole suite with the new checker ([`phase_rehearsal`]): the size of the checked run plus the cold compile of the tree by
---- the new pipeline, bounded to fit with the phases around it inside the job.
-
--- TODO: lower these bounds once CI's own runs of the phase show its elapsed time; a local run of the whole suite in the new
--- grammar took about 460 s on four cores, cold compile of the tree included, and 670 s on the tool booted with it (whose first
--- run reads the 1087 sources again, 90 s), and the bound is 1200 s.
-local rehearsal_timeout_ns <const> = Clock.seconds(1200)
-local rehearsal_test_timeout_s <const> = "120"
--- The tool the rehearsal runs the suite on is booted again with the new checker, which compiles the tree in one process and
--- takes no compile another run made (the keys hold the mode): a cold compile of the whole tree, 180 to 220 s of the 230 to 320
--- a local boot took on four cores shared with two other builds, and 7.3 GB of memory at its peak. A project of the rehearsal
--- builds in seconds, and the proof of lang/ and the seed's compile of it took 140 to 340 s.
--- The bounds sum to 41 minutes (600 + 1200 + 2 x 120 + 420 s), inside the job's 60 with the first boot and the restores.
--- TODO: lower these bounds once CI's own runs show their times, keeping their sum below the job's `timeout-minutes`; they are
--- sized from local runs.
-local rehearsal_boot_timeout_ns <const> = Clock.seconds(600)
-local rehearsal_project_timeout_ns <const> = Clock.seconds(120)
-local rehearsal_seed_timeout_ns <const> = Clock.seconds(420)
--- The examples and guides of the tree, each compiled alone by the new checker: a few minutes on one core.
-local rehearsal_examples_timeout_ns <const> = Clock.seconds(900)
 -- A boot the product drives from another path compiles no C again (it
 -- compiles from copies in zig's cache, build.zig's `Own`), only the tree:
 -- about 110 s for the whole fixture in a local run on four cores, loaded.
@@ -741,7 +720,7 @@ local suite_test_timeout_s <const> = "10"
 --- Copies the files of `source` (modules, and where `data` the JSON
 --- files beside them that the modules read) to `destination`.
 local function copy_flat_dir(source: string, destination: string, data: boolean)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
     assert((name:match("%.tl$") ~= nil or (data and name:match("%.json$") ~= nil)) and
         assert(Fs.stat(source .. "/" .. name)).kind == "file",
@@ -762,7 +741,7 @@ end
 --- project, named by its path, so the fixture before at the same path
 --- would otherwise leave its build and what [`place`] put there.
 function Orchestration.fixture_project(driver: string, work: string, group?: string): string
-  local project = work .. "/fixture-project" .. (group and "-" .. group or "")
+  local project = work .. "/fixture-project" .. (if group then "-" .. group else "" end)
   local driver_namespace = Fs.dirname(driver)
   local fixtures_source = Fs.dirname(driver_namespace) .. "/fixtures"
   assert(Fs.remove_tree(project))
@@ -884,7 +863,7 @@ end
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
                                    compiles: string): {string:string}
   local sandboxed = SANDBOXED_FIXTURES[source] == true
-  local verdicts: string | nil = nil
+  local verdicts: string? = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
   return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
@@ -950,7 +929,7 @@ end
 
 --- What a fixture group has prepared, once it has started.
 local record FixtureHeld
-  prepared?: Prepared
+  mut prepared?: Prepared
 end
 
 --- Makes the fixture `spec`'s project (a group's own where `group` is
@@ -1064,8 +1043,8 @@ local function checked_suite(c: Context, target: string, work: string,
                              decoder: string): integer
   local sanitized = BuildPaths.directory(c.root) .. "/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
-  local target_id: string | nil = nil
-  local checked_target: string | nil = nil
+  local target_id: string? = nil
+  local checked_target: string? = nil
   local target_records = read(targets_path)
   for line in target_records:gmatch("[^\n]+") do
     local id, configuration, name =
@@ -1178,8 +1157,8 @@ local function checked_suite(c: Context, target: string, work: string,
     local stale = Orchestration.suite_verdicts(Env.all(), "checked")
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
-      local _, _ = Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
-          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+      local _, _ = Fs.put(Fs.stderr, if removed then ("checked suite: removed this leg's " .. stale .. "\n") else
+          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n") end)
     end
     if target == "aarch64-macos" then
       local diagnostics = work .. "/checked-diagnostics"
@@ -1223,16 +1202,16 @@ local function checked_suite(c: Context, target: string, work: string,
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever its build directory holds.
-  local checked_argv: {string} = { cosmic }
+  local checked_argv: mut {string} = { cosmic }
   local gathering = Env.get("COSMIC_CI_CHECKED_SUITE") == "gather"
   local share = named("COSMIC_CI_CHECKED_SHARD")
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
-    COSMIC_CI_GATHER = gathering and "1" or "" })
+    COSMIC_CI_GATHER = if gathering then "1" else "" end })
   local checked_environment = checked_run.env
   local checked_words = with_census(checked_run.words)
-  local shard_words: {string} = share ~= nil and { "--shard", share } or {}
+  local shard_words: {string} = if share ~= nil then { "--shard", share } else {} end
   for _, words in ipairs({ checked_words, shard_words }) do
     for _, word in ipairs(words) do
       checked_argv[#checked_argv + 1] = word
@@ -1268,7 +1247,7 @@ end
 
 --- The status of a snapshot, kept where the function that takes it under `pcall` can set it.
 local record Snapped
-  status: integer
+  mut status: integer
 end
 
 local function snapshot(c: Context, diagnostics: string, label: string,
@@ -1335,7 +1314,7 @@ local function suite(c: Context, name: string, executable: string,
   local values = Maps.with(run.env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
   -- Its key parts said, as the checked suite's are, for its row.
   local words = with_census(run.words, shard)
-  local argv: {string} = { executable }
+  local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ns, c.root, values)
@@ -1409,7 +1388,7 @@ local function boot(p: PlatformContext): integer
   -- COSMIC_ZIG_CACHE_FROM names, a developer's shared one.
   local seed = named("COSMIC_ZIG_CACHE_SEED")
   local from = named("COSMIC_ZIG_CACHE_FROM")
-  local cache = seed and seed .. "/zig-cache" or from
+  local cache = if seed then seed .. "/zig-cache" else from end
   -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
   if cache ~= nil and not is_dir(cache) then
@@ -1443,7 +1422,7 @@ local darwin_list <const> = "ci/darwin-tests.txt"
 --- The test modules `text`, a darwin list's, names: one path a line,
 --- with what a `#` starts and blank lines left out.
 function Orchestration.darwin_modules(text: string): {string}
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
@@ -1459,12 +1438,12 @@ end
 --- keyed by declarations stands on macOS for the key a Linux leg
 --- reached, whose run never took the macOS branch its code has. Nil on
 --- a run of every test already (the scheduled run, the backstop).
-function Orchestration.darwin_words(words: {string}, modules: {string}): {string} | nil
+function Orchestration.darwin_words(words: {string}, modules: {string}): {string}?
   if #modules == 0 then return nil end
   for _, word in ipairs(words) do
     if word == "--all" then return nil end
   end
-  local out: {string} = { "test", "--all", "--census" }
+  local out: mut {string} = { "test", "--all", "--census" }
   for _, word in ipairs(words) do
     if word == "--bail" then out[#out + 1] = word end
   end
@@ -1516,7 +1495,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     end
   end
   local values = Maps.with(darwin_run.env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
-  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
@@ -1534,7 +1513,7 @@ end
 --- tests (`*declared_types_test.tl`, which a later directory's change adds files
 --- to without touching CI), by their path in the checkout.
 function Orchestration.declared_types_files(root: string): {string}
-  local files: {string} = {}
+  local files: mut {string} = {}
   for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
     local walked, _ = Fs.walk(root .. "/" .. directory)
     local found = walked or {}
@@ -1561,7 +1540,7 @@ local function phase_declared_types(p: PlatformContext): integer
     local _, _ = Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
     return 1
   end
-  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
   for _, file in ipairs(files) do argv[#argv + 1] = file end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/declared-types-test.out"
@@ -1580,7 +1559,7 @@ end
 --- promises it, the sanitized core's instruments, which a run on the release core lacks: a held run would fail every test
 --- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
 local function release_promises(values: {string:string}): {string:string}
-  local promised: {string} = {}
+  local promised: mut {string} = {}
   for name in (values["COSMIC_TEST_PROMISES"] or ""):gmatch("[^,]+") do
     if name ~= "checked" then promised[#promised + 1] = name end
   end
@@ -1611,170 +1590,6 @@ local function phase_checked_narrowing(p: PlatformContext): integer
     return 1
   end
   return status
-end
-
---- The whole suite with the new checker (`COSMIC_GRAMMAR=new`, build/pipeline.tl), on the linux-x86_64 target alone,
---- in the verdicts of a file of its own (`new-grammar.db`, [`suite_verdicts`]): a compile and a verdict of one grammar
---- stand for none of the other's. It is a rehearsal of the switch (doc/plans/strict-teal.md, "the switch") and the run is
---- informational: ci.yml's `rehearsal` job gates nothing. It fails where the suite's failures are not the ones
---- testdata/gate/rehearsal.txt expects, each with its reason ([`Rehearsal`]): a failure the list lacks, and an entry whose
---- failure did not happen, so that the list only shrinks.
---
--- TODO: run the suite a second time here, checked (`cosmic test --check-types` with COSMIC_GRAMMAR=new, a verdict file of its own),
--- and judge the failures of both runs together against the list: a checked run of the new mode takes 520 s on four cores, and
--- the bounds of the phases (about 41 minutes) leave the job's 60 no room for it until CI's own runs show their times. It has
--- found a real unsoundness (build/fix/init.tl) and a wrapped chunk run before the worker's hook, which no other test reaches.
-local function phase_rehearsal(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  local cosmic = BuildPaths.directory(p.root) .. "/bin/cosmic"
-  mkdir(p.local_diagnostics)
-  local out = p.local_diagnostics .. "/rehearsal-test.out"
-  local rehearsal_run = Orchestration.suite_run({
-    COSMIC_GRAMMAR = "new",
-    COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "new-grammar"),
-    COSMIC_TEST_TIMEOUT = rehearsal_test_timeout_s,
-  })
-  local words = rehearsal_run.words
-  local values = release_promises(rehearsal_run.env)
-  local argv: {string} = { cosmic }
-  for _, word in ipairs(words) do
-    -- A queue run bails on its first failure, which fails it whatever the rest says. The rehearsal judges every failure of the
-    -- whole suite against the list, so a test it never ran would read as one that did not fail.
-    if word ~= "--bail" then
-      argv[#argv + 1] = word
-    end
-  end
-  local status = logged(c, "new grammar", argv, out, p.local_diagnostics .. "/rehearsal-test.err", rehearsal_timeout_ns,
-    c.root, values)
-  -- 1 is the suite's own failure; anything else (a timeout, a signal) is not a run the list can judge.
-  if status ~= 0 and status ~= 1 then return status end
-  local listed = c.root .. "/" .. Rehearsal.path()
-  if not exists(listed) then
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. Rehearsal.path() .. " is missing\n")
-    return 1
-  end
-  local allowed, trouble = Rehearsal.parse(read(listed))
-  if allowed == nil then
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. trouble .. "\n")
-    return 1
-  end
-  local failed = Rehearsal.failures(read_or_empty(out))
-  local problems: {string} = {}
-  for _, line in ipairs(Rehearsal.judge(allowed, failed)) do problems[#problems + 1] = line end
-  -- The suite ran on the tool the rehearsal booted with the new checker, not on one built again for the run.
-  local errors = p.local_diagnostics .. "/rehearsal-test.err"
-  for _, line in ipairs(Rehearsal.judge_tool(read_or_empty(out), read_or_empty(errors))) do
-    problems[#problems + 1] = line
-  end
-  if status == 1 and #failed == 0 then
-    problems[#problems + 1] = "the suite failed and its output names no failure"
-  end
-  for _, line in ipairs(problems) do
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
-  end
-  return #problems == 0 and 0 or 1
-end
-
---- What the tool booted with the new checker says of itself: it was compiled by the tool string that mode records (the
---- `compiled_by` it carries is not the compiler's identity, `reboot.settled_by` of build/reboot.tl), and it carries the declarations of the
---- standard library that a project is typed against (`build/checker_declarations.tl`).
-local BUILT_BY <const> = "local S = require('cosmic.store'); print(S.meta('compiled_by') ~= S.meta('compiler')); " ..
-  "print(S.source('checker.stdlib') ~= nil and S.source('checker.prelude') ~= nil)"
-
---- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`) over the one `boot`
---- made in the same build directory: the tree is compiled in one process by the new pipeline, and the tool carries the Lua
---- the new generator wrote, under the tool string that says so, so that a run that asks for the fork's builds it again and one
---- that asks for the new checker's does not. `rehearsal` runs the suite on it. On the linux-x86_64 target alone.
-local function phase_rehearsal_boot(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  mkdir(p.local_diagnostics)
-  local booted = checked(c, "boot with the new checker", { p.root .. "/bin/zig", "build", "boot", "-Dboot-cores=all" },
-    rehearsal_boot_timeout_ns, c.root, environment({ COSMIC_GRAMMAR = "new" }))
-  if booted ~= 0 then return booted end
-  local said = p.local_diagnostics .. "/rehearsal-built-by.out"
-  local asked = capture_small(c, "what built the tool", { BuildPaths.directory(p.root) .. "/bin/cosmic", "-e", BUILT_BY },
-    said, Clock.seconds(60))
-  if asked ~= 0 then return asked end
-  if read(said) ~= "true\ntrue\n" then
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: the tool booted with COSMIC_GRAMMAR=new does not say it was built by the new checker " ..
-        "and carry the declarations of the standard library: " .. read(said) .. "\n")
-    return 1
-  end
-  return 0
-end
-
---- The projects of testdata/rehearsal, each built and tested as a project outside the tree with the new checker, on the tool
---- the rehearsal booted: the one of Teal both checkers read passes, and the one of forms only the fork reads is refused with the
---- new checker's words and fix ([`Rehearsal.judge_project`]). A project has no ceilings and no fork to fall back to.
-local function phase_rehearsal_project(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  local cosmic = BuildPaths.directory(p.root) .. "/bin/cosmic"
-  mkdir(p.local_diagnostics)
-  local problems: {string} = {}
-  for _, name in ipairs(Rehearsal.projects()) do
-    local copy = p.work .. "/rehearsal-" .. name
-    local copied = step(c, "copy the project " .. name, function(): boolean, string
-      if exists(copy) then
-        local removed, trouble = Fs.remove_tree(copy)
-        if not removed then return false, trouble end
-      end
-      return Fs.copy_tree(c.root .. "/testdata/rehearsal/" .. name, copy)
-    end)
-    if copied ~= 0 then return copied end
-    local out = p.local_diagnostics .. "/rehearsal-project-" .. name .. ".out"
-    local values = release_promises(environment({ COSMIC_GRAMMAR = "new", COSMIC_VERDICT_CACHE = "0" }))
-    local status = logged(c, "project " .. name, { cosmic, "test" }, out, p.local_diagnostics .. "/rehearsal-project-" .. name .. ".err",
-      rehearsal_project_timeout_ns, copy, values)
-    -- 0 and 1 are the run's own verdicts; anything else (a timeout, a signal) is no run the project can be judged by.
-    if status ~= 0 and status ~= 1 then return status end
-    for _, line in ipairs(Rehearsal.judge_project(name, status, read(out))) do
-      problems[#problems + 1] = line
-    end
-  end
-  for _, line in ipairs(problems) do
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
-  end
-  return #problems == 0 and 0 or 1
-end
-
---- The examples and guides of the tree, which a user copies, compiled by the new checker as files alone and held to the findings
---- `[examples]` of build/ceilings.txt pins (build/example_checks_main.tl): a finding over its pin, and a pin above its findings,
---- fail the phase. On the tool `boot` built, before the rehearsal boots another: the check asks for the new checker itself, so a
---- regression in an example is told here whether or not the tool booted with the new checker would still build.
-local function phase_rehearsal_examples(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  mkdir(p.local_diagnostics)
-  local out = p.local_diagnostics .. "/rehearsal-examples.out"
-  return logged(c, "the examples with the new checker", { BuildPaths.directory(p.root) .. "/bin/cosmic",
-    "build/example_checks_main.tl" }, out, p.local_diagnostics .. "/rehearsal-examples.err", rehearsal_examples_timeout_ns,
-    c.root, environment({}))
-end
-
---- The proof that the pinned seed builds the new checker from its translated source (build/lang_proof.tl): all of lang/
---- translated, compiled with `compile --grammar new`, and its tests run against the Lua; then the same translation compiled by
---- the pinned release (`bin/cosmic-bootstrap`), whose Lua differs from the tree's compile only in the files lang/SEED_DIFFERS
---- lists, both ways. On the tool the rehearsal booted, asked for the new checker's mode so that it is not built again for a
---- default run.
-local function phase_rehearsal_seed(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  mkdir(p.local_diagnostics)
-  local pinned = p.local_diagnostics .. "/rehearsal-seed.path"
-  local found = capture_small(c, "the pinned seed", { p.root .. "/bin/cosmic-bootstrap" }, pinned, Clock.seconds(300))
-  if found ~= 0 then return found end
-  local seed = read(pinned):match("^%s*(.-)%s*$") or ""
-  if seed == "" then
-    local _, _ = Fs.put(Fs.stderr, "rehearsal: bin/cosmic-bootstrap named no cosmic\n")
-    return 1
-  end
-  local out = p.local_diagnostics .. "/rehearsal-seed.out"
-  return logged(c, "prove lang/ against the seed", { BuildPaths.directory(p.root) .. "/bin/cosmic", "build/lang_proof_main.tl", "prove",
-    p.work .. "/lang-proof", "--seed", seed }, out, p.local_diagnostics .. "/rehearsal-seed.err", rehearsal_seed_timeout_ns, c.root,
-    environment({ COSMIC_GRAMMAR = "new" }))
 end
 
 --- The native suite, on the tree `boot` built: the `build` phase
@@ -1866,7 +1681,7 @@ end
 local function format_command(root: string): {string}
   local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
   local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
-  local text: string | nil = nil
+  local text: string? = nil
   if listed ~= "" then
     local found, trouble = Fs.read(listed)
     text = found
@@ -1981,7 +1796,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = fixture_test(c, work, "product-verification", "product",
     product_test_timeout_ns, {
       COSMIC_FIXTURE_TARGET = target,
-      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+      COSMIC_FIXTURE_CODESIGN = if target == "aarch64-macos" then "true" else "false" end,
     }, { { kind = "product", from = product },
       { kind = "format", from = contract .. "/format" } })
   if s ~= 0 then return s end
@@ -2130,7 +1945,7 @@ function Orchestration.seed_compiles(env: {string:string},
     if kind == "dir" then path = Fs.dirname(source) end
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
-    local st, stat_trouble: sys.Stat | nil, string = nil, ""
+    local st, stat_trouble: sys.Stat?, string = nil, ""
     if kind == "file" then
       st, stat_trouble = sys.lstat(path)
     else
@@ -2138,7 +1953,7 @@ function Orchestration.seed_compiles(env: {string:string},
     end
     if st == nil then return false, path .. ": " .. stat_trouble end
     if st.kind ~= kind then
-      return false, path .. ": not a " .. (kind == "dir" and "directory" or kind)
+      return false, path .. ": not a " .. (if kind == "dir" then "directory" else kind end)
     end
     if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
     if st.mode & 0x12 ~= 0 then
@@ -2171,8 +1986,8 @@ end
 --- Where the lanes of [`Orchestration.run_groups`] stand: the last group's
 --- status and the index of the next low group to start.
 local record Progress
-  status: integer
-  next_low: integer
+  mut status: integer
+  mut next_low: integer
 end
 
 --- Runs `high`, then each of `low`, one after another, and returns the first
@@ -2197,9 +2012,9 @@ function Orchestration.run_groups(high: Orchestration.Group,
     end
     return 0
   end
-  local active: {Runner.Running} = {}
-  local owner: {Runner.Running:Orchestration.Group} = {}
-  local in_low: {Runner.Running:boolean} = {}
+  local active: mut {Runner.Running} = {}
+  local owner: mut {Runner.Running:Orchestration.Group} = {}
+  local in_low: mut {Runner.Running:boolean} = {}
   local function begin(group: Orchestration.Group, is_low: boolean)
     local running = group.start()
     active[#active + 1] = running
@@ -2321,7 +2136,7 @@ local function phase_fixtures(p: PlatformContext): integer
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
     } }, high_jobs)
-  local low: {Orchestration.Group} = {}
+  local low: mut {Orchestration.Group} = {}
   local function add(spec: FixtureSpec)
     low[#low + 1] = fixture_group(c, work, spec, low_jobs)
   end
@@ -2384,16 +2199,6 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_declared_types(p)
   elseif phase == "checked-narrowing" then
     return phase_checked_narrowing(p)
-  elseif phase == "rehearsal-boot" then
-    return phase_rehearsal_boot(p)
-  elseif phase == "rehearsal" then
-    return phase_rehearsal(p)
-  elseif phase == "rehearsal-project" then
-    return phase_rehearsal_project(p)
-  elseif phase == "rehearsal-examples" then
-    return phase_rehearsal_examples(p)
-  elseif phase == "rehearsal-seed" then
-    return phase_rehearsal_seed(p)
   elseif phase == "darwin-suite" then
     return phase_darwin_suite(p)
   elseif phase == "format" then
@@ -2427,8 +2232,8 @@ end
 local function provenance_impl(c: Context, products: string): integer
   local entries = assert(Fs.list(products))
   local count = 0
-  local expected: integer|nil = nil
-  local baseline: string|nil = nil
+  local expected: integer? = nil
+  local baseline: string? = nil
   for _, name in ipairs(entries) do
     if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name

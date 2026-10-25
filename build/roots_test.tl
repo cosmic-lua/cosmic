@@ -21,7 +21,7 @@ end
 --- A PEM block holding `bytes`, wrapped at 64 columns.
 local function block(bytes: string): string
   local encoded = Codec.base64(bytes)
-  local lines: {string} = { "-----BEGIN CERTIFICATE-----" }
+  local lines: mut {string} = { "-----BEGIN CERTIFICATE-----" }
   for at = 1, #encoded, 64 do
     lines[#lines + 1] = encoded:sub(at, at + 63)
   end
@@ -34,7 +34,7 @@ local bundle <const> = "vendor/cacert/certdata.txt"
 --- Fills a fresh database from `pem`, written as the bundle under
 --- `tmp`: the rows, as `label` and hex DER in digest order, or nil and
 --- why.
-local function filled(tmp: string, pem: string): Sqlite.Rows | nil, string
+local function filled(tmp: string, pem: string): Sqlite.Rows?, string
   assert(Fs.mkdirs(tmp .. "/vendor/cacert"))
   assert(Fs.write(tmp .. "/" .. bundle, pem))
   local db = database()
@@ -66,7 +66,7 @@ local function test_each_certificate_is_its_der_under_its_label(tmp: string)
     block("\4"),
     "",
   }, "\n")))
-  local by_der: {string:string} = {}
+  local by_der: mut {string:string} = {}
   for _, row in ipairs(rows) do
     by_der[row:text(2)] = row:text(1)
   end
@@ -98,12 +98,12 @@ local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
   assert(db:close())
   assert(#rows == 2, "a certificate listed twice is one root")
   local first, second = Hash.sha256("\5\6"), Hash.sha256("\7")
-  local low = first < second and "0506" or "07"
+  local low = if first < second then "0506" else "07" end
   assert(rows[1]:text(3) == low, "rows go in in digest order")
   for _, row in ipairs(rows) do
-    local der = row:text(3) == "0506" and "\5\6" or "\7"
+    local der = if row:text(3) == "0506" then "\5\6" else "\7" end
     assert(row:text(1) == Codec.hex(Hash.sha256(der)):upper(), "a row is keyed by its digest")
-    assert(row:text(2) == (der == "\7" and "B" or "A"), "the first label a certificate has is kept")
+    assert(row:text(2) == (if der == "\7" then "B" else "A" end), "the first label a certificate has is kept")
   end
 end
 
@@ -137,9 +137,9 @@ end
 --- `bytes` as certdata.txt writes a `MULTILINE_OCTAL` value: `\ooo`
 --- per byte, sixteen to a line, then END.
 local function octal(bytes: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for at = 1, #bytes, 16 do
-    local line: {string} = {}
+    local line: mut {string} = {}
     for i = at, math.min(at + 15, #bytes) do
       line[#line + 1] = ("\\%03o"):format(bytes:byte(i) or 0)
     end
@@ -164,7 +164,7 @@ end
 
 --- A certdata.txt holding `entries`, laid out as NSS's is.
 local function certdata(entries: {Entry}): string
-  local lines: {string} = { "# This Source Code Form is subject to the terms of the Mozilla Public", "#",
+  local lines: mut {string} = { "# This Source Code Form is subject to the terms of the Mozilla Public", "#",
     "BEGINDATA", "CKA_CLASS CK_OBJECT_CLASS CKO_NSS_BUILTIN_ROOT_LIST", "CKA_TOKEN CK_BBOOL CK_TRUE",
     'CKA_LABEL UTF8 "Mozilla Builtin Roots"' }
   local issuer = octal("an issuer")

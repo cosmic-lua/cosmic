@@ -63,10 +63,10 @@ local MAX_LABEL <const> = 63
 
 --- The IPv4 octets of `text` (four decimal numbers, none with a leading
 --- zero), or nil.
-local function parse4(text: string): {integer} | nil
+local function parse4(text: string): {integer}?
   local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a == nil then return nil end
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for _, part in ipairs({ a, b, c, d }) do
     if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") then return nil end
     local n = math.tointeger(tonumber(part))
@@ -79,9 +79,9 @@ end
 --- The 16-bit groups of `list`, colon-separated, as numbers, with an
 --- IPv4 tail (when `tail4`, and only as the last part) as its two. Nil
 --- for an empty part, one of more than four digits or that is no hex.
-local function groups(list: string, tail4: boolean): {integer} | nil
-  local parts: {string} = {}
-  local out: {integer} = {}
+local function groups(list: string, tail4: boolean): {integer}?
+  local parts: mut {string} = {}
+  local out: mut {integer} = {}
   if list == "" then return out end
   for part in (list .. ":"):gmatch("([^:]*):") do parts[#parts + 1] = part end
   for i, part in ipairs(parts) do
@@ -99,7 +99,7 @@ local function groups(list: string, tail4: boolean): {integer} | nil
 end
 
 --- The 16 bytes of the IPv6 address `text`, or nil.
-local function parse6(text: string): {integer} | nil
+local function parse6(text: string): {integer}?
   if text:find("[^%x:%.]") or text:find(":::", 1, true) then return nil end
   local start = text:find("::", 1, true)
   local head, tail, elided: string, string, boolean
@@ -114,7 +114,7 @@ local function parse6(text: string): {integer} | nil
   local first = groups(head, not elided)
   local second = groups(tail, true)
   if first == nil or second == nil then return nil end
-  local all: {integer} = {}
+  local all: mut {integer} = {}
   for _, g in ipairs(first) do all[#all + 1] = g end
   local gap = 8 - #first - #second
   if elided then
@@ -124,7 +124,7 @@ local function parse6(text: string): {integer} | nil
     return nil
   end
   for _, g in ipairs(second) do all[#all + 1] = g end
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for _, g in ipairs(all) do
     out[#out + 1] = g >> 8
     out[#out + 1] = g & 0xff
@@ -138,7 +138,7 @@ end
 --- IPv4 tail, no brackets or zone). Nil for anything else.
 --- @param text string The text to read
 --- @return {integer}|nil The bytes
-function Grant.address(text: string): {integer} | nil
+function Grant.address(text: string): {integer}?
   if type(text) ~= "string" or text == "" or #text > MAX_ADDRESS then
     return nil
   end
@@ -152,7 +152,7 @@ end
 --- @param bytes {integer} The sixteen bytes
 --- @return string The address text, without brackets
 function Grant.ipv6_text(bytes: {integer}): string
-  local all: {integer} = {}
+  local all: mut {integer} = {}
   for i = 1, 16, 2 do all[#all + 1] = bytes[i] << 8 | bytes[i + 1] end
   local best_at, best_len, at = 0, 1, 1
   while at <= 8 do
@@ -165,7 +165,7 @@ function Grant.ipv6_text(bytes: {integer}): string
       at = at + 1
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local i = 1
   while i <= 8 do
     if i == best_at then
@@ -193,7 +193,7 @@ end
 --- @param text string The name
 --- @return string|nil The canonical name
 --- @return string Why there is none, "" otherwise
-function Grant.name(text: string): string | nil, string
+function Grant.name(text: string): string?, string
   if type(text) ~= "string" then return nil, "a host name is text" end
   if text:sub(-1) == "." then
     text = text:sub(1, -2)
@@ -228,7 +228,7 @@ end
 --- @param text string The port's text
 --- @return integer|nil The port
 --- @return string Why there is none, "" otherwise
-function Grant.port(text: string): integer | nil, string
+function Grant.port(text: string): integer?, string
   if type(text) ~= "string" then return nil, "a port is text" end
   local why = "port is not a decimal number from 1 to 65535 without leading zeros"
   if not text:find("^[1-9]%d*$") or #text > 5 then
@@ -244,7 +244,7 @@ end
 --- `host:port` in its canonical text.
 local function text_of(kind: Grant.Kind, host: string, port: integer): string
   if kind == "ipv6" then host = "[" .. host .. "]" end
-  return host .. ":" .. (port == 0 and "*" or tostring(port))
+  return host .. ":" .. (if port == 0 then "*" else tostring(port) end)
 end
 
 --- A `connect` target `text` read, or nil and why: the host a name, an
@@ -254,7 +254,7 @@ end
 --- @param text string The target, `host:port`
 --- @return Grant.Target|nil The target
 --- @return string Why there is none, "" otherwise
-function Grant.parse(text: string): Grant.Target | nil, string
+function Grant.parse(text: string): Grant.Target?, string
   if type(text) ~= "string" then return nil, "a target is text" end
   local host, at = text:match("^(.+):([^:]+)$")
   if host == nil or at == nil then return nil, "not host:port" end

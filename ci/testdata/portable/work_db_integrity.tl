@@ -5,7 +5,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 
-local function scalar(db: Sqlite.Handle, sql: string): string | nil, string
+local function scalar(db: Sqlite.Handle, sql: string): string?, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then
     return nil, trouble
@@ -58,10 +58,10 @@ return function(argv: {string}): integer
     print("work database integrity: FAIL (close: " .. close_trouble .. ")")
     return 1
   end
-  local only: Sqlite.Row | nil = nil
+  local only: Sqlite.Row? = nil
   if integrity ~= nil and #integrity == 1 then only = integrity[1] end
   if only == nil or only:count() ~= 1 or only:text(1) ~= "ok" then
-    local findings: {string} = {}
+    local findings: mut {string} = {}
     for _, row in ipairs(integrity or {}) do
       findings[#findings + 1] = table.concat(row:texts(), " | ")
     end

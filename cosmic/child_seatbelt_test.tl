@@ -56,7 +56,7 @@ local function denials(): string
       "OR eventMessage CONTAINS \"Sandbox: test(\" OR process == \"cat\" OR process == \"sh\"" }, { stdout = "capture", stderr = "capture",
         stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do
     lines[#lines + 1] = line
   end
@@ -70,7 +70,7 @@ local function describe(result: Child.Result): string
   return "code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
     ", stdout " .. string.format("%q", result.stdout or "") ..
     ", stderr " .. string.format("%q", result.stderr or "") ..
-    (result.ok and "" or denials())
+    (if result.ok then "" else denials() end)
 end
 
 --- `held`, or a failure that says how `result` ended and what was denied.
@@ -225,7 +225,7 @@ end
 
 local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
   macos_only()
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for i = 1, 520 do
     local path = tmp .. "/many-" .. i
     assert(Fs.write(path, "x"))
@@ -336,8 +336,8 @@ end
 --- argument on: a terminal asked of a path that is none starts nothing.
 local function test_a_terminal_asked_of_no_terminal_starts_nothing()
   local process = process_table()
-  local function start(...: any): integer | nil, string, integer
-    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+  local function start(...: any): integer?, string, integer
+    return (process.spawn as function(...: any): integer?, string, integer)(...)
   end
   local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, nil, nil, nil, true,
     nil, nil, nil, "/dev/null")
@@ -354,8 +354,8 @@ end
 local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_terminal_step()
   macos_only()
   local process = process_table()
-  local function start(...: any): integer | nil, string, integer
-    return (process.spawn as function(...: any): integer | nil, string, integer)(...)
+  local function start(...: any): integer?, string, integer
+    return (process.spawn as function(...: any): integer?, string, integer)(...)
   end
   local mine = assert(sys.openpty())
   local other = assert(sys.openpty())

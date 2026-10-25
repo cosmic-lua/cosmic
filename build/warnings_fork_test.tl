@@ -1,15 +1,14 @@
 --- The warnings of the new checker ([`lang.warnings`]) against the fork's, on programs both read: where they agree, and
---- each kind of difference, pinned by name so that a change to either is seen. The fork's warnings over the whole tree are
---- compared by hand (the commit message of the driver holds the numbers); this holds the rule each count rests on.
+--- each kind of difference, pinned by name so that a change to it is seen. The fork's warnings of each program are kept as
+--- text ([`testdata/forked/warnings.txt`], [`lang.forked`]), recorded from the tool of main before the switch. The fork's
+--- warnings over the whole tree were compared by hand (the commit message of the driver holds the numbers); this holds the
+--- rule each count rests on.
+local Forked = require("lang.forked")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
 
-Test.policy{}
-
-local built = assert(teal.load())
+Test.policy{ grants = { { path = "testdata/forked/warnings.txt", letters = "r" } } }
 
 --- A program and how the new checker's warnings differ from the fork's for it.
 local record Case
@@ -84,26 +83,23 @@ local function key(kind: string, msg: string, line: integer): string
   return kind .. "@" .. tostring(line)
 end
 
+--- What the fork warned of in `source`, as `key` spells each warning, sorted, from the file that keeps them.
 local function fork_warnings(source: string): {string}
-  local env = assert(built.new_env({ defaults = teal.defaults() }))
-  teal.strip(env)
-  local result = built.check_string(source, env, "case.tl", "tl")
-  local out: {string} = {}
-  local found: {compiler.Error} = result.warnings
-  for _, w in ipairs(found) do
-    local kind = tostring(w.tag)
-    if kind ~= "redeclaration" and kind ~= "unknown" then
-      out[#out + 1] = key(kind, w.msg, w.y)
+  local said = Forked.said(Forked.load("testdata/forked/warnings.txt"), source)
+  assert(said.known and said.text ~= nil, "the fork's warnings are not kept for:\n" .. source)
+  local out: mut {string} = {}
+  for line in (assert(said.text) .. "\n"):gmatch("([^\n]*)\n") do
+    if line ~= "" then
+      out[#out + 1] = line
     end
   end
-  table.sort(out)
   return out
 end
 
 local function new_warnings(source: string): {string}
   local run = Programs.run(Translate.translate(source, "case.tl").text)
   assert(#run.before == 0, table.concat(run.before, " "))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, w in ipairs(run.result.warnings) do
     out[#out + 1] = key(w.kind, w.msg, w.y)
   end
@@ -112,11 +108,11 @@ local function new_warnings(source: string): {string}
 end
 
 local function difference(a: {string}, b: {string}): {string}
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, x in ipairs(b) do
     seen[x] = true
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, x in ipairs(a) do
     if seen[x] ~= true then
       out[#out + 1] = x

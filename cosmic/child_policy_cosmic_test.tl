@@ -37,7 +37,7 @@ end
 --- Runs this program under `policy` on `args` from `cwd`: what it printed
 --- and how it ended; skips the test where the host gives no sandbox.
 local function ran(args: {string}, policy: Sandbox.Policy, cwd: string): Child.Result
-  local argv: {string} = { (assert(Proc.executable())) }
+  local argv: mut {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local result, why = Child.run(argv, { policy = policy, cwd = cwd, stdout = "capture",
     stderr = "capture" })
@@ -77,7 +77,7 @@ end
 local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local relaunch = assert(Proc.relaunch())
-  local taken: integer | nil
+  local taken: integer?
   for number in pairs(relaunch.fds) do taken = number end
   if taken == nil then return end
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
@@ -115,8 +115,8 @@ end
 --- grant to read alone refuses, saying where.
 local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   local work = scripted(tmp, 'local helper = require("helper")\n' ..
-      'return function(argv: {string}): integer\n  print(helper .. argv[1])\n  return 0\nend\n')
-  assert(Fs.write(work .. "/helper.tl", 'return "from "\n'))
+      'return function(argv: {string}): integer\n  print(helper .. (argv[1] or ""))\n  return 0\nend\n')
+  assert(Fs.write(work .. "/helper.tl", 'local greeting: string = "from "\nreturn greeting\n'))
   searchable.share(work .. "/helper.tl")
   local home = assert(Fs.absolute(tmp)) .. "/builds"
   assert(Fs.mkdirs(home))

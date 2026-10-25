@@ -66,7 +66,7 @@ local function test_a_message_that_is_not_a_string_is_raised_as_it_is()
 end
 
 local function test_no_condition_is_a_bad_argument()
-  local message = position_of(function() (assert as function(any...): any...)() end)
+  local message = position_of(function() (assert as function(...: any): any...)() end)
   assert(tostring(message):find("bad argument #1 to 'assert' (value expected)", 1, true), tostring(message))
 end
 

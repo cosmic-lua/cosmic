@@ -170,10 +170,10 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   local fake = tmp .. "/zig"
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.get, Zig.snapshot
-  Env.get = function(name: string): string | nil
+  Env.get = function(name: string): string?
     return name == "COSMIC_ZIG" and fake or get(name)
   end
-  Zig.snapshot = function(): {string:string} | nil, string
+  Zig.snapshot = function(): {string:string}?, string
     error("snapshot failed", 0)
   end
   local ok, trouble: boolean, any = pcall(Zig.enter,
@@ -248,7 +248,7 @@ Fs.take(Fs.stdin, 1)
   finish(probe_child)
   -- A shared lock space keeps flock excluded by the older SQL holder.
   -- Apart locks must already be free, without process exit hiding a leak.
-  assert(said == (kind == "apart" and "held" or "busy"), "cancellation changed the wrong flock hold")
+  assert(said == (if kind == "apart" then "held" else "busy" end), "cancellation changed the wrong flock hold")
   finish(old)
   local released, after = start(root, 0, true)
   finish(released)

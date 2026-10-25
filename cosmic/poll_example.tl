@@ -21,7 +21,7 @@ end
 --- Two tasks, each running until it waits: the first sleeps while the
 --- second runs, and `run` returns once both have ended.
 function Example.run()
-  local said: {string} = {}
+  local said: mut {string} = {}
   Poll.run(function()
     Poll.spawn(function()
       assert(Poll.delay(Clock.ms(20)))
@@ -81,7 +81,7 @@ end
 
 --- Sleeping tasks wake in the order of their times, not their starts.
 function Example.delay()
-  local woke: {integer} = {}
+  local woke: mut {integer} = {}
   Poll.run(function()
     for _, ms in ipairs({ 20, 5 }) do
       Poll.spawn(function()
@@ -117,7 +117,7 @@ end
 function Example.kill()
   local lease = { released = false }
   local record Lease
-    metamethod __close: function(Lease)
+    __close: function(Lease)
   end
   local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end }
   Poll.run(function()
@@ -140,8 +140,8 @@ end
 --- waits only when it is empty, and checks again on waking, so a notice
 --- sent while it was busy is not lost.
 function Example.notifier()
-  local queue: {string} = {}
-  local handled: {string} = {}
+  local queue: mut {string} = {}
+  local handled: mut {string} = {}
   Poll.run(function()
     local notifier = Poll.notifier()
     local consumer = Poll.spawn(function()

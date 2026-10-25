@@ -29,7 +29,7 @@ local function exists(path: string): boolean
   assert(there ~= nil, why)
   return there
 end
-local function output(value: string | nil): string return value or "" end
+local function output(value: string?): string return value or "" end
 
 --- Raises unless `action` raises a message holding `expected`.
 local function refused(expected: string, action: function())
@@ -137,14 +137,14 @@ local function release(id: integer, name: string, draft: boolean): string
 end
 
 local function test_draft_ids_reads_a_page_and_says_where_the_drafts_end()
-  local full: {string} = {}
+  local full: mut {string} = {}
   for i = 1, 98 do full[#full + 1] = release(10 + i, "next-x" .. tostring(i), true) end
   full[#full + 1] = release(2, tag, true)
   full[#full + 1] = release(3, tag, true)
   local found = Prerelease.draft_ids(array_of(full), tag)
   local ids, ends = found.ids, found.ends
   assert(#ids == 2 and ids[1] == 2 and ids[2] == 3 and not ends, "a full page of drafts goes on")
-  local drafts_then: {string} = {}
+  local drafts_then: mut {string} = {}
   for i = 1, 99 do
     drafts_then[#drafts_then + 1] = release(10 + i, "next-x" .. tostring(i), true)
   end
@@ -248,14 +248,14 @@ end
 local record Release
   id: integer
   tag: string
-  draft: boolean
-  prerelease: boolean
-  assets: {Asset}
+  mut draft: boolean
+  mut prerelease: boolean
+  assets: mut {Asset}
   title: string
   notes: string
   --- The commit publishing the release makes its tag at, where the tag
   --- is missing.
-  target?: string
+  mut target?: string
 end
 
 --- A repository standing in for GitHub's, answering a client's `send`
@@ -268,19 +268,19 @@ end
 local record Repo
   client: GithubApi.Client
   release: string
-  temp: string
-  tags: {string:string}
-  annotated: {string:string}
-  tag_objects: {string:string}
-  branches: {string:string}
-  releases: {Release}
-  assets: integer
-  compare: {string}
-  fail: {string:string}
+  mut temp: string
+  tags: mut {string:string}
+  annotated: mut {string:string}
+  tag_objects: mut {string:string}
+  branches: mut {string:string}
+  releases: mut {Release}
+  mut assets: integer
+  mut compare: {string}
+  fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
-  log: {string}
+  log: mut {string}
   --- The content type each uploaded asset came with.
-  uploaded: {string:string}
+  uploaded: mut {string:string}
 end
 
 local api <const> = "https://api.test/"
@@ -293,6 +293,10 @@ local record GitObjectJson
   type: string
 end
 
+-- TODO: go back to [`Shape.record_of`] below, once ci/cosmic-driver.pin names a release whose Shape.record_of reads
+-- optional fields: the pinned release's reads `f?: any` as a required field. It is spelled out with [`Shape.record`] and
+-- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
+
 --- What a request of the publish may send as its JSON body: a field of any.
 local record RequestBody
   ref?: any
@@ -303,7 +307,10 @@ local record RequestBody
   draft?: any
   prerelease?: any
 end
-local REQUEST_BODY <const> = Shape.record_of("RequestBody")
+local REQUEST_BODY <const> = Shape.record_of("RequestBody", Shape.record({
+  ["body"] = Shape.optional(Shape.any), ["draft"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any),
+  ["prerelease"] = Shape.optional(Shape.any), ["ref"] = Shape.optional(Shape.any), ["sha"] = Shape.optional(Shape.any),
+  ["tag_name"] = Shape.optional(Shape.any) }), function(): RequestBody error("witness") end)
 
 local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
   return { status = status, headers = headers or {}, body = body }
@@ -317,7 +324,7 @@ local function not_found(): GithubApi.Reply
 end
 
 local function release_json(rel: Release): string
-  local assets: {string} = {}
+  local assets: mut {string} = {}
   for _, asset in ipairs(rel.assets) do
     assets[#assets + 1] = '{"name":' .. json(asset.name) .. ',"id":' .. tostring(asset.id) ..
       ',"size":' .. tostring(#asset.data) .. ',"state":"uploaded"}'
@@ -328,14 +335,14 @@ local function release_json(rel: Release): string
         "/assets{?name,label}") .. "}"
 end
 
-local function release_by(r: Repo, id: string): Release | nil
+local function release_by(r: Repo, id: string): Release?
   for _, rel in ipairs(r.releases) do
     if tostring(rel.id) == id then return rel end
   end
   return nil
 end
 
-local function asset_by(r: Repo, id: string): Asset | nil
+local function asset_by(r: Repo, id: string): Asset?
   for _, rel in ipairs(r.releases) do
     for _, asset in ipairs(rel.assets) do
       if tostring(asset.id) == id then return asset end
@@ -369,14 +376,14 @@ end
 local function serve_page(r: Repo, rest: string): GithubApi.Reply
   -- Pages of 100, drafts first, as GitHub lists them.
   local page = assert(math.tointeger(tonumber(rest:match("&page=(%d+)$") or "1")))
-  local ordered: {Release} = {}
+  local ordered: mut {Release} = {}
   for _, rel in ipairs(r.releases) do
     if rel.draft then ordered[#ordered + 1] = rel end
   end
   for _, rel in ipairs(r.releases) do
     if not rel.draft then ordered[#ordered + 1] = rel end
   end
-  local list: {string} = {}
+  local list: mut {string} = {}
   local last = page * 100
   if last > #ordered then last = #ordered end
   for i = (page - 1) * 100 + 1, last do
@@ -386,7 +393,7 @@ local function serve_page(r: Repo, rest: string): GithubApi.Reply
   return reply(200, array_of(list))
 end
 
-local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil, string
+local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply?, string
   if r.fail["transport"] then return nil, "connection refused" end
   assert(request.headers["Authorization"] == nil, "the fake adds the token itself")
   if request.url:sub(1, #uploads) == uploads then return serve_upload(r, request), "" end
@@ -439,7 +446,7 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply | nil
     return reply(200, '{"sha":' .. json(tag_object) .. ',"object":' .. json(object) .. "}"), ""
   end
   if (rest:match("^compare/%x+%.%.%.main$") and method == "GET") == true then
-    local files: {string} = {}
+    local files: mut {string} = {}
     for _, name in ipairs(r.compare) do files[#files + 1] = json({ filename = name }) end
     return reply(200, '{"status":"ahead","files":' .. array_of(files) .. "}"), ""
   end
@@ -509,7 +516,7 @@ local function repo(tmp: string, bytes?: string): Repo
   local r: Repo = { client = client, release = s.release, temp = tmp .. "/runner",
     tags = {}, annotated = {}, tag_objects = {}, branches = {}, releases = {}, assets = 100,
     compare = {}, fail = {}, log = {}, uploaded = {} }
-  client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+  client.send = function(request: GithubApi.Request): GithubApi.Reply?, string
     return serve(r, request)
   end
   client.fetch = function(url: string, to: string): boolean, string
@@ -553,7 +560,7 @@ local function seed(r: Repo, draft: boolean, assets: {string:string}): Release
 end
 
 local function staged(r: Repo): {string:string}
-  local assets: {string:string} = {}
+  local assets: mut {string:string} = {}
   for _, name in ipairs(Prerelease.assets()) do assets[name] = read(r.release .. "/" .. name) end
   return assets
 end
@@ -637,7 +644,7 @@ local function test_publish_resumes_a_draft_uploading_only_what_is_missing(tmp: 
   assert(logged(r):find("UPLOAD SHA256SUMS", 1, true))
   assert(count(r, "POST") == 0)
   assert(not rel.draft)
-  local data: {string:string} = {}
+  local data: mut {string:string} = {}
   for _, asset in ipairs(rel.assets) do data[asset.name] = asset.data end
   assert(data["source.json"] == earlier)
   assert(data["cosmic"] == "product bytes")
@@ -803,7 +810,7 @@ local function test_publish_fails_an_upload_the_release_refuses(tmp: string)
   local r = repo(tmp)
   local rel = seed(r, true, {})
   local send = r.client.send
-  r.client.send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+  r.client.send = function(request: GithubApi.Request): GithubApi.Reply?, string
     -- Another run uploads SHA256SUMS just before this one does.
     if request.upload == true and request.url:find("name=SHA256SUMS", 1, true) ~= nil and
         #rel.assets == 1 then
@@ -869,6 +876,7 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
     SOURCE_RUN_PREFIX = run_prefix,
     REPOSITORY = repository,
     RUNNER_TEMP = tmp .. "/driver-runner",
+    COSMIC_GRAMMAR = "new",
   })
   local function driver(command: string): Child.Result
     return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,

@@ -18,7 +18,7 @@ local BAD <const>: {string} = { ".", "..", "%2e", "%2E%2e", "", "%2f", "%2F", "%
 
 --- A path drawn from the pieces, with extra slashes and a trailing one at times.
 local function gen_path(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 5) do
     local kind = src:int(0, 11)
     if kind == 0 then
@@ -30,7 +30,7 @@ local function gen_path(src: Fuzz.Source): string
     end
   end
   local lead = ("/"):rep(src:int(0, 7) == 0 and src:int(2, 3) or 1)
-  local tail = src:int(0, 3) == 0 and "/" or ""
+  local tail = if src:int(0, 3) == 0 then "/" else "" end
   return lead .. table.concat(parts, "/") .. tail
 end
 
@@ -177,7 +177,7 @@ end
 --- case of hex, as `salt` chooses; the escapes it already holds are kept
 --- whole, so a valid path stays valid and an invalid one invalid.
 local function reescaped(path: string, salt: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while at <= #path do
     local byte = path:sub(at, at)
@@ -186,7 +186,7 @@ local function reescaped(path: string, salt: integer): string
       at = at + 3
     else
       if byte:find("^[%w%-._~]$") and (at + salt) % 2 == 0 then
-        out[#out + 1] = ((at + salt) % 4 == 0 and "%%%02X" or "%%%02x"):format(byte:byte())
+        out[#out + 1] = (if (at + salt) % 4 == 0 then "%%%02X" else "%%%02x" end):format(byte:byte())
       else
         out[#out + 1] = byte
       end
@@ -200,7 +200,7 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
   local seen: {string} = {}
   local function recording(inner: Web.Handler): Web.Handler
     return function(req: Web.Request): Web.Response
-      local params: {string} = {}
+      local params: mut {string} = {}
       for name, value in pairs(req.params) do params[#params + 1] = name .. "=" .. value end
       table.sort(params)
       local route = req.route

@@ -39,7 +39,7 @@ local function denials(): string
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
 end
@@ -48,7 +48,7 @@ end
 --- printed, as its fields; the program is told this program's own file.
 local function ran_sealed(path: string, extra?: {string}): Child.Result
   local executable = assert(Proc.executable())
-  local argv: {string} = { executable, executable }
+  local argv: mut {string} = { executable, executable }
   for _, word in ipairs(extra or {}) do argv[#argv + 1] = word end
   local result, why = Child.run(argv, { policy = { profiles = { "system" }, database = { path = path } },
     stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })

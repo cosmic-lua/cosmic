@@ -46,7 +46,7 @@ end
 function Example.iteration_select()
   local sum = 0
   for _, n in ipairs({ 2, 3, 5 }) do sum = sum + n end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for key in pairs({ a = 1, b = 2 }) do seen[key] = true end
   local function tail(...: string): string, integer
     return assert(select(2, ...)), select("#", ...)
@@ -60,8 +60,8 @@ end
 --- does not infer arbitrary __index, __newindex, __call, arithmetic,
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
-  local values: {string:integer} = { present = 2 }
-  local mt: metatable<{string:integer}> = { __index = function(): integer return 9 end }
+  local values: mut {string:integer} = { present = 2 }
+  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end }
   setmetatable(values, mt)
   assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
@@ -109,7 +109,7 @@ end
 --- neither fills elements nor has a bundled Teal declaration.
 function Example.table_operations()
   local xs = { "c", "a", "b" }
-  local empty: {string} = {}
+  local empty: mut {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
   local removed, trouble = pcall(function() table.remove(xs, 0) end)
   assert(not removed, tostring(trouble))
@@ -189,7 +189,7 @@ function Example.math_numeric()
   assert(whole == 2 and fraction == .25 and math.fmod(-7, 3) == -1)
   assert(math.min(3, 1, 2) == 1 and math.max(3, 1, 2) == 3)
   assert(math.type(1) == "integer" and math.tointeger(1.5) == nil)
-  assert(1_000_000 == 1000000 and math.type(1_000) == "integer" and tonumber("1_000") == nil)
+  assert(1000000 == 1000000 and math.type(1000) == "integer" and tonumber("1_000") == nil)
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use
@@ -250,10 +250,26 @@ function Example.coroutines()
   assert(coroutine.close(abandoned))
 end
 
+-- An interface method names its receiver, `function(self: Greeter, ...)`:
+-- `self` is then whatever implements Greeter, so a class's own
+-- `function greet(self, ...)` satisfies it. Unnamed, `function(Greeter, ...)`
+-- takes Greeter itself, which `function greet(self, ...)` does not match.
+local interface Greeter
+  greet: function(self: Greeter, who: string): string
+end
+local class Friendly is Greeter
+  mood: string
+
+  function greet(self, who: string): string
+    return self.mood .. ", " .. who
+  end
+end
+
 --- Records are nominal table types; interfaces are structural requirements.
---- `record R is I` states conformance. Colon methods receive self; dot access
---- is an ordinary field/function access. An interface method that a record
---- implements with `function R:m` declares its receiver as `self: I`.
+--- `record R is I` states conformance, and a class `class C is I` holds the
+--- methods. Colon methods receive self; dot access is an ordinary
+--- field/function access. An interface method that a class implements with
+--- `function m(self, ...)` declares its receiver as `self: I`.
 function Example.records_interfaces_methods()
   local interface Named
     name: string
@@ -271,30 +287,16 @@ function Example.records_interfaces_methods()
   local named: Named = user
   assert(named.name == "Ada" and user:label() == "Ada:7")
 
-  -- An interface method names its receiver, `function(self: Greeter, ...)`:
-  -- `self` is then whatever implements Greeter, so a record's own
-  -- `function Friendly:greet` satisfies it. Unnamed, `function(Greeter, ...)`
-  -- takes Greeter itself, which `function Friendly:greet` does not match.
-  local interface Greeter
-    greet: function(self: Greeter, who: string): string
-  end
-  local record Friendly is Greeter
-    mood: string
-  end
-  function Friendly:greet(who: string): string
-    return self.mood .. ", " .. who
-  end
-  local friendly_mt: metatable<Friendly> = { __index = Friendly }
-  -- setmetatable may be returned where an implemented interface is expected.
+  -- A class value is made from a literal, and returned where an implemented interface is expected.
   local function friend(mood: string): Greeter
     local made: Friendly = { mood = mood }
-    return setmetatable(made, friendly_mt)
+    return made
   end
   assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,
---- and `{A,B}` a fixed tuple.
+--- and a record with a field for each position a fixed tuple.
 function Example.enums_arrays_maps_tuples()
   local enum Color
     "red"
@@ -303,8 +305,12 @@ function Example.enums_arrays_maps_tuples()
   local color: Color = "red"
   local array: {integer} = { 2, 3 }
   local map: {string:integer} = { answer = 42 }
-  local tuple: {string,integer} = { "age", 9 }
-  assert(color == "red" and array[2] == 3 and map.answer == 42 and tuple[1] == "age")
+  local record Pair
+    label: string
+    count: integer
+  end
+  local pair: Pair = { label = "age", count = 9 }
+  assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age")
 end
 
 --- A union `A | B` accepts only values assignable to one member; operations
@@ -325,16 +331,16 @@ function Example.unions_narrowing_casts()
     name: string
   end
   local record Left is Named
-    where self.name == "left"
+    name: string
   end
   local record Right is Named
-    where self.name == "right"
+    name: string
   end
   local function side(value: Left | Right): string
     if value is Left then return "L:" .. value.name end
     return "R:" .. value.name
   end
-  local function render(value: string | integer | nil): string
+  local function render(value: (string | integer)?): string
     if value == nil then return "missing" end
     if value is integer then return tostring(value + 1) end
     return string.upper(value as string)
@@ -343,11 +349,11 @@ function Example.unions_narrowing_casts()
     if type(value) ~= "string" then return 0 end
     return #value
   end
-  local function first_size(sizes: {integer} | nil): integer | nil
+  local function first_size(sizes: {integer}?): integer?
     return sizes and sizes[1]
   end
   assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
-  local maybe: string | nil = "present"
+  local maybe: string? = ("present"):match("^p%a+$")
   assert(maybe ~= nil)
   local definitely: string = maybe
   local left: Left = { name = "left" }

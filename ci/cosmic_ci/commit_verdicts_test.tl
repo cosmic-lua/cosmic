@@ -16,7 +16,7 @@ local TOPIC <const>: {string: string} = { EVENT = "push", REF = "refs/heads/topi
 --- `env` against the lookup's answer `answer` (nil fails it); the calls
 --- it made.
 local function merge_base(env: {string: string}, answer?: string): string, string, integer, {string}
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return answer end)
   local code = CommitVerdicts.merge_base(env, fake.host)
   return GithubFake.text(fake.outputs), GithubFake.text(fake.printed), code, fake.calls
 end
@@ -58,7 +58,7 @@ local function test_the_queue_names_its_base_and_main_none()
   }
   for _, env in ipairs(cases) do
     local none, _, _, asked = merge_base(env, nil)
-    assert(none == "" and #asked == 0, tostring(env.EVENT) .. " " .. tostring(env.REF) .. ": " .. none ..
+    assert(none == "" and #asked == 0, tostring(env["EVENT"]) .. " " .. tostring(env["REF"]) .. ": " .. none ..
         table.concat(asked, "\n"))
   end
 end
@@ -91,7 +91,7 @@ end
 
 --- The ids `fake` deleted, in order.
 local function deleted(fake: GithubFake.Fake): string
-  local ids: {string} = {}
+  local ids: mut {string} = {}
   for _, call in ipairs(fake.calls) do
     local id = call:match("^DELETE repos/o/r/actions/caches/(%d+)$")
     if id then ids[#ids + 1] = id end
@@ -101,8 +101,8 @@ end
 
 --- `prune` in `env` over `answer`, the listing as the pages the API lists (nil fails it), refusing to delete the ids of `refuse`:
 --- the fake, what it said and its status.
-local function prune(env: {string: string}, answer: string | nil, refuse?: {string}): GithubFake.Fake, string, integer
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return answer end, refuse)
+local function prune(env: mut {string: string}, answer: string?, refuse?: {string}): GithubFake.Fake, string, integer
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return answer end, refuse)
   env["REPOSITORY"] = "o/r"
   local code = CommitVerdicts.prune(env, fake.host)
   return fake, GithubFake.text(fake.printed), code
@@ -184,7 +184,7 @@ local function test_an_unreadable_environment_is_refused()
     local fake, _, code = prune(env, pages(listing()))
     assert(code == 2 and #fake.calls == 0, tostring(env["HOURS"]))
   end
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   assert(CommitVerdicts.merge_base({ CALL_SECONDS = "soon" }, fake.host) == 2 and #fake.calls == 0)
 end
 
@@ -209,7 +209,7 @@ local function test_an_invalidate_deletes_the_failed_commits_verdict_entries()
     entry(9, "verdicts-leg-0123456789abcdef-f-sha-" .. SHA, 2)))
   local pruned = prune({}, listed)
   assert(deleted(pruned) == "2 6", "prune keeps what is under a day old: " .. table.concat(pruned.calls, "\n"))
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return listed end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return listed end)
   local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
   local said = GithubFake.text(fake.printed)
   assert(code == 0, said)
@@ -222,10 +222,10 @@ end
 --- A listing it cannot read, or a delete that fails, fails nothing; an
 --- unreadable step, or no whole commit, refuses, asking nothing.
 local function test_a_failed_invalidate_fails_nothing()
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
   assert(code == 0 and deleted(fake) == "" and GithubFake.text(fake.printed):find("none pruned", 1, true) ~= nil)
-  fake = GithubFake.new(function(_path: string, _nth: integer): string | nil
+  fake = GithubFake.new(function(_path: string, _nth: integer): string?
     return pages(listing(entry(1, "verdicts-leg-h-f-sha-" .. SHA, 1), entry(2, "verdicts-leg-g-f-sha-" .. SHA, 1)))
   end, { "1" })
   code = CommitVerdicts.invalidate({ REPOSITORY = "o/r", COMMIT = SHA }, fake.host)
@@ -234,7 +234,7 @@ local function test_a_failed_invalidate_fails_nothing()
     { COMMIT = SHA:upper() }, { COMMIT = "main" }, { COMMIT = SHA .. "0" } }
   for _, given in ipairs(invalid) do
     local env = Maps.with(given, { REPOSITORY = "o/r" })
-    fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
-    assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env.COMMIT))
+    fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+    assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env["COMMIT"]))
   end
 end

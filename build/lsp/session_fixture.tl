@@ -3,7 +3,6 @@
 --- read of the messages it sends back.
 
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
@@ -28,7 +27,7 @@ local record session_fixture
     --- Its `start` and its `end`, a name no record field can have.
     range: {string: Place}
     message: string
-    code: string | nil
+    code: string?
   end
 
   --- A publication's document and diagnostics.
@@ -39,9 +38,9 @@ local record session_fixture
 
   --- Any message the server sends, but for its `result` and `params`.
   record Sent
-    id: integer | nil
-    method: string | nil
-    error: Failed | nil
+    id: integer?
+    method: string?
+    error: Failed?
   end
 
   --- A publication of diagnostics.
@@ -104,7 +103,7 @@ session_fixture.EXIT = '{"jsonrpc":"2.0","method":"exit"}'
 
 --- `messages`, each JSON text, framed as an editor sends them.
 function session_fixture.framed(messages: {string}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, message in ipairs(messages) do out[#out + 1] = protocol.frame(message) end
   return table.concat(out)
 end
@@ -112,7 +111,7 @@ end
 --- Each message body `bytes` holds.
 function session_fixture.bodies(bytes: string): {string}
   local frames = protocol.frames(Stream.from_string(bytes))
-  local out: {string} = {}
+  local out: mut {string} = {}
   while true do
     local body, trouble = frames:next()
     if body == nil then
@@ -126,7 +125,7 @@ end
 --- A copy of `tally`, as it stands now.
 local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
-    sources = tally.sources, templates = tally.templates, bodiless_splices = tally.bodiless_splices,
+    sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened }
 end
 
@@ -149,64 +148,56 @@ end
 --- `between` with a batch's number once the session has read all of it
 --- and asks for more: what an editor sends with time between, within one
 --- [`session.serve`].
-local record Batches is Stream.Reader
+local class Batches is Stream.Reader
   batches: {string}
-  following: integer
-  rest: string
+  mut following: integer
+  mut rest: string
   between: function(after: integer)
-  read: function(Batches, max_bytes?: integer): string | nil, string
-  close: function(Batches): boolean, string
-  skip: function(Batches, n: integer): boolean, string
-end
 
-local batches_mt: metatable<Batches> = { __index = Batches }
-
-function Batches:read(max_bytes?: integer): string | nil, string
-  if self.rest == "" then
-    local batch = self.batches[self.following]
-    if batch == nil then return nil, "" end
-    if self.following > 1 then self.between(self.following - 1) end
-    self.following = self.following + 1
-    self.rest = batch
+  function read(self, max_bytes?: integer): string?, string
+    if self.rest == "" then
+      local batch = self.batches[self.following]
+      if batch == nil then return nil, "" end
+      if self.following > 1 then self.between(self.following - 1) end
+      self.following = self.following + 1
+      self.rest = batch
+    end
+    local n = #self.rest
+    if max_bytes ~= nil and max_bytes < n then n = max_bytes end
+    local piece = self.rest:sub(1, n)
+    self.rest = self.rest:sub(n + 1)
+    return piece, ""
   end
-  local n = #self.rest
-  if max_bytes ~= nil and max_bytes < n then n = max_bytes end
-  local piece = self.rest:sub(1, n)
-  self.rest = self.rest:sub(n + 1)
-  return piece, ""
-end
 
-function Batches:close(): boolean, string
-  return true, ""
-end
-
---- Passes over `n` bytes, read and dropped.
-function Batches:skip(n: integer): boolean, string
-  local left = n
-  while left > 0 do
-    local piece, trouble = self:read(left)
-    if piece == nil then return false, trouble end
-    left = left - #piece
+  function close(self): boolean, string
+    return true, ""
   end
-  return true, ""
+
+  --- Passes over `n` bytes, read and dropped.
+  function skip(self, n: integer): boolean, string
+    local left = n
+    while left > 0 do
+      local piece, trouble = self:read(left)
+      if piece == nil then return false, trouble end
+      left = left - #piece
+    end
+    return true, ""
+  end
 end
 
 --- What one session at `root`, served `batches` of messages in one
 --- stream, answers, `between` called after each batch but the last,
 --- reading docs from `store` when given.
 function session_fixture.served_between(root: string, batches: {{string}},
-                                        between: function(after: integer), store?: {Sqlite.Handle},
-                                        grammar?: GrammarMode.Mode): Ran
-  local framed: {string} = {}
+                                        between: function(after: integer), store?: {Sqlite.Handle}): Ran
+  local framed: mut {string} = {}
   for _, messages in ipairs(batches) do framed[#framed + 1] = session_fixture.framed(messages) end
-  local reader: Batches = setmetatable({ batches = framed, following = 1, rest = "", between = between },
-    batches_mt)
+  local reader: Batches = { batches = framed, following = 1, rest = "", between = between }
   local wrote: {string} = {}
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
-    grammar = grammar,
   })
   local code = session.serve(s, reader, function(text: string): boolean, string
     wrote[#wrote + 1] = text
@@ -219,14 +210,12 @@ end
 
 --- What a session at `root` answers `messages` with, reading docs from
 --- `store` when given.
-function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle},
-                                grammar?: GrammarMode.Mode): Ran
+function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}): Ran
   local wrote: {string} = {}
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = store,
-    grammar = grammar,
   })
   local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
     function(text: string): boolean, string
@@ -244,7 +233,7 @@ end
 --- sends while the session checks ([`protocol.Poll`]). It tells how many
 --- dependents were checked as each message was sent.
 function session_fixture.served_arriving(root: string, messages: {string},
-                                         arrived: function(checked: integer): string | nil): Ran
+                                         arrived: function(checked: integer): string?): Ran
   local wrote: {string} = {}
   local checked: {integer} = {}
   local complaints: {string} = {}
@@ -258,7 +247,7 @@ function session_fixture.served_arriving(root: string, messages: {string},
       checked[#checked + 1] = s.queue.checked
       return true, ""
     end,
-    function(): string | nil, string
+    function(): string?, string
       local message = arrived(s.queue.checked)
       if message == nil then return nil, "" end
       return protocol.frame(message), ""
@@ -270,13 +259,12 @@ end
 
 --- A session at `root` served one batch of messages after another, as an
 --- editor sends them with time between: what it sent, all told.
-function session_fixture.serving(root: string, grammar?: GrammarMode.Mode): function(messages: {string}): Ran
+function session_fixture.serving(root: string): function(messages: {string}): Ran
   local wrote: {string} = {}
   local complaints: {string} = {}
   local s = session.new(root, {
     err = function(line: string) complaints[#complaints + 1] = line end,
     store = nil,
-    grammar = grammar,
   })
   return function(messages: {string}): Ran
     local code = session.serve(s, Stream.from_string(session_fixture.framed(messages)),
@@ -318,7 +306,7 @@ end
 
 --- Each publication `ran` sent, in order.
 function session_fixture.publications(ran: Ran): {session_fixture.Publication}
-  local out: {session_fixture.Publication} = {}
+  local out: mut {session_fixture.Publication} = {}
   for _, body in ipairs(ran.sent) do
     if session_fixture.sent(body).method == "textDocument/publishDiagnostics" then
       out[#out + 1] = assert(PUBLISH_SENT:decode_into(body)).params
@@ -329,7 +317,7 @@ end
 
 --- The diagnostics of each publication `ran` sent, in order.
 function session_fixture.published(ran: Ran): {{Diagnostic}}
-  local out: {{Diagnostic}} = {}
+  local out: mut {{Diagnostic}} = {}
   for _, publication in ipairs(session_fixture.publications(ran)) do
     out[#out + 1] = publication.diagnostics
   end
@@ -338,7 +326,7 @@ end
 
 --- The messages of `diagnostics`, one a line.
 function session_fixture.messages_of(diagnostics: {Diagnostic}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, diagnostic in ipairs(diagnostics) do out[#out + 1] = diagnostic.message end
   return table.concat(out, "\n")
 end
@@ -351,7 +339,7 @@ end
 --- How many diagnostics each publication `ran` sent holds, in order:
 --- "1,0" for one then none.
 function session_fixture.counts(ran: Ran): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, diagnostics in ipairs(session_fixture.published(ran)) do
     out[#out + 1] = tostring(#diagnostics)
   end
@@ -371,7 +359,7 @@ end
 
 --- The methods of the requests of its own a session sent.
 function session_fixture.requests(ran: Ran): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, body in ipairs(ran.sent) do
     local sent = session_fixture.sent(body)
     local method = sent.method
@@ -402,7 +390,7 @@ end
 
 --- A change of the document `name` that sends each of `texts` whole.
 function session_fixture.changes(root: string, name: string, texts: {string}): string
-  local quoted: {string} = {}
+  local quoted: mut {string} = {}
   for _, text in ipairs(texts) do quoted[#quoted + 1] = '{"text":' .. Json.quote(text) .. "}" end
   return '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":' ..
     uri(root, name) .. ',"version":2},"contentChanges":[' .. table.concat(quoted, ",") .. "]}}"

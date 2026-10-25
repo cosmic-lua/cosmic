@@ -29,7 +29,7 @@ Test.policy{
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: {string} = { "-e", chunk }
+  local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   local started = this_program.program(words, opts)
   return started.argv, started.options

@@ -55,7 +55,7 @@ end
 
 --- Every token of `s`, in order.
 function c_tokens.lex(s: string): {c_tokens.Token}
-  local out: {c_tokens.Token} = {}
+  local out: mut {c_tokens.Token} = {}
   local i = 1
   local line_start = true
   while i <= #s do
@@ -75,7 +75,7 @@ function c_tokens.lex(s: string): {c_tokens.Token}
       stop, kind = (s:find("[^ \t]", i) or #s + 1) - 1, "space"
     elseif s:sub(i, i + 1) == "/*" then
       local close = s:find("*/", i + 2, true)
-      stop, kind = close ~= nil and close + 1 or #s, "comment"
+      stop, kind = if close ~= nil then close + 1 else #s end, "comment"
     elseif s:sub(i, i + 1) == "//" then
       stop, kind = (s:find("\n", i, true) or #s + 1) - 1, "comment"
     elseif c == "\"" or c == "'" then
@@ -114,7 +114,7 @@ end
 --- Every comment of `s`, `//` or `/* */`, markers and all, with the
 --- line it starts on.
 function c_tokens.comments(s: string): {c_tokens.Comment}
-  local out: {c_tokens.Comment} = {}
+  local out: mut {c_tokens.Comment} = {}
   local line = 1
   for _, t in ipairs(c_tokens.lex(s)) do
     if t.kind == "comment" then

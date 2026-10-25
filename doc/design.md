@@ -292,17 +292,14 @@ the replacement for that very field, at the site that used it.
 [`cosmic.removed`] is the one place the map from a removed name to its
 replacement lives.
 
-the compiler -- the Lua the tree's checker, [`checker/tl.tl`], compiles to (below) --
+the compiler -- the modules of `lang/` and the pipeline that drives them (below) --
 reaches outside the pure libraries nowhere: it opens no file, reads no
-variable and runs no code it compiles. it ships as a row in the
-database and is loaded with an environment that names the pure
-libraries and `load`, which the wrapper that joins the checker's files
-uses. the checker resolves the types of a
-`require` through `search_module`, which it is handed: the build
-answers it from the staged tree, which is a build reading its inputs,
-and the compiler's own finds nothing. before Teal exists, at boot, a
-short Lua bridge, [`core/bridge.lua`], which the boot reads from the
-tree as it reads the seed's compiler, answers it from the tree's files.
+variable and runs no code it compiles. the checker resolves the types of a
+`require` through the declarations of the tree it is handed: the build
+answers them from the staged tree, which is a build reading its inputs.
+before the checker exists, at boot, a short Lua bridge, [`core/bridge.lua`],
+which the boot reads from the tree as it reads the seed's compiler, answers
+`require` from the tree's files.
 
 Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
@@ -360,7 +357,7 @@ input to the build, never to the runtime. one database holds:
   reads it back in a query.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
-  keeps where it was ([`build.stub`]), raw-deflated. a module that
+  keeps where it was (build.stub), raw-deflated. a module that
   returns a record it declares keeps only the statements that record's
   type names, so code and requires only bodies read are left out too.
   a project's checker reads a module's stub in place of its source,
@@ -441,13 +438,13 @@ input to the build, never to the runtime. one database holds:
   Teal-only rebuild carries the running binary's rows over, and `cosmic
   build` copies them into every executable it writes;
   [`Store.web_asset`] reads one.
-- **the compiler**: the Lua [`checker/tl.tl`] and its modules compile to,
-  started with the text of [`checker/stdlib.d.tl`], one row, loaded with
-  its own environment.
+- **the compiler**: no row of its own. the modules of `lang/` are modules of the
+  tree like the rest, and the `compiler` meta row is the identity of the checker
+  that compiled the tool, which a tool older than its tree compares to rebuild.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
-  what it requires. Two rows are no module: `checker.prelude` and
-  `checker.stdlib`, the text of [`lang/prelude.d.tl`] and of
+  what it requires. Two rows are no module: `lang.prelude` and
+  `lang.stdlib`, the text of [`lang/prelude.d.tl`] and of
   [`lang/stdlib.d.tl`], which are the globals the new checker types a
   project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal
@@ -561,7 +558,7 @@ builds and tests a tree other than its own.
 
 inside cosmic's own tree, every run first compares the boot hash with
 the one the running binary carries: a fingerprint of everything the
-tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, `checker/`, each
+tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, `lang/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper, but the Teal
 tests among them, which no binary carries: an edit to a test rebuilds
 no tool, and only a test may require one. a vendored
@@ -590,7 +587,7 @@ and `zig build` installs them under the build directory's `vendor/` and produces
 for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
 and puts a placeholder script where each other core goes). `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
-importer with the compiler built from the checker, [`checker/tl.tl`], in two
+importer with the compiler built from the checker, `lang/`, in two
 stages (below), writes `cosmic.db`, and writes one
 portable [`bin/cosmic`], each in the build directory. the tool carries `carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
@@ -603,7 +600,7 @@ developer runs `bin/cosmic build` the other hundred times a day.
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
 [`build.derivation`] writes generated inputs and analysis rows;
-[`build.compilation`] defines compilation and acceptance. [`build.importer`]
+[`build.pipeline`] defines compilation and acceptance. [`build.importer`]
 coordinates parses, compiles and cache lookups. its `compile_tree` owns the
 shared caches through derivation, identity selection and compilation; the caller
 controls the transaction and publication. [`build.writer`] publishes deterministic
@@ -748,14 +745,14 @@ that does run runs in a worker process of its own:
 - *parallel*: a build with much to parse or compile, a cold boot or an
   edit that reaches most of the tree, does it in worker processes: one
   fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
-  and `1` none ([`build/workers.tl`]). sources are dealt to them by
-  size. modules are dealt by what they import ([`build/shards.tl`]),
+  and `1` none (`build/workers.tl`). sources are dealt to them by
+  size. modules are dealt by what they import (build/shards.tl),
   since the checker's types cannot leave a process and a worker checks
   every import of what it compiles. the build process alone writes the
   rows, in the order a build without workers writes them, and compiles
   itself what no worker did, a refusal included, so its error is the one
   a build alone gives and the database and the tool come out byte for
-  byte the same ([`build/worker.tl`]). a boot loads the build's code from
+  byte the same (`build/worker.tl`). a boot loads the build's code from
   source in each worker, which takes seconds, so it starts them only for
   a few megabytes of new source.
 - *fast*: compile and check run in one process, one transaction,
@@ -920,7 +917,7 @@ and `inet_pton.c`, carry ISC's text.
 
 each PIN also names its component's SPDX license and the notices a copy
 must travel with (`license`, `notice`); what the build links without
-vendoring -- zig's runtime, musl, and the license the checker inherits from
+vendoring -- zig's runtime, musl, and the license the standard library's declarations inherit from
 tl -- has a record of the same grammar under `build/bom/`. the tool's database carries them as a bill of
 materials ([`build/bom.tl`]), every executable `cosmic build` writes
 carries the same rows, and `cosmic bom` prints them, their notices, or
@@ -928,482 +925,105 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-the checker and compiler are the tree's own source, [`checker/tl.tl`] and the
-files beside it: they descend from tl 0.24.8 (MIT; the license and notice
-travel in the bill of materials, as [`build/bom/tl.pin`]) and are edited
-directly.
-[`checker/tl.tl`] is the entry and holds most of the checker.
-[`checker/flow.tl`] is the first module split out of it, and it decides
-reachability: which statements end their block (`return`, `break`, `goto`,
-an `if` with an `else` all of whose branches end, `while true` with no
-`break`, a call of a `: never` function), which a function declared `:
-never` or returning a value and a narrowing after an `if` that ends read.
-the checker asks it, never decides it. [`checker/narrowing.tl`] decides what
-a test tells of a place. a place is a local. a guard is a
-test of a place (a truthiness read, a comparison with nil or a literal,
-`is`, `type(x) == "..."`, an `assert`), or a `not`, `and` or `or` of
-guards. evaluating a guard gives the facts it holds, one per place. the
-checker builds a guard on each expression and applies one where a branch
-begins.
+the checker and compiler are the tree's own source, `lang/`, and the language is cosmic's own: it reads Teal's
+syntax where that serves and breaks with it where Teal or a Lua idiom costs soundness, simplicity or speed
+([`doc/plans/strict-teal.md`] states the rules, their reasons and the order they landed in). there is one
+checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
+patch records; `cosmic migrate` rewrites a project written in the old grammar to this one, and
+`COSMIC_GRAMMAR=teal` is refused, naming it.
 
-a test of a field (`r.n`) or of a global narrows nothing. code that runs
-between the test and the use can write the field through any reference to its
-table, and any function can assign a global, while only the code that declares a
-local assigns it. so `if r.n then ... r.n ... end` is refused at the use, as the
-field with its nil is refused wherever it is used, and the refusal keeps its own
-code and message. a use that reads a place a test of narrowed nothing carries a
-note beside it: the error's `also` is `narrowing_not_local`, with the place,
-`field` or `global`, the test as written and where it is (`dropped_place`,
-`dropped_kind`, `dropped_by`, `dropped_y`, `dropped_x`), and a name for the copy
-(`dropped_copy`). an assignment of a union or an interface to a global does not
-narrow it either (the test is then written `g = ...`), and `r.v is T` of a field,
-which `is` refuses outright, carries the same note (`r.v is ...`). the note is
-conditional, because the checker does not ask whether the use relies on the
-test: "if this use relies on that test, copy it first (`local n = r.n`), then
-test and use `n`". no type is re-checked to decide it. the note is not made for
-a test that leaves the place nil only, the branch where the test does not hold,
-which no use relies on. the hint adds that a loop or later code that updates
-the field updates the local instead and stores it back after.
+the pieces are small modules, each deciding one thing and asked by the rest:
 
-the local's name is one that nothing in scope, no global or builtin, no keyword
-and no name the enclosing function declares anywhere (before the test or after
-it) has, and none begins with an underscore: the field's own, else the place
-with its dot made an underscore (`r_n`), else that with `_copy` and a count; a
-global is copied under `g_copy`.
+- [`lang/lexer.tl`] and [`lang/parser.tl`] read a file into the syntax tree of [`lang/ast.tl`], recovering after
+  an error so that one file reports many; [`lang/scopes.tl`] resolves each name to its binding.
+- [`lang/declarations.tl`] lowers the types a file writes, and the declarations of other modules (their `.d.tl`
+  or their own record, class, interface and enum declarations), to [`lang/types.tl`]; [`lang/relation.tl`] says
+  when one type stands for another, and [`lang/generics.tl`] binds a generic's parameters.
+- [`lang/check.tl`] types each expression and statement; [`lang/flow.tl`] decides reachability (which statements
+  end their block, and so which narrowings survive an `if`); [`lang/check_codes.tl`] lists every code an error can
+  carry. [`lang/truthy.tl`] and [`lang/warnings.tl`] are the rules for conditions and for the things worth a hint.
+- [`lang/codegen.tl`] writes the Lua, one file at a time, from the tree and what the checker concluded;
+  [`lang/fact_wraps.tl`] adds the checks of a checked run (below).
+- [`build/pipeline.tl`] and [`build/driver.tl`] drive them over a tree: each module's declarations first, in the
+  order its requires give, then its body, its errors judged against the ceilings (below), then its Lua and
+  bytecode. [`build/compile_grammar.tl`] is the same for `cosmic compile` and a lone file.
 
-a fact of a local is dropped where the value it is about can change, and a use
-that relied on a dropped fact is refused. an assignment to the local drops it.
-a call, a write through a reference and an operator drop none: a local stays
-narrowed across a call, because no function literal assigns a local it does
-not declare (below). what runs code of the program's is still told apart,
-for the check that a local is assigned before it is read (below): a call, an operator or index that dispatches to
-a metamethod, and the end of a block with a `<close>` local. an operator or
-index served by a metamethod a record, an interface or a userdata declares
-runs code, unless it is a macro expression (a `where` clause is one) that
-calls nothing; `==` of two values that may be tables runs code only if the
-type of one declares `__eq`; `any` and a type variable may be anything, so
-they always dispatch; and an operator on a string, a number, a plain array or
-map, a function, nil or a record that declares no metamethod does not. a call
-of `assert` or `type`, of a function declared `: never`, and of a standard
-library function that runs no code of the program's (`tostring`, `print`,
-`ipairs`, the `string`, `math` and `utf8` functions, `table.concat`,
-`table.insert` and a few more) given arguments that cannot dispatch (a type
-that declares a metamethod, `any`, or a function, alone or in a union, can)
-runs none.
+the Lua standard library's declarations are not in the checker. they are [`lang/stdlib.d.tl`], the typing the checker
+takes without proof, and [`lang/prelude.d.tl`], the names of the language itself (`any`, `thread`, `userdata`), written
+in the new grammar from tl's declarations (the tl license travels in the bill of materials, as [`build/bom/tl.pin`]).
+auditing or changing one is an edit of that file and touches no checker logic. the binary carries both as rows of
+`decls` ([`build/checker_declarations.tl`]), so a project is typed against the declarations of the tool that builds
+it. `cosmic docs` does not show them: it indexes the tree's modules, and these are neither.
 
-the principle stops where the checker cannot see: a metatable attached at run
-time, by `setmetatable({}, {__index = f})` on a plain map or a metamethod a
-record does not declare, dispatches whatever the program gave it, and a
-`__gc` finalizer runs at a time no operation names. neither is seen, so
-neither is held against the program; the roadmap's `setmetatable` item
-closes the first, and the second is outside the claim.
+the boot compiles the checker with the pinned release ([`ci/cosmic-driver.pin`]) once, as a seed: a `build.zig` step
+runs `bin/cosmic-bootstrap compile` over the files [`build/seed.txt`] lists, and zig caches the Lua it writes. the bridge
+([`core/bridge.lua`]) loads that Lua as stage one, which compiles the same files again from the tree to stage two. stage
+two is the tree's own generator applied to the tree's own source, so the tool never depends on the pin's emitter, and it
+is what builds the rest of the tree. the boot checks that the first stage equals the second wherever the generator
+writes what the release's does, and fails naming the files unless `lang/SEED_DIFFERS` lists them (one path a line) as
+declared to differ, a generator change ahead of the pin; a file listed that does not differ fails too. the sources are in
+the compiler's identity, so in every compile's key, and in the tool's boot hash, so an edit to one boots the tool.
 
-a loop body is checked once with the facts from before the loop standing, and
-a local the loop assigns is widened to the type it was declared with at the
-loop, so a read of it before the assignment sees that type. after the loop what
-it assigned stays dropped, as in straight-line code. a branch leaves only if its
-last statement does and no path through it goes out first by a `break` of a
-loop around it or a `goto` (a continue, below) that is not of a loop inside the
-branch. a function literal runs later, when what a test established may no
-longer hold (`local f = function() return n + 1 end`, then an assignment of
-`n`, then `f()`), so its body begins without the facts of the places outside
-it that may change before it runs, and keeps the rest. it loses each local that
-an assignment can change once the literal is made (a parameter, a `local x = x`
-copy and a local declared with a value alike): an assignment in a function
-literal, one that comes after the literal in the text, and one in a loop that
-also makes the literal (a later pass runs it) all can. it keeps the facts of a
-local that no such assignment changes, since that local holds the same value
-whenever the literal runs: a default assigned before it (`opts = opts or {}`) or
-the best of a loop that has ended is the value its test, or the value it was
-declared with, still speaks of. a `local x = x` declares a variable of its own,
-even in the scope of the one it copies, with its own assignments. a hidden
-local reads with the type it was declared with (for a copy, the type of the
-variable it copies where the copy is made, narrowed by any test before it),
-never the type of another variable of the name. a read in the body of a place
-so hidden is refused with the code `narrowing_dropped`, kind `function`, and
-the hint copies the value to a local before the function. the body still
-learns what it tests itself of its own locals, and of a local of the code around
-it only if no assignment can change that local once the literal is made: a
-coroutine can yield between the test and the use, and the code around runs, so
-a test of any other local of the code around narrows nothing, and the use is
-told so by the note `narrowing_not_local` with the kind `captured` and a copy
-inside the function. creating the function runs none of its body, so the facts
-outside it stand after it. code that control cannot reach (after a `return`, a
-`break`, a `goto` or a call that never returns) is checked from the facts where
-control left, narrowing and dropping as reached code does. a branch that ends in `return` or a call
-that never returns drops nothing for the code after its `if`.
+the grammar is Teal's, made smaller and explicit. a declaration is `local record R`, `local class C`, `local interface
+I`, `local enum E` or `type X = require("m")`; a module returns one of them, or a local declared with its type. an
+optional type is `T?` and an optional field `name?: T`; `T | nil` is refused. a field is fixed unless declared `mut`,
+and a collection parameter is a view unless declared `mut {T}`. there are no casts (`as`), no `;`, no `goto` but a continue,
+no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable), no `global`, no `#!`
+first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an expression), and no call with a string
+argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
+`match`. a type changes only by a guard, `is` of a class or a tagged union, a narrowing declaration or a validator
+([`cosmic.shape`]); `any` is legal only where untrusted data enters.
 
-a test of `a or b` that holds tells what `a` and `not a` tell together, which
-is nothing of a place: `a` held, or `a` failed and `b` held, so
-`assert(x == nil or y)` leaves `x` as it was. what `a or b` tells when it fails
-is what both fail to be. a narrowing made in a scope that already widened the
-name (a function literal declared before the test assigns it) keeps the
-widening and can be dropped from it, so an assignment drops it as it does
-elsewhere.
+the rules the checker holds, each with its own codes, are these. nil is its own type, in no other: an index read of a
+map or an array may be nil, and arrays are dense. a condition is a boolean or an optional. `or` and `and` return what
+they say. a local is assigned before it is read, including by a function that names it and may run first. a place (a
+local, or a path of fixed fields, `a.b.c`) is narrowed by a test and stays narrowed until an assignment, a write that may
+reach it, or code that may run drops the fact; a function literal begins without the facts of the places that can change
+before it runs, and its captures are read-only (a function never assigns a local it does not declare). `never` is the
+bottom type, the type of a call that does not return, and code after it is unreachable. a function type stands for another
+when its parameters accept what the other's do and its returns are subtypes of the other's. a record is not a map; an
+enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:
+a tagged union is told by its tag. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
+a number does not compare with a string. the error-slot discipline of the third principle ([`build/syntax_contracts.tl`])
+holds the tree's functions that answer `T?, string` to the checks on their callers.
 
-a refusal of the dropped kind has the code `narrowing_dropped`, with the place,
-what dropped it (`assignment` or `function` for a local), that expression as
-written and where it is, beside the fields of the refusal it was. its hint
-copies the value to a local before the assignment or the function. a read in a
-loop of a place that the loop assigns later in its body is told the assignment
-and the loop: the check before the loop does not hold in a later pass, so the
-hint copies the value to a local at the top of the loop body.
+an error carries a `code` and the places and values it is about, and its message is written from them. each code has a
+row in the catalog ([`build/error_catalog.tl`]) with the rule, why the language holds it and the fix, so `cosmic docs
+<code>` answers it, and a refusal of a form the old grammar wrote carries the fix that says how to write it now
+([`build/removed_fix.tl`]). a rule that refuses more lands with its code and its row together.
 
-a function literal does not assign a local declared outside it
-([`checker/captures.tl`]'s `find`, asked of each file before it is checked):
-`function() ... end`, `local function`, `function f()`, a record function,
-and the function literals inside a macro expression (a `where` clause is one,
-as are those of the records nested in it) may read what is around them, and
-assign their own locals and parameters, but a local belongs to the code that
-declares it: an assignment is refused when the local is declared at a smaller
-function depth than the assignment. the forward declaration
-`local f: function(); f = function() ... end` is exempt because it is
-assigned at the same depth as its declaration, and so is a write to a field
-of a captured table (`state.n = state.n + 1`: the rule is about the binding, not the
-table), and a global is not followed. so a call, whatever it calls, changes
-no local, and a value a function finds in a local came from the code that
-made it. a refusal has the code `captured_assigned`, with the variable and
-where it is declared (`declared_y`, `declared_x`); its hint says to return
-the value from the function, or keep it in a field of a table both read
-(`local held = { n = 0 }`, then `held.n = ...`).
+the tree is held to the rules by ceilings. build/ceilings.txt pins, per file and code, the violations a stage of the checker
+finds there (`[declared]`, `[scoped]`, `[checked]`, and `[untyped]` for the calls whose callee the checker could not type),
+and a module is refused above its pin and a tree check fails below it, so a count only falls and a new violation is refused.
+a project outside the tree has no ceilings: every error refuses.
 
-a field of a record or interface may be declared `readonly name: T`. this is
-the fork's syntax, which the tree does not use and which goes with the fork:
-the new checker has `mut`, where every field is fixed unless declared `mut`
-and a collection parameter is a view unless declared `mut` ([the plan's
-fixed-fields rule]). interface agreement carries over to `mut`, so an
-implementing record declares a field `mut` exactly when the interface does. the keyword is type-level and erased from the emitted Lua; `readonly: T` is still a
-field named `readonly`, as `metamethod: T` is one named `metamethod`. only the
-table literal that makes the record sets the field: an assignment through the
-record, an alias of it, `self` or a literal key (`r["id"] = v`) is refused with
-the code `readonly_field`, with the field (`key`) and the record (`subject`);
-its hint says to give the value in the literal or declare the field without
-`readonly`. read-only is shallow: a write inside the field's value
-(`r.b.n = 1`, `r.xs[1] = 3`) is not a write to the field. a record declares a
-field of an interface read-only exactly when the interface does, and a
-mismatch either way is refused with the code `readonly_disagrees`, which names
-the field, the record, the interface and the side that declares it read-only.
-a write through a key whose type is a string literal, an enum or a union of
-them is refused if any value names a read-only field, and so is a function
-statement on a value (`function r.cb() end`). one field's overloads all agree
-on `readonly`.
-a record with a read-only field is made only by a table literal checked against
-that record type. a literal with no expected type (`local t = { id = 1 }`) has a
-type of its own, which is not such a record, because a second reference to it
-could write the field: `local r: R = t`, passing `t` where an `R` is wanted,
-returning it as one and storing it in a field of type `R` are refused with the
-code `readonly_literal` (the field as `key`, the record as `subject`, and the
-variable that holds the table as `variable`). the hint says to give the literal
-the type where it is made (`local t: R = {...}`). a literal written in the place
-that wants the `R` (an initializer, an argument, a return, a field of an outer
-literal or an assignment) is checked against it and stays accepted, and a record
-with no read-only field is unaffected. a literal checked against a record gives
-every read-only field a value, or the code `readonly_missing` names the omitted
-field (`key`, and `fields` when several); a field declared `readonly name?: T`
-may be left out, since it admits nil.
-a table built in a local and then handed on is such a table too: `local self =
-{ id = id }; return setmetatable(self, mt)` is refused for a record with a
-read-only field. write `local self: C = { id = id }`, or pass the literal
-inline. a literal passed to an overloaded generic function
-(`table.insert(rs, { id = 1 })` with `rs: {R}`) gets no expected type and is
-refused the same way until such calls give their arguments one; build it in a
-local typed `R` first. an array or map literal written where `{R}` is wanted
-checks its elements against `R`, while a variable holding one made without the
-type is refused with a plain mismatch.
-stubs and declarations keep the keyword, being the source less its bodies. the
-rest of the read-only rules (casts, records are not maps, narrowing through a
-read-only path) are in [`doc/plans/strict-teal.md`].
+a build refuses a Teal `global` declaration in every source it holds: modules, tests, examples, guide examples and `.d.tl`
+files; the forms are `global x`, `global function`, `global record`, `global interface`, `global enum`, `global type`, and a
+`function f()` with no local `f` in scope, which writes a global. a module's compile key holds its kind, its source, the
+keys of the modules it requires, and the compiler's identity; a global reaches other modules by none of those, so a cached
+compile could stand after the module that declares it changed. everything a module sees comes through a `require`, which
+the key covers. a Lua runtime trick the checker cannot see, `local _ENV = ...`, is refused, and a file run by `cosmic
+--standalone` is checked and refused on a type error, cached by content hash like any compile.
 
-a local is assigned before it is read. `local x: T` with no value is nil until
-something assigns it, and a read that comes first gets nil where the type
-promised a `T`, so it is legal only where every path from the declaration
-assigns `x` before its first read ([`checker/flow.tl`]'s `unassigned_read`,
-asked of each declaration once the block that holds it is checked). a read is
-any use of `x` as a value (an operand, an argument, an index, the target of
-`x.f = v` or `x[i] = v`). a path that ends first (`return`, a `break` or `goto`
-that leaves, a call of a function typed `: never`) never reaches a read of the
-variable, but a function that names it may have got out on it (below). an `if`
-assigns if every branch does and it has an `else`; a `while`, `for` and generic
-`for` body may run no time, so what it assigns does not count after the loop
-except on the paths that `break` out of it, while a `repeat` body and a `while
-true` body run at least once; a `goto` takes the state it leaves with to the
-label that ends its loop's body. an assignment inside a function literal is to
-a local of its own (below), so it counts for nothing around it, and a local of
-the same name declared inside a block hides the variable from the rest of that block. `local x: T | nil` with
-no value is always legal and is nil, so is any type that admits nil (`any`, an
-alias of a union with nil); a type variable is not taken to, since it may stand
-for a type that does not. a local with neither a type nor a value (`local x`)
-is refused too, with the code `no_type`.
+`: never` is a flag on a function type, declared by a helper that only raises or exits (`error`, [`Proc.exit`], a module's
+`spec_error`): a call of one ends its block, so code below an `if x == nil then fail() end` guard sees `x` narrowed. nothing
+infers it from a body, and a declaration that returns anyway is a bug in the declaration.
 
-a function literal (or a `local function`) that names `x` does not read it
-where it is made, only when it is called. so it is pending from its creation
-until `x` is assigned on every path, and it becomes a read if code of the
-program's may run in between: a call, an operator, index or `==` that
-dispatches to a declared metamethod, a `tostring` or `print` of a value with a
-declared `__tostring`, a `for ... in` loop whose iterator is not `pairs`,
-`ipairs` or `gmatch` of what runs none: what the checker counts as running code
-(`TypeChecker:drop_all`, which marks the expression `runs_code` for
-`unassigned_read`), and a call of `assert` or `type` or of the
-standard library that examines no value that may dispatch is none. it also
-becomes one where the function may get out unassigned: at a `return`, at a call
-of a function typed `: never` (the path ends, but the function may be stored or
-caught by a caller above, as `error` is), at a `break`, or a `goto` to a label
-further out, that leaves the block the variable is declared in (its scope ends
-there), and where the variable's scope ends. a loop body that ends with it
-pending goes round once more in the walk, so the code at its start counts. so
-`local f: function(); local function g() f() end; f = function() g() end` and
-`local f: function(); f = function() f() end` pass, and `local f: function();
-local function g() f() end; g(); f = ...`, a function that is returned or whose
-scope ends with `f` unassigned, and an assignment a path skips are refused. a
-call that is not marked runs code even if it does not call the function; the
-refusal is the checker's guess that it may.
+a checked test run (`cosmic test --check-types`) finds where the checker's conclusions are false. it compiles the tree with
+a call of a hook at each read of a place a test narrowed (`if x then`, `~= nil`, `is`, `type()`, `assert`), carrying the
+place, the kinds the test took out and the classes and tags it told apart, and the hook raises "fact violated at file:y:x" for
+a value the fact is false of, which fails the test and is kept as a row of `type_violations`. so what is checked is exactly
+what a test concluded and nothing the declared type said; the programs the checker accepts that it fails are its holes, found
+by real runs ([`doc/testing.md`] has the rest). the run changes the Lua, so its compiler has an identity of its own
+([`build.importer`]'s `checked_tool`) in every compile key, and its projection is written aside (`cosmic.checked.db`): the
+tree's projection, the tool and every executable `cosmic build` writes never carry a check.
 
-what counts as running code is what `drop_all` counts, so the rule shares its
-gaps. the read of a declared field of a record that declares `__index` runs
-code that neither sees (the TODO in [`checker/narrowing.tl`] names it), nor
-does a metatable attached at run time (the `setmetatable` TODOs in
-[`checker/tl.tl`] and the roadmap item they wait on). a raise from `assert`
-(`assert(false)`, `assert(<expr>)`) or from an operator (division by zero,
-indexing nil) can let out a function that has already escaped, as a call of a
-function typed `: never` does, but is not seen as doing so, so those are
-outside the rule for now (a TODO in [`checker/flow.tl`], and the roadmap item
-that checks a function where it escapes). a global is not followed at all, and
-neither is a local given a call that returns no values (`local v: integer =
-f()`), which is nil though its type admits none; both are TODOs in
-[`checker/flow.tl`] that wait on the roadmap's item that excludes nil from
-every type but one that names it.
-
-a refusal of the first kind has the code `not_assigned`, with the variable, and
-where a path skipped the assignment: the `if` with no `else`, the branch that
-does not assign, or the loop, with its place; for a function that names it,
-that the read is a function and what may call it first (`ran_kind`: `call`,
-`operator`, `iterator`, `return`, `never` or `scope`, with its place). its hint
-says to give the local a value where it is declared, assign it on every path
-(before the call that may run a function that names it), or declare it `T |
-nil` and check it where it is used. the rule is held against the semantics it
-is about: a drawn program of branches, loops, `break`, `return`, `goto` as a
-continue, calls that never return and functions that name the variable is run
-down every way its choices can fall, with every call able to call every
-function made so far, and the checker refuses it exactly when some way reads
-the variable before it is assigned ([`build/checker_assigned_fuzz_test.tl`]).
-
-a `goto` is a continue and nothing else. it may only jump forward to the label
-that is the last statement of the body of the innermost loop around it, in the
-same function (`for`, `while` and `repeat` alike); the label's name does not
-matter. it is refused when it jumps back, jumps forward to a label anywhere
-else, jumps out of a nested function or out of a loop, or sits outside any
-loop, and a label that no such `goto` names is refused too, so a label exists
-only to continue. a `repeat` continue is also refused when it jumps past a
-local declared at the body's level, which the `until` can see and Lua refuses
-to load; wrapping the code after the `goto` in `do ... end` or an `if` clears
-it. a refusal has the code `goto_not_continue`, with the label's name, where
-the `goto` is (none for a label nothing names) and where the label is (none
-where the `goto` names no label); its hint says to restructure with an `if`
-around the code to skip, or to move the body into a function. a `goto` that
-only skips the rest of a pass leaves no loop and re-enters nothing, so the
-checker's flow and narrowing meet a label only at the end of a loop body,
-reached by forward jumps: a label drops no fact of its own, a loop that only a
-`goto` leaves does not occur, and the order of the text says when a write runs,
-up to the loops around it.
-
-the checker's own source is valid upstream Teal and relies on nil being in
-every type, so a local it reads before the code that assigns it is declared
-`local x: T = nil`, which has a value; the checker's TODO there waits on nil
-leaving every type but one that names it.
-
-later parts of the checker move into modules the same way, each a file in
-`checker/` with a main chunk and a count of locals of its own. the files sit
-outside the module closure they compile: the scanner
-reads `checker/` as part of the tool, never as a module or a test
-([`build/identity.tl`]), and `cosmic fix` does not lay it out. the tree
-holds no copy of upstream's `tl.lua`. the seed is the pinned release: a `build.zig` step runs
-`bin/cosmic-bootstrap compile` (the release [`ci/cosmic-driver.pin`] names;
-`COSMIC_BOOTSTRAP` names another cosmic) over `checker/*.tl` and
-[`build/checker_wrapper.tl`], and zig caches the Lua it writes. the boot
-builds the compiler in two stages: the seed's Lua, wrapped as the tool
-carries a compiler, is the first stage, and it compiles the same files again
-to the second, which the tool carries. the second is the tree's own
-generator applied to the tree's own source, so the carried compiler does not
-depend on the pin's emitter, and the compiler that makes compiles its own
-sources to exactly itself, which [`build/compiler_test.tl`] holds it to (the
-third stage equal to the second): the compiler is a function of its Teal
-sources, not of what first compiled it. the first stage equals the second
-whenever the generator writes what the release's does, which the boot checks
-and fails on, naming the files, unless `checker/SEED_DIFFERS` lists them
-(one a line) as declared to differ, a generator change ahead of the pin; a
-file listed that does not differ fails it too. a seed that cannot parse the
-checker's source fails the build naming the file and line, and that the pin
-must move to a release that parses it. the sources are in the compiler's
-identity, so in every compile's key, and in the tool's boot hash, so an edit
-to one boots the tool. a file added to `checker/` is covered by all of
-these, and by that test's list of files.
-
-the entry requires a module by its dotted name (`require("checker.flow")`),
-which the boot answers to the first stage from the file's text. the tool
-carries one compiler, one row: the entry's Lua behind a first line that
-holds the standard library's declarations as the local `stdlib` and the Lua
-of each other file, which a `require` in the entry, or in another such file,
-loads on first use as a chunk of its own named by its path, under the local
-`require` that shadows the host's. only `<identifier>.tl` files beside the
-entry are parts. the checker's module system is nothing more than that.
-
-the Lua standard library's declarations are not in that source. they are
-[`checker/stdlib.d.tl`], the typing the checker takes without proof, so
-auditing or changing one is an edit of that file and touches no checker
-logic. the file sits beside the checker, not under a module's path, for
-three reasons. the checker reads it before any module system exists: a
-`.d.tl` of a module is found by `require`, and the declarations are
-the checker's own environment, which makes `string`, `table` and the
-rest globals. it is outside the closure the checker compiles, as the
-checker is. and the compiler's identity, the tool's boot hash and the CI
-cache key hash everything under `checker/`, so an edit to a
-declaration recompiles every module and boots the tool. the boot carries
-the file: the bridge ([`core/bridge.lua`]) starts the compiled checker
-with `local stdlib = "<the file's text>"` on its first line, so the
-compiler the tool carries holds the declarations it was compiled with, and
-compiling the checker's sources again with the same file gives exactly that
-Lua ([`build/compiler_test.tl`]). the checker still names the few
-functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
-`require`, `ipairs`, `pairs`, `coroutine.wrap`, and `string.format`,
-`gsub`, `match`, `find` and the like) after reading the file, in
-`tl.new_env`. the prelude (`any`, `thread`, `userdata`, `metatable`)
-stays in the checker: its names are the language's, and the checker's
-logic reads them. `cosmic docs` does not show these declarations: it
-indexes the tree's modules and their declarations, and this file is
-neither. [`build/stdlib_declarations_test.tl`] pins how the checker
-prints representative names. the new checker reads its own copy, written
-in the new grammar: [`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]. the
-fork cannot read them, so they are tool files and no inputs of the build
-([`build/identity.tl`]), carried as text for the projects the new checker
-types.
-
-an error the checker reports carries a `code` and the places and values it
-is about (an argument's position, the types shown, the key and the record's
-fields, the counts of a call), declared as `Error` in
-[`build/compiler.d.tl`]. the hints [`build/teal.tl`] adds to a refusal read
-those, never its message, which only a person reads; an error no hint reads
-has the code `other`. a rule that refuses more lands with its code and its
-hint together.
-
-the language has no casts: the plan's [no casts] rule leaves `as` out of the
-new grammar, and a type changes only by `is`, a guard, a narrowing
-declaration or a validator. `any` is legal only where untrusted data
-enters and a shape validator turns it into a record by construction. the
-fork still accepts `as`, so the rule is not implemented. the fork narrows
-only a local; container covariance was dropped (see the roadmap).
-there is no planned `cosmic check` verb: compilation performs checking,
-while `cosmic fix`'s structural rule list ([`build/fix/rule.tl`]) is still
-empty: its one type-driven fix wraps a multi-value `assert(...)` in
-parentheses.
-
-`: never` is a flag on a function type, declared by a helper that only
-raises or exits (`error`, [`Proc.exit`], a module's `spec_error`): a call of
-one ends its block, so code below an `if x == nil then fail() end` guard
-sees `x` narrowed. nothing infers it from a body, and a declaration that
-returns anyway is a bug in the declaration. its soundness bar: never is
-exactly as sound as Teal's other types, no sounder. a hole that forges a
-`: never` function forges a `string` as easily and is not the flag's to
-close, but the flag must add none of its own: a never-function is a subtype
-of every function with the same parameters, a function that may return is
-never taken for one (at the root of a comparison or nested in any type:
-a container, a generic's argument, a callback's parameter), and a function
-declared `: never` neither returns nor reaches its end. the `as` and `is`
-casts (`as` leaves the grammar with [no casts]) and the holes every type has (`coroutine.wrap`, `rawset`,
-`setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
-[`build/teal_test.tl`] pin today's behavior of each.
-
-a checked test run (`cosmic test --check-types`) finds where the types
-lie. it compiles the tree with a run-time check at each declared boundary:
-an annotated parameter at the function's entry, a declared return value at
-its `return`, and a write to a record field (`r.f = v`). the check compares
-the value's Lua kind (`type`, and `math.type` for an integer) with the
-kinds the declared type admits: nil only where the type admits it, a record
-or a map as a table, an enum as a string; `any` and a type variable are not
-checked. a violation is recorded with the line that sent the value (the
-caller for a parameter, the statement for a return and a write), the
-declared kinds and the value's, and the run reports them and fails
-nothing: the checker accepts nil for any type, so the report lists code it
-allows. a `return f(x)` (a tail call, which a check would end), a vararg
-parameter or return, and a write to a field a record inherits or a generic
-record declares are not checked. the run changes the Lua, so its compiler
-has an identity of its own ([`build.importer`]'s `checked_tool`) in every compile key, the
-working database's rows and the compiles every checkout shares alike, and
-its projection is written aside (`cosmic.checked.db`): the tree's projection,
-the tool and every executable `cosmic build` writes never carry a check.
-[`build.test_worker`], which holds the hook the checks call, is compiled
-without them.
-
-the same run checks narrowing, the oracle the strict plan asked for: a read
-of a local whose type a test narrowed
-(`if x then`, `~= nil`, `is`, `type()`, `assert`) is written as a call of
-the hook with the place and the test's fact, the kinds the test took out
-of the type, and the hook raises "fact violated at file:y:x" for a
-value the fact is false of. the checker marks the read when the test makes
-the entry (`Variable.test_fact`), so what is checked is exactly what a test
-concluded and nothing the declared type said. a place narrowed by the type
-of an assigned or declared value is not, since that type holds nil where it
-does not say so until the nil item of the roadmap lands. CI runs the whole
-suite so in the `checked` job; the programs the checker accepts that it fails are its
-holes, found by real runs.
-
-a function type stands for another when its parameters accept what the
-other's do (contravariant) and its returns are subtypes of the other's
-(covariant); Teal's own rule took either direction for each, so
-`function(cb: function(): integer)` stood for `function(cb: function():
-number)`. two places stay loose: a parameter expected as `any`, the
-unchecked type, takes a function of any parameter type there (the
-standard library's callbacks are declared with it), and the first
-parameter of a function-typed record field may be narrower when both it
-and the expected one are records or interfaces, the method-receiver
-convention that cosmic.stream's implementers use (`read:
-function(FromStringReader, ...)` for `read: function(Reader, ...)`); a
-call that names another receiver (`r.read(other, 1)`) still checks, as it
-always did. nothing tells a receiver from another record parameter of a
-field's function, so a callback field `function(Event)` also takes a
-`function(k: KeyEvent)`, as on main. the roadmap item for named receivers
-retires the second, and that hole with it.
-
-the spirit is consistent, strong, explicit typing, the same shape the
-languages that hold it converged on: the top type inert until
-narrowed, no casts, the escape hatch in one greppable region,
-boundaries decoded through declared shapes. a runtime-checked cast is
-closed to Teal because Lua erases record types, so shapes construct their
-records rather than asserting them.
-
-the target type policy adds three rules. `any` never assigns into a
-typed slot; tl already refuses that on assignment, argument, return, index, and
-call. an unannotated parameter is an error, never an implicit `any`,
-which tl does not enforce and a planned lint would. `v is R` for a
-record `R` that is not a class is refused by the new checker ([tagged
-unions]), because it compiles to a table check that cannot tell two records
-apart; the error names a tag field or the shape module, which is the way in. the checker's own hint on an `any`
-index points at a shape, not at a cast. until casts go, the
-per-release report names the modules that cast from `any`; the expected list
-is the shape module, the codec decoders, the C declaration layer, and the
-build step that loads the compiler chunk.
-
-a build refuses a Teal `global` declaration in every source it holds:
-modules, tests, examples, guide examples and `.d.tl` files. the forms are
-`global x`, `global function`, `global record`, `global interface`,
-`global enum`, `global type`, and a `function f()` with no local `f` in
-scope, which writes a global. so `function print() end`, which
-redefines a standard-library global, is refused too. the refusal names
-the declaration's line and column and is made before any module is
-compiled, so it does not depend on the order modules are checked in.
-a module's compile key holds its kind, its source, the keys of the
-modules it requires, and the compiler's identity. a global reaches other
-modules by none of those, so a cached compile could stand after the
-module that declares it changed, the verdict of a serial build would
-depend on that order, and parallel workers could not reproduce it.
-everything a module sees comes through a `require`, which the key
-covers. tl's own prelude ([`checker/tl.tl`]) and the Lua
-standard-library declarations ([`checker/stdlib.d.tl`]) are read by the
-checker's environment, not built as a source, and are unaffected. a Lua runtime trick the checker cannot
-see, `setmetatable(_G, ...)` or `local _ENV = ...`, is not refused, and
-neither is a file run by `cosmic --standalone`, which no build checks. the
-plan's [hidden-code rule] ends both: `_ENV` is a reserved name a program
-cannot declare or assign, and a standalone run checks its file and refuses
-it on a type error, cached by content hash like any compile.
+the spirit is consistent, strong, explicit typing, the same shape the languages that hold it converged on: the top type
+inert until narrowed, no casts, the escape hatch in one greppable region, boundaries decoded through declared shapes. a
+runtime-checked cast is closed to Teal because Lua erases record types, so shapes construct their records rather than
+asserting them. there is no planned `cosmic check` verb: compilation performs checking, while `cosmic fix` reads and checks
+the files it is given and rewrites what the tree's structural rules (`build/fix/rule.tl`, still empty) ask for; it has no
+layout for the new grammar yet.
 
 ### the runtime
 
@@ -1534,10 +1154,8 @@ patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header cosmic.sys's .d.tl and doc rows derive from
 core/process.h      the same for the raw cosmic.internal.process table
-core/bridge.lua     the boot bridge: its compile of checker/*.tl and of the build, by hand
-checker/tl.tl       the Teal checker and compiler, the entry, compiled at boot from the pinned release's seed
-checker/flow.tl     the checker's reachability: which statements end their block
-checker/narrowing.tl the checker's places and guards: what a test tells of a place
+core/bridge.lua     the boot bridge: its compile of the seed's files and of the build, by hand
+lang/               the Teal checker and compiler: lexer, parser, scopes, types, flow, code generator
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
@@ -1618,7 +1236,6 @@ in [roadmap.md](roadmap.md).
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
-[`build.compilation`]: ../build/compilation.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl
 [`build.identity`]: ../build/identity.tl
@@ -1626,47 +1243,37 @@ in [roadmap.md](roadmap.md).
 [`build.importer`]: ../build/importer.tl
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
-[`build.stub`]: ../build/stub.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/bom/tl.pin`]: ../build/bom/tl.pin
-[`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/checker_declarations.tl`]: ../build/checker_declarations.tl
-[`build/checker_wrapper.tl`]: ../build/checker_wrapper.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
-[`build/compiler.d.tl`]: ../build/compiler.d.tl
-[`build/compiler_test.tl`]: ../build/compiler_test.tl
+[`build/compile_grammar.tl`]: ../build/compile_grammar.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
-[`build/fix/rule.tl`]: ../build/fix/rule.tl
+[`build/driver.tl`]: ../build/driver.tl
+[`build/error_catalog.tl`]: ../build/error_catalog.tl
 [`build/identity.tl`]: ../build/identity.tl
 [`build/importer.tl`]: ../build/importer.tl
 [`build/key_parts.tl`]: ../build/key_parts.tl
 [`build/link_index.tl`]: ../build/link_index.tl
 [`build/patch.tl`]: ../build/patch.tl
+[`build/pipeline.tl`]: ../build/pipeline.tl
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
-[`build/shards.tl`]: ../build/shards.tl
+[`build/removed_fix.tl`]: ../build/removed_fix.tl
+[`build/seed.txt`]: ../build/seed.txt
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
-[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
-[`build/teal.tl`]: ../build/teal.tl
-[`build/teal_test.tl`]: ../build/teal_test.tl
+[`build/syntax_contracts.tl`]: ../build/syntax_contracts.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
 [`build/vendor.tl`]: ../build/vendor.tl
 [`build/verb_spec.tl`]: ../build/verb_spec.tl
-[`build/worker.tl`]: ../build/worker.tl
-[`build/workers.tl`]: ../build/workers.tl
 [`build/zig.tl`]: ../build/zig.tl
 [`build/zig_fetch.tl`]: ../build/zig_fetch.tl
-[`checker/captures.tl`]: ../checker/captures.tl
-[`checker/flow.tl`]: ../checker/flow.tl
-[`checker/narrowing.tl`]: ../checker/narrowing.tl
-[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
@@ -1702,6 +1309,22 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs.tl`]: ../cosmic/fs.tl
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`doc/plans/strict-teal.md`]: plans/strict-teal.md
+[`doc/testing.md`]: testing.md
+[`lang/ast.tl`]: ../lang/ast.tl
+[`lang/check.tl`]: ../lang/check.tl
+[`lang/check_codes.tl`]: ../lang/check_codes.tl
+[`lang/codegen.tl`]: ../lang/codegen.tl
+[`lang/declarations.tl`]: ../lang/declarations.tl
+[`lang/fact_wraps.tl`]: ../lang/fact_wraps.tl
+[`lang/flow.tl`]: ../lang/flow.tl
+[`lang/generics.tl`]: ../lang/generics.tl
+[`lang/lexer.tl`]: ../lang/lexer.tl
+[`lang/parser.tl`]: ../lang/parser.tl
+[`lang/relation.tl`]: ../lang/relation.tl
+[`lang/scopes.tl`]: ../lang/scopes.tl
+[`lang/truthy.tl`]: ../lang/truthy.tl
+[`lang/types.tl`]: ../lang/types.tl
+[`lang/warnings.tl`]: ../lang/warnings.tl
 [`lang/prelude.d.tl`]: ../lang/prelude.d.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [hidden-code rule]: plans/strict-teal.md#no-implicit-conversion-or-hidden-code
@@ -1719,4 +1342,6 @@ in [roadmap.md](roadmap.md).
 [`Store.source`]: ../cosmic/store.tl
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
-[`test/narrowing_test.tl`]: ../test/narrowing_test.tl
+
+[`build.pipeline`]: ../build/pipeline.tl
+[`cosmic.shape`]: ../cosmic/shape.tl

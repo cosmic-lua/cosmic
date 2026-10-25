@@ -1,5 +1,4 @@
--- The definitions that are core to the language, valid before the standard library loads, as the new checker reads them. The
--- fork's own copy is the prelude in checker/tl.tl, which it reads until the switch deletes it.
+-- The definitions that are core to the language, valid before the standard library loads, as the new checker reads them.
 --
 -- `any`, `thread` and `userdata` are no declarations: the first two are primitive types, and a `userdata` record is
 -- declared by the marker of that name in its body.

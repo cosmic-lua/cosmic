@@ -61,7 +61,7 @@ end
 
 local function decide(fd: integer, address: string): boolean
   local bytes = assert(Address.parse(address))
-  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, #bytes == 4 and 4 or 6) ..
+  assert(sys.write(fd, string.pack(">I4I4I4I4I4", 5, 0xffffffff, 0, 0, if #bytes == 4 then 4 else 6 end) ..
       string.char(table.unpack(bytes)) .. string.rep("\0", 16 - #bytes)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
   assert(tag == 5, "the reply carries another tag: " .. tag)
@@ -145,7 +145,7 @@ local EDGES <const>: {Edge} = {
 --- of `address`.
 local function expect(fd: integer, address: string, allowed: boolean, what: string)
   assert(decide(fd, address) == allowed, what .. " " .. address .. ": the connector should " ..
-      (allowed and "allow" or "refuse") .. " it")
+      (if allowed then "allow" else "refuse" end) .. " it")
   local own = Address.own_addresses(OWN)
   local ok = Address.check(address, 443, {}, own)
   assert(ok == allowed, what .. " " .. address .. ": the relay's check disagrees")
@@ -154,7 +154,7 @@ end
 local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbours_follow_their_own_prefix()
   require_native_connector()
   local pair, child = start()
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for _, row in ipairs(EDGES) do
     named[row.cidr] = true
     expect(pair[1], row.first, false, row.cidr .. " first")
@@ -194,7 +194,7 @@ end
 
 --- `bytes` with bit `at` (1 is the most significant) flipped.
 local function flipped(bytes: {integer}, at: integer): {integer}
-  local copy: {integer} = { table.unpack(bytes) }
+  local copy: mut {integer} = { table.unpack(bytes) }
   local index = (at - 1) // 8 + 1
   copy[index] = copy[index] ~ (1 << (7 - (at - 1) % 8))
   return copy
@@ -202,7 +202,7 @@ end
 
 local function spelled(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] * 256 + bytes[i + 1]) end
   return table.concat(groups, ":")
 end

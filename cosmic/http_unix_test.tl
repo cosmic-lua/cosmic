@@ -19,12 +19,12 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "
 
 --- What the client's run came to, once it has.
 local record Ran
-  value: Child.Result | nil
+  mut value: Child.Result?
 end
 
 --- The requests a server saw, as "target @host" joined by "|".
 local record Seen
-  text: string
+  mut text: string
 end
 
 --- Serves on a socket file in `tmp` while the program runs `client` as a
@@ -39,7 +39,7 @@ local function across(tmp: string, client: string): string, string
     listeners = { Net.unix(tmp .. "/s.sock") },
     on_stop = function(_: Net.Server) end,
     handle = function(req: Server.Request): Server.Reply
-      seen.text = seen.text .. (seen.text == "" and "" or "|") .. req.target .. " @" .. (req.headers["host"] or "")
+      seen.text = seen.text .. (if seen.text == "" then "" else "|" end) .. req.target .. " @" .. (req.headers["host"] or "")
       if req.path == "/moved" then
         return { status = 302, headers = { Location = "/final" } }
       end
@@ -66,8 +66,8 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local got = assert(Http.get("http://files.test:8080/hello?x=1", { via = Net.unix(argv[1]) }))
-  Fs.put(Fs.stdout, got.status .. " " .. got.body)
+  local got = assert(Http.get("http://files.test:8080/hello?x=1", { via = Net.unix((argv[1] or "")) }))
+  local _, _ = Fs.put(Fs.stdout, tostring(got.status) .. " " .. got.body)
   return 0
 end
 ]])
@@ -84,12 +84,12 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local via = Net.unix(argv[1])
+  local via = Net.unix((argv[1] or ""))
   local moved = assert(Http.get("http://files.test/moved", { via = via }))
   local followed = assert(Http.get("http://files.test/moved", { via = via, follow = true }))
-  Fs.put(Fs.stdout, table.concat({
-    moved.status .. " " .. moved.headers.location .. " " .. moved.body,
-    followed.status .. " " .. followed.body,
+  local _, _ = Fs.put(Fs.stdout, table.concat({
+    tostring(moved.status) .. " " .. (moved.headers["location"] or "") .. " " .. moved.body,
+    tostring(followed.status) .. " " .. followed.body,
   }, "\n"))
   return 0
 end
@@ -119,10 +119,10 @@ local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 return function(argv: {string}): integer
-  local response = assert(Http.open("http://files.test:8080/streamed?y=2", { via = Net.unix(argv[1]) }))
+  local response = assert(Http.open("http://files.test:8080/streamed?y=2", { via = Net.unix((argv[1] or "")) }))
   local body = assert(Stream.read_all(response))
   local _, _ = response:close()
-  Fs.put(Fs.stdout, response.status .. " " .. body)
+  local _, _ = Fs.put(Fs.stdout, tostring(response.status) .. " " .. body)
   return 0
 end
 ]])
@@ -137,9 +137,9 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local response = assert(Http.open("http://files.test/moved", { via = Net.unix(argv[1]) }))
+  local response = assert(Http.open("http://files.test/moved", { via = Net.unix((argv[1] or "")) }))
   local _, _ = response:close()
-  Fs.put(Fs.stdout, response.status .. " " .. response.headers.location)
+  local _, _ = Fs.put(Fs.stdout, tostring(response.status) .. " " .. (response.headers["location"] or ""))
   return 0
 end
 ]])
@@ -152,10 +152,10 @@ end
 local function test_download_writes_the_body_it_fetched_over_the_socket(tmp: string)
   local said, seen = across(tmp, download_prelude .. [[
 return function(argv: {string}): integer
-  local dest = destination(argv[1])
-  local ok, why = Http.download("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix(argv[1]) })
+  local dest = destination((argv[1] or ""))
+  local ok, why = Http.download("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix((argv[1] or "")) })
   assert(ok, why)
-  Fs.put(Fs.stdout, (assert(Fs.read(dest))))
+  local _, _ = Fs.put(Fs.stdout, (assert(Fs.read(dest))))
   return 0
 end
 ]])
@@ -167,10 +167,10 @@ end
 local function test_download_result_writes_the_body_it_fetched_over_the_socket(tmp: string)
   local said, seen = across(tmp, download_prelude .. [[
 return function(argv: {string}): integer
-  local dest = destination(argv[1])
-  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix(argv[1]) })
+  local dest = destination((argv[1] or ""))
+  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix((argv[1] or "")) })
   assert(result.kind == "downloaded", result.kind .. ": " .. result.reason)
-  Fs.put(Fs.stdout, result.kind .. " " .. result.reason .. "|" .. assert(Fs.read(dest)))
+  local _, _ = Fs.put(Fs.stdout, result.kind .. " " .. result.reason .. "|" .. assert(Fs.read(dest)))
   return 0
 end
 ]])
@@ -185,8 +185,8 @@ end
 local function test_a_download_over_the_socket_fails_on_a_redirect_unless_asked_to_follow(tmp: string)
   local said, seen = across(tmp, download_prelude .. [[
 return function(argv: {string}): integer
-  local via = Net.unix(argv[1])
-  local dest = destination(argv[1])
+  local via = Net.unix((argv[1] or ""))
+  local dest = destination((argv[1] or ""))
   local ok, why = Http.download("http://files.test/moved", dest, { via = via })
   local result = Http.download_result("http://files.test/moved", dest, { via = via })
   local lines = {
@@ -197,7 +197,7 @@ return function(argv: {string}): integer
   local followed, followed_why = Http.download("http://files.test/moved", dest, { via = via, follow = true })
   assert(followed, followed_why)
   lines[#lines + 1] = (assert(Fs.read(dest)))
-  Fs.put(Fs.stdout, table.concat(lines, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
 end
 ]])

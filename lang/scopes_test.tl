@@ -44,13 +44,13 @@ end
 --- declared, or `-> global`.
 local function binds(source: string): string
   local case = scope(source)
-  local out: {string} = {}
-  local stack: {Ast.Node} = { case.parsed.chunk }
-  local names: {Ast.Name} = {}
+  local out: mut {string} = {}
+  local stack: mut {Ast.Node} = { case.parsed.chunk }
+  local names: mut {Ast.Name} = {}
   while #stack > 0 do
     local node = stack[#stack]
     stack[#stack] = nil
-    if node is Ast.Name then
+    if (node.kind == "Name") then
       names[#names + 1] = node
     end
     local children: {Ast.Node} = {}
@@ -72,7 +72,7 @@ end
 
 --- The errors of the source as `code y:x`.
 local function errors(source: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(scope(source).scoped.errors) do
     out[#out + 1] = e.code .. " " .. e.y .. ":" .. e.x
   end
@@ -82,7 +82,7 @@ end
 --- Where the second place of `e` is, as `y:x`, or `none`.
 local function place(e: Scopes.Error): string
   local other = e.other
-  return other ~= nil and other.y .. ":" .. other.x or "none"
+  return if other ~= nil then other.y .. ":" .. other.x else "none" end
 end
 
 --- The one error of the source.
@@ -246,10 +246,10 @@ local function test_a_narrowing_return_names_a_parameter_of_its_function()
   assert(case.scoped.errors[1] == nil)
   local narrows: Ast.Narrows = nil
   local stat = case.parsed.chunk.body.stats[1]
-  if stat is Ast.LocalFunction then
+  if (stat.kind == "LocalFunction") then
     local rets = stat.fn.rets
     local first = rets ~= nil and rets.lists[1][1] or nil
-    if first is Ast.Narrows then
+    if (first.kind == "Narrows") then
       narrows = first
     end
   end

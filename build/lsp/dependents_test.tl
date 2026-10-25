@@ -12,9 +12,9 @@ local open, project, publications = session_fixture.open, session_fixture.projec
 local sent_of, served = session_fixture.sent, session_fixture.served
 local served_between = session_fixture.served_between
 
-local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
-local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
-  "return { twice = twice }\n"
+local integer = "local record helper\nend\n\nfunction helper.twice(n: integer): integer\n  return n * 2\nend\n\nreturn helper\n"
+local text = "local record helper\nend\n\nfunction helper.twice(n: integer): string\n  return tostring(n * 2)\nend\n\n" ..
+  "return helper\n"
 
 --- A project whose `helper` the modules `names` require, each on disk.
 local function helped(names: {string}): string
@@ -29,7 +29,7 @@ end
 
 --- The messages that open `names` below `root` as they are on disk.
 local function opened(root: string, names: {string}): {string}
-  local out: {string} = { initialize(root), open(root, "helper.tl", integer) }
+  local out: mut {string} = { initialize(root), open(root, "helper.tl", integer) }
   for _, name in ipairs(names) do
     out[#out + 1] = open(root, name .. ".tl", (assert(Fs.read(root .. "/" .. name .. ".tl"))))
   end
@@ -38,7 +38,8 @@ end
 
 --- What main is told, opened, checked against the helper returning a
 --- string, then against the helper as on disk.
-local CHECKED_AGAIN <const> = "[][in local declaration: n: got string, expected integer][]"
+local CHECKED_AGAIN <const> = "[][`helper.twice(2)` is `string`, where `integer` is wanted as the value of `n` " ..
+  "(not_assignable): pass a value of type `integer`, or change the declaration to `string`][]"
 
 --- What `ran` told main at each of its publications.
 local function told_main(ran: session_fixture.Ran): string
@@ -56,7 +57,7 @@ end
 --- keyed once no message waits.
 local function test_a_change_to_a_comment_or_a_space_checks_no_dependent()
   local root = helped({ "main" })
-  local batches: {{string}} = { opened(root, { "main" }),
+  local batches: mut {{string}} = { opened(root, { "main" }),
     { change(root, "helper.tl", integer .. "-- Twice.\n") },
     { change(root, "helper.tl", integer:gsub("\n", "  \n") .. "-- Doubled.\n\n") } }
   local function between(_after: integer) end
@@ -76,7 +77,7 @@ end
 
 --- Whether the request was sent.
 local record Asked
-  asked: boolean
+  mut asked: boolean
 end
 
 --- The changed document's diagnostics are published before any of its
@@ -88,13 +89,13 @@ local function test_a_request_is_answered_before_the_dependents_left()
   local messages = opened(root, names)
   messages[#messages + 1] = change(root, "helper.tl", text)
   local held: Asked = { asked = false }
-  local ran = session_fixture.served_arriving(root, messages, function(checked: integer): string | nil
+  local ran = session_fixture.served_arriving(root, messages, function(checked: integer): string?
     if checked < 1 or held.asked then return nil end
     held.asked = true
     return at(7, "textDocument/hover", root, "a.tl", 0, 0)
   end)
   assert(ran.dependents == 3, tostring(ran.dependents))
-  local order: {string} = {}
+  local order: mut {string} = {}
   for i, body in ipairs(ran.sent) do
     local sent = sent_of(body)
     if sent.id == 7 then
@@ -123,18 +124,19 @@ local function test_a_change_reverted_as_it_closes_checks_its_dependents_again()
 end
 
 --- An edit that moves where a module's types are, and nothing else,
---- checks its dependents again: a dependent's message names where a type
---- was inferred, as a session started after the edit names it.
+--- checks its dependents again, and what they are told is what a session
+--- started after the edit tells them. (No message of the checker names a
+--- place in another module today, so what is told is the same; the key
+--- of what a module serves still holds the place of each token.)
 local function test_an_edit_that_moves_a_type_checks_its_dependents_again()
   local root = project()
-  local pair = 'local pair = { 1, "a" }\nreturn { pair = pair }\n'
-  local main = 'local h = require("helper")\nlocal s: string = h.pair\nreturn s\n'
-  assert(Fs.write(root .. "/helper.tl", pair))
+  local main = 'local h = require("helper")\nlocal s: string = h.twice(2)\nreturn s\n'
+  assert(Fs.write(root .. "/helper.tl", integer))
   assert(Fs.write(root .. "/main.tl", main))
   local function between(_after: integer) end
-  local start = { initialize(root), open(root, "helper.tl", pair), open(root, "main.tl", main) }
-  local moved = served_between(root, { start, { change(root, "helper.tl", "\n\n" .. pair) } }, between)
-  local fresh = served(root, { initialize(root), open(root, "helper.tl", "\n\n" .. pair),
+  local start = { initialize(root), open(root, "helper.tl", integer), open(root, "main.tl", main) }
+  local moved = served_between(root, { start, { change(root, "helper.tl", "\n\n" .. integer) } }, between)
+  local fresh = served(root, { initialize(root), open(root, "helper.tl", "\n\n" .. integer),
     open(root, "main.tl", main) })
   local function last_of_main(ran: session_fixture.Ran): string
     local told = ""
@@ -145,10 +147,11 @@ local function test_an_edit_that_moves_a_type_checks_its_dependents_again()
     end
     return told
   end
-  local first = last_of_main(served(root, start))
-  assert(first:find("inferred at", 1, true), first)
+  local wrong = "`h.twice(2)` is `integer`, where `string` is wanted as the value of `s` (not_assignable): " ..
+    "pass a value of type `string`, or change the declaration to `integer`"
+  assert(last_of_main(served(root, start)) == wrong, last_of_main(served(root, start)))
   assert(moved.dependents == 1, tostring(moved.dependents))
-  assert(last_of_main(moved) == last_of_main(fresh) and last_of_main(fresh) ~= first,
+  assert(last_of_main(moved) == wrong and last_of_main(fresh) == wrong,
     last_of_main(moved) .. " | " .. last_of_main(fresh))
 end
 
@@ -198,9 +201,8 @@ end
 local function test_closing_a_changed_document_checks_each_dependent_once()
   local root = helped({ "main" })
   assert(Fs.write(root .. "/other.tl", integer))
-  local requiring = 'local other = require("other")\n' ..
-    "local function twice(n: integer): string return tostring(other.twice(n)) end\n" ..
-    "return { twice = twice }\n"
+  local requiring = 'local other = require("other")\nlocal record helper\nend\n\n' ..
+    "function helper.twice(n: integer): string\n  return tostring(other.twice(n))\nend\n\nreturn helper\n"
   local function between(_after: integer) end
   for changed_text, queued in pairs({ [text] = 1, [requiring] = 0 }) do
     local start, change_it = opened(root, { "main" }), { change(root, "helper.tl", changed_text) }

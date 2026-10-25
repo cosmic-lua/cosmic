@@ -1,13 +1,7 @@
---- What `cosmic lsp` ([`build.lsp.check`]) reads of a document with the new checker (`COSMIC_GRAMMAR=new`,
---- [`build.grammar_mode`]) where it reads it with the fork's in the default mode: what a build refuses of a text before it
---- checks it and the plan it compiles it by (as [`build.lsp.plan`] finds them), the stub a `require` of it reads, the key of
---- what it serves its dependents, the rewrite a build makes of it ([`build.syntax_shape_specs`]) and the new pipeline's
---- compile of it ([`build.pipeline`]). Nothing here reads the fork's syntax tree.
----
--- TODO: fold these into [`build.lsp.plan`], [`build.lsp.source`], [`build.lsp.splice`] and [`build.lsp.dependents`] once the
--- switch deletes the fork (doc/plans/strict-teal.md, "the switch"), which are then these alone. There the modules the stage lists
--- are no longer read in the fork's Teal, so [`build.lsp.check`] stops translating them and the Teal a template compiles to
--- (`Translate.translate`) once [`Template.compile`] writes the new grammar.
+--- What `cosmic lsp` ([`build.lsp.check`]) reads of a document: what a build refuses of a text before it checks it and the plan
+--- it compiles it by, the stub a `require` of it reads, the key of what it serves its dependents, the rewrite a build makes of
+--- it ([`build.syntax_shape_specs`]) and the pipeline's compile of it ([`build.pipeline`]). All of it is read off the new
+--- checker's syntax tree.
 local Ast = require("lang.ast")
 local ErrorRender = require("build.error_render")
 local Globals = require("build.syntax_globals")
@@ -18,12 +12,10 @@ local ShapeSpecs = require("build.syntax_shape_specs")
 local Sqlite = require("cosmic.sqlite")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
 local SyntaxStub = require("build.syntax_stub")
-local compilation = require("build.compilation")
+local plans = require("build.plans")
 local plan = require("build.lsp.plan")
 local type build_module = require("build.module")
-local type build_stub = require("build.stub")
 local type Driver = require("build.driver")
-local type shape_specs = require("build.shape_specs")
 
 local record syntax_read
 end
@@ -32,8 +24,7 @@ local type Refusal = plan.Refusal
 local type Planned = plan.Planned
 local type Site = plan.Site
 
---- The line of the top-level `return` of `chunk`, or 0 where it has none: a statement that starts with the word, since the
---- tree's own test for it (`is Ast.Return`) is a union of records with no tag until the switch tags them by hand.
+--- The line of the top-level `return` of `chunk`, or 0 where it has none: a statement that starts with the word.
 local function return_line(chunk: Ast.Chunk): integer
   for _, statement in ipairs(chunk.body.stats) do
     local first = Node.base(statement).first
@@ -56,7 +47,7 @@ end
 --- The tokens of `text`, the file `file`, each with its place, in order, as the key of what a module serves ([`build.lsp.dependents`]) is
 --- made of: none of the comments or the whitespace between them.
 function syntax_read.token_parts(text: string, file: string): {string}
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local tokens = Lexer.lex(text, file).tokens
   for k, kind in ipairs(tokens.kind) do
     if kind ~= "$EOF$" then
@@ -70,14 +61,23 @@ end
 --- [`Shape.record_of`] are found in the whole text, which the new checker reads fast enough that a stub of it is not worth the
 --- reading. `count` is called when the text has a call, to tell the session how many it found whole.
 function syntax_read.splices(build: Driver.Build, name: string, text: string, path: string,
-                             count: function()): shape_specs.Found
+                             count: function()): ShapeSpecs.Found
   if text:find("record_of(", 1, true) ~= nil then count() end
-  local found = ShapeSpecs.splices(build, path, name, text)
-  local splices: {shape_specs.Splice} = {}
-  for _, one in ipairs(found.splices) do
-    splices[#splices + 1] = { at = one.at, text = one.text }
+  return ShapeSpecs.splices(build, path, name, text)
+end
+
+--- The byte of the document's own text at byte `offset` of it as spliced (`splices`, the last first, as
+--- [`ShapeSpecs.splices`] answers them). A byte a splice put in is the byte the splice follows.
+function syntax_read.unspliced(splices: {ShapeSpecs.Splice}, offset: integer): integer
+  local shift = 0
+  for i = #splices, 1, -1 do
+    local one = assert(splices[i])
+    local first = one.at + shift + 1
+    if offset < first then break end
+    if offset < first + #one.text then return one.at end
+    shift = shift + #one.text
   end
-  return { splices = splices, refusal = found.refusal, line = found.line }
+  return offset - shift
 end
 
 --- What the modules `sites` (the `require`s of a document) name that the stage lists are refused for when the program lowers
@@ -85,7 +85,7 @@ end
 --- the module is not checked and its own errors show only where it is open. The fork checked the document against the
 --- module's type and flagged the use. `listed` says which modules the stage lists: the binary's own are not looked at.
 local function broken(pipeline: Pipeline.Built, sites: {Site}, listed: function(name: string): boolean): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   for _, site in ipairs(sites) do
     if listed(site.name) then
       pipeline.build:lower({ site.name })
@@ -102,31 +102,30 @@ local function broken(pipeline: Pipeline.Built, sites: {Site}, listed: function(
   return out
 end
 
---- `text` with each of `splices` put in, as [`shape_specs.spliced`] does.
-function syntax_read.applied(text: string, splices: {shape_specs.Splice}): string
-  local converted: {ShapeSpecs.Splice} = {}
-  for _, one in ipairs(splices) do converted[#converted + 1] = { at = one.at, text = one.text } end
-  return ShapeSpecs.spliced(text, converted)
+--- `text` with each of `splices` put in, as [`ShapeSpecs.spliced`] does.
+function syntax_read.applied(text: string, splices: {ShapeSpecs.Splice}): string
+  return ShapeSpecs.spliced(text, splices)
 end
 
---- What a build refuses of `text` before it checks it, and the plan it compiles it by, as [`plan.of`] finds them of a text in
---- the fork's grammar: read off the new checker's syntax tree, with the words of the fork's refusals. A text the new checker
---- does not parse has no plan, and is refused with the parser's error, which stops the build there: the fork's checker would
---- report a text in the new grammar as its syntax errors.
+--- What a build refuses of `text` before it checks it, and the plan it compiles it by: a `global`, an analysis it refuses (a
+--- [`Test.policy`] it does not take), a policy outside a test, a test that returns a value or an example that returns none.
+--- With `own_tree`, the plan of a standard-library module carries its stub, which cosmic's own build holds it to. A `generated`
+--- text is a template's Teal, whose warnings a build discounts as it does a generated module's. A text the new checker does
+--- not parse has no plan, and is refused with the parser's error, which stops the build there.
 function syntax_read.plan_of(name: string, text: string, path: string, kind: string, own_tree: boolean,
                              generated: boolean): Planned
-  local refusals: {Refusal} = {}
+  local refusals: mut {Refusal} = {}
   local chunk, why = Node.parse(text, name)
   if chunk == nil then
     refusals[1] = plan.refusal_of(why)
     return { plan = nil, refusals = refusals, halted = true, requires = {} }
   end
-  local requires: {Site} = {}
+  local requires: mut {Site} = {}
   for _, site in ipairs(Node.require_sites(chunk)) do
     requires[#requires + 1] = { name = site.name, line = site.y, column = site.x }
   end
   for _, place in ipairs(Globals.found(chunk)) do
-    refusals[#refusals + 1] = plan.refusal_of(compilation.global_refusal(name .. ":" ..
+    refusals[#refusals + 1] = plan.refusal_of(plans.global_refusal(name .. ":" ..
         tostring(place.line) .. ":" .. tostring(place.column)))
   end
   local analysis, trouble = SyntaxAnalyzer.analysis_of(chunk, Node.scope(chunk, name), text, name)
@@ -134,21 +133,20 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     refusals[#refusals + 1] = plan.refusal_of(trouble)
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
-  local misplaced = compilation.policy_refusal(name, kind, analysis.inputs)
+  local misplaced = plans.policy_refusal(name, kind, analysis.inputs)
   if misplaced ~= nil then
     refusals[#refusals + 1] = plan.refusal_of(misplaced)
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
-  local tests: {string} = {}
+  local tests: mut {string} = {}
   if kind == "test" then
     tests = analysis.tests
   elseif kind == "example" then
     for _, example in ipairs(analysis.examples) do tests[#tests + 1] = example.name end
   end
-  local made: build_stub.Made | nil = nil
+  local made: SyntaxStub.Made? = nil
   if own_tree and kind == "module" and path:sub(1, 7) == "cosmic." and analysis.has_top_level_return then
-    local stubbed = SyntaxStub.made(chunk)
-    made = { text = stubbed.text, pruned = stubbed.pruned }
+    made = SyntaxStub.made(chunk)
   end
   local made_plan: build_module.Plan = {
     path = path,
@@ -166,7 +164,7 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     lua = nil,
     stub = made,
   }
-  local refused = compilation.refusal(made_plan)
+  local refused = plans.refusal(made_plan)
   if refused ~= nil then
     local at = plan.refusal_of(refused)
     refusals[#refusals + 1] = { line = math.max(return_line(chunk), 1), column = at.column, message = at.message }
@@ -183,7 +181,7 @@ end
 
 --- The refusals of the lines `lines`, one each but for the lines that count errors ([`counts_errors`]).
 local function refusals_of_lines(lines: {string}): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   for _, line in ipairs(lines) do
     if not counts_errors(line) then out[#out + 1] = plan.refusal_of(line) end
   end
@@ -193,7 +191,7 @@ end
 --- The refusals of `trouble`, what [`Pipeline.review`] answers for a module it refuses: the header line it puts before the
 --- checker's lines is dropped, and each line left is one refusal.
 local function refusals_of_generated(trouble: string): {Refusal}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in trouble:gmatch("[^\n]+") do
     if lines[1] ~= nil or line:match(": the compiler refused it$") == nil then
       lines[#lines + 1] = line
@@ -206,23 +204,23 @@ end
 --- whose text is the document's as spliced ([`build.lsp.syntax_read`]): every error and warning the checker finds and what else the pipeline
 --- refuses ([`Pipeline.review`]: in a module of the discipline its contracts and the calls it judged no rule of, in a
 --- standard-library module its stub, the generator's own refusals), each worded as a build words it and read back into where
---- it is. The checker's errors are refusals here: the new checker words them itself ([`build.error_render`]), and `result`
---- is the fork's reading, which it has none of. A declaration file is checked and written nothing.
+--- it is. The checker's errors are refusals here: the new checker words them itself ([`build.error_render`]). A declaration
+--- file is checked and written nothing.
 local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Built,
                             hints?: function(): {Sqlite.Handle}, {boolean}): plan.Compiled
   if compiled.kind ~= "decl" then
     local made, trouble = Pipeline.review(compiled, pipeline, hints)
     if made == nil then
-      return { result = nil, refusals = refusals_of_generated(trouble) }
+      return { refusals = refusals_of_generated(trouble) }
     end
-    return { result = nil, refusals = {} }
+    return { refusals = {} }
   end
   local build = pipeline.build
   build:lower({ compiled.path })
   local outcome = build:result(compiled.path, true)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if outcome == nil then
-    return { result = nil, refusals = {} }
+    return { refusals = {} }
   elseif outcome.broken then
     for _, problem in ipairs(outcome.syntax) do
       lines[#lines + 1] = ErrorRender.line(compiled.file, problem)
@@ -233,7 +231,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
       lines[#lines + 1] = ErrorRender.line(compiled.file, warning)
     end
   end
-  return { result = nil, refusals = refusals_of_lines(lines) }
+  return { refusals = refusals_of_lines(lines) }
 end
 
 --- [`generated_of`] and what the modules `sites` (the document's `require`s) are refused for ([`broken`]), where `listed` says

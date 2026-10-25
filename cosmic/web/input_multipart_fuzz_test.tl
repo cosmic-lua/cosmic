@@ -22,14 +22,14 @@ local CHARSETS <const>: {string} = { "", "", "", "", "", "", "Content-Type: text
   "Content-Type: text/plain; charset=utf-16\r\n", "Content-Transfer-Encoding: base64\r\n" }
 
 local function draw_text(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local count = 0
   while Fuzz.more(src, count, 6) do
     count = count + 1
     local head = "--" .. B .. '\r\nContent-Disposition: form-data; name="' .. Fuzz.pick(src, NAMES) .. '"'
     if src:int(0, 1) == 1 then head = head .. '; filename="' .. Fuzz.pick(src, FILENAMES) .. '"' end
     head = head .. "\r\n" .. Fuzz.pick(src, CHARSETS) .. "\r\n"
-    local body: {string} = {}
+    local body: mut {string} = {}
     while Fuzz.more(src, #body, 5) do
       body[#body + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 40) or Fuzz.pick(src, PIECES)
     end
@@ -45,7 +45,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   assert(Fs.mkdirs(uploads))
   local app: Web.App
   -- What the handler is told to read with, and what it read.
-  local handler = { opts = nil as Types.InputOptions | nil, outcome = nil as Types.Parsed<Input.Multipart> | nil }
+  local handler = { opts = nil as Types.InputOptions?, outcome = nil as Types.Parsed<Input.Multipart>? }
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local parsed = Input.multipart(req, handler.opts)
     handler.outcome = parsed
@@ -86,7 +86,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       handler.outcome = nil
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "multipart/form-data; boundary=" .. B },
-        body = Stream.from_string(text), length = not chunked and #text or nil }
+        body = Stream.from_string(text), length = if not chunked then #text else nil end }
       local ok, reply = pcall(app.handle, raw)
       if not ok then return false, "raised: " .. tostring(reply) end
       if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end

@@ -20,7 +20,7 @@ local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
   local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
   testing.fail_at("tinfl_decompress")
   local dec = assert(Compress.inflater("raw"))
-  local out, trouble: string | nil, string | nil
+  local out, trouble: string?, string?
   for _ = 1, 64 do
     out, trouble = dec:update(packed)
     if out == nil or not dec:pending() then break end

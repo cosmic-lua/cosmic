@@ -31,7 +31,7 @@ end
 function must_confine_fixture.run(root: string, output: string, env: {string:string},
                                   words?: {string}): must_confine_fixture.Run
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -49,7 +49,7 @@ end
 --- where they can be, whatever this run's switch: this one's own
 --- sandbox may refuse theirs, which a run that requires one would fail
 --- on.
-function must_confine_fixture.environment(mode: string | nil): {string:string}
+function must_confine_fixture.environment(mode: string?): {string:string}
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
@@ -60,7 +60,7 @@ end
 
 --- The line a run printed for one failing test of `module`, from its
 --- message on.
-function must_confine_fixture.failure_of(text: string, module: string, name: string): string | nil
+function must_confine_fixture.failure_of(text: string, module: string, name: string): string?
   return text:match("FAIL  suite%." .. module .. " " .. name .. ": ([^\n]*)")
 end
 
@@ -80,49 +80,52 @@ end
 --- worker held by a Landlock ruleset, and a plain one passes.
 function must_confine_fixture.held_suite(tmp: string, root: string)
   must_confine_fixture.suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/held_test.tl", [[
+  assert(Fs.write(root .. "/suite/held_test.tl", [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local type raw_process = require("cosmic.internal.process")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-local type Searcher = function(string): any, any
-
-local function raw(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
+-- The worker's own `build.confine` and the raw process table, which a suite outside the tree cannot require, are read
+-- through `package.loaded` and the searchers, which no typed file may do: a case is a chunk of Lua.
+local function lua(body: string, tmp: string)
+  local chunk = assert(load([=[
+local tmp, Child, Fs = ...
+local confine = package.loaded["build.confine"]
+local function raw()
+  for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process
-    end
+    if type(loader) == "function" and type(extra) == "table" then return extra end
   end
   error("no raw table")
 end
+]=] .. body, "=held_test"))
+  chunk(tmp, Child, Fs)
+end
 
 local function test_confined(tmp: string)
-  confine.confine({ reads = { "bin/probe" } })
-  local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
-  confine.confine(nil)
-  assert(ran == nil, "an unconfined process ran in its place")
-  assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
+  lua([=[
+confine.confine({ reads = { "bin/probe" } })
+local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
+confine.confine(nil)
+assert(ran == nil, "an unconfined process ran in its place")
+assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
+]=], tmp)
 end
 
 local function test_own_sandbox()
-  local pid, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil,
-    false, nil, { unveil = { reads = { "bin/probe" } }, offline = true })
-  assert(pid == nil, "a process started in a root of its own")
+  lua([=[
+local pid, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil,
+  false, nil, { unveil = { reads = { "bin/probe" } }, offline = true })
+assert(pid == nil, "a process started in a root of its own")
+]=], "")
 end
 
 local function test_plain()
   assert(Child.run({ "bin/probe", "exit 0" }))
 end
-]]))
+]==]))
 end
 
 --- Makes `root` as [`suite_tree`] does, with a suite of one test that starts
@@ -138,34 +141,34 @@ function must_confine_fixture.confined_suite(tmp: string, root: string)
   assert(Fs.write(hidden .. "/f", "secret"))
   assert(Fs.write(root .. "/suite/data.txt", "in"))
   local real = assert(Fs.absolute(root .. "/suite/data.txt"))
-  assert(Fs.write(root .. "/suite/real_test.tl", string.format([[
+  assert(Fs.write(root .. "/suite/real_test.tl", string.format([==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
+-- The worker's own `build.confine`, which a suite outside the tree cannot require, is read through `package.loaded`, which
+-- no typed file may do: the case is a chunk of Lua.
 local function test_confined(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  confine.must_confine({ reads = { %q, probe } })
-  local r, _ = Child.run({ probe,
-    "exists %s/f 3; copy %s out; " ..
-    "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
-    { cwd = tmp, stdout = "capture" })
-  confine.confine(nil)
-  if r == nil then return end -- refused: the run says why
-  assert(r.code == 0, "the confined process exited " .. tostring(r.code))
-  local out = assert(Fs.read(tmp .. "/out"))
-  assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
+  local chunk = assert(load([=[
+local tmp, Child, Fs = ...
+local confine = package.loaded["build.confine"]
+local probe = assert(Fs.absolute("bin/probe"))
+confine.must_confine({ reads = { %q, probe } })
+local r, _ = Child.run({ probe,
+  "exists %s/f 3; copy %s out; " ..
+  "present /proc/self/net/dev && grep-count /proc/self/net/dev : || exit 0" },
+  { cwd = tmp, stdout = "capture" })
+confine.confine(nil)
+if r == nil then return end -- refused: the run says why
+assert(r.code == 0, "the confined process exited " .. tostring(r.code))
+local out = assert(Fs.read(tmp .. "/out"))
+assert(out == "in" and (r.stdout == "" or r.stdout == "1\n"), out .. tostring(r.stdout))
+]=], "=real_test"))
+  chunk(tmp, Child, Fs)
 end
-]], real, hidden, real)))
+]==], real, hidden, real)))
 end
 
 --- Makes `root` as [`suite_tree`] does, with a suite of one test that confines
@@ -176,31 +179,30 @@ end
 --- @param root the suite's tree
 function must_confine_fixture.fallback_suite(tmp: string, root: string)
   must_confine_fixture.suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/fallback_test.tl", [[
+  assert(Fs.write(root .. "/suite/fallback_test.tl", [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-  unveil_max: integer
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-
+-- The worker's own `build.confine`, which a suite outside the tree cannot require, is read through `package.loaded`, which
+-- no typed file may do: the case is a chunk of Lua.
 local function test_falls_back(tmp: string)
-  local probe = assert(Fs.absolute("bin/probe"))
-  local many: {string} = { probe }
-  for i = 1, confine.unveil_max + 1 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
-  confine.confine({ reads = many })
-  local r = assert(Child.run({ probe, "exit 0" }))
-  confine.confine(nil)
-  assert(r.ok, "the process it fell back to did not run")
+  local chunk = assert(load([=[
+local tmp, Child, Fs = ...
+local confine = package.loaded["build.confine"]
+local probe = assert(Fs.absolute("bin/probe"))
+local many = { probe }
+for i = 1, confine.unveil_max + 1 do many[#many + 1] = tmp .. "/many" .. tostring(i) end
+confine.confine({ reads = many })
+local r = assert(Child.run({ probe, "exit 0" }))
+confine.confine(nil)
+assert(r.ok, "the process it fell back to did not run")
+]=], "=fallback_test"))
+  chunk(tmp, Child, Fs)
 end
-]]))
+]==]))
 end
 
 return must_confine_fixture

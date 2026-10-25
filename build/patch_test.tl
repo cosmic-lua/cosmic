@@ -5,7 +5,7 @@ local sys = require("cosmic.sys")
 
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
   if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end

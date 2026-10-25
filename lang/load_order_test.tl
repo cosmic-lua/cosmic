@@ -19,7 +19,7 @@ local function verdict(source: string): string, string
   local r = Programs.run(source)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   local first = r.errors[1]
-  return Programs.codes(r), first ~= nil and first.msg .. "\n" .. first.fix or ""
+  return Programs.codes(r), if first ~= nil then first.msg .. "\n" .. first.fix else "" end
 end
 
 --- What `source` prints and the error it raised, run although the checker refuses it.
@@ -166,7 +166,7 @@ end
 
 --- A state of `waiting` statics to define, that refuses into `said` and for which every static named in `open` is still to
 --- be defined, and the declaration and node to use.
-local function state_of(waiting: integer, open: {string: boolean}, said: {string}): LoadOrder.State, Types.Decl, Ast.Node
+local function state_of(waiting: integer, open: {string: boolean}, said: mut {string}): LoadOrder.State, Types.Decl, Ast.Node
   local decl, node = something()
   return LoadOrder.new(waiting, function(_decl: Types.Decl, name: string): boolean
     return open[name] == true
@@ -233,8 +233,8 @@ end
 
 --- A class whose `meta` metamethod reads the static `C.zero`, and a program that makes a value of it and `use`s it.
 local function class_with(meta: string, body: string): string
-  local method = meta == "__tostring" and "  function __tostring(self): string\n    return tostring(C.zero())\n  end\n" or
-    "  function __close(self)\n    print(C.zero())\n  end\n"
+  local method = if meta == "__tostring" then "  function __tostring(self): string\n    return tostring(C.zero())\n  end\n" else
+    "  function __close(self)\n    print(C.zero())\n  end\n" end
   return "local class C\n  n: integer\n" .. method .. "end\n" .. body
 end
 

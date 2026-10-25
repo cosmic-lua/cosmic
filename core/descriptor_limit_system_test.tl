@@ -56,7 +56,7 @@ print(shell_limit())
 --- The lines the program printed running `chunk`, started by the shell at a soft limit
 --- of LOW; nil where this host's hard limit leaves no room to raise it,
 --- or where there is no artifact to relaunch.
-local function started_low(tmp: string, chunk: string): {string} | nil
+local function started_low(tmp: string, chunk: string): {string}?
   if Proc.relaunch() == nil then return nil end -- a native start has nothing to relaunch
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   if limits.hard < 2 * LOW then return nil end
@@ -66,7 +66,7 @@ local function started_low(tmp: string, chunk: string): {string} | nil
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local r = assert(Child.run(argv, started.options))
   assert(r.code == 0, tostring(r.stdout) .. tostring(r.stderr))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in assert(r.stdout):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return lines
 end

@@ -1,50 +1,41 @@
---- The islands, [`ci/islands.txt`], are what they say: each is in the tree, each is run on the pinned release
---- and checked under it in CI by the driver's `check-islands` (the tool checks them under the fork on every
---- build), and each file of `build/` is held to the forms the new grammar refuses that it still needs
---- ([`build.islands`]).
+--- The bootstrap scripts of `build/` that the pinned release runs ([`bin/cosmic-bootstrap`] sets COSMIC_GRAMMAR=new for
+--- them) are what the CI driver's `check-islands` checks (ci/cosmic_ci/islands.tl), each is in the tree, and
+--- [`ci/islands.txt`] lists none, since the pinned release reads a file it lists as Teal.
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
-local Grammar = require("build.compile_grammar")
-local islands = require("build.islands")
 
 Test.policy{ grants = {
   { path = "bin/", letters = "r" }, { path = "build/", letters = "r" }, { path = "ci/", letters = "r" },
 } }
 
---- The islands, as the CI driver's `check-islands` reads the list (cosmic_ci/islands.tl): one path a line from the
---- root of the tree, a directory ending in "/", with what a `#` starts and blank lines left out; only the files of
---- `build/` where `build_only`.
-local function listed_islands(build_only: boolean): {string}
-  local out: {string} = {}
-  for line in (assert(Fs.read("ci/islands.txt"))):gmatch("[^\n]+") do
-    local path = String.trim((line:gsub("#.*$", "")))
-    if path ~= "" and (not build_only or path:sub(1, 6) == "build/") then out[#out + 1] = path end
-  end
+--- The scripts `check-islands` checks: the strings of the list `Islands.scripts` in ci/cosmic_ci/islands.tl.
+local function checked_scripts(): {string}
+  local text = (assert(Fs.read("ci/cosmic_ci/islands.tl")))
+  local from = assert(text:find("Islands.scripts = {", 1, true))
+  local to = assert(text:find("\n}", from, true))
+  local out: mut {string} = {}
+  for path in text:sub(from, to):gmatch('"(build/[%w_]+%.tl)"') do out[#out + 1] = path end
   return out
 end
 
-local function test_each_island_is_in_the_tree_and_the_list_is_in_order()
+local function test_the_list_is_in_order_and_each_script_is_in_the_tree()
   local last = ""
-  local paths = listed_islands(false)
-  assert(#paths > 0, "ci/islands.txt names no island")
+  local paths = checked_scripts()
+  assert(#paths > 0, "check-islands names no script")
   for _, path in ipairs(paths) do
     assert(path > last, path .. " is out of order or repeated")
     last = path
-    if path:sub(-1) == "/" then
-      assert(Fs.is_dir(path:sub(1, -2)) == true, path .. " is no directory")
-    else
-      assert(Fs.exists(path) == true, path .. " does not exist")
-    end
+    assert(Fs.exists(path) == true, path .. " does not exist")
   end
 end
 
---- A script of `bin/` that runs a file of `build/` standalone on the bootstrap release is one whose file is an
---- island, and so is a file that build/zig.tl runs standalone (`standalone(root, "build/patch.tl", ...)`) on that
---- release's own binary; each island of `build/` is run so.
-local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_build()
-  local run: {string: boolean} = {}
+--- A script of `bin/` that runs a file of `build/` standalone on the bootstrap release is one whose file is checked, and
+--- so is a file that build/zig.tl runs standalone (`standalone(root, "build/patch.tl", ...)`) on that release's own
+--- binary; each script `check-islands` lists is run so.
+local function test_the_scripts_run_on_the_pinned_release_are_the_ones_check_islands_lists()
+  local run: mut {string: boolean} = {}
   local text = (assert(Fs.read("build/zig.tl")))
   for _, name in ipairs((assert(Fs.list("bin")))) do
     text = text .. "\n" .. (Fs.read("bin/" .. name) or "")
@@ -58,65 +49,27 @@ local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_bui
   for _, path in ipairs({ "build/patch.tl", "build/paths.tl", "build/zig_fetch.tl" }) do
     assert(run[path] == true, "build/zig.tl no longer runs " .. path .. ", which this test looks for")
   end
-  local listed: {string: boolean} = {}
-  for _, path in ipairs(listed_islands(true)) do
+  local listed: mut {string: boolean} = {}
+  for _, path in ipairs(checked_scripts()) do
     listed[path] = true
   end
   for path in pairs(run) do
-    assert(listed[path], path .. " runs on the pinned release and is no island")
+    assert(listed[path], path .. " runs on the pinned release and check-islands does not check it")
   end
   for path in pairs(listed) do
-    assert(run[path], path .. " is an island but no script of bin/ runs it")
+    assert(run[path], path .. " is checked by check-islands but no script of bin/ runs it")
   end
 end
 
---- The new grammar's parser refuses `blocked` of each island and nothing else: a count only falls, and a file
---- with none is written in the subset both grammars read, so the switch can stage it unchanged.
-local function test_each_island_of_build_has_only_the_forms_blocked_names_that_the_new_grammar_refuses()
-  for _, path in ipairs(listed_islands(true)) do
-    local text = (assert(Fs.read(path)))
-    local made = Grammar.compile({ { path = path, relative = path, text = text, declaration = false } })
-    local found: {string: integer} = {}
-    local written = false
-    for _, compiled in ipairs(made) do
-      for _, e in ipairs(compiled.syntax_errors) do
-        found[e.code] = (found[e.code] or 0) + 1
-      end
-      written = compiled.code ~= nil
-    end
-    local wanted = islands.blocked[path] or {}
-    for code, count in pairs(found) do
-      assert(wanted[code] == count, path .. ": " .. tostring(count) .. " of " .. code .. ", blocked " .. tostring(wanted[code]))
-    end
-    for code, count in pairs(wanted) do
-      assert(found[code] == count, path .. ": blocked " .. tostring(count) .. " of " .. code .. ", found " .. tostring(found[code]))
-    end
-    if islands.blocked[path] == nil then
-      assert(written, path .. " is in the common subset and the new grammar writes no Lua for it")
-    end
-  end
-  for path in pairs(islands.blocked) do
-    local listed = false
-    for _, island in ipairs(listed_islands(false)) do listed = listed or island == path end
-    assert(listed, path .. " is blocked but no island")
-  end
+--- The scripts the pinned release runs set COSMIC_GRAMMAR=new, through the one line of bin/cosmic-bootstrap that runs it.
+local function test_the_bootstrap_script_runs_what_it_runs_in_the_new_grammar()
+  local text = (assert(Fs.read("bin/cosmic-bootstrap")))
+  assert(text:find('exec env COSMIC_GRAMMAR=new "$cached" "$@"', 1, true) ~= nil, "the pinned release is not run with COSMIC_GRAMMAR=new")
+  assert(text:find('exec env COSMIC_GRAMMAR=new "$COSMIC_BOOTSTRAP" "$@"', 1, true) ~= nil, "a stand-in is not run with COSMIC_GRAMMAR=new")
 end
 
---- The tool asks the list which files stay on the fork: the files and directories of the checkout's own list, by their path
---- below the nearest directory above them that holds one, and no file outside such a checkout.
-local function test_the_tool_finds_the_islands_of_the_checkout_a_file_lies_in(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/co/ci") and Fs.mkdirs(tmp .. "/co/build") and Fs.mkdirs(tmp .. "/co/lang") and Fs.mkdirs(tmp .. "/free"))
-  assert(Fs.write(tmp .. "/co/ci/islands.txt", "# the islands\n\nbuild/zig.tl  # a script\nci/\n"))
-  for _, path in ipairs({ "co/build/zig.tl", "co/build/zig.tl.bak", "co/build/other.tl", "co/lang/zig.tl", "co/ci/driver.tl",
-      "free/zig.tl" }) do
-    assert(Fs.write(tmp .. "/" .. path, "return 1\n"))
+local function test_no_file_is_listed_as_an_island()
+  for line in (assert(Fs.read("ci/islands.txt"))):gmatch("[^\n]+") do
+    assert(String.trim((line:gsub("#.*$", ""))) == "", "ci/islands.txt lists " .. line .. ", which the pinned release reads as Teal")
   end
-  assert(islands.holds(tmp .. "/co/build/zig.tl"))
-  assert(islands.holds(tmp .. "/co/ci/driver.tl"), "a file of an island directory")
-  assert(not islands.holds(tmp .. "/co/build/other.tl") and not islands.holds(tmp .. "/co/lang/zig.tl"))
-  assert(not islands.holds(tmp .. "/co/build/zig.tl.bak"), "a name that only starts like an island")
-  assert(not islands.holds(tmp .. "/free/zig.tl"), "a file outside a checkout")
-  assert(not islands.holds(tmp .. "/nowhere/zig.tl"), "a file that is not there")
-  -- this checkout's own list names the bootstrap scripts
-  assert(islands.holds("build/zig.tl") and islands.holds("ci/cosmic_ci/driver.tl") and not islands.holds("build/importer.tl"))
 end

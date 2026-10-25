@@ -4,7 +4,7 @@ local Seams = require("cosmic_ci.seams")
 
 --- A number a stand-in keeps.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- `Context.summarize(text)` with GITHUB_STEP_SUMMARY naming `path`: whether it
@@ -12,7 +12,7 @@ end
 local function summarize(path: string, text: string): boolean, string
   local seams = Seams.calls()
   local get = seams.env_get
-  seams.env_get = function(name: string): string | nil
+  seams.env_get = function(name: string): string?
     if name == "GITHUB_STEP_SUMMARY" then return path end
     return get(name)
   end
@@ -20,7 +20,7 @@ local function summarize(path: string, text: string): boolean, string
     Context.summarize(text)
   end)
   seams.env_get = get
-  return ok, ok and "" or tostring(why)
+  return ok, if ok then "" else tostring(why) end
 end
 
 local function test_summary_appends_through_a_link_without_replacing_or_reading(tmp: string)

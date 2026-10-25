@@ -297,11 +297,11 @@ local kind_fields, kind_depths = Ast.fields, Ast.depths
 
 --- Pushes the nodes of `value`, a node's list of nodes (`depth` 1) or of lists
 --- (`depth` 2), onto `nodes` after `top` in source order, and answers the new top.
-local function push_list(nodes: {Ast.Node}, top: integer, value: {any}, depth: integer): integer
+local function push_list(nodes: mut {Ast.Node}, top: integer, value: {any}, depth: integer): integer
   for i = 1, #value do
     local item = value[i]
     if depth == 1 then
-      if item is Ast.Node then
+      if (item.kind == "Chunk" or item.kind == "Block" or item.kind == "Local" or item.kind == "LocalFunction" or item.kind == "Function" or item.kind == "Assign" or item.kind == "CallStat" or item.kind == "Return" or item.kind == "Do" or item.kind == "Break" or item.kind == "Continue" or item.kind == "While" or item.kind == "Repeat" or item.kind == "If" or item.kind == "Arm" or item.kind == "Match" or item.kind == "MatchArm" or item.kind == "PatBool" or item.kind == "PatBind" or item.kind == "ForNum" or item.kind == "ForIn" or item.kind == "Name" or item.kind == "Nil" or item.kind == "Boolean" or item.kind == "Integer" or item.kind == "Float" or item.kind == "String" or item.kind == "Vararg" or item.kind == "Paren" or item.kind == "FunctionLit" or item.kind == "Table" or item.kind == "Positional" or item.kind == "Named" or item.kind == "Keyed" or item.kind == "Field" or item.kind == "Index" or item.kind == "Call" or item.kind == "MethodCall" or item.kind == "Unary" or item.kind == "Binary" or item.kind == "IsTest" or item.kind == "Cast" or item.kind == "IfExp" or item.kind == "ExpArm" or item.kind == "Fn" or item.kind == "Rets" or item.kind == "Param" or item.kind == "Binding" or item.kind == "TypeName" or item.kind == "TypeBool" or item.kind == "TypeNil" or item.kind == "TypeError" or item.kind == "TypeArray" or item.kind == "TypeMap" or item.kind == "TypeUnion" or item.kind == "TypeOptional" or item.kind == "TypeMut" or item.kind == "TypeFunction" or item.kind == "PType" or item.kind == "Narrows" or item.kind == "TypeParam" or item.kind == "Record" or item.kind == "Interface" or item.kind == "Class" or item.kind == "Enum" or item.kind == "EnumValue" or item.kind == "Alias" or item.kind == "Import" or item.kind == "FieldDecl" or item.kind == "Method" or item.kind == "Userdata" or item.kind == "Error") then
         top = top + 1
         nodes[top] = item
       end
@@ -313,7 +313,7 @@ local function push_list(nodes: {Ast.Node}, top: integer, value: {any}, depth: i
 end
 
 --- Pushes the children of `node` onto `nodes` after `top` in source order.
-local function push_children(nodes: {Ast.Node}, top: integer, node: any): integer
+local function push_children(nodes: mut {Ast.Node}, top: integer, node: any): integer
   if not (node is {string: any}) then
     return top
   end
@@ -326,7 +326,7 @@ local function push_children(nodes: {Ast.Node}, top: integer, node: any): intege
     local value = node[names[i]]
     if type(value) == "table" then
       if depth[i] == 0 then
-        if value is Ast.Node then
+        if (value.kind == "Chunk" or value.kind == "Block" or value.kind == "Local" or value.kind == "LocalFunction" or value.kind == "Function" or value.kind == "Assign" or value.kind == "CallStat" or value.kind == "Return" or value.kind == "Do" or value.kind == "Break" or value.kind == "Continue" or value.kind == "While" or value.kind == "Repeat" or value.kind == "If" or value.kind == "Arm" or value.kind == "Match" or value.kind == "MatchArm" or value.kind == "PatBool" or value.kind == "PatBind" or value.kind == "ForNum" or value.kind == "ForIn" or value.kind == "Name" or value.kind == "Nil" or value.kind == "Boolean" or value.kind == "Integer" or value.kind == "Float" or value.kind == "String" or value.kind == "Vararg" or value.kind == "Paren" or value.kind == "FunctionLit" or value.kind == "Table" or value.kind == "Positional" or value.kind == "Named" or value.kind == "Keyed" or value.kind == "Field" or value.kind == "Index" or value.kind == "Call" or value.kind == "MethodCall" or value.kind == "Unary" or value.kind == "Binary" or value.kind == "IsTest" or value.kind == "Cast" or value.kind == "IfExp" or value.kind == "ExpArm" or value.kind == "Fn" or value.kind == "Rets" or value.kind == "Param" or value.kind == "Binding" or value.kind == "TypeName" or value.kind == "TypeBool" or value.kind == "TypeNil" or value.kind == "TypeError" or value.kind == "TypeArray" or value.kind == "TypeMap" or value.kind == "TypeUnion" or value.kind == "TypeOptional" or value.kind == "TypeMut" or value.kind == "TypeFunction" or value.kind == "PType" or value.kind == "Narrows" or value.kind == "TypeParam" or value.kind == "Record" or value.kind == "Interface" or value.kind == "Class" or value.kind == "Enum" or value.kind == "EnumValue" or value.kind == "Alias" or value.kind == "Import" or value.kind == "FieldDecl" or value.kind == "Method" or value.kind == "Userdata" or value.kind == "Error") then
           top = top + 1
           nodes[top] = value
         end
@@ -342,8 +342,8 @@ end
 --- and `leave` with it after its children. It keeps its own stack, so a tree
 --- as deep as a long chain of operators is walked.
 local function walk(root: Ast.Node, enter: function(Ast.Node), leave: function(Ast.Node))
-  local nodes: {Ast.Node} = { root }
-  local leaving: {boolean} = { false }
+  local nodes: mut {Ast.Node} = { root }
+  local leaving: mut {boolean} = { false }
   local top = 1
   while top > 0 do
     local node, exiting = nodes[top], leaving[top]
@@ -376,7 +376,7 @@ end
 -- numbers, semicolons and comments: rows that read tokens alone
 
 --- A hexadecimal float written in decimal, which reads back as the same float.
-local function decimal_of(value: number): string | nil
+local function decimal_of(value: number): string?
   if value ~= value or value == math.huge or value == -math.huge then
     return nil
   end
@@ -405,7 +405,7 @@ local function separators_between_digits(text: string): boolean
 end
 
 --- A cut number: `1_000` without its `_`, a hexadecimal float in decimal.
-local function number_rewrite(tokens: Lexer.Tokens, i: integer): Rewrite | nil
+local function number_rewrite(tokens: Lexer.Tokens, i: integer): Rewrite?
   local kind, text = tokens.kind[i], tokens.text[i]
   if kind ~= "integer" and kind ~= "number" then
     return nil
@@ -428,7 +428,7 @@ end
 --- cannot be written so: code follows its end on its last line (a line
 --- comment may, another long comment may not). A line after the first begins
 --- where the line of the comment does.
-local function line_comments(source: string, offset: integer, text: string): string | nil
+local function line_comments(source: string, offset: integer, text: string): string?
   local level = #(text:match("^%-%-%[(=*)%[") or "")
   local after = offset + #text
   local rest = sub(source, after, (find(source, "[\r\n]", after) or #source + 1) - 1)
@@ -438,14 +438,14 @@ local function line_comments(source: string, offset: integer, text: string): str
   local from = line_start(source, offset)
   local indent = sub(source, from, blanks_after(source, from) - 1)
   local inner = sub(text, 5 + level, #text - level - 2)
-  local out: {string} = {}
+  local out: mut {string} = {}
   local pos = 1
   local n = #inner
   while pos <= n + 1 do
     local s = find(inner, "[\r\n]", pos)
     local line = sub(inner, pos, (s or n + 1) - 1)
     local body = line:match("^%s*(.-)%s*$") or ""
-    out[#out + 1] = (pos == 1 and "" or indent) .. (body == "" and "--" or "-- " .. body)
+    out[#out + 1] = (if pos == 1 then "" else indent end) .. (if body == "" then "--" else "-- " .. body end)
     if s == nil then
       break
     end
@@ -462,20 +462,20 @@ end
 --- when each middle operand is never false, as an `if` expression. `top` is the
 --- `or` node. `covered` receives the inner `or` nodes of a chain, which are
 --- no ternary of their own.
-local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {Ast.Node: boolean}): Rewrite | nil
-  local ands: {Ast.Binary} = {}
-  local spine: {Ast.Binary} = {}
+local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: mut {Ast.Node: boolean}): Rewrite?
+  local ands: mut {Ast.Binary} = {}
+  local spine: mut {Ast.Binary} = {}
   local cur: Ast.Exp = top.left
-  while cur is Ast.Binary and cur.op == "or" do
+  while (cur.kind == "Binary") and cur.op == "or" do
     local right = cur.right
-    if not (right is Ast.Binary and right.op == "and") then
+    if not ((right.kind == "Binary") and right.op == "and") then
       return nil
     end
     ands[#ands + 1] = right
     spine[#spine + 1] = cur
     cur = cur.left
   end
-  if not (cur is Ast.Binary and cur.op == "and") then
+  if not ((cur.kind == "Binary") and cur.op == "and") then
     return nil
   end
   ands[#ands + 1] = cur
@@ -488,7 +488,7 @@ local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {
       return nil
     end
   end
-  local edits: {Edit} = {}
+  local edits: mut {Edit} = {}
   local first, last = bounds(top)
   edits[1] = insert_before(tokens, first, "if ")
   for i, a in ipairs(ands) do
@@ -503,7 +503,7 @@ local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {
     if tokens.text[joiner] ~= "or" then
       return nil
     end
-    edits[#edits + 1] = replace_token(tokens, joiner, i < #ands and "elseif" or "else")
+    edits[#edits + 1] = replace_token(tokens, joiner, if i < #ands then "elseif" else "else" end)
   end
   edits[#edits + 1] = insert_after(tokens, last, " end")
   for _, inner in ipairs(spine) do
@@ -513,11 +513,11 @@ local function ternary_rewrite(tokens: Lexer.Tokens, top: Ast.Binary, covered: {
 end
 
 --- The rewrites of a function type's parameters: `T...` and `? T`.
-local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.TypeFunction, out: {Rewrite})
+local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.TypeFunction, out: mut {Rewrite})
   for index, p in ipairs(ty.params) do
     local first, last = bounds(p)
     if p.variadic and last > first and tokens.kind[last] == "..." then
-      local edits: {Edit} = {}
+      local edits: mut {Edit} = {}
       local type_first = bounds(p.type)
       if p.name ~= nil then
         edits[1] = { lo = Lexer.offset(tokens, first), hi = Lexer.offset(tokens, type_first), text = "...: " }
@@ -528,7 +528,7 @@ local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.
       out[#out + 1] = { row = "variadic_type", edits = edits }
     elseif p.optional and p.name == nil and tokens.kind[first] == "?" then
       local after = blanks_after(source, stop_of(tokens, first))
-      local taken: {string: boolean} = {}
+      local taken: mut {string: boolean} = {}
       for _, other in ipairs(ty.params) do
         local other_name = other.name
         if other_name ~= nil then
@@ -548,11 +548,11 @@ local function parameter_rewrites(source: string, tokens: Lexer.Tokens, ty: Ast.
 end
 
 --- The rewrite of a union with `nil`.
-local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.TypeUnion): Rewrite | nil
-  local kept: {Ast.Type} = {}
-  local nils: {Ast.Type} = {}
+local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.TypeUnion): Rewrite?
+  local kept: mut {Ast.Type} = {}
+  local nils: mut {Ast.Type} = {}
   for _, m in ipairs(union.members) do
-    if m is Ast.TypeNil then
+    if (m.kind == "TypeNil") then
       nils[#nils + 1] = m
     else
       kept[#kept + 1] = m
@@ -561,16 +561,16 @@ local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.Ty
   if #nils == 0 or #kept == 0 then
     return nil
   end
-  local edits: {Edit} = {}
+  local edits: mut {Edit} = {}
   local first_kept = bounds(kept[1])
   local _, last_kept = bounds(kept[#kept])
   local only_member = kept[1]
-  local opens = #kept > 1 or only_member is Ast.TypeFunction or only_member is Ast.TypeUnion
+  local opens = #kept > 1 or (only_member.kind == "TypeFunction") or (only_member.kind == "TypeUnion")
   -- The `|` that joins each nil to its neighbours goes with it: the one before
   -- a nil, or the one after the first member when the nil is first.
   local members = union.members
   for i, m in ipairs(members) do
-    if m is Ast.TypeNil then
+    if (m.kind == "TypeNil") then
       local at = bounds(m)
       if i == 1 then
         edits[#edits + 1] = delete_with_blanks_after(source, tokens, at)
@@ -583,15 +583,15 @@ local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.Ty
   end
   if #kept == 1 then
     local only = kept[1]
-    if (only is Ast.TypeFunction or only is Ast.TypeUnion) and tokens.kind[first_kept - 1] == "(" and
+    if ((only.kind == "TypeFunction") or (only.kind == "TypeUnion")) and tokens.kind[first_kept - 1] == "(" and
         tokens.kind[last_kept + 1] == ")" then
       -- Already written `(function(): R) | nil` or `(A | B) | nil`: the `?` goes
       -- after the `)`.
       edits[#edits + 1] = insert_after(tokens, last_kept + 1, "?")
-    elseif only is Ast.TypeFunction then
+    elseif (only.kind == "TypeFunction") then
       edits[#edits + 1] = insert_before(tokens, first_kept, "(")
       edits[#edits + 1] = insert_after(tokens, last_kept, ")?")
-    elseif not (only is Ast.TypeOptional) then
+    elseif not ((only.kind == "TypeOptional")) then
       edits[#edits + 1] = insert_after(tokens, last_kept, "?")
     end
   else
@@ -602,10 +602,10 @@ local function union_rewrite(source: string, tokens: Lexer.Tokens, union: Ast.Ty
 end
 
 --- The rewrite of `local type X = record`: `local record X`.
-local function declaration_rewrite(tokens: Lexer.Tokens, decl: Ast.Node, scope: Ast.Scope | nil,
-                                   name: Ast.Binding): Rewrite | nil
+local function declaration_rewrite(tokens: Lexer.Tokens, decl: Ast.Node, scope: Ast.Scope?,
+                                   name: Ast.Binding): Rewrite?
   local first = bounds(decl)
-  local at = scope ~= nil and first + 1 or first
+  local at = if scope ~= nil then first + 1 else first end
   if tokens.text[at] ~= "type" then
     return nil
   end
@@ -651,7 +651,7 @@ local function ends_line(tokens: Lexer.Tokens, i: integer): boolean
 end
 
 --- The rewrites of a field: `metamethod` and `readonly` dropped.
-local function field_rewrite(source: string, tokens: Lexer.Tokens, field: Ast.FieldDecl): Rewrite | nil
+local function field_rewrite(source: string, tokens: Lexer.Tokens, field: Ast.FieldDecl): Rewrite?
   local first = bounds(field)
   local name_first = bounds(field.name)
   if first < name_first and tokens.text[first] == "metamethod" and tokens.kind[first] == "identifier" then
@@ -674,9 +674,9 @@ local function field_rewrite(source: string, tokens: Lexer.Tokens, field: Ast.Fi
 end
 
 --- The token of the label `::continue::` that is a statement of `body`, or nil.
-local function direct_label(tokens: Lexer.Tokens, body: Ast.Block): integer | nil
+local function direct_label(tokens: Lexer.Tokens, body: Ast.Block): integer?
   for _, stat in ipairs(body.stats) do
-    if stat is Ast.Error then
+    if (stat.kind == "Error") then
       local first, stop = bounds(stat)
       if first == stop and tokens.kind[first] == "$ERR$" and find(Lexer.text(tokens, first), "^::[ \t]*continue[ \t]*::$") then
         return first
@@ -713,13 +713,13 @@ local record Owner
   record: Ast.Record
   methods: {Ast.Function}
   --- The `__close = function(self: R) ... end` item of a `local m: metatable<R> = { ... }` of the chunk.
-  close: Ast.Named | nil
+  close: Ast.Named?
 end
 
 --- The name of the record that `f`, a statement `function R:m(...)`, is a
 --- method of, or nil where it is no method this translator moves: a path of
 --- other than two names, or a method with type parameters of its own.
-local function method_owner(tokens: Lexer.Tokens, f: Ast.Function): string | nil
+local function method_owner(tokens: Lexer.Tokens, f: Ast.Function): string?
   local path = f.path
   if #path ~= 2 or #f.typeparams > 0 then
     return nil
@@ -734,7 +734,7 @@ end
 --- `text` with each line indented by two spaces, except a blank line and a
 --- line that begins inside one of the byte `ranges` (the multi-line strings).
 local function indented(text: string, ranges: {{integer}}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local pos = 1
   local k = 1
   local n = #text
@@ -757,7 +757,7 @@ end
 
 --- The byte ranges of the tokens that run over several lines.
 local function multiline_tokens(tokens: Lexer.Tokens): {{integer}}
-  local out: {{integer}} = {}
+  local out: mut {{integer}} = {}
   for i = 1, #tokens.kind do
     if tokens.yend[i] ~= nil then
       out[#out + 1] = { Lexer.offset(tokens, i), Lexer.stop(tokens, i) - 1 }
@@ -776,23 +776,23 @@ local function declarations(stats: {Ast.Stat}): {string: {integer}}
   end
   for _, s in ipairs(stats) do
     local first = bounds(s)
-    if s is Ast.Local then
+    if (s.kind == "Local") then
       for _, b in ipairs(s.bindings) do
         note(b.name, first)
       end
-    elseif s is Ast.LocalFunction then
+    elseif (s.kind == "LocalFunction") then
       note(s.name.name, first)
-    elseif s is Ast.Record then
+    elseif (s.kind == "Record") then
       note(s.name.name, first)
-    elseif s is Ast.Interface then
+    elseif (s.kind == "Interface") then
       note(s.name.name, first)
-    elseif s is Ast.Class then
+    elseif (s.kind == "Class") then
       note(s.name.name, first)
-    elseif s is Ast.Enum then
+    elseif (s.kind == "Enum") then
       note(s.name.name, first)
-    elseif s is Ast.TypeAlias then
+    elseif (s.kind == "Alias") then
       note(s.name.name, first)
-    elseif s is Ast.Import then
+    elseif (s.kind == "Import") then
       note(s.name.name, first)
     end
   end
@@ -834,9 +834,9 @@ local record Insertion
 end
 
 --- `source` from `lo` to `hi` with the insertions made.
-local function splice(source: string, lo: integer, hi: integer, insertions: {Insertion}): string
+local function splice(source: string, lo: integer, hi: integer, insertions: mut {Insertion}): string
   table.sort(insertions, function(a: Insertion, b: Insertion): boolean return a.at < b.at end)
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = lo
   for _, ins in ipairs(insertions) do
     out[#out + 1] = sub(source, at, ins.at - 1)
@@ -920,8 +920,8 @@ end
 --- generic field that leaves a type out is a `signature` hazard. The caller has checked that the field agrees with the
 --- method; its first parameter is the receiver.
 local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Function, declared: Ast.TypeFunction,
-                             hazards: {Translate.Hazard}): {Insertion}
-  local out: {Insertion} = {}
+                             hazards: mut {Translate.Hazard}): {Insertion}
+  local out: mut {Insertion} = {}
   local line = tokens.y[bounds(f)]
   local class_name = f.path[1].text
   local function differs(what: string)
@@ -948,8 +948,8 @@ local function carried_types(source: string, tokens: Lexer.Tokens, f: Ast.Functi
       local _, last = bounds(p)
       local question = want.optional and not p.optional
       -- A bare `...` is read with a missing type, which the field supplies.
-      if own == nil or own is Ast.TypeError then
-        out[#out + 1] = { at = stop_of(tokens, last), text = (question and "?" or "") .. ": " .. spelled(source, tokens, a, b) }
+      if own == nil or (own.kind == "TypeError") then
+        out[#out + 1] = { at = stop_of(tokens, last), text = (if question then "?" else "" end) .. ": " .. spelled(source, tokens, a, b) }
       else
         local pn = p.name
         if question and pn ~= nil then
@@ -976,7 +976,7 @@ end
 -- `setmetatable_call`.
 
 --- The first comment of a statement's doc, nil where it has none.
-local function leading_doc(doc: {Lexer.Comment} | nil): Lexer.Comment | nil
+local function leading_doc(doc: {Lexer.Comment}?): Lexer.Comment?
   if doc ~= nil and #doc > 0 then
     return doc[1]
   end
@@ -985,10 +985,10 @@ end
 
 --- Whether the node tree under `root` reads the name `text` as a value (a `Name` expression, which a type is not).
 local function reads_name(root: Ast.Node, text: string): boolean
-  local stack: {Ast.Node} = { root }
+  local stack: mut {Ast.Node} = { root }
   while #stack > 0 do
     local node = table.remove(stack)
-    if node is Ast.Name and node.text == text then
+    if (node.kind == "Name") and node.text == text then
       return true
     end
     Ast.children(node, function(child: Ast.Node)
@@ -1001,13 +1001,13 @@ end
 --- Whether the expression `e` makes a value with no effect and reads nothing at the time: a literal, a function, or a table of
 --- those. The statement that declares such a value can stand earlier in the file than it does, as a function can.
 local function pure(e: Ast.Node): boolean
-  if e is Ast.Table then
+  if (e.kind == "Table") then
     for _, item in ipairs(e.items) do
-      if item is Ast.Positional then
+      if (item.kind == "Positional") then
         if not pure(item.value) then
           return false
         end
-      elseif item is Ast.Named then
+      elseif (item.kind == "Named") then
         if not pure(item.value) then
           return false
         end
@@ -1017,14 +1017,14 @@ local function pure(e: Ast.Node): boolean
     end
     return true
   end
-  return e is Ast.FunctionLit or e is Ast.String or e is Ast.Integer or e is Ast.Float or e is Ast.Boolean or e is Ast.Nil
+  return (e.kind == "FunctionLit") or (e.kind == "String") or (e.kind == "Integer") or (e.kind == "Float") or (e.kind == "Boolean") or (e.kind == "Nil")
 end
 
 --- What moves: the name a statement declares, its doc comments, and what kind of declaration it is (`function`, `type` or
 --- `value`); nil for a statement that is none of these.
 local record Mover
   name: string
-  doc: {Lexer.Comment} | nil
+  doc: {Lexer.Comment}?
   kind: string
 end
 
@@ -1032,27 +1032,27 @@ end
 --- would name another where it stood than where it was written.
 local function fields_only(members: {Ast.Member}): boolean
   for _, m in ipairs(members) do
-    if not (m is Ast.FieldDecl) then
+    if not ((m.kind == "FieldDecl")) then
       return false
     end
   end
   return true
 end
 
-local function mover_of(s: Ast.Stat, methods: {string: boolean}): Mover | nil
-  if s is Ast.LocalFunction then
+local function mover_of(s: Ast.Stat, methods: {string: boolean}): Mover?
+  if (s.kind == "LocalFunction") then
     return { name = s.name.name, doc = s.name.doc, kind = "function" }
-  elseif s is Ast.Record then
+  elseif (s.kind == "Record") then
     if methods[s.name.name] ~= true and s.array == nil and #s.supers == 0 and fields_only(s.members) then
       return { name = s.name.name, doc = s.name.doc, kind = "type" }
     end
-  elseif s is Ast.Interface then
+  elseif (s.kind == "Interface") then
     if #s.supers == 0 and fields_only(s.members) then
       return { name = s.name.name, doc = s.name.doc, kind = "type" }
     end
-  elseif s is Ast.Enum then
+  elseif (s.kind == "Enum") then
     return { name = s.name.name, doc = s.name.doc, kind = "type" }
-  elseif s is Ast.Local then
+  elseif (s.kind == "Local") then
     local only = s.values[1]
     if #s.bindings == 1 and #s.values == 1 and only ~= nil and pure(only) then
       return { name = s.bindings[1].name, doc = s.bindings[1].doc, kind = "value" }
@@ -1071,16 +1071,17 @@ end
 --- The methods that read what stays still read another name, and are hazards. In source order.
 --
 -- TODO: place a method after the local it reads that a call makes, and a function that reads the record as a value, instead of
--- refusing the method as `unknown_variable`: the fork accepts the file. This waits on the switch (doc/plans/strict-teal.md, "the
--- switch"), which deletes this translator and has the tree's files spell the class where the locals stand.
+-- refusing the method as `unknown_variable` and leaving the file to its author, once a project is found that needs it: the
+-- translator goes with `cosmic migrate` (build/migrate.tl), and the tree's own files already spell the class where the
+-- locals stand.
 local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {string: {integer}}, held: Owner,
                          taken: {string: boolean}, methods: {string: boolean}): {Ast.Stat}
   local rec = held.record
   local _, rec_last = bounds(rec)
   local record_name = rec.name.name
-  local movers: {string: Mover} = {}
-  local by_name: {string: Ast.Stat} = {}
-  local types: {string: boolean} = {}
+  local movers: mut {string: Mover} = {}
+  local by_name: mut {string: Ast.Stat} = {}
+  local types: mut {string: boolean} = {}
   for _, s in ipairs(stats) do
     local first, last = bounds(s)
     local mover = mover_of(s, methods)
@@ -1089,7 +1090,7 @@ local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {str
       movers[mover.name] = mover
       by_name[mover.name] = s
     end
-    if s is Ast.Record or s is Ast.Interface or s is Ast.Class or s is Ast.Enum or s is Ast.TypeAlias then
+    if (s.kind == "Record") or (s.kind == "Interface") or (s.kind == "Class") or (s.kind == "Enum") or (s.kind == "Alias") then
       types[s.name.name] = true
     end
   end
@@ -1097,22 +1098,22 @@ local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {str
   --- token `at`. A type that is declared later is read freely before the token `signature_end`, the end of a signature, which
   --- may name one declared later.
   local function reads(root: Ast.Node, at: integer, params: {Ast.Param}, signature_end: integer): {string}
-    local own: {string: boolean} = {}
+    local own: mut {string: boolean} = {}
     for _, p in ipairs(params) do
       local pn = p.name
       if pn ~= nil then
         own[pn.name] = true
       end
     end
-    local out: {string} = {}
-    local seen: {string: boolean} = {}
-    local stack: {Ast.Node} = { root }
+    local out: mut {string} = {}
+    local seen: mut {string: boolean} = {}
+    local stack: mut {Ast.Node} = { root }
     while #stack > 0 do
       local node = table.remove(stack)
       local name = ""
-      if node is Ast.Name then
+      if (node.kind == "Name") then
         name = node.text
-      elseif node is Ast.TypeName then
+      elseif (node.kind == "TypeName") then
         local head = node.path[1]
         if head ~= nil and not (node.first < signature_end and types[head] == true) then
           name = head
@@ -1129,12 +1130,12 @@ local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {str
     end
     return out
   end
-  local deps: {string: {string}} = {}
-  local movable: {string: boolean} = {}
+  local deps: mut {string: {string}} = {}
+  local movable: mut {string: boolean} = {}
   for name, mover in pairs(movers) do
     local s = by_name[name]
     local first = bounds(s)
-    if s is Ast.LocalFunction then
+    if (s.kind == "LocalFunction") then
       deps[name] = reads(s.fn, first, s.fn.params, (bounds(s.fn.body)))
     elseif mover.kind == "type" then
       -- A type names the types it is made of freely, and has no super to read where it stands.
@@ -1174,7 +1175,7 @@ local function hoists_of(tokens: Lexer.Tokens, stats: {Ast.Stat}, declared: {str
       want(name)
     end
   end
-  local out: {Ast.Stat} = {}
+  local out: mut {Ast.Stat} = {}
   for _, s in ipairs(stats) do
     local mover = mover_of(s, methods)
     if mover ~= nil and wanted[mover.name] == true and by_name[mover.name] == s then
@@ -1188,36 +1189,36 @@ end
 --- Nil where a method or the record is not written so that the lines can
 --- be cut: a statement that shares its line with other code.
 local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {string: {integer}}, held: Owner,
-                             strings: {{integer}}, hazards: {Translate.Hazard}, hoisted: {Ast.Stat},
-                             taken: {string: boolean}, methods: {string: boolean}): Rewrite | nil
+                             strings: {{integer}}, hazards: mut {Translate.Hazard}, hoisted: {Ast.Stat},
+                             taken: {string: boolean}, methods: {string: boolean}): Rewrite?
   local rec = held.record
   local rec_first, rec_last = bounds(rec)
-  local word = rec.scope ~= nil and rec_first + 1 or rec_first
+  local word = if rec.scope ~= nil then rec_first + 1 else rec_first end
   if rec.array ~= nil or tokens.text[word] ~= "record" or not starts_line(tokens, rec_last) then
     return nil
   end
   for _, m in ipairs(rec.members) do
-    if m is Ast.Userdata then
+    if (m.kind == "Userdata") then
       return nil
     end
   end
-  local fields: {string: Ast.FieldDecl} = {}
+  local fields: mut {string: Ast.FieldDecl} = {}
   for _, m in ipairs(rec.members) do
-    if m is Ast.FieldDecl then
+    if (m.kind == "FieldDecl") then
       fields[m.name.name] = m
     end
   end
-  local edits: {Edit} = {}
+  local edits: mut {Edit} = {}
   edits[1] = replace_token(tokens, word, "class")
-  local pieces: {string} = {}
-  local found: {Translate.Hazard} = {}
+  local pieces: mut {string} = {}
+  local found: mut {Translate.Hazard} = {}
   -- The functions the methods read that stand between the record and them go above the record, with their docs.
-  local moved: {string: boolean} = {}
-  local lifted: {string} = {}
+  local moved: mut {string: boolean} = {}
+  local lifted: mut {string} = {}
   for _, s in ipairs(hoisted) do
     local first, last = bounds(s)
     local mover = mover_of(s, methods)
-    local s_first: Lexer.Comment | nil = nil
+    local s_first: Lexer.Comment? = nil
     if mover ~= nil then
       s_first = leading_doc(mover.doc)
     end
@@ -1252,24 +1253,24 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     local lo = line_start(source, top)
     local hi = after_line(source, Lexer.offset(tokens, last))
     local params = f.fn.params
-    local header = "function " .. name .. "(self" .. (#params > 0 and ", " or "")
+    local header = "function " .. name .. "(self" .. (if #params > 0 then ", " else "" end)
     local head_lo, head_hi = tokens.offset[first], stop_of(tokens, open)
     local field = fields[name]
     local declared_type = field ~= nil and field.type or nil
-    if field ~= nil and not (declared_type is Ast.TypeFunction and agrees(source, tokens, declared_type, f, rec.name.name)) then
+    if field ~= nil and not ((declared_type.kind == "TypeFunction") and agrees(source, tokens, declared_type, f, rec.name.name)) then
       -- The field stays beside the method, so the class declares the name twice and the parser refuses it.
       field = nil
       declared_type = nil
     end
     local carried: {Insertion} = {}
-    if declared_type ~= nil and declared_type is Ast.TypeFunction then
+    if declared_type ~= nil and (declared_type.kind == "TypeFunction") then
       carried = carried_types(source, tokens, f, declared_type, found)
     end
     local signature = splice(source, head_hi, hi - 1, carried)
     local slice = sub(source, lo, head_lo - 1) .. header .. signature
     -- The multi-line strings of the body, in the slice's own offsets.
     local shift = (head_lo - lo) + #header + 1 - head_hi + (#signature - (hi - head_hi))
-    local ranges: {{integer}} = {}
+    local ranges: mut {{integer}} = {}
     for _, r in ipairs(strings) do
       if r[1] >= head_hi and r[2] < hi then
         ranges[#ranges + 1] = { r[1] + shift, r[2] + shift }
@@ -1290,7 +1291,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
       end
       edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
     end
-    pieces[#pieces + 1] = ((#pieces == 0 and #rec.members == 0) and "" or "\n") .. docs .. indented(slice, ranges)
+    pieces[#pieces + 1] = (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. indented(slice, ranges)
     -- Cut the statement's lines, and a blank line when two would meet.
     local cut = hi
     if lo > 1 and cut <= #source and blank_line(source, cut) and blank_line(source, line_start(source, lo - 1)) then
@@ -1298,14 +1299,14 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
     end
     edits[#edits + 1] = { lo = lo, hi = cut, text = "" }
     -- A name declared between the record and the method that the method reads.
-    local own: {string: boolean} = {}
+    local own: mut {string: boolean} = {}
     for _, p in ipairs(params) do
       local pn = p.name
       if pn ~= nil then
         own[pn.name] = true
       end
     end
-    local reported: {string: boolean} = {}
+    local reported: mut {string: boolean} = {}
     for i = first, last do
       local written_name = tokens.text[i]
       local prev = tokens.kind[i - 1]
@@ -1315,7 +1316,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
         if between then
           reported[written_name] = true
           found[#found + 1] = {
-            kind = before and "shadow" or "scope", class = rec.name.name, method = name, y = Lexer.y(tokens, first),
+            kind = if before then "shadow" else "scope" end, class = rec.name.name, method = name, y = Lexer.y(tokens, first),
             name = written_name,
           }
         end
@@ -1326,7 +1327,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
   if close ~= nil then
     local value = close.value
     local first, last = bounds(close)
-    if value is Ast.FunctionLit and #value.fn.params > 0 and starts_line(tokens, first) and
+    if (value.kind == "FunctionLit") and #value.fn.params > 0 and starts_line(tokens, first) and
         tokens.kind[last + 1] == "," and ends_line(tokens, last + 1) then
       local fl, ll = bounds(value)
       local pf, pl = bounds(value.fn.params[1])
@@ -1345,18 +1346,18 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
         docs = sub(source, flo, line_start(source, Lexer.offset(tokens, field_first)) - 1)
         edits[#edits + 1] = { lo = flo, hi = fhi, text = "" }
       end
-      pieces[#pieces + 1] = ((#pieces == 0 and #rec.members == 0) and "" or "\n") .. docs .. text
+      pieces[#pieces + 1] = (if (#pieces == 0 and #rec.members == 0) then "" else "\n" end) .. docs .. text
       edits[#edits + 1] = {
         lo = line_start(source, Lexer.offset(tokens, first)), hi = after_line(source, Lexer.offset(tokens, last + 1)), text = "",
       }
-      local own: {string: boolean} = {}
+      local own: mut {string: boolean} = {}
       for _, p in ipairs(value.fn.params) do
         local pn = p.name
         if pn ~= nil then
           own[pn.name] = true
         end
       end
-      local reported: {string: boolean} = {}
+      local reported: mut {string: boolean} = {}
       for i = fl, ll do
         local written_name = tokens.text[i]
         local prev = tokens.kind[i - 1]
@@ -1366,7 +1367,7 @@ local function class_rewrite(source: string, tokens: Lexer.Tokens, declared: {st
           if between then
             reported[written_name] = true
             found[#found + 1] = {
-              kind = before and "shadow" or "scope", class = rec.name.name, method = "__close", y = Lexer.y(tokens, fl),
+              kind = if before then "shadow" else "scope" end, class = rec.name.name, method = "__close", y = Lexer.y(tokens, fl),
               name = written_name,
             }
           end
@@ -1388,41 +1389,41 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
   local chunk = parsed.chunk
   local tokens = chunk.tokens
   local stats = chunk.body.stats
-  local owners: {string: Owner} = {}
-  local times: {string: integer} = {}
+  local owners: mut {string: Owner} = {}
+  local times: mut {string: integer} = {}
   for _, s in ipairs(stats) do
-    if s is Ast.Record then
+    if (s.kind == "Record") then
       times[s.name.name] = (times[s.name.name] or 0) + 1
       owners[s.name.name] = { record = s, methods = {}, close = nil }
-    elseif s is Ast.Interface or s is Ast.Class or s is Ast.Enum or s is Ast.TypeAlias or s is Ast.Import then
+    elseif (s.kind == "Interface") or (s.kind == "Class") or (s.kind == "Enum") or (s.kind == "Alias") or (s.kind == "Import") then
       times[s.name.name] = (times[s.name.name] or 0) + 1
     end
   end
   for _, s in ipairs(stats) do
-    local annotation = s is Ast.Local and #s.types == 1 and s.types[1] or nil
-    local literal = s is Ast.Local and #s.values == 1 and s.values[1] or nil
-    if annotation ~= nil and annotation is Ast.TypeName and #annotation.path == 1 and annotation.path[1] == "metatable" and
-        #annotation.args == 1 and literal ~= nil and literal is Ast.Table then
+    local annotation = (s.kind == "Local") and #s.types == 1 and s.types[1] or nil
+    local literal = (s.kind == "Local") and #s.values == 1 and s.values[1] or nil
+    if annotation ~= nil and (annotation.kind == "TypeName") and #annotation.path == 1 and annotation.path[1] == "metatable" and
+        #annotation.args == 1 and literal ~= nil and (literal.kind == "Table") then
       local target = annotation.args[1]
-      local held = target is Ast.TypeName and #target.path == 1 and owners[target.path[1]] or nil
+      local held = (target.kind == "TypeName") and #target.path == 1 and owners[target.path[1]] or nil
       -- A class has the metamethods `__close` and `__tostring` and no other: a metatable that holds more keeps its
       -- `__close`, since a value made with it would lose the method that moved.
       local only = true
       for _, item in ipairs(literal.items) do
-        only = only and item is Ast.Named and (item.name == "__index" or item.name == "__close")
+        only = only and (item.kind == "Named") and (item.name == "__index" or item.name == "__close")
       end
       if held ~= nil and only then
         for _, item in ipairs(literal.items) do
-          if item is Ast.Named and item.name == "__close" and held.close == nil then
+          if (item.kind == "Named") and item.name == "__close" and held.close == nil then
             held.close = item
           end
         end
       end
     end
   end
-  local order: {Owner} = {}
+  local order: mut {Owner} = {}
   for _, s in ipairs(stats) do
-    if s is Ast.Function then
+    if (s.kind == "Function") then
       local name = method_owner(tokens, s)
       local held = name ~= nil and owners[name] or nil
       if name ~= nil and held ~= nil and times[name] == 1 then
@@ -1433,7 +1434,7 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
       end
     end
   end
-  local out: {Rewrite} = {}
+  local out: mut {Rewrite} = {}
   if #order == 0 then
     return out
   end
@@ -1444,9 +1445,9 @@ local function class_rewrites(source: string, parsed: Parser.Parsed, hazards: {T
   table.sort(order, function(a: Owner, b: Owner): boolean
     return (bounds(a.record)) < (bounds(b.record))
   end)
-  local taken: {string: boolean} = {}
+  local taken: mut {string: boolean} = {}
   -- The records that get methods, which are classes and stay where they are.
-  local with_methods: {string: boolean} = {}
+  local with_methods: mut {string: boolean} = {}
   for _, held in ipairs(order) do
     with_methods[held.record.name.name] = true
   end
@@ -1473,7 +1474,7 @@ local record Literal
   call: Ast.Call
   literal: Ast.Node
   --- The binding of the local it initializes, which gets the class as its type where it has none written.
-  annotate: Ast.Binding | nil
+  annotate: Ast.Binding?
   class: string
 end
 
@@ -1485,29 +1486,29 @@ local record ClassMetatable
   stat: Ast.Local
   binding: Ast.Binding
   --- The calls `setmetatable(T, mt)` that can be written as `T`.
-  calls: {Literal}
+  calls: mut {Literal}
 end
 
 --- The return list of the function being walked, nil where it writes none.
 local record Returning
-  rets: Ast.Rets | nil
+  rets: Ast.Rets?
 end
 
 --- The name `t` writes alone as a type with no arguments, or nil.
-local function plain_type(t: Ast.Type | nil): string | nil
-  if t ~= nil and t is Ast.TypeName and #t.path == 1 and #t.args == 0 then
+local function plain_type(t: Ast.Type?): string?
+  if t ~= nil and (t.kind == "TypeName") and #t.path == 1 and #t.args == 0 then
     return t.path[1]
   end
   return nil
 end
 
 --- The class `{ __index = R }` is the metatable of, for a literal that holds that item alone and nothing else.
-local function index_class(literal: Ast.Table, classes: {string: boolean}): string | nil
+local function index_class(literal: Ast.Table, classes: {string: boolean}): string?
   local items = literal.items
   local item = items[1]
-  if #items == 1 and item is Ast.Named and item.name == "__index" then
+  if #items == 1 and (item.kind == "Named") and item.name == "__index" then
     local value = item.value
-    if value is Ast.Name and classes[value.text] then
+    if (value.kind == "Name") and classes[value.text] then
       return value.text
     end
   end
@@ -1516,7 +1517,7 @@ end
 
 --- The edit that removes the lines of the statement `s`, its docs with it, and a blank line where two would meet; nil
 --- where it shares its lines with other code.
-local function statement_cut(source: string, tokens: Lexer.Tokens, s: Ast.Local, binding: Ast.Binding): Edit | nil
+local function statement_cut(source: string, tokens: Lexer.Tokens, s: Ast.Local, binding: Ast.Binding): Edit?
   local first, last = bounds(s)
   if not (starts_line(tokens, first) and ends_line(tokens, last)) then
     return nil
@@ -1541,24 +1542,24 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
   local tokens = chunk.tokens
   local stats = chunk.body.stats
   local declared = declarations(stats)
-  local classes: {string: boolean} = {}
+  local classes: mut {string: boolean} = {}
   for _, s in ipairs(stats) do
-    if s is Ast.Class and #(declared[s.name.name] or {}) == 1 then
+    if (s.kind == "Class") and #(declared[s.name.name] or {}) == 1 then
       classes[s.name.name] = true
     end
   end
-  local out: {Rewrite} = {}
+  local out: mut {Rewrite} = {}
   if next(classes) == nil then
     return out
   end
-  local metatables: {string: ClassMetatable} = {}
-  local order: {string} = {}
+  local metatables: mut {string: ClassMetatable} = {}
+  local order: mut {string} = {}
   for _, s in ipairs(stats) do
-    if s is Ast.Local and #s.bindings == 1 and #s.types == 1 and #s.values == 1 then
+    if (s.kind == "Local") and #s.bindings == 1 and #s.types == 1 and #s.values == 1 then
       local annotation, literal = s.types[1], s.values[1]
       local binding = s.bindings[1]
-      if annotation is Ast.TypeName and #annotation.path == 1 and annotation.path[1] == "metatable" and
-          #annotation.args == 1 and literal is Ast.Table and #(declared[binding.name] or {}) == 1 then
+      if (annotation.kind == "TypeName") and #annotation.path == 1 and annotation.path[1] == "metatable" and
+          #annotation.args == 1 and (literal.kind == "Table") and #(declared[binding.name] or {}) == 1 then
         local class = index_class(literal, classes)
         local target = plain_type(annotation.args[1])
         if class ~= nil and class == target then
@@ -1571,23 +1572,23 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
   local inline: {Literal} = {}
   local returns: {Returning} = {}
   --- Notes the call `e` as a class literal if it is one, where the place wants the class `accepts` says.
-  local function consider(e: Ast.Exp, accepts: function(class: string): boolean, annotate: Ast.Binding | nil)
-    if not (e is Ast.Call) then
+  local function consider(e: Ast.Exp, accepts: function(class: string): boolean, annotate: Ast.Binding?)
+    if not ((e.kind == "Call")) then
       return
     end
     local callee = e.callee
     local args = e.args
     local made, second = args[1], args[2]
-    if not (callee is Ast.Name and callee.text == "setmetatable" and #args == 2 and made is Ast.Table and
+    if not ((callee.kind == "Name") and callee.text == "setmetatable" and #args == 2 and (made.kind == "Table") and
         tokens.kind[e.first + 1] == "(") then
       return
     end
-    local held: ClassMetatable | nil = nil
-    local class: string | nil = nil
-    if second is Ast.Name then
+    local held: ClassMetatable? = nil
+    local class: string? = nil
+    if (second.kind == "Name") then
       held = metatables[second.text]
       class = held ~= nil and held.class or nil
-    elseif second is Ast.Table then
+    elseif (second.kind == "Table") then
       class = index_class(second, classes)
     end
     if class == nil or not accepts(class) then
@@ -1605,16 +1606,16 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
     end
   end
   local function enter(node: Ast.Node)
-    if node is Ast.Fn then
+    if (node.kind == "Fn") then
       returns[#returns + 1] = { rets = node.rets }
-    elseif node is Ast.Method then
+    elseif (node.kind == "Method") then
       returns[#returns + 1] = { rets = node.rets }
-    elseif node is Ast.Local and #node.bindings == 1 and #node.values == 1 then
+    elseif (node.kind == "Local") and #node.bindings == 1 and #node.values == 1 then
       local given = node.types[1]
       consider(node.values[1], function(class: string): boolean
         return given == nil or plain_type(given) == class
       end, given == nil and node.bindings[1] or nil)
-    elseif node is Ast.Return and #node.values == 1 then
+    elseif (node.kind == "Return") and #node.values == 1 then
       local frame = returns[#returns]
       local rets = frame ~= nil and frame.rets or nil
       consider(node.values[1], function(class: string): boolean
@@ -1623,17 +1624,17 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
         end
         local list = rets.lists[1]
         local item = list[1]
-        return #list == 1 and not (item is Ast.Narrows) and plain_type(item) == class
+        return #list == 1 and not ((item.kind == "Narrows")) and plain_type(item) == class
       end, nil)
     end
   end
   local function leave(node: Ast.Node)
-    if node is Ast.Fn or node is Ast.Method then
+    if (node.kind == "Fn") or (node.kind == "Method") then
       returns[#returns] = nil
     end
   end
   walk(chunk.body, enter, leave)
-  local references: {string: integer} = {}
+  local references: mut {string: integer} = {}
   for i = 1, #tokens.kind do
     local text = tokens.text[i]
     if tokens.kind[i] == "identifier" and metatables[text] ~= nil then
@@ -1642,7 +1643,7 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
   end
   --- The edits that write the call of `l` as its table.
   local function call_edits(l: Literal): {Edit}
-    local edits: {Edit} = {
+    local edits: mut {Edit} = {
       { lo = Lexer.offset(tokens, l.call.first), hi = stop_of(tokens, l.call.first + 1), text = "" },
       { lo = stop_of(tokens, l.literal.last), hi = stop_of(tokens, l.call.last), text = "" },
     }
@@ -1658,7 +1659,7 @@ local function literal_rewrites(source: string, parsed: Parser.Parsed): {Rewrite
     local cut = statement_cut(source, tokens, held.stat, held.binding)
     -- The declaration is one reference of its name, and each call one.
     if #held.calls > 0 and cut ~= nil and references[name] == 1 + #held.calls then
-      local edits: {Edit} = { cut }
+      local edits: mut {Edit} = { cut }
       for _, l in ipairs(held.calls) do
         for _, e in ipairs(call_edits(l)) do
           edits[#edits + 1] = e
@@ -1676,30 +1677,30 @@ end
 -- mut
 
 --- The record or class a type names when it is a plain name, looking through `?`.
-local function named_record(t: Ast.Type | nil): string | nil
+local function named_record(t: Ast.Type?): string?
   if t == nil then
     return nil
   end
   local cur: Ast.Type = t
-  if cur is Ast.TypeOptional then
+  if (cur.kind == "TypeOptional") then
     cur = cur.inner
   end
-  if cur is Ast.TypeName and #cur.path == 1 then
+  if (cur.kind == "TypeName") and #cur.path == 1 then
     return cur.path[1]
   end
   return nil
 end
 
 --- The array or map a type is, looking through `?`.
-local function collection_of(t: Ast.Type | nil): Ast.Type | nil
+local function collection_of(t: Ast.Type?): Ast.Type?
   if t == nil then
     return nil
   end
   local cur: Ast.Type = t
-  if cur is Ast.TypeOptional then
+  if (cur.kind == "TypeOptional") then
     cur = cur.inner
   end
-  if cur is Ast.TypeArray or cur is Ast.TypeMap then
+  if (cur.kind == "TypeArray") or (cur.kind == "TypeMap") then
     return cur
   end
   return nil
@@ -1720,8 +1721,8 @@ end
 --- What a name stands for in a block: the record it is declared as, and the
 --- parameter it is.
 local record Entry
-  record_name: string | nil
-  param: Ast.Param | nil
+  record_name: string?
+  param: Ast.Param?
 end
 
 --- The walk of [`mut_tracker`]: `enter` and `leave` see each node of a tree
@@ -1751,7 +1752,7 @@ local GLOBAL_WRITES <const>: {string: boolean} = { rawset = true }
 -- passed on to a function that changes it, once the new checker's type report
 -- resolves the record and field of each assignment target and the `mut`
 -- parameters of each callee.
-local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, interfaces: {Translate.Interface}): MutTracker
+local function mut_tracker(tokens: Lexer.Tokens, hazards: mut {Translate.Hazard}, interfaces: mut {Translate.Interface}): MutTracker
   local declared: {string: {string: Ast.FieldDecl}} = {}
   local seen: {string: integer} = {}
   local assigned: {string: boolean} = {}
@@ -1778,7 +1779,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
   -- The record a method written as `function R:m()` is of, by its function.
   local owner_of: {Ast.Fn: string} = {}
 
-  local function binder(name: string): Entry | nil
+  local function binder(name: string): Entry?
     for i = #scopes, 1, -1 do
       local found = scopes[i][name]
       if found ~= nil then
@@ -1788,7 +1789,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     return nil
   end
 
-  local function bind(name: string, record_name: string | nil, param?: Ast.Param)
+  local function bind(name: string, record_name: string?, param?: Ast.Param)
     local scope = scopes[#scopes]
     if scope ~= nil then
       scope[name] = { record_name = record_name, param = param }
@@ -1800,8 +1801,8 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     arriving[body] = names
   end
 
-  local function param_entries(params: {Ast.Param}, self_record: string | nil, implicit_self: string | nil): {string: Entry}
-    local names: {string: Entry} = {}
+  local function param_entries(params: {Ast.Param}, self_record: string?, implicit_self: string?): {string: Entry}
+    local names: mut {string: Entry} = {}
     if implicit_self ~= nil then
       names.self = { record_name = implicit_self }
     end
@@ -1819,9 +1820,9 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
   end
 
   --- The key of a field of a record in `assigned` and `changed`.
-  local function field_key(e: Ast.Field): string | nil
+  local function field_key(e: Ast.Field): string?
     local object = e.object
-    if not (object is Ast.Name) then
+    if not ((object.kind == "Name")) then
       return nil
     end
     local entry = binder(object.text)
@@ -1835,7 +1836,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
   --- Credits a change to the collection that `e` names: a parameter, or a
   --- field of a record.
   local function collection_changed(e: Ast.Exp)
-    if e is Ast.Name then
+    if (e.kind == "Name") then
       local entry = binder(e.text)
       local param = entry ~= nil and entry.param or nil
       if param ~= nil then
@@ -1847,7 +1848,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
       if held ~= nil and entry ~= nil and depth_of[entry] == nesting.depth then
         held.changed = true
       end
-    elseif e is Ast.Field then
+    elseif (e.kind == "Field") then
       local key = field_key(e)
       if key ~= nil then
         changed[key] = true
@@ -1859,12 +1860,12 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     local base: Ast.Base = node
     local kind = base.kind
     if kind == "Block" then
-      local names = node is Ast.Block and arriving[node] or nil
+      local names = (node.kind == "Block") and arriving[node] or nil
       scopes[#scopes + 1] = names or {}
     elseif kind == "Local" then
-      if node is Ast.Local then
+      if (node.kind == "Local") then
         local aligned = #node.types == #node.bindings
-        local bound: {Held} = {}
+        local bound: mut {Held} = {}
         for i, b in ipairs(node.bindings) do
           bind(b.name, aligned and named_record(node.types[i]) or nil)
           local scope = scopes[#scopes]
@@ -1880,75 +1881,75 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
         pending[node] = bound
       end
     elseif kind == "LocalFunction" then
-      if node is Ast.LocalFunction then
+      if (node.kind == "LocalFunction") then
         bind(node.name.name, nil)
       end
     elseif kind == "ForNum" then
-      if node is Ast.ForNum then
+      if (node.kind == "ForNum") then
         arrive(node.body, { [node.var.name] = {} })
       end
     elseif kind == "ForIn" then
-      if node is Ast.ForIn then
-        local names: {string: Entry} = {}
+      if (node.kind == "ForIn") then
+        local names: mut {string: Entry} = {}
         for _, b in ipairs(node.vars) do
           names[b.name] = {}
         end
         arrive(node.body, names)
       end
     elseif kind == "MatchArm" then
-      if node is Ast.MatchArm then
-        local names: {string: Entry} = {}
+      if (node.kind == "MatchArm") then
+        local names: mut {string: Entry} = {}
         for _, pat in ipairs(node.pats) do
-          if pat is Ast.PatBind then
+          if (pat.kind == "PatBind") then
             names[pat.name.name] = {}
           end
         end
         arrive(node.body, names)
       end
     elseif kind == "Function" then
-      if node is Ast.Function then
+      if (node.kind == "Function") then
         local path = node.path
         if #path == 2 and tokens.kind[bounds(path[1]) + 1] == ":" then
           owner_of[node.fn] = path[1].text
         end
       end
     elseif kind == "Fn" then
-      if node is Ast.Fn then
+      if (node.kind == "Fn") then
         nesting.depth = nesting.depth + 1
         arrive(node.body, param_entries(node.params, nil, owner_of[node]))
       end
     elseif kind == "Method" then
-      if node is Ast.Method then
+      if (node.kind == "Method") then
         nesting.depth = nesting.depth + 1
         arrive(node.body, param_entries(node.params, classes[#classes], nil))
       end
     elseif kind == "Record" or kind == "Class" or kind == "Interface" then
-      if node is Ast.Record or node is Ast.Class or node is Ast.Interface then
+      if (node.kind == "Record") or (node.kind == "Class") or (node.kind == "Interface") then
         local name = node.name.name
         seen[name] = (seen[name] or 0) + 1
-        local fields: {string: Ast.FieldDecl} = {}
+        local fields: mut {string: Ast.FieldDecl} = {}
         for _, m in ipairs(node.members) do
-          if m is Ast.FieldDecl then
+          if (m.kind == "FieldDecl") then
             fields[m.name.name] = m
           end
         end
         declared[name] = fields
-        local names: {string} = {}
+        local names: mut {string} = {}
         for _, super in ipairs(node.supers) do
           names[#names + 1] = table.concat(super.path, ".")
         end
         supers[name] = names
         starts[name] = bounds(node)
-        if node is Ast.Class then
+        if (node.kind == "Class") then
           classes[#classes + 1] = name
         end
-        if node is Ast.Interface then
-          local listed: {string} = {}
+        if (node.kind == "Interface") then
+          local listed: mut {string} = {}
           for field_name in pairs(fields) do
             listed[#listed + 1] = field_name
           end
           table.sort(listed)
-          local parents: {string} = {}
+          local parents: mut {string} = {}
           for _, super in ipairs(names) do
             parents[#parents + 1] = last_name(super)
           end
@@ -1956,29 +1957,29 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
         end
       end
     elseif kind == "Assign" then
-      if node is Ast.Assign then
+      if (node.kind == "Assign") then
         for _, target in ipairs(node.targets) do
-          if target is Ast.Field then
+          if (target.kind == "Field") then
             local key = field_key(target)
             if key ~= nil then
               assigned[key] = true
             end
-          elseif target is Ast.Index then
+          elseif (target.kind == "Index") then
             collection_changed(target.object)
           end
         end
       end
     elseif kind == "Call" then
-      if node is Ast.Call then
+      if (node.kind == "Call") then
         local callee = node.callee
-        if callee is Ast.Name and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
+        if (callee.kind == "Name") and GLOBAL_WRITES[callee.text] and binder(callee.text) == nil then
           local target = node.args[1]
           if target ~= nil then
             collection_changed(target)
           end
-        elseif callee is Ast.Field and TABLE_WRITES[callee.name] then
+        elseif (callee.kind == "Field") and TABLE_WRITES[callee.name] then
           local object = callee.object
-          if object is Ast.Name and object.text == "table" and binder("table") == nil then
+          if (object.kind == "Name") and object.text == "table" and binder("table") == nil then
             -- `insert`, `remove` and `sort` change their first argument;
             -- `move` its fifth, and its first when it has no fifth.
             local target = node.args[1]
@@ -2005,7 +2006,7 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
       nesting.depth = nesting.depth - 1
     elseif kind == "Local" then
       -- The names are the local's only once its initializers are read.
-      local held = node is Ast.Local and pending[node] or nil
+      local held = (node.kind == "Local") and pending[node] or nil
       if held ~= nil then
         for _, mark in ipairs(held) do
           held_of[mark.entry] = mark
@@ -2015,8 +2016,8 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
   end
 
   local function finish(): {Rewrite}
-    local out: {Rewrite} = {}
-    local function write(t: Ast.Type | nil, row: string)
+    local out: mut {Rewrite} = {}
+    local function write(t: Ast.Type?, row: string)
       local collection = collection_of(t)
       if collection ~= nil then
         local first = bounds(collection)
@@ -2028,11 +2029,11 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
     -- from each of those down to the types that implement it and declare it
     -- too. A super written with a qualifier ([`Stream.Reader`]) is the type of
     -- the file with its last name, if the file has one.
-    local function resolved(super: string): string | nil
+    local function resolved(super: string): string?
       local short = last_name(super)
       return seen[short] == 1 and short or nil
     end
-    local implementers: {string: {string}} = {}
+    local implementers: mut {string: {string}} = {}
     for name, list in pairs(supers) do
       for _, super in ipairs(list) do
         local parent = resolved(super)
@@ -2043,20 +2044,20 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
         end
       end
     end
-    local function single(name: string, field: string): Ast.FieldDecl | nil
+    local function single(name: string, field: string): Ast.FieldDecl?
       local fields = declared[name]
       return seen[name] == 1 and fields ~= nil and fields[field] or nil
     end
     local function spread(keys: {string: boolean}, collection: boolean): {Ast.FieldDecl: string}
-      local marked: {Ast.FieldDecl: string} = {}
+      local marked: mut {Ast.FieldDecl: string} = {}
       for key in pairs(keys) do
         local cut = find(key, "\0", 1, true)
         local start, field = sub(key, 1, cut - 1), sub(key, cut + 1)
         -- Up: the start and its interfaces, through those that lack the field.
-        local up: {string} = { start }
-        local visited: {string: boolean} = { [start] = true }
-        local declarers: {string} = {}
-        local outside: {string} = {}
+        local up: mut {string} = { start }
+        local visited: mut {string: boolean} = { [start] = true }
+        local declarers: mut {string} = {}
+        local outside: mut {string} = {}
         local at = 1
         while at <= #up do
           local name = up[at]
@@ -2076,8 +2077,8 @@ local function mut_tracker(tokens: Lexer.Tokens, hazards: {Translate.Hazard}, in
         end
         -- Down: from each type that declares the field, those that implement it.
         for _, declarer in ipairs(declarers) do
-          local down: {string} = { declarer }
-          local reached: {string: boolean} = { [declarer] = true }
+          local down: mut {string} = { declarer }
+          local reached: mut {string: boolean} = { [declarer] = true }
           local d = 1
           while d <= #down do
             local name = down[d]
@@ -2151,7 +2152,7 @@ local record Frame
   --- Whether the block is the body of a loop.
   loop: boolean
   --- The token of the `::continue::` that is one of its statements.
-  label: integer | nil
+  label: integer?
 end
 
 --- The `goto continue` statements that jump to one label, and whether the
@@ -2164,11 +2165,11 @@ end
 --- Every rewrite of the first kind (all but the class) that the tree and
 --- tokens of `parsed` call for.
 local function collect(source: string, parsed: Parser.Parsed, hazards: {Translate.Hazard},
-                       interfaces: {Translate.Interface}): {Rewrite}
+                       interfaces: mut {Translate.Interface}): {Rewrite}
   local chunk = parsed.chunk
   local tokens = chunk.tokens
-  local out: {Rewrite} = {}
-  local semicolons: {integer} = {}
+  local out: mut {Rewrite} = {}
+  local semicolons: mut {integer} = {}
   for i = 1, #tokens.kind do
     local kind = tokens.kind[i]
     if kind == "integer" or kind == "number" then
@@ -2203,11 +2204,11 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
     if kind == "Rets" then
       -- A return list that begins with `(A | B)?` and goes on is written in
       -- parentheses, which would otherwise be taken for the whole list.
-      if node is Ast.Rets and #node.lists == 1 then
+      if (node.kind == "Rets") and #node.lists == 1 then
         local list = node.lists[1]
         local head = list[1]
         local first, last = bounds(node)
-        if head ~= nil and head is Ast.TypeUnion and (#list > 1 or node.variadic) and tokens.kind[first] ~= "(" then
+        if head ~= nil and (head.kind == "TypeUnion") and (#list > 1 or node.variadic) and tokens.kind[first] ~= "(" then
           local made = union_rewrite(source, tokens, head)
           if made ~= nil and made.opens then
             table.insert(made.edits, insert_before(tokens, first, "("))
@@ -2218,59 +2219,59 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         end
       end
     elseif kind == "TypeUnion" then
-      if node is Ast.TypeUnion and not covered[node] then
+      if (node.kind == "TypeUnion") and not covered[node] then
         local made = union_rewrite(source, tokens, node)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
     elseif kind == "TypeFunction" then
-      if node is Ast.TypeFunction then
+      if (node.kind == "TypeFunction") then
         parameter_rewrites(source, tokens, node, out)
       end
     elseif kind == "Binary" then
-      if node is Ast.Binary and node.op == "or" and not covered[node] then
+      if (node.kind == "Binary") and node.op == "or" and not covered[node] then
         local made = ternary_rewrite(tokens, node, covered)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
     elseif kind == "Unary" then
-      if node is Ast.Unary and not covered[node] then
+      if (node.kind == "Unary") and not covered[node] then
         local cur: Ast.Exp = node.operand
-        while cur is Ast.Unary do
+        while (cur.kind == "Unary") do
           covered[cur] = true
           cur = cur.operand
         end
-        if cur is Ast.Binary and cur.op == "^" then
+        if (cur.kind == "Binary") and cur.op == "^" then
           local first = bounds(node)
           local _, last = bounds(cur.left)
           out[#out + 1] = { row = "unary_power", edits = { insert_before(tokens, first, "("), insert_after(tokens, last, ")") } }
         end
       end
     elseif kind == "FieldDecl" then
-      if node is Ast.FieldDecl then
+      if (node.kind == "FieldDecl") then
         local made = field_rewrite(source, tokens, node)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
     elseif kind == "Record" then
-      if node is Ast.Record then
+      if (node.kind == "Record") then
         local made = declaration_rewrite(tokens, node, node.scope, node.name)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
     elseif kind == "Enum" then
-      if node is Ast.Enum then
+      if (node.kind == "Enum") then
         local made = declaration_rewrite(tokens, node, node.scope, node.name)
         if made ~= nil then
           out[#out + 1] = made
         end
       end
     elseif kind == "Interface" then
-      if node is Ast.Interface then
+      if (node.kind == "Interface") then
         local made = declaration_rewrite(tokens, node, node.scope, node.name)
         if made ~= nil then
           out[#out + 1] = made
@@ -2285,17 +2286,17 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
         open_tables[#open_tables + 1] = first
       end
     elseif kind == "While" or kind == "Repeat" or kind == "ForNum" or kind == "ForIn" then
-      if node is Ast.While then
+      if (node.kind == "While") then
         loop_bodies[node.body] = true
-      elseif node is Ast.Repeat then
+      elseif (node.kind == "Repeat") then
         loop_bodies[node.body] = true
-      elseif node is Ast.ForNum then
+      elseif (node.kind == "ForNum") then
         loop_bodies[node.body] = true
-      elseif node is Ast.ForIn then
+      elseif (node.kind == "ForIn") then
         loop_bodies[node.body] = true
       end
     elseif kind == "Block" then
-      if node is Ast.Block then
+      if (node.kind == "Block") then
         local label = direct_label(tokens, node)
         local loop = loop_bodies[node] == true
         frames[#frames + 1] = { barrier = false, loop = loop, label = label }
@@ -2370,7 +2371,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   for _, label in ipairs(labels) do
     local group = jumps[label]
     if group.ends_loop then
-      local edits: {Edit} = { delete_with_blanks_before(source, tokens, label) }
+      local edits: mut {Edit} = { delete_with_blanks_before(source, tokens, label) }
       for _, at in ipairs(group.gotos) do
         edits[#edits + 1] = delete_with_blanks_after(source, tokens, at)
       end
@@ -2383,13 +2384,13 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
   -- up to the first word that begins a block (a `;` there may end a statement),
   -- are commas too, so a table of data takes one read. The rest of the table
   -- waits for the next read, when the table reaches it.
-  local commas: {integer: boolean} = {}
+  local commas: mut {integer: boolean} = {}
   for _, s in ipairs(semicolons) do
     local open = stopped[s]
     if open ~= nil and not commas[s] then
       commas[s] = true
       local close = brace_end(tokens, open)
-      local openers: {string} = {}
+      local openers: mut {string} = {}
       local i = s + 1
       while i < close do
         local kind = tokens.kind[i]
@@ -2406,7 +2407,7 @@ local function collect(source: string, parsed: Parser.Parsed, hazards: {Translat
       end
     end
   end
-  local waiting: {{integer}} = {}
+  local waiting: mut {{integer}} = {}
   for _, open in ipairs(open_tables) do
     waiting[#waiting + 1] = { open, brace_end(tokens, open) }
   end
@@ -2442,9 +2443,9 @@ end
 --- `source` with the edits of the `rewrites` made. Rewrites whose edits
 --- overlap another's are left out (they are made on a later read), and the
 --- count of each row made is added to `counts`.
-local function apply(source: string, rewrites: {Rewrite}, counts: {string: integer}, removed?: {string}): string, integer
-  local dropped: {integer: boolean} = {}
-  local placed: {Placed} = {}
+local function apply(source: string, rewrites: {Rewrite}, counts: mut {string: integer}, removed?: mut {string}): string, integer
+  local dropped: mut {integer: boolean} = {}
+  local placed: mut {Placed} = {}
   local seq = 0
   for g, r in ipairs(rewrites) do
     for _, e in ipairs(r.edits) do
@@ -2479,7 +2480,7 @@ local function apply(source: string, rewrites: {Rewrite}, counts: {string: integ
       break
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   for _, p in ipairs(placed) do
     if not dropped[p.group] then
@@ -2509,11 +2510,11 @@ end
 
 --- The text of a translation in progress, how it parses and how many times it was read.
 local record Run
-  text: string
-  parsed: Parser.Parsed
-  reads: integer
+  mut text: string
+  mut parsed: Parser.Parsed
+  mut reads: integer
   --- The reads allowed before the loop stops.
-  limit: integer
+  mut limit: integer
 end
 
 --- Makes the rewrites of `collect` until the text holds none or the reads are used.
@@ -2535,7 +2536,7 @@ local function converge(run: Run, name: string, dialect: Ast.Dialect, counts: {s
 end
 
 function Translate.translate(source: string, name: string): Translate.Result
-  local dialect: Ast.Dialect = find(name, "%.d%.tl$") and "decl" or "tl"
+  local dialect: Ast.Dialect = if find(name, "%.d%.tl$") then "decl" else "tl" end
   local counts: {string: integer} = {}
   local hazards: {Translate.Hazard} = {}
   local interfaces: {Translate.Interface} = {}
@@ -2573,8 +2574,8 @@ function Translate.translate(source: string, name: string): Translate.Result
   end
   local text, parsed, reads = run.text, run.parsed, run.reads
   -- A rewrite left for a later read can report the same place twice.
-  local unique: {Translate.Hazard} = {}
-  local seen_hazards: {string: boolean} = {}
+  local unique: mut {Translate.Hazard} = {}
+  local seen_hazards: mut {string: boolean} = {}
   for _, h in ipairs(hazards) do
     local key = h.kind .. "\0" .. h.class .. "\0" .. h.method .. "\0" .. h.name
     if not seen_hazards[key] then

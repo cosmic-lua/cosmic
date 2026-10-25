@@ -3,6 +3,7 @@
 --- `ci.yml` skips wherever its marker's key, which hashes none of these
 --- sources, found an earlier pass: here each verdict is keyed by the
 --- sources it reads, so a change to one runs it again on every leg.
+local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
@@ -21,6 +22,8 @@ Test.policy{
     { path = "doc/", letters = "r" },
     { path = "ci/cosmic_ci/run_names.json", letters = "r" },
     { path = "ci/darwin-tests.txt", letters = "r" },
+    { path = "ci/strict-files.txt", letters = "r" },
+    { path = "ci/testdata/portable/", letters = "r" },
   },
 }
 
@@ -77,8 +80,8 @@ local sets_what_it_reads: {string:{string:boolean}} = {
 --- The names of variables a suite forgets that `text`, a source,
 --- names, less `allowed`.
 local function forgotten(names: RunNames, text: string, allowed: {string:boolean}): {string}
-  local found: {string} = {}
-  local seen: {string:boolean} = {}
+  local found: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   for name in text:gmatch("[%u%d_]+") do
     -- CI is a word of prose too often to tell a read of it.
     if name ~= "CI" and not seen[name] and not allowed[name] and names_the_run(names, name) then
@@ -107,7 +110,7 @@ end
 --- checks for, is left out.
 local function test_no_tree_source_reads_what_a_suite_forgets()
   local names = run_names()
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
     for _, path in ipairs((assert(Fs.walk(dir)))) do
       local relative = dir .. "/" .. path
@@ -128,18 +131,90 @@ end
 --- cosmic_ci.orchestration's `darwin_modules` reads it: one path a
 --- line, with what a `#` starts and blank lines left out.
 local function test_the_darwin_list_names_test_modules_of_the_tree()
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for line in (assert(Fs.read("ci/darwin-tests.txt"))):gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
   end
   assert(#modules > 0, "the darwin list names no module")
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, module in ipairs(modules) do
     assert(not seen[module], module .. ": listed twice")
     seen[module] = true
     assert(module:match("^[%w_/]+_test%.tl$"), module .. ": not a test module's path")
     local st = Fs.stat(module)
     assert(st ~= nil and st.kind == "file", module .. ": no such test module")
+  end
+end
+
+--- ci/strict-files.txt lists the files the running product compiles at run time with no ceiling to stand on. `fix --check .`
+--- passes a file with a pin; the product's run of it stops at the first finding, so a file there has no pin in any stage
+--- of build/ceilings.txt.
+local function strict_files(): {string}
+  local files: mut {string} = {}
+  for line in (assert(Fs.read("ci/strict-files.txt"))):gmatch("[^\n]+") do
+    local path = String.trim((line:gsub("#.*$", "")))
+    if path ~= "" then files[#files + 1] = path end
+  end
+  return files
+end
+
+local function test_a_file_run_without_ceilings_has_none_pinned()
+  local files = strict_files()
+  assert(#files > 0, "the list of files run without ceilings names none")
+  local pinned = assert(Ceilings.read("."))
+  local seen: mut {string:boolean} = {}
+  for _, file in ipairs(files) do
+    assert(seen[file] ~= true, file .. ": listed twice")
+    seen[file] = true
+    local st = Fs.stat(file)
+    assert(st ~= nil and st.kind == "file", file .. ": no such file")
+    for stage, keys in pairs(pinned.stages) do
+      for key, count in pairs(keys) do
+        assert(key ~= file and key:sub(1, #file + 1) ~= file .. " ",
+          file .. " is compiled by the running product without ceilings, so it has none: [" .. stage .. "] pins " ..
+            tostring(count) .. " (" .. key .. "); fix the finding rather than raise the pin")
+      end
+    end
+  end
+end
+
+--- The files test/portable/probe.tl reaches in the tree ci/cosmic_ci/runtime_setup.tl packs for it: `require` by a literal
+--- name through the tree's modules, the module [`build.artifact`] replaced by the row of ci/testdata/portable that stands for it.
+local function test_the_files_the_portable_probe_reaches_are_listed()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  local seen: mut {string:boolean} = {}
+  local function visit(file: string)
+    if seen[file] == true then return end
+    seen[file] = true
+    local shown = if file == "build/artifact.tl" then "ci/testdata/portable/artifact_row.tl" else file end
+    assert(listed[shown], shown .. " is reached by test/portable/probe.tl and is not in ci/strict-files.txt")
+    for name in (assert(Fs.read(shown))):gmatch('require%(%s*"([%w_%.]+)"%s*%)') do
+      if name:sub(1, 7) ~= "cosmic." then
+        local base = name:gsub("%.", "/")
+        for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl" }) do
+          local st = Fs.stat(candidate)
+          if st ~= nil then
+            visit(candidate)
+            break
+          end
+        end
+      end
+    end
+  end
+  visit("test/portable/probe.tl")
+  assert(seen["build/artifact.tl"] == true, "the probe no longer reaches build.artifact: update this test and the list")
+end
+
+--- A script of test/terminal is run by the product from ci/fixtures/self_driven_test.tl.
+local function test_every_script_of_the_terminal_directory_is_listed()
+  local listed: mut {string:boolean} = {}
+  for _, file in ipairs(strict_files()) do listed[file] = true end
+  local names = assert(Fs.walk("test/terminal"))
+  for _, name in ipairs(names) do
+    if name:match("%.tl$") then
+      assert(listed["test/terminal/" .. name], "test/terminal/" .. name .. " is not in ci/strict-files.txt")
+    end
   end
 end

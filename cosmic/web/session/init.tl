@@ -99,13 +99,13 @@ local record Session
     --- The data `token` names; nil and "" when it names none (absent,
     --- tampered, unknown, expired), which makes the request anonymous.
     --- Nil and why when the store itself failed, which is a 500.
-    load: function(Store, token: string, now: integer, cookie: string): Data | nil, string
+    load: function(Store, token: string, now: integer, cookie: string): Data?, string
     --- Keeps `data`, the session as the request saw it with its changes
     --- applied, and answers the token to send. `previous` is the token the
     --- request came with, "" for a new session. Nil and why when it cannot
     --- (the cookie store when the token is too big), which is a 500.
     save: function(Store, previous: string, data: Data, changes: Changes, now: integer,
-        cookie: string): string | nil, string
+        cookie: string): string?, string
     --- Revokes `token` where the store can.
     destroy: function(Store, token: string): boolean, string
     --- Whether `destroy` revokes: false for a signed cookie, which
@@ -136,7 +136,7 @@ local record Session
     --- The cookie's `Secure`; nil follows the request's scheme.
     secure?: boolean
     --- The time in seconds since the epoch, for a test.
-    now: function(): integer
+    now?: function(): integer
   end
 
   --- A request's session. Its methods are called with ":".
@@ -144,11 +144,11 @@ local record Session
     --- The value at `key`, or nil.
     get: function(Handle, key: string): any
     --- The value at `key` when it is a string.
-    get_string: function(Handle, key: string): string | nil
+    get_string: function(Handle, key: string): string?
     --- The value at `key` when it is an integer.
-    get_integer: function(Handle, key: string): integer | nil
+    get_integer: function(Handle, key: string): integer?
     --- The value at `key` when it is a boolean.
-    get_boolean: function(Handle, key: string): boolean | nil
+    get_boolean: function(Handle, key: string): boolean?
     --- Keeps `value` at `key`; a nil value removes the key, as `delete` does.
     --- Raises when the value is not JSON or nests past [`Session.MAX_DEPTH`],
     --- when the key is empty or the reserved "_flash", and after the response
@@ -215,23 +215,23 @@ local record State
   cookie: string
   max_age: integer
   now: integer
-  loaded: boolean
-  accessed: boolean
-  frozen: boolean
+  mut loaded: boolean
+  mut accessed: boolean
+  mut frozen: boolean
   --- Whether the request came with a valid session.
-  valid: boolean
+  mut valid: boolean
   --- The token the request came with and that is still the session's.
-  token: string
+  mut token: string
   --- Whether a cookie came that named no valid session.
-  bad_cookie: boolean
-  data: Session.Data
-  changes: Session.Changes
+  mut bad_cookie: boolean
+  mut data: Session.Data
+  mut changes: Session.Changes
   --- Whether the session is to be saved.
-  dirty: boolean
+  mut dirty: boolean
   --- Whether the handler invalidated the session.
-  invalidated: boolean
+  mut invalidated: boolean
   --- Tokens to revoke when the response is built.
-  doomed: {string}
+  doomed: mut {string}
 end
 
 --- A fresh anonymous session.
@@ -272,7 +272,7 @@ local function writable(st: State)
   ensure(st)
 end
 
-local function get_string(st: State, key: string): string | nil
+local function get_string(st: State, key: string): string?
   ensure(st)
   local value = st.data.values[key]
   if value is string then return value end
@@ -284,7 +284,7 @@ local function mark(st: State)
   st.dirty = true
 end
 
-local function remove_key(list: {string}, key: string)
+local function remove_key(list: mut {string}, key: string)
   for i = #list, 1, -1 do
     if list[i] == key then table.remove(list, i) end
   end
@@ -348,16 +348,16 @@ local function make_handle(st: State): Session.Handle
       ensure(st)
       return st.data.values[key]
     end,
-    get_string = function(_: Session.Handle, key: string): string | nil
+    get_string = function(_: Session.Handle, key: string): string?
       return get_string(st, key)
     end,
-    get_integer = function(_: Session.Handle, key: string): integer | nil
+    get_integer = function(_: Session.Handle, key: string): integer?
       ensure(st)
       local value = st.data.values[key]
       if value is integer then return value end
       return nil
     end,
-    get_boolean = function(_: Session.Handle, key: string): boolean | nil
+    get_boolean = function(_: Session.Handle, key: string): boolean?
       ensure(st)
       local value = st.data.values[key]
       if value is boolean then return value end
@@ -411,7 +411,7 @@ local function make_handle(st: State): Session.Handle
       if why ~= nil and why ~= "" then
         error("session: cannot flash that: " .. why, 0)
       end
-      local list: {{string:any}} = {}
+      local list: mut {{string:any}} = {}
       for _, each in ipairs(flashes_of(st)) do list[#list + 1] = each end
       list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) }
       while #list > MAX_FLASHES do table.remove(list, 1) end
@@ -422,7 +422,7 @@ local function make_handle(st: State): Session.Handle
     end,
     take_flashes = function(_: Session.Handle): {Session.Flash}
       ensure(st)
-      local out: {Session.Flash} = {}
+      local out: mut {Session.Flash} = {}
       if st.data.values[FLASH] == nil then return out end
       writable(st)
       for _, each in ipairs(flashes_of(st)) do
@@ -501,7 +501,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
   if cookie_name ~= nil then
     cookie = cookie_name
   elseif opts.secure == true then
-    cookie = opts.domain == nil and "__Host-session" or "__Secure-session"
+    cookie = if opts.domain == nil then "__Host-session" else "__Secure-session" end
   else
     cookie = "session"
   end

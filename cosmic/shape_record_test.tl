@@ -5,7 +5,7 @@
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 
-local type Level = enum
+local enum Level
   "debug"
   "info"
   "warn"
@@ -13,7 +13,7 @@ end
 
 local record Address
   street: string
-  floor: integer | nil
+  floor: integer?
 end
 
 --- One field of every kind a spec can be read off.
@@ -22,9 +22,9 @@ local record Profile
   age: integer
   score: number
   admin: boolean
-  nickname: string | nil
+  nickname: string?
   address: Address
-  previous: Address | nil
+  previous: Address?
   tags: {string}
   scores: {number}
   places: {Address}
@@ -60,7 +60,7 @@ local HAND_WRITTEN <const> = Shape.record({
   by_key = Shape.map(ADDRESS),
   weights = Shape.map(Shape.number),
   level = Shape.one_of("debug", "info", "warn"),
-  anything = Shape.any,
+  anything = Shape.optional(Shape.any),
   inner = Shape.record({ deep = Shape.map(Shape.list(Shape.integer)) }),
 })
 

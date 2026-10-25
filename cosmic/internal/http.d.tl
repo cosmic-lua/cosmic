@@ -9,7 +9,7 @@ local record http
   -- collector; any method but `close` on a closed handle raises.
   record Handle
     userdata
-    metamethod __close: function(Handle)
+    __close: function(Handle)
 
     -- The final response's status code.
     status: function(Handle): integer
@@ -22,7 +22,7 @@ local record http
     -- One chunk of the body, at most `max_bytes` bytes (a default when
     -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
     -- on failure.
-    read: function(Handle, max_bytes?: integer): string | nil, string
+    read: function(Handle, max_bytes?: integer): string?, string
     -- What curl has written to a scripted transfer's connections so
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.
@@ -96,17 +96,17 @@ local record http
   -- header name or value holding CR, LF or NUL, an empty header name
   -- or one holding ':', a URL holding NUL, a `unix_socket` that is empty
   -- or holds NUL.
-  open: function(url: string, opts?: Options): Handle | nil, string
+  open: function(url: string, opts?: Options): Handle?, string
 
   -- The trust store `open` verifies a server against when given no
   -- `ca_blob`, made the first time it is wanted, and "", or `nil, err`
   -- when it cannot be made, as `open` would fail.
-  roots: function(): Roots | nil, string
+  roots: function(): Roots?, string
 
   -- The DER of the SubjectPublicKeyInfo of `cert`, one certificate as
   -- PEM or DER, and "", or `nil, err` when the TLS stack cannot read it
   -- as exactly one. Raises when there was no memory to read it.
-  public_key: function(cert: string): string | nil, string
+  public_key: function(cert: string): string?, string
 
   -- True and "" when the TLS stack reads `der` as one X.509
   -- certificate, as it reads each CA root the binary carries; false

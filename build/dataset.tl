@@ -137,7 +137,7 @@ local record dataset
     extensions: {string}
     --- The rows text holds, and ""; nil and why when it is not the
     --- format or an option does not apply.
-    read: function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
+    read: function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
   end
 end
 
@@ -171,7 +171,7 @@ local function cell_of(text: string): any
   if text == "" then
     return Json.null
   end
-  local at = text:byte(1) == 45 and 2 or 1
+  local at = if text:byte(1) == 45 then 2 else 1 end
   local first = text:byte(at)
   if first == 48 then
     at = at + 1
@@ -212,8 +212,8 @@ local function cell_of(text: string): any
 end
 
 --- A reader of the delimited text `Csv` reads with `delimiter`.
-local function delimited(name: string, delimiter: string): function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
-  return function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
+local function delimited(name: string, delimiter: string): function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
+  return function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
     if opts.at ~= nil then
       return refuse("the " .. name .. " format takes no path: each record is a row")
     end
@@ -239,7 +239,7 @@ local formats: {string:dataset.Format} = {
     about = "one JSON document: an array of objects is a table of them, an array " ..
       "of anything else a `value` column, and any other value one row",
     extensions = { "json" },
-    read = function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
+    read = function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
       if opts.raw then
         return refuse("the json format has no raw cells: its values are typed by JSON")
       end
@@ -257,7 +257,7 @@ local formats: {string:dataset.Format} = {
   ndjson = {
     about = "JSON Lines: one JSON value to a line, an object a row and anything else a `value`",
     extensions = { "ndjson", "jsonl" },
-    read = function(text: string, opts: dataset.ReadOptions): dataset.Rows | nil, string
+    read = function(text: string, opts: dataset.ReadOptions): dataset.Rows?, string
       if opts.at ~= nil then
         return refuse("the ndjson format takes no path: each line is a row")
       end
@@ -285,7 +285,7 @@ local formats: {string:dataset.Format} = {
 
 --- The names of the formats there are, sorted: `csv`, `json`, `ndjson`, `tsv`.
 function dataset.names(): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(formats) do
     names[#names + 1] = name
   end
@@ -294,7 +294,7 @@ function dataset.names(): {string}
 end
 
 --- What the format `name` is, for a message: nil when there is none.
-function dataset.about(name: string): string | nil
+function dataset.about(name: string): string?
   local format = formats[name]
   return format and format.about
 end
@@ -303,9 +303,9 @@ end
 --- `a.json`, `ndjson` for `a.jsonl` and `a.ndjson`, `tsv` for `a.tab` --
 --- or nil and why (the extensions there are) when it has none or an
 --- unknown one.
-function dataset.format_of(path: string): string | nil, string
+function dataset.format_of(path: string): string?, string
   local extension = path:match("%.([^./]+)$")
-  local known: {string} = {}
+  local known: mut {string} = {}
   for _, name in ipairs(dataset.names()) do
     for _, each in ipairs(formats[name].extensions) do
       if extension ~= nil and extension:lower() == each then
@@ -315,14 +315,14 @@ function dataset.format_of(path: string): string | nil, string
     end
   end
   table.sort(known)
-  return refuse((extension and "unknown extension ." .. extension or "no extension") ..
+  return refuse((if extension then "unknown extension ." .. extension else "no extension" end) ..
       " (known: " .. table.concat(known, ", ") .. ")")
 end
 
 --- The rows `text` holds in the format `name`, and ""; nil and why when
 --- there is no such format (the ones there are), the text is not that
 --- format, or `opts.at` or `opts.raw` is given to a format that takes none.
-function dataset.read(name: string, text: string, opts?: dataset.ReadOptions): dataset.Rows | nil, string
+function dataset.read(name: string, text: string, opts?: dataset.ReadOptions): dataset.Rows?, string
   local format = formats[name]
   if format == nil then
     return refuse("no format " .. name .. " (known: " .. table.concat(dataset.names(), ", ") .. ")")
@@ -336,13 +336,13 @@ local function quoted(name: string): string
 end
 
 --- One value as a bound parameter, or nil and why.
-local function bound(value: any): Sqlite.Value | nil, string
+local function bound(value: any): Sqlite.Value?, string
   if value == Json.null or value == nil then
     return {}
   elseif value is string then
     return { text = value }
   elseif value is boolean then
-    return { integer = value and 1 or 0 }
+    return { integer = if value then 1 else 0 end }
   elseif value is integer then
     return { integer = value }
   elseif value is number then
@@ -364,16 +364,16 @@ local RESERVED <const>: {string} = { "_json", "rowid", "oid", "_rowid_" }
 --- The columns for `rows`' keys: those of `first`, then the rest in byte
 --- order, each named as the module comment says ([`Csv.column_names`]).
 --- Also the key each column holds, and the key each renamed column was.
-local function columns_of(rows: {dataset.Row}, first: {string} | nil): {string}, {string:string}, {string:string}
-  local seen: {string:boolean} = {}
-  local keys: {string} = {}
+local function columns_of(rows: {dataset.Row}, first: {string}?): {string}, {string:string}, {string:string}
+  local seen: mut {string:boolean} = {}
+  local keys: mut {string} = {}
   for _, key in ipairs(first or {}) do
     if not seen[key] then
       seen[key] = true
       keys[#keys + 1] = key
     end
   end
-  local rest: {string} = {}
+  local rest: mut {string} = {}
   for _, row in ipairs(rows) do
     for key in pairs(row) do
       if not seen[key] then
@@ -387,8 +387,8 @@ local function columns_of(rows: {dataset.Row}, first: {string} | nil): {string},
     keys[#keys + 1] = key
   end
   local names = Csv.column_names(keys, RESERVED)
-  local key_of: {string:string} = {}
-  local renamed: {string:string} = {}
+  local key_of: mut {string:string} = {}
+  local renamed: mut {string:string} = {}
   for index, name in ipairs(names) do
     key_of[name] = keys[index]
     if name ~= keys[index] then
@@ -409,7 +409,7 @@ local max_columns <const> = 2000
 --- exists, or `name` is reserved) or a row, a row holds a value with
 --- no SQLite one, or a nested value cannot be encoded.
 --- `name` is written into SQL text, so it holds no NUL byte.
-function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): dataset.Table | nil, string
+function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): dataset.Table?, string
   if name == "" then
     return refuse("a table needs a name")
   end
@@ -422,8 +422,8 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
         ", and SQLite holds at most " .. plural.count(max_columns, "column") ..
         " in a table (one is `_json`)")
   end
-  local declared: {string} = {}
-  local marks: {string} = {}
+  local declared: mut {string} = {}
+  local marks: mut {string} = {}
   for index, column in ipairs(names) do
     declared[index] = quoted(column)
     marks[index] = "?" .. index
@@ -439,7 +439,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
       return false, why
     end
     for number, row in ipairs(rows) do
-      local values: {Sqlite.Value} = {}
+      local values: mut {Sqlite.Value} = {}
       for index, column in ipairs(names) do
         local value, bad = bound(row[key_of[column]])
         if value == nil then
@@ -462,7 +462,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   if not ok then
     return refuse(trouble)
   end
-  local columns: {string} = {}
+  local columns: mut {string} = {}
   for index, column in ipairs(names) do
     columns[index] = column
   end
@@ -479,10 +479,10 @@ local DELIMITERS <const>: {string:string} = { csv = ",", tsv = "\t" }
 --- `text`, which it reads as SQL text first; `_json` is generated from
 --- the columns as it is read. Nil and why for anything `load` refuses.
 local function copied(handle: Sqlite.Handle, name: string, format: string, text: string,
-                      raw: boolean, path: string | nil): dataset.Table | nil, string
+                      raw: boolean, path: string?): dataset.Table?, string
   local source: Csv.Source = { raw = raw, delimiter = DELIMITERS[format], json = "_json" }
   -- A path that cannot be inspected is read from `text`, as a pipe is.
-  local st: sys.Stat | nil = nil
+  local st: sys.Stat? = nil
   if path ~= nil then
     local _: string
     st, _ = Fs.stat(path)
@@ -496,8 +496,8 @@ local function copied(handle: Sqlite.Handle, name: string, format: string, text:
   if loaded == nil then
     return nil, why
   end
-  local renamed: {string:string} = {}
-  local columns: {string} = {}
+  local renamed: mut {string:string} = {}
+  local columns: mut {string} = {}
   for index, column in ipairs(loaded.columns) do
     columns[index] = column
     if column ~= loaded.keys[index] then
@@ -521,7 +521,7 @@ end
 --- refused, which `_json` cannot hold. `path` is the file `text` was read
 --- from, unchanged since, which SQLite then reads itself.
 function dataset.load_text(handle: Sqlite.Handle, name: string, format: string, text: string,
-                           opts?: dataset.ReadOptions, path?: string): dataset.Table | nil, string
+                           opts?: dataset.ReadOptions, path?: string): dataset.Table?, string
   local options = opts or {}
   -- Text that is not UTF-8 is read here, where `_json` refuses it naming
   -- the cell, as SQLite's json_object would write it into invalid JSON.

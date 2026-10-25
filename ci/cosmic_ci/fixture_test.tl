@@ -77,7 +77,7 @@ end
 local function test_a_fixtures_children_take_no_shared_compiles()
   assert(Fixture.environment()["COSMIC_BUILD_CACHE"] == "0",
     "a fixture's child takes the fixture's shared compiles")
-  assert(Fixture.environment({ COSMIC_BUILD_CACHE = "/elsewhere.db" }).COSMIC_BUILD_CACHE ==
+  assert(Fixture.environment({ COSMIC_BUILD_CACHE = "/elsewhere.db" })["COSMIC_BUILD_CACHE"] ==
       "/elsewhere.db", "a fixture cannot give its child a cache")
 end
 
@@ -90,7 +90,7 @@ local function test_a_fixtures_children_run_cosmic_test_unsandboxed()
   assert(child["COSMIC_TEST_SANDBOX"] == "0",
     "a fixture's child sandboxes the workers of a cosmic test it runs")
   assert(child["COSMIC_SANDBOX"] == "must" and sandboxed["COSMIC_TEST_SANDBOX"] == "1")
-  assert(Fixture.environment_of(sandboxed, { COSMIC_TEST_SANDBOX = "1" }).COSMIC_TEST_SANDBOX ==
+  assert(Fixture.environment_of(sandboxed, { COSMIC_TEST_SANDBOX = "1" })["COSMIC_TEST_SANDBOX"] ==
       "1", "a fixture cannot choose its child's sandbox")
   assert(Fixture.environment()["COSMIC_TEST_SANDBOX"] == "0")
 end

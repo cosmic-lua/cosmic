@@ -30,7 +30,7 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
-  local code = { value = nil as integer | nil }
+  local code = { value = nil as integer? }
   local ran = confine.call(function()
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))

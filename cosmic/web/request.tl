@@ -69,7 +69,7 @@ end
 --- follows a host cannot smuggle in userinfo or a path (`good.com:@evil.com`).
 --- @param value string The header's value
 --- @return Request.HostPort | nil The host and port, nil where `value` is neither
-function Request.parse_host(value: string): Request.HostPort | nil
+function Request.parse_host(value: string): Request.HostPort?
   local lower = value:lower()
   local host, tail: string, string
   if lower:sub(1, 1) == "[" then
@@ -88,11 +88,11 @@ function Request.parse_host(value: string): Request.HostPort | nil
   return { host = host, port = port }
 end
 
-local function header(self: Req, name: string): string | nil
+local function header(self: Req, name: string): string?
   return self.headers[name:lower()]
 end
 
-local function bytes(self: Req): string | nil, string
+local function bytes(self: Req): string?, string
   local body_text = self.body_text
   if body_text ~= nil then return body_text, "" end
   local body_failure = self.body_failure
@@ -108,14 +108,14 @@ local function bytes(self: Req): string | nil, string
   return data, ""
 end
 
-local function text(self: Req): string | nil, string
+local function text(self: Req): string?, string
   local data, why = bytes(self)
   if data == nil then return nil, why end
   if not utf8.len(data) then return nil, "web: the body is not valid UTF-8" end
   return data, ""
 end
 
-local function get<T>(self: Req, key: Types.Key<T>): T | nil
+local function get<T>(self: Req, key: Types.Key<T>): T?
   -- cast: a slot holds the T that `set` stored under this very key.
   return self.slots[key] as T
 end
@@ -124,7 +124,7 @@ local function set<T>(self: Req, key: Types.Key<T>, value: T)
   self.slots[key] = value
 end
 
-local function query(self: Req): Url.Query | nil, string
+local function query(self: Req): Url.Query?, string
   local cached = get(self, QUERY)
   if cached ~= nil then return cached, "" end
   local decoded, why = Url.decode_query(self.query_string)
@@ -133,16 +133,16 @@ local function query(self: Req): Url.Query | nil, string
   return decoded, ""
 end
 
-local function accepts(self: Req, offers: {string}): string | nil
+local function accepts(self: Req, offers: {string}): string?
   return Negotiate.best(self.headers["accept"], offers)
 end
 
 local function url_for(self: Req, name: string, params?: {string: string | integer},
-                       queries?: {string:string}): string | nil, string
+                       queries?: {string:string}): string?, string
   return self.app:url_for(name, params, queries)
 end
 
-local function base_url(self: Req): string | nil, string
+local function base_url(self: Req): string?, string
   if self.app.spec.trusted_hosts == nil then
     return nil, "web: base_url needs trusted_hosts, since the Host header is the client's"
   end
@@ -151,7 +151,7 @@ local function base_url(self: Req): string | nil, string
   local parsed = Request.parse_host(host)
   if parsed == nil then return nil, "web: the request's host is not a host name" end
   local port = parsed.port
-  return self.scheme .. "://" .. parsed.host .. (port ~= nil and ":" .. port or ""), ""
+  return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. port else "" end), ""
 end
 
 local methods = {
@@ -164,7 +164,7 @@ local request_mt: metatable<Req> = { __index = methods }
 --- The last entry of a comma-separated forwarding header: the one the
 --- proxy next to the app added, since the entries before it are the
 --- client's to write. Nil for none.
-local function last_entry(value: string | nil): string | nil
+local function last_entry(value: string?): string?
   if value == nil then return nil end
   -- Found from the end: `([^,]*)$` retries at every byte of a long entry.
   local comma = value:reverse():find(",", 1, true)
@@ -183,7 +183,7 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   local headers = raw.headers
   local scheme = "http"
   local host = headers["host"]
-  local client: Types.Client | nil = nil
+  local client: Types.Client? = nil
   local peer = raw.peer
   if peer ~= nil and peer.kind == "tcp" then
     client = { host = peer.host, port = peer.port }

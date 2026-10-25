@@ -78,10 +78,10 @@ local record Round
     run: function({string}): Round.Output
     --- Starts a command, its output kept in the file `log`: a number
     --- naming it, nil when it could not start.
-    start: function({string}, string): integer | nil
+    start: function({string}, string): integer?
     --- Waits for the first of the numbered commands to end.
     wait: function({integer}): Round.Done
-    read: function(string): string | nil
+    read: function(string): string?
     write: function(string, string): boolean
     mkdirs: function(string): boolean
   end
@@ -92,7 +92,7 @@ Round.all_tasks = { "jobs", "kv", "ledger", "mirror", "notes", "pack", "relay" }
 local USAGE <const> = "usage: eval/round <task,...|all> --model M [--tool PATH] [--out DIR] " ..
   "[--run N] [--jobs N] [--max-turns N] [--timeout S]"
 
-local function positive(text: string): integer | nil
+local function positive(text: string): integer?
   if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
 end
@@ -100,11 +100,11 @@ end
 --- Reads the command line: the tasks, then the options; `--run` is 1,
 --- `--jobs` 3, `--max-turns` 150 and `--timeout` 600 (eval/solve's own
 --- defaults, stated so result.json records them) unless given.
-function Round.parse(argv: {string}): Round.Options | nil, string
-  local tasks: {string} | nil = nil
-  local model: string | nil = nil
-  local tool: string | nil = nil
-  local out: string | nil = nil
+function Round.parse(argv: {string}): Round.Options?, string
+  local tasks: mut {string}? = nil
+  local model: string? = nil
+  local tool: string? = nil
+  local out: string? = nil
   local run, jobs, max_turns, timeout = 1, 3, 150, 600
   local i = 1
   while argv[i] ~= nil do
@@ -138,8 +138,8 @@ function Round.parse(argv: {string}): Round.Options | nil, string
       return nil, "one list of tasks only: " .. word
     else
       tasks = {}
-      local seen: {string: boolean} = {}
-      local names: {string} = word == "all" and Round.all_tasks or {}
+      local seen: mut {string: boolean} = {}
+      local names: mut {string} = word == "all" and Round.all_tasks or {}
       if word ~= "all" then
         for name in word:gmatch("[^,]+") do names[#names + 1] = name end
       end
@@ -173,12 +173,12 @@ end
 --- <out>/<task>/run-<NNN> and its commands.
 function Round.plan(options: Round.Options, root: string, tool: string, commit: string,
                     out: string): Round.Plan
-  local entries: {Round.Entry} = {}
+  local entries: mut {Round.Entry} = {}
   for _, task in ipairs(options.tasks) do
     local arena = out .. "/" .. task .. "/" .. string.format("run-%03d", options.run)
     local solve = { root .. "/eval/solve", arena, "--model", options.model }
     local result = { root .. "/eval/result", arena, "--model", options.model }
-    local function both(flag: string, value: integer | nil)
+    local function both(flag: string, value: integer?)
       if value == nil then return end
       for _, argv in ipairs({ solve, result }) do
         argv[#argv + 1] = flag
@@ -238,8 +238,8 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
     say("round: cannot make " .. plan.out)
     return 2
   end
-  local lines: {string} = {}
-  local laid: {Round.Entry} = {}
+  local lines: mut {string} = {}
+  local laid: mut {Round.Entry} = {}
   for _, entry in ipairs(plan.entries) do
     local made = system.run(entry.lay)
     if made.code == 0 then
@@ -249,10 +249,10 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
       say("round: " .. entry.task .. ": " .. (made.text:gsub("\n+$", "")))
     end
   end
-  local waiting: {Round.Entry} = {}
+  local waiting: mut {Round.Entry} = {}
   for _, entry in ipairs(laid) do waiting[#waiting + 1] = entry end
-  local running: {integer} = {}
-  local owner: {integer: Round.Entry} = {}
+  local running: mut {integer} = {}
+  local owner: mut {integer: Round.Entry} = {}
   while #waiting > 0 or #running > 0 do
     while #waiting > 0 and #running < plan.jobs do
       local entry = table.remove(waiting, 1)
@@ -282,10 +282,10 @@ function Round.execute(plan: Round.Plan, system: Round.System): integer
     system.write(entry.arena .. "/summary.txt", summary.text)
     local graded = system.run(entry.grade)
     local logs = graded.text:match("check: logs ([^\n]+)")
-    local log = logs ~= nil and logs .. "/grade.log" or entry.arena .. "/grade.log"
+    local log = if logs ~= nil then logs .. "/grade.log" else entry.arena .. "/grade.log" end
     system.write(log, graded.text)
     say("round: " .. entry.task .. ": grade exit " .. graded.code .. " (" .. log .. ")")
-    local result: {string} = {}
+    local result: mut {string} = {}
     for _, word in ipairs(entry.result) do result[#result + 1] = word end
     -- The log is named from the arena, as the transcript is.
     local relative = log:sub(1, #entry.arena + 1) == entry.arena .. "/" and log:sub(#entry.arena + 2) or log
@@ -329,7 +329,7 @@ local function real_system(): Round.System
       if result == nil then return { code = 127, text = trouble } end
       return { code = Child.shell_status(result), text = result.stdout or "" }
     end,
-    start = function(argv: {string}, log: string): integer | nil
+    start = function(argv: {string}, log: string): integer?
       local fd, _ = Fs.open_write(log)
       if fd == nil then return nil end
       local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null" })
@@ -343,7 +343,7 @@ local function real_system(): Round.System
       return started.issued
     end,
     wait = function(numbers: {integer}): Round.Done
-      local live: {Child.Handle} = {}
+      local live: mut {Child.Handle} = {}
       for _, number in ipairs(numbers) do live[#live + 1] = handles[number] end
       local done, _ = Child.wait_any(live)
       assert(done, "wait_any")
@@ -355,7 +355,7 @@ local function real_system(): Round.System
       local _, _ = Fs.close(streams[finished])
       return { id = finished, code = result ~= nil and Child.shell_status(result) or 127 }
     end,
-    read = function(path: string): string | nil
+    read = function(path: string): string?
       local text, _ = Fs.read(path)
       return text
     end,
@@ -423,7 +423,7 @@ local function run(argv: {string}, program: string): integer
   end
   local plan = Round.plan(options, root, absolute, short, absolute_out)
   local failures = Round.execute(plan, system)
-  return failures == 0 and 0 or 1
+  return if failures == 0 then 0 else 1 end
 end
 
 --- The entry point: [`run`] with this script's path, Lua's `arg[0]`.

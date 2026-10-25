@@ -20,7 +20,7 @@ local _ = require("cosmic.child")
 --- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
 -- TODO: start each child with cosmic.child's sandbox option and drop
--- this function and its cast (build/contracts.tl's `casts`), once
+-- this function and its cast (build/contract_rules.tl's `casts`), once
 -- cosmic.child offers spawn's sandbox as a Child option (the TODO in
 -- cosmic/child.tl's start).
 local function raw_process_table(): raw_process
@@ -76,7 +76,7 @@ local function first_line(path: string): string
 end
 
 --- The value of the field `name` in /proc/self/status, or "absent".
-local function status_field(status: string | nil, name: string): string
+local function status_field(status: string?, name: string): string
   if status == nil then return "absent" end
   local value = status:match("\n" .. name .. ":%s*([^\n]*)")
   if value == nil then return "absent" end
@@ -107,7 +107,7 @@ end
 
 --- The system's own paths a shell needs, each where this host has it.
 local function system(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, path in ipairs({ "/bin", "/sbin", "/usr", "/lib", "/lib64", "/etc", "/proc",
       "/dev/null" }) do
     local there, _ = sys.stat(path)
@@ -131,9 +131,9 @@ local function tried(tmp: string, script: string, sandbox: raw_process.Sandbox):
   if status.code == 0 then return true, "" end
   local said, _ = Fs.read(tmp .. "/said")
   local words = ((said or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
-  local how = status.code >= 0 and "exited " .. tostring(status.code) or
-    "killed by signal " .. tostring(status.signal)
-  return false, how .. (words ~= "" and ": " .. words:sub(1, 200) or "")
+  local how = if status.code >= 0 then "exited " .. tostring(status.code) else
+    "killed by signal " .. tostring(status.signal) end
+  return false, how .. (if words ~= "" then ": " .. words:sub(1, 200) else "" end)
 end
 
 --- `tried`, for a child that cannot read its own /proc: a ruleset does
@@ -142,7 +142,7 @@ end
 --- process's /proc, while the child waits on its stdin. It must run
 --- under a seccomp filter, one more than this process's own
 --- (`filters`), and have no network interface but lo.
-local function tried_from_outside(tmp: string, script: string, filters: string | nil,
+local function tried_from_outside(tmp: string, script: string, filters: string?,
                                   sandbox: raw_process.Sandbox): boolean, string
   local ends, pipe_trouble = process.pipe()
   if ends == nil then return false, pipe_trouble end
@@ -175,9 +175,9 @@ local function tried_from_outside(tmp: string, script: string, filters: string |
   if status.code ~= 0 then
     local text, _ = Fs.read(tmp .. "/said")
     local words = ((text or ""):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
-    return false, (status.code >= 0 and "exited " .. tostring(status.code) or
-      "killed by signal " .. tostring(status.signal)) .. (words ~= "" and ": " ..
-        words:sub(1, 200) or "")
+    return false, (if status.code >= 0 then "exited " .. tostring(status.code) else
+      "killed by signal " .. tostring(status.signal) end) .. (if words ~= "" then ": " ..
+        words:sub(1, 200) else "" end)
   end
   if unfiltered then return false, "no seccomp filter of its own" end
   if networked then return false, "a network interface besides lo" end
@@ -214,15 +214,15 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   -- Pledged, it runs under a seccomp filter, one more than this
   -- process's own (a container's runtime may have given it some).
   local status, _ = Fs.read("/proc/self/status")
-  local filters: string | nil = nil
+  local filters: string? = nil
   if status ~= nil then filters = status:match("\nSeccomp_filters:%s*(%d+)") end
   local filtered = "grep -q '^Seccomp:[[:space:]]*2' /proc/self/status" ..
-    (filters and " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
-      filters or "")
+    (if filters then " && test \"$(sed -n 's/^Seccomp_filters:[[:space:]]*//p' /proc/self/status)\" -gt " ..
+      filters else "" end)
   local parts: {SandboxProbe.Part} = {}
   local function add(name: string, needed: boolean, held: boolean, why: string)
     parts[#parts + 1] = { name = name, needed = needed, held = held,
-      said = held and "held" or why }
+      said = if held then "held" else why end }
   end
 
   -- /dev/null is written to, as a shell's redirections do.
@@ -269,7 +269,7 @@ end
 --- Whether every part a confined test needs held, and, where one did
 --- not, which.
 function SandboxProbe.enforceable(report: SandboxProbe.Report): boolean, string
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for _, part in ipairs(report.parts) do
     if part.needed and not part.held then missing[#missing + 1] = part.name end
   end
@@ -285,19 +285,19 @@ end
 --- The report as Markdown: each part, what of the host bears on it, and
 --- one line saying whether a test can be confined here.
 function SandboxProbe.markdown(report: SandboxProbe.Report): string
-  local lines: {string} = { "| Part | Needed to confine a test | Result |\n",
+  local lines: mut {string} = { "| Part | Needed to confine a test | Result |\n",
     "|---|---|---|\n" }
   for _, part in ipairs(report.parts) do
-    lines[#lines + 1] = "| " .. cell(part.name) .. " | " .. (part.needed and "yes" or "no") ..
-      " | " .. (part.held and "held" or "**failed**: " .. cell(part.said)) .. " |\n"
+    lines[#lines + 1] = "| " .. cell(part.name) .. " | " .. (if part.needed then "yes" else "no" end) ..
+      " | " .. (if part.held then "held" else "**failed**: " .. cell(part.said) end) .. " |\n"
   end
   lines[#lines + 1] = "\n| Host | |\n|---|---|\n"
   for _, pair in ipairs(report.host) do
     lines[#lines + 1] = "| " .. cell(pair[1]) .. " | " .. cell(pair[2]) .. " |\n"
   end
   local ok, missing = SandboxProbe.enforceable(report)
-  lines[#lines + 1] = ok and "\nConfinement: available.\n" or
-    "\nConfinement: **unavailable** (" .. missing .. ").\n"
+  lines[#lines + 1] = if ok then "\nConfinement: available.\n" else
+    "\nConfinement: **unavailable** (" .. missing .. ").\n" end
   return table.concat(lines)
 end
 

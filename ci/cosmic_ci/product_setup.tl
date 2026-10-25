@@ -77,7 +77,7 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   for _, target in ipairs(targets) do
     names[#names + 1] = "cores/" .. target.name .. "/cosmic-core"
   end
-  local hashes: {string} = {}
+  local hashes: mut {string} = {}
   for _, name in ipairs(names) do
     hashes[#hashes + 1] = Fixture.hash(product .. "/" .. name) ..
       "  " .. name .. "\n"
@@ -94,7 +94,7 @@ end
 --- differs, or nil where none does. A file differs where it is not a
 --- regular file, or its bytes are not the ones recorded, or, for the
 --- programs (cosmic and apps/), where it is not executable by everyone.
-function ProductSetup.changed(product: string, recorded: string): string | nil
+function ProductSetup.changed(product: string, recorded: string): string?
   local now, _ = Fs.read(product .. "/hashes.sha256")
   if now ~= recorded then return "hashes.sha256" end
   for line in recorded:gmatch("[^\n]+") do

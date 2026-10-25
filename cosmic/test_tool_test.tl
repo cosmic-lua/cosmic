@@ -17,25 +17,30 @@ local this_program = require("build.this_program")
 Test.policy{ profiles = { "cosmic" } }
 
 --- Runs `body` as a script under this program, with a runner installed
---- that says what `policy` stands for, answering what it wrote.
+--- that says what `policy` stands for, answering what it wrote. The cases
+--- hand `policy` what no `Policy` is, which no typed script would run: the
+--- script loads them as a chunk of Lua text.
 local function run(tmp: string, body: string): string
   local script = tmp .. "/script.tl"
-  assert(Fs.write(script, table.concat({
+  local cases = table.concat({
     'local Fs = require("cosmic.fs")',
     'local T = require("cosmic.test")',
-    "local function say(text: string) Fs.put(Fs.stdout, text .. \"\\n\") end",
-    "local runner = { loaded = false, handed = function(needs: T.Needs)",
+    "local function say(text) Fs.put(Fs.stdout, text .. \"\\n\") end",
+    "local runner = { loaded = false, handed = function(needs)",
     "  say(\"handed \" .. tostring((needs.reads or {})[1]) .. \" \" ..",
     "    tostring((needs.network or {})[1]) .. \" \" .. tostring(needs.tool))",
     "end }",
-    "local hooks = T as {string:any}",
-    "hooks.__runner = runner",
-    "local function try(f: function()): string",
-    "  local ok, why = pcall(function(): string f() return \"\" end)",
+    "T.__runner = runner",
+    "local function try(f)",
+    "  local ok, why = pcall(function() f() return \"\" end)",
     "  return tostring(ok) .. \" \" .. (tostring(why):gsub(\"^.-: test: \", \"\"))",
     "end",
-    "return function(): integer",
     body,
+  }, "\n")
+  assert(Fs.write(script, table.concat({
+    "return function(): integer",
+    "  local chunk = assert(load(" .. string.format("%q", cases) .. ", \"=script.tl\"))",
+    "  chunk()",
     "  return 0",
     "end",
   }, "\n") .. "\n"))
@@ -54,10 +59,10 @@ end
 --- build reads it, are cosmic/test_policy_test.tl's.
 local function test_policy_hands_the_runner_its_needs(tmp: string)
   local said = run(tmp, table.concat({
-    "  local cases: {any} = { 1, { reeds = {} }, { env = \"a\" }, { isolate = { \"file\" } },",
+    "  local cases = { 1, { reeds = {} }, { env = \"a\" }, { isolate = { \"file\" } },",
     "    { grants = { { path = \"d\", letters = \"rw\" } } } }",
     "  for _, case in ipairs(cases) do",
-    "    say(try(function() T.policy(case as T.Policy) end))",
+    "    say(try(function() T.policy(case) end))",
     "  end",
     "  T.policy { grants = { { path = \"data/\", letters = \"r\" }, { path = \"o/bin\", letters = \"rx\" } },",
     "    profiles = { \"cosmic\" }, loopback = { \"127.0.0.1\" }, promises = { \"fork\" } }",
@@ -65,7 +70,7 @@ local function test_policy_hands_the_runner_its_needs(tmp: string)
     "  runner.loaded = true",
     "  say(try(function() T.policy { } end))",
   }, "\n"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(#lines == 8, said)
   assert(lines[1] == "false policy takes a table, got number", said)

@@ -4,7 +4,7 @@
 --- record and where under the module's own record, and which interface a field of it comes from.
 ---
 --- [`build.syntax_receivers`] (the record-field uses `cosmic uses` lists) and [`build.syntax_contracts`] (the error-slot
---- discipline) are the two readers; [`build.receivers`] and [`build.contracts`] read the fork's types in their place.
+--- discipline) are the two readers; build.receivers and build.syntax_contracts read the fork's types in their place.
 --- A declaration of the new checker is named by its module and the names it is nested under ([`cosmic.zip`], `Zip` and
 --- `Writer`), where the fork named a record by the type object tl gave it; the owner of a record is the module whose own
 --- record declares it, under a path that leaves out that record's name (`Writer`), as the fork's rows spell a member.
@@ -37,24 +37,24 @@ local record Report
 
   --- The subject `outcome` of `program` makes: nil where its text did not parse or its bodies were not checked with the
   --- types kept.
-  of: function(program: Declarations.Program, outcome: Driver.Outcome): Subject | nil
+  of: function(program: Declarations.Program, outcome: Driver.Outcome): Subject?
 
   --- The declaration a type is an instance of (or, as a value, the table of): a record, class, interface, enum or
   --- userdata; nil for any other type.
-  decl_of: function(t: Types.Type | nil): Types.Decl | nil
+  decl_of: function(t: Types.Type?): Types.Decl?
 
   --- The declaration `module` returns, if it returns one or a value typed as one; nil otherwise.
-  root_of: function(program: Declarations.Program, module: string): Types.Decl | nil
+  root_of: function(program: Declarations.Program, module: string): Types.Decl?
 
   --- Where `decl` is declared, when it is nested under the record its module returns; nil for the module's own record,
   --- for a type the module keeps to itself and for one inside a function.
-  owner_of: function(program: Declarations.Program, decl: Types.Decl): Owner | nil
+  owner_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 
   --- Where a method of `decl` is a use of, when it is no record nested under its module's own ([`Report.owner_of`]): the
   --- record or class the module returns, whose methods are `path` "" (the module's own members are `Z.f`, a call of
   --- which is the syntactic half's), or a record, class or interface declared at the top of its module's file, under
   --- its own name. nil for an enum, a type inside a function, and any other.
-  home_of: function(program: Declarations.Program, decl: Types.Decl): Owner | nil
+  home_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 
   --- Whether `decl` declares the method `name` itself (a class's `function name(self)`, not a field holding a function).
   has_method: function(decl: Types.Decl, name: string): boolean
@@ -64,13 +64,13 @@ local record Report
 
   --- The interface among those `decl` lists, directly or through others, that declares the field `name`: the deepest one,
   --- since an interface that extends another carries its fields too; nil where none does.
-  declaring: function(decl: Types.Decl, name: string): Types.Decl | nil
+  declaring: function(decl: Types.Decl, name: string): Types.Decl?
 
   --- The line of the token with index `token` of the subject's tree.
   line: function(subject: Subject, token: integer): integer
 end
 
-function Report.of(program: Declarations.Program, outcome: Driver.Outcome): Report.Subject | nil
+function Report.of(program: Declarations.Program, outcome: Driver.Outcome): Report.Subject?
   local lowered = outcome.lowered
   if outcome.broken or lowered == nil or outcome.checked == nil then
     return nil
@@ -81,14 +81,14 @@ function Report.of(program: Declarations.Program, outcome: Driver.Outcome): Repo
   }
 end
 
-function Report.decl_of(t: Types.Type | nil): Types.Decl | nil
-  if t ~= nil and t is Types.Named then
+function Report.decl_of(t: Types.Type?): Types.Decl?
+  if t ~= nil and (t.tag == "named") then
     return t.decl
   end
   return nil
 end
 
-function Report.root_of(program: Declarations.Program, module: string): Types.Decl | nil
+function Report.root_of(program: Declarations.Program, module: string): Types.Decl?
   local known = program.modules[module]
   if known == nil then
     return nil
@@ -100,7 +100,7 @@ function Report.root_of(program: Declarations.Program, module: string): Types.De
   return Report.decl_of(known.value)
 end
 
-function Report.owner_of(program: Declarations.Program, decl: Types.Decl): Report.Owner | nil
+function Report.owner_of(program: Declarations.Program, decl: Types.Decl): Report.Owner?
   if #decl.names < 2 then
     return nil
   end
@@ -111,7 +111,7 @@ function Report.owner_of(program: Declarations.Program, decl: Types.Decl): Repor
   return { module = decl.module, path = table.concat(decl.names, ".", 2) }
 end
 
-function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report.Owner | nil
+function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report.Owner?
   local kind = decl.kind
   local name = decl.names[1]
   if #decl.names ~= 1 or name == nil or decl.module:find("@", 1, true) ~= nil or
@@ -157,7 +157,7 @@ function Report.has_member(decl: Types.Decl, name: string): boolean
 end
 
 --- Every interface `decl` lists, those its listings list in turn after each, once.
-local function listed(decl: Types.Decl, out: {Types.Decl}, seen: {Types.Decl: boolean})
+local function listed(decl: Types.Decl, out: mut {Types.Decl}, seen: mut {Types.Decl: boolean})
   local body = decl.body
   if body == nil then
     return
@@ -172,9 +172,9 @@ local function listed(decl: Types.Decl, out: {Types.Decl}, seen: {Types.Decl: bo
   end
 end
 
-function Report.declaring(decl: Types.Decl, name: string): Types.Decl | nil
+function Report.declaring(decl: Types.Decl, name: string): Types.Decl?
   local all: {Types.Decl} = {}
-  local seen: {Types.Decl: boolean} = {}
+  local seen: mut {Types.Decl: boolean} = {}
   seen[decl] = true
   listed(decl, all, seen)
   for _, d in ipairs(all) do

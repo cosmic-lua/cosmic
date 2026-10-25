@@ -93,9 +93,9 @@ end
 
 --- What `git blame --line-porcelain` said, by final line number.
 function todos.parse_blame(porcelain: string): {integer:todos.Blame}
-  local out: {integer:todos.Blame} = {}
-  local current: todos.Blame | nil = nil
-  local final: integer | nil = nil
+  local out: mut {integer:todos.Blame} = {}
+  local current: todos.Blame? = nil
+  local final: integer? = nil
   for line in porcelain:gmatch("([^\n]*)\n?") do
     local commit, at = line:match("^(%x+) %d+ (%d+)")
     if commit ~= nil and #commit >= 40 then
@@ -128,11 +128,11 @@ local git_timeout_ns = Time.seconds(30)
 --- call's arguments (past `-C root`) with its output where it succeeds
 --- and nil where git would fail. A caller that names none runs the
 --- system's git.
-local type GitRunner = function(root: string, args: {string}): string | nil
+local type GitRunner = function(root: string, args: {string}): string?
 
 --- Runs git in `root`, its output when it succeeds, through `run_git`
 --- where one is given.
-local function git(root: string, args: {string}, run_git: GitRunner | nil): string | nil
+local function git(root: string, args: {string}, run_git: GitRunner?): string?
   if run_git ~= nil then
     return run_git(root, args)
   end
@@ -140,7 +140,7 @@ local function git(root: string, args: {string}, run_git: GitRunner | nil): stri
   if found == nil then
     return nil
   end
-  local argv: {string} = { found, "-C", root }
+  local argv: mut {string} = { found, "-C", root }
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
   end
@@ -175,7 +175,7 @@ end
 --- a repository no git is looked for or started, and so none of the
 --- blame after it: a tree that is no checkout lists its TODOs unblamed
 --- and reads nothing of the system's.
-local function head_of(root: string, run_git: GitRunner | nil): string
+local function head_of(root: string, run_git: GitRunner?): string
   if not in_repository(root) then
     return ""
   end
@@ -199,8 +199,8 @@ local IGNORED_REVS <const> = ".git-blame-ignore-revs"
 
 --- The arguments of the `git blame` that says who wrote `lines` of `file`,
 --- past the commits `ignored` (a file of them) lists, where there is one.
-local function blame_args(file: string, lines: {integer}, ignored: string | nil): {string}
-  local args: {string} = { "blame", "--line-porcelain" }
+local function blame_args(file: string, lines: {integer}, ignored: string?): {string}
+  local args: mut {string} = { "blame", "--line-porcelain" }
   if ignored ~= nil then
     args[#args + 1] = "--ignore-revs-file"
     args[#args + 1] = ignored
@@ -215,7 +215,7 @@ local function blame_args(file: string, lines: {integer}, ignored: string | nil)
 end
 
 --- The file of commits to pass over, where `root` holds one.
-local function ignored_revs(root: string): string | nil
+local function ignored_revs(root: string): string?
   local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
   if listed then return root .. "/" .. IGNORED_REVS end
   return nil
@@ -226,8 +226,8 @@ end
 local record BlameRun
   file: string
   deadline: integer
-  handle: Child.Handle | nil
-  said: function(): string | nil
+  handle: Child.Handle?
+  said: function(): string?
   drop: function()
 end
 
@@ -235,16 +235,16 @@ end
 --- arguments, and `wait` answers which of the `running` has ended, or
 --- none and whether supervising them failed.
 local record Blamer
-  start: function(file: string, args: {string}): BlameRun | nil
-  wait: function(running: {BlameRun}): BlameRun | nil, boolean
+  start: function(file: string, args: {string}): BlameRun?
+  wait: function(running: {BlameRun}): BlameRun?, boolean
 end
 
 --- A [`Blamer`] that starts the system's git `program` in `root`.
 local function spawning(program: string, root: string): Blamer
   local run_of: {Child.Handle:BlameRun} = {}
   return {
-    start = function(file: string, args: {string}): BlameRun | nil
-      local argv: {string} = { program, "-C", root }
+    start = function(file: string, args: {string}): BlameRun?
+      local argv: mut {string} = { program, "-C", root }
       for _, each in ipairs(args) do
         argv[#argv + 1] = each
       end
@@ -254,7 +254,7 @@ local function spawning(program: string, root: string): Blamer
         file = file,
         deadline = Time.monotonic_ns() + git_timeout_ns,
         handle = handle,
-        said = function(): string | nil
+        said = function(): string?
           local result, _ = handle:wait()
           local stdout = result and result.stdout
           if result ~= nil and result.ok and stdout ~= nil then
@@ -269,8 +269,8 @@ local function spawning(program: string, root: string): Blamer
       run_of[handle] = run
       return run
     end,
-    wait = function(running: {BlameRun}): BlameRun | nil, boolean
-      local handles: {Child.Handle} = {}
+    wait = function(running: {BlameRun}): BlameRun?, boolean
+      local handles: mut {Child.Handle} = {}
       for _, run in ipairs(running) do
         handles[#handles + 1] = run.handle
       end
@@ -284,16 +284,16 @@ end
 --- every one has ended as soon as it is asked of.
 local function answering(run_git: GitRunner, root: string): Blamer
   return {
-    start = function(file: string, args: {string}): BlameRun | nil
+    start = function(file: string, args: {string}): BlameRun?
       local answer = run_git(root, args)
       return {
         file = file,
         deadline = math.maxinteger,
-        said = function(): string | nil return answer end,
+        said = function(): string? return answer end,
         drop = function() end,
       }
     end,
-    wait = function(running: {BlameRun}): BlameRun | nil, boolean
+    wait = function(running: {BlameRun}): BlameRun?, boolean
       return running[1], false
     end,
   }
@@ -306,9 +306,9 @@ end
 --- it ends every git and stops. With `run_git`, the calls are its
 --- answers, and no process starts.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
-                         guard: Signal.Guard | nil,
-                         run_git: GitRunner | nil): {string:{integer:todos.Blame}}
-  local out: {string:{integer:todos.Blame}} = {}
+                         guard: Signal.Guard?,
+                         run_git: GitRunner?): {string:{integer:todos.Blame}}
+  local out: mut {string:{integer:todos.Blame}} = {}
   local ignored = ignored_revs(root)
   local blamer: Blamer
   if run_git ~= nil then
@@ -323,7 +323,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     blamer = spawning(program, root)
   end
   local limit = blame_jobs()
-  local running: {BlameRun} = {}
+  local running: mut {BlameRun} = {}
   local next_file = 1
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
@@ -343,7 +343,7 @@ local function blame_all(root: string, lines: {string:{integer}}, order: {string
     end
     local done, failed = blamer.wait(running)
     local now = Time.monotonic_ns()
-    local still: {BlameRun} = {}
+    local still: mut {BlameRun} = {}
     for _, run in ipairs(running) do
       if rawequal(run, done) then
         local said = run.said()
@@ -375,7 +375,7 @@ end
 local function blame_files(root: string,
                            lines: {string:{integer}},
                            order: {string},
-                           run_git: GitRunner | nil): {string:{integer:todos.Blame}}
+                           run_git: GitRunner?): {string:{integer:todos.Blame}}
   if run_git ~= nil then return blame_all(root, lines, order, nil, run_git) end
   local opened, _ = Signal.guard()
   if opened == nil then return blame_all(root, lines, order, nil, nil) end
@@ -399,7 +399,7 @@ end
 --- Every TODO in the staged tree with what is known of its blame, in
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
-local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
+local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
   return Sqlite.map(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
@@ -436,7 +436,7 @@ end
 --- this one -- a rebase or a reset, which may have dropped the commits
 --- the rows name -- is left to be blamed again.
 local function carry_forward(db: Sqlite.Handle, root: string, head: string,
-                             run_git: GitRunner | nil): boolean, string
+                             run_git: GitRunner?): boolean, string
   if head == "" then
     return true, ""
   end
@@ -449,13 +449,13 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
   for _, row in ipairs(heads) do
     local old = row:text(1)
     local ancestor = git(root, { "merge-base", "--is-ancestor", old, head }, run_git)
-    local changed: string | nil = nil
+    local changed: string? = nil
     if ancestor ~= nil then
       changed = git(root, { "diff", "--name-only", "--no-renames", "--relative",
         old, head, "--" }, run_git)
     end
     if changed ~= nil then
-      local touched: {string:boolean} = {}
+      local touched: mut {string:boolean} = {}
       for path in changed:gmatch("([^\n]+)") do
         touched[path] = true
       end
@@ -488,7 +488,7 @@ end
 --- keeping what it says in `blames`, and drops the rows there no TODO
 --- stands on any more. Returns how many files it blamed.
 local function blame_rows(db: Sqlite.Handle, root: string, head: string,
-                          rows: {Row}, run_git: GitRunner | nil): integer | nil, string
+                          rows: {Row}, run_git: GitRunner?): integer?, string
   local pruned, prune_trouble = Sqlite.run(db,
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -502,8 +502,8 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
   if head == "" then
     return 0
   end
-  local order: {string} = {}
-  local pending: {string:{Row}} = {}
+  local order: mut {string} = {}
+  local pending: mut {string:{Row}} = {}
   for _, row in ipairs(rows) do
     if not row.blamed then
       local file = row.todo.file
@@ -514,7 +514,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       table.insert(pending[file], row)
     end
   end
-  local lines: {string:{integer}} = {}
+  local lines: mut {string:{integer}} = {}
   for _, file in ipairs(order) do
     lines[file] = {}
     for _, row in ipairs(pending[file]) do
@@ -537,7 +537,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
           "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { { text = file }, { integer = todo.line }, { text = row.sha256 },
           { text = head }, { text = todo.commit }, { integer = todo.author_time },
-          { text = todo.summary }, { integer = todo.boundary and 1 or 0 } })
+          { text = todo.summary }, { integer = if todo.boundary then 1 else 0 end } })
       if not ok then
         return nil, file .. ": " .. trouble
       end
@@ -548,7 +548,7 @@ end
 
 --- `rows` as a listing, `blamed` files having been blamed for it.
 local function listing_of(rows: {Row}, blamed: integer): todos.Listing
-  local out: {todos.Todo} = {}
+  local out: mut {todos.Todo} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = row.todo
   end
@@ -560,8 +560,8 @@ end
 --- where given, answers every git call in the system's place (a test's
 --- recorded answers); the tree must still lie in a repository.
 function todos.list(db: Sqlite.Handle, root: string,
-                    run_git?: function(root: string, args: {string}): string | nil
-): todos.Listing | nil, string
+                    run_git?: function(root: string, args: {string}): string?
+): todos.Listing?, string
   local head = head_of(root, run_git)
   local carried, carry_trouble = carry_forward(db, root, head, run_git)
   if not carried then
@@ -582,7 +582,7 @@ end
 --- nothing: a TODO not yet blamed for `HEAD` is listed with no commit,
 --- and none is blamed. What `todos` lists from a working database
 --- another run holds the write lock of.
-local function read(db: Sqlite.Handle, root: string): todos.Listing | nil, string
+local function read(db: Sqlite.Handle, root: string): todos.Listing?, string
   local rows, trouble = rows_of(db, head_of(root, nil))
   if rows == nil then
     return nil, trouble
@@ -607,7 +607,7 @@ function todos.render(todo: todos.Todo): string
   local commit = "-------"
   if todo.commit ~= "" then
     when = todos.date(todo.author_time)
-    commit = (todo.boundary and "^" or "") .. todo.commit:sub(1, 7)
+    commit = (if todo.boundary then "^" else "" end) .. todo.commit:sub(1, 7)
   end
   return todo.file .. ":" .. todo.line .. ": " .. when .. " " .. commit ..
     " " .. link_text.unlinked(todo.text)
@@ -617,7 +617,7 @@ end
 --- quoted so it reads as a literal rather than as FTS5 syntax -- as
 --- `cosmic docs` searches.
 local function quoted_words(query: string): string
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in query:gmatch("[%w_]+") do
     words[#words + 1] = '"' .. word .. '"'
   end
@@ -628,7 +628,7 @@ end
 --- best first from 1. The query is FTS5's own syntax -- a "phrase",
 --- OR, a prefix* -- when it parses as that, and its words, each quoted
 --- and every one required, when it does not (as [`cosmic.sys`] does not).
-function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
+function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
   local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
   local rows: Sqlite.Rows = {}
@@ -645,7 +645,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
     end
     rows = retried
   end
-  local out: {integer:integer} = {}
+  local out: mut {integer:integer} = {}
   for index, row in ipairs(rows) do
     local id = math.tointeger(tonumber(row:text(1)))
     if id ~= nil then out[id] = index end
@@ -659,8 +659,8 @@ end
 --- resolves). Paths narrow the listing as [`build.narrow`] reads them for
 --- every verb; `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
-  local named: {string} = {}
-  local words: {string} = {}
+  local named: mut {string} = {}
+  local words: mut {string} = {}
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
@@ -723,8 +723,8 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   -- tool to the tree, this tool's code may be older than the tree's, so
   -- it stages nothing and reads what is there, where this tool's code
   -- staged it ([`work.other_code`]).
-  local handle: work.Handle | nil = nil
-  local other: string | nil = nil
+  local handle: work.Handle? = nil
+  local other: string? = nil
   if not reboot.unchecked(root) then
     local opening, open_trouble = work.try_open_remaking(root)
     if opening == nil then
@@ -750,7 +750,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     db = handle.db
   else
     local working = build_paths.resolve(root).working
-    local readable: Sqlite.Handle | nil = nil
+    local readable: Sqlite.Handle? = nil
     if other == nil then
       if not reboot.unchecked(root) then work.tell_busy("todos", working) end
       local opened, read_trouble = Sqlite.open(working)
@@ -802,7 +802,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     log:complain(trouble)
     return 1
   end
-  local listing, list_trouble: todos.Listing | nil, string
+  local listing, list_trouble: todos.Listing?, string
   if handle ~= nil then
     listing, list_trouble = todos.list(db, root)
   else
@@ -812,7 +812,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     return failed(list_trouble)
   end
   local all, blamed = listing.todos, listing.blamed
-  local ranks: {integer:integer} | nil = nil
+  local ranks: {integer:integer}? = nil
   if query ~= "" then
     local found, search_trouble = todos.search(db, query)
     if found == nil then
@@ -830,7 +830,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     local _, _ = db:close()
   end
 
-  local listed: {todos.Todo} = {}
+  local listed: mut {todos.Todo} = {}
   for _, todo in ipairs(all) do
     if narrow.holds(paths, todo.file) and (ranks == nil or ranks[todo.id] ~= nil) then
       listed[#listed + 1] = todo
@@ -868,7 +868,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
       return a.line < b.line
     end)
   end
-  local files: {string:boolean} = {}
+  local files: mut {string:boolean} = {}
   local file_count = 0
   for _, todo in ipairs(listed) do
     log:say(todos.render(todo))

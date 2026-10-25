@@ -21,7 +21,7 @@ local function gen_target(src: Fuzz.Source): string
   local mode = src:int(0, 3)
   if mode == 0 then return Fuzz.bytes(src, 40) end
   if mode == 1 then
-    local out: {string} = {}
+    local out: mut {string} = {}
     while Fuzz.more(src, #out, 16) do out[#out + 1] = Fuzz.pick(src, TOKENS) end
     return table.concat(out)
   end
@@ -55,7 +55,7 @@ local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: st
       end
       local read = target as Grant.Target
       Fuzz.label("accepted")
-      Fuzz.label(read.kind == "any" and "any" or read.kind == "name" and "name" or "address")
+      Fuzz.label(if read.kind == "any" then "any" elseif read.kind == "name" then "name" else "address" end)
       local again, why_again = Grant.parse(read.text)
       if again == nil then
         return false, "its own text " .. read.text .. " is refused: " .. why_again
@@ -83,8 +83,8 @@ local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: 
       local read = target as Grant.Target
       if read.kind == "any" then return true, "" end
       Fuzz.label(read.kind)
-      local port = read.port == 0 and 443 or read.port
-      local shown = read.kind == "ipv6" and "[" .. read.host .. "]" or read.host
+      local port = if read.port == 0 then 443 else read.port end
+      local shown = if read.kind == "ipv6" then "[" .. read.host .. "]" else read.host end
       local head = Wire.connect_reader():feed(("CONNECT %s:%d HTTP/1.1\r\n\r\n"):format(shown, port))
       if head.status ~= "done" or head.host ~= read.host or head.port ~= port then
         return false, ("CONNECT reader: %s for %s (%s)"):format(head.status, text, tostring(head.reason))

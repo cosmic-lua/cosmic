@@ -17,9 +17,9 @@ local NS <const> = 1000000000
 
 --- The footer of each zone the binary carries: every TZ string zic
 --- writes.
-local samples: {string} = {}
+local samples: mut {string} = {}
 do
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs({ "America/New_York", "Europe/London", "Australia/Sydney", "Australia/Lord_Howe",
       "Asia/Kolkata", "Europe/Dublin", "America/Godthab", "Asia/Jerusalem", "Pacific/Chatham",
       "America/Santiago", "Africa/Casablanca", "Antarctica/Troll", "America/Scoresbysund" }) do
@@ -81,7 +81,7 @@ end
 --- offset.
 local function hms(seconds: integer): string
   local a = math.abs(seconds)
-  local text = ("%s%d"):format(seconds < 0 and "-" or "", a // 3600)
+  local text = ("%s%d"):format(if seconds < 0 then "-" else "" end, a // 3600)
   if a % 3600 ~= 0 then
     text = text .. (":%02d"):format(a % 3600 // 60)
     if a % 60 ~= 0 then text = text .. (":%02d"):format(a % 60) end

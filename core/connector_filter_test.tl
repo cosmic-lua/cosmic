@@ -26,7 +26,7 @@ local numbers: {string: {integer}} = {
   poll = { 7, -1 }, ppoll = { 271, 73 }, clock = { 228, 113 },
   exit = { 60, 93 }, exit_group = { 231, 94 },
 }
-local type Insn = record
+local record Insn
   code: integer
   jt: integer
   jf: integer
@@ -34,7 +34,7 @@ local type Insn = record
 end
 local function decode(program: string): {Insn}
   assert(#program > 0 and #program % 8 == 0 and #program // 8 <= 4096)
-  local out: {Insn} = {}
+  local out: mut {Insn} = {}
   for at = 1, #program, 8 do
     local code, jt, jf, k = string.unpack("<I2I1I1I4", program, at)
     out[#out + 1] = { code = code, jt = jt, jf = jf, k = k }
@@ -47,7 +47,7 @@ local function run(code: {Insn}, architecture: integer, number: integer, args: {
     if offset == 4 then return architecture end
     assert(offset >= 16 and offset < 64 and offset % 4 == 0)
     local value = args[(offset - 16) // 8 + 1] or 0
-    return offset % 8 == 0 and value & 0xffffffff or (value >> 32) & 0xffffffff
+    return if offset % 8 == 0 then value & 0xffffffff else (value >> 32) & 0xffffffff end
   end
   local pc, a = 1, 0
   while true do
@@ -155,7 +155,7 @@ end
 local function test_every_call_outside_the_explicit_allowlist_is_refused()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
-    local allowed: {integer: boolean} = {}
+    local allowed: mut {integer: boolean} = {}
     for _, by_arch in pairs(numbers) do
       if by_arch[i] >= 0 then allowed[by_arch[i]] = true end
     end

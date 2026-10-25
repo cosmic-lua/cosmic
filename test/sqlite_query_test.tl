@@ -100,7 +100,7 @@ local function test_a_query_reads_the_columns_the_statement_has_now()
     assert(db:exec(change))
     local row, trouble = q:read()
     assert(row ~= nil, change .. ": " .. trouble)
-    local want = change:find("DROP", 1, true) and 1 or 3
+    local want = if change:find("DROP", 1, true) then 1 else 3 end
     assert(row:count() == want, change .. ": " .. tostring(row:count()) .. " columns")
     q:close()
     assert(db:close())

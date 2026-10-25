@@ -99,7 +99,7 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   assert(count(upgraded.db, "parsed") == 0)
   assert(count(upgraded.db, "refs") == 0)
   local columns = assert(Sqlite.text_rows(upgraded.db, "PRAGMA table_info(docs)"))
-  local names: {string: boolean} = {}
+  local names: mut {string: boolean} = {}
   for _, row in ipairs(columns) do names[row:text(2)] = true end
   assert(names["source_symbol"] and names["exported"])
   assert(work.close(upgraded))
@@ -319,11 +319,11 @@ end
 
 --- Give the tested paths distinct change-time ticks even on a coarse filesystem.
 local function with_change_time(paths: {string}, check: function(function()))
-  local tracked: {string:boolean} = {}
+  local tracked: mut {string:boolean} = {}
   for _, path in ipairs(paths) do tracked[path] = true end
   local stat = Fs.stat
   local tick = { value = 1 }
-  Fs.stat = function(path: string): sys.Stat | nil, string
+  Fs.stat = function(path: string): sys.Stat?, string
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] then
       st.ctime = 100
@@ -519,7 +519,7 @@ end
 local function boot_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(work.close(handle))
   return fingerprint.boot
 end
@@ -569,7 +569,7 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
     assert(Fs.write(tmp .. "/" .. path, "old text\n"))
     assert(Fs.set_mtime(tmp .. "/" .. path, 0, 0))
   end
-  local tracked: {string} = {}
+  local tracked: mut {string} = {}
   for _, path in ipairs(paths) do tracked[#tracked + 1] = tmp .. "/" .. path end
   with_change_time(tracked, function(changed: function())
     local handle = assert(work.open(tmp))
@@ -612,11 +612,11 @@ local function test_metadata_changes_and_unknown_change_times_keep_content_ident
   with_change_time({ path }, function(changed: function())
     local handle = assert(work.open(tmp))
     assert(stage_settled(handle, true).read == 4)
-    local before = assert(identity.record_fingerprint(handle.db))
+    local before = assert(identity.record_fingerprint(handle.db, handle.root))
     assert(sys.chmod(path, 384))
     changed()
     assert(stage_settled(handle, true).read == 1)
-    local after = assert(identity.record_fingerprint(handle.db))
+    local after = assert(identity.record_fingerprint(handle.db, handle.root))
     assert(before.image == after.image and before.boot == after.boot)
     assert(stage_settled(handle, true).read == 0)
     assert(work.commit(handle))
@@ -644,7 +644,7 @@ local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string
   assert(Fs.set_mtime(tmp .. "/probe.tl", 0, 0))
   local handle = assert(work.open(tmp))
   local stat = Fs.stat
-  Fs.stat = function(path: string): sys.Stat | nil, string
+  Fs.stat = function(path: string): sys.Stat?, string
     local st, trouble = stat(path)
     if st ~= nil then
       local fields = st as {string:integer}
@@ -673,12 +673,12 @@ local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
   for _, path in ipairs(paths) do
     assert(stage_settled(handle, true))
     assert(work.tool_moved(handle) == false)
-    local before = assert(identity.record_fingerprint(handle.db)).boot
+    local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
     assert(Fs.mkdirs(tmp .. "/" .. path:match("^(.*)/")))
     assert(Fs.write(tmp .. "/" .. path, "new\n"))
     assert(work.tool_moved(handle), path .. " must be discovered before a read-only command")
     assert(stage_settled(handle, true))
-    assert(assert(identity.record_fingerprint(handle.db)).boot ~= before)
+    assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot ~= before)
     assert(work.tool_moved(handle) == false)
   end
   assert(work.close(handle))
@@ -721,8 +721,8 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   local handle = assert(work.open(tmp))
   assert(stage_settled(handle, true))
   local walk, read = Fs.walk_following, Fs.read
-  Fs.walk_following = function(): {string} | nil, string error("listed an unchanged tree") end
-  Fs.read = function(): string | nil, string error("read unchanged content") end
+  Fs.walk_following = function(): {string}?, string error("listed an unchanged tree") end
+  Fs.read = function(): string?, string error("read unchanged content") end
   local ok, answer = pcall(work.tool_moved, handle)
   Fs.walk_following, Fs.read = walk, read
   assert(ok and answer == false, tostring(answer))
@@ -742,7 +742,7 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk_following
-  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string} | nil, string
+  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string}?, string
     local files, trouble = walk(root, skip)
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files, trouble
@@ -753,11 +753,11 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(work.tool_moved(handle), "metadata must precede the directory listing")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
-  local before = assert(identity.record_fingerprint(handle.db)).boot
+  local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
   assert(Fs.write(tmp .. "/README.md", "prose\n"))
   assert(work.tool_moved(handle), "membership conservatively rescans")
   assert(stage_settled(handle, true))
-  assert(assert(identity.record_fingerprint(handle.db)).boot == before,
+  assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before,
     "irrelevant additions do not move the tool's content identity")
   assert(work.tool_moved(handle) == false)
   assert(work.close(handle))
@@ -772,23 +772,23 @@ local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp:
   assert(sys.symlink(tmp .. "/target1", tmp .. "/root/modules"))
   local handle = assert(work.open(tmp .. "/root"))
   assert(stage_settled(handle, true))
-  local before = assert(identity.record_fingerprint(handle.db)).boot
+  local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
   assert(Fs.remove(tmp .. "/root/modules"))
   assert(sys.symlink(tmp .. "/target2", tmp .. "/root/modules"))
   assert(work.tool_moved(handle), "retargeted link must rescan even with equal bytes")
   assert(stage_settled(handle, true))
-  assert(assert(identity.record_fingerprint(handle.db)).boot == before)
+  assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before)
   assert(Fs.write(tmp .. "/root/README.md", "irrelevant\n"))
   assert(work.tool_moved(handle))
   assert(stage_settled(handle, true))
-  assert(assert(identity.record_fingerprint(handle.db)).boot == before)
+  assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before)
   assert(work.tool_moved(handle) == false)
   assert(work.close(handle))
 end
 
 --- Stages a project of just `files` (path to bytes) and answers the
 --- stage's result and trouble.
-local function stage_files(root: string, files: {string:string}): work.Staged | nil, string
+local function stage_files(root: string, files: {string:string}): work.Staged?, string
   for path, data in pairs(files) do
     local slash = path:match("^(.*)/[^/]*$")
     if slash ~= nil then assert(Fs.mkdirs(root .. "/" .. slash)) end
@@ -813,7 +813,7 @@ local function test_stage_takes_every_file_under_static(tmp: string)
   local db = assert(Sqlite.open(build_dir(tmp) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path FROM files WHERE path GLOB 'static/*' ORDER BY path"))
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for i, row in ipairs(rows) do paths[i] = row:text(1) end
   assert(table.concat(paths, " ") == "static/bin.dat static/css/app.css static/notes.tl static/p.tmpl",
     table.concat(paths, " "))
@@ -913,5 +913,28 @@ local function test_a_stage_records_the_code_that_staged_it(tmp: string)
   assert(Sqlite.run(handle.db, "UPDATE meta SET value = 'another' WHERE key = 'staged_by'"))
   local other, _ = work.other_code(handle.db)
   assert(other == "another", tostring(other))
+  assert(work.close(handle))
+end
+
+--- The seed's files are in the image: a boot compiles the compiler the tool carries from them alone, so an edit to one of
+--- them is a tool a rebuild by the running tool cannot make. A file of the tool the seed does not list moves only `boot`.
+local function test_an_edit_to_a_file_the_seed_lists_moves_the_image(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.mkdirs(tmp .. "/lang"))
+  assert(Fs.mkdirs(tmp .. "/cosmic"))
+  assert(Fs.write(tmp .. "/build/seed.txt", "lang/check.tl\n"))
+  assert(Fs.write(tmp .. "/lang/check.tl", "return 1\n"))
+  assert(Fs.write(tmp .. "/cosmic/other.tl", "return 1\n"))
+  local handle = assert(work.open(tmp))
+  stage_settled(handle, true)
+  local before = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(Fs.write(tmp .. "/cosmic/other.tl", "return 2\n"))
+  stage_settled(handle, true)
+  local unlisted = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(unlisted.boot ~= before.boot and unlisted.image == before.image, "a file the seed does not list moved the image")
+  assert(Fs.write(tmp .. "/lang/check.tl", "return 2\n"))
+  stage_settled(handle, true)
+  local listed = assert(identity.record_fingerprint(handle.db, handle.root))
+  assert(listed.image ~= unlisted.image, "an edit to a file the seed lists left the image as it was")
   assert(work.close(handle))
 end

@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Maps = require("cosmic_ci.maps")
@@ -20,8 +21,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function environment(extra?: {string:string}): {string:string}
   local values = Maps.without(Env.all(), { "COSMIC_BOOTSTRAP",
     "COSMIC_BOOTSTRAP_VERIFY", "COSMIC_BOOTSTRAP_ATTEMPTS" })
-  if extra then return Maps.with(values, extra) end
-  return values
+  if extra then return Grammar.driver(Maps.with(values, extra)) end
+  return Grammar.driver(values)
 end
 
 --- How long a spawned driver.tl may take. It compiles every cosmic_ci
@@ -85,7 +86,7 @@ end
 --- cache, with `extra` in its environment.
 local function bootstrap(tmp: string, root: string, output: string,
                          extra?: {string:string}): Child.Result
-  local env: {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
+  local env: mut {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
   if extra then
     for name, value in pairs(extra) do env[name] = value end
   end
@@ -144,7 +145,7 @@ end
 --- and passes it as `call`'s extra env instead.
 local function driver_context(candidate: string, runner_temp: string,
                               extra?: {string:string}): {string:string}
-  local env: {string:string} = {
+  local env: mut {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run-1",
     GITHUB_RUN_ATTEMPT = "1",
@@ -323,7 +324,7 @@ end
 local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("d", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
-  local env: {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+  local env: mut {string:string} = { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
     CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP = cosmic }
   local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
     tmp, tmp .. "/printed.out", env)

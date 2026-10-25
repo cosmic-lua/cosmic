@@ -37,7 +37,7 @@ end
 --- (a `sandbox` that unveils); then the process is found by the last
 --- number of its NSpid, and the result is nil if none matches. A process
 --- started without one is in the worker's namespace, sandboxed or not.
-local function host_pid(within: integer, pid: integer): integer | nil
+local function host_pid(within: integer, pid: integer): integer?
   local own, _ = sys.readlink("/proc/self/ns/pid")
   local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
   if theirs == nil or theirs == own then return pid end

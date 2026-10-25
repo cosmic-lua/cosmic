@@ -11,7 +11,7 @@ end
 
 local function identity(): string
   local status = assert(Fs.read("/proc/self/status"))
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for _, name in ipairs({ "Uid", "Gid", "Groups", "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb", "NoNewPrivs" }) do
     fields[#fields + 1] = assert(status:match("\n" .. name .. ":([^\n]*)"), name)
   end
@@ -30,9 +30,11 @@ local function children(): string
 end
 
 function Proof.main(argv: {string}): integer
-  assert(argv[1] ~= nil and argv[2] ~= nil and argv[3] ~= nil and argv[4] == nil,
-    "credentials proof needs helper, directory and mode")
-  local helper, directory, mode = argv[1], argv[2], argv[3]
+  local usage = "credentials proof needs helper, directory and mode"
+  assert(argv[4] == nil, usage)
+  local helper = assert(argv[1], usage)
+  local directory = assert(argv[2], usage)
+  local mode = assert(argv[3], usage)
   assert(sys.getuid() == 0 and sys.getgid() == 0, "credentials proof requires root")
   local groups = assert(sys.getgroups())
   assert(#groups == 2 and groups[1] == 17 and groups[2] == 23, "setup groups missing")

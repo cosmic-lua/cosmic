@@ -41,7 +41,7 @@ end
 --- Runs `fetch` with `words` after the verb, over `script`; `fail_out`
 --- makes every write to standard output fail.
 local function run(words: {string}, script?: {string}, fail_out?: string): Ran
-  local argv: {string} = { "fetch" }
+  local argv: mut {string} = { "fetch" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local out: {string} = {}
   local err: {string} = {}
@@ -119,7 +119,7 @@ local function test_a_redirect_is_followed()
 end
 
 local function test_a_redirect_loop_fails()
-  local script: {string} = {}
+  local script: mut {string} = {}
   for _ = 1, 12 do script[#script + 1] = reply("302 Found", "Location: /again\r\n") end
   local ran = run({ url }, script)
   assert(ran.code == 1 and ran.out == "", ran.err)

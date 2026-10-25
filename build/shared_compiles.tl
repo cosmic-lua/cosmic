@@ -12,7 +12,7 @@
 --- A row is keyed by more than the local key (`key`): also by what else
 --- decides whether a compile is accepted, which a checkout's own cache
 --- leaves out. That is whether the tree is cosmic's own
---- ([`build.contracts`] runs only there) and whether the module was
+--- (build.syntax_contracts runs only there) and whether the module was
 --- extracted from a doc, so a row never stands where a compile of the
 --- module here would refuse it. The file the module is read from is in
 --- the local key already. A compile refused and kept only for the run
@@ -28,7 +28,7 @@
 --- it wrote in every table [`build.derivation`] fills from a parse, keyed
 --- by the analyzer that parsed it ([`importer.analyzer_identity`]), the
 --- source's hash, and whether its docs' lines are mapped to a file it
---- was generated from ([`build.derivation`]'s `origin_lines`), with a digest of
+--- was generated from ([`build.syntax_derivation`]'s `origin_lines`), with a digest of
 --- the lot. [`build.importer`]'s `derive` says when a row stands in for a
 --- parse.
 ---
@@ -56,7 +56,7 @@ local Sqlite = require("cosmic.sqlite")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type importer = require("build.importer")
-local type receivers = require("build.receivers")
+local type SyntaxReceivers = require("build.syntax_receivers")
 local shared_sqlite = require("build.shared_sqlite")
 local cache_formats = require("build.cache_formats")
 
@@ -72,7 +72,7 @@ local record shared_compiles
     key: string
     lua: string
     bytecode: string
-    references: {receivers.Reference}
+    references: {SyntaxReceivers.Reference}
   end
 
   --- What a parse is shared under: the analyzer that made it, the
@@ -131,7 +131,7 @@ end
 --- `cache.db` in `Fs.cache_dir("build")`, made if missing. Nil and ""
 --- when the variable is `0`, or nil and why when there is nowhere to
 --- keep it.
-local function location(environment?: {string:string}): string | nil, string
+local function location(environment?: {string:string}): string?, string
   local value: string
   if environment ~= nil then
     value = environment[variable] or ""
@@ -152,7 +152,7 @@ end
 
 --- Turns the cache off in `environment`, for a process that is to
 --- neither read nor write it.
-function shared_compiles.turn_off(environment: {string:string})
+function shared_compiles.turn_off(environment: mut {string:string})
   environment[variable] = "0"
 end
 
@@ -161,20 +161,20 @@ end
 --- accepted (`own_tree`, `generated`), and the format's table (`format`,
 --- this one's by default).
 --- The file the module is read from is no salt here: the module's own
---- key holds it already (build.compilation's `dependency_keys`), so a
+--- key holds it already (build.plans' `dependency_keys`), so a
 --- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated?: boolean,
                              format?: string): string
   return Hash.hex_sha256((format or compiled) .. "\n" .. key .. "\n" ..
-      (own_tree and "own" or "project") .. "\n" ..
-      (generated and "doctest" or "tree"))
+      (if own_tree then "own" else "project" end) .. "\n" ..
+      (if generated then "doctest" else "tree" end))
 end
 
 local schema <const> = cache_formats.compiles
 
 --- The record-field uses, a line each: module, member and line, by tabs.
-local function packed(references: {receivers.Reference}): string
-  local out: {string} = {}
+local function packed(references: {SyntaxReceivers.Reference}): string
+  local out: mut {string} = {}
   for _, r in ipairs(references) do
     out[#out + 1] = r.module .. "\t" .. r.member .. "\t" .. tostring(r.line) .. "\n"
   end
@@ -182,8 +182,8 @@ local function packed(references: {receivers.Reference}): string
 end
 
 --- `packed` undone: nil for what `packed` never writes.
-local function unpacked(refs: string): {receivers.Reference} | nil
-  local out: {receivers.Reference} = {}
+local function unpacked(refs: string): {SyntaxReceivers.Reference}?
+  local out: {SyntaxReceivers.Reference} = {}
   local rest = refs:gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
                                                                      member: string,
                                                                      line: string): string
@@ -203,13 +203,13 @@ end
 
 --- The names a parse requires, a line each.
 local function packed_requires(names: {string}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do out[#out + 1] = name .. "\n" end
   return table.concat(out)
 end
 
 --- [`packed_requires`] undone: nil for what it never writes.
-local function unpacked_requires(requires: string): {string} | nil
+local function unpacked_requires(requires: string): {string}?
   local out: {string} = {}
   local rest = requires:gsub("([^\n]+)\n", function(name: string): string
     out[#out + 1] = name
@@ -224,7 +224,7 @@ end
 local function parse_digest(key: shared_compiles.ParseKey, requires: string,
                             rows: string): string
   return Hash.hex_sha256(#key.analyzer .. "\n" .. key.analyzer .. key.source_hash .. "\n" ..
-      (key.mapped and "mapped" or "own") .. "\n" .. #requires .. "\n" .. requires .. rows)
+      (if key.mapped then "mapped" else "own" end) .. "\n" .. #requires .. "\n" .. requires .. rows)
 end
 
 --- Whether `path` is `kind` (a "dir" or a "file"), this user's and
@@ -232,12 +232,12 @@ end
 --- A file is taken as it is, never through a link: SQLite writes its
 --- log beside where a link leads, which the directory checked is not.
 local function private(path: string, kind: sys.Kind): boolean, string
-  local st, trouble: sys.Stat | nil, string = nil, ""
+  local st, trouble: sys.Stat?, string = nil, ""
   if kind == "file" then st, trouble = sys.lstat(path) else st, trouble = sys.stat(path) end
   if st == nil then return false, path .. ": " .. trouble end
   if st.kind == "link" then return false, path .. ": a symbolic link" end
   if st.kind ~= kind then
-    return false, path .. ": not a " .. (kind == "dir" and "directory" or kind)
+    return false, path .. ": not a " .. (if kind == "dir" then "directory" else kind end)
   end
   if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
   if st.mode & 0x12 ~= 0 then return false, path .. ": writable by its group or others" end
@@ -252,7 +252,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
       "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
   if rows == nil then return false, trouble end
-  local stale: {string} = {}
+  local stale: mut {string} = {}
   local current = 0
   for _, row in ipairs(rows) do
     for _, format in ipairs(formats) do
@@ -268,7 +268,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
   if current == #formats and #stale == 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, begin_trouble end
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   for _, name in ipairs(stale) do statements[#statements + 1] = "DROP TABLE IF EXISTS " .. name end
   for _, statement in ipairs(schema) do statements[#statements + 1] = statement end
   for _, statement in ipairs(statements) do
@@ -286,7 +286,7 @@ end
 --- opens it, so no build ever meets either wider. Both must be private
 --- (`private`), one that already exists included. It is opened in
 --- write-ahead mode ([`shared_sqlite.open`]).
-function shared_compiles.open(path: string): shared_compiles.Cache | nil, string
+function shared_compiles.open(path: string): shared_compiles.Cache?, string
   local dir = Fs.dirname(path)
   local made, made_trouble = Fs.mkdirs(Fs.dirname(dir))
   if not made then return nil, made_trouble end
@@ -315,7 +315,7 @@ end
 --- The bytes of column `index` of `row` when it holds text or a blob,
 --- else nil: a damaged row can hold any type, and is a miss, not a
 --- failure.
-local function bytes_at(row: Sqlite.Row, index: integer): string | nil
+local function bytes_at(row: Sqlite.Row, index: integer): string?
   local kind = row:kind(index)
   if kind == "blob" or kind == "text" then return row:bytes(index) end
   return nil
@@ -323,7 +323,7 @@ end
 
 --- The text of column `index` of `row`, or nil when it holds another
 --- type.
-local function text_at(row: Sqlite.Row, index: integer): string | nil
+local function text_at(row: Sqlite.Row, index: integer): string?
   if row:kind(index) == "text" then return row:text(index) end
   return nil
 end
@@ -333,16 +333,16 @@ end
 --- says -- damaged, or written by something else -- is a miss, and is
 --- deleted, so a compile made here takes its place.
 function shared_compiles.look(cache: shared_compiles.Cache,
-                              key: string): importer.Shared.Compile | nil, string
+                              key: string): importer.Shared.Compile?, string
   local rows, trouble = Sqlite.rows(cache.db,
     "SELECT lua, bytecode, refs, digest FROM " .. compiled .. " WHERE key = ?1", { text(key) })
   if rows == nil then return nil, trouble end
   local row = rows[1]
   if row == nil then return nil, "" end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for index = 1, 3 do
     local packed_part = bytes_at(row, index)
-    local part: string | nil = nil
+    local part: string? = nil
     if packed_part ~= nil then
       local inflated, _ = Compress.inflate("raw", packed_part)
       part = inflated
@@ -372,14 +372,14 @@ end
 --- The analyzers whose parses the cache holds of every one of `hashes`,
 --- the most lately used first.
 function shared_compiles.analyzers(cache: shared_compiles.Cache,
-                                   hashes: {string}): {string} | nil, string
+                                   hashes: {string}): {string}?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT analyzer FROM " .. parsed .. " WHERE source_hash IN " ..
       "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
       "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
     { text(json_list(hashes)), { integer = #hashes } })
   if rows == nil then return nil, trouble end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
   return out, ""
 end
@@ -390,13 +390,13 @@ end
 --- [`build.importer`]'s fixed point, and nothing it guesses is kept: a
 --- source's requires are the same whether its lines are mapped or not.
 function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
-                                  hashes: {string}): {string:{string}} | nil, string
+                                  hashes: {string}): {string:{string}}?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
       "AND source_hash IN (SELECT value FROM json_each(?2))",
     { text(analyzer), text(json_list(hashes)) })
   if rows == nil then return nil, trouble end
-  local out: {string:{string}} = {}
+  local out: mut {string:{string}} = {}
   for _, row in ipairs(rows) do
     local names = unpacked_requires(row:text(2))
     if names ~= nil then out[row:text(1)] = names end
@@ -408,9 +408,9 @@ end
 --- answer. A row that does not decode to what its digest says is a miss,
 --- and is deleted, as `look` deletes a compile's.
 function shared_compiles.look_parse(cache: shared_compiles.Cache,
-                                    key: shared_compiles.ParseKey): importer.Shared.Parse | nil, string
-  local where: {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
-    { integer = key.mapped and 1 or 0 } }
+                                    key: shared_compiles.ParseKey): importer.Shared.Parse?, string
+  local where: mut {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
+    { integer = if key.mapped then 1 else 0 end } }
   local rows, trouble = Sqlite.rows(cache.db,
     "SELECT requires, rows, digest FROM " .. parsed ..
       " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
@@ -419,7 +419,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   if row == nil then return nil, "" end
   local requires = bytes_at(row, 1)
   local packed_rows = bytes_at(row, 2)
-  local inflated: string | nil = nil
+  local inflated: string? = nil
   if packed_rows ~= nil then
     local out, _ = Compress.inflate("raw", packed_rows)
     inflated = out
@@ -508,7 +508,7 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
     for _, one in ipairs(parses) do
       local key = one.key
       local where: {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
-        { integer = key.mapped and 1 or 0 } }
+        { integer = if key.mapped then 1 else 0 end } }
       local requires = packed_requires(one.made.requires)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
@@ -525,7 +525,7 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
       local ok, trouble = Sqlite.run(db, "UPDATE " .. parsed .. " SET used_ns = ?1 " ..
           "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
         { { integer = now_ns }, text(key.analyzer), text(key.source_hash),
-          { integer = key.mapped and 1 or 0 } })
+          { integer = if key.mapped then 1 else 0 end } })
       if not ok then return false, trouble end
     end
     if #owed.kept == 0 and #parses == 0 then return true, "" end
@@ -541,14 +541,14 @@ end
 
 --- The cache a build holds open, which a failure closes and drops.
 local record Opened
-  cache: shared_compiles.Cache | nil
+  mut cache: shared_compiles.Cache?
 end
 
 --- The shared cache for one build, as [`importer.derive`] and
 --- [`importer.compile`] take it, or nil where there is none: turned off,
 --- or not to be opened. That is reported once, as is any later failure
 --- to read or write it, and the build goes on without the cache.
-function shared_compiles.for_build(environment?: {string:string}): importer.Shared | nil
+function shared_compiles.for_build(environment?: {string:string}): importer.Shared?
   local path, trouble = location(environment)
   local open: Opened = { cache = nil }
   if path ~= nil then open.cache, trouble = shared_compiles.open(path) end
@@ -569,7 +569,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
   end
   local owed: shared_compiles.Owed = { kept = {}, used = {}, parses = {}, parses_used = {} }
   return {
-    look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile | nil
+    look = function(m: importer.Module, own_tree: boolean): importer.Shared.Compile?
       local held = open.cache
       if held == nil then return nil end
       local key = shared_compiles.key(assert(m.key), own_tree, m.generated)
@@ -609,7 +609,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       return found
     end,
     parse = function(analyzer: string, source_hash: string,
-                     mapped: boolean): importer.Shared.Parse | nil
+                     mapped: boolean): importer.Shared.Parse?
       local cache = open.cache
       if cache == nil then return nil end
       local key: shared_compiles.ParseKey = {

@@ -1,13 +1,13 @@
---- What the tests of the readers that need the checker's types ([`build.syntax_receivers`], [`build.syntax_contracts`]) hold
---- them to: a program read by the fork's compiler and its reporter ([`build.receivers`], [`build.contracts`]) and the same
---- program translated and read by the new checker, the two answers side by side.
+--- What the tests of the readers that need the checker's types ([`build.syntax_receivers`], [`build.syntax_contracts`]) read
+--- a program with: the program translated ([`lang.translate`]) and read by the new checker, beside what the fork's readers
+--- said of the same program, kept as text.
 ---
---- A program is in the fork's Teal, with a small prelude of functions that fail and a stand-in [`cosmic.log`]; the new
---- checker reads its translation ([`lang.translate`]) against the real standard library's declarations. A test that uses
+--- A program is in the grammar of the fork's Teal, with a small prelude of functions that fail and a stand-in [`cosmic.log`];
+--- the new checker reads its translation against the real standard library's declarations. A test that uses
 --- this module grants [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] for reading.
-local Contracts = require("build.contracts")
 local Rules = require("build.contract_rules")
 local Fs = require("cosmic.fs")
+local Forked = require("lang.forked")
 local GenSyscalls = require("build.gen_syscalls")
 local Programs = require("lang.check_programs")
 local Receivers = require("build.syntax_receivers")
@@ -15,12 +15,6 @@ local Report = require("build.syntax_report")
 local SyntaxContracts = require("build.syntax_contracts")
 local Translate = require("lang.translate")
 local Types = require("lang.types")
-local ast = require("build.ast")
-local receivers = require("build.receivers")
-local teal = require("build.teal")
--- In the closure, so the store the worker is given carries the declaration the checker reads with [`Store.source`]
--- ([`teal.serve_standard`]).
-local type _ = require("cosmic.internal.process")
 
 local record Fixture
   --- A use of a record's field, as either reader gives it.
@@ -40,9 +34,10 @@ local record Fixture
     sites: {string: integer}
   end
 
-  --- The fork's reader of `source`, with the `modules` (by name, in the fork's Teal) it may require. `given` is the
-  --- exemptions to hold it to.
-  fork: function(source: string, modules?: {string: string}, given?: Rules.Exemptions): Said
+  --- The fork's reader of `source`, with the `modules` (by name, in the fork's Teal) it may require and the exemptions `given`
+  --- to hold it to, as the tool of main before the switch answered ([`lang.forked`], [`testdata/forked/typed_fixture.txt`]): the
+  --- uses of a record's field it found and the breaches of the error-slot rules. Fails for a program the file keeps nothing of.
+  forked: function(source: string, modules?: {string: string}, given?: Rules.Exemptions): Said
 
   --- The new checker's subject for the same program, translated first: the tree, the names and the type report.
   subject: function(source: string, modules?: {string: string}): Report.Subject
@@ -89,34 +84,59 @@ Fixture.LOG = table.concat({
   "return Log",
 }, "\n")
 
-local built = teal.lazy()
+local record Answers
+  mut entries: {string: Forked.Said}?
+end
 
-function Fixture.fork(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
-  teal.serve_standard(built)
-  local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
-  local names: {string} = {}
-  for module in pairs(modules or {}) do
-    names[#names + 1] = module
+local answers: Answers = { entries = nil }
+
+--- The entries of the file of the fork's answers, read once.
+local function entries_kept(): {string: Forked.Said}
+  local entries = answers.entries
+  if entries == nil then
+    entries = Forked.load("testdata/forked/typed_fixture.txt")
+    answers.entries = entries
   end
-  table.sort(names)
-  for _, module in ipairs(names) do
-    local code, loaded = built.gen((modules or {})[module], env, nil, "tl")
-    assert(code ~= nil, "the module " .. module .. " did not compile")
-    env.modules[module] = loaded.type
+  return entries
+end
+
+--- The lines of `given` the file's keys spell: `own` where the rules hold the program to the exemptions of the tree.
+local function given_lines(given?: Rules.Exemptions): {string}
+  if given == nil then
+    return { "own" }
   end
-  local state = receivers.install(env)
-  local code, result = built.gen(source, env, nil, "tl")
-  assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
-    result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
-  local checked = result.ast
-  assert(checked is ast.Node, "the compiler answered no syntax tree")
-  local problems = Contracts.check("x.tl", checked, state, Contracts.quiet_records(env), Contracts.binding_tables(env), given,
-    result.type)
-  local uses: {Fixture.Use} = {}
-  for _, r in ipairs(receivers.references(state, env, checked)) do
-    uses[#uses + 1] = { module = r.module, member = r.member, line = r.line }
+  local out: mut {string} = {}
+  local tables: {string: {string: string}} = {
+    casts = given.casts, exempt = given.exempt, modes = given.modes, parsing = given.parsing,
+  }
+  for which, list in pairs(tables) do
+    for key in pairs(list) do
+      out[#out + 1] = which .. " " .. key
+    end
   end
-  return { refs = uses, problems = problems, used = {}, sites = {} }
+  return out
+end
+
+function Fixture.forked(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
+  local key = Forked.key(source, modules or {}, given_lines(given))
+  local said = Forked.said(entries_kept(), key)
+  assert(said.known, "the fork's answer is not kept for:\n" .. key)
+  local text = assert(said.text)
+  local head, tail = text:match("^refs:\n(.-)problems:\n(.*)$")
+  assert(head ~= nil and tail ~= nil, "malformed entry:\n" .. text)
+  local refs: mut {Fixture.Use} = {}
+  for line in head:gmatch("([^\n]+)\n") do
+    local module, member, at = line:match("^(%S+) (%S+) (%d+)$")
+    assert(module ~= nil and member ~= nil and at ~= nil, "malformed use: " .. line)
+    refs[#refs + 1] = { module = module, member = member, line = math.tointeger(at) or 0 }
+  end
+  local problems: mut {string} = {}
+  if tail ~= "" then
+    for line in (tail .. "\n"):gmatch("([^\n]*)\n") do
+      problems[#problems + 1] = line
+    end
+  end
+  return { refs = refs, problems = problems, used = {}, sites = {} }
 end
 
 --- A session of the new checker with its standard library lowered, and the modules it was given.
@@ -139,20 +159,20 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
       bindings[derivation.path] = Translate.translate(text, derivation.path .. ".tl").text
     end
   end
-  local all: {string: string} = {}
+  local all: mut {string: string} = {}
   for module, text in pairs(modules or {}) do
     all[module] = text
   end
   for module, text in pairs(bindings) do
     all[module] = text
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for module in pairs(all) do
     names[#names + 1] = module
   end
   table.sort(names)
-  local translated: {string: string} = {}
-  local key: {string} = {}
+  local translated: mut {string: string} = {}
+  local key: mut {string} = {}
   for _, module in ipairs(names) do
     -- A binding of C is held translated: it is the same for every program, and translating each one for each was most
     -- of what reading a program cost.
@@ -172,7 +192,7 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   counter[1] = counter[1] + 1
   local module = "t" .. tostring(counter[1])
   local run = held.run(Translate.translate(source, module .. ".tl").text, module, given_modules)
-  local types: {integer: Types.Type} = {}
+  local types: mut {integer: Types.Type} = {}
   for id, t in pairs(run.lowered.types) do
     types[id] = t
   end
@@ -187,7 +207,7 @@ end
 
 function Fixture.port(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   local subject = Fixture.subject(source, modules)
-  local uses: {Fixture.Use} = {}
+  local uses: mut {Fixture.Use} = {}
   for _, r in ipairs(Receivers.references(subject)) do
     uses[#uses + 1] = { module = r.module, member = r.member, line = r.line }
   end

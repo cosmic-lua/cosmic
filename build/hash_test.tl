@@ -15,9 +15,9 @@ local Stream = require("cosmic.stream")
 local hash = require("build.hash")
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One member of `--json`'s array.
@@ -30,7 +30,7 @@ local ROW <const> = Shape.record_of("Row")
 
 --- `--json`'s array, checked against [`Row`].
 local function rows_of(text: string): {Row}
-  local rows, why: {Row} | nil, string = Shape.decode_into(text, Shape.list(ROW.spec))
+  local rows, why: {Row}?, string = Shape.decode_into(text, Shape.list(ROW.spec))
   assert(rows ~= nil, tostring(why) .. ": " .. text)
   return rows
 end
@@ -39,7 +39,7 @@ end
 --- standard input; `out` replaces the write to standard output.
 local function run(words: {string}, stdin?: string | Stream.Reader,
                    out?: function(text: string): boolean, string): Ran
-  local argv: {string} = { "hash" }
+  local argv: mut {string} = { "hash" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = hash.run(argv, {
@@ -48,7 +48,7 @@ local function run(words: {string}, stdin?: string | Stream.Reader,
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): Stream.Reader | nil, string
+    stdin = function(): Stream.Reader?, string
       if stdin == nil then return nil, "no standard input in this test" end
       if stdin is string then return Stream.from_string(stdin), "" end
       return stdin, ""
@@ -361,7 +361,7 @@ local function pattern(total: integer, chunk: string): Stream.Reader, function()
   local left = { value = total }
   local peak = { value = 0 }
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number))
     if left.value == 0 then return nil, "" end
     local size = math.min(left.value, max_bytes or #chunk, #chunk)

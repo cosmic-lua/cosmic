@@ -39,7 +39,7 @@ end
 
 local function keys(path: string): {string}
   local db = assert(Sqlite.open(path))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key FROM declared_v1 UNION ALL SELECT key FROM verdicts_v3 ORDER BY 1")))) do
     out[#out + 1] = row:text(1)
@@ -49,7 +49,7 @@ local function keys(path: string): {string}
 end
 
 local function outputs(file: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in (Fs.read(file) or ""):gmatch("([%w_]+)=([^\n]*)\n") do out[name] = value end
   return out
 end
@@ -95,7 +95,7 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
 end
 
 local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)
-  local digests: {string} = {}
+  local digests: mut {string} = {}
   for i, used in ipairs({ { 1, 6 }, { 1, 9 }, { 1, 6, 7 } }) do
     local dir = tmp .. "/" .. tostring(i)
     assert(Fs.mkdirs(dir))
@@ -124,7 +124,7 @@ end
 --- used_ns (in seconds), in key order.
 local function rows(path: string): string
   local db = assert(Sqlite.open(path))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT key, test, used_ns / 1000000000 FROM declared_v1 ORDER BY key")))) do
     out[#out + 1] = table.concat(row:texts(), " ")
@@ -233,7 +233,7 @@ end
 --- seconds, in address order.
 local function addresses(path: string): string
   local db = assert(Sqlite.open(path))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
     out[#out + 1] = table.concat(row:texts(), " ")

@@ -11,7 +11,7 @@ local B <const> = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
 local function drip(text: string, n: integer): Stream.Reader
   local inner = Stream.from_string(text)
   local r: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max?: integer): string?, string
       return inner:read(math.min(n, max or n))
     end,
     close = function(_self: Stream.Reader): boolean, string return inner:close() end,
@@ -34,12 +34,12 @@ local record Seen
 end
 
 --- Every part of `text` read to the end, or the reason the body is refused.
-local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen} | nil, string
+local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen}?, string
   local o: Multipart.Options = opts or {}
   o.boundary = o.boundary or B
   local reader, bad = Multipart.reader(drip(text, n or 7), o)
   if reader == nil then return nil, bad end
-  local out: {Seen} = {}
+  local out: mut {Seen} = {}
   while true do
     local got, why = reader:next_part()
     if got == nil then
@@ -275,7 +275,7 @@ end
 local function test_a_source_failure_is_passed_on_as_it_was_given()
   local sent = { value = false }
   local source: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       if sent.value then return nil, "boom" end
       sent.value = true
       return "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nab", ""

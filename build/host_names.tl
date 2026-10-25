@@ -102,7 +102,7 @@ table.sort(host_names.names)
 --- a `path:` that is not absolute, a `program:` that names a path.
 --- @param name a requirement as written
 --- @return its table name and argument, or nil and why it is refused
-function host_names.parse(name: string): host_names.Spec | nil, string
+function host_names.parse(name: string): host_names.Spec?, string
   local base, argument = name:match("^([^:]*):(.*)$")
   if base == nil then base, argument = name, nil end
   local entry = shapes[base]
@@ -113,7 +113,7 @@ function host_names.parse(name: string): host_names.Spec | nil, string
   if argument == nil then
     if entry.argument and not entry.optional then
       return nil, string.format("%q needs an argument: `%s:<%s>`", name, base,
-        base == "path" and "absolute path" or "name")
+        if base == "path" then "absolute path" else "name" end)
     end
     return { base = base, argument = "", class = entry.class }
   end
@@ -142,7 +142,7 @@ end
 --- The class of a requirement, or nil where `name` is refused.
 --- @param name a requirement as written
 --- @return its class, or nil and why it is refused
-function host_names.class(name: string): host_names.Class | nil, string
+function host_names.class(name: string): host_names.Class?, string
   local spec, why = host_names.parse(name)
   if spec == nil then return nil, why end
   return spec.class
@@ -154,10 +154,10 @@ end
 --- An empty text promises nothing.
 --- @param text the variable's value
 --- @return the names, or nil and the rule one breaks
-function host_names.read_promises(text: string): {string} | nil, string
-  local out: {string} = {}
+function host_names.read_promises(text: string): {string}?, string
+  local out: mut {string} = {}
   if text == "" then return out end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for name in (text .. ","):gmatch("([^,]*),") do
     local spec, why = host_names.parse(name)
     if spec == nil then return nil, why end
@@ -221,7 +221,7 @@ end
 --- @param inputs the rest of the policy
 --- @return true, or false and why
 function host_names.check(declared: {string}, inputs: host_names.Inputs): boolean, string
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(declared) do
     local spec, why = host_names.parse(name)
     if spec == nil then return false, "requires: " .. why end

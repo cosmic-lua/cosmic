@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Images = require("cosmic_ci.images")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
@@ -83,7 +84,7 @@ end
 
 --- A count a stand-in keeps.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A `docker` that records each call's cwd, argv (one bracketed word
@@ -204,7 +205,7 @@ local function test_publish_stops_at_a_docker_failure(tmp: string)
     local outcome = Images.publish(env, out)
     local code, trouble = outcome.code, outcome.trouble
     assert(Fs.close(out))
-    local label = command == "login" and "login ghcr.io" or command
+    local label = if command == "login" then "login ghcr.io" else command end
     assert(code == 5 and trouble == "docker " .. label .. ": exit 5", trouble)
     local _, ran = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
     assert(ran == calls, "ran on past the failure")
@@ -230,7 +231,7 @@ local function driver(tmp: string, command: string,
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
     project })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
-    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
+    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = Grammar.driver(env),
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })))
 end
 

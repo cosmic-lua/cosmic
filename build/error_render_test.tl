@@ -7,7 +7,6 @@ local Programs = require("lang.check_programs")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local importer = require("build.importer")
 local schema = require("build.schema")
 
 Test.policy{}
@@ -16,11 +15,11 @@ local function nothing(_file: string): boolean
   return false
 end
 
---- The result for the module `m` of the text `text`, in the new grammar or, with `translate`, in the fork's Teal.
-local function result_of(text: string, translate?: boolean, stubs?: {string: string}): Driver.Outcome
-  local index = Driver.index({ { "m.tl", text } }, translate == true, nothing)
+--- The result for the module `m` of the text `text`.
+local function result_of(text: string, stubs?: {string: string}): Driver.Outcome
+  local index = Driver.index({ { "m.tl", text } }, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library .. "\n", false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library .. "\n", {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))
@@ -30,7 +29,7 @@ end
 
 --- The element `i` of `list`, which a test expects to be there.
 local function at(list: {string}, i: integer): string
-  local found: string | nil = nil
+  local found: string? = nil
   for index, line in ipairs(list) do
     if index == i then
       found = line
@@ -40,13 +39,13 @@ local function at(list: {string}, i: integer): string
   return found
 end
 
-local function render(text: string, translate?: boolean): {string}
-  return ErrorRender.lines(result_of(text, translate))
+local function render(text: string): {string}
+  return ErrorRender.lines(result_of(text))
 end
 
 --- The one line `text` renders to.
-local function only(text: string, translate?: boolean): string
-  local lines = render(text, translate)
+local function only(text: string): string
+  local lines = render(text)
   assert(#lines == 1, tostring(#lines) .. " lines for " .. text .. ": " .. table.concat(lines, " | "))
   return at(lines, 1)
 end
@@ -75,8 +74,8 @@ local function test_an_error_of_the_scope_builder_is_a_line_with_its_place_messa
       "declared at 1:7 and stays visible if this one has another name)")
 end
 
-local function test_a_form_the_translator_leaves_in_the_forks_teal_is_a_line_of_the_parser()
-  assert(only("local x: {integer, string} = nil\nprint(x)\n", true) ==
+local function test_a_form_the_grammar_drops_is_a_line_of_the_parser()
+  assert(only("local x: {integer, string} = nil\nprint(x)\n") ==
       "m.tl:1:18: a tuple type `{A, B}` is not in the grammar (tuple_type): write a record with a field for each " ..
       "position, or `{A | B}` for an array of either")
 end
@@ -197,7 +196,7 @@ local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_
   assert(#field == 1 and at(field, 1):sub(-#" -- see also: cosmic docs records_interfaces_methods") ==
       " -- see also: cosmic docs records_interfaces_methods", at(field, 1))
   -- the replacement of a removed member is the answer, and no example is pointed to beside it
-  local removed = ErrorRender.lines(result_of("local Hash = require(\"cosmic.hash\")\nlocal d = Hash.hex(\"x\")\nprint(d)\n", false,
+  local removed = ErrorRender.lines(result_of("local Hash = require(\"cosmic.hash\")\nlocal d = Hash.hex(\"x\")\nprint(d)\n",
     { ["cosmic.hash"] = "local record Hash\n  alive: integer\nend\nreturn Hash\n" }), hints)
   assert(#removed == 1 and at(removed, 1):find("Hash.hex was removed: ", 1, true) ~= nil, at(removed, 1))
   assert(at(removed, 1):find("see also", 1, true) == nil, at(removed, 1))
@@ -216,7 +215,7 @@ end
 
 local function test_a_line_is_its_place_message_code_and_fix()
   local result = result_of("local n: integer = \"s\"\nprint(n)\n")
-  local p: Driver.Problem | nil = nil
+  local p: Driver.Problem? = nil
   for _, e in ipairs(result.errors) do
     p = e
   end
@@ -225,6 +224,6 @@ local function test_a_line_is_its_place_message_code_and_fix()
 end
 
 local function test_the_examples_a_diagnostic_points_to_are_the_ones_the_build_has_always_pointed_to()
-  assert(ErrorRender.queries.arguments == importer.diagnostic_queries["arguments"])
-  assert(ErrorRender.queries.record_key == importer.diagnostic_queries["record_key"])
+  assert(ErrorRender.queries.arguments == "generics_functions_returns")
+  assert(ErrorRender.queries.record_key == "records_interfaces_methods")
 end

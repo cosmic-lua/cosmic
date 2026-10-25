@@ -58,13 +58,13 @@ local function test_text_refuses_a_body_that_is_not_utf8()
 end
 
 local function test_a_failed_body_read_answers_nil_and_why()
-  local req = { value = nil as Web.Request | nil }
+  local req = { value = nil as Web.Request? }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
     req.value = r
     return Web.text("ok")
   end) } }
   local broken: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       return nil, "http: the body is over the limit"
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
@@ -140,7 +140,7 @@ local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_tr
 end
 
 local function test_a_connection_without_a_peer_has_no_client()
-  local seen = { value = nil as Web.Request | nil }
+  local seen = { value = nil as Web.Request? }
   local app = Web.app{ routes = { Web.get("/", function(r: Web.Request): Web.Response
     seen.value = r
     return Web.text("ok")
@@ -217,13 +217,13 @@ end
 
 local function test_a_failed_body_read_is_remembered()
   local reads = { value = 0 }
-  local seen = { value = nil as Web.Request | nil }
+  local seen = { value = nil as Web.Request? }
   local app = Web.app{ routes = { Web.post("/", function(r: Web.Request): Web.Response
     seen.value = r
     return Web.text("ok")
   end) } }
   local body: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       reads.value = reads.value + 1
       return nil, "the client went away"
     end,

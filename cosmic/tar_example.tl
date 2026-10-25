@@ -17,7 +17,7 @@ function Example.writer()
   assert(w:add_symlink("site/home.html", "index.html"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(out:result()))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   while true do
     local entry, trouble = r:next()
     if entry == nil then

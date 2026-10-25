@@ -7,13 +7,13 @@ local fixture = require("build.docs_fixture")
 local importer = require("build.importer")
 local link_index = require("build.link_index")
 local link_files = require("build.link_files")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local build_paths = require("build.paths")
 
 --- The docs fixture and the projects here build with the tree's own code.
-Test.policy{ grants = { { path = "core", letters = "r" } } }
+Test.policy{ grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+  { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -22,7 +22,6 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built = assert(teal.load())
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -31,7 +30,7 @@ end
 
 --- The rows of `sql` over `db`, each row's cells joined by spaces.
 local function rows(db: Sqlite.Handle, sql: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, sql)))) do
     out[#out + 1] = table.concat(row:texts(), " ")
   end
@@ -58,7 +57,7 @@ local function linking_tree(dir: string): Sqlite.Handle
       "",
       "--- The whole of a file; [`Fs.write`] writes one, as",
       "--- [the rule](../doc/meta.md#every-example-runs) shows.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -116,9 +115,9 @@ local function test_uses_lists_links_to_a_symbol_and_a_file(dir: string)
   local db = linking_tree(dir)
   local view = assert(docs.view({ db }))
   local function listed(query: string): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view, query)))) do
-      out[#out + 1] = use.from_file .. ":" .. use.line .. (use.link and " link " or " ") ..
+      out[#out + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link " else " " end) ..
         use.module .. " " .. use.symbol .. " " .. use.path .. "#" .. use.anchor
     end
     return out
@@ -194,7 +193,8 @@ local function write_project(root: string, target: string, bye: string)
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.bye`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
 end
 
 --- Builds the project `handle` holds into `out`, its links naming no
@@ -202,7 +202,7 @@ end
 --- each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, link_index.none))
   local db = assert(Sqlite.open(out))
   local found = rows(db, "SELECT from_file || ':' || line, kind, symbol, path || '#' || anchor " ..
@@ -356,9 +356,9 @@ end
 --- as `file:line`.
 local function places(out: string, query: string): {string}
   local db = assert(Sqlite.open(out))
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
-    found[#found + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+    found[#found + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
   end
   assert(db:close())
   return found
@@ -434,7 +434,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
     return stage
   end
   local function signed(): string
-    local result = assert(importer.compile(handle, built, "link-index-test"))
+    local result = assert(importer.compile(handle, "link-index-test"))
     return (assert(writer.signature(handle, result, "a writer", link_index.none)))
   end
   assert(staged().read == 4)
@@ -476,7 +476,7 @@ local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: st
   write_project(root, "greet.hello", "bye")
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.compile(handle, built, "link-index-test"))
+  assert(importer.compile(handle, "link-index-test"))
   local function pending(code: string): link_index.Pending
     return (assert(link_index.pending(handle.db, root, link_index.none, code)))
   end
@@ -564,7 +564,8 @@ local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_move
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.ciao`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
   local renamed = build_links(handle, out)
   assert(texts() ~= "poison", "kept rows were served after a symbol moved")
   same(renamed, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol ciao #" })
@@ -575,7 +576,8 @@ local function test_the_rows_kept_are_copied_only_where_nothing_they_follow_move
   assert(Fs.write(root .. "/wave.tl", source(
     "local greet = require(\"greet\")",
     "-- Waves as [`greet.hello`] does.",
-    "return greet.hello")))
+    "local wave: function(): string = greet.hello",
+    "return wave")))
   local moved = build_links(handle, out)
   assert(texts() ~= "poison", "kept rows were served after a link moved")
   same(moved, { "greet.tl:1 symbol hello #", "greet.tl:1 anchor  notes.md#usage", "wave.tl:2 symbol hello #" })
@@ -602,7 +604,7 @@ local function test_a_file_gone_or_renamed_takes_its_rows(tmp: string)
   local out = build_dir(root) .. "/cosmic.db"
   local function signed(): string
     assert(work.stage(handle, false))
-    local result = assert(importer.compile(handle, built, "link-index-test"))
+    local result = assert(importer.compile(handle, "link-index-test"))
     local signature = assert(writer.signature(handle, result, "a writer", link_index.none))
     assert(writer.write_result(handle, out, result, nil, link_index.none))
     return signature
@@ -663,7 +665,7 @@ local function test_a_c_comments_links_are_rows_but_not_ci(tmp: string)
   assert(Fs.write(root .. "/ci/README.md", source("CI's own [`greet.hello`].")))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   local out = build_dir(root) .. "/cosmic.db"
   assert(writer.write_result(handle, out, result, nil, link_index.none))
   assert(work.close(handle))
@@ -694,7 +696,7 @@ local function library(dir: string, identity: string, with_write: boolean): link
       "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
   })
   return { identity = identity,
-    databases = function(): {Sqlite.Handle} | nil, string return { db } end }
+    databases = function(): {Sqlite.Handle}?, string return { db } end }
 end
 
 --- A project whose module and README link to the standard library.
@@ -726,7 +728,7 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   local stdlib = library(tmp, "docs one", true)
   assert(writer.write_result(handle, out, result, nil, stdlib))
   assert(work.close(handle))
@@ -739,9 +741,9 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
       })
   local handles = assert(stdlib.databases())
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
-    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))
@@ -779,7 +781,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
       "return Archive"),
   })
   local streams: link_index.Library = { identity = "docs streams",
-    databases = function(): {Sqlite.Handle} | nil, string return { stdlib } end }
+    databases = function(): {Sqlite.Handle}?, string return { stdlib } end }
   local root = assert(Fs.absolute(tmp)) .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(
@@ -789,6 +791,13 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
     "local record greet",
     "  --- An entry it greets.",
     "  record Entry is S.ArchiveEntry",
+    "    path: string",
+    "    kind: S.EntryKind",
+    "    mode: integer",
+    "    size: integer",
+    "    mtime: integer",
+    "    linkpath: string",
+    "    open: function(Entry): S.Reader?, string",
     "  end",
     "end",
     "",
@@ -796,7 +805,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result, nil, streams))
   assert(work.close(handle))
   local db = assert(Sqlite.open(out))
@@ -823,7 +832,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   local first = assert(writer.signature(handle, result, "a writer", one))
   assert(writer.signature(handle, result, "a writer", again) == first)
   assert(writer.signature(handle, result, "a writer", two) ~= first)
@@ -847,9 +856,9 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   assert(Fs.remove(root .. "/README.md"))
   assert(Fs.remove(root .. "/wave.tl"))
   assert(work.stage(handle, false))
-  local plain = assert(importer.compile(handle, built, "link-index-test"))
+  local plain = assert(importer.compile(handle, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
-    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+    databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
   assert(writer.signature(handle, plain, "a writer", refusing) ==
       writer.signature(handle, plain, "a writer", one))
   assert(writer.write_result(handle, out, plain, nil, refusing))
@@ -865,11 +874,15 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/importer.tl", source("return {}")))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
-    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+    databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
   assert(writer.signature(handle, result, "a writer", refusing) ==
       writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
   local out = build_dir(root) .. "/cosmic.db"
@@ -901,7 +914,7 @@ local function test_a_projects_own_links_read_no_library(tmp: string)
   local handle = assert(work.open(root))
   local out = build_dir(root) .. "/cosmic.db"
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "link-index-test"))
+  local result = assert(importer.compile(handle, "link-index-test"))
   assert(writer.write_result(handle, out, result))
   local db = assert(Sqlite.open(out))
   same(rows(db, "SELECT from_file || ':' || line, module, symbol FROM links " ..

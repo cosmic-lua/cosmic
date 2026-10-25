@@ -53,13 +53,13 @@ local record HostId
     sysname: string
     machine: string
     --- A file's bytes, nil where it is missing or unreadable.
-    read: function(path: string): string | nil
+    read: function(path: string): string?
     --- What `sysctl -n NAME` prints on macOS, nil where it fails.
-    sysctl: function(name: string): string | nil
+    sysctl: function(name: string): string?
     --- What `docker version --format '{{.Server.Version}}'` prints,
     --- the container engine's server version, or nil and why where it
     --- fails.
-    docker_version: function(): string | nil, string
+    docker_version: function(): string?, string
   end
   --- The facts of this host, finding its programs on `env`'s PATH.
   live: function(env: {string:string}): Facts
@@ -123,7 +123,7 @@ end
 --- A line's features: what follows "flags" or "Features" and a colon,
 --- split at spaces and tabs.
 local function listed(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("[^ \t]+") do found[#found + 1] = flag end
@@ -132,7 +132,7 @@ local function listed(text: string): {string}
 end
 
 function HostId.features(facts: HostId.Facts): string
-  local found: {string} = {}
+  local found: mut {string} = {}
   if facts.sysname == "Darwin" then
     for _, feature in ipairs(darwin_features) do
       if chomp(facts.sysctl(feature.sysctl) or "") == "1" then found[#found + 1] = feature.name end
@@ -141,15 +141,15 @@ function HostId.features(facts: HostId.Facts): string
     for _, flag in ipairs(listed(facts.read("/proc/cpuinfo") or "")) do found[#found + 1] = flag end
   end
   table.sort(found)
-  local wanted: {string:boolean} | nil
+  local wanted: {string:boolean}?
   local kept = keep[facts.machine]
   if kept ~= nil then
-    local set: {string:boolean} = {}
+    local set: mut {string:boolean} = {}
     for _, flag in ipairs(kept) do set[flag] = true end
     wanted = set
   end
-  local parts: {string} = {}
-  local last: string | nil
+  local parts: mut {string} = {}
+  local last: string?
   for _, flag in ipairs(found) do
     if flag ~= last and (wanted == nil or wanted[flag] == true) then
       parts[#parts + 1] = flag .. "\n"
@@ -177,18 +177,18 @@ function HostId.live(env: {string:string}): HostId.Facts
   return {
     sysname = sysname,
     machine = machine,
-    read = function(path: string): string | nil
+    read = function(path: string): string?
       local text, _ = Fs.read(path)
       return text
     end,
     -- By its path: /usr/sbin is not on every shell's default PATH.
-    sysctl = function(name: string): string | nil
+    sysctl = function(name: string): string?
       local result, _ = Child.run({ "/usr/sbin/sysctl", "-n", name }, { env = env, stdin = "null",
         stdout = "capture", stderr = "null", timeout_ns = Time.seconds(30) })
       if result == nil or not result.ok then return nil end
       return result.stdout or ""
     end,
-    docker_version = function(): string | nil, string
+    docker_version = function(): string?, string
       if docker == nil then return nil, "docker: not found" end
       local result, _ = Child.run({ docker, "version", "--format", "{{.Server.Version}}" },
         { env = env, stdin = "null", stdout = "capture", stderr = Fs.stderr,
@@ -217,7 +217,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     end
   end
   local id: string
-  local env_lines: {string} = {}
+  local env_lines: mut {string} = {}
   if image ~= "" then
     local version, why = facts.docker_version()
     if version == nil then return refuse(why, 1) end
@@ -228,7 +228,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
   end
   env_lines[#env_lines + 1] = "COSMIC_HOST_ID=" .. id
   local prefix = "verdicts-" .. name .. "-" .. Hash.hex_sha256(id):sub(1, 16) .. "-"
-  local function write(file: string | nil, lines: {string}): boolean
+  local function write(file: string?, lines: {string}): boolean
     local text = table.concat(lines, "\n") .. "\n"
     if file == nil or file == "" then
       say(text)
@@ -249,7 +249,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
 end
 
 function HostId.command(argv: {string}): integer
-  local words: {string} = {}
+  local words: mut {string} = {}
   for _, word in ipairs(argv) do words[#words + 1] = word end
   local env = Env.all()
   return HostId.leg_host_id(words, env, HostId.live(env), function(text: string)

@@ -113,7 +113,7 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   end
   local said = result.stdout or ""
   assert(result.code == 0, tostring(result.code) .. ": " .. said)
-  local got: {string:string} = {}
+  local got: mut {string:string} = {}
   for name, outcome in said:gmatch("([%w_]+)=(%w+)") do got[name] = outcome end
   -- The kernel and the filter refuse before a namespace of its own.
   assert(got.mount_before == "EPERM" and got.unshare_mount_before == "EPERM", said)

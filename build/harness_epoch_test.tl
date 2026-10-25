@@ -41,7 +41,7 @@ end
 --- The count and token of `epoch` (build/harness_epoch.tl) when it
 --- has the form the file keeps, a count, a dash and 8 lower-case hex
 --- digits ("N-xxxxxxxx"), or nil where it has another.
-local function epoch_parts(epoch: string): integer | nil, string | nil
+local function epoch_parts(epoch: string): integer?, string?
   local count, token = epoch:match("^(%d+)%-(%x%x%x%x%x%x%x%x)$")
   if count == nil or token:find("%u") then return nil, nil end
   return math.tointeger(tonumber(count)), token
@@ -62,11 +62,11 @@ end
 --- append, so two bumps from one value -- on two branches -- append
 --- the same line, which merges, and set their `epoch` lines apart,
 --- which conflict.
-local function bump(epoch: string, retired: {string}): string, string | nil
+local function bump(epoch: string, retired: {string}): string, string?
   local _, token = epoch_parts(epoch)
-  local retire: string | nil = nil
+  local retire: string? = nil
   if token ~= nil and not holds(retired, token) then retire = token end
-  local count = #retired + (retire ~= nil and 1 or 0) + 1
+  local count = #retired + (if retire ~= nil then 1 else 0 end) + 1
   local line = string.format("harness_epoch.epoch = %q",
     string.format("%d-%s", count, Codec.hex((assert(Rand.entropy(4))))))
   return line, retire ~= nil and string.format("  %q,", retire) or nil
@@ -76,8 +76,8 @@ end
 local function how_to_bump(epoch: string, retired: {string}): string
   local line, append = bump(epoch, retired)
   return "To bump it, set the `epoch` line to\n" .. line .. "\nkeeping its comment" ..
-    (append ~= nil and ", and append this line to `retired`:\n" .. append or
-      "; append nothing to `retired`: `epoch` has no token of its own to retire") ..
+    (if append ~= nil then ", and append this line to `retired`:\n" .. append else
+      "; append nothing to `retired`: `epoch` has no token of its own to retire" end) ..
     "\nThe token is drawn fresh here: never copy one from another branch."
 end
 
@@ -96,8 +96,8 @@ end
 --- its `harness_moved`) refuse a change whose `epoch` token its base
 --- did not hold but another open pull request's head does, once the
 --- queue's driver reads open pull requests.
-local function epoch_trouble(epoch: string, retired: {string}): string | nil
-  local seen: {string:boolean} = {}
+local function epoch_trouble(epoch: string, retired: {string}): string?
+  local seen: mut {string:boolean} = {}
   for _, token in ipairs(retired) do
     if seen[token] then return string.format("`retired` holds %q twice", token) end
     seen[token] = true
@@ -124,9 +124,9 @@ end
 --- that has no entry, and each entry that names no module of the
 --- harness, with the lines that acknowledge the first two.
 local function unacknowledged(found: {string:string}, acknowledged: {string:string},
-                              epoch: string, retired: {string}): string | nil
-  local moved: {string} = {}
-  local stale: {string} = {}
+                              epoch: string, retired: {string}): string?
+  local moved: mut {string} = {}
+  local stale: mut {string} = {}
   for name, digest in pairs(found) do
     if acknowledged[name] ~= digest then moved[#moved + 1] = name end
   end
@@ -136,7 +136,7 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
   if #moved == 0 and #stale == 0 then return nil end
   table.sort(moved)
   table.sort(stale)
-  local out: {string} = {
+  local out: mut {string} = {
     "the test harness moved (build/harness_epoch.tl): what every worker loads, " ..
       "the sandbox's maker or the code that makes and reads a key. Bump `epoch` if " ..
       "the change can alter a pass or a fail -- what a worker is given, how it is " ..
@@ -146,9 +146,9 @@ local function unacknowledged(found: {string:string}, acknowledged: {string:stri
       "\nEither way, in `acknowledged`:",
   }
   for _, name in ipairs(moved) do
-    out[#out + 1] = acknowledged[name] == nil and
-      "no entry for " .. name .. "; add this line, in its place by name, between blank lines" or
-      "moved: " .. name .. "; set its line to"
+    out[#out + 1] = if acknowledged[name] == nil then
+      "no entry for " .. name .. "; add this line, in its place by name, between blank lines" else
+      "moved: " .. name .. "; set its line to" end
     out[#out + 1] = entry(name, found[name])
   end
   for _, name in ipairs(stale) do
@@ -258,7 +258,7 @@ end
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
 --- begins with the counts of the epochs that had no token.
 local function counted(n: integer): {string}
-  local retired: {string} = {}
+  local retired: mut {string} = {}
   for i = 1, n do retired[i] = tostring(i) end
   return retired
 end
@@ -300,8 +300,8 @@ end
 
 --- What a bump's two edits, as `bump` prints them, leave `epoch` and
 --- `retired` as.
-local function applied(line: string, append: string | nil, retired: {string}): string, {string}
-  local after: {string} = {}
+local function applied(line: string, append: string?, retired: {string}): string, {string}
+  local after: mut {string} = {}
   for i, token in ipairs(retired) do after[i] = token end
   if append ~= nil then after[#after + 1] = assert(append:match('^  "(%x+)",$'), append) end
   return assert(line:match('^harness_epoch%.epoch = "(.*)"$'), line), after
@@ -361,7 +361,7 @@ local function test_the_file_holds_its_entries_as_the_guard_prints_them()
     { { text = "build.harness_epoch" } }))
   db:close()
   local text = assert(Compress.inflate("raw", rows[1]:blob(1)))
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
   assert(#names > 0)
   table.sort(names)
@@ -392,15 +392,15 @@ local function test_the_harness_holds_what_it_runs_requires()
   local db = assert(Sqlite.open(projection))
   local found, trouble = test_key.harness(db)
   assert(found ~= nil, trouble)
-  local named: {string:boolean} = {}
+  local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   named["build.harness_epoch"] = true
   local by_value = assert(test_key.value_imports(db))
-  local tree: {string:boolean} = {}
+  local tree: mut {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
     tree[row:text(1)] = true
   end
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for _, name in ipairs(found.runs) do
     assert(tree[name], name .. " is no module of the tree")
     for _, wanted in ipairs(by_value[name] or {}) do
@@ -439,10 +439,10 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   assert(found ~= nil, trouble)
   local by_value = assert(test_key.value_imports(db))
   db:close()
-  local named: {string:boolean} = {}
+  local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   assert(named["cosmic.sandbox.policy"], "cosmic.sandbox.policy is not held")
-  local unheld: {string} = {}
+  local unheld: mut {string} = {}
   for _, name in ipairs(found.names) do
     if name:match("^cosmic%.") then
       for _, wanted in ipairs(by_value[name] or {}) do
@@ -459,11 +459,11 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
       "each in build/test_key.tl's `harness_alone`: " .. table.concat(unheld, ", "))
   -- An entry of `unheld_split` that no module of the harness requires, or
   -- that the harness now holds, is stale.
-  local required: {string:boolean} = {}
+  local required: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do
     for _, wanted in ipairs(by_value[name] or {}) do required[wanted] = true end
   end
-  local stale: {string} = {}
+  local stale: mut {string} = {}
   for wanted in pairs(unheld_split) do
     if named[wanted] or not required[wanted] then stale[#stale + 1] = wanted end
   end
@@ -482,15 +482,15 @@ local function test_the_harness_names_its_library()
   local found, trouble = test_key.harness(db)
   db:close()
   assert(found ~= nil, trouble)
-  local held: {string:boolean} = {}
-  local unnamed: {string} = {}
+  local held: mut {string:boolean} = {}
+  local unnamed: mut {string} = {}
   for _, name in ipairs(found.names) do
     if name:match("^cosmic%.") then
       held[name] = true
       if harness_epoch.library[name] == nil then unnamed[#unnamed + 1] = name end
     end
   end
-  local unheld: {string} = {}
+  local unheld: mut {string} = {}
   for name, reason in pairs(harness_epoch.library) do
     assert(reason ~= "", name .. " is in `library` with no reason")
     if not held[name] then unheld[#unheld + 1] = name end
@@ -530,7 +530,7 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.y', 'cosmic.time')"))
   local by_value = assert(test_key.value_imports(db))
   db:close()
-  local kept: {string:boolean} = {}
+  local kept: mut {string:boolean} = {}
   for _, name in ipairs(by_value["build.x"] or {}) do kept[name] = true end
   assert(kept["cosmic.fs"] and kept["cosmic.env"], "a require's spelling dropped its edge")
   assert(not kept["cosmic.child"], "an edge the bytecode does not name was followed")

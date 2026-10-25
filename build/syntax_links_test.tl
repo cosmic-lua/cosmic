@@ -1,19 +1,15 @@
 --- Tests of [`build.syntax_links`] and [`build.syntax_link_text`]: the links of a Teal source, read off the new tree, are
---- what [`build.links`] finds and rewrites in it with the fork's.
+--- what [`build.links`] finds and rewrites in it.
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local LinkText = require("build.link_text")
-local Links = require("build.links")
 local Node = require("build.syntax_node")
 local SyntaxLinkText = require("build.syntax_link_text")
 local SyntaxLinks = require("build.syntax_links")
 local Test = require("cosmic.test")
 local link_resolve = require("build.link_resolve")
-local teal = require("build.teal")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
-
-local built = assert(teal.load(true))
 
 local function lines(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -23,7 +19,7 @@ end
 --- `module.symbol@file`).
 local function world(files: {string: string}, symbols?: {string: {string}}, members?: {string: {string}}):
     link_resolve.Context
-  local dirs: {string: boolean} = { ["/p"] = true }
+  local dirs: mut {string: boolean} = { ["/p"] = true }
   for path in pairs(files) do
     local dir = Fs.dirname(path)
     while dir ~= "/" and dir ~= "" do
@@ -32,7 +28,7 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
     end
   end
   local function symbols_of(spelled: {string}): {link_resolve.Symbol}
-    local out: {link_resolve.Symbol} = {}
+    local out: mut {link_resolve.Symbol} = {}
     for _, written in ipairs(spelled) do
       local name, file = written:match("^(.-)@(.+)$")
       name = name or written
@@ -43,18 +39,18 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
   end
   return {
     root = "/p",
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
       if dirs[path] then return "dir" end
       return nil
     end,
-    read = function(path: string): string | nil return files[path] end,
-    real = function(path: string): string | nil return path end,
-    unbuilt = function(): string | nil return nil end,
-    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+    read = function(path: string): string? return files[path] end,
+    real = function(path: string): string? return path end,
+    unbuilt = function(): string? return nil end,
+    symbols = function(query: string): {link_resolve.Symbol}?, string
       return symbols_of((symbols or {})[query] or {}), ""
     end,
-    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+    member = function(module: string, member: string): {link_resolve.Symbol}?, string
       return symbols_of((members or {})[module .. "." .. member] or {}), ""
     end,
   }
@@ -126,23 +122,17 @@ local SOURCES: {string} = {
     "return Queue"),
 }
 
-local function test_the_links_of_a_source_are_checked_and_rewritten_as_the_forks_are()
+local function test_the_links_of_a_source_are_checked_and_rewritten()
   local checked = 0
   local linked = 0
   for index, source in ipairs(SOURCES) do
     local path = "/p/a" .. index .. ".tl"
-    local old = Links.check(link_resolve.resolver(linking_world()), path, path, "teal", source, built)
     local new = SyntaxLinks.check(link_resolve.resolver(linking_world()), path, path, "teal", source)
-    assert(table.concat(old, "\n") == table.concat(new, "\n"), index .. ":\n" .. table.concat(old, "\n") .. "\nagainst\n" ..
-        table.concat(new, "\n"))
     checked = checked + #new
-    local was = Links.rewrite(link_resolve.resolver(linking_world()), path, path, "teal", source, built)
     local now = SyntaxLinks.rewrite(link_resolve.resolver(linking_world()), path, path, "teal", source)
-    assert(was.source == now.source and table.concat(was.linked, "\n") == table.concat(now.linked, "\n") and
-        was.redefined == now.redefined, index .. ": " .. now.source)
     linked = linked + #now.linked
   end
-  -- Something was found to be wrong and something was linked, so that neither is compared empty with empty.
+  -- Something was found to be wrong and something was linked.
   assert(checked >= 3, tostring(checked))
   assert(linked >= 5, tostring(linked))
 end
@@ -166,13 +156,6 @@ local function test_a_facts_value_read_once_answers_check_and_rewrite()
   assert(facts.known.module_level["helper"] == true and facts.known.module_level["Box"] == true)
 end
 
-local function test_a_markdown_file_is_read_as_the_fork_reads_it()
-  local source = lines("# A guide", "", "See [`Known.thing`] and [the code](build/x.tl).")
-  local path = "/p/doc/guide.md"
-  assert(table.concat(SyntaxLinks.check(link_resolve.resolver(linking_world()), path, path, "markdown", source), "\n") ==
-      table.concat(Links.check(link_resolve.resolver(linking_world()), path, path, "markdown", source, built), "\n"))
-end
-
 --- The comments of a source are read from the tokens, where each starts in the file.
 local function test_the_comments_of_a_source_say_where_their_text_starts()
   local source = lines("local x = 1 -- trail", "--- [`x`] doc", "return x")
@@ -185,8 +168,8 @@ local function test_the_comments_of_a_source_say_where_their_text_starts()
   assert(LinkText.line_starts(source)[3] == #"local x = 1 -- trail\n--- [`x`] doc\n" + 1)
 end
 
---- What the fork's reader did not look through is not looked through: the members of a generic type are not declared.
-local function test_the_members_of_a_generic_type_are_not_declared_as_the_forks_reader_did_not_declare_them()
+--- The members of a generic type are declared as those of any other type are, at the top and nested.
+local function test_the_members_of_a_generic_type_are_declared_as_those_of_any_type_are()
   local source = lines(
     "local record Queue<T>",
     "  send: function(self: Queue<T>, item: T): boolean",
@@ -205,6 +188,6 @@ local function test_the_members_of_a_generic_type_are_not_declared_as_the_forks_
   local chunk = assert(Node.parse(source, "a.tl"))
   local declared = SyntaxLinkText.declarations(chunk, Node.scope(chunk, "a.tl"))
   local here = declared.at(14)
-  assert(here.names["Plain.send"] == true and here.names["Queue.send"] ~= true)
-  assert(here.names["Plain.Flat.keep"] == true and here.names["Plain.Inner.drop"] ~= true)
+  assert(here.names["Plain.send"] == true and here.names["Queue.send"] == true)
+  assert(here.names["Plain.Flat.keep"] == true and here.names["Plain.Inner.drop"] == true)
 end

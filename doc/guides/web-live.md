@@ -115,7 +115,7 @@ end
 
 --- The app, with its notes and its hub.
 function Board.app(): Web.App
-  local notes: {data.Note} = {}
+  local notes: mut {data.Note} = {}
   local hub = Sse.new_hub{}
 
   local function list(): Html.SafeHtml
@@ -172,7 +172,7 @@ local Web = require("cosmic.web")
 
 local function test_the_page_opens_a_stream()
   local page = Web.test_client(Board.app()):get("/")
-  assert(page.status == 200 and page.body:find('sse-connect="/events"', 1, true))
+  assert(page.status == 200 and page.body:find('sse-connect="/events"', 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-ext-sse", 1, true), "the extension is loaded")
 end
 

@@ -58,7 +58,7 @@ local function says_how_it_went(tmp: string)
       local fail = case.fail
       if fail is {string} then
         local fail_in = case.fail_in
-        local dir = fail_in ~= nil and tmp .. "/" .. fail_in or tree
+        local dir = if fail_in ~= nil then tmp .. "/" .. fail_in else tree end
         local _ = verbs_fixture.expect(dir, verb, fail, 1)
       end
     end
@@ -93,7 +93,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
       assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
         verb .. " " .. name .. " says nothing of what it does")
       local value = entry.value
-      local shown = value ~= nil and name .. " <" .. value .. ">" or name
+      local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
       assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
     end
   end
@@ -229,7 +229,7 @@ local function write_programs(tmp: string): string
     assert(Fs.write(tree .. "/cmd/" .. name .. "/main.tl", main))
   end
   assert(Fs.mkdirs(tree .. "/lib"))
-  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nreturn Fs.read\n"))
+  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nlocal read: function(string): (string?, string) = Fs.read\nreturn read\n"))
   return tree
 end
 
@@ -282,7 +282,8 @@ local function test_uses_prints_each_link_it_finds(tmp: string)
   assert(Fs.write(tree .. "/lib/links.tl", table.concat({
     "local waves = require(\"lib.waves\")",
     "-- [`waves.go`], [`lib.waves`] and [the notes](../notes.md#usage).",
-    "return waves.go",
+    "local said: string = waves.go()",
+    "return said",
     "",
   }, "\n")))
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
@@ -368,7 +369,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
   -- which `Fs` lists through: it runs in-process.
   local listed: {string} = {}
   local calls = sys as {string:any}
-  local readdir = calls.readdir as function(any...): any...
+  local readdir = calls.readdir as function(...: any): any...
   calls.readdir = function(...: any): any...
     local given: any = ...
     if given is string then

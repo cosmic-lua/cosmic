@@ -154,7 +154,7 @@ function Example.walk()
   assert(Fs.write(root .. "/index.html", "<p>hi</p>"))
   assert(Fs.write(root .. "/css/main.css", "body {}"))
   local paths = assert(Fs.walk(root))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, path in ipairs(paths) do
     local data = assert(Fs.read(root .. "/" .. path))
     lines[#lines + 1] = ("%s %d"):format(path, #data)

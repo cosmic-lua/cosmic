@@ -72,8 +72,8 @@ local function token(text: any): boolean
 end
 
 --- The list `names` as a set of lowercase names, raising for any that is no token.
-local function names_of(names: {string} | nil, what: string): {string:boolean}, boolean
-  local set: {string:boolean} = {}
+local function names_of(names: {string}?, what: string): {string:boolean}, boolean
+  local set: mut {string:boolean} = {}
   local any = false
   for _, each in ipairs(names or {}) do
     if not token(each) then
@@ -89,8 +89,8 @@ local function names_of(names: {string} | nil, what: string): {string:boolean}, 
 end
 
 --- The origins a config allows by name, as a set.
-local function origins_of(list: {string} | nil): {string:boolean}, boolean
-  local set: {string:boolean} = {}
+local function origins_of(list: {string}?): {string:boolean}, boolean
+  local set: mut {string:boolean} = {}
   local any = false
   for _, each in ipairs(list or {}) do
     if each == "*" then
@@ -118,7 +118,7 @@ end
 --- @param opts Cors.Options The config
 --- @return {string} The origins
 function Cors.trusted(opts: Cors.Options): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, each in ipairs(opts.allow_origins or {}) do
     local normal = Origin.normalize(each)
     if normal ~= nil then out[#out + 1] = normal end
@@ -140,8 +140,8 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
   if wildcard and next(origins) ~= nil then
     error("cors: allow_origins = {\"*\"} stands alone", 2)
   end
-  local methods: {string} = {}
-  local method_set: {string:boolean} = {}
+  local methods: mut {string} = {}
+  local method_set: mut {string:boolean} = {}
   for _, each in ipairs(opts.allow_methods or { "GET", "HEAD", "POST" }) do
     if not token(each) or each == "*" or each ~= each:upper() then
       error(("cors: allow_methods: %s is not an uppercase method name"):format(tostring(each)), 2)
@@ -152,7 +152,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     end
   end
   local header_set, any_header = names_of(opts.allow_headers, "allow_headers")
-  local listed_headers: {string} = {}
+  local listed_headers: mut {string} = {}
   for _, each in ipairs(opts.allow_headers or {}) do
     if each ~= "*" then listed_headers[#listed_headers + 1] = each end
   end
@@ -166,9 +166,9 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
   end
   local predicate = opts.allow_origin
   --- The origin to answer with, or nil where `sent` is not allowed.
-  local function allowed(sent: string): string | nil
+  local function allowed(sent: string): string?
     if sent == "null" then
-      return origins["null"] and "null" or nil
+      return if origins["null"] then "null" else nil end
     end
     local normal = Origin.normalize(sent)
     if normal == nil then return nil end
@@ -178,7 +178,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
   end
 
   --- Adds the headers every CORS answer to `origin` carries.
-  local function mark(res: Types.Response, origin: string | nil)
+  local function mark(res: Types.Response, origin: string?)
     Response.add_header(res, "Vary", "Origin")
     if origin == nil then return end
     Response.set_header(res, "Access-Control-Allow-Origin", origin)
@@ -190,7 +190,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     local ask = req.headers["access-control-request-method"]
     local headers_asked = req.headers["access-control-request-headers"]
     local pass = ask ~= nil and method_set[ask] == true
-    local echo: {string} = {}
+    local echo: mut {string} = {}
     if pass and headers_asked ~= nil and headers_asked ~= "" then
       if #headers_asked > 2048 then
         pass = false
@@ -211,7 +211,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
       end
     end
     -- A refusal and an answer both depend on the three request headers.
-    local out = Response.empty(pass and 204 or 403)
+    local out = Response.empty(if pass then 204 else 403 end)
     Response.add_header(out, "Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
     if not pass then return out end
     Response.set_header(out, "Access-Control-Allow-Origin", origin)

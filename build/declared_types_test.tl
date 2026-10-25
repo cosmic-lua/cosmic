@@ -13,21 +13,17 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Fuzz = require("build.fuzz")
 local alias_members = require("build.alias_members")
-local analyzer = require("build.analyzer")
+local Analyzer = require("build.syntax_analyzer")
 local fetch = require("build.fetch")
-local fix = require("build.fix")
 local flow = require("build.flow")
 local formats = require("build.cache_formats")
 local invoke = require("build.invoke")
 local maintenance = require("build.cache_maintenance")
-local teal = require("build.teal")
 local test = require("build.test")
 local todo_scan = require("build.todo_scan")
 local TypeWatch = require("build.type_watch")
 
 Test.policy{ loopback = { "127.0.0.1" } }
-
-local built = assert(teal.load())
 
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
@@ -103,7 +99,7 @@ local function test_a_fetch_checksum_fragment_is_as_declared()
     local url = "http://cosmic.test/data"
     local hex = string.rep("0", 64)
     local function run(words: {string}, script: {string}): integer
-      local argv: {string} = { "fetch" }
+      local argv: mut {string} = { "fetch" }
       for _, word in ipairs(words) do argv[#argv + 1] = word end
       return fetch.run(argv, {
         script = script,
@@ -118,8 +114,8 @@ end
 
 --- `local a, b = require("cosmic.test")` binds the second name to nothing.
 local function test_a_policy_read_from_a_source_with_fewer_values_is_as_declared()
-  honest("build.analyzer", function()
-    local found = analyzer.analyze(built, table.concat({
+  honest("build.syntax_analyzer", function()
+    local found = Analyzer.analyze(table.concat({
       'local Test, other = require("cosmic.test")',
       "local function test_a() end",
     }, "\n"), "fixture.tl")
@@ -132,16 +128,16 @@ end
 local function test_a_reference_naming_no_type_is_as_declared()
   honest("build.alias_members", function()
     local source: alias_members.Source<alias_members.Declared> = {
-      declared = function(_module: string, _name: string): alias_members.Declared | nil, string
+      declared = function(_module: string, _name: string): alias_members.Declared?, string
         return nil
       end,
-      exported = function(_module: string, _name: string): alias_members.Declared | nil, string
+      exported = function(_module: string, _name: string): alias_members.Declared?, string
         return nil
       end,
-      bound = function(_module: string, _name: string): string | nil, string
+      bound = function(_module: string, _name: string): string?, string
         return nil
       end,
-      under = function(_target: alias_members.Declared): {alias_members.Declared} | nil, string
+      under = function(_target: alias_members.Declared): {alias_members.Declared}?, string
         return {}
       end,
       as_member = function(_owner: alias_members.Declared, member: alias_members.Declared,
@@ -168,44 +164,5 @@ local function test_flow_comments_are_as_declared()
       "",
     }, "\n")
     assert(flow.format(text) ~= nil)
-  end)
-end
-
---- Block constructs of each kind, on one line and across several, parted
---- from the statements around them or left alone.
-local function test_the_break_pass_answers_no_layout_for_a_block_it_leaves()
-  honest("build.fix.breaks", function()
-    for _, source in ipairs({
-        "a = 1 b = 2\n",
-        "if x then return 1 end\n",
-        "for i = 1, 10 do print(i) end\n",
-        "while a > 0 do a = a - 1 end\n",
-        "repeat a = 1 until a > 0\n",
-        "local function f() return 1 end\n",
-        "f(function(x) return x end)\n",
-        "if x then a() else b() end\n",
-        "if x then a() b() end\n",
-        "repeat a() b() until c\n",
-        "if a then x = 1 elseif b then x = 2 else x = 3 end\n",
-        "if x then a()\nend\n",
-        "if x then f(function() a() b() end) end\n",
-        "do ; a() b() end\n",
-        "repeat a() until x and\n  y\n",
-        "while f() do end\n",
-        "for _, v in ipairs(t) do if v then n = n + 1 end end\n",
-        "local record R\n  a: integer\nend\nlocal enum E\n  \"a\"\nend\nlocal interface I\n  b: string\nend\n",
-        "function m.f() a() b() end\nfunction m:g() return 1 end\n",
-        "local t = { f = function() a() b() end, g = {} }\nreturn t\n",
-        "local x <const> = 1 local y <close> = nil local z: integer\n",
-        "repeat local done = f() until done\n",
-        "::top:: goto top\n",
-        "local type T = {string}\n",
-        "if x then elseif y then end\n",
-        "return\n",
-        "local macroexp die(m: string): never return error(m) end\n",
-    } as {string}) do
-      local result, trouble = fix.source(built, source, "fixture.tl")
-      assert(result ~= nil, trouble)
-    end
   end)
 end

@@ -14,7 +14,7 @@ local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
 --- Why `invalid` refuses, or nil for none.
-local function message_of(invalid: Types.Invalid | nil): string | nil
+local function message_of(invalid: Types.Invalid?): string?
   if invalid == nil then return nil end
   return invalid.message
 end
@@ -24,7 +24,7 @@ local FORM_TYPE <const> = "multipart/form-data; boundary=" .. B
 
 local record Signup
   email: string
-  age: integer | nil
+  age: integer?
   tags: {string}
   news: boolean
 end
@@ -51,13 +51,13 @@ local function post(body: string, fn: function(req: Web.Request): Web.Response, 
   end } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = content_type or FORM_TYPE },
-    body = Stream.from_string(body), length = not chunked and #body or nil }
+    body = Stream.from_string(body), length = if not chunked then #body else nil end }
   return app.handle(raw)
 end
 
 --- The refusal reading `body` with `opts` gives, failing where it is read.
 local function refusal(body: string, opts?: Types.InputOptions, content_type?: string, chunked?: boolean): Types.Invalid
-  local got = { value = nil as Types.Invalid | nil }
+  local got = { value = nil as Types.Invalid? }
   local reply = post(body, function(req: Web.Request): Web.Response
     local read = Input.multipart(req, opts)
     got.value = read.invalid
@@ -70,10 +70,10 @@ local function refusal(body: string, opts?: Types.InputOptions, content_type?: s
 end
 
 local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: string)
-  local seen = { value = nil as Input.Multipart | nil }
-  local contents = { value = nil as string | nil }
-  local listing = { value = nil as {string} | nil }
-  local stat_mode = { value = nil as integer | nil }
+  local seen = { value = nil as Input.Multipart? }
+  local contents = { value = nil as string? }
+  local listing = { value = nil as {string}? }
+  local stat_mode = { value = nil as integer? }
   local reply = post(body_of(
     field("email", "a@b.test"), field("tags", "x"), field("tags", "y"),
     file("avatar", "../../etc/passwd", "PNG\0\r\n--data", "image/png")), function(req: Web.Request): Web.Response
@@ -104,7 +104,7 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
 end
 
 local function test_without_a_dir_a_private_directory_is_made_and_removed()
-  local where = { value = nil as string | nil }
+  local where = { value = nil as string? }
   post(body_of(file("f", "a.txt", "hello")), function(req: Web.Request): Web.Response
     local up = assert(Input.multipart(req).value).files["f"][1]
     where.value = up.path
@@ -146,7 +146,7 @@ local function test_files_are_removed_when_the_handler_raises_or_discards(tmp: s
 end
 
 local function test_a_blank_file_input_is_not_a_file(tmp: string)
-  local m = { value = nil as Input.Multipart | nil }
+  local m = { value = nil as Input.Multipart? }
   post(body_of(file("none", "", ""), file("empty", "e.txt", ""), file("noname", "", "data")),
     function(req: Web.Request): Web.Response
       m.value = assert(Input.multipart(req, { dir = tmp }).value)
@@ -159,7 +159,7 @@ local function test_a_blank_file_input_is_not_a_file(tmp: string)
 end
 
 local function test_the_text_parts_bind_as_a_forms_fields_do()
-  local bound = { value = nil as Signup | nil }
+  local bound = { value = nil as Signup? }
   local reply = post(body_of(field("email", "a@b.test"), field("age", " 42 "), field("tags", "x"), field("tags", "y"),
     field("news", "on"), field("is_admin", "1"), file("avatar", "me.png", "x")), function(req: Web.Request): Web.Response
       local read = Input.form_into(req, SIGNUP)
@@ -174,7 +174,7 @@ end
 
 local function test_a_multipart_form_fails_its_spec_with_a_forms_errors()
   local function errors_of(read: function(req: Web.Request): Types.Parsed<Signup>): Types.Invalid
-    local bad = { value = nil as Types.Invalid | nil }
+    local bad = { value = nil as Types.Invalid? }
     post(body_of(field("age", "x"), field("password", "hunter2")), function(req: Web.Request): Web.Response
       bad.value = read(req).invalid
       return Web.empty()
@@ -196,7 +196,7 @@ local function test_a_multipart_form_fails_its_spec_with_a_forms_errors()
 end
 
 local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: string)
-  local got = { value = nil as Signup | nil }
+  local got = { value = nil as Signup? }
   local files = { value = 0 }
   local app = Web.app{ routes = {
     Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
@@ -244,7 +244,7 @@ local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp:
     return Web.empty()
   end)
   assert(status.value == 413, "a form's 64 KiB default is not the upload's")
-  local fields = { value = nil as Types.Parsed<Url.Query> | nil }
+  local fields = { value = nil as Types.Parsed<Url.Query>? }
   post(text, function(req: Web.Request): Web.Response
     fields.value = Input.form(req, { dir = tmp, max_bytes = 100000 })
     return Web.empty()
@@ -298,7 +298,7 @@ end
 local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
   local pulled = { value = 0 }
   local body: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max?: integer): string?, string
       pulled.value = pulled.value + (max or 0)
       return ("a"):rep(math.min(max or 100, 100)), ""
     end,
@@ -397,14 +397,14 @@ local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
   local function with_source(why: string): Types.Invalid
     local sent = { value = false }
     local body: Stream.Reader = {
-      read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+      read = function(_self: Stream.Reader, _max?: integer): string?, string
         if sent.value then return nil, why end
         sent.value = true
         return "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\npartial', ""
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,
     }
-    local got = { value = nil as Types.Invalid | nil }
+    local got = { value = nil as Types.Invalid? }
     local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
       got.value = Input.multipart(req, { dir = tmp }).invalid
       return Web.empty()
@@ -468,7 +468,7 @@ end
 
 local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit(tmp: string)
   local text = body_of(field("email", "e"), file("f", "a", ("x"):rep(70000)))
-  local seen = { value = nil as Input.Multipart | nil }
+  local seen = { value = nil as Input.Multipart? }
   post(text, function(req: Web.Request): Web.Response
     assert(assert(Input.form(req, { dir = tmp }).invalid).status == 413)
     seen.value = assert(Input.multipart(req, { dir = tmp }).value)
@@ -476,7 +476,7 @@ local function test_a_limit_failure_is_not_kept_for_a_reader_with_a_higher_limit
   end)
   local seen_value = seen.value
   assert(seen_value ~= nil and seen_value.files["f"][1].size == 70000, "the upload's own limit took the body")
-  local again = { value = nil as Types.Invalid | nil }
+  local again = { value = nil as Types.Invalid? }
   post(text, function(req: Web.Request): Web.Response
     local first = Input.form(req, { dir = tmp })
     assert(assert(first.invalid).status == 413)
@@ -491,7 +491,7 @@ end
 
 local function test_trailing_blanks_in_parameters_cost_time_linear_in_their_run()
   local spaces = (" "):rep(8000)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 100 do
     parts[i] = "--" .. B .. '\r\nContent-Disposition: form-data; name="n' .. i .. '"; x=a' .. spaces .. "y\r\n\r\nv\r\n"
   end
@@ -523,7 +523,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
   end) } }
   local at = { value = 0 }
   local body: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       at.value = at.value + 1
       if at.value == 1 then return first, "" end
       local _, _ = Poll.delay(Clock.seconds(30))
@@ -571,7 +571,7 @@ end
 
 local function test_a_long_filename_is_cut_to_its_last_component_in_linear_time(tmp: string)
   local name = ("a"):rep(3000) .. "/" .. ("b"):rep(3000) .. "/c.txt"
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 100 do parts[i] = file("f", name, "data") end
   local start = Clock.monotonic_ns()
   local names: {string} = {}

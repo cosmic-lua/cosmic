@@ -158,7 +158,7 @@ function Example.mounts()
     }, { name = "api" }),
     Web.mount_handler("/static", function(req: Web.Request): Web.Response
       return Web.text("static " .. table.concat(req.segments, "/", 2))
-    end, { name = "static", reverse = function(prefix: string, params: {string:string}): string | nil, string
+    end, { name = "static", reverse = function(prefix: string, params: {string:string}): string?, string
       local path = params["path"]
       if path == nil then return nil, "static: a path is needed" end
       return prefix .. "/" .. path .. "?v=1", ""
@@ -180,7 +180,7 @@ end
 --- exception layer sits inside all of them, so a 500 travels out through
 --- every one. [`Web.access_log`] writes a line to the app's sink.
 function Example.middleware()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local sink: Web.Sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end }
@@ -281,7 +281,7 @@ function Example.client()
         return Web.text("welcome back")
       end),
     },
-    lifespan = function(app: Web.App): Web.Shutdown | nil, string
+    lifespan = function(app: Web.App): Web.Shutdown?, string
       local opened = true
       app.state["opened"] = opened
       return function() print("closed") end, ""

@@ -56,7 +56,7 @@ local function test_a_chunk_runs_on_what_e_loads()
   local ok, out, err = run({ "-e", "local t = {} for name in pairs(package.loaded) do " ..
       "t[#t + 1] = name end table.sort(t) print(table.concat(t, ' '))" })
   assert(ok, err)
-  local allowed: {string:boolean} = { ["cosmic.sys"] = true }
+  local allowed: mut {string:boolean} = { ["cosmic.sys"] = true }
   for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
   for name in out:gmatch("%S+") do
     if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then

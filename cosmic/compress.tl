@@ -88,7 +88,7 @@ end
 --- Compresses `data` whole in the `format` framing, at `level` as
 --- `deflater(format, level)` takes it; raises where that does.
 function Compress.deflate(format: Compress.Format, data: string, level?: integer):
-    string | nil, string
+    string?, string
   local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
   return Stream.run(enc, data)
@@ -101,7 +101,7 @@ end
 --- raises. Bytes after the end of the compressed data are an error
 --- too.
 function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
-    string | nil, string
+    string?, string
   if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 0) then
     error("compress: max_bytes must be an integer of at least 0", 2)
   end
@@ -119,7 +119,7 @@ end
 --- (including FEXTRA/FNAME/FCOMMENT/FHCRC), verifies the CRC-32 and
 --- ISIZE trailer, and decodes every member of a multi-member stream.
 --- Raises on an unknown format.
-function Compress.inflater(format: Compress.Format): Compress.Stream | nil, string
+function Compress.inflater(format: Compress.Format): Compress.Stream?, string
   return raw.inflater(format)
 end
 
@@ -127,7 +127,7 @@ end
 --- miniz default, 6); raises on an unknown format or a level out of
 --- range. A gzip encoder writes a minimal ten-byte header (mtime 0,
 --- OS 255, no extra fields) and the CRC-32/ISIZE trailer.
-function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream | nil, string
+function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream?, string
   return raw.deflater(format, level)
 end
 
@@ -138,12 +138,12 @@ end
 --- ask for more than `max_memory` bytes of decoder memory (default 256
 --- MiB; `xz -9` needs 65 MiB).
 --- Raises when `max_memory` is not positive.
-function Compress.xz_decoder(max_memory?: integer): Compress.Stream | nil, string
+function Compress.xz_decoder(max_memory?: integer): Compress.Stream?, string
   return raw.xz_decoder(max_memory)
 end
 
 --- A streaming decoder for .bz2: multi-stream is handled.
-function Compress.bz2_decoder(): Compress.Stream | nil, string
+function Compress.bz2_decoder(): Compress.Stream?, string
   return raw.bz2_decoder()
 end
 

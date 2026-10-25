@@ -1,41 +1,19 @@
---- Proves that a call whose expected result type refuses what
---- its arguments bind to a type variable is checked again with the
---- arguments first. `setmetatable(t, mt)` is `function<T>(T, metatable<T>):
---- T`, so a `return` in a function returning `R | nil` or an interface `R`
---- implements would otherwise fix T to that return type and refuse the metatable
---- of `R`. A call the arguments still refuse stays refused.
+--- A call to a generic function binds each type variable from its arguments, and an argument the variable cannot take is
+--- refused: a nilable one for a variable another argument fixes, and an array of a record for an array of its interface.
 ---
---- Each fixture is a single file in its own fresh subdirectory, since
---- [`build.importer`] compiles every `.tl` file under a root together.
+--- The fork's tests of `setmetatable(t, mt)`, `function<T>(T, metatable<T>): T`, bound through the arguments-first retry
+--- of its checker are gone: the grammar has no `setmetatable` (a program that calls it is refused with `setmetatable_call`,
+--- lang/check_class_test.tl), and a class makes its value with a table literal typed as the class.
 
-local Fs = require("cosmic.fs")
-local importer = require("build.importer")
-local teal = require("build.teal")
-local work = require("build.work")
+local Snippet = require("build.snippet_fixture")
+local Test = require("cosmic.test")
 
-local built = assert(teal.load())
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
---- Compiles `source` as the one module of a fresh fixture project:
---- true, or false and what the compile refused.
-local function compiles(tmp: string, case: string, source: string): boolean, string
-  local root = tmp .. "/" .. case
-  assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/probe.tl", source))
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return false, open_trouble
-  end
-  local staged, stage_trouble = work.stage(handle, false)
-  if staged == nil then
-    work.close(handle)
-    return false, stage_trouble
-  end
-  local result, trouble = importer.compile(handle, built, "call-binding-test")
-  work.close(handle)
-  if result == nil then
-    return false, trouble
-  end
-  return true, ""
+--- Checks `source` as the one module of a fresh fixture: true, or false and what the new checker refused. `tmp` and `case`
+--- are kept for the callers' sake: a snippet needs no directory.
+local function compiles(_: string, _: string, source: string): boolean, string
+  return Snippet.compiles(source)
 end
 
 local prelude = [[
@@ -45,171 +23,10 @@ end
 local record Thing is Named
   name: string
 end
-local thing_mt: metatable<Thing> = { __index = Thing }
-local record Other
-  id: integer
-end
-local other_mt: metatable<Other> = {}
-print(other_mt)
 ]]
 
-local function test_a_constructor_may_return_its_record_or_nil(tmp: string)
-  local ok, trouble = compiles(tmp, "optional", prelude .. [[
-local function open(t: Thing): Thing | nil, string
-  return setmetatable(t, thing_mt), ""
-end
-local function fresh(): Thing | nil, string
-  return setmetatable({ name = "" }, thing_mt), ""
-end
-print(open, fresh)
-]])
-  assert(ok, "setmetatable's result is a Thing, which a Thing | nil return takes, but: " ..
-      tostring(trouble))
-end
-
-local function test_a_constructor_may_return_an_interface_its_record_implements(tmp: string)
-  local ok, trouble = compiles(tmp, "interface", prelude .. [[
-local function named(t: Thing): Named
-  return setmetatable(t, thing_mt)
-end
-print(named)
-]])
-  assert(ok, "setmetatable's result is a Thing, which a Named return takes, but: " ..
-      tostring(trouble))
-end
-
---- Whether the compile was refused with `text` among its errors.
-local function refused(ok: boolean, trouble: string, text: string): boolean
-  return not ok and trouble:find(text, 1, true) ~= nil
-end
-
-local function test_a_wrong_metatable_is_still_refused(tmp: string)
-  local ok, trouble = compiles(tmp, "wrong", prelude .. [[
-local function open(t: Thing): Thing | nil, string
-  return setmetatable(t, other_mt), ""
-end
-print(open)
-]])
-  assert(refused(ok, trouble, "argument 2: type parameter <T>: "),
-    "a metatable of Other does not fit a Thing, but: " .. tostring(trouble))
-  ok, trouble = compiles(tmp, "wrong-interface", prelude .. [[
-local function named(t: Thing): Named
-  return setmetatable(t, other_mt)
-end
-print(named)
-]])
-  assert(refused(ok, trouble, "argument 2: type parameter <T>: "),
-    "a metatable of Other does not fit a Thing, but: " .. tostring(trouble))
-end
-
-local function test_a_result_the_return_type_refuses_is_still_refused(tmp: string)
-  local ok, _trouble = compiles(tmp, "result", prelude .. [[
-local function open(o: Other): Thing | nil, string
-  return setmetatable(o, other_mt), ""
-end
-print(open)
-]])
-  assert(not ok, "an Other is no Thing | nil, but the compile passed")
-end
-
-local function test_a_refused_call_is_reported_as_the_first_order_found_it(tmp: string)
-  local ok, trouble = compiles(tmp, "report", prelude .. [[
-local function open(o: Other): Thing | nil, string
-  return setmetatable(o, thing_mt), ""
-end
-print(open)
-]])
-  assert(refused(ok, trouble, "argument 1: got Other, expected Thing | nil"),
-    "the arguments-first retry leaves the first order's report, but: " .. tostring(trouble))
-  assert(not refused(ok, trouble, "in return value"),
-    "the retry's own errors are not added, but: " .. tostring(trouble))
-end
-
--- A table literal argument is typed from its parameter's type, so a call's
--- type variables are bound from the variable arguments before the expected
--- result binds them when it would refuse one.
-local function test_a_table_literal_for_an_interface_return_takes_the_metatable_s_record(tmp: string)
-  local ok, trouble = compiles(tmp, "literal-interface", prelude .. [[
-local function named(): Named
-  return setmetatable({ name = "a" }, thing_mt)
-end
-local function maybe(): Thing | nil, string
-  return setmetatable({ name = "a" }, thing_mt), ""
-end
-print(named, maybe)
-]])
-  assert(ok, "a literal for thing_mt is a Thing, which a Named return takes, but: " ..
-      tostring(trouble))
-end
-
-local function test_a_table_literal_that_does_not_fit_its_record_is_still_refused(tmp: string)
-  local ok, trouble = compiles(tmp, "literal-missing", prelude .. [[
-local function named(): Named
-  return setmetatable({ nome = "a" }, thing_mt)
-end
-print(named)
-]])
-  assert(refused(ok, trouble, "nome"), "a Thing has no field nome, but: " .. tostring(trouble))
-  ok, trouble = compiles(tmp, "literal-wrong-type", prelude .. [[
-local function named(): Named
-  return setmetatable({ name = 1 }, thing_mt)
-end
-print(named)
-]])
-  assert(not ok, "a Thing's name is a string, but the compile passed")
-end
-
-local function test_a_table_literal_with_the_wrong_metatable_is_still_refused(tmp: string)
-  local ok, trouble = compiles(tmp, "literal-wrong-mt", prelude .. [[
-local function named(): Named
-  return setmetatable({ name = "a" }, other_mt)
-end
-print(named)
-]])
-  assert(not ok, "an Other's metatable does not make a Named, but the compile passed: " .. tostring(trouble))
-  ok, trouble = compiles(tmp, "literal-wrong-result", prelude .. [[
-local function open(): Other
-  return setmetatable({ name = "a" }, thing_mt)
-end
-print(open)
-]])
-  assert(not ok, "a Thing is no Other, but the compile passed: " .. tostring(trouble))
-end
-
--- TODO: accept `setmetatable({ name = "a" }, R.mt)` and a metatable that is a
--- call (`g()`) in a function returning an interface Thing implements: the
--- retry with the arguments first binds only from arguments that are plain
--- variables, because a literal is typed before the arguments after it are.
--- The fix is to visit the non-literal arguments first, as the binds_context
--- path does, and bind from their types.
-local function test_a_metatable_that_is_no_variable_still_takes_the_interface_first(tmp: string)
-  local ok, trouble = compiles(tmp, "literal-index-mt", prelude .. [[
-local R = { mt = thing_mt }
-local function g(): metatable<Thing>
-  return thing_mt
-end
-local function by_field(): Named
-  return setmetatable({ name = "a" }, R.mt)
-end
-print(by_field, g)
-]])
-  assert(not ok, "known limit: only a variable argument binds first, but the compile passed: " .. tostring(trouble))
-  ok, trouble = compiles(tmp, "literal-call-mt", prelude .. [[
-local function g(): metatable<Thing>
-  return thing_mt
-end
-local function by_call(): Named
-  return setmetatable({ name = "a" }, g())
-end
-print(by_call)
-]])
-  assert(not ok, "known limit: only a variable argument binds first, but the compile passed: " .. tostring(trouble))
-end
-
--- `id({ name = "a" }, u)` with u: Thing | nil is refused in a function
--- returning Named: the argument may be nil, though the
--- result of the call is taken for a Named, so a nil that reached a type
--- variable some other way would leak through.
+-- `id({ name = "a" }, u)` with u: Thing? is refused in a function returning Named: the argument may be nil, though the
+-- result of the call is taken for a Named, so a nil that reached a type variable some other way would leak through.
 local function test_a_nilable_argument_is_refused_for_a_shared_type_variable(tmp: string)
   local ok, trouble = compiles(tmp, "hole-nil", prelude .. [[
 local function id<T>(a: T, b: T): T
@@ -217,21 +34,21 @@ local function id<T>(a: T, b: T): T
   return b
 end
 local function named(): Named
-  local u: Thing | nil
+  local u: Thing?
   return id({ name = "a" }, u)
 end
-print(named, thing_mt)
+print(named)
 ]])
-  assert(not ok and tostring(trouble):find("argument 2: got Thing | nil", 1, true) ~= nil,
-    "the nil of u is refused: " .. tostring(trouble))
+  assert(not ok, "the nil of u is refused, but the compile passed")
+  assert(tostring(trouble):find("(nil_not_allowed)", 1, true) ~= nil,
+    "the nil of u is refused as a value that is no Named: " .. tostring(trouble))
 end
 
--- TODO: refuse `wrap({ { name = "a" } }, ts)` with ts: {Thing} in a function
--- returning {Named}: arrays are checked covariantly, so a {Thing} passes for
--- a {Named}, and the caller may store any Named in it. The fix is for the
--- checker to take an array's element type invariantly, as a map's.
-local function test_an_array_is_taken_covariantly_through_a_type_variable(tmp: string)
-  local ok, trouble = compiles(tmp, "hole-array", prelude .. [[
+-- A view `{T}` is read-only, so an array of Thing stands for an array of Named through a type variable; a `mut {T}` is
+-- invariant, as the caller may store any Named in the array it gets back. The fork took every array covariantly and its
+-- test pinned that hole.
+local function test_a_view_is_covariant_and_a_mut_array_invariant_through_a_type_variable(tmp: string)
+  local ok, trouble = compiles(tmp, "view-array", prelude .. [[
 local function wrap<T>(a: {T}, b: {T}): {T}
   print(a)
   return b
@@ -239,7 +56,19 @@ end
 local function named(ts: {Thing}): {Named}
   return wrap({ { name = "a" } }, ts)
 end
-print(named, thing_mt)
+print(named)
 ]])
-  assert(ok, "known hole: array covariance is accepted, but: " .. tostring(trouble))
+  assert(ok, "a view of Thing is a view of Named, but: " .. tostring(trouble))
+  ok, trouble = compiles(tmp, "mut-array", prelude .. [[
+local function wrap<T>(a: mut {T}, b: mut {T}): mut {T}
+  print(a)
+  return b
+end
+local function named(ts: mut {Thing}): mut {Named}
+  return wrap({ { name = "a" } }, ts)
+end
+print(named)
+]])
+  assert(not ok, "a mut array of Thing is no mut array of Named, but the compile passed")
+  assert(tostring(trouble):find("(invariant_mut)", 1, true) ~= nil, tostring(trouble))
 end

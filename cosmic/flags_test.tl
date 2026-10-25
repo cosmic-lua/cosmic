@@ -89,7 +89,7 @@ local function test_one_letter_options_cluster_and_take_the_rest_as_a_value()
 end
 
 local function test_a_spec_may_name_a_one_dash_option_whole()
-  local whole: {string:boolean} = { ["-v"] = false, ["-verbose"] = false }
+  local whole: mut {string:boolean} = { ["-v"] = false, ["-verbose"] = false }
   local got = assert(Flags.parse({ "-verbose" }, 1, whole))
   assert(got.set["-verbose"] and not got.set["-v"])
   whole["-e"] = false

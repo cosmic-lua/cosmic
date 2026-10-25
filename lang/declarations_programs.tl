@@ -34,7 +34,7 @@ end
 
 function Programs.lower(program: Declarations.Program, module: string, source: string, dialect?: Ast.Dialect): Programs.Result
   local kind: Ast.Dialect = dialect or "tl"
-  local name = module .. (kind == "decl" and ".d.tl" or ".tl")
+  local name = module .. (if kind == "decl" then ".d.tl" else ".tl" end)
   local parsed = Parser.parse(Lexer.lex(source, name), name, kind)
   local scoped = Scopes.build(parsed.chunk, name, program:scope_globals())
   local lowered = program:lower({
@@ -45,14 +45,14 @@ end
 
 function Programs.declare(program: Declarations.Program, module: string, source: string, dialect?: Ast.Dialect)
   local kind: Ast.Dialect = dialect or "tl"
-  local name = module .. (kind == "decl" and ".d.tl" or ".tl")
+  local name = module .. (if kind == "decl" then ".d.tl" else ".tl" end)
   local parsed = Parser.parse(Lexer.lex(source, name), name, kind)
   local scoped = Scopes.build(parsed.chunk, name, program:scope_globals())
   program:declare({ module = module, filename = name, chunk = parsed.chunk, scoped = scoped, dialect = kind })
 end
 
 function Programs.codes(lowered: Declarations.Lowered): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(lowered.errors) do
     out[#out + 1] = e.code
   end

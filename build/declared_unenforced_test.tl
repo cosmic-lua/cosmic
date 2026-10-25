@@ -154,7 +154,7 @@ local function test_the_store_it_attached()
   -- the base the runner gives a worker, where it resolves.
   local named = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
   local built = (assert(sys.realpath(named)))
-  local attached: {string} = {}
+  local attached: mut {string} = {}
   for _, fd in ipairs(listed) do
     local link = Fs.readlink("/proc/self/fd/" .. fd)
     if link ~= nil and Fs.within(link, built) and link:sub(-3) == ".db" then

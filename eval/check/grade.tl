@@ -57,8 +57,8 @@ local record Grade
   name: string
   exe: string
   empty: string
-  steps: integer
-  failed: boolean
+  mut steps: integer
+  mut failed: boolean
   --- The build directory of the arena's cosmic for the project.
   built: string
   --- The environment the grader was given, which its `cosmic test`
@@ -112,7 +112,7 @@ local function check(g: Grade, holds: boolean, line: string, why?: string)
   if holds then
     ok(line)
   else
-    fail(g, line .. (why ~= nil and why ~= "" and ": " .. why or ""))
+    fail(g, line .. (if why ~= nil and why ~= "" then ": " .. why else "" end))
   end
 end
 
@@ -184,7 +184,7 @@ end
 
 --- How many tests and examples passed in the runs a build database
 --- records; a doctest is an example.
-function Grader.evidence(path: string): Grader.Evidence | nil, string
+function Grader.evidence(path: string): Grader.Evidence?, string
   local present, trouble = Fs.exists(path)
   if not present then
     return nil, present == nil and trouble or path .. ": no build database"
@@ -265,7 +265,7 @@ end
 --- host. COSMIC_SANDBOX and COSMIC_CI_REQUIRE_SANDBOX, which hold a run
 --- to sandboxing, are dropped with it.
 function Grader.unsandboxed(env: {string:string}): {string:string}
-  local pinned: {string:string} = {}
+  local pinned: mut {string:string} = {}
   for name, value in pairs(env) do
     pinned[name] = value
   end
@@ -368,7 +368,7 @@ end
 --- how many more it refused. Output with neither, of a run that
 --- failed, answers its last line.
 function Grader.api_failures(output: string): {string}
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   local refused = 0
   local last = ""
   for line in output:gmatch("[^\n]+") do
@@ -473,7 +473,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
 end
 
 local function argv_of(g: Grade, args: {string}): {string}
-  local argv: {string} = { g.empty .. "/" .. g.name }
+  local argv: mut {string} = { g.empty .. "/" .. g.name }
   for _, word in ipairs(args) do
     argv[#argv + 1] = word
   end
@@ -633,7 +633,7 @@ end
 --- the arena as `log` (check-serve.out by default), and waits up to
 --- 5 s for the line naming the port it listens on. Answers the server
 --- and its port, or nil once it has failed.
-local function serves(g: Grade, args: {string}, log?: string): Served | nil
+local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
@@ -683,9 +683,9 @@ end
 local record Answer
   status: integer
   headers: {string: string}
-  body: string
+  mut body: string
   --- Whether the server closed the connection after it.
-  closed: boolean
+  mut closed: boolean
 end
 
 --- Reads one response off `conn`: its head, then up to its
@@ -694,10 +694,10 @@ end
 --- reads on past that until the server closes or 300 ms pass, so a body
 --- after a HEAD's headers shows, and a response with no length is read
 --- to its close; without, a response with no length is an error.
-local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): Answer | nil, string
+local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): Answer?, string
   local got = ""
-  local answer: Answer | nil = nil
-  local body_length: integer | nil = nil
+  local answer: Answer? = nil
+  local body_length: integer? = nil
   while true do
     if answer == nil then
       local head, rest = got:match("^(.-)\r\n\r\n(.*)$")
@@ -706,7 +706,7 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
         if code == nil then
           return nil, "no status line: " .. first_line(head)
         end
-        local headers: {string: string} = {}
+        local headers: mut {string: string} = {}
         for name, value in head:gmatch("\r\n([^:\r\n]+):[ \t]*([^\r\n]*)") do
           headers[name:lower()] = String.trim(value)
         end
@@ -758,7 +758,7 @@ end
 --- Sends `request` raw on a connection of its own and reads one
 --- response, as [`receive`] reads it.
 local function exchange(port: integer, request: string, head_only: boolean,
-                        to_close: boolean): Answer | nil, string
+                        to_close: boolean): Answer?, string
   local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(3) })
   if conn == nil then return nil, ctrouble end
   local sent, strouble = conn:write(request)
@@ -777,9 +777,9 @@ end
 --- Runs [`./notes`] with nothing in its environment but `env`, and
 --- checks that it exits 0 printing exactly `want` on stdout and stderr
 --- together, or anything when `want` is nil.
-local function notes_expect(g: Grade, want: string | nil, args: {string}, env?: {string: string})
-  local shown_args: {string} = { "env -i" }
-  local names: {string} = {}
+local function notes_expect(g: Grade, want: string?, args: {string}, env?: {string: string})
+  local shown_args: mut {string} = { "env -i" }
+  local names: mut {string} = {}
   for name in pairs(env or {}) do
     names[#names + 1] = name
   end
@@ -872,7 +872,7 @@ local function ustar(name: string, data: string): string
 end
 
 local function pack(g: Grade)
-  local bytes: {string} = {}
+  local bytes: mut {string} = {}
   for i = 0, 255 do
     bytes[#bytes + 1] = string.char(i)
   end
@@ -881,7 +881,7 @@ local function pack(g: Grade)
     { "sub/b.txt", "bravo bravo\n" },
     { "sub/deep/c.bin", table.concat(bytes) },
   }
-  local listing, sums: {string}, {string} = {}, {}
+  local listing, sums: mut {string}, mut {string} = {}, {}
   for _, f in ipairs(files) do
     write(g, "src/" .. f[1], f[2])
     listing[#listing + 1] = #f[2] .. "\t" .. f[1]
@@ -1178,7 +1178,7 @@ local function jobfile(g: Grade, path: string, jobs: {string: any})
 end
 
 --- The report `jobs` printed, by job name, or nil and why.
-local function jobs_report(result: Child.Result): {string: any} | nil, string
+local function jobs_report(result: Child.Result): {string: any}?, string
   local doc, trouble = Json.decode(result.stdout or "")
   if doc == nil then
     return nil, "stdout is no JSON (" .. trouble .. "): " .. first_line(result.stdout or "")
@@ -1192,10 +1192,10 @@ end
 
 --- Checks one field of each named job's report.
 local function each_job(g: Grade, report: {string: any}, key: string, want: {string: any})
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(want) do names[#names + 1] = name end
   table.sort(names)
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, name in ipairs(names) do
     local got = field(report[name], key)
     local expected = want[name]
@@ -1208,7 +1208,7 @@ local function each_job(g: Grade, report: {string: any}, key: string, want: {str
     table.concat(wrong, "; "))
 end
 
-local function number_of(value: any): number | nil
+local function number_of(value: any): number?
   if value is number then return value end
   return nil
 end
@@ -1268,13 +1268,13 @@ local function jobs_main(g: Grade, w: string): integer
   check(g, exists(w .. "/sub/here.txt"), "a job runs in its cwd")
   local slow_start = number_of(field(report.slow, "start_ms"))
   local slow_end = number_of(field(report.slow, "end_ms"))
-  local slow_ran = slow_start ~= nil and slow_end ~= nil and slow_end - slow_start or nil
+  local slow_ran = if slow_start ~= nil and slow_end ~= nil then slow_end - slow_start else nil end
   check(g, slow_ran ~= nil and slow_ran >= 400 and slow_ran < 1500,
     "a job with a 0.5 s timeout ran " .. shown(slow_ran) .. " ms")
   local log, _ = Fs.read(w .. "/logs/first.log")
   check(g, log ~= nil and log:find("first-out", 1, true) ~= nil and
       log:find("first-err", 1, true) ~= nil, "w/logs/first.log holds first's stdout and stderr",
-    log == nil and "no such file" or "got '" .. trimmed(log or "") .. "'")
+    if log == nil then "no such file" else "got '" .. trimmed(log or "") .. "'" end)
   check(g, not (result.stdout or ""):find("first-out", 1, true),
     "a job's output stays out of jobs's stdout")
   -- slow waits its turn among ten jobs three at a time; without its
@@ -1409,7 +1409,7 @@ local function jobs_parallel(g: Grade)
     fail(g, label(g, args) .. ": " .. trouble)
     return
   end
-  local spans: {{number}} = {}
+  local spans: mut {{number}} = {}
   for _, name in ipairs({ "one", "two", "three" }) do
     local s, e = number_of(field(report[name], "start_ms")), number_of(field(report[name], "end_ms"))
     if s ~= nil and e ~= nil then spans[#spans + 1] = { s, e } end
@@ -1449,10 +1449,10 @@ end
 
 --- One request to the server with `Connection: close`, and its answer.
 local function request(port: integer, method: string, target: string,
-                       headers?: {string: string}): Answer | nil, string
+                       headers?: {string: string}): Answer?, string
   local lines = { method .. " " .. target .. " HTTP/1.1", "Host: 127.0.0.1",
     "Connection: close" }
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(headers or {}) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do lines[#lines + 1] = name .. ": " .. headers[name] end
@@ -1462,18 +1462,18 @@ end
 local record Site
   port: integer
   files: {string: string}
-  closes: boolean
+  mut closes: boolean
 end
 
 --- Asks the server, checks the status is one of `codes`, and answers
 --- what came back for more checks, or nil once it has failed.
 local function asks(g: Grade, site: Site, method: string, target: string,
                     headers: {string: string}, codes: {integer}): Answer
-  local shown_headers: {string} = {}
+  local shown_headers: mut {string} = {}
   for name, value in pairs(headers) do shown_headers[#shown_headers + 1] = name .. ": " .. value end
   table.sort(shown_headers)
   local what = method .. " " .. target ..
-    (#shown_headers > 0 and " (" .. table.concat(shown_headers, ", ") .. ")" or "")
+    (if #shown_headers > 0 then " (" .. table.concat(shown_headers, ", ") .. ")" else "" end)
   local answer, trouble = request(site.port, method, target, headers)
   if answer == nil then
     fail(g, what .. ": " .. trouble)
@@ -1486,13 +1486,13 @@ local function asks(g: Grade, site: Site, method: string, target: string,
       return answer
     end
   end
-  local wanted: {string} = {}
+  local wanted: mut {string} = {}
   for _, code in ipairs(codes) do wanted[#wanted + 1] = tostring(code) end
   fail(g, what .. ": status " .. answer.status .. ", wanted " .. table.concat(wanted, " or "))
   return nil
 end
 
-local function has(g: Grade, answer: Answer, what: string, name: string, want: string | nil)
+local function has(g: Grade, answer: Answer, what: string, name: string, want: string?)
   if answer == nil then return end
   local got = answer.headers[name:lower()]
   check(g, got == want, what .. " " .. name .. ": " .. shown(got),
@@ -1510,9 +1510,9 @@ local function tag(data: string): string
 end
 
 local function mirror_files(): {string: string}
-  local bytes: {string} = {}
+  local bytes: mut {string} = {}
   for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i = 1, 250 do lines[#lines + 1] = string.format("line %04d of the big file\n", i) end
   return {
     ["a.txt"] = "alpha\n",
@@ -1592,7 +1592,7 @@ local function mirror_requests(g: Grade, site: Site)
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Length", tostring(#zipped.body))
     local plain, trouble = Compress.inflate("gzip", zipped.body)
     check(g, plain == big, "GET /big.txt accepting gzip inflates to the file",
-      plain ~= nil and #plain .. " bytes" or trouble)
+      if plain ~= nil then #plain .. " bytes" else trouble end)
   end
   local identity = asks(g, site, "GET", "/big.txt", {}, { 200 })
   has(g, identity, "GET /big.txt", "Content-Encoding", nil)
@@ -1654,9 +1654,9 @@ local function holds(path: string, files: {string: string}): boolean, string
 end
 
 --- Checks a pull's exit and the lines it printed, as sorted words.
-local function pulls(g: Grade, args: {string}, lines: {string})
+local function pulls(g: Grade, args: {string}, lines: mut {string})
   local result = run(g, args)
-  local got: {string} = {}
+  local got: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do got[#got + 1] = String.trim(line) end
   table.sort(got)
   table.sort(lines)
@@ -1669,7 +1669,7 @@ end
 
 local function mirror_pulls(g: Grade, site: Site)
   local base = "http://127.0.0.1:" .. site.port
-  local fetched, skipped: {string}, {string} = {}, {}
+  local fetched, skipped: mut {string}, mut {string} = {}, {}
   for path in pairs(site.files) do
     fetched[#fetched + 1] = "fetched " .. path
     skipped[#skipped + 1] = "skipped " .. path
@@ -1679,9 +1679,9 @@ local function mirror_pulls(g: Grade, site: Site)
   check(g, same_files, "pull into an empty directory copies every file", trouble)
   pulls(g, { "pull", base .. "/", "copy" }, skipped)
   write(g, "copy/sub/b.bin", "changed")
-  local again: {string} = {}
+  local again: mut {string} = {}
   for _, line in ipairs(skipped) do
-    again[#again + 1] = line == "skipped sub/b.bin" and "fetched sub/b.bin" or line
+    again[#again + 1] = if line == "skipped sub/b.bin" then "fetched sub/b.bin" else line end
   end
   pulls(g, { "pull", base, "copy" }, again)
   same_files, trouble = holds(g.empty .. "/copy", site.files)
@@ -1692,8 +1692,8 @@ end
 --- The pull [`mirror_lie`] makes from its server: the arguments, and what
 --- the run answered.
 local record Pull
-  args: {string}
-  result: Child.Result | nil
+  mut args: {string}
+  mut result: Child.Result?
 end
 
 --- Serves a listing that lies about bad.txt's hash, and pulls from it.
@@ -1718,7 +1718,7 @@ local function mirror_lie(g: Grade)
       end
       local target = got:match("^%u+ (%S+)") or ""
       local body = bodies[target]
-      local head = body ~= nil and "200 OK" or "404 Not Found"
+      local head = if body ~= nil then "200 OK" else "404 Not Found" end
       body = body or ""
       local _, _ = conn:write("HTTP/1.1 " .. head .. "\r\nContent-Length: " .. #body ..
           "\r\nConnection: close\r\n\r\n" .. body)
@@ -1739,7 +1739,7 @@ local function mirror_lie(g: Grade)
     label(g, pull.args) .. " from a listing with a wrong hash fails naming bad.txt",
     "exit " .. status(ran) .. ", stderr: " .. first_line(err))
   local left, _ = Fs.walk(g.empty .. "/lied")
-  local stray: {string} = {}
+  local stray: mut {string} = {}
   for _, rel in ipairs(left or {}) do
     if rel ~= "good.txt" then stray[#stray + 1] = "lied/" .. rel end
   end
@@ -1756,7 +1756,7 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
     fail(g, "could not write " .. name .. ": " .. trouble)
     return false
   end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(site.files) do paths[#paths + 1] = path end
   table.sort(paths)
   if dirs then
@@ -1802,7 +1802,7 @@ local function mirror_archives(g: Grade, site: Site)
             "its body holds the secret")
         end
         local dest = "from-" .. name:gsub("%.", "-")
-        local fetched: {string} = {}
+        local fetched: mut {string} = {}
         for path in pairs(site.files) do fetched[#fetched + 1] = "fetched " .. path end
         pulls(g, { "pull", "http://127.0.0.1:" .. port .. "/", dest }, fetched)
         local same_files, trouble = holds(g.empty .. "/" .. dest, site.files)
@@ -1848,7 +1848,7 @@ end
 --- with `SPLIT` is answered `bye` and ended from this side at once, and
 --- what the client sends after that is kept in `split`.
 local record Target
-  split: {string}
+  split: mut {string}
 end
 
 local function echo(target: Target, conn: Net.Conn)
@@ -1856,7 +1856,7 @@ local function echo(target: Target, conn: Net.Conn)
   if chunk ~= nil and chunk:sub(1, 5) == "SPLIT" then
     local _, _ = conn:write("bye")
     local _, _ = conn:shutdown("write")
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while true do
       local more, _ = conn:read()
       if more == nil then break end
@@ -1877,14 +1877,14 @@ end
 
 --- A connection to the relay at `port`, whose every wait lasts 5 s at
 --- most.
-local function dial(port: integer): Net.Conn | nil, string
+local function dial(port: integer): Net.Conn?, string
   return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
 end
 
 --- Reads `conn` until `n` bytes have come or it ends; answers what
 --- came, and why it ended early: "" at the end of what the peer sent.
 local function read_n(conn: Net.Conn, n: integer): string, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local got = 0
   while got < n do
     local chunk, trouble = conn:read()
@@ -1916,7 +1916,7 @@ local function relay_echo(g: Grade, port: integer)
   local rest, ended = read_all(conn)
   check(g, rest == "abc<eof>" and ended == "",
     "a client's half-close reaches the target, whose answer after it comes back",
-    "got '" .. rest .. "' (" .. (ended == "" and "ended" or ended) .. ")")
+    "got '" .. rest .. "' (" .. (if ended == "" then "ended" else ended end) .. ")")
   local _, _ = conn:close()
 end
 
@@ -1930,7 +1930,7 @@ local function relay_split(g: Grade, target: Target, port: integer)
   local got, ended = read_all(conn)
   check(g, got == "bye" and ended == "",
     "a target that speaks first and half-closes: its bytes and its end reach the client",
-    "got '" .. got .. "' (" .. (ended == "" and "ended" or ended) .. ")")
+    "got '" .. got .. "' (" .. (if ended == "" then "ended" else ended end) .. ")")
   local before = #target.split
   local _, _ = conn:write("after")
   local _, _ = conn:shutdown("write")
@@ -1983,12 +1983,12 @@ local function relay_large(g: Grade, port: integer)
     fail(g, "connect to the relay: " .. trouble)
     return
   end
-  local unit: {string} = {}
+  local unit: mut {string} = {}
   for i = 0, 65535 do
     unit[#unit + 1] = string.char((i * 7919 + i // 251) % 256)
   end
   local block = table.concat(unit)
-  local blocks: {string} = {}
+  local blocks: mut {string} = {}
   for k = 1, 48 do
     blocks[#blocks + 1] = string.format("%08d", k) .. block:sub(9)
   end
@@ -2002,7 +2002,7 @@ local function relay_large(g: Grade, port: integer)
   local _, _ = conn:close()
   check(g, got == data .. "<eof>" and ended == "", "3 MiB written while its echo is read " ..
       "comes back whole", #got .. " bytes, sha256 " .. Hash.hex_sha256(got) ..
-      (ended == "" and "" or " (" .. ended .. ")"))
+      (if ended == "" then "" else " (" .. ended .. ")" end))
 end
 
 --- A connection with nothing moving for --idle is closed; one with
@@ -2023,7 +2023,7 @@ local function relay_idle(g: Grade, target_port: integer)
     local took = since_ms(started)
     check(g, got == "x" and more == nil and ended == "" and took >= 350 and took < 2000,
       "--idle 0.5 closes a connection with nothing moving, after " .. took .. " ms",
-      "got '" .. got .. "', then " .. (more ~= nil and "'" .. more .. "'" or ended))
+      "got '" .. got .. "', then " .. (if more ~= nil then "'" .. more .. "'" else ended end))
     local _, _ = quiet:close()
   end
   local busy, btrouble = dial(port)
@@ -2198,7 +2198,7 @@ end
 --- own ~/.cache and a verdict or compile another run left cannot answer
 --- for this one.
 function Grader.isolated(env: {string:string}, dir: string): {string:string}
-  local pinned: {string:string} = {}
+  local pinned: mut {string:string} = {}
   for name, value in pairs(env) do
     pinned[name] = value
   end
@@ -2212,7 +2212,7 @@ end
 
 --- The next directory for a grade's evidence under the arena at `dir`:
 --- grades/<n>, n one past the highest there, made. Answers its path.
-function Grader.next_logs(dir: string): string | nil, string
+function Grader.next_logs(dir: string): string?, string
   local names, _ = Fs.list(dir .. "/grades")
   local highest = 0
   for _, name in ipairs(names or {}) do
@@ -2309,7 +2309,7 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local is_project, project_trouble = Fs.is_dir(project)
   if not is_project then
     say("FAIL no project at " .. project ..
-        (project_trouble ~= "" and ": " .. project_trouble or ""))
+        (if project_trouble ~= "" then ": " .. project_trouble else "" end))
     say("FAIL")
     return 1
   end
@@ -2353,7 +2353,7 @@ end
 function Grader.run(argv: {string}, program: string): integer
   local name, dir = argv[1], argv[2]
   if name == nil or TASKS[name] == nil or dir == nil or argv[3] ~= nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for each in pairs(TASKS) do names[#names + 1] = each end
     table.sort(names)
     local _, _ = Fs.put(Fs.stderr, "usage: eval/check/<task> <dir>, where <task> is one of " ..

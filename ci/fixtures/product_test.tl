@@ -31,7 +31,7 @@ Test.policy{
 }
 
 local function expected_hashes(product: string): {string:string}
-  local hashes: {string:string} = {}
+  local hashes: mut {string:string} = {}
   for line in Fixture.read(product .. "/hashes.sha256"):gmatch("[^\n]+") do
     local digest, name = line:match("^([0-9a-f]+)  (.+)$")
     assert(digest ~= nil and #digest == 64 and name ~= nil and hashes[name] == nil,
@@ -49,7 +49,7 @@ local function check_hashes(product: string)
     assert(target.kind == "release", "product target is not release")
     names[#names + 1] = "cores/" .. target.name .. "/cosmic-core"
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     assert(hashes[name] and Fixture.hash(product .. "/" .. name) == hashes[name],
       "transported hash differs: " .. name)
@@ -75,7 +75,7 @@ local function test_transported_product(tmp: string)
   local inspection = Fixture.run("inspection", { decoder, "--inspect",
     product .. "/cosmic" }, tmp, diagnostics)
   local decoded = Fixture.inspection(inspection.out)
-  local selected: Fixture.Target | nil = nil
+  local selected: Fixture.Target? = nil
   for _, target in ipairs(Fixture.targets(product .. "/targets.tsv")) do
     if target.name == target_name then
       assert(selected == nil, "duplicate selected product target")

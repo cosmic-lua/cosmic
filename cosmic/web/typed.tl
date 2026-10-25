@@ -103,7 +103,7 @@ end
 
 --- The names of the parameters in `pattern`, in order.
 local function param_names(pattern: string): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for segment in pattern:gmatch("[^/]+") do
     local name = segment:match("^[:*](.+)$")
     if name ~= nil then names[#names + 1] = name end
@@ -113,13 +113,13 @@ end
 
 --- Raises, naming the pattern, unless the path spec and the pattern
 --- agree.
-local function check_path(pattern: string, spec: Shape.Spec | nil)
+local function check_path(pattern: string, spec: Shape.Spec?)
   local names = param_names(pattern)
-  local fields: {string:boolean} = {}
+  local fields: mut {string:boolean} = {}
   if spec ~= nil then
     for _, name in ipairs(assert(spec.names)) do fields[name] = true end
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     seen[name] = true
     if not fields[name] then
@@ -135,7 +135,7 @@ end
 
 --- The errors of `inv` as the `errors` member of a problem body.
 local function problem_errors(inv: Types.Invalid): any
-  local list: {any} = {}
+  local list: mut {any} = {}
   for i, e in ipairs(inv.errors) do
     list[i] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code }
   end
@@ -146,7 +146,7 @@ end
 --- JSON (a route with a JSON body offers it first, so a client that asks
 --- for nothing in particular is given JSON), else the app's error page.
 local function answer(req: Types.Request, inv: Types.Invalid, json_first: boolean): Types.Response
-  local offers: {string} = json_first and { "application/json", "text/html" } or { "text/html", "application/json" }
+  local offers: {string} = if json_first then { "application/json", "text/html" } else { "text/html", "application/json" } end
   if req:accepts(offers) == "application/json" then
     return Response.problem(inv.status, inv.message, { errors = problem_errors(inv) })
   end
@@ -189,7 +189,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   if kind ~= "json" and kind ~= "form" and kind ~= "multipart" and kind ~= "none" then
     error(("web: route_typed %s: the body is a %s, not json, form, multipart or none"):format(pattern, tostring(kind)), 2)
   end
-  local verbs: {string} = methods is string and { methods } or methods
+  local verbs: {string} = if methods is string then { methods } else methods end
   if kind ~= "none" then
     for _, verb in ipairs(verbs) do
       if not BODY_METHODS[verb] then

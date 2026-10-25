@@ -16,7 +16,6 @@ local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
-local NewGrammarProject = require("build.new_grammar_project")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -29,7 +28,7 @@ local build_paths = require("build.paths")
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
-    { path = "testdata/rehearsal", letters = "r" } },
+    { path = "testdata/projects", letters = "r" } },
 }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
@@ -44,7 +43,7 @@ local Fs = require("cosmic.fs")
 local greet = require("greet")
 
 return function(argv: {string}): integer
-  Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n")
+  local _, _ = Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n")
   return #argv
 end
 ]]
@@ -84,7 +83,7 @@ local function test_build_prints_the_path_of_each_program(tmp: string)
     env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
   assert(built.code == 0, built.stdout .. built.stderr)
   local bin = build_dir(tmp) .. "/bin"
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in built.stdout:gmatch("[^\n]+") do
     lines[#lines + 1] = line
   end
@@ -98,7 +97,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
-  local meta: {string:string} = {}
+  local meta: mut {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT key, value FROM meta")) do
     meta[row:text(1)] = row:text(2)
   end
@@ -108,7 +107,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(meta["runtime_basis"] ~= nil and meta["runtime_basis"] ~= "",
     "a portable database carries the runtime basis")
 
-  local modules: {string:string} = {}
+  local modules: mut {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT path, kind FROM modules")) do
     modules[row:text(1)] = row:text(2)
   end
@@ -163,7 +162,7 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   write_project(tmp)
   assert(Fs.write(tmp .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
-    "local function checked(name: string): string | nil, string",
+    "local function checked(name: string): (string?, string)",
     '  if greet.hello(name) ~= "hello, " .. name then',
     '    return nil, "greet_test: hello said something else"',
     "  end",
@@ -229,7 +228,11 @@ local function test_a_test_or_example_the_program_requires_is_carried(tmp: strin
     "",
   }, "\n")))
   assert(Fs.write(tmp .. "/fixture_test.tl", table.concat({
-    'return { greeting = "hi" }',
+    "local record fixture",
+    "  greeting: string",
+    "end",
+    'local f: fixture = { greeting = "hi" }',
+    "return f",
     "",
   }, "\n")))
   assert(embed.tree(tmp, true))
@@ -253,8 +256,9 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 
 return function(): integer
+  local executable, _ = Proc.executable()
   print(Store.meta("runtime_context"), Store.meta("host_image"),
-    Store.meta("runtime"), (Proc.executable()))
+    Store.meta("runtime"), executable)
   return 0
 end
 ]]
@@ -362,7 +366,8 @@ local function test_an_uncaught_error_that_is_no_string_says_it_failed(tmp: stri
   assert(Fs.mkdirs(tmp .. "/cmd/boom"))
   assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
 return function(): integer
-  error({})
+  local failure: mut {string: string} = {}
+  error(failure)
 end
 ]]))
   local names, trouble = embed.tree(tmp, true)
@@ -370,7 +375,7 @@ end
   local r = run_program(build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   -- Its report is one line and nothing beneath it.
-  local reported: {string} = {}
+  local reported: mut {string} = {}
   for line in assert(r.stderr):gmatch("[^\n]+") do
     if line:sub(1, 8) == "cosmic: " then
       reported[#reported + 1] = line
@@ -426,8 +431,9 @@ local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 
 return function(argv: {string}): integer
-  local started, why = Child.start({ assert(Proc.executable()), "x" },
-    { policy = { database = { path = argv[1] } } })
+  local executable = assert(Proc.executable())
+  local started, why = Child.start({ executable, "x" },
+    { policy = { database = { path = argv[1] or "", sha256 = nil } } })
   print(started == nil, why)
   return 0
 end
@@ -497,24 +503,19 @@ end
 --- the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs. The fork does not read it.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"
-  assert(NewGrammarProject.write(root))
+  assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   local names, trouble = embed.tree(root, true, nil, "new")
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
   local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
-  -- the fork cannot read it
-  local forked = tmp .. "/forked"
-  assert(NewGrammarProject.write(forked))
-  local none, none_trouble = embed.tree(forked, true, nil, "teal")
-  assert(none == nil and none_trouble:find("syntax error", 1, true) ~= nil, tostring(none_trouble))
 end
 
 --- A project written in forms only the fork reads is refused in the new checker's words, and the words speak of no pin: a
 --- project has none to raise. The fork builds it.
 local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   local root = tmp .. "/fork_only"
-  assert(Fs.copy_tree("testdata/rehearsal/fork_only", root))
+  assert(Fs.copy_tree("testdata/projects/fork_only", root))
   assert(Fs.mkdirs(root .. "/cmd/x"))
   assert(Fs.write(root .. "/cmd/x/main.tl", "return function(): integer return 0 end\n"))
   local names, trouble = embed.tree(root, true, nil, "new")
@@ -522,8 +523,6 @@ local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   assert(trouble:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
       "or declare what takes it `Entry?`", 1, true) ~= nil, tostring(trouble))
   assert(trouble:find("pinned", 1, true) == nil and trouble:find("ceilings.txt", 1, true) == nil, trouble)
-  local forked, forked_trouble = embed.tree(root, true, nil, "teal")
-  assert(forked ~= nil and forked[1] == "x", tostring(forked_trouble))
 end
 
 --- A program that says which roots its requests trust by default
@@ -551,21 +550,28 @@ return function(): integer
   local roots, why = Http.default_roots()
   print(roots or why)
   local _, refused = Http.open("https://cosmic.test/", { script = { flight } })
-  if refused:find("Common Name", 1, true) ~= nil and refused:find("not correctly signed", 1, true) == nil then
-    print("trusted")
-  else
-    print("refused")
-  end
+  print((refused:gsub("\n", " ")))
   return 0
 end
 ]]
+
+--- What the program `roots_source` printed: its first line, and then "trusted" where it was refused for the name it
+--- presents and not for who signed it, else "refused".
+local function trust_of(printed: string): string
+  local first, second = printed:match("^([^\n]*)\n([^\n]*)\n$")
+  assert(first ~= nil and second ~= nil, printed)
+  if second:find("Common Name", 1, true) ~= nil and second:find("not correctly signed", 1, true) == nil then
+    return first .. "\ntrusted\n"
+  end
+  return first .. "\nrefused\n"
+end
 
 --- What the program at `path` printed, run with `env`.
 local function run_with(path: string, env: {string:string}): string
   local r = assert(Child.run({ path }, { env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
-  return assert(r.stdout)
+  return trust_of(assert(r.stdout))
 end
 
 --- An executable carries every root and trusts the minimal ones by

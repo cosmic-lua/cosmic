@@ -31,10 +31,8 @@ local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
 local schema = require("build.schema")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
-local workers = require("build.workers")
 local writer = require("build.writer")
 
 local logger = require("build.logger")
@@ -78,7 +76,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
   if statement == nil then
     return false, table_name .. ": " .. trouble
   end
-  local slots: {string} = {}
+  local slots: mut {string} = {}
   for index = 1, #columns do
     slots[index] = "?" .. index
   end
@@ -93,7 +91,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
     if state == "done" then
       break
     end
-    local row: {Sqlite.Value} = {}
+    local row: mut {Sqlite.Value} = {}
     for index = 1, #columns do
       row[index] = value_at(statement, index - 1)
     end
@@ -119,7 +117,7 @@ local guidance_text <const> = "coalesce(catalog.text, (SELECT d.text FROM docs d
   "WHERE d.module = catalog.module AND d.source_symbol = catalog.symbol))"
 
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
-local function name_of(main: string): string | nil
+local function name_of(main: string): string?
   return main:match("^cmd%.([^%.]+)%.main$")
 end
 
@@ -137,7 +135,7 @@ end
 --- `--host` needs no other core.
 --- @param prefix what [`artifact.trusted_prefix`] answered, or nil
 --- @param trouble and why not, where it answered none
-function embed.portable_prefix(prefix: string | nil, trouble: string): string | nil, string
+function embed.portable_prefix(prefix: string?, trouble: string): string?, string
   if prefix == nil then return nil, trouble end
   if artifact.host_only(prefix) then
     return nil, "this tool carries the host's core alone, so a portable program made " ..
@@ -157,7 +155,7 @@ end
 --- `roots`, when given, is recorded as the roots a request that names
 --- none trusts ("minimal" or "mozilla", [`Http.default_roots`]); every
 --- root the binary carries goes along either way.
-function embed.database(project: string, main: string, roots?: string): string | nil, string
+function embed.database(project: string, main: string, roots?: string): string?, string
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
@@ -175,7 +173,7 @@ function embed.database(project: string, main: string, roots?: string): string |
   if out == nil then
     return nil, building .. ": " .. open_trouble
   end
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   for _, statement in ipairs(schema.settings("")) do
     statements[#statements + 1] = statement
   end
@@ -317,12 +315,12 @@ function embed.database(project: string, main: string, roots?: string): string |
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
     -- TODO: an edge exists only for a `require` of a literal name
-    -- ([`build.ast.requires`]), so a test or example file loaded by a
+    -- (build.syntax_node's requires), so a test or example file loaded by a
     -- computed name or through `pcall(require, "<name>")` is left out
     -- and the program fails to load it at run time; teach
     -- `all_requires` the `pcall(require, ...)` form, and refuse a
     -- computed require of a project module at build time.
-    local project_rows: {string} = {
+    local project_rows: mut {string} = {
       "WITH RECURSIVE carried(path) AS (" ..
         "SELECT path FROM project.modules " ..
         "WHERE kind NOT IN ('test', 'example') " ..
@@ -421,7 +419,7 @@ end
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
 function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string): {string} | nil, string
+                    roots?: string): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -443,32 +441,17 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  -- TODO: once the switch deletes the fork's compiler (doc/plans/strict-teal.md, "the switch"), stop loading it here: a build
-  -- with the new checker (COSMIC_GRAMMAR=new) hands `built` to a compile that parses and checks with the syntax tree, so the
-  -- load is spent on a compiler nothing asks.
-  local built, load_trouble = teal.load()
-  if built == nil then
-    local _, _ = work.close(handle)
-    return nil, load_trouble
-  end
   local project = build_paths.resolve(root).projection
-  -- The new checker reads the project in this process, so no pool is started for it; its compile is keyed by the mode.
-  local result: importer.Result | nil = nil
-  local compile_trouble = ""
+  -- The new checker reads the project in this process; its compile is keyed by the mode.
   local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
-  if mode == "new" then
-    result, compile_trouble = importer.compile(handle, built, tool, false, shared_compiles.for_build(), nil, false, mode)
-  else
-    result, compile_trouble = importer.compile(handle, built, tool, false,
-      shared_compiles.for_build(), workers.pool(workers.tool_spec()))
-  end
+  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
   -- A compile with the new checker goes on past a module it refuses, to name them all; a program is not made of a tree that has one.
-  if mode == "new" and #result.refused > 0 then
+  if #result.refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
     return nil, table.concat(result.refused, "\n")
@@ -480,8 +463,8 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   end
 
   local paths = under or {}
-  local mains: {string} = {}
-  local files: {string} = {}
+  local mains: mut {string} = {}
+  local files: mut {string} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "main" and narrow.holds(paths, m.file) then
       mains[#mains + 1] = m.path
@@ -502,7 +485,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     return {}
   end
 
-  local prefix, core: string | nil, raw_store.Core | nil
+  local prefix, core: string?, raw_store.Core?
   local source_trouble: string
   if host then
     core, source_trouble = artifact.trusted_core()
@@ -517,7 +500,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   if not made then
     return nil, mkdir_trouble
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, main in ipairs(mains) do
     local name = name_of(main)
     if name == nil then
@@ -576,11 +559,11 @@ local function run(argv: {string}): integer
     log:complain(trouble)
     return 1
   end
-  local outputs: {string} = {}
+  local outputs: mut {string} = {}
   local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
     log:say(bin .. "/" .. name)
-    outputs[#outputs + 1] = bin .. "/" .. name .. (host and " (host)" or "")
+    outputs[#outputs + 1] = bin .. "/" .. name .. (if host then " (host)" else "" end)
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"

@@ -26,7 +26,7 @@ local record hover
   record Docs
     root: string
     --- The databases docs are read from: [`Store.databases()`] when nil.
-    store: {Sqlite.Handle} | nil
+    store: {Sqlite.Handle}?
     --- Where complaints go, without their newline.
     err: function(line: string)
     --- The tree's view of the working database, whose stage found what
@@ -34,11 +34,11 @@ local record hover
     tree: source.View
     --- The docs databases, once read, and the device and inode of the
     --- projection among them ("" where there was none).
-    sources: docs.Sources | nil
-    projection: string
-    view: docs.View | nil
+    mut sources: docs.Sources?
+    mut projection: string
+    mut view: docs.View?
     --- Why the docs could not be read, once they were tried.
-    view_trouble: string | nil
+    mut view_trouble: string?
   end
 end
 
@@ -46,7 +46,7 @@ local type Docs = hover.Docs
 
 --- The docs of the tree `tree` holds, at `root`, read from `store` when
 --- given.
-function hover.new(root: string, tree: source.View, store: {Sqlite.Handle} | nil,
+function hover.new(root: string, tree: source.View, store: {Sqlite.Handle}?,
                    err: function(line: string)): Docs
   return { root = root, store = store, err = err, tree = tree, sources = nil, projection = "",
     view = nil, view_trouble = nil }
@@ -86,7 +86,7 @@ function hover.sources(d: Docs): docs.Sources
   end
   if sources == nil then
     local where = d.tree.where
-    local known: docs.Known | nil = nil
+    local known: docs.Known? = nil
     if where ~= nil then known = { directory = where.directory, own_tree = where.own_tree } end
     sources = docs.databases(d.store or Store.databases(), d.root, known)
     d.sources, d.projection = sources, projection
@@ -95,7 +95,7 @@ function hover.sources(d: Docs): docs.Sources
 end
 
 --- The docs view, read once of the databases [`hover.sources`] answers.
-local function view_of(d: Docs): docs.View | nil
+local function view_of(d: Docs): docs.View?
   local sources = hover.sources(d)
   if d.view ~= nil or d.view_trouble ~= nil then return d.view end
   local view, trouble = docs.view(sources.handles, sources.public)
@@ -107,7 +107,7 @@ end
 
 --- The dotted name under byte `x` of `line`, up to the end of the word
 --- the cursor is in: [`Fs.read`] with the cursor anywhere in `Fs`'s `read`.
-local function name_at(line: string, x: integer): string | nil
+local function name_at(line: string, x: integer): string?
   local first = x
   while first > 1 do
     if line:sub(first - 1, first - 1):match("[%w_%.]") == nil then break end
@@ -125,7 +125,7 @@ end
 
 --- `name` with its first part read as the module a `require` in `text`
 --- bound to it: [`Fs.read`] as [`cosmic.fs.read`]. Nil when no `require` did.
-local function resolved(text: string, name: string): string | nil
+local function resolved(text: string, name: string): string?
   local head, rest = name:match("^([%a_][%w_]*)(.*)$")
   if head == nil or rest == nil then return nil end
   for alias, module in text:gmatch("local%s+([%a_][%w_]*)%s*=%s*require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
@@ -136,24 +136,24 @@ end
 
 --- The hover of `text` at `where`, its character counted in
 --- `encoding`'s units, or nil when nothing is documented there.
-function hover.at(d: Docs, text: string, where: protocol.Position, encoding: string): protocol.Hover | nil
+function hover.at(d: Docs, text: string, where: protocol.Position, encoding: string): protocol.Hover?
   local line = lines.lines_of(text).texts[where.line + 1] or ""
   local name = name_at(line, lines.byte_of(line, where.character, encoding))
   if name == nil then return nil end
   local view = view_of(d)
   if view == nil then return nil end
-  local queries: {string} = {}
+  local queries: mut {string} = {}
   local through = resolved(text, name)
   if through ~= nil then queries[#queries + 1] = through end
   queries[#queries + 1] = name
   for _, query in ipairs(queries) do
     local found, _ = docs.exact(view, query)
-    local entry: docs.Entry | nil = nil
+    local entry: docs.Entry? = nil
     if found ~= nil then entry = found[1] end
     if entry ~= nil then
       local title = entry.module
       if entry.symbol ~= "" then title = title .. "." .. entry.symbol end
-      local parts: {string} = { "**" .. title .. "**" }
+      local parts: mut {string} = { "**" .. title .. "**" }
       if entry.signature ~= "" then
         parts[#parts + 1] = "```teal\n" .. entry.signature .. "\n```"
       end

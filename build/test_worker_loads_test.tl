@@ -42,9 +42,9 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   local report = worker.decode(result.captured[worker.report_fd])
   assert(report ~= nil, tostring(result.stdout))
   assert(report.message == "build.key_parts has no test named test_none", report.message)
-  local ran: {string:boolean} = {}
+  local ran: mut {string:boolean} = {}
   for _, name in ipairs(report.modules) do ran[name] = true end
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, name in ipairs(worker.loads) do
     listed[name] = true
     assert(ran[name], "worker.loads names " .. name .. ", which a worker did not load")

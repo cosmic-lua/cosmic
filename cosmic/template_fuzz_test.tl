@@ -79,13 +79,13 @@ local PLAIN <const>: Kit = {
 
 --- A slot whose value starts from `$` or from a variable of `bound`.
 local function gen_variable_slot(src: Fuzz.Source, bound: {string}): string
-  local heads: {string} = { "$", "$.a" }
+  local heads: mut {string} = { "$", "$.a" }
   for _, name in ipairs(bound) do
     heads[#heads + 1] = name
     heads[#heads + 1] = name .. ".a"
   end
   local slot = "{{" .. Fuzz.pick(src, heads)
-  return slot .. (src:int(0, 2) == 0 and " | m.f}}" or "}}")
+  return slot .. (if src:int(0, 2) == 0 then " | m.f}}" else "}}" end)
 end
 
 --- The variables `{{range}}` at `depth` binds, none, one or two, named for
@@ -103,7 +103,7 @@ end
 --- Appends a well-formed run of nodes: markup, slots and blocks (to
 --- `depth` deep, the arms of each cut at random places in the markup), in
 --- which the variables of `bound` are seen.
-local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: Kit, bound: {string})
+local function gen_nodes(src: Fuzz.Source, depth: integer, out: mut {string}, kit: Kit, bound: {string})
   while Fuzz.more(src, #out, 14) do
     local kind = src:int(0, 9)
     if kind <= 4 then
@@ -126,11 +126,11 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: {string}, kit: K
       out[#out + 1] = "{{end}}"
     elseif kind == 8 then
       local names = gen_bindings(src, depth)
-      local inner: {string} = { table.unpack(bound) }
+      local inner: mut {string} = { table.unpack(bound) }
       for _, name in ipairs(names) do
         inner[#inner + 1] = name
       end
-      out[#out + 1] = #names == 0 and "{{range .l}}" or "{{range " .. table.concat(names, ", ") .. " := .l}}"
+      out[#out + 1] = if #names == 0 then "{{range .l}}" else "{{range " .. table.concat(names, ", ") .. " := .l}}" end
       gen_nodes(src, depth + 1, out, kit, inner)
       if src:int(0, 1) == 0 then
         out[#out + 1] = "{{else}}"
@@ -153,7 +153,7 @@ end
 --- nodes, some a run of pieces in any order, some bytes.
 local function gen_body(src: Fuzz.Source): string
   local kind = src:int(0, 7)
-  local out: {string} = {}
+  local out: mut {string} = {}
   if kind == 0 then
     return Fuzz.bytes(src, 40)
   elseif kind == 1 then
@@ -171,7 +171,7 @@ end
 --- Well-formed nodes, then what ends them in text: no syntax error, so what
 --- follows or precedes it is judged for its markup.
 local function gen_sound_nodes(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   gen_nodes(src, 0, out, ANY, {})
   out[#out + 1] = Fuzz.pick(src, CLOSERS)
   return table.concat(out)
@@ -248,10 +248,10 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
       if newlines(out) ~= newlines(input) + 1 then
         return false, "the module has " .. newlines(out) .. " newlines for the template's " .. newlines(input)
       end
-      if out:find("\r", 1, true) or not out:find("end return {render = render}\n", 1, true) then
+      if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then
         return false, "the module is not shaped as one: " .. out
       end
-      if out:find("render(d: ", 1, true) and out:find("local parts: {string} = {} ", 1, true) == nil then
+      if out:find("render(d: ", 1, true) and out:find("local parts: mut {string} = {} ", 1, true) == nil then
         return false, "no parts"
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
@@ -266,8 +266,8 @@ end
 
 --- Text with no action in it, drawn from what quoting must not lose.
 local function gen_literal(src: Fuzz.Source): string
-  local parts: {string} = { Fuzz.pick(src, { "html", "text" }) }
-  local text: {string} = {}
+  local parts: mut {string} = { Fuzz.pick(src, { "html", "text" }) }
+  local text: mut {string} = {}
   while Fuzz.more(src, #text, 30) do
     text[#text + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, MARKUP)
   end
@@ -292,7 +292,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       local fields = Fuzz.unpack(input)
       local mode = fields[1] or "html"
       local body = fields[2] or ""
-      local head = mode == "text" and "{{type T from m.t}}{{mode text}}" or "{{type T from m.t}}"
+      local head = if mode == "text" then "{{type T from m.t}}{{mode text}}" else "{{type T from m.t}}" end
       local out, why = Template.compile(head .. body, "t.tmpl")
       if out == nil and mode == "html" and why:find(": the template ends ", 1, true) then
         -- Markup left open is refused in html, and rendered as it stands in text.
@@ -315,7 +315,8 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       -- What Teal strikes out to leave Lua: the type require and the
       -- annotations, in the one shape a template with no action has.
       local lua = out:gsub("^local type t = require%b() ", "")
-      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: {string}", "local parts")
+      lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: mut {string}", "local parts")
+      lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
       local env: {string: any} = {
         require = function(name: string): any
           if name == "cosmic.html" then
@@ -520,13 +521,13 @@ local UNITS <const>: {{string}} = {
 --- A payload, the kinds its template's slots must be judged as, and a
 --- template of fragments, some inside a block.
 local function gen_sound(src: Fuzz.Source): string
-  local body: {string} = {}
-  local kinds: {string} = {}
+  local body: mut {string} = {}
+  local kinds: mut {string} = {}
   local want = Fuzz.pick(src, { "t", "r", "f", "a", "u", "p", "x" })
   local drawn = 0
   -- Only a template drawn to be refused holds a fragment that is, so the kinds
   -- that compile are not starved by one stray refusal in five.
-  local sound: {{string}} = {}
+  local sound: mut {{string}} = {}
   for _, unit in ipairs(UNITS) do
     if unit[2] ~= "x" then
       sound[#sound + 1] = unit
@@ -538,7 +539,7 @@ local function gen_sound(src: Fuzz.Source): string
     local first = Fuzz.pick(src, pool)
     if drawn == 1 then
       -- The first fragment is of a kind drawn first, so every kind is reached however few inputs run.
-      local of: {{string}} = {}
+      local of: mut {{string}} = {}
       for _, unit in ipairs(UNITS) do
         if unit[2]:find(want, 1, true) then
           of[#of + 1] = unit
@@ -552,19 +553,19 @@ local function gen_sound(src: Fuzz.Source): string
     local first_text = first[1]
     local head = "{{range .l}}"
     if (wrap == 2 or wrap == 4) and src:int(0, 1) == 0 then
-      head = src:int(0, 1) == 0 and "{{range $x := .l}}" or "{{range $i, $x := .l}}"
+      head = if src:int(0, 1) == 0 then "{{range $x := .l}}" else "{{range $i, $x := .l}}" end
       first_text = (first_text:gsub("{{%.a}}", "{{$x.a}}"))
     elseif src:int(0, 2) == 0 then
       first_text = (first_text:gsub("{{%.a}}", "{{$.a}}"))
     end
     if wrap == 1 or wrap == 4 then
       local second = Fuzz.pick(src, pool)
-      local open = wrap == 1 and "{{if .a}}" or head
+      local open = if wrap == 1 then "{{if .a}}" else head end
       body[#body + 1] = open .. first_text .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
       local open = wrap == 2 and head or wrap == 3 and "{{with .w}}" or ""
-      body[#body + 1] = open .. first_text .. (open ~= "" and "{{end}}" or "")
+      body[#body + 1] = open .. first_text .. (if open ~= "" then "{{end}}" else "" end)
       kinds[#kinds + 1] = first[2]
     end
   end
@@ -594,9 +595,9 @@ local function esc_attr(s: any): string
 end
 
 local record PartRun
-  calls: integer
-  only: integer
-  skip: integer
+  mut calls: integer
+  mut only: integer
+  mut skip: integer
 end
 
 --- Which `url_part` calls of a render answer their value: the `calls` so
@@ -614,7 +615,7 @@ local STAND_IN <const>: {string: function(any): any} = {
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
     local text = s is string and s:match("^[^|]*") or ""
-    return { s = "\5" .. (text:lower():find("^%s*javascript:") and "about:invalid" or text) }
+    return { s = "\5" .. (if text:lower():find("^%s*javascript:") then "about:invalid" else text end) }
   end,
   trust = function(s: any): {string: string}
     if not s is string then error("trust: a string is expected, got " .. type(s), 2) end
@@ -670,7 +671,8 @@ local function lua_of(source: string): string
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
   lua = lua:gsub("local p: [%w%.]+ ", "local p ")
-  lua = lua:gsub("local parts: {string} = {}", "local parts = {}")
+  lua = lua:gsub("local parts: mut {string} = {}", "local parts = {}")
+  lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
   lua = lua:gsub("if v is (%a+) then", 'if type(v) == "%1" then')
   return lua
 end
@@ -763,7 +765,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       if source == nil then
         return false, "refused " .. body .. ": " .. why
       end
-      local made_kinds: {string} = {}
+      local made_kinds: mut {string} = {}
       for helper in source:gmatch("parts%[#parts %+ 1%] = (_%a+)%(v%) end") do
         made_kinds[#made_kinds + 1] = HELPER_KIND[helper] or "?"
       end
@@ -869,7 +871,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       -- given it and the others empty, and with one part alone empty: a part
       -- may be empty, and the others need not be.
       for _, list in ipairs({ { each, each }, {} } as {{any}}) do
-        local runs: {{integer}} = { { 0, 0 } }
+        local runs: mut {{integer}} = { { 0, 0 } }
         local at = 1
         while at <= #runs do
           PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2]
@@ -935,7 +937,7 @@ end
 --- A literal run, how it is cut (an index of `CUTS`) and the text `X` of a
 --- cut whose arms emit it.
 local function gen_cut(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 12) do
     out[#out + 1] = Fuzz.pick(src, RAW_PIECES)
   end
@@ -944,7 +946,7 @@ end
 
 --- The helpers a compiled template calls, in order.
 local function helpers(source: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for helper in source:gmatch("parts%[#parts %+ 1%] = (_%a+)%(v%) end") do
     out[#out + 1] = helper
   end
@@ -986,7 +988,7 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
       if whole == nil and why:find("<script>", 1, true) then
         Fuzz.label("script slot refused")
       end
-      Fuzz.label(kind == 2 and "range" or kind == 3 and "with" or kind == 4 and "arms" or kind == 5 and "string" or "if")
+      Fuzz.label(if kind == 2 then "range" elseif kind == 3 then "with" elseif kind == 4 then "arms" elseif kind == 5 then "string" else "if" end)
       local block = kind == 5 and as_strings(extra) or (CUTS[kind]:gsub("X", function(): string
         return extra
       end))
@@ -1021,7 +1023,7 @@ local SUFFIX <const> = {
 }
 
 local function gen_suffix(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 8) do
     out[#out + 1] = Fuzz.pick(src, SUFFIX)
   end
@@ -1067,10 +1069,10 @@ end
 --- written as it is or as a string action, or a slot. Packed as a kind
 --- (`t` text, `q` string, `s` slot) and its text for each run.
 local function gen_quoted(src: Fuzz.Source): string
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   while Fuzz.more(src, #fields // 2, 12) do
     local kind = Fuzz.pick(src, { "t", "q", "q", "s" })
-    local run: {string} = {}
+    local run: mut {string} = {}
     while kind ~= "s" and Fuzz.more(src, #run, 4) do
       local pick = src:int(0, 4)
       run[#run + 1] = pick == 0 and Fuzz.bytes(src, 3) or
@@ -1096,8 +1098,8 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
     shares = { brace = 0.1, escape = 0.1 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local body: {string} = {}
-      local want: {string} = {}
+      local body: mut {string} = {}
+      local want: mut {string} = {}
       for at = 1, #fields - 1, 2 do
         local kind = fields[at]
         local text = fields[at + 1]
@@ -1144,16 +1146,16 @@ end
 --- ("" once the tag has ended) and all it holds there (`at`), the text after
 --- the tag, and where each slot stands. A slot is written `\1<n>\2`.
 local record Tag
-  name: string
-  attrs: {string}
-  selfclosing: boolean
-  state: string
-  at: string
-  rest: string
+  mut name: string
+  attrs: mut {string}
+  mut selfclosing: boolean
+  mut state: string
+  mut at: string
+  mut rest: string
   --- Each slot in the tag, as its number, then what it is: "attr", "url"
   --- or "refuse" (outside a quoted value, or the content of a <meta> that
   --- has http-equiv).
-  slots: {{string}}
+  slots: mut {{string}}
 end
 
 local function read_tag(s: string): Tag
@@ -1164,7 +1166,7 @@ local function read_tag(s: string): Tag
     tag.attrs[#tag.attrs + 1] = name.value .. "=" .. value.value
     name.value, value.value = "", ""
   end
-  local named: {string} = {}
+  local named: mut {string} = {}
   local i = 2
   while i <= #s and tag.state ~= "" do
     local c = s:sub(i, i)
@@ -1175,7 +1177,7 @@ local function read_tag(s: string): Tag
       local close = s:find("\2", i, true) or #s
       local id = s:sub(i + 1, close - 1)
       if state == "value_dq" or state == "value_sq" then
-        tag.slots[#tag.slots + 1] = { id, name.value == "href" and value.value == "" and "url" or "attr" }
+        tag.slots[#tag.slots + 1] = { id, if name.value == "href" and value.value == "" then "url" else "attr" end }
         named[#tag.slots] = name.value
         value.value = value.value .. s:sub(i, close)
       else
@@ -1234,7 +1236,7 @@ local function read_tag(s: string): Tag
         tag.state, again = "value_unq", true
       end
     elseif state == "value_dq" or state == "value_sq" then
-      if c == (state == "value_dq" and "\"" or "'") then
+      if c == (if state == "value_dq" then "\"" else "'" end) then
         push()
         tag.state = "after_value"
       else
@@ -1294,16 +1296,16 @@ local FONT_BREAKS <const>: {string: boolean} = { color = true, face = true, size
 --- Whether the opening `<svg>` is there, the tag, the text before a block
 --- in it, the block's kind, what its arms write, and the text after it.
 local function gen_tag_block(src: Fuzz.Source): string
-  local before: {string} = {}
+  local before: mut {string} = {}
   while Fuzz.more(src, #before, 3) do
     before[#before + 1] = Fuzz.pick(src, TAG_PIECES)
   end
-  local after: {string} = {}
+  local after: mut {string} = {}
   while Fuzz.more(src, #after, 3) do
     after[#after + 1] = Fuzz.pick(src, TAG_PIECES)
   end
   local lead = Fuzz.pick(src, { "", "", "", "<svg>" })
-  local open = lead ~= "" and "<font" or Fuzz.pick(src, { "<input", "<option", "<br", "<meta", "<font", "<svg" })
+  local open = if lead ~= "" then "<font" else Fuzz.pick(src, { "<input", "<option", "<br", "<meta", "<font", "<svg" }) end
   if open == "<meta" and src:int(0, 1) == 0 then
     -- A slot in the content before the block, which an arm that names
     -- http-equiv makes a redirect.
@@ -1315,7 +1317,7 @@ end
 
 --- The attributes `text` writes by itself, `times` over.
 local function written(text: string, times: integer): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _ = 1, times do
     for _, a in ipairs(read_tag("<t " .. text .. ">").attrs) do
       out[#out + 1] = a
@@ -1326,7 +1328,7 @@ end
 
 --- `a` and `b` together, sorted and joined.
 local function merged(a: {string}, b: {string}): string
-  local all: {string} = {}
+  local all: mut {string} = {}
   for _, x in ipairs(a) do all[#all + 1] = x end
   for _, x in ipairs(b) do all[#all + 1] = x end
   table.sort(all)
@@ -1353,9 +1355,9 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       local fields = Fuzz.unpack(input)
       local lead, open, before, kind = fields[1] or "", fields[2] or "<p", fields[3] or "", fields[4] or "if"
       local arm, other, after = fields[5] or "", fields[6] or "", fields[7] or ""
-      local closer = ">{{.x}}" .. (lead ~= "" and "</font></svg>" or open == "<svg" and "</svg>" or "")
-      local block = kind == "range" and "{{range .l}}" .. arm .. "{{end}}" or
-        kind == "else" and "{{if .a}}" .. arm .. "{{else}}" .. other .. "{{end}}" or "{{if .a}}" .. arm .. "{{end}}"
+      local closer = ">{{.x}}" .. (if lead ~= "" then "</font></svg>" elseif open == "<svg" then "</svg>" else "" end)
+      local block = if kind == "range" then "{{range .l}}" .. arm .. "{{end}}" elseif
+        kind == "else" then "{{if .a}}" .. arm .. "{{else}}" .. other .. "{{end}}" else "{{if .a}}" .. arm .. "{{end}}" end
       local body = lead .. open .. before .. block .. after .. closer
       -- What was drawn is labelled before it is compiled: only about one
       -- input in four compiles, too few for every seed's 64 draws to meet a
@@ -1385,7 +1387,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
       local n_before, n_arm = number(before), number(arm)
       local n_other = kind == "else" and number(other) or ""
       local n_after, n_closer = number(after), number(closer)
-      local kinds: {string} = {}
+      local kinds: mut {string} = {}
       for made in source:gmatch("parts%[#parts %+ 1%] = _(%a+)%(v%) end") do
         kinds[#kinds + 1] = made
       end
@@ -1393,20 +1395,20 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         return false, #kinds .. " slots compiled of " .. count.value .. ": " .. body
       end
       -- What each run writes in the block, and the attributes that alone makes.
-      local runs: {string} = { "", n_arm }
-      local own: {{string}} = { {}, written(n_arm, 1) }
+      local runs: mut {string} = { "", n_arm }
+      local own: mut {{string}} = { {}, written(n_arm, 1) }
       if kind == "else" then
         runs[1], own[1] = n_other, written(n_other, 1)
       elseif kind == "range" then
         runs[3], own[3] = n_arm .. n_arm, written(n_arm, 2)
       end
-      local tags: {Tag} = {}
+      local tags: mut {Tag} = {}
       for i, run in ipairs(runs) do
         local tag = read_tag(open .. n_before .. run .. n_after .. n_closer)
         tags[i] = tag
         -- The text after the tag is inside `<svg>` unless the tag is an
         -- `<svg>` that closes itself.
-        local text = (lead ~= "" or (tag.name == "svg" and not tag.selfclosing)) and "ftext" or "text"
+        local text = if (lead ~= "" or (tag.name == "svg" and not tag.selfclosing)) then "ftext" else "text" end
         if lead ~= "" then
           for _, a in ipairs(tag.attrs) do
             if FONT_BREAKS[a:match("^[^=]*")] then
@@ -1485,7 +1487,7 @@ end
 local function css_unescape(text: string): string
   local out = text:gsub("\\(%x%x?%x?%x?%x?%x?)[ \t\n\f\r]?", function(hex: string): string
     local code = tonumber(hex, 16) as integer
-    return code == 0 and "\239\191\189" or utf8.char(code)
+    return if code == 0 then "\239\191\189" else utf8.char(code) end
   end)
   return out
 end
@@ -1548,7 +1550,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
       if not in_identifier(middle) then
         return false, "the slot is more than identifier text: " .. string.format("%q", middle)
       end
-      local want = payload == "" and "" or payload:gsub("%z", "\239\191\189")
+      local want = if payload == "" then "" else payload:gsub("%z", "\239\191\189") end
       if css_unescape(middle) ~= want then
         return false, "the slot does not read back as its value: " .. string.format("%q", middle)
       end
@@ -1630,7 +1632,7 @@ local function spelled(src: Fuzz.Source, name: string): string
   local out = name:gsub("%a", function(c: string): string
     return src:int(0, 1) == 0 and c:lower() or c:upper()
   end)
-  return name:find("^hx%-") and src:int(0, 1) == 0 and "data-" .. out or out
+  return if name:find("^hx%-") and src:int(0, 1) == 0 then "data-" .. out else out end
 end
 
 local function gen_script_attr(src: Fuzz.Source): string

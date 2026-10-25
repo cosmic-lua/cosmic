@@ -8,7 +8,7 @@ local record Validation
 end
 
 local record Source
-  state: integer
+  mut state: integer
 end
 
 local function uniform(source: Source): number
@@ -52,7 +52,7 @@ local record Case
 end
 
 local function cases(): {Case}
-  local result: {Case} = {}
+  local result: mut {Case} = {}
   local names = { "normal", "exponential", "lognormal", "mixture" }
   for population = 1, 4 do
     result[#result + 1] = { name = "null_" .. names[population], population = population,
@@ -81,10 +81,10 @@ local function cases(): {Case}
 end
 
 local function samples(source: Source, case: Case, n: integer, calibration: boolean): {Perf.Pair}
-  local result: {Perf.Pair} = {}
+  local result: mut {Perf.Pair} = {}
   for i = 1, n do
     local a = draw(source, case.population, 1)
-    local b = draw(source, case.population, calibration and 1 or case.tail_multiplier)
+    local b = draw(source, case.population, if calibration then 1 else case.tail_multiplier end)
     if not calibration then b = b + case.shift end
     if case.stress == 1 then
       local delay = 40 * uniform(source)
@@ -104,7 +104,7 @@ local record Count
   finite: integer
 end
 
-local function observe(counts: {string:Count}, name: string, hit: boolean, finite?: boolean)
+local function observe(counts: mut {string:Count}, name: string, hit: boolean, finite?: boolean)
   local count = counts[name]
   if count == nil then
     count = { hits = 0, total = 0, finite = 0 }
@@ -115,7 +115,7 @@ local function observe(counts: {string:Count}, name: string, hit: boolean, finit
   if finite ~= false then count.finite = count.finite + 1 end
 end
 
-local function inside(low: number | nil, high: number | nil, truth: number): boolean
+local function inside(low: number?, high: number?, truth: number): boolean
   return (low == nil or low <= truth) and (high == nil or high >= truth)
 end
 
@@ -155,7 +155,7 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
     observe(counts, "aa_median_positive", reading.calibration.low > 0)
     local aa_tail_low = reading.calibration_tail_interval.low
     observe(counts, "aa_tail_positive", aa_tail_low ~= nil and aa_tail_low > 0)
-    local reasons: {string:boolean} = {}
+    local reasons: mut {string:boolean} = {}
     for _, reason in ipairs(reading.reasons) do reasons[reason] = true end
     for _, reason in ipairs(reason_keys) do
       observe(counts, "reason_" .. reason, reasons[reason] == true)
@@ -177,7 +177,7 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
       end
     end
   end
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   if case.gate == "null" then
     if n < 200 then
       if counts["pass"].hits ~= 0 then failures[#failures + 1] = "exploratory_pass" end
@@ -195,7 +195,7 @@ local function simulate(case: Case, index: integer, n: integer): {string:any}, b
   elseif case.gate == "tail" then
     if counts["blocked"].hits / 5000 < 0.85 then failures[#failures + 1] = "tail_detection" end
   end
-  local rates: {string:{string:number}} = {}
+  local rates: mut {string:{string:number}} = {}
   for name, count in pairs(counts) do rates[name] = rate(count) end
   return { case = index, name = case.name, n = n, gate = case.gate, rates = rates,
     failures = failures, passed = #failures == 0 }, #failures == 0
@@ -207,7 +207,7 @@ function Validation.main(argv: {string}): integer
   local exists, trouble = Fs.exists(argv[1])
   assert(exists ~= nil, trouble)
   assert(not exists, "report already exists")
-  local results: {{string:any}} = {}
+  local results: mut {{string:any}} = {}
   local passed = true
   for index, case in ipairs(cases()) do
     for _, n in ipairs(case.sizes) do
@@ -215,10 +215,10 @@ function Validation.main(argv: {string}): integer
       results[#results + 1], passed = result, passed and ok
       assert(Fs.write(argv[1], assert(Json.encode_any({ protocol = "doc/performance/validation.md",
         trials_per_case = 5000, results = results, passed = passed }, { pretty = true })) .. "\n"))
-      print(case.name .. " n=" .. n .. ": " .. (ok and "PASS" or "FAIL"))
+      print(case.name .. " n=" .. n .. ": " .. (if ok then "PASS" else "FAIL" end))
     end
   end
-  return passed and 0 or 2
+  return if passed then 0 else 2 end
 end
 
 return Validation

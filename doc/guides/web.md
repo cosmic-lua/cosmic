@@ -53,7 +53,7 @@ do
   local tally = { refused = 0 }
   local header = "{{type Page from site.page}}{{use htmx}}\n"
   local function reason(markup: string, plain?: boolean): string
-    local source, why = Template.compile((plain == true and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
+    local source, why = Template.compile((if plain == true then "{{type Page from site.page}}\n" else header end) .. markup, "page.tmpl")
     assert(source == nil, markup)
     tally["refused"] = (tally["refused"] or 0) + 1
     return why
@@ -93,14 +93,14 @@ local record data
   record Task
     id: integer
     title: string
-    done: boolean
+    mut done: boolean
   end
   record Tasks
     tasks: {Task}
   end
   record Panel
     title: string
-    error: string | nil
+    error: string?
     rows: Html.SafeHtml
   end
   record Page
@@ -216,56 +216,50 @@ thread, so a plain table is consistent.
 
 local data = require("pages.data")
 
-local record Store
+local class Store
   --- Tasks in the order they were added.
-  tasks: {data.Task}
+  tasks: mut {data.Task}
   --- The id the next task takes.
-  next_id: integer
-  --- Adds a task and answers it.
-  add: function(self: Store, title: string): data.Task
-  --- The task with `id`, or nil.
-  get: function(self: Store, id: integer): data.Task | nil
-  --- Flips a task's `done`; the task, or nil.
-  toggle: function(self: Store, id: integer): data.Task | nil
-  --- Removes a task; whether there was one.
-  remove: function(self: Store, id: integer): boolean
-end
+  mut next_id: integer
 
-local store_mt: metatable<Store> = { __index = Store }
+  --- Adds a task and answers it.
+  function add(self, title: string): data.Task
+    local task: data.Task = { id = self.next_id, title = title, done = false }
+    self.next_id = self.next_id + 1
+    self.tasks[#self.tasks + 1] = task
+    return task
+  end
+
+  --- The task with `id`, or nil.
+  function get(self, id: integer): data.Task?
+    for _, task in ipairs(self.tasks) do
+      if task.id == id then return task end
+    end
+    return nil
+  end
+
+  --- Flips a task's `done`; the task, or nil.
+  function toggle(self, id: integer): data.Task?
+    local task = self:get(id)
+    if task ~= nil then task.done = not task.done end
+    return task
+  end
+
+  --- Removes a task; whether there was one.
+  function remove(self, id: integer): boolean
+    for at, task in ipairs(self.tasks) do
+      if task.id == id then
+        table.remove(self.tasks, at)
+        return true
+      end
+    end
+    return false
+  end
+end
 
 --- A store with no tasks.
 function Store.new(): Store
-  return setmetatable({ tasks = {}, next_id = 1 }, store_mt)
-end
-
-function Store:add(title: string): data.Task
-  local task: data.Task = { id = self.next_id, title = title, done = false }
-  self.next_id = self.next_id + 1
-  self.tasks[#self.tasks + 1] = task
-  return task
-end
-
-function Store:get(id: integer): data.Task | nil
-  for _, task in ipairs(self.tasks) do
-    if task.id == id then return task end
-  end
-  return nil
-end
-
-function Store:toggle(id: integer): data.Task | nil
-  local task = self:get(id)
-  if task ~= nil then task.done = not task.done end
-  return task
-end
-
-function Store:remove(id: integer): boolean
-  for at, task in ipairs(self.tasks) do
-    if task.id == id then
-      table.remove(self.tasks, at)
-      return true
-    end
-  end
-  return false
+  return { tasks = {}, next_id = 1 }
 end
 
 return Store
@@ -308,7 +302,7 @@ function Site.routes(store: Store): {Web.Route}
     local read = Input.form(req)
     local invalid = read.invalid
     if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
-    local title = (Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$")
+    local title = assert((Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$"))
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
@@ -317,13 +311,13 @@ function Site.routes(store: Store): {Web.Route}
   end
 
   --- The task a request's `:id` names, or nil.
-  local function named(req: Web.Request): integer | nil
-    return math.tointeger(tonumber(req.params.id))
+  local function named(req: Web.Request): integer?
+    return math.tointeger(tonumber(req.params["id"]))
   end
 
   local function toggle(req: Web.Request): Web.Response
     local id = named(req)
-    local task = id ~= nil and store:toggle(id) or nil
+    local task = if id ~= nil then store:toggle(id) else nil end
     if task == nil then return Web.abort(404, "no such task") end
     return Web.html(row.render(task))
   end
@@ -367,7 +361,7 @@ do
         end
         local query = req:query()
         local loud = query ~= nil and #query.pairs > 0
-        return Web.text("hello " .. assert(req.params["name"]) .. (loud and "!" or ""))
+        return Web.text("hello " .. assert(req.params["name"]) .. (if loud then "!" else "" end))
       end, { name = "hello" }),
       Web.post("/jump", function(req: Web.Request): Web.Response
         return Web.redirect(Web.safe_next(req:header("referer"), "/"))
@@ -539,10 +533,13 @@ end
 
 --- The app. In development mode (`COSMIC_WEB_DEV=1`) it reloads pages.
 function Tasks.app(opts: Tasks.Options): Web.App
-  local csp = Csp.htmx_default()
-  csp.directives["script-src"] = { "'self'", "{nonce}" }
+  local directives: mut {string: {string}} = {}
+  for name, sources in pairs(Csp.htmx_default().directives) do directives[name] = sources end
+  directives["script-src"] = { "'self'", "{nonce}" }
+  local csp: Csp.Policy = { directives = directives }
 
-  local routes = Site.routes(Store.new())
+  local routes: mut {Web.Route} = {}
+  for _, route in ipairs(Site.routes(Store.new())) do routes[#routes + 1] = route end
   if opts.assets ~= nil then
     routes[#routes + 1] = StaticFiles.mount("/static", { source = opts.assets })
   else
@@ -602,7 +599,9 @@ end
 ```teal file=cmd/tasks/main.tl
 local app = require("app")
 
-return app
+return function(): integer
+  return app()
+end
 ```
 
 ## the development loop
@@ -688,7 +687,7 @@ end
 local function test_page_and_fragment()
   local client = Web.test_client(app())
   local page = client:get("/")
-  assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true))
+  assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
   assert(page.body:find("&#47;static&#47;app&#46;%x+&#46;css"), "and the stylesheet by its fingerprint")
   local fragment = client:get("/", { headers = { ["HX-Request"] = "true" } })
@@ -699,10 +698,10 @@ local function test_adding_a_task()
   local client = Web.test_client(app())
   local token = csrf_of(client)
   local added = client:post("/tasks", { form = { title = "write the guide" }, headers = htmx(token) })
-  assert(added.status == 201 and added.body:find("write the guide", 1, true))
+  assert(added.status == 201 and added.body:find("write the guide", 1, true) ~= nil)
   assert(client:get("/").body:find("write the guide", 1, true))
   local done = client:post("/tasks/1/toggle", { headers = htmx(token) })
-  assert(done.status == 200 and done.body:find('class="done"', 1, true))
+  assert(done.status == 200 and done.body:find('class="done"', 1, true) ~= nil)
   local gone = client:delete("/tasks/1", { headers = htmx(token) })
   assert(gone.status == 200 and gone.body == "")
   assert(client:delete("/tasks/1", { headers = htmx(token) }).status == 404)
@@ -711,7 +710,7 @@ end
 local function test_a_blank_title_is_refused_with_its_message()
   local client = Web.test_client(app())
   local refused = client:post("/tasks", { form = { title = "  " }, headers = htmx(csrf_of(client)) })
-  assert(refused.status == 422 and refused.body:find("give the task a name", 1, true))
+  assert(refused.status == 422 and refused.body:find("give the task a name", 1, true) ~= nil)
 end
 
 local function test_a_post_without_the_token_is_refused()

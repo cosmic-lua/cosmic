@@ -27,7 +27,7 @@ local function hello(_req: Web.Request): Web.Response
 end
 
 --- A middleware that notes when it is entered and left.
-local function tracing(trace: {string}, name: string): Web.Middleware
+local function tracing(trace: mut {string}, name: string): Web.Middleware
   return function(inner: Web.Handler): Web.Handler
     return function(req: Web.Request): Web.Response
       trace[#trace + 1] = name
@@ -56,7 +56,7 @@ local function test_middleware_nests_app_then_mount_then_route()
 end
 
 local function test_a_miss_passes_through_the_middleware_around_where_it_happened()
-  local trace: {string} = {}
+  local trace: mut {string} = {}
   local app = Web.app{
     routes = { Web.get("/top", hello), Web.mount("/api", { Web.get("/x", hello) },
       { middleware = { tracing(trace, "M") } }) },
@@ -196,7 +196,7 @@ end
 
 local function test_a_raise_is_a_500_that_tells_the_client_nothing()
   local sink, lines = recording()
-  local seen_status = { value = nil as integer | nil }
+  local seen_status = { value = nil as integer? }
   local app = Web.app{
     routes = { Web.get("/boom", function(_req: Web.Request): Web.Response
       error("secret detail <b>")
@@ -375,7 +375,7 @@ local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
   local custom = Web.app{
     routes = { Web.get("/items", hello) },
     middleware = { Web.access_log({ sink = formatted, format = function(req: Web.Request, res: Web.Response, ns: integer): string
-      return ("%s %d %s"):format(req.method, res.status, ns >= 0 and "timed" or "?")
+      return ("%s %d %s"):format(req.method, res.status, if ns >= 0 then "timed" else "?" end)
     end }) },
   }
   Web.test_client(custom):get("/items")
@@ -411,7 +411,7 @@ local function test_on_stop_takes_a_function_and_stopping_starts_false()
 end
 
 --- A middleware that aborts every request with 403 before its handler.
-local function aborting(trace: {string}): Web.Middleware
+local function aborting(trace: mut {string}): Web.Middleware
   return function(_inner: Web.Handler): Web.Handler
     return function(_req: Web.Request): Web.Response
       trace[#trace + 1] = "abort"

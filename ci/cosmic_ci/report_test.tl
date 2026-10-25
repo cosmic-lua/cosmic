@@ -97,7 +97,7 @@ end
 --- earlier run.
 local function test_a_run_qualifies_by_what_its_restored_cache_held()
   local function run(id: string, harness: string, held?: string): Report.Run
-    local suites: {State.SuiteRun} = {}
+    local suites: mut {State.SuiteRun} = {}
     for _, suite in ipairs({ "local", "checked" }) do
       suites[#suites + 1] = { worker = "linux-x86_64", run = id, attempt = "1",
         phase = suite, suite = suite, status = "pass", exit_code = 0,
@@ -140,11 +140,11 @@ end
 --- asked for, and logging each path in `calls`. An artifact's zip is
 --- served as GitHub does, a redirect to a link `fetch` writes from `zips`.
 local record Fake
-  answers: {string:string}
-  zips: {string:string}
-  calls: {string}
-  client: GithubApi.Client
-  env: {string:string}
+  answers: mut {string:string}
+  zips: mut {string:string}
+  calls: mut {string}
+  mut client: GithubApi.Client
+  mut env: {string:string}
   dir: string
 end
 
@@ -153,12 +153,12 @@ local api <const> = "https://api.test/"
 local function fake(tmp: string): Fake
   local f: Fake = { answers = {}, zips = {}, calls = {}, dir = tmp,
     env = Maps.without(Env.all(), { "GITHUB_REPOSITORY" }),
-    client = { base = "", send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
+    client = { base = "", send = function(_request: GithubApi.Request): GithubApi.Reply?, string
       return nil, "not yet"
     end, fetch = function(_url: string, _to: string): boolean, string return false, "not yet" end } }
   f.client = {
     base = "https://api.test",
-    send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+    send = function(request: GithubApi.Request): GithubApi.Reply?, string
       assert(request.method == "GET" and request.url:sub(1, #api) == api, request.url)
       local path = request.url:sub(#api + 1)
       f.calls[#f.calls + 1] = path
@@ -228,9 +228,9 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
   for _, suite in ipairs({ "local", "checked", "fixture runtime-regression" }) do
     local keyed = not suite:match("^fixture")
     State.suite(database, { worker = "linux-x86_64", run = run, attempt = "1",
-      phase = suite == "local" and "build" or "assemble", suite = suite, status = "pass",
+      phase = if suite == "local" then "build" else "assemble" end, suite = suite, status = "pass",
       exit_code = 0, tests = 100, ran = 100 - stood, stood = stood, elapsed_ms = 1000 * stood,
-      parts = keyed and { runtime = runtime, harness = harness } or {} })
+      parts = if keyed then { runtime = runtime, harness = harness } else {} end })
   end
   local path = f.dir .. "/zip-" .. id
   local stream = assert(Stream.create(path))
@@ -241,8 +241,8 @@ local function artifact_zip(f: Fake, id: string, run: string, runtime: string,
 end
 
 --- One artifact of a run's list, as JSON.
-local function artifact_json(name: string, id: integer, expired: boolean, created: string | nil): string
-  local made = created ~= nil and (',"created_at":' .. created) or ""
+local function artifact_json(name: string, id: integer, expired: boolean, created: string?): string
+  local made = if created ~= nil then (',"created_at":' .. created) else "" end
   return '{"name":' .. q(name) .. ',"id":' .. tostring(id) .. ',"expired":' .. tostring(expired) .. made .. "}"
 end
 
@@ -280,7 +280,7 @@ end
 --- `driver.tl report` with `args`, in `f`'s environment; an unreadable
 --- line answers 2, as the driver's dispatch does.
 local function report(f: Fake, args: {string}): Answer, string
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local got, why = Flags.parse(argv, 1, Report.spec())
   if got == nil then return { code = 2, ok = false, stdout = "" }, why end

@@ -24,13 +24,13 @@ end
 function ShapeKey.digest(text: string, name: string): string
   local lexed = Lexer.lex(text, name)
   local tokens = lexed.tokens
-  local parts: {string} = { "shape 1" }
+  local parts: mut {string} = { "shape 1" }
   -- The last line the previous token is on: a token on a later one begins a line.
   local ended = 0
   for i = 1, Lexer.count(tokens) do
     local y = Lexer.y(tokens, i)
     local bytes = Lexer.text(tokens, i)
-    parts[#parts + 1] = Lexer.kind(tokens, i) .. (y > ended and " n " or " s ") .. tostring(Lexer.x(tokens, i)) .. " " ..
+    parts[#parts + 1] = Lexer.kind(tokens, i) .. (if y > ended then " n " else " s " end) .. tostring(Lexer.x(tokens, i)) .. " " ..
       tostring(#bytes) .. ":" .. bytes
     ended = Lexer.yend(tokens, i)
   end

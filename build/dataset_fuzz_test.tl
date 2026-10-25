@@ -24,7 +24,7 @@ end
 --- add a pair to the row before it. Each is drawn with [`Fuzz.more`], so
 --- shrinking can cut any row or pair.
 local function gen_rows(src: Fuzz.Source): string
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   local rows = 0
   while Fuzz.more(src, rows, 4) do
     rows = rows + 1
@@ -44,7 +44,7 @@ end
 
 local function rows_from(input: string): {dataset.Row}
   local fields = Fuzz.unpack(input)
-  local rows: {dataset.Row} = {}
+  local rows: mut {dataset.Row} = {}
   for at = 1, #fields - 2, 3 do
     if fields[at] == "r" then
       rows[#rows + 1] = {}
@@ -86,12 +86,12 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if #rows == 0 then Fuzz.label("no rows") end
       if next(made.renamed) ~= nil then Fuzz.label("renamed") else Fuzz.label("plain") end
       if made.count ~= #rows then return false, "counted " .. made.count .. " of " .. #rows end
-      local seen: {string:boolean} = {}
+      local seen: mut {string:boolean} = {}
       for _, column in ipairs(made.columns) do
         if seen[column:lower()] then return false, column .. " is a column twice" end
         seen[column:lower()] = true
       end
-      local keys: {string:boolean} = {}
+      local keys: mut {string:boolean} = {}
       local distinct = 0
       for _, row in ipairs(rows) do
         for key in pairs(row) do
@@ -124,16 +124,16 @@ local SAMPLES <const> = {
 local TOKENS <const> = { "[", "]", "{", "}", ":", ",", '"', "a", "1", "null", "true", "\n", " ", "\0", "\xff" }
 
 local function gen_text(src: Fuzz.Source): string
-  local format = src:int(0, 1) == 0 and "json" or "ndjson"
+  local format = if src:int(0, 1) == 0 then "json" else "ndjson" end
   local text: string
   if src:int(0, 3) == 0 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
       parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
     text = table.concat(parts)
   else
-    text = Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), src:int(0, 1) == 0 and 0 or 4)
+    text = Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), if src:int(0, 1) == 0 then 0 else 4 end)
   end
   return Fuzz.pack({ format, text })
 end
@@ -176,7 +176,7 @@ end
 --- What [`dataset.load`] stores for `value`, as the cell a query reads.
 local function expected_cell(value: any): Expected
   if value == nil or value == Json.null then return { kind = "null" } end
-  if value is boolean then return { kind = "integer", integer = value and 1 or 0 } end
+  if value is boolean then return { kind = "integer", integer = if value then 1 else 0 end } end
   if value is integer then return { kind = "integer", integer = value } end
   if value is number then return { kind = "number", number = value } end
   if value is string then return { kind = "text", text = value } end
@@ -197,7 +197,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
       local db = assert(Sqlite.memory())
       local made = dataset.load(db, "t", rows)
       if made == nil then return true, "" end
-      local column_of: {string:string} = {}
+      local column_of: mut {string:string} = {}
       -- The last column is the row's own `_json`, no key's.
       for index = 1, #made.columns - 1 do
         local column = made.columns[index]
@@ -244,31 +244,31 @@ end
 --- A csv or tsv of a few rows of those cells, its header among them too;
 --- now and then mutated, so a fault is read as well as a table.
 local function gen_delimited(src: Fuzz.Source): string
-  local format = src:int(0, 1) == 0 and "csv" or "tsv"
-  local delimiter = format == "csv" and "," or "\t"
+  local format = if src:int(0, 1) == 0 then "csv" else "tsv" end
+  local delimiter = if format == "csv" then "," else "\t" end
   local width = src:int(1, 4)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local rows = src:int(0, 4)
   for row = 0, rows do
-    local fields: {string} = {}
+    local fields: mut {string} = {}
     for column = 1, width do
-      local cell = row == 0 and src:int(0, 2) == 0 and "h" .. column or Fuzz.pick(src, CELLS)
+      local cell = if row == 0 and src:int(0, 2) == 0 then "h" .. column else Fuzz.pick(src, CELLS) end
       fields[column] = written(cell, delimiter)
     end
     lines[#lines + 1] = table.concat(fields, delimiter)
   end
-  local text = table.concat(lines, "\n") .. (src:int(0, 1) == 0 and "\n" or "")
+  local text = table.concat(lines, "\n") .. (if src:int(0, 1) == 0 then "\n" else "" end)
   if src:int(0, 3) == 0 then
     text = Fuzz.mutate(src, text, 3)
   end
-  return Fuzz.pack({ format, text, src:int(0, 1) == 0 and "path" or "text", src:int(0, 1) == 0 and "raw" or "" })
+  return Fuzz.pack({ format, text, if src:int(0, 1) == 0 then "path" else "text" end, if src:int(0, 1) == 0 then "raw" else "" end })
 end
 
 --- Each row of `t` on `db`: its cells as `quote` writes them, then its
 --- `_json` object's members, each key, JSON type and value, and what a
 --- JSON function takes `_json` for: text, not an object.
 local function cells_of(db: Sqlite.Handle, columns: {string}): string
-  local quoted: {string} = {}
+  local quoted: mut {string} = {}
   for index, column in ipairs(columns) do
     quoted[index] = 'quote("' .. column:gsub('"', '""') .. '")'
   end
@@ -279,7 +279,7 @@ local function cells_of(db: Sqlite.Handle, columns: {string}): string
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(quoted, " || '|' || ") ..
       ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json))" ..
       ", json_type(json_object('row', t._json), '$.row') FROM t ORDER BY rowid"))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, row in ipairs(rows) do
     out[index] = table.concat(row:texts(), " ; ")
   end
@@ -302,13 +302,13 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
       local format, text, how, raw = fields[1], fields[2], fields[3], fields[4] == "raw"
       local fast_db = assert(Sqlite.memory())
       local slow_db = assert(Sqlite.memory())
-      local file: string | nil = nil
+      local file: string? = nil
       if how == "path" then
         assert(Fs.write(path, text))
         file = path
       end
       local fast, fast_why = dataset.load_text(fast_db, "t", format, text, { raw = raw }, file)
-      local slow: dataset.Table | nil
+      local slow: dataset.Table?
       local slow_why: string
       local rows, read_why = dataset.read(format, text, { raw = raw })
       if rows == nil then
@@ -325,7 +325,7 @@ local function test_load_text_makes_the_table_read_and_load_make(tmp: string)
         Fuzz.label("refused")
         if (fast == nil) ~= (slow == nil) or fast_why ~= slow_why then
           return closed(false, string.format("%q: load_text answered %s, read and load %s", text,
-            fast and "a table" or fast_why, slow and "a table" or slow_why))
+            if fast then "a table" else fast_why end, if slow then "a table" else slow_why end))
         end
         return closed(true, "")
       end

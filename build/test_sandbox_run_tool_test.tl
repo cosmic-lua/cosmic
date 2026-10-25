@@ -102,7 +102,7 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   assert(text:find("; sandboxed", 1, true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == "/tree" and fields[2] == test_sandbox.scratch .. "/tmp" and fields[3] == "declared" and
       fields[4] == "nil" and fields[5] == "false" and fields[6] == "d" and fields[7] == "nil" and
@@ -189,7 +189,7 @@ end
 --- `wanted` and passes unless `passes` is false. Where the first run was not
 --- sandboxed the running test is skipped. Each test makes its own, since a
 --- run takes a second and a half and a test is held to its timeout.
-local function keyed_suite(tmp: string): string, (function(string, ?boolean): string)
+local function keyed_suite(tmp: string): string, (function(string, arg2?: boolean): string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
   assert(Fs.write(root .. "/suite/data.txt", "one"))
@@ -212,7 +212,7 @@ local function test_child_reads()
     "cat suite/data.txt; cat suite/later.txt || print |absent" },
     { stdout = "capture" }))
   local out = r.stdout or ""
-  assert(r.ok and out:find("|absent", 1, true), out)
+  assert(r.ok and out:find("|absent", 1, true) ~= nil, out)
 end
 ]]))
   assert(Fs.write(root .. "/suite/unstored_test.tl", [[
@@ -345,7 +345,7 @@ local function test_second(tmp: string) hold(tmp) end
   text = assert(Fs.read(output))
   assert(not result.timed_out and result.signal == sys.SIGINT, text)
   assert(text:find("test: cancelled; every running test was ended", 1, true), text)
-  local left: {string} = {}
+  local left: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" then left[#left + 1] = name end
   end

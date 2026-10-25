@@ -52,7 +52,7 @@ local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/so
 
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none: the one [`Proc.relaunch`] hands a child as its own.
-local function artifact_fd(): integer | nil
+local function artifact_fd(): integer?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD))
@@ -68,7 +68,7 @@ end
 --- Asserts calling `fn` with `...` raises, naming the artifact's
 --- descriptor.
 local function refused(what: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(any...): (any...), ...)
+  local ok, why = pcall(fn as function(...: any): (any...), ...)
   assert(not ok, what .. " took the artifact's retained descriptor")
   assert(tostring(why):find("retained artifact descriptor", 1, true) ~= nil,
     what .. " raised for another reason: " .. tostring(why))
@@ -137,7 +137,7 @@ local cases: {string: function(at: integer, fd: integer): {any}} = {
     return { { grants = {}, promises = {}, rlimits = {} }, { fd } }
   end,
   spawn = function(at: integer, fd: integer): {any}
-    local args: {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
+    local args: mut {any} = { "/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false,
       nil, nil }
     if at == 9 then args[9] = { [3] = fd } else args[at] = fd end
     return args
@@ -161,7 +161,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
     ["cosmic.internal.process"] = process as {string: any}, -- cast: core/process.h's
     ["cosmic.internal.socket"] = socket as {string: any}, -- cast: core/socket.h's
   }
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   local tried = 0
   for _, derivation in ipairs(gen_syscalls.targets) do
     local header = assert(Fs.read(derivation.target.header))
@@ -235,7 +235,7 @@ local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
   if fd == nil then return end
   local relaunch = assert(Proc.relaunch())
   local core = relaunch.argv[1]
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   refused("a map to another slot", process.spawn, core, { core }, env, nil, nil, nil, nil,

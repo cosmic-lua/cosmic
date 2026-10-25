@@ -31,14 +31,14 @@ local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/so
 local FLIGHT <const> = socket.CONNECTOR_FLIGHT
 
 --- Connects `connector` to the tcp address `host`:`port`, waiting `wait`.
-local function dial(connector: Net.Connector, host: string, port: integer, wait?: integer): Net.Conn | nil, string
+local function dial(connector: Net.Connector, host: string, port: integer, wait?: integer): Net.Conn?, string
   return connector:connect(Net.tcp(host, port), { timeout_ns = wait })
 end
 
 --- The descriptors this worker holds, the one listing them included in
 --- every sample: compare counts, never a host-wide baseline.
 local function descriptor_count(): integer
-  local path = assert(sys.uname()).sysname == "Darwin" and "/dev/fd" or "/proc/self/fd"
+  local path = if assert(sys.uname()).sysname == "Darwin" then "/dev/fd" else "/proc/self/fd" end
   local count = 0
   for name in pairs((assert(sys.readdir(path)))) do
     if name:match("^%d+$") ~= nil then count = count + 1 end
@@ -87,7 +87,7 @@ end
 local function hung_port(): integer, {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
   local port = assert(socket.bound(listener:fd())).port
-  local held: {raw_socket.Socket} = { listener }
+  local held: mut {raw_socket.Socket} = { listener }
   for n = 1, 6 do
     held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
     assert(n > 0)
@@ -206,7 +206,7 @@ local function test_a_table_connector_matches_an_address_however_it_is_spelled()
   require_native_connector()
   local function matched(table_host: string, asked: string, port: integer, public: boolean): boolean, string
     local connector = assert(Net.connector({ { host = table_host, port = 54321 } },
-      { public = public and { deny = { "::/0" } } or nil }))
+      { public = if public then { deny = { "::/0" } } else nil end }))
     local conn, why = dial(connector, asked, port, Clock.seconds(5))
     assert(connector:close())
     assert(conn == nil)
@@ -254,7 +254,7 @@ local function test_a_table_connector_connects_to_its_endpoints_and_refuses_the_
       local conn, why = dial(connector, host, at, Clock.seconds(5))
       assert(conn == nil and why:find(fragment, 1, true) ~= nil, host .. ":" .. at .. " " .. tostring(why))
     end
-    refused("127.0.0.1", port == 65535 and 1 or port + 1, "is not in the connector's table")
+    refused("127.0.0.1", if port == 65535 then 1 else port + 1 end, "is not in the connector's table")
     refused("127.0.0.3", port, "is not in the connector's table")
     refused("localhost", port, "is not in the connector's table")
     -- A wildcard port at its own address is allowed, and the port nothing listens at is refused by the kernel.
@@ -287,7 +287,7 @@ local function test_a_table_connector_serves_tasks_at_once()
     local port = assert(listener.address.port)
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
     local done = { value = 0 }
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     for n = 1, 4 do
       tasks[n] = Poll.spawn(function()
         local conn = assert(dial(connector, "127.0.0.1", port, Clock.seconds(5)))
@@ -309,7 +309,7 @@ end
 --- Authority is explicit: a connector made with neither endpoints nor a
 --- public list is refused, and an empty table is public-only.
 local function test_a_connector_without_authority_is_refused()
-  local make = Net.connector as function(any...): (any...) -- cast: arguments the signature refuses
+  local make = Net.connector as function(...: any): (any...) -- cast: arguments the signature refuses
   local function refused(...: any)
     local ok, why = pcall(make, ...)
     assert(not ok and tostring(why):find("needs endpoints, opts.public, or both", 1, true) ~= nil, tostring(why))
@@ -412,7 +412,7 @@ end
 local function test_connect_refuses_what_is_no_tcp_address_or_timeout()
   require_native_connector()
   local connector = assert(Net.connector({ { host = "127.0.0.1", port = 9 } }))
-  local connect = connector.connect as function(any...): (any...) -- cast: arguments the signature refuses
+  local connect = connector.connect as function(...: any): (any...) -- cast: arguments the signature refuses
   local ok, why = pcall(connect, connector, "127.0.0.1")
   assert(not ok and tostring(why):find("address must be", 1, true) ~= nil, tostring(why))
   ok, why = pcall(connect, connector, Net.unix("/tmp/x"))
@@ -453,14 +453,14 @@ local function test_a_hung_connect_holds_up_no_other()
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hung = { value = nil as string | nil }
+    local hung = { value = nil as string? }
     local started = Clock.monotonic_ns()
     local hanging = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.ms(800))
       hung.value = why
     end)
     assert(Poll.delay(Clock.ms(50)))
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     local done: {integer} = {}
     for n = 1, 8 do
       tasks[n] = Poll.spawn(function()
@@ -505,7 +505,7 @@ local function test_requests_past_the_flight_wait_for_room()
     local connector = assert(Net.connector({
       { host = "127.0.0.1", port = port }, { host = "127.0.0.1", port = echo },
     }, { timeout_ns = Clock.seconds(30) }))
-    local hanging: {Poll.Task} = {}
+    local hanging: mut {Poll.Task} = {}
     for n = 1, FLIGHT do
       hanging[n] = Poll.spawn(function()
         local _, _ = dial(connector, "127.0.0.1", port, Clock.seconds(2))
@@ -532,9 +532,9 @@ end
 
 --- Makes `count` connections at once with `connect`, each within 500 ms:
 --- how many were made, closed again.
-local function made_at_once(count: integer, connect: function(): Net.Conn | nil, string): integer
+local function made_at_once(count: integer, connect: function(): Net.Conn?, string): integer
   local made = { value = 0 }
-  local tasks: {Poll.Task} = {}
+  local tasks: mut {Poll.Task} = {}
   for i = 1, count do
     tasks[i] = Poll.spawn(function()
       local conn = connect()
@@ -567,17 +567,17 @@ local function keeps_flights_against(flooded: string)
     -- The stalled connects end at the process after STALL, a flood request
     -- as soon as its own wait does.
     local STALL <const> = Clock.ms(600)
-    local function hangs(wait: integer): Net.Conn | nil, string
+    local function hangs(wait: integer): Net.Conn?, string
       if flooded == "table" then return dial(connector, "127.0.0.1", table_hung, wait) end
       return dial(connector, "127.0.0.1", public_hung, wait)
     end
-    local function other(): Net.Conn | nil, string
+    local function other(): Net.Conn?, string
       if flooded == "table" then
         return dial(connector, "127.0.0.1", assert(public_echo.address.port), Clock.ms(500))
       end
       return dial(connector, "127.0.0.1", assert(table_echo.address.port), Clock.ms(500))
     end
-    local hanging: {Poll.Task} = {}
+    local hanging: mut {Poll.Task} = {}
     for n = 1, FLIGHT do
       hanging[n] = Poll.spawn(function()
         local _, _ = hangs(STALL)
@@ -592,11 +592,11 @@ local function keeps_flights_against(flooded: string)
     assert(none == nil and why == Poll.TIMEOUT, flooded .. ": " .. tostring(why))
     -- Once the stalled connects end at the process, the kind is served again.
     assert(Poll.delay(STALL + Clock.ms(500)))
-    assert(made_at_once(1, flooded == "table" and function(): Net.Conn | nil, string
+    assert(made_at_once(1, if flooded == "table" then function(): Net.Conn?, string
       return dial(connector, "127.0.0.1", assert(table_echo.address.port), Clock.ms(500))
-    end or function(): Net.Conn | nil, string
+    end else function(): Net.Conn?, string
       return dial(connector, "127.0.0.1", assert(public_echo.address.port), Clock.ms(500))
-    end) == 1)
+    end end) == 1)
     assert(connector:close())
     table_task:cancel()
     public_task:cancel()
@@ -620,7 +620,7 @@ local function test_closing_a_connector_wakes_a_request_in_flight()
     local port, held = hung_port()
     local connector = assert(Net.connector({ { host = "127.0.0.1", port = port } },
       { timeout_ns = Clock.seconds(30) }))
-    local answer = { value = nil as string | nil }
+    local answer = { value = nil as string? }
     local started = Clock.monotonic_ns()
     local waiting = Poll.spawn(function()
       local _, why = dial(connector, "127.0.0.1", port, Clock.seconds(20))
@@ -678,7 +678,7 @@ local function test_a_connectors_table_is_a_copy()
 end
 
 local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_that_is_no_table()
-  local make = Net.connector as function(any...): (any...) -- cast: tables that are no tables of endpoints
+  local make = Net.connector as function(...: any): (any...) -- cast: tables that are no tables of endpoints
   local ok, why = pcall(make, {})
   assert(not ok and tostring(why):find("needs endpoints, opts.public, or both", 1, true) ~= nil, tostring(why))
   -- An empty table is public-only; it needs a host that confines the process.
@@ -690,7 +690,7 @@ local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_th
       assert(trouble:find("child: ", 1, true) == 1, trouble)
     end
   end
-  local many: {Net.Endpoint} = {}
+  local many: mut {Net.Endpoint} = {}
   for port = 1, 129 do many[port] = { host = "127.0.0.1", port = port } end
   ok, why = pcall(make, many)
   assert(not ok and tostring(why):find("endpoints must be from 1 to 128", 1, true) ~= nil, tostring(why))
@@ -753,7 +753,7 @@ local function test_a_full_table_and_the_public_lists_share_one_process()
   Poll.run(function()
     local listener, task = echo_server()
     local other, other_task = echo_server()
-    local rows: {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
+    local rows: mut {Net.Endpoint} = { { host = "127.0.0.1", port = listener.address.port } }
     for i = 2, 128 do rows[i] = { host = "10.0.0." .. i, port = 80 } end
     local connector = assert(Net.connector(rows, { public = { deny = {} } }))
     echo_through(assert(dial(connector, "127.0.0.1", assert(listener.address.port), Clock.seconds(5))), "table")

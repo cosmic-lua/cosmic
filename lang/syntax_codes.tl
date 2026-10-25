@@ -30,7 +30,7 @@ local record SyntaxCodes
   catalog: {Row}
 
   --- The row of `code`, or nil.
-  row: function(code: string): Row | nil
+  row: function(code: string): Row?
 end
 
 local GRAMMAR <const> = "the syntactic grammar"
@@ -61,11 +61,6 @@ SyntaxCodes.catalog = {
     code = "unterminated_long_comment", stage = "lexer", rule = LEXICAL,
     why = "a long comment without its closing bracket runs to the end of the file and hides every statement after it",
     fix = "close the comment with the bracket that opened it, or write it as line comments",
-  },
-  {
-    code = "hashbang", stage = "lexer", rule = LEFT_OUT,
-    why = "a `#!` first line is the shell's and not the language's: a file is run by naming it",
-    fix = "delete the line; run the file with `cosmic <file>`",
   },
   {
     code = "digit_separator", stage = "lexer", rule = LEFT_OUT,
@@ -439,7 +434,7 @@ SyntaxCodes.catalog = {
   },
 }
 
-function SyntaxCodes.row(code: string): SyntaxCodes.Row | nil
+function SyntaxCodes.row(code: string): SyntaxCodes.Row?
   for _, r in ipairs(SyntaxCodes.catalog) do
     if r.code == code then
       return r

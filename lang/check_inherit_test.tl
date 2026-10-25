@@ -35,7 +35,7 @@ local function declared_wrong(source: string, codes: string, msg: string): Decla
   local r = Programs.run(source)
   local got = ""
   for _, e in ipairs(r.lowered.errors) do
-    got = got .. (got == "" and "" or " ") .. e.code
+    got = got .. (if got == "" then "" else " " end) .. e.code
   end
   assert(got == codes, got .. " in\n" .. source)
   local first = assert(r.lowered.errors[1])

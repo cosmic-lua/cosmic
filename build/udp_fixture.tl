@@ -29,7 +29,7 @@ local record udp_fixture
     socket: raw_socket.Socket
     fd: integer
     open: boolean
-    metamethod __close: function(Bound)
+    __close: function(Bound)
   end
 end
 
@@ -46,7 +46,7 @@ local bound_mt: metatable<udp_fixture.Bound> = { __close = udp_fixture.close }
 --- Binds a UDP socket at `host` and `port` (0 for one the kernel chooses),
 --- or answers nil and why not: a name is never looked up, which the
 --- reason says ("not a numeric"), and a port in use is refused.
-function udp_fixture.bind(host: string, port: integer): udp_fixture.Bound | nil, string
+function udp_fixture.bind(host: string, port: integer): udp_fixture.Bound?, string
   local socket, why, errno = raw.datagram({ kind = "udp", host = host, port = port })
   if socket == nil then
     if errno == raw.EINVAL then why = why .. " (not a numeric IPv4 or IPv6 address)" end
@@ -78,7 +78,7 @@ end
 --- Takes one datagram, waiting at most `timeout_ns` (no limit when nil):
 --- the packet, or nil and why -- [`Poll.TIMEOUT`] when none came, and
 --- a word of its own once `bound` is closed.
-function udp_fixture.receive(bound: udp_fixture.Bound, timeout_ns?: integer): raw_socket.Packet | nil, string
+function udp_fixture.receive(bound: udp_fixture.Bound, timeout_ns?: integer): raw_socket.Packet?, string
   while true do
     if not bound.open then return nil, "closed" end
     local packet, why, errno = raw.recvfrom(bound.fd, 65535)

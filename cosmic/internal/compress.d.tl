@@ -11,13 +11,14 @@ local record compress
   -- the contract.
   interface Transform
     -- Feeds a chunk; the output that is ready, possibly "".
-    update: function(Transform, chunk: string): string | nil, string
+    update: function(Transform, chunk: string): string?, string
     -- Ends the input; what is left, or nil and why.
-    finish: function(Transform): string | nil, string
+    finish: function(Transform): string?, string
     -- Present only on a Transform that can hold output back: whether
     -- `update("")` has more to give.
-    -- TODO: declare it `pending?` once the fork is gone (doc/plans/strict-teal.md, "the switch"): the fork refuses a record that
-    -- lists this interface and repeats an omittable field, so a record that lists it declares `pending` and answers false.
+    -- TODO: declare it `pending?` once the Readers' and Transform's declarations change together (the TODO in
+    -- cosmic/stream.tl): a record that lists this interface repeats an omittable field exactly, so a record that lists it
+    -- declares `pending` and answers false.
     pending: function(Transform): boolean
   end
 
@@ -29,12 +30,12 @@ local record compress
     -- error on corrupt data; the stream is finished after an error, and
     -- after a raise inside the call (out of memory). Raises when
     -- `max_bytes` is not positive, and on a finished stream.
-    update: function(Stream, chunk: string, max_bytes?: integer): string | nil, string
+    update: function(Stream, chunk: string, max_bytes?: integer): string?, string
     -- No more input: returns the remaining output, which for a decoder
     -- is only what follows its drained output (in practice ""). Raises
     -- while [`pending()`] is true, and on a finished stream. For a
     -- decoder, nil, error if the compressed stream ended early.
-    finish: function(Stream): string | nil, string
+    finish: function(Stream): string?, string
     -- Decoder only: whether the end of the compressed data was seen.
     done: function(Stream): boolean
     -- Decoder only: whether the last call stopped at its output limit,
@@ -45,16 +46,16 @@ local record compress
     rest: function(Stream): string
     -- `local s <close> = ...`: the stream is finished and its codec
     -- freed; [`rest()`] still answers.
-    metamethod __close: function(Stream, any)
+    __close: function(Stream, any)
   end
 
   -- Both raise on a format other than "raw", "zlib" or "gzip"; the
   -- deflater also on a level outside 0 to 10.
-  inflater: function(format: string): Stream | nil, string
-  deflater: function(format: string, level?: integer): Stream | nil, string
+  inflater: function(format: string): Stream?, string
+  deflater: function(format: string, level?: integer): Stream?, string
   -- Raises when `max_memory` is not positive.
-  xz_decoder: function(max_memory?: integer): Stream | nil, string
-  bz2_decoder: function(): Stream | nil, string
+  xz_decoder: function(max_memory?: integer): Stream?, string
+  bz2_decoder: function(): Stream?, string
   -- The running CRC-32 (IEEE) of `data`; pass the previous value as `crc`
   -- to continue it. Raises when `crc` is outside 0 to 0xffffffff.
   crc32: function(data: string, crc?: integer): integer

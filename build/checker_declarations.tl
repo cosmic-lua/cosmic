@@ -32,13 +32,13 @@ local record CheckerDeclarations
 
   --- The texts the tree at `root` holds, for a tool being written from it: the files themselves, held to the hashes the
   --- working database `db` staged them with, so that a file edited during the build is no part of the tool. nil and "" where
-  --- the database stages neither file (a project's tree, whose `checker/` is its own); nil and why where it stages them and
+  --- the database stages neither file (a project's tree, which has no checker of its own); nil and why where it stages them and
   --- they are not what it staged.
-  staged: function(db: Sqlite.Handle, root: string): Texts | nil, string
+  staged: function(db: Sqlite.Handle, root: string): Texts?, string
 
   --- The texts the running tool carries, nil and why where it carries none (a tool older than this, or a worker's store of
   --- the modules a test reads).
-  carried: function(): Texts | nil, string
+  carried: function(): Texts?, string
 end
 
 local PRELUDE <const> = "lang/prelude.d.tl"
@@ -52,18 +52,16 @@ function CheckerDeclarations.stdlib_file(): string
   return STDLIB
 end
 
--- TODO: name the rows `lang.prelude` and `lang.stdlib` for the files they come from, once the switch deletes `checker/`:
--- ci/cosmic_ci/orchestration.tl reads them by the names they have.
 function CheckerDeclarations.prelude_module(): string
-  return "checker.prelude"
+  return "lang.prelude"
 end
 
 function CheckerDeclarations.stdlib_module(): string
-  return "checker.stdlib"
+  return "lang.stdlib"
 end
 
 --- The text of `file` below `root`, held to `hash`.
-local function read_as(root: string, file: string, hash: string): string | nil, string
+local function read_as(root: string, file: string, hash: string): string?, string
   local text, why = Fs.read(root .. "/" .. file)
   if text == nil then
     return nil, why
@@ -74,7 +72,7 @@ local function read_as(root: string, file: string, hash: string): string | nil, 
   return text, ""
 end
 
-function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDeclarations.Texts | nil, string
+function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDeclarations.Texts?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT path, sha256 FROM tool WHERE path IN (?1, ?2) ORDER BY path",
     { { text = PRELUDE }, { text = STDLIB } })
   if rows == nil then
@@ -83,8 +81,8 @@ function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDec
   if #rows == 0 then
     return nil, ""
   end
-  local prelude_hash: string | nil = nil
-  local stdlib_hash: string | nil = nil
+  local prelude_hash: string? = nil
+  local stdlib_hash: string? = nil
   for _, row in ipairs(rows) do
     if row:text(1) == PRELUDE then
       prelude_hash = row:text(2)
@@ -109,7 +107,7 @@ function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDec
   return { prelude = prelude, stdlib = stdlib }, ""
 end
 
-function CheckerDeclarations.carried(): CheckerDeclarations.Texts | nil, string
+function CheckerDeclarations.carried(): CheckerDeclarations.Texts?, string
   local prelude, prelude_why = Store.source(CheckerDeclarations.prelude_module())
   if prelude == nil then
     return nil, CheckerDeclarations.prelude_module() .. ": " .. prelude_why

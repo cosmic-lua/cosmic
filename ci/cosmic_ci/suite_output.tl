@@ -29,28 +29,28 @@ local record SuiteOutput
 
   record Figures
     --- "pass" or "fail", from the summary line; nil without one.
-    verdict?: string
-    tests?: integer
-    modules?: integer
-    ran?: integer
-    stood?: integer
-    every?: integer
-    shared?: integer
-    failed?: integer
-    errors?: integer
-    elapsed_ms?: integer
+    mut verdict?: string
+    mut tests?: integer
+    mut modules?: integer
+    mut ran?: integer
+    mut stood?: integer
+    mut every?: integer
+    mut shared?: integer
+    mut failed?: integer
+    mut errors?: integer
+    mut elapsed_ms?: integer
     --- What the summary line says after its time: "sandboxed", or why not.
-    sandbox?: string
+    mut sandbox?: string
     --- How many tests a bailing run (`cosmic test --bail`) started none
     --- of after its first failure; nil where the line says none.
-    not_run?: integer
+    mut not_run?: integer
     --- Each key part by the name the line gives it ("host features",
     --- "runtime", ...), its digest's prefix as said ("" for none).
-    parts?: {string:string}
+    mut parts?: {string:string}
     --- What the verdict cache held when the run began: its census
     --- line's list as said ("" for "no rows"), which `held` reads;
     --- nil where the run said none.
-    held?: string
+    mut held?: string
   end
   --- A suite's figures and how it ended ([`SuiteOutput.status`]).
   record Read
@@ -65,14 +65,14 @@ local record SuiteOutput
   end
 end
 
-local function number(text: string | nil): integer | nil
+local function number(text: string?): integer?
   if text == nil then return nil end
   return math.tointeger(tonumber(text))
 end
 
 --- The parts of a "name digest, name digest, ..." list.
 local function parts_of(list: string): {string:string}
-  local parts: {string:string} = {}
+  local parts: mut {string:string} = {}
   for item in (list .. ", "):gmatch("(.-), ") do
     local name, value = item:match("^(.-) (%S*)$")
     if name ~= nil and name ~= "" and value ~= nil then parts[name] = value end
@@ -112,7 +112,7 @@ end
 --- The sets of key parts a census line's list ([`Figures.held`]) names,
 --- as said, the most rows first; none for "" (a cache with no rows).
 function SuiteOutput.held(list: string): {SuiteOutput.Held}
-  local out: {SuiteOutput.Held} = {}
+  local out: mut {SuiteOutput.Held} = {}
   for group in (list .. "; "):gmatch("(.-); ") do
     local rows, named = group:match("^(%d+) rows? under (.*)$")
     local count = number(rows)
@@ -149,7 +149,7 @@ function SuiteOutput.parse(text: string): SuiteOutput.Figures
     elseif listed then
       figures.parts = parts_of(listed)
     elseif census then
-      figures.held = census == "no rows" and "" or census
+      figures.held = if census == "no rows" then "" else census end
     end
   end
   return figures
@@ -211,18 +211,18 @@ local shown_parts: {Shown} = { { heading = "Runtime", part = "runtime" },
 --- `rows` as the step summary's markdown table of suites: one line each,
 --- its counts, its stood share and its key parts.
 function SuiteOutput.markdown(rows: {State.SuiteRun}): string
-  local headings: {string} = { "Worker", "Phase", "Suite", "Status", "Exit", "Tests",
+  local headings: mut {string} = { "Worker", "Phase", "Suite", "Status", "Exit", "Tests",
     "Ran", "Stood", "Stood %", "Shared", "ms" }
-  local align: {string} = { "---", "---", "---", "---", "---:", "---:", "---:",
+  local align: mut {string} = { "---", "---", "---", "---", "---:", "---:", "---:",
     "---:", "---:", "---:", "---:" }
   for _, part in ipairs(shown_parts) do
     headings[#headings + 1] = part.heading
     align[#align + 1] = "---"
   end
-  local lines: {string} = { "| " .. table.concat(headings, " | ") .. " |\n",
+  local lines: mut {string} = { "| " .. table.concat(headings, " | ") .. " |\n",
     "|" .. table.concat(align, "|") .. "|\n" }
   for _, row in ipairs(rows) do
-    local cells: {string} = { cell(row.worker), cell(row.phase), cell(row.suite),
+    local cells: mut {string} = { cell(row.worker), cell(row.phase), cell(row.suite),
       cell(row.status), cell(row.exit_code), cell(row.tests), cell(row.ran),
       cell(row.stood), SuiteOutput.stood_percent(row), cell(row.shared),
       cell(row.elapsed_ms) }
@@ -244,7 +244,7 @@ end
 --- `test: SKIP  <module> <test>: <reason>` lines), with how many gave it,
 --- the most first, ties by reason.
 function SuiteOutput.skips(text: string): {SuiteOutput.Skip}
-  local counts: {string:integer} = {}
+  local counts: mut {string:integer} = {}
   for raw in text:gmatch("[^\n]+") do
     local line = raw:gsub("\r$", "")
     local reason = line:match("^test: SKIP  %S+ %S+: (.*)$")
@@ -253,7 +253,7 @@ function SuiteOutput.skips(text: string): {SuiteOutput.Skip}
       counts[key] = (counts[key] or 0) + 1
     end
   end
-  local out: {SuiteOutput.Skip} = {}
+  local out: mut {SuiteOutput.Skip} = {}
   for reason, count in pairs(counts) do out[#out + 1] = { reason = reason, count = count } end
   table.sort(out, function(a: SuiteOutput.Skip, b: SuiteOutput.Skip): boolean
     if a.count ~= b.count then return a.count > b.count end
@@ -271,7 +271,7 @@ function SuiteOutput.skip_report(name: string, text: string): string
   if #reasons == 0 then return "" end
   local total = 0
   for _, row in ipairs(reasons) do total = total + row.count end
-  local lines: {string} = { "### Skipped tests: " .. name .. " (" .. tostring(total) .. ")\n\n",
+  local lines: mut {string} = { "### Skipped tests: " .. name .. " (" .. tostring(total) .. ")\n\n",
     "| tests | reason |\n| ---: | --- |\n" }
   for _, row in ipairs(reasons) do
     local escaped = (row.reason:gsub("[|`*<>]", "\\%0"))

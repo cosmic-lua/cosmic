@@ -72,7 +72,7 @@ local QUEUE <const> = "gh-readonly-queue/main/"
 --- A whole number `env` names, `default` where it names none (a variable
 --- set to nothing is none, as the shell's `${NAME:-default}` has it), and
 --- nil and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer | nil): integer | nil, string
+local function whole(env: {string:string}, name: string, default: integer?): integer?, string
   local text = env[name]
   if text == nil or text == "" then return default, "" end
   local value = math.tointeger(tonumber(text))
@@ -89,12 +89,12 @@ local record Settings
   wait: integer
 end
 
-local function settings(env: {string:string}, who: string): Settings | nil, string
+local function settings(env: {string:string}, who: string): Settings?, string
   local repository = env["REPOSITORY"]
   if repository == nil or repository == "" then return nil, who .. ": no REPOSITORY" end
   local call, why = whole(env, "CALL_SECONDS", 15)
   if call == nil then return nil, who .. ": " .. why end
-  local wait: integer | nil
+  local wait: integer?
   wait, why = whole(env, "WAIT_SECONDS", 20)
   if wait == nil then return nil, who .. ": " .. why end
   return { repository = repository, call = call, wait = wait }, ""
@@ -117,6 +117,11 @@ local record Run
   event: string
 end
 
+-- TODO: go back to [`Shape.record_of`] for the records below, once ci/cosmic-driver.pin names a release whose
+-- Shape.record_of reads optional fields: the pinned release's reads `f?: any` as a required field (it does not know that `any`
+-- holds nil), and a payload without one is refused. Each is spelled out with [`Shape.record`] and [`Shape.optional`] until then,
+-- the call [`Shape.record_of`] would be given.
+
 --- One run of the API's listing, each field as `jq -r` would print it.
 local record RunRow
   id?: any
@@ -130,13 +135,18 @@ end
 local record RunsPage
   workflow_runs: {RunRow}
 end
-local RUNS_PAGE <const> = Shape.record_of("RunsPage")
+local RUNS_PAGE <const> = Shape.record_of("RunsPage", Shape.record({
+  ["workflow_runs"] = Shape.list(Shape.record({
+    ["conclusion"] = Shape.optional(Shape.any), ["event"] = Shape.optional(Shape.any),
+    ["head_branch"] = Shape.optional(Shape.any), ["head_sha"] = Shape.optional(Shape.any),
+    ["html_url"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any),
+    ["status"] = Shape.optional(Shape.any) })) }), function(): RunsPage error("witness") end)
 
 --- The workflow runs `pages` list, as `.workflow_runs[]` reads them in
 --- the API's order (newest first), or nil where an answer holds no
 --- list of runs.
-local function runs_of(pages: {string}): {Run} | nil
-  local out: {Run} = {}
+local function runs_of(pages: {string}): {Run}?
+  local out: mut {Run} = {}
   for _, text in ipairs(pages) do
     local page, _ = RUNS_PAGE:decode_into(text)
     if page == nil then return nil end
@@ -160,12 +170,15 @@ end
 local record ArtifactsPage
   artifacts: {ArtifactRow}
 end
-local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage")
+local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage", Shape.record({
+  ["artifacts"] = Shape.list(Shape.record({
+    ["expired"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any) })) }),
+  function(): ArtifactsPage error("witness") end)
 
 --- The names of a run's artifacts that have not expired, as a set, or
 --- nil where the answer holds no list of artifacts.
-local function artifact_names(pages: {string}): {string:boolean} | nil
-  local names: {string:boolean} = {}
+local function artifact_names(pages: {string}): {string:boolean}?
+  local names: mut {string:boolean} = {}
   for _, text in ipairs(pages) do
     local page, _ = ARTIFACTS_PAGE:decode_into(text)
     if page == nil then return nil end
@@ -202,19 +215,25 @@ end
 local record JobsPage
   jobs: {JobRow}
 end
-local JOBS_PAGE <const> = Shape.record_of("JobsPage")
+local JOBS_PAGE <const> = Shape.record_of("JobsPage", Shape.record({
+  ["jobs"] = Shape.list(Shape.record({
+    ["name"] = Shape.optional(Shape.any), ["started_at"] = Shape.optional(Shape.any),
+    ["status"] = Shape.optional(Shape.any),
+    ["steps"] = Shape.optional(Shape.list(Shape.record({
+      ["name"] = Shape.optional(Shape.any), ["status"] = Shape.optional(Shape.any) }))) })) }),
+  function(): JobsPage error("witness") end)
 
 --- The jobs `pages` list, in the API's order, each with whether it has
 --- begun the step `suite` (in progress or completed; always false where
 --- `suite` is ""), or nil where an answer holds no list of jobs or
 --- a job's start is no time.
-local function jobs_of(pages: {string}, suite: string): {Job} | nil
-  local out: {Job} = {}
+local function jobs_of(pages: {string}, suite: string): {Job}?
+  local out: mut {Job} = {}
   for _, text in ipairs(pages) do
     local page, _ = JOBS_PAGE:decode_into(text)
     if page == nil then return nil end
     for _, job in ipairs(page.jobs) do
-      local started: integer | nil = nil
+      local started: integer? = nil
       if job.started_at ~= nil and job.started_at ~= "" then
         local ns, _ = Time.parse_rfc3339(printed(job.started_at))
         if ns == nil then return nil end
@@ -251,11 +270,11 @@ function QueueSeed.find(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, why .. "\n")
     return 2
   end
-  local legs: {string} = {}
+  local legs: mut {string} = {}
   for leg in (env["LEGS"] or ""):gmatch("%S+") do legs[#legs + 1] = leg end
   local sha = env["SHA"] or ""
   if #legs == 0 or sha == "" then
-    local _, _ = Fs.put(Fs.stderr, "queue-find: no " .. (#legs == 0 and "LEGS" or "SHA") .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "queue-find: no " .. (if #legs == 0 then "LEGS" else "SHA" end) .. "\n")
     return 2
   end
   local tries, trouble = whole(env, "TRIES", 6)
@@ -328,8 +347,8 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
     local _, _ = Fs.put(Fs.stderr, why .. "\n")
     return 2
   end
-  local within: integer | nil
-  local ready: integer | nil
+  local within: integer?
+  local ready: integer?
   local trouble: string
   within, trouble = whole(env, "WITHIN_SECONDS", 150)
   if within == nil then return refuse(trouble) end
@@ -379,7 +398,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
         if jobs == nil then
           pending = true
         else
-          local mine: Job | nil = nil
+          local mine: Job? = nil
           for _, candidate in ipairs(jobs) do
             if candidate.name == job then
               mine = candidate
@@ -393,7 +412,7 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
             pending = true
             -- A job with none listed has not started: nor reached its suite.
             local reached = mine ~= nil and mine.reached
-            local started: integer | nil = nil
+            local started: integer? = nil
             if mine ~= nil then started = mine.started end
             if suite ~= "" and not reached then
               said = job .. " of the run ahead, " .. run .. ", has not begun '" .. suite ..

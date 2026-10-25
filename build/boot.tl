@@ -2,22 +2,19 @@
 ---
 --- Every boot runs this on the freshly built host core. The pinned
 --- bootstrap cosmic starts zig; no tree-built tool is needed. The C entry
---- has already loaded the seed's compiler (the pinned release's Lua for
---- the checker) and installed a searcher that compiles a `.tl` straight
---- from it; everything from here is ordinary cosmic code.
+--- has already built the compiler from the seed (the Lua the pinned release
+--- wrote for the files of [`build/seed.txt`], compiled again by itself,
+--- core/bridge.lua) and installed a searcher that compiles a `.tl` straight
+--- from the tree with it; everything from here is ordinary cosmic code.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
-local compiler = require("build.compiler")
-local derivation = require("build.derivation")
 local GrammarMode = require("build.grammar_mode")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
-local worker = require("build.worker")
-local workers = require("build.workers")
 local writer = require("build.writer")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
@@ -64,7 +61,7 @@ local function stamp_text(staged: Staged, carried: string, records: string): str
     modules_shared = tostring(staged.modules_shared),
     elapsed_ms = tostring(staged.elapsed_ms),
   }
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, field in ipairs(stamp_fields) do
     lines[#lines + 1] = field .. "=" .. values[field]
   end
@@ -79,8 +76,8 @@ local record Stamp
 end
 
 --- The stamp `text` is, if it is one for `records`; else nil and why.
-local function read_stamp(text: string, records: string): Stamp | nil, string
-  local values: {string:string} = {}
+local function read_stamp(text: string, records: string): Stamp?, string
+  local values: mut {string:string} = {}
   for field, value in text:gmatch("([%a_]+)=(%x+)\n") do
     values[field] = value
   end
@@ -106,9 +103,8 @@ end
 --- and compiles it, and writes the projection and the carried database
 --- beside the tool. Everything the Teal half of a boot does before the
 --- raw cores matter. Says why on failure, returning nil.
-local function stage(root: string, seed_dir: string, compiler_source: string,
-                     working: build_paths.Layout, output: build_paths.Layout,
-                     started: integer): Staged | nil
+local function stage(root: string, working: build_paths.Layout, output: build_paths.Layout,
+                     started: integer): Staged?
   local made, mkdir_trouble = Fs.mkdirs(output.bin)
   if not made then
     log:complain("boot: " .. mkdir_trouble)
@@ -130,16 +126,10 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
     log:complain("boot: " .. stage_trouble)
     return nil
   end
-  local fingerprint, print_trouble = identity.record_fingerprint(handle.db)
+  local fingerprint, print_trouble = identity.record_fingerprint(handle.db, handle.root)
   if fingerprint == nil then
     local _, _ = work.close(handle)
     log:complain("boot: " .. print_trouble)
-    return nil
-  end
-  local kept, keep_trouble = derivation.put_compiler(handle.db, compiler_source)
-  if not kept then
-    local _, _ = work.close(handle)
-    log:complain("boot: " .. keep_trouble)
     return nil
   end
   -- Read from the tree itself, as zig reads vendor/cacert: the zones
@@ -172,22 +162,12 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
 
   -- The tree's own identities, which are this boot's: the bridge runs the
   -- tree's build code. Parsed first, so the compiler closure is whole on a
-  -- fresh working database and keys exactly as a warm build does.
-  -- With COSMIC_GRAMMAR=new the new checker compiles it, in this process ([`importer.compile_tree`]): the tool this boot
-  -- leaves carries Lua the new generator wrote, and records the tool string that says so, so that a run that asks for the
-  -- fork's builds it again ([`build.reboot`]). Only the tree's own compile is the new checker's: the bridge that runs this
-  -- compiles `build.*` up to here with the fork's checker the seed carries, and `build.zig`'s `seedCompiler` and
-  -- checker/SEED_DIFFERS stay the fork's until the switch (doc/plans/strict-teal.md, "the switch").
-  local pool: importer.Workers | nil = nil
-  if grammar ~= "new" then
-    pool = workers.pool(workers.boot_spec(root, seed_dir))
-  else
-    local _, _ = Fs.put(Fs.stderr, "boot: compiling the tree with the new checker (COSMIC_GRAMMAR=new), in this process\n")
-  end
-  local result, compile_trouble = importer.compile_tree(handle, compiler,
+  -- fresh working database and keys exactly as a warm build does. The new
+  -- checker compiles the tree, in this process ([`importer.compile_tree`]).
+  local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
       return GrammarMode.tool(recorded.compiler, grammar), ""
-    end, false, shared_compiles.for_build(), pool, grammar)
+    end, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -195,22 +175,20 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
     return nil
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
-  if grammar == "new" then
-    local refused = require("build.pipeline").unexpected(result.refused)
-    if #refused > 0 then
-      local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-      local _, _ = work.close(handle)
-      log:complain(table.concat(refused, "\n"))
-      log:complain("boot: the new checker (COSMIC_GRAMMAR=new) refused " .. plural.count(#refused, "module") ..
-          " of the tree, so no tool is written from it")
-      return nil
-    end
+  local refused = result.refused
+  if #refused > 0 then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local _, _ = work.close(handle)
+    log:complain(table.concat(refused, "\n"))
+    log:complain("boot: the new checker refused " .. plural.count(#refused, "module") ..
+        " of the tree, so no tool is written from it")
+    return nil
   end
   local database_path = output.projection
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+    result.cached, if written then "PASS" else "FAIL" end)
   if not written then
     local _, _ = work.close(handle)
     log:complain("boot: " .. write_trouble)
@@ -256,7 +234,7 @@ end
 local function assemble(manifest_records: string, images: {string:string},
                         selected_configuration: integer,
                         output: build_paths.Layout,
-                        expected?: string): integer | nil
+                        expected?: string): integer?
   local database, read_trouble = Fs.read(output.carried)
   if database == nil then
     log:complain("boot: " .. read_trouble)
@@ -290,8 +268,6 @@ end
 --- @param root the tree to build
 --- @param argv the command line: slot 4 is the host target, slot 5 is the
 --- generated release target record file, and slot 6 the working directory.
---- A slot 4 of `--worker` instead makes this process serve a boot's phases
---- for another ([`build.workers`]) and build nothing.
 --- A slot 4 of `--stage` or `--assemble` runs half of a boot and shifts
 --- the slots above by one: `--stage` does the Teal work (staging, parsing,
 --- compiling, the database and the carried database) without reading any
@@ -315,14 +291,7 @@ end
 --- one CI verifies, byte for byte as it has been.
 --- Slots 7 through 9 optionally set the checked raw core, four-entry record
 --- file and checked output directory
---- @param compiler_source the Lua the compiler running this was compiled
---- to from the checker, [`checker/tl.tl`] (core/bridge.lua's `bootstrap`): the
---- compiler the tool carries
-local function boot(root: string, argv: {string},
-                    compiler_source: string): integer
-  if argv[4] == "--worker" then
-    return worker.serve(compiler)
-  end
+local function boot(root: string, argv: {string}): integer
   local started = Clock.monotonic_ns()
   local first = 4
   local mode = "boot"
@@ -336,7 +305,7 @@ local function boot(root: string, argv: {string},
     first = first + 1
   end
   --- The command line's slot `n`, counted as a whole boot's.
-  local function slot(n: integer): string | nil
+  local function slot(n: integer): string?
     return argv[n + first - 4]
   end
   local host = slot(4)
@@ -367,11 +336,11 @@ local function boot(root: string, argv: {string},
     return 1
   end
 
-  local targets: {string} = {}
-  local images: {string:string} = {}
-  local host_id: string | nil = nil
-  local host_os: string | nil = nil
-  local host_arch: string | nil = nil
+  local targets: mut {string} = {}
+  local images: mut {string:string} = {}
+  local host_id: string? = nil
+  local host_os: string? = nil
+  local host_arch: string? = nil
   for line in records:gmatch("[^\n]+") do
     local id, configuration_id, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -383,7 +352,7 @@ local function boot(root: string, argv: {string},
     -- The staging half never reads a raw core: it is the point of
     -- running it before the cores other than this process's own exist.
     if mode ~= "stage" then
-      local image: string | nil
+      local image: string?
       local failure = ""
       if host_only and target ~= host then
         image = artifact.placeholder(target)
@@ -457,7 +426,7 @@ local function boot(root: string, argv: {string},
     -- No stamp survives into a stage that has not finished: an
     -- interrupted one leaves the assembly nothing to trust.
     local _, _ = Fs.remove(stamp_path(output))
-    local made = stage(root, argv[3], compiler_source, working, output, started)
+    local made = stage(root, working, output, started)
     if made == nil then return 1 end
     local database, read_trouble = Fs.read(output.carried)
     if database == nil then
@@ -474,9 +443,9 @@ local function boot(root: string, argv: {string},
     return 0
   end
   local staged: Staged
-  local expected: string | nil = nil
+  local expected: string? = nil
   if mode == "boot" then
-    local made = stage(root, argv[3], compiler_source, working, output, started)
+    local made = stage(root, working, output, started)
     if made == nil then return 1 end
     staged = made
   else
@@ -501,7 +470,7 @@ local function boot(root: string, argv: {string},
   local total_ms = clock.elapsed_ms(started)
   if mode == "assemble" then total_ms = total_ms + staged.elapsed_ms end
   local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") ..
-      (host_only and " (the host's core only)" or "") .. ", " ..
+      (if host_only then " (the host's core only)" else "" end) .. ", " ..
       describe(staged) .. ", " ..
       plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms\n")
   return 0

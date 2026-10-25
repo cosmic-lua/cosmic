@@ -4,6 +4,11 @@
 --- Only a checked run (`cosmic test --check-types`) compiles the checks
 --- in, so a test using this skips in any other.
 
+-- TODO: read what the hook `__fact` of a checked run collects (build/test_worker.tl, [`lang.fact_wraps`]) in place of
+-- `__cosmic_tc`, which no compile writes since the fork's boundary checks went: a checked run meets no violation here, so the
+-- tests that ask `during` cannot fail until they read the facts; the declarations they hold are the ones the new checker
+-- reads, which they hold no longer. Wants the facts to carry the declared kind of a value crossing a boundary, not only a
+-- narrowed read.
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")
 
@@ -27,7 +32,7 @@ function TypeWatch.during(fn: function(), under?: string): {string}
     Test.skip("run with --check-types: only a checked run carries the type checks")
   end
   local prefix = under or "cosmic/"
-  local before: {string:integer} = {}
+  local before: mut {string:integer} = {}
   -- A parameter is declared where its target names, in parentheses; a
   -- return value or a field is declared where it is sent.
   local function declared_under(each: worker.Violation): boolean
@@ -39,7 +44,7 @@ function TypeWatch.during(fn: function(), under?: string): {string}
   end
   for _, each in ipairs(worker.violations()) do before[key(each)] = each.count end
   fn()
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, each in ipairs(worker.violations()) do
     -- A success that answers its value alone, where the declaration adds
     -- the reason a failure gives, answers nothing in a later slot: the

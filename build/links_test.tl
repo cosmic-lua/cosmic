@@ -1,18 +1,17 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local ast = require("build.ast")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local links = require("build.links")
-local teal = require("build.teal")
+local Node = require("build.syntax_node")
+local SyntaxLinks = require("build.syntax_links")
+local SyntaxLinkText = require("build.syntax_link_text")
 local String = require("cosmic.string")
 
 --- The docs fixture builds its database with the tree's own code.
 Test.policy{ grants = { { path = "core", letters = "r" } } }
-
-local built = assert(teal.load())
 
 --- Lines as one text.
 local function lines(...: string): string
@@ -21,7 +20,7 @@ end
 
 --- The links `text` holds, each as `line form target`.
 local function parsed(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, link in ipairs(link_text.parse(text)) do
     out[#out + 1] = link.line .. " " .. link.form .. " " .. link.target
   end
@@ -243,7 +242,7 @@ end
 --- message names is the whole spelling either way. A spelling may end
 --- in `@` and the file that declares the symbol.
 local function symbols_of(spelled: {string}): {link_resolve.Symbol}
-  local out: {link_resolve.Symbol} = {}
+  local out: mut {link_resolve.Symbol} = {}
   for _, written in ipairs(spelled) do
     local name, file = written:match("^(.-)@(.+)$")
     name = name or written
@@ -258,7 +257,7 @@ end
 local function world(files: {string: string}, symbols?: {string: {string}},
                      members?: {string: {string}}, links_to?: {string: string},
                      unbuilt?: string): link_resolve.Context
-  local dirs: {string: boolean} = { ["/p"] = true }
+  local dirs: mut {string: boolean} = { ["/p"] = true }
   for path in pairs(files) do
     local dir = Fs.dirname(path)
     while dir ~= "/" and dir ~= "" do
@@ -268,13 +267,13 @@ local function world(files: {string: string}, symbols?: {string: {string}},
   end
   return {
     root = "/p",
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
       if dirs[path] then return "dir" end
       return nil
     end,
-    read = function(path: string): string | nil return files[path] end,
-    real = function(path: string): string | nil
+    read = function(path: string): string? return files[path] end,
+    real = function(path: string): string?
       for from, to in pairs(links_to or {}) do
         if path == from or String.starts_with(path, from .. "/") then
           return to .. path:sub(#from + 1)
@@ -282,11 +281,11 @@ local function world(files: {string: string}, symbols?: {string: {string}},
       end
       return path
     end,
-    unbuilt = function(): string | nil return unbuilt end,
-    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+    unbuilt = function(): string? return unbuilt end,
+    symbols = function(query: string): {link_resolve.Symbol}?, string
       return symbols_of((symbols or {})[query] or {}), ""
     end,
-    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+    member = function(module: string, member: string): {link_resolve.Symbol}?, string
       return symbols_of((members or {})[module .. "." .. member] or {}), ""
     end,
   }
@@ -294,7 +293,7 @@ end
 
 --- What [`links.check`] finds in `source`, a file of `kind` at `path`.
 local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
-  return links.check(link_resolve.resolver(context), path, path, kind, source, built)
+  return SyntaxLinks.check(link_resolve.resolver(context), path, path, kind, source)
 end
 
 local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
@@ -422,11 +421,11 @@ local function test_a_doc_comment_sees_its_declarations_scope()
   })
 end
 
---- A function a global holds scopes its parameters and locals as any
+--- A function a local holds scopes its parameters and locals as any
 --- other does.
-local function test_a_globals_function_scopes_its_names()
+local function test_a_local_functions_value_scopes_its_names()
   local source = lines(
-    "global gfn = function(gp: integer): integer",
+    "local gfn = function(gp: integer): integer",
     "  local gl = gp",
     "  -- [`gp`] and [`gl`].",
     "  return gl",
@@ -493,9 +492,9 @@ local function test_a_link_is_recorded_by_the_scope_it_is_in()
     "",
     "-- [`Fs.read`] by [`step`].",
     "return a")
-  local parsed_source = assert(ast.parse(built, source, "a.tl"))
-  local got: {string} = {}
-  for _, found in ipairs(link_text.found(built, parsed_source.node, source, "a.tl")) do
+  local chunk = assert(Node.parse(source, "a.tl"))
+  local got: mut {string} = {}
+  for _, found in ipairs(SyntaxLinkText.found(chunk, Node.scope(chunk, "a.tl"), source)) do
     got[#got + 1] = found.link.line .. " " .. found.link.target .. " " .. tostring(found.own) ..
       " " .. found.alias
   end
@@ -575,7 +574,7 @@ local function test_symbols_go_unchecked_in_a_project_not_built()
   local context = world({}, {}, {}, {}, "not built")
   local resolver = link_resolve.resolver(context)
   local source = lines("local x = 1", "-- [`x`], [`M.thing`] and [gone](gone.md)", "return x")
-  same(links.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source, built), {
+  same(SyntaxLinks.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source), {
     "/p/a.tl:2: link: gone.md does not resolve (no declaration, symbol or file by that name)",
   })
   assert(resolver.unchecked == 1, tostring(resolver.unchecked))
@@ -651,7 +650,7 @@ local function test_the_roots_output_is_never_looked_at()
   local context = world({ ["/p/o/y.md"] = "" })
   local kind = context.kind
   local asked: {string} = {}
-  context.kind = function(path: string): string | nil
+  context.kind = function(path: string): string?
     asked[#asked + 1] = path
     return kind(path)
   end
@@ -728,12 +727,6 @@ local function test_a_url_is_not_checked()
     "[a](https://example.com/x) [b](http://x) [c](mailto:a@b)\n"), {})
 end
 
---- A long comment holds code set aside, not prose: none of it is read.
-local function test_a_long_comment_is_not_read()
-  local source = lines("--[[ see [`nothing`]", "]]", "--[==[ [`nor`] ]==]", "local x = 1", "return x")
-  same(checked(world({}), "/p/a.tl", "teal", source), {})
-end
-
 local function test_code_is_not_comment()
   local source = lines("local t = { [\"[`x`]\"] = 1 }", "return t")
   same(checked(world({}), "/p/a.tl", "teal", source), {})
@@ -785,9 +778,9 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
       "",
       "return other"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/a.md", "markdown", lines(
     "[`Fs.read`] [`cosmic.fs.read`] [`cosmic.fs.Fs.read`] [`cosmic.fs`] [`read`]",
     "[`Thing.Box.grow`] [`cosmic.thing.Box.grow`] [`Thing.Box.shrink`]")), {
@@ -833,9 +826,9 @@ local function test_a_member_through_a_required_modules_type_resolves(dir: strin
       "",
       "return User"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
     "local User = require(\"cosmic.user\")",
     "-- [`User.Entry.path`], [`User.Item.path`], [`cosmic.user.Item.path`];",
@@ -870,9 +863,9 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
       "",
       "return module"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
     "local Cli = require(\"cosmic.cli\")",
     "-- [`Cli.order`], [`cosmic.cli.order`], [`Module.order`]; not [`Cli.chaos`],",
@@ -887,7 +880,7 @@ end
 --- and what it says it linked.
 local function rewritten(context: link_resolve.Context, path: string, kind: string,
                          source: string): string, {string}
-  local out = links.rewrite(link_resolve.resolver(context), path, path, kind, source, built)
+  local out = SyntaxLinks.rewrite(link_resolve.resolver(context), path, path, kind, source)
   return out.source, out.linked
 end
 

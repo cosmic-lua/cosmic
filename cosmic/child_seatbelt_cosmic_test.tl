@@ -36,7 +36,7 @@ local function denials(): string
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
 end
@@ -44,7 +44,7 @@ end
 --- This program run to its end under `policy` on `-e chunk` and `args`,
 --- its output captured.
 local function ran(chunk: string, policy: Sandbox.Policy, args?: {string}): Child.Result
-  local argv: {string} = { (assert(Proc.executable())), "-e", chunk }
+  local argv: mut {string} = { (assert(Proc.executable())), "-e", chunk }
   for _, word in ipairs(args or {}) do argv[#argv + 1] = word end
   local result, why = Child.run(argv, { policy = policy, stdout = "capture", stderr = "capture",
     stdin = "null", timeout_ns = Clock.seconds(60) })

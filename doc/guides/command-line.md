@@ -45,6 +45,16 @@ exit 3
 A chunk prints only what it prints. It gets no summary, as a file run
 gets none.
 
+## a script run by its name
+
+A file can be run by its own name, as a shell script is: mark it
+executable and make its first line `#!/usr/bin/env cosmic`. The language
+skips that line, as Lua does, so the lines after it keep their numbers in
+errors and tracebacks. Only the first line of the file, from its first
+byte, is skipped, and only when it begins `#!`; a `#!` anywhere else is a
+syntax error. `cosmic migrate` and the language
+server leave the line as it is.
+
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`

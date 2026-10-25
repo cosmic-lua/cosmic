@@ -29,10 +29,10 @@
 --- path names with the one the handle reads, and opens it again when they
 --- part.
 ---
---- A module is served as its stub ([`build.stub`]) where it has one, as
+--- A module is served as its stub ([`build.syntax_stub`]) where it has one, as
 --- cosmic serves its standard library: the checker reads a fraction of
 --- it, and the stub types a `require` of it as its source does but where a
---- body declares past itself ([`build.stub`]), which nothing here checks.
+--- body declares past itself ([`build.syntax_stub`]), which nothing here checks.
 --- The stub of a
 --- file is the one the stage derived of its source (the `stubs` row of its
 --- `source_hash`), while the database's rows are the running analyzer's:
@@ -62,22 +62,18 @@
 --- refresh, as the analyzer is.
 
 -- TODO: serve a module whose body declares past itself as its source, or
--- as a stub that keeps such bodies, once [`build.stub`]'s TODO is done:
+-- as a stub that keeps such bodies, once [`build.syntax_stub`]'s TODO is done:
 -- until then a dependent of a module whose body adds a function to an
 -- outer record is told the record has no such field.
 
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Sqlite = require("cosmic.sqlite")
 local Template = require("cosmic.template")
-local ast = require("build.ast")
 local build_paths = require("build.paths")
 local importer = require("build.importer")
 local rebuild = require("build.rebuild")
-local stub = require("build.stub")
 local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
-local type compiler = require("build.compiler")
 
 local record source
   --- A module as the working database lists it (the `inputs` view).
@@ -110,9 +106,8 @@ local record source
     sources: integer
     --- Served as a template's Teal.
     templates: integer
-    --- Documents whose [`Shape.record_of`] calls were found in the copy
-    --- with every function body left out, and in the whole text.
-    bodiless_splices: integer
+    --- Documents whose [`Shape.record_of`] calls were found in the whole
+    --- text.
     whole_splices: integer
     --- Stages made, and times the database was found made again and
     --- opened anew.
@@ -128,25 +123,19 @@ local record source
 
   --- The open document that is the file `file` below the root, or nil
   --- when none is open.
-  type Open = function(file: string): Text | nil
+  type Open = function(file: string): Text?
 
   --- One session's view of the database.
   record View
     root: string
-    --- The checker the session reads the tree with: the fork's (`teal`), or the new one's (`new`), which reads a text in
-    --- the new grammar ([`build.grammar_mode`]).
-    grammar: GrammarMode.Mode
-    --- The checker the session was given, nil where it asks the environment: what [`rebuild.stage`] is told, so that a
-    --- malformed `COSMIC_GRAMMAR` is refused there as it is for every other run.
-    asked: GrammarMode.Mode | nil
     --- A read handle on `build.db`, nil until there is one to read, and
     --- the device and inode of the file it reads.
-    db: Sqlite.Handle | nil
+    db: Sqlite.Handle?
     identity: string
     --- The database's path, once a stage has found the build directory.
-    working: string | nil
+    working: string?
     --- What the last stage found of the root, nil before the first.
-    where: rebuild.Where | nil
+    where: rebuild.Where?
     --- Each module by its import path, and by its file.
     modules: {string:Module}
     files: {string:Module}
@@ -156,7 +145,7 @@ local record source
     --- Whether the `stubs` rows are the running analyzer's, and the
     --- analyzer this session's last stage recorded, nil before one.
     stubs: boolean
-    analyzer: string | nil
+    analyzer: string?
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     pending: boolean
@@ -182,7 +171,7 @@ local MADE_HELD <const> = 64
 
 --- The running analyzer's name, found once.
 local record Analyzer
-  identity: string | nil
+  mut identity: string?
 end
 
 local running: Analyzer = { identity = nil }
@@ -196,22 +185,12 @@ local function analyzer_identity(): string
   return identity
 end
 
---- A source for the tree at `root`, staged at its first [`source.refresh`], that reads with the checker `grammar` names: the one
---- `COSMIC_GRAMMAR` asks for where none is given.
-function source.new(root: string, err: function(line: string), grammar?: GrammarMode.Mode): source.View
+--- A source for the tree at `root`, staged at its first [`source.refresh`].
+function source.new(root: string, err: function(line: string)): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
-    bodiless_splices = 0, whole_splices = 0, stages = 0, reopened = 0 }
-  local mode: GrammarMode.Mode = "teal"
-  if grammar ~= nil then
-    mode = grammar
-  else
-    local asked, _ = GrammarMode.mode()
-    if asked ~= nil then mode = asked end
-  end
+    whole_splices = 0, stages = 0, reopened = 0 }
   return {
     root = root,
-    grammar = mode,
-    asked = grammar,
     db = nil,
     identity = "",
     working = nil,
@@ -258,7 +237,7 @@ end
 --- hold up the session. A file of another schema, another tool's, whose
 --- rows this one's code may misread, it opens no handle on: it answers
 --- nil and that schema, having read nothing of it but its schema.
-local function database(src: source.View): Sqlite.Handle | nil, string
+local function database(src: source.View): Sqlite.Handle?, string
   local db = src.db
   if db ~= nil then return db, "" end
   local path = src.working
@@ -286,7 +265,7 @@ local function trusted(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
   local named, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'analyzer'")
-  local recorded: string | nil = nil
+  local recorded: string? = nil
   if named ~= nil then
     local row = named[1]
     if row ~= nil then recorded = row:text(1) end
@@ -335,15 +314,15 @@ local function listed(src: source.View, staged: boolean)
     src.err("cosmic: lsp: the staged tree: " .. trouble)
     return
   end
-  local modules: {string:Module} = {}
-  local files: {string:Module} = {}
+  local modules: mut {string:Module} = {}
+  local files: mut {string:Module} = {}
   for _, row in ipairs(rows) do
     local found: Module = { path = row:text(1), file = row:text(2), kind = row:text(3),
       source_hash = row:text(4) }
     if modules[found.path] == nil then modules[found.path] = found end
     files[found.file] = found
   end
-  local requires: {string:{string}} = {}
+  local requires: mut {string:{string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
     { { integer = own } })
@@ -423,8 +402,8 @@ local unchecked_line <const> = "this tool was not checked against the tree when 
 --- Stages the tree when it is yet to be ([`source.View`]'s `pending`),
 --- then reads what the database lists; otherwise reads it again where a
 --- run made the database again, and whether its stubs are the running
---- analyzer's in any case. `built` parses what is new.
-function source.refresh(src: source.View, built: compiler)
+--- analyzer's in any case.
+function source.refresh(src: source.View)
   local where = src.where
   if where ~= nil and not where.project then
     local directory = where.directory
@@ -458,7 +437,7 @@ function source.refresh(src: source.View, built: compiler)
       return
     end
   end
-  local staged, trouble = rebuild.stage(src.root, built, src.asked)
+  local staged, trouble = rebuild.stage(src.root)
   if staged ~= nil then adopt(src, staged) end
   -- A database of another schema is another tool's, whose rows this
   -- one's code may misread: none of it is read, and no module found in
@@ -466,7 +445,7 @@ function source.refresh(src: source.View, built: compiler)
   -- a run of this tool has made it again. That is said once for each
   -- stage that finds another schema than the one before it found
   -- (`where`, from before this one).
-  local other: string | nil = nil
+  local other: string? = nil
   if staged ~= nil then other = staged.other_schema end
   if other ~= nil then let_go(src) end
   if staged ~= nil and (not staged.project or other ~= nil) then
@@ -506,7 +485,7 @@ end
 --- What to say once, on stderr and to the person, where the session's
 --- tool was not checked against its tree, so the stage stages nothing
 --- ([`rebuild.Where`]'s `unchecked`), or nil.
-function source.unchecked(src: source.View): string | nil
+function source.unchecked(src: source.View): string?
   local where = src.where
   if where ~= nil and where.unchecked then return unchecked_line end
   return nil
@@ -520,7 +499,7 @@ end
 
 --- The module the file `file` below the root is, or nil when the
 --- database lists none.
-function source.module(src: source.View, file: string): Module | nil
+function source.module(src: source.View, file: string): Module?
   return src.files[file]
 end
 
@@ -533,27 +512,16 @@ function source.key(src: source.View, name: string, open: source.Open): string
   if found == nil then return "" end
   local opened = open(found.file)
   if opened ~= nil then return found.file .. "\0" .. opened.hash end
-  return found.file .. "\0" .. found.source_hash .. "\0" .. (src.stubs and "derived" or "made")
+  return found.file .. "\0" .. found.source_hash .. "\0" .. (if src.stubs then "derived" else "made" end)
 end
 
 --- The stub made here of `text`, the file `file` whose SHA-256 is
 --- `hash`: nil for a text that does not parse or returns nothing at its
 --- top level, which has none ([`build.derivation`]).
-local function made_stub(src: source.View, built: compiler, file: string, text: string,
-                         hash: string): string | nil
+local function made_stub(src: source.View, file: string, text: string, hash: string): string?
   local held = src.made[hash]
   if held == nil then
-    held = ""
-    if src.grammar == "new" then
-      held = syntax_read.stub_of(file, text)
-    else
-      local parsed, _ = ast.parse(built, text, file)
-      if parsed ~= nil then
-        for _, statement in ipairs(parsed.node) do
-          if statement.kind == "return" then held = stub.made(parsed).text end
-        end
-      end
-    end
+    held = syntax_read.stub_of(file, text)
     local count = 0
     for _ in pairs(src.made) do count = count + 1 end
     if count >= MADE_HELD then src.made = {} end
@@ -564,7 +532,7 @@ local function made_stub(src: source.View, built: compiler, file: string, text: 
 end
 
 --- One column of the first row `sql` answers given `value`, or nil.
-local function first(db: Sqlite.Handle, sql: string, value: string): string | nil
+local function first(db: Sqlite.Handle, sql: string, value: string): string?
   local rows, _ = Sqlite.text_rows(db, sql, { { text = value } })
   if rows == nil then return nil end
   local row = rows[1]
@@ -574,19 +542,17 @@ end
 
 --- What the checker reads for the module `name`, or nil when the
 --- database lists none, or it is a template that does not compile.
---- `built` parses a text to stub here. It is counted in the tally
+--- It is counted in the tally
 --- ([`source.Tally`]) unless `uncounted`: what is served, not what is
 --- looked at.
-function source.served(src: source.View, built: compiler, name: string,
-                       open: source.Open, uncounted?: boolean): Served | nil
+function source.served(src: source.View, name: string, open: source.Open, uncounted?: boolean): Served?
   local found = src.modules[name]
   if found == nil then return nil end
   local template = found.file:match("%.tmpl$") ~= nil
   -- Read under the name the module would have on disk below the root, as
-  -- a build reads it ([`teal.environment_for`]), so a message that names
-  -- it (a type "inferred at" it) names it as a build's does: a
-  -- declaration by its `.d.tl`, and a name that ends in `tl` alone, which
-  -- a template's or a generated declaration's file does not.
+  -- a build reads it, so a message that names it names it as a build's
+  -- does: a declaration by its `.d.tl`, and a name that ends in `tl`
+  -- alone, which a template's or a generated declaration's file does not.
   local stem = src.root .. "/" .. found.path:gsub("%.", "/")
   local file = stem .. ".tl"
   if found.kind == "decl" then file = stem .. ".d.tl" end
@@ -611,12 +577,12 @@ function source.served(src: source.View, built: compiler, name: string,
     local text, hash = opened.text, opened.hash
     local key = found.file .. "\0" .. hash
     if template then
-      local compiled, _ = Template.compile(text, found.file)
+      local compiled, _ = Template.compile(text, found.file, { dialects = nil })
       if compiled == nil then return nil end
       return serving_as("source", compiled, key)
     end
     if found.kind ~= "decl" then
-      local stubbed = made_stub(src, built, found.file, text, hash)
+      local stubbed = made_stub(src, found.file, text, hash)
       if stubbed ~= nil then return serving_as("made", stubbed, key) end
     end
     return serving_as("source", text, key)
@@ -633,7 +599,7 @@ function source.served(src: source.View, built: compiler, name: string,
   local held = first(db, "SELECT source FROM inputs WHERE file = ?1", found.file)
   if held == nil then return nil end
   if found.kind ~= "decl" and not src.stubs then
-    local stubbed = made_stub(src, built, found.file, held, found.source_hash)
+    local stubbed = made_stub(src, found.file, held, found.source_hash)
     if stubbed ~= nil then return serving_as("made", stubbed, key) end
   end
   return serving_as("source", held, key)

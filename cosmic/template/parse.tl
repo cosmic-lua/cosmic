@@ -43,11 +43,11 @@ local types = require("cosmic.template.types")
 --- name for messages.
 local record Parser
   items: {types.Item}
-  pos: integer
+  mut pos: integer
   name: string
   --- The variables seen where the parse is, by name without the `$`,
   --- each with the word that bound it.
-  visible: {string: types.Token}
+  visible: mut {string: types.Token}
 end
 
 --- `name:line:col: reason`.
@@ -90,7 +90,7 @@ local STRAY_COMMA <const> = "unexpected ',': only a range's two variables take o
 
 --- The names of the run of fields `path` (`.a.b`, or "" for none).
 local function fields(path: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for part in path:gmatch("[^.]+") do
     out[#out + 1] = part
   end
@@ -99,7 +99,7 @@ end
 
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action; `ranged` when it is a range's list.
-local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline | nil, string
+local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline?, string
   local tokens = item.tokens
   local head = tokens[first]
   if head == nil then
@@ -113,7 +113,7 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
       return nil, refuse(p, head.line, head.col,
         "'" .. head.value .. "' is not a variable such as $, $.a, $x or $x.a")
     end
-    result.head = name == "" and "root" or "variable"
+    result.head = if name == "" then "root" else "variable" end
     result.name = name
     result.path = fields(rest)
   elseif head.kind == "field" and (head.value == "." or dotted(head.value:sub(2), 1)) then
@@ -173,7 +173,7 @@ end
 
 --- Reads the bindings that open the range action `item`, `$x :=` or
 --- `$i, $x :=`, if it has any.
-local function bindings(p: Parser, item: types.Item): Bound | nil, string
+local function bindings(p: Parser, item: types.Item): Bound?, string
   local tokens = item.tokens
   local one, after = tokens[2], tokens[3]
   if one ~= nil and one.kind == "variable" and after ~= nil and (after.kind == "field" or after.kind == "variable") then
@@ -182,7 +182,7 @@ local function bindings(p: Parser, item: types.Item): Bound | nil, string
   if one == nil or one.kind ~= "variable" or after == nil or (after.kind ~= "comma" and after.kind ~= "declare") then
     return { first = 2 }, ""
   end
-  local names: {types.Token} = { one }
+  local names: mut {types.Token} = { one }
   local declare = after
   if after.kind == "comma" then
     local two = tokens[4]
@@ -197,7 +197,7 @@ local function bindings(p: Parser, item: types.Item): Bound | nil, string
       return nil, refuse(p, at.line, at.col, "expected := after " .. two.value .. ", as {{range $i, $x := .list}}")
     end
   end
-  local here: {string: types.Token} = {}
+  local here: mut {string: types.Token} = {}
   for _, word in ipairs(names) do
     local name = word.value:sub(2)
     if not name:find("^[%a_][%w_]*$") then
@@ -226,11 +226,11 @@ local function keyword(item: types.Item): string
   return ""
 end
 
-local nodes: function(p: Parser): {types.Node} | nil, string
+local nodes: function(p: Parser): {types.Node}?, string
 
 --- Parses the block action at the next item (`if`, `range` or `with`)
 --- through its `{{end}}`.
-local function block(p: Parser): types.Node | nil, string
+local function block(p: Parser): types.Node?, string
   local open = p.items[p.pos]
   local word = keyword(open)
   p.pos = p.pos + 1
@@ -306,15 +306,15 @@ local function block(p: Parser): types.Node | nil, string
       cond = next_cond
     else
       return nil, refuse(p, second.line, second.col,
-        kind ~= "if" and "{{else}} in a {{" .. kind .. "}} takes nothing: nest an {{if}}" or
-          "{{else}} takes nothing, or 'if' and a condition")
+        if kind ~= "if" then "{{else}} in a {{" .. kind .. "}} takes nothing: nest an {{if}}" else
+          "{{else}} takes nothing, or 'if' and a condition" end)
     end
     arm = close
   end
 end
 
-nodes = function(p: Parser): {types.Node} | nil, string
-  local out: {types.Node} = {}
+nodes = function(p: Parser): {types.Node}?, string
+  local out: mut {types.Node} = {}
   while p.items[p.pos] ~= nil do
     local item = p.items[p.pos]
     if not item.action then
@@ -332,9 +332,9 @@ nodes = function(p: Parser): {types.Node} | nil, string
         end
         out[#out + 1] = node
       elseif word == "type" or word == "mode" or word == "use" then
-        return nil, refuse(p, item.line, item.col, word == "type" and
-            "{{type}} must be the first action" or "{{" .. word .. "}} must directly follow {{type}}" ..
-            (word == "use" and " or {{mode}}" or ""))
+        return nil, refuse(p, item.line, item.col, if word == "type" then
+            "{{type}} must be the first action" else "{{" .. word .. "}} must directly follow {{type}}" ..
+            (if word == "use" then " or {{mode}}" else "" end) end)
       elseif item.tokens[1] ~= nil and item.tokens[1].kind == "string" then
         local literal = item.tokens[1]
         local extra = item.tokens[2]
@@ -367,13 +367,13 @@ nodes = function(p: Parser): {types.Node} | nil, string
 end
 
 --- Whether `item` is literal text with nothing visible in it.
-local function blank_text(item: types.Item | nil): boolean
+local function blank_text(item: types.Item?): boolean
   return item ~= nil and not item.action and not item.text:find("[^ \t\r\n]")
 end
 
 --- Reads the `{{type}}` action at `item`: the record's name and where it
 --- is from.
-local function declaration(p: Parser, item: types.Item): string | nil, string
+local function declaration(p: Parser, item: types.Item): string?, string
   local tokens = item.tokens
   if #tokens ~= 4 or tokens[3].kind ~= "word" or tokens[3].value ~= "from" then
     return nil, refuse(p, item.line, item.col, "write {{type Name from import.path}}")
@@ -398,7 +398,7 @@ end
 --- @param registry {string: types.Def} The dialects `{{use}}` may name
 --- @return types.Template|nil The template
 --- @return string The reason, as `name:line:col: ...`, on failure
-function Parse.parse(src: string, name: string, registry: {string: types.Def}): types.Template | nil, string
+function Parse.parse(src: string, name: string, registry: {string: types.Def}): types.Template?, string
   local lexed, lerr = lex.lex(src, name)
   if lexed == nil then
     return nil, lerr
@@ -420,9 +420,9 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   local import_path = head.tokens[4].value
   p.pos = p.pos + 1
   local mode: types.Mode = "html"
-  local dialects: {string} = {}
-  local uses: {string: boolean} = {}
-  local first_use: types.Item | nil
+  local dialects: mut {string} = {}
+  local uses: mut {string: boolean} = {}
+  local first_use: types.Item?
   local seen_mode = false
   -- `{{mode}}` and `{{use}}` follow `{{type}}` in any order, each with blank
   -- text before it; the blank text after the last is the body's.
@@ -441,14 +441,14 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
         return nil, refuse(p, decl.line, decl.col, "{{mode}} is given once")
       end
       seen_mode = true
-      mode = value.value == "text" and "text" or "html"
+      mode = if value.value == "text" then "text" else "html" end
     elseif word == "use" then
       local value = decl.tokens[2]
       if #decl.tokens ~= 2 or value.kind ~= "word" or not value.value:find("^[%a][%w_]*$") then
         return nil, refuse(p, decl.line, decl.col, "write {{use name}}, as {{use htmx}}")
       end
       if registry[value.value] == nil then
-        local names: {string} = {}
+        local names: mut {string} = {}
         for dialect in pairs(registry) do
           names[#names + 1] = dialect
         end

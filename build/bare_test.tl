@@ -116,7 +116,7 @@ local function test_each_single_byte_escapes_as_the_oracle_says()
     local control = code < 32 or code == 127
     local hex = string.format("\\x%02X", code)
     local plain = control and hex or byte
-    local named = code == 92 and "\\\\" or (control and (common[code] or hex) or byte)
+    local named = if code == 92 then "\\\\" else (control and (common[code] or hex) or byte) end
     local kept = (code == 9 or code == 10) and byte or plain
     assert(bare.escape(byte) == plain, "plain " .. code)
     assert(bare.escape(byte, { named = true }) == named, "named " .. code)
@@ -125,13 +125,13 @@ local function test_each_single_byte_escapes_as_the_oracle_says()
 end
 
 local function test_escaped_text_holds_no_control_byte()
-  local all: {string} = {}
+  local all: mut {string} = {}
   for code = 0, 255 do all[#all + 1] = string.char(code) end
   local text = table.concat(all)
   local options: {bare.EscapeOptions} = { {}, { named = true }, { keep_tab_newline = true } }
   for _, each in ipairs(options) do
     local safe = bare.escape(text, each)
-    local kept = each.keep_tab_newline and "[\0-\8\11-\31\127]" or "[\0-\31\127]"
+    local kept = if each.keep_tab_newline then "[\0-\8\11-\31\127]" else "[\0-\31\127]" end
     assert(not safe:find(kept), "a control byte survived")
   end
 end

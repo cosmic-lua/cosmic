@@ -118,7 +118,8 @@ local function test_a_script_names_the_core_as_its_interpreter(tmp: string)
 local Proc = require("cosmic.proc")
 
 return function(argv: {string}): integer
-  print(Proc.executable(), table.concat(argv, "|"))
+  local executable, _ = Proc.executable()
+  print(executable, table.concat(argv, "|"))
   return 0
 end
 ]], 0x1ed))

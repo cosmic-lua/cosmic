@@ -51,14 +51,14 @@ end
 
 --- Asserts `found` is exactly one finding of `rule`, on `line`.
 local function one(found: {rules.Finding}, rule: string, line: integer)
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
   assert(#found == 1 and found[1].rule == rule and found[1].line == line,
     "expected " .. line .. " " .. rule .. ", found: " .. table.concat(said, ", "))
 end
 
 local function none(found: {rules.Finding})
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule .. ": " .. f.message end
   assert(#found == 0, "expected nothing, found: " .. table.concat(said, "; "))
 end
@@ -301,7 +301,7 @@ end
 
 --- The findings of `rule` alone among `found`.
 local function only(found: {rules.Finding}, rule: string): {rules.Finding}
-  local out: {rules.Finding} = {}
+  local out: mut {rules.Finding} = {}
   for _, f in ipairs(found) do
     if f.rule == rule then out[#out + 1] = f end
   end
@@ -323,7 +323,7 @@ COSMIC_SYSCALL(entropy, 1) {
   return cosmic_ok(L);
 }
 ]])
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
   assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9 and
       found[2].line == 13 and found[3].line == 14,
@@ -356,7 +356,7 @@ COSMIC_SYSCALL(execve, 3) {
   return worse(L, ENOENT);
 }
 ]])
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
   assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12 and
       found[2].line == 13, "found: " .. table.concat(said, ", "))
@@ -410,7 +410,7 @@ static int helper (lua_State *L) {
   return 1;
 }
 ]]), "descriptor-argument")
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
   assert(#found == 5 and found[1].line == 9 and found[1].within == "cosmic_sys_read" and
       found[2].line == 10 and found[3].line == 15 and found[3].within == "cosmic_sys_dup2" and
@@ -476,7 +476,7 @@ int held (int x) {
   return fits;
 }
 ]]), "pass-fail-int")
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
   assert(#found == 3 and found[1].line == 7 and found[2].line == 14 and
       found[3].line == 19, "found: " .. table.concat(said, ", "))
@@ -588,7 +588,7 @@ local function checked(tmp: string, sources: {string: string}, files: {string}):
   for name, source in pairs(sources) do
     assert(Fs.write(tmp .. "/" .. name, source))
   end
-  local out: {rules.Finding} = {}
+  local out: mut {rules.Finding} = {}
   for _, outcome in ipairs(c.check(root, files, tmp)) do
     local outcome_findings = outcome.findings
     assert(outcome_findings ~= nil, outcome.trouble)
@@ -639,7 +639,7 @@ end
 --- A file that could not be read leaves what it refers to unknown, so
 --- nothing is said of sharing.
 local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
-  local sources: {string: string} = {}
+  local sources: mut {string: string} = {}
   for name, source in pairs(two_files) do sources[name] = source end
   sources["b.c"] = "int total (void) { return undeclared; }\n"
   for name, source in pairs(sources) do

@@ -16,12 +16,23 @@ local nth, only, open = session_fixture.nth, session_fixture.only, session_fixtu
 local project, publications = session_fixture.project, session_fixture.publications
 local served, serving = session_fixture.served, session_fixture.serving
 
+--- A module with nothing in it, and one with a number in it, written as
+--- the checker takes a module: its value is declared by a record.
+local EMPTY <const> = "local record empty\nend\nlocal e: empty = {}\nreturn e\n"
+local NUMBER <const> = "local record count\n  n: integer\nend\nlocal v: count = { n = 1 }\nreturn v\n"
+
+--- A module that requires `name` and returns a record of its own.
+local function importing(name: string): string
+  return 'local ' .. name .. ' = require("' .. name .. '")\nprint(' .. name .. ')\n' ..
+    "local record shape\nend\nlocal s: shape = {}\nreturn s\n"
+end
+
 local function test_a_require_into_a_closed_directory_is_refused_at_it()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib/priv"))
-  assert(Fs.write(root .. "/lib/priv/init.tl", "return {}\n"))
-  assert(Fs.write(root .. "/lib/priv/x.tl", "return { n = 1 }\n"))
-  local text = 'local x = require("lib.priv.x")\nreturn x\n'
+  assert(Fs.write(root .. "/lib/priv/init.tl", EMPTY))
+  assert(Fs.write(root .. "/lib/priv/x.tl", NUMBER))
+  local text = 'local x = require("lib.priv.x")\nlocal n: integer = x.n\nreturn n\n'
   local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(refused.message == "lib.priv.x is private to lib/priv/; only a file inside it may import " ..
       "it (its entry is lib/priv/init.tl)", refused.message)
@@ -31,22 +42,29 @@ local function test_a_require_into_a_closed_directory_is_refused_at_it()
   assert(counts(inside) == "0", messages_of(nth(inside, 1)))
 end
 
---- A `require` is found as a build finds one: with no parentheses, or a
---- name in long brackets, but not a field named `require`.
+--- A `require` is found as a build finds one: a name in long brackets,
+--- but not a field named `require`; with no parentheses it is no call.
 local function test_a_require_is_found_as_a_build_finds_it()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib/priv"))
-  assert(Fs.write(root .. "/lib/priv/init.tl", "return {}\n"))
-  assert(Fs.write(root .. "/lib/priv/x.tl", "return { n = 1 }\n"))
-  local field = "local o = { require = function(_: string): integer return 1 end }\n" ..
+  assert(Fs.write(root .. "/lib/priv/init.tl", EMPTY))
+  assert(Fs.write(root .. "/lib/priv/x.tl", NUMBER))
+  local field = "local record object\n  require: function(string): integer\nend\n" ..
+    "local o: object = { require = function(_: string): integer return 1 end }\n" ..
     'local n: integer = o.require("lib.priv.x")\nreturn n\n'
   local fine = served(root, { initialize(root), open(root, "main.tl", field) })
   assert(counts(fine) == "0", messages_of(nth(fine, 1)))
-  for _, text in ipairs({ 'local x = require "lib.priv.x"\nreturn x\n',
-      "local x = require [[lib.priv.x]]\nreturn x\n" }) do
-    local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
-    assert(refused.message:find("lib.priv.x is private to lib/priv/", 1, true) == 1, refused.message)
-    assert(edge(refused, "start").character == 18, text .. tostring(edge(refused, "start").character))
+  local long = "local x = require([[lib.priv.x]])\nlocal n: integer = x.n\nreturn n\n"
+  local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", long) }), 1))
+  assert(refused.message:find("lib.priv.x is private to lib/priv/", 1, true) == 1, refused.message)
+  assert(edge(refused, "start").character == 18, tostring(edge(refused, "start").character))
+  -- A call with a string in place of its arguments is not in the grammar,
+  -- so a `require` with no parentheses is no require: the grammar refuses it.
+  for _, argument in ipairs({ '"lib.priv.x"', "[[lib.priv.x]]" }) do
+    local text = "local x = require " .. argument .. "\nlocal n: integer = x.n\nreturn n\n"
+    local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+    assert(found.message == "a call with a string in place of its arguments is not in the grammar " ..
+        "(string_call): put the string in parentheses: `f(" .. argument .. ")`", found.message)
   end
 end
 
@@ -55,7 +73,7 @@ local function test_cosmics_own_tree_keeps_build_to_itself()
   -- What tells cosmic's own tree ([`build.tree`]).
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/importer.tl", EMPTY))
   local text = 'local importer = require("build.importer")\nreturn importer\n'
   local refused = only(nth(served(root, { initialize(root), open(root, "lib/thing.tl", text) }), 1))
   assert(refused.message == "build.importer is private to build/; only build/, cmd/, test/ and " ..
@@ -67,11 +85,11 @@ end
 
 local function test_a_cycle_of_imports_is_refused_in_each_document_of_it()
   local root = project()
-  assert(Fs.write(root .. "/a.tl", 'local b = require("b")\nreturn { b = b }\n'))
-  assert(Fs.write(root .. "/b.tl", 'local a = require("a")\nreturn { a = a }\n'))
+  assert(Fs.write(root .. "/a.tl", importing("b")))
+  assert(Fs.write(root .. "/b.tl", importing("a")))
   local send = serving(root)
-  local first = send({ initialize(root), open(root, "a.tl", 'local b = require("b")\nreturn { b = b }\n'),
-    open(root, "b.tl", 'local a = require("a")\nreturn { a = a }\n') })
+  local first = send({ initialize(root), open(root, "a.tl", importing("b")),
+    open(root, "b.tl", importing("a")) })
   local in_a, in_b = only(nth(first, 1)), only(nth(first, 2))
   assert(in_a.message == "a cycle of imports reaches a", in_a.message)
   -- Worded as the build words it, whichever document is checked: the
@@ -79,7 +97,7 @@ local function test_a_cycle_of_imports_is_refused_in_each_document_of_it()
   assert(in_b.message == "a cycle of imports reaches a", in_b.message)
   assert(edge(in_a, "start").character == 18, tostring(edge(in_a, "start").character))
   -- b no longer requires a: both documents are published again, clear.
-  local after = publications(send({ change(root, "b.tl", "return {}\n") }))
+  local after = publications(send({ change(root, "b.tl", EMPTY) }))
   assert(#after == 4, tostring(#after))
   local b, a = assert(after[3]), assert(after[4])
   assert(b.uri:sub(-5) == "/b.tl" and #b.diagnostics == 0, b.uri)
@@ -95,7 +113,8 @@ local function test_a_template_is_checked_as_a_build_checks_one()
   assert(counts(valid) == "0", messages_of(nth(valid, 1)))
   local wrong = only(nth(served(root, { initialize(root),
     open(root, "page.tmpl", "{{type Page from data}}{{mode text}}one {{.nope}}") }), 1))
-  assert(wrong.message:find("invalid key 'nope' in record 'd' of type data.Page", 1, true) == 1, wrong.message)
+  assert(wrong.message == "`data.Page` has no field `nope` (field_unknown): declare `nope` in `data.Page`",
+    wrong.message)
   -- A place in the template's Teal is none in the template: its start.
   assert(edge(wrong, "start").line == 0 and edge(wrong, "start").character == 0)
   local broken = only(nth(served(root, { initialize(root),
@@ -110,42 +129,47 @@ end
 local function test_a_global_an_earlier_text_declared_is_gone()
   local root = project()
   local ran = served(root, { initialize(root),
-    open(root, "a.tl", "global G_X: integer\nreturn {}\n"),
-    change(root, "a.tl", "global G_X: string\nreturn {}\n"),
-    open(root, "b.tl", "global G_X: boolean\nreturn {}\n"),
+    open(root, "a.tl", "global G_X: integer\n" .. EMPTY),
+    change(root, "a.tl", "global G_X: string\n" .. EMPTY),
+    open(root, "b.tl", "global G_X: boolean\n" .. EMPTY),
   })
   assert(counts(ran) == "1,1,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)) .. "\n" ..
       messages_of(nth(ran, 3)))
-  assert(messages_of(nth(ran, 3)):find("a global is not allowed", 1, true), messages_of(nth(ran, 3)))
+  assert(messages_of(nth(ran, 3)) == "`global` declares a global, which only a declaration file does " ..
+      "(global_in_program): write `local`; a program's globals are exactly the ones a declaration file " ..
+      "(`.d.tl`) declares", messages_of(nth(ran, 3)))
 end
 
 local function test_a_refused_type_require_is_worded_as_a_build_words_it()
   local root = project()
-  assert(Fs.write(root .. "/ledger.tl", "local record Ledger\n  record Month\n    n: integer\n  end\n" ..
-      "  total: integer\nend\nlocal l: Ledger = { total = 1 }\nreturn l\n"))
+  assert(Fs.write(root .. "/ledger.tl", "local total: integer = 1\nreturn total\n"))
   local text = 'local type L = require("ledger")\nlocal m: L.Month = { n = 1 }\nreturn m\n'
-  local found = nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)
-  assert(#found == 2, messages_of(found))
-  local refused, unknown = assert(found[1]), assert(found[2])
-  assert(refused.message == "'require' did not return a type, got record Ledger -- ledger returns " ..
-      "a value of its record, not the record type: a `local type` require needs the type, as " ..
-      "`local record M ... end return M` or a `.d.tl` does; or require it as a value", refused.message)
-  -- No type is reached through `L`: what follows from the refusal is
-  -- told nothing more.
-  assert(unknown.message == "unknown type L.Month", unknown.message)
+  local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
+  assert(found.message == "the module `ledger` returns no declaration, so `L.Month` names no type " ..
+      "(member_missing): return a record, class, interface or enum from `ledger` (`return Name`), " ..
+      "or import a module that does", found.message)
+  assert(edge(found, "start").line == 1 and edge(found, "start").character == 9,
+    tostring(edge(found, "start").line) .. ":" .. tostring(edge(found, "start").character))
 end
 
+--- A standard-library module of cosmic's own tree is held to its stub:
+--- it must end by returning a name whose last declaration spells its type.
+--- The checker already refuses a module that returns anything else
+--- (`export_not_declared`), wherever it stands, so no module it accepts
+--- has a stub that keeps every statement.
 local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
   local root = project()
   local unpruned = "local x = 1\nreturn { x = x }\n"
-  local elsewhere = served(root, { initialize(root), open(root, "cosmic/thing.tl", unpruned) })
-  assert(counts(elsewhere) == "0", messages_of(nth(elsewhere, 1)))
+  local refusal = "this module returns `{ x = x }`, which no declaration describes (export_not_declared): " ..
+    "return a record, class, interface or enum of the module, or a local declared with its type"
+  local elsewhere = only(nth(served(root, { initialize(root), open(root, "cosmic/thing.tl", unpruned) }), 1))
+  assert(elsewhere.message == refusal, elsewhere.message)
   -- What tells cosmic's own tree ([`build.tree`]).
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/importer.tl", EMPTY))
   local own = only(nth(served(root, { initialize(root), open(root, "cosmic/thing.tl", unpruned) }), 1))
-  assert(own.message:find("its stub keeps every statement", 1, true), own.message)
+  assert(own.message == refusal, own.message)
   local pruned = "--- Things.\nlocal record thing\nend\n\n--- Twice `n`.\n" ..
     "function thing.double(n: integer): integer\n  return n * 2\nend\n\nreturn thing\n"
   local good = served(root, { initialize(root), open(root, "cosmic/thing.tl", pruned) })
@@ -153,15 +177,18 @@ local function test_cosmics_own_tree_holds_a_standard_module_to_its_stub()
 end
 
 --- A declaration is read under its own `.d.tl` below the root, as a
---- build reads it: a type inferred in it is said to be.
+--- build reads it: the module is the type it declares, whatever its
+--- implementation beside it is.
 local function test_a_declaration_is_read_under_its_own_name()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/decl.d.tl", 'local pair = { 1, "a" }\nreturn { pair = pair }\n'))
-  assert(Fs.write(root .. "/lib/decl.tl", "return { pair = { 1 } }\n"))
+  assert(Fs.write(root .. "/lib/decl.d.tl", "local record Decl\n  list: {integer}\nend\nreturn Decl\n"))
+  assert(Fs.write(root .. "/lib/decl.tl", 'local record Decl\n  list: {string}\nend\n' ..
+    'local d: Decl = { list = { "a" } }\nreturn d\n'))
   local text = 'local d = require("lib.decl")\nlocal s: string = d.list\nreturn s\n'
   local found = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
-  assert(found.message:find("(inferred at " .. root .. "/lib/decl.d.tl:1:14)", 1, true), found.message)
+  assert(found.message == "`d.list` is `{integer}`, where `string` is wanted as the value of `s` " ..
+      "(not_assignable): pass a value of type `string`, or change the declaration to `{integer}`", found.message)
 end
 
 --- Closing a document that stood for its file with another text checks
@@ -169,13 +196,13 @@ end
 --- with it.
 local function test_closing_an_unsaved_document_checks_the_others_again()
   local root = project()
-  local a = 'local b = require("b")\nreturn { b = b }\n'
+  local a = importing("b")
   assert(Fs.write(root .. "/a.tl", a))
-  assert(Fs.write(root .. "/b.tl", 'local c = require("c")\nreturn { c = c }\n'))
-  assert(Fs.write(root .. "/c.tl", "return {}\n"))
+  assert(Fs.write(root .. "/b.tl", importing("c")))
+  assert(Fs.write(root .. "/c.tl", EMPTY))
   local send = serving(root)
   local first = send({ initialize(root), open(root, "a.tl", a),
-    open(root, "c.tl", 'local a = require("a")\nreturn { a = a }\n') })
+    open(root, "c.tl", importing("a")) })
   assert(counts(first) == "0,1,1", counts(first))
   assert(only(nth(first, 3)).message == "a cycle of imports reaches a", messages_of(nth(first, 3)))
   local closed = publications(send({ close(root, "c.tl") }))
@@ -190,9 +217,9 @@ end
 --- changes read together are checked as their last.
 local function test_the_dependents_of_a_changed_or_closed_document_are_checked_again()
   local root = project()
-  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
-  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
-    "return { twice = twice }\n"
+  local integer = "local record helper\nend\n\nfunction helper.twice(n: integer): integer\n  return n * 2\nend\n\nreturn helper\n"
+  local text = "local record helper\nend\n\nfunction helper.twice(n: integer): string\n  return tostring(n * 2)\nend\n\n" ..
+    "return helper\n"
   assert(Fs.write(root .. "/helper.tl", integer))
   local main = 'local helper = require("helper")\nlocal n: integer = helper.twice(2)\nreturn n\n'
   local send = serving(root)
@@ -202,7 +229,8 @@ local function test_the_dependents_of_a_changed_or_closed_document_are_checked_a
   assert(#changed == 4, tostring(#changed))
   local dependent = assert(changed[4])
   assert(dependent.uri:sub(-8) == "/main.tl", dependent.uri)
-  assert(only(dependent.diagnostics).message:find("got string", 1, true),
+  assert(only(dependent.diagnostics).message == "`helper.twice(2)` is `string`, where `integer` is wanted " ..
+      "as the value of `n` (not_assignable): pass a value of type `integer`, or change the declaration to `string`",
     messages_of(dependent.diagnostics))
   local closed = publications(send({ close(root, "helper.tl") }))
   assert(#closed == 6, tostring(#closed))
@@ -222,12 +250,12 @@ end
 --- that does.
 local function test_a_dependent_reached_through_another_module_is_checked_again()
   local root = project()
-  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
-  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
-    "return { twice = twice }\n"
+  local integer = "local record helper\n  record Item\n    n: integer\n  end\nend\n\nreturn helper\n"
+  local text = "local record helper\n  record Item\n    n: string\n  end\nend\n\nreturn helper\n"
   assert(Fs.write(root .. "/helper.tl", integer))
-  assert(Fs.write(root .. "/mid.tl", 'local helper = require("helper")\nreturn { twice = helper.twice }\n'))
-  local top = 'local mid = require("mid")\nlocal n: integer = mid.twice(2)\nreturn n\n'
+  assert(Fs.write(root .. "/mid.tl", 'local helper = require("helper")\nlocal type Item = helper.Item\n\n' ..
+    "local record mid\nend\n\nfunction mid.item(): Item\n  return { n = 1 }\nend\n\nreturn mid\n"))
+  local top = 'local mid = require("mid")\nlocal item = mid.item()\nlocal n: integer = item.n\nreturn n\n'
   assert(Fs.write(root .. "/top.tl", top))
   local send = serving(root)
   -- fresh.tl is on no disk: the stage lists no module of it.
@@ -235,15 +263,17 @@ local function test_a_dependent_reached_through_another_module_is_checked_again(
     open(root, "fresh.tl", top) })) == "0,0,0")
   local changed = publications(send({ change(root, "helper.tl", text) }))
   -- What each document was told after the change, by its file's name.
-  local told: {string:string} = {}
+  local told: mut {string:string} = {}
   for i = 4, #changed do
     local publication = assert(changed[i])
     told[publication.uri:match("[^/]+$") or ""] = messages_of(publication.diagnostics)
   end
-  assert((told["top.tl"] or ""):find("got string", 1, true), "the open document requiring mid, " ..
-      "which requires helper: " .. (told["top.tl"] or "not published"))
-  assert((told["fresh.tl"] or ""):find("got string", 1, true), "the open document no stage lists, " ..
-      "requiring mid: " .. (told["fresh.tl"] or "not published"))
+  local wrong = "`item.n` is `string`, where `integer` is wanted as the value of `n` (not_assignable): " ..
+    "pass a value of type `integer`, or change the declaration to `string`"
+  assert(told["top.tl"] == wrong, "the open document requiring mid, which requires helper: " ..
+      (told["top.tl"] or "not published"))
+  assert(told["fresh.tl"] == wrong, "the open document no stage lists, requiring mid: " ..
+      (told["fresh.tl"] or "not published"))
 end
 
 --- In cosmic's own tree, a document of a tree of its own inside it
@@ -253,7 +283,7 @@ local function test_a_tree_of_its_own_inside_cosmics_publishes_nothing()
   -- What tells cosmic's own tree ([`build.tree`]).
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/importer.tl", EMPTY))
   local bad = 'local n: integer = "no"\nreturn n\n'
   local ran = served(root, { initialize(root), open(root, "ci/thing.tl", bad), open(root, "cin/thing.tl", bad) })
   assert(counts(ran) == "0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))

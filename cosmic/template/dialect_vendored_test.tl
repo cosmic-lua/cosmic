@@ -17,8 +17,8 @@ Test.policy{ grants = {
 
 --- The names of `family` that `source` holds as words, once each.
 local function names_in(source: string, family: string): {string}
-  local seen: {string:boolean} = {}
-  local names: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local names: mut {string} = {}
   for name in source:gmatch("%f[%w-](" .. family .. "[%a-]*)") do
     if not seen[name] then
       seen[name] = true

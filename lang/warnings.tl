@@ -158,7 +158,7 @@ function Warnings.kind_of(code: Warnings.Code): Warnings.Kind
   return KINDS[tostring(code)] or "hint"
 end
 
-function Warnings.add(list: {Warnings.Warning}, filename: string, tokens: Lexer.Tokens, code: Warnings.Code,
+function Warnings.add(list: mut {Warnings.Warning}, filename: string, tokens: Lexer.Tokens, code: Warnings.Code,
                       first: integer, last: integer, msg: string, fix: string)
   local to = math.max(first, last)
   if tokens.text[first] == nil or tokens.text[to] == nil then
@@ -172,7 +172,7 @@ function Warnings.add(list: {Warnings.Warning}, filename: string, tokens: Lexer.
 end
 
 --- What a binding declares, as the fork says it: an argument, a function, a type or a variable.
-local function declares_of(v: Scopes.Var, t: Types.Type | nil): string
+local function declares_of(v: Scopes.Var, t: Types.Type?): string
   local kind = v.kind
   if kind == "param" then
     return "argument"
@@ -181,9 +181,9 @@ local function declares_of(v: Scopes.Var, t: Types.Type | nil): string
   elseif kind == "record" or kind == "interface" or kind == "class" or kind == "enum" or kind == "alias" or
       kind == "import" then
     return "type"
-  elseif t ~= nil and t is Types.Fn then
+  elseif t ~= nil and (t.tag == "fn") then
     return "function"
-  elseif t ~= nil and t is Types.Named and t.value then
+  elseif t ~= nil and (t.tag == "named") and t.value then
     return "type"
   end
   return "variable"
@@ -206,7 +206,7 @@ end
 
 function Warnings.usage(filename: string, tokens: Lexer.Tokens, scoped: Scopes.Scoped, types: {integer: Types.Type},
                         display: function(t: Types.Type): string): {Warnings.Warning}
-  local out: {Warnings.Warning} = {}
+  local out: mut {Warnings.Warning} = {}
   for _, v in ipairs(scoped.list) do
     local name = v.name
     if name ~= "" and not v.exported and not v.nested and name:sub(1, 1) ~= "_" and name ~= "self" and
@@ -216,7 +216,7 @@ function Warnings.usage(filename: string, tokens: Lexer.Tokens, scoped: Scopes.S
       local t = types[v.id]
       if reads == 0 and writes > 0 then
         local declares = declares_of(v, t)
-        local shown = t ~= nil and " (of type " .. display(t) .. ")" or ""
+        local shown = if t ~= nil then " (of type " .. display(t) .. ")" else "" end
         Warnings.add(out, filename, tokens, "unread", v.declared, v.declared,
           declares .. " " .. name .. shown .. " is never read",
           "read " .. name .. " where its value is wanted, or remove it and the assignments to it")
@@ -224,9 +224,9 @@ function Warnings.usage(filename: string, tokens: Lexer.Tokens, scoped: Scopes.S
         local declares = declares_of(v, t)
         Warnings.add(out, filename, tokens, UNUSED[declares] or "unused_variable", v.declared, v.declared,
           "unused " .. declares .. " " .. name,
-          declares == "function" and "remove it, or return it from the module if other files call it" or
-            declares == "type" and "remove it, or use it in the signature or annotation it was meant for" or
-            "name it `_` or `_" .. name .. "` to say it is meant to be unused, or remove it")
+          if declares == "function" then "remove it, or return it from the module if other files call it" elseif
+            declares == "type" then "remove it, or use it in the signature or annotation it was meant for" else
+            "name it `_` or `_" .. name .. "` to say it is meant to be unused, or remove it" end)
       end
     end
   end

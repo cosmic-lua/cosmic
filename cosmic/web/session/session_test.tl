@@ -69,7 +69,7 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
       return Web.text("ok")
     end),
     Web.get("/flashes", function(req: Web.Request): Web.Response
-      local out: {string} = {}
+      local out: mut {string} = {}
       for _, each in ipairs(Session.of(req):take_flashes()) do
         out[#out + 1] = each.kind .. ":" .. each.text
       end
@@ -344,11 +344,11 @@ end
 local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_raised_for_the_developer()
   local failing: Session.Store = {
     revocable = false,
-    load = function(_: Session.Store, _t: string, _n: integer, _c: string): Session.Data | nil, string
+    load = function(_: Session.Store, _t: string, _n: integer, _c: string): Session.Data?, string
       return nil, "disk on fire"
     end,
     save = function(_: Session.Store, _p: string, _d: Session.Data, _ch: Session.Changes, _n: integer,
-                    _c: string): string | nil, string
+                    _c: string): string?, string
       return nil, "no space"
     end,
     destroy = function(_: Session.Store, _t: string): boolean, string return true, "" end,
@@ -545,7 +545,7 @@ local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_a
           local s = Session.of(req)
           s:set("ok", nest(Session.MAX_DEPTH - 1))
           local ran, why = pcall(function() s:set("too", nest(Session.MAX_DEPTH)) end)
-          reasons[#reasons + 1] = ran and "no error" or tostring(why)
+          reasons[#reasons + 1] = if ran then "no error" else tostring(why) end
           return Web.text("ok")
         end),
         Web.get("/has/:key", function(req: Web.Request): Web.Response
@@ -570,7 +570,7 @@ local function test_a_flash_that_is_not_utf8_raises_at_the_call()
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.post("/f", function(req: Web.Request): Web.Response
       local ran, why = pcall(function() Session.of(req):flash("info", "bad \xff text") end)
-      reasons[#reasons + 1] = ran and "no error" or tostring(why)
+      reasons[#reasons + 1] = if ran then "no error" else tostring(why) end
       return Web.text("ok")
     end) },
   }

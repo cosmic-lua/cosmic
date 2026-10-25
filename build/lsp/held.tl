@@ -25,7 +25,7 @@ local record held
 
   --- Where the program finds the document being checked, which it reads in place of what serves the module.
   record Slot
-    focus: Focus | nil
+    focus: Focus?
   end
 
   --- One session's program.
@@ -36,9 +36,9 @@ local record held
     standard: Driver.Provider
     slot: Slot
     --- What serves the module `module` to the program as the stub it serves its dependents (nil where none does).
-    serve: function(module: string): Driver.Source | nil
+    serve: function(module: string): Driver.Source?
     --- Whether the program holds a module it should not, so the next check makes it again.
-    dead: boolean
+    mut dead: boolean
   end
 end
 
@@ -50,11 +50,11 @@ local function none(_: string): boolean
 end
 
 --- A program over the options `options`, whose modules but the document are served by `serve`.
-function held.new(options: Pipeline.Options, serve: function(module: string): Driver.Source | nil): Program
+function held.new(options: Pipeline.Options, serve: function(module: string): Driver.Source?): Program
   local slot: held.Slot = { focus = nil }
-  local index = Driver.index({}, false, none)
+  local index = Driver.index({}, none)
   --- The document's source while it is the focus, then what serves the module.
-  local function provider(module: string): Driver.Source | nil
+  local function provider(module: string): Driver.Source?
     local focus = slot.focus
     if focus ~= nil and focus.module == module then return focus.source end
     return serve(module)
@@ -95,7 +95,7 @@ end
 --- Makes the module `source` is the document being checked, and the module that was before it the stub it serves again.
 --- Answers the program's reading of the document, or nil where the program lost a module on the way (`dead`): it holds the
 --- document it left as full source still, so nothing is checked in it, and the caller makes the program again.
-function held.document(self: Program, source: Driver.Source): Driver.Outcome | nil
+function held.document(self: Program, source: Driver.Source): Driver.Outcome?
   local before = self.slot.focus
   if before ~= nil and before.module ~= source.module then
     local served = self.serve(before.module)
@@ -118,7 +118,7 @@ function held.document(self: Program, source: Driver.Source): Driver.Outcome | n
 end
 
 --- Puts `text` in place of the document's, which the calls of [`Shape.record_of`] it makes are resolved in.
-function held.respell(self: Program, text: string): Driver.Outcome | nil
+function held.respell(self: Program, text: string): Driver.Outcome?
   local focus = self.slot.focus
   if focus == nil then return nil end
   return self.build:replace(focus.module, text)
@@ -127,8 +127,8 @@ end
 --- The program as [`Pipeline.review`] reads it for the document `text`, the file `file`, the module `module`: the index it
 --- judges a standard-library module's stub by is made of the document alone.
 function held.built(self: Program, file: string, text: string, module: string, tests: boolean): Pipeline.Built
-  local index = Driver.index({ { file, text, module } }, false, none, function(_: string, _: string): Driver.Extra
-    return { tests = tests, mend = nil }
+  local index = Driver.index({ { file, text, module } }, none, function(_: string, _: string): Driver.Extra
+    return { tests = tests }
   end)
   return { build = self.build, ceilings = self.options.ceilings, index = index, globals = self.options.globals,
     standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil }

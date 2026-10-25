@@ -39,7 +39,7 @@ end
 
 --- Whether the merge attached the run ahead's database, kept where the function that runs it can read it.
 local record Attached
-  attached: boolean
+  mut attached: boolean
 end
 
 --- The tables of build/shared_verdicts.tl's formats: `declared_v<n>`;
@@ -54,7 +54,7 @@ local patterns: {string} = { "declared_v[0-9]*", "stores_v[0-9]*", "verdicts_v[0
 --- was set aside beside them, which the maintenance command removes.
 local function caches(dir: string): {string}
   local listed, _ = Fs.list(dir)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(listed or {}) do
     if entry:sub(-3) == ".db" then out[#out + 1] = dir .. "/" .. entry end
   end
@@ -109,12 +109,12 @@ end
 
 --- The columns of `schema`'s table `name`, in order, and which of them
 --- the primary key holds; nil and why where they could not be read.
-local function columns(db: Sqlite.Handle, schema: string, name: string): {string} | nil, boolean, string
+local function columns(db: Sqlite.Handle, schema: string, name: string): {string}?, boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name, pk FROM pragma_table_info(?1, ?2) ORDER BY cid",
     { { text = name }, { text = schema } })
   if rows == nil then return nil, false, trouble end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local keyed = false
   for _, row in ipairs(rows) do
     out[#out + 1] = row:text(1)
@@ -124,7 +124,7 @@ local function columns(db: Sqlite.Handle, schema: string, name: string): {string
 end
 
 --- A count the query answers, or nil and why.
-local function counted(db: Sqlite.Handle, sql: string): integer | nil, string
+local function counted(db: Sqlite.Handle, sql: string): integer?, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then return nil, trouble end
   return math.tointeger(tonumber(assert(rows[1]):text(1))) or 0, ""
@@ -150,9 +150,9 @@ local function merge_file(from: string, into: string): string, string
     return "", "verdicts-merge: " .. into .. ": " .. open_trouble .. "; nothing merged\n"
   end
   local db: Sqlite.Handle = opened
-  local skipped: {string} = {}
-  local added: {string} = {}
-  local differing: {string} = {}
+  local skipped: mut {string} = {}
+  local added: mut {string} = {}
+  local differing: mut {string} = {}
   local session: Attached = { attached = false }
   local function work(): boolean, string
     local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))
@@ -162,7 +162,7 @@ local function merge_file(from: string, into: string): string, string
     session.attached = true
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return false, begin_trouble end
-    local globs: {string} = {}
+    local globs: mut {string} = {}
     for _, pattern in ipairs(patterns) do
       globs[#globs + 1] = "name GLOB '" .. pattern .. "'"
     end
@@ -196,11 +196,11 @@ local function merge_file(from: string, into: string): string, string
             end
           end
         end
-        local list: {string} = {}
-        local values: {string} = {}
+        local list: mut {string} = {}
+        local values: mut {string} = {}
         for _, column in ipairs(theirs) do
           list[#list + 1] = quote(column)
-          values[#values + 1] = column == "used_ns" and "0" or quote(column)
+          values[#values + 1] = if column == "used_ns" then "0" else quote(column) end
         end
         -- The digests of closure stores (build/shared_verdicts.tl's
         -- `stores`): one address names one store's bytes, so a digest
@@ -284,7 +284,7 @@ function Verdicts.merge(argv: {string}, env: {string:string}): CacheTrim.Command
   if not made then
     return { code = 0, out = "", err = "verdicts-merge: " .. dir .. ": " .. trouble .. "; nothing merged\n" }
   end
-  local outs, errs: {string}, {string} = {}, {}
+  local outs, errs: mut {string}, mut {string} = {}, {}
   for _, cache in ipairs(found) do
     outs[#outs + 1], errs[#errs + 1] = merge_file(cache, dir .. "/" .. Fs.basename(cache))
   end

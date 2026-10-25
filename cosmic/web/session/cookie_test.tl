@@ -35,7 +35,7 @@ local function test_flipping_any_character_of_a_token_makes_it_anonymous()
   local token = sign(store, { user = "ada" })
   for i = 1, #token do
     local c = token:sub(i, i)
-    local flipped = token:sub(1, i - 1) .. (c == "A" and "B" or "A") .. token:sub(i + 1)
+    local flipped = token:sub(1, i - 1) .. (if c == "A" then "B" else "A" end) .. token:sub(i + 1)
     local got, why = store:load(flipped, 1500, "session")
     assert(got == nil and why == "", "character " .. i .. " was not covered by the MAC")
   end
@@ -113,7 +113,7 @@ local function test_a_weak_or_missing_key_is_refused_when_the_store_is_made()
   assert(not ok and tostring(why):find("key 1", 1, true) and not tostring(why):find("short,", 1, true))
   ok, why = pcall(SessionCookie.store, { keys = {} })
   assert(not ok and tostring(why):find("one to five keys", 1, true))
-  local six: {string} = {}
+  local six: mut {string} = {}
   for i = 1, 6 do six[i] = Secret.generate() end
   ok = pcall(SessionCookie.store, { keys = six })
   assert(not ok)

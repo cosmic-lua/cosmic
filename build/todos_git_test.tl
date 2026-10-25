@@ -33,7 +33,7 @@ local record Replay
 end
 
 --- A recorded file of the replay's step.
-local function recorded(replay: Replay, name: string): string | nil
+local function recorded(replay: Replay, name: string): string?
   local data, _ = Fs.read(DATA .. "/" .. replay.scenario .. "/" .. replay.step .. "/" .. name)
   return data
 end
@@ -42,7 +42,7 @@ end
 --- replay's step: a call the recording holds no answer to, or one in
 --- another shape than the verb's, fails the test, where git would
 --- have said something the test cannot know.
-local function answer(replay: Replay, root: string, args: {string}): string | nil
+local function answer(replay: Replay, root: string, args: {string}): string?
   local said = table.concat(args, " ")
   local head = assert(recorded(replay, "head"), "no head recorded: " .. said)
   local verb = args[1]
@@ -52,7 +52,7 @@ local function answer(replay: Replay, root: string, args: {string}): string | ni
   elseif verb == "merge-base" then
     assert(#args == 4 and args[2] == "--is-ancestor" and args[4] .. "\n" == head, said)
     local ancestors = assert(recorded(replay, "ancestors"))
-    return ("\n" .. ancestors):find("\n" .. args[3] .. "\n", 1, true) and "" or nil
+    return if ("\n" .. ancestors):find("\n" .. args[3] .. "\n", 1, true) then "" else nil end
   elseif verb == "diff" then
     assert(#args == 7 and table.concat(args, " ", 1, 4) == "diff --name-only --no-renames --relative" and
         args[6] .. "\n" == head and args[7] == "--", said)
@@ -64,7 +64,7 @@ local function answer(replay: Replay, root: string, args: {string}): string | ni
       assert(args[3] == "--ignore-revs-file" and args[4] == root .. "/.git-blame-ignore-revs", said)
       at = 5
     end
-    local asked: {string} = {}
+    local asked: mut {string} = {}
     while args[at] == "-L" do
       asked[#asked + 1] = args[at + 1]
       at = at + 2
@@ -77,10 +77,10 @@ end
 
 --- A repository's marker in `root`, which is all the verb looks for
 --- before it asks git, and a replay of `scenario` to ask.
-local function replaying(root: string, scenario: string): Replay, function(string, {string}): string | nil
+local function replaying(root: string, scenario: string): Replay, function(string, {string}): string?
   assert(Fs.mkdirs(root .. "/.git"))
   local replay: Replay = { scenario = scenario, step = "1", ignored = false, ranges = "1,1" }
-  return replay, function(at: string, args: {string}): string | nil
+  return replay, function(at: string, args: {string}): string?
     return answer(replay, at, args)
   end
 end
@@ -148,7 +148,7 @@ local function test_blame_passes_over_the_commits_the_tree_ignores()
 end
 
 --- Lists the tree at `dir` once, staged first, and closes it.
-local function list_once(dir: string, run_git: function(string, {string}): string | nil): todos.Listing
+local function list_once(dir: string, run_git: function(string, {string}): string?): todos.Listing
   local handle = assert(work.open(dir))
   assert(work.stage(handle, false))
   local listing = assert(todos.list(handle.db, dir, run_git))

@@ -3,6 +3,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
+local Grammar = require("cosmic_ci.grammar")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Project = require("cosmic.project")
@@ -16,15 +17,15 @@ local record BuildPaths
   end
 end
 
-local directories: {string:string} = {}
+local directories: mut {string:string} = {}
 
 --- A command line of the driver that is already running, past its
 --- launcher where it has one, with `words` after it, and the environment
 --- and descriptors to start it with (`values` added to the launcher's).
 function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths.Driver
-  local argv: {string} = {}
-  local env: {string:string} = {}
-  local fds: {integer:integer | string} = {}
+  local argv: mut {string} = {}
+  local env: mut {string:string} = {}
+  local fds: mut {integer:integer | string} = {}
   for name, value in pairs(values) do env[name] = value end
   local relaunch, _why = Proc.relaunch()
   if relaunch then
@@ -35,7 +36,9 @@ function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths
     argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  return { argv = argv, env = env, fds = fds }
+  -- The driver is the pinned release, and what it runs here is the tree's Teal: the caller's values need not
+  -- carry the grammar (a fixture's environment does not).
+  return { argv = argv, env = Grammar.driver(env), fds = fds }
 end
 
 --- Where the running driver builds the project at `root`, which a

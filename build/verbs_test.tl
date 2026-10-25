@@ -73,7 +73,7 @@ local function test_e_runs_a_lua_chunk(tmp: string)
 end
 
 local function test_every_verb_is_classified()
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, verb in ipairs(Cli.order) do
     listed[verb] = true
     if passthrough[verb] == nil then

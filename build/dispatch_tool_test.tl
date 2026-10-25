@@ -40,7 +40,7 @@ print(table.concat(names, " "))
 ]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in (r.stdout or ""):gmatch("%S+") do
     if name:match("^build%.") then
       names[#names + 1] = name

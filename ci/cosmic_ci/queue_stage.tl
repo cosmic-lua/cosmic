@@ -67,7 +67,7 @@ local record QueueStage
 end
 
 local function sorted(names: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do out[#out + 1] = name end
   table.sort(out)
   return out
@@ -129,7 +129,7 @@ end
 --- and DIGEST unless the digest is empty or the key is RESTORED. Returns
 --- the key line it adds, "" where it adds none, or nil and why.
 local function entry(temp: string, seed: string, name: string, dir: string,
-                     prefix: string, digest: string, restored: string): string | nil, string
+                     prefix: string, digest: string, restored: string): string?, string
   if digest == "" or prefix .. digest == restored then return "", "" end
   local ok, why = Fs.copy_tree(temp .. "/" .. dir, seed .. "/" .. dir)
   if not ok then return nil, why end
@@ -165,7 +165,7 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   end
   local function get(name: string): string return env[name] or "" end
   local seed, zig = temp .. "/seed", temp .. "/seed-zig"
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   local function failed(why: string): integer
     host.warn("queue-stage: " .. why)
     return 1
@@ -178,7 +178,7 @@ function QueueStage.stage(env: {string:string}, host: QueueStage.Host): integer
   if not ok then return failed(why) end
 
   local verdicts_digest = get("VERDICTS_DIGEST")
-  local line: string | nil
+  local line: string?
   line, why = entry(temp, seed, "verdicts", "verdicts", get("VERDICTS_PREFIX"), verdicts_digest,
     get("VERDICTS_RESTORED"))
   if line == nil then return failed(why) end

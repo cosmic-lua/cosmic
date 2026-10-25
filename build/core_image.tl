@@ -83,7 +83,7 @@ local record Layout
   segments: {{integer}}
 end
 
-local function layout(bytes: string): Layout | nil
+local function layout(bytes: string): Layout?
   if #bytes < header_length or bytes:sub(1, 6) ~= elf_magic .. "\2\1" then return nil end
   local kind = field(bytes, 17, 2)
   if kind ~= 2 and kind ~= 3 then return nil end
@@ -98,7 +98,7 @@ local function layout(bytes: string): Layout | nil
   end
   local reach = math.max(phoff + phnum * program_header_length,
     shoff + shnum * section_header_length)
-  local segments: {{integer}} = {}
+  local segments: mut {{integer}} = {}
   local loads = false
   for index = 0, phnum - 1 do
     local at = phoff + index * program_header_length
@@ -143,7 +143,7 @@ end
 --- bytes, in their order, each after its length, under a domain of its
 --- own, fed to the hasher piece by piece; nil where it is keyed by its
 --- bytes whole.
-function core_image.digest(bytes: string): string | nil
+function core_image.digest(bytes: string): string?
   local found = layout(bytes)
   if found == nil then return nil end
   local hasher, _ = sha256_hasher()

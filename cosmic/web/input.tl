@@ -174,7 +174,7 @@ end
 --- The line that stands for `errors`: the first, and how many more.
 local function summary(errors: {Types.FieldError}): string
   local first = errors[1]
-  local line = first.field ~= "" and (first.field .. ": " .. first.message) or first.message
+  local line = if first.field ~= "" then (first.field .. ": " .. first.message) else first.message end
   if #errors > 1 then line = line .. (" (and %d more)"):format(#errors - 1) end
   return line
 end
@@ -184,8 +184,8 @@ local function invalid(status: integer, errors: {Types.FieldError}, submitted?: 
 end
 
 --- A copy of `q` without the names in `secret`.
-local function without(q: Url.Query, secret: {string} | nil): Url.Query
-  local hidden: {string:boolean} = {}
+local function without(q: Url.Query, secret: {string}?): Url.Query
+  local hidden: mut {string:boolean} = {}
   for _, name in ipairs(secret or {}) do hidden[name] = true end
   local out: Url.Query = { pairs = {}, by_name = {} }
   for _, pair in ipairs(q.pairs) do
@@ -219,7 +219,7 @@ function Input.media_type(req: Types.Request): Input.MediaType
   local value = req.headers["content-type"]
   if value == nil then return { essence = "", params = {} } end
   local head, rest = value:match("^([^;]*)(.*)$")
-  local params: {string:string} = {}
+  local params: mut {string:string} = {}
   local pos = 1
   while true do
     local from, to, name = rest:find("^;[ \t]*([%w!#$%%&'*+.^_`|~-]+)=", pos)
@@ -227,7 +227,7 @@ function Input.media_type(req: Types.Request): Input.MediaType
     pos = to + 1
     local text: string
     if rest:sub(pos, pos) == '"' then
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       pos = pos + 1
       while pos <= #rest do
         local c = rest:sub(pos, pos)
@@ -269,14 +269,14 @@ end
 
 --- The 415 for a body of another type than `kind` ("form", "json" or "multipart"), or
 --- nil when it is that type, in UTF-8 or no charset.
-local function wrong_type(req: Types.Request, kind: string): Types.Invalid | nil
+local function wrong_type(req: Types.Request, kind: string): Types.Invalid?
   local type_ = Input.media_type(req)
   local media, params = type_.essence, type_.params
   if kind == "multipart" then
     if media == "multipart/form-data" then return nil end
-    return stop(415, "body", "", "content_type", media == "" and
-        "the body needs a Content-Type of multipart/form-data" or
-        ("a Content-Type of multipart/form-data is needed, not " .. media))
+    return stop(415, "body", "", "content_type", if media == "" then
+        "the body needs a Content-Type of multipart/form-data" else
+        ("a Content-Type of multipart/form-data is needed, not " .. media) end)
   end
   local good: boolean
   if kind == "form" then
@@ -285,14 +285,14 @@ local function wrong_type(req: Types.Request, kind: string): Types.Invalid | nil
     good = media == "application/json" or (media:find("^application/[^/;]+%+json$") ~= nil)
   end
   if good and utf8_charset(params) then return nil end
-  local wanted = kind == "form" and "application/x-www-form-urlencoded" or "application/json"
+  local wanted = if kind == "form" then "application/x-www-form-urlencoded" else "application/json" end
   if good then
     return stop(415, "body", "", "content_type",
       ("a charset of utf-8 is needed, not %s, for %s"):format(params["charset"], media))
   end
-  return stop(415, "body", "", "content_type", media == "" and
-      ("the body needs a Content-Type of " .. wanted) or
-      ("a Content-Type of " .. wanted .. " is needed, not " .. media))
+  return stop(415, "body", "", "content_type", if media == "" then
+      ("the body needs a Content-Type of " .. wanted) else
+      ("a Content-Type of " .. wanted .. " is needed, not " .. media) end)
 end
 
 --- The status and code a failed body read has.
@@ -310,8 +310,8 @@ end
 --- The body of `req` as text, read at most `limit` bytes, kept on the
 --- request, and put back for a later reader; nil and why when the body is
 --- the wrong kind, too long or unreadable.
-local function body_text(req: Types.Request, kind: string, opts: Types.InputOptions | nil
-): string | nil, Types.Invalid
+local function body_text(req: Types.Request, kind: string, opts: Types.InputOptions?
+): string?, Types.Invalid
   local limit = opts and opts.max_bytes or DEFAULT_MAX
   if has_body(req) then
     local wrong = wrong_type(req, kind)
@@ -360,7 +360,7 @@ local CHUNK <const> = 16384
 --- `name`, a client's text, fit for a message: plain bytes and short.
 local function shown(name: string): string
   local plain = name:sub(1, 40):gsub("[^%w _.%-]", "?")
-  return plain .. (#name > 40 and "..." or "")
+  return plain .. (if #name > 40 then "..." else "" end)
 end
 
 --- The status and code a failed read of a multipart body has: the
@@ -384,7 +384,7 @@ end
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
   local passed = { total = 0 }
   local reader: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max?: integer): string?, string
       local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed.total))
       if chunk == nil then return nil, why end
       passed.total = passed.total + #chunk
@@ -399,19 +399,19 @@ end
 --- The file an upload is being written to, where the closer of a killed
 --- task can reach it.
 local record Spool
-  writer?: Stream.FileWriter
+  mut writer?: Stream.FileWriter
 end
 
 --- What a multipart read has spooled so far: the uploads kept, and the
 --- private directory made for them when the caller named none.
 local record Spooled
-  kept: {Input.Upload}
-  made?: string
+  mut kept: mut {Input.Upload}
+  mut made?: string
 end
 
 --- The value of a `<close>` variable: only its `__close` matters.
 local record Unwinding
-  metamethod __close: function(Unwinding)
+  __close: function(Unwinding)
 end
 
 --- The multipart body of `req`, at most `limit` bytes, read once and kept.
@@ -419,7 +419,7 @@ end
 --- as it arrives, and a part over its cap ends the read at once: memory
 --- is bounded by the parser's buffer and the text parts' caps, not by the
 --- body.
-local function read_multipart(req: Types.Request, limit: integer, opts: Types.InputOptions | nil
+local function read_multipart(req: Types.Request, limit: integer, opts: Types.InputOptions?
 ): Types.Parsed<Input.Multipart>
   local cached = req:get(MULTIPART)
   if cached ~= nil then
@@ -464,7 +464,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- private directory under the temp directory is the system's to clean.
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
-  local files: {string:{Input.Upload}} = {}
+  local files: mut {string:{Input.Upload}} = {}
   local m: Input.Multipart = { fields = fields, files = files, size = 0 }
   m.discard = function(_self: Input.Multipart)
     for _, upload in ipairs(spooled.kept) do
@@ -543,7 +543,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         spooling.writer = writer
         local size = 0
         local verdict, detail = "ok", ""
-        local chunk: string | nil = first
+        local chunk: string? = first
         local rwhy = ""
         while chunk ~= nil do
           size = size + #chunk
@@ -583,7 +583,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         list[#list + 1] = upload
       end
     else
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       local size = 0
       while true do
         local chunk, rwhy = part.body:read(CHUNK)
@@ -626,7 +626,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     -- TODO: once the app can run a hook after the reply is written, remove
     -- the files there, so a handler may answer with a stream over an upload.
     local cleanup: Stream.Reader = {
-      read = function(_self: Stream.Reader, _max?: integer): string | nil, string return nil, "" end,
+      read = function(_self: Stream.Reader, _max?: integer): string?, string return nil, "" end,
       close = function(_self: Stream.Reader): boolean, string
         m:discard()
         return true, ""
@@ -644,7 +644,7 @@ end
 --- @param opts Url.QueryOptions | nil What [`Url.decode_query`] takes
 --- @return Types.Parsed<Url.Query> The query, or status 400
 function Input.query(req: Types.Request, opts?: Url.QueryOptions): Types.Parsed<Url.Query>
-  local q, why: Url.Query | nil, string
+  local q, why: Url.Query?, string
   if opts == nil then
     q, why = req:query()
   else
@@ -761,18 +761,18 @@ local function trimmed(text: string): string
 end
 
 --- The integer `text` spells, or nil.
-local function parse_integer(text: string): integer | nil
+local function parse_integer(text: string): integer?
   local s = trimmed(text)
   if not s:find(ints) then return nil end
   local sign, digits = s:match("^([+-]?)(%d+)$")
   digits = digits:gsub("^0+", "")
-  local top = sign == "-" and "9223372036854775808" or "9223372036854775807"
+  local top = if sign == "-" then "9223372036854775808" else "9223372036854775807" end
   if #digits > #top or (#digits == #top and digits > top) then return nil end
   return math.tointeger(tonumber(s))
 end
 
 --- The finite number `text` spells, or nil.
-local function parse_number(text: string): number | nil
+local function parse_number(text: string): number?
   local s = trimmed(text)
   local body = s:gsub("^[+-]", "", 1)
   local mantissa, exponent = body:match("^([%d.]+)[eE]([+-]?%d+)$")
@@ -787,7 +787,7 @@ end
 local TRUE <const>: {string:boolean} = { ["true"] = true, on = true, ["1"] = true, yes = true }
 local FALSE <const>: {string:boolean} = { ["false"] = true, off = true, ["0"] = true, no = true, [""] = true }
 
-local function parse_boolean(text: string): boolean | nil
+local function parse_boolean(text: string): boolean?
   local s = text:lower()
   if TRUE[s] then return true end
   if FALSE[s] then return false end
@@ -799,7 +799,7 @@ local record Walk
   q: Url.Query
   source: string
   repeated: boolean
-  errors: {Types.FieldError}
+  errors: mut {Types.FieldError}
 end
 
 local function refuse(w: Walk, field: string, code: string, message: string)
@@ -807,7 +807,7 @@ local function refuse(w: Walk, field: string, code: string, message: string)
 end
 
 local function listed(spec: Shape.Spec): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, v in ipairs(assert(spec.values)) do parts[i] = tostring(v) end
   return table.concat(parts, ", ")
 end
@@ -856,7 +856,7 @@ local function coerce(w: Walk, field: string, spec: Shape.Spec, text: string): a
 end
 
 --- The value of the scalar `field`, given the text sent for it or nil.
-local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string | nil): any
+local function scalar(w: Walk, field: string, spec: Shape.Spec, text: string?): any
   local kind = spec.kind
   if text == nil or (text == "" and kind ~= "string" and kind ~= "any") then
     if spec.optional then return nil end
@@ -884,7 +884,7 @@ local function bind_list(w: Walk, field: string, spec: Shape.Spec): any
     if spec.optional then return nil end
     return Json.array({})
   end
-  local out: {any} = {}
+  local out: mut {any} = {}
   local of = assert(spec.of)
   for i, text in ipairs(values) do
     out[i] = scalar(w, field .. "." .. (i - 1), of, text)
@@ -912,7 +912,7 @@ end
 
 --- The first component of `name` after `prefix` and a dot, or nil where
 --- `name` is not below `prefix`.
-local function component(name: string, prefix: string): string | nil
+local function component(name: string, prefix: string): string?
   local rest = name
   if prefix ~= "" then
     local head = prefix .. "."
@@ -925,8 +925,8 @@ end
 bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer): {string:any}
   local fields, names = assert(spec.fields), assert(spec.names)
   if spec.strict then
-    local unknown: {string} = {}
-    local seen: {string:boolean} = {}
+    local unknown: mut {string} = {}
+    local seen: mut {string:boolean} = {}
     for name in pairs(w.q.by_name) do
       local part = component(name, prefix)
       if part ~= nil and fields[part] == nil and not (prefix == "" and RESERVED[part]) and not seen[name] then
@@ -937,7 +937,7 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Spec, depth: integer
     table.sort(unknown)
     for _, name in ipairs(unknown) do refuse(w, name, "unknown", "is not a known field") end
   end
-  local out: {string:any} = {}
+  local out: mut {string:any} = {}
   for _, name in ipairs(names) do
     local field = prefix == "" and name or (prefix .. "." .. name)
     out[name] = bind_node(w, field, fields[name], depth)
@@ -953,7 +953,7 @@ local SCALARS <const>: {string:boolean} = {
 --- Why `spec` cannot be carried by `source`, or "" when it can.
 local function check_node(spec: Shape.Spec, field: string, source: string, depth: integer): string
   local kind = spec.kind
-  local at = field == "" and "the spec" or ("field " .. field)
+  local at = if field == "" then "the spec" else ("field " .. field) end
   if not (SCALARS[kind] or kind == "map" or kind == "record" or kind == "list") then
     return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, tostring(kind))
   end
@@ -1012,7 +1012,7 @@ end
 --- The JSON Pointer `pointer`, as a dotted field name: `/a/0/b` is `a.0.b`.
 local function dotted(pointer: string): string
   if pointer == "" then return "" end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in pointer:sub(2):gmatch("[^/]*") do
     parts[#parts + 1] = (part:gsub("~1", "/"):gsub("~0", "~"))
   end
@@ -1057,7 +1057,7 @@ local function bind_json<T>(value: any, spec: Shape.Spec): Types.Parsed<T>
   -- TODO: once cosmic.shape reports a failing path as steps, read them in
   -- place of splitting the message, and collect every failure of a JSON
   -- body as a form's are.
-  local out, why: T | nil, string = Shape.into(value, spec)
+  local out, why: T?, string = Shape.into(value, spec)
   if out == nil then
     local pointer, reason = split_failure(why)
     return { invalid = invalid(422, { { source = "body", field = dotted(pointer), code = failure_code(reason),
@@ -1066,7 +1066,7 @@ local function bind_json<T>(value: any, spec: Shape.Spec): Types.Parsed<T>
   return { value = out }
 end
 
-local function with_source(opts: Types.InputOptions | nil, source: string): Types.InputOptions
+local function with_source(opts: Types.InputOptions?, source: string): Types.InputOptions
   local out: Types.InputOptions = {}
   if opts ~= nil then
     out.max_bytes, out.secret, out.repeated = opts.max_bytes, opts.secret, opts.repeated
@@ -1094,7 +1094,7 @@ function Input.bind_strings<T>(q: Url.Query, spec: Shape.Spec, opts?: Types.Inpu
   if #w.errors > 0 then
     return { invalid = invalid(422, w.errors, without(q, opts and opts.secret)) }
   end
-  local out, why: T | nil, string = Shape.into(tree, spec)
+  local out, why: T?, string = Shape.into(tree, spec)
   if out == nil then
     -- A tree the binder built that Shape refuses is the binder's bug; the
     -- client is told what Shape said.
@@ -1175,7 +1175,7 @@ end
 --- @param opts Types.InputOptions | nil `secret`
 --- @return Types.Parsed<T> The record, or status 422
 function Input.path_into<T>(req: Types.Request, typed: Shape.Typed<T>, opts?: Types.InputOptions): Types.Parsed<T>
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(req.params) do names[#names + 1] = name end
   table.sort(names)
   local q: Url.Query = { pairs = {}, by_name = {} }
@@ -1208,10 +1208,10 @@ end
 --- @param bad Types.Invalid The refusal
 --- @return {string:string} The message of each field
 function Input.errors_by_field(bad: Types.Invalid): {string:string}
-  local joined: {string:string} = {}
+  local joined: mut {string:string} = {}
   for _, e in ipairs(bad.errors) do
     local before = joined[e.field]
-    joined[e.field] = before ~= nil and (before .. "; " .. e.message) or e.message
+    joined[e.field] = if before ~= nil then (before .. "; " .. e.message) else e.message end
   end
   return joined
 end

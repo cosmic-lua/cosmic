@@ -176,7 +176,7 @@ local function test_a_chunked_body_is_decoded_and_held_to_its_limits()
     local _, why = body_of(head .. bare)
     assert(why == "bad", bare .. ": " .. why)
   end
-  local zeros: {string} = {}
+  local zeros: mut {string} = {}
   for _ = 1, 40 do zeros[#zeros + 1] = string.rep("0", 40) .. "1\r\nx\r\n" end
   local _, padded = body_of(head .. table.concat(zeros) .. "0\r\n\r\n")
   assert(padded == "over", padded)
@@ -188,7 +188,7 @@ end
 --- many small chunks are taken as one large one is.
 local function test_many_small_chunks_pass_as_one_large_one()
   local limits: wire.Limits = { head_bytes = 1024, body_bytes = 50000 }
-  local parts: {string} = { "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n" }
+  local parts: mut {string} = { "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n" }
   for _ = 1, 20000 do parts[#parts + 1] = "1\r\nx\r\n" end
   parts[#parts + 1] = "0\r\n\r\n"
   local got, state = body_of(table.concat(parts), limits)
@@ -317,12 +317,12 @@ end
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
   local record Giving is Stream.Reader
-    pieces: {string}
-    read: function(Giving, max_bytes?: integer): string | nil, string
+    pieces: mut {string}
+    read: function(Giving, max_bytes?: integer): string?, string
     close: function(Giving): boolean, string
   end
   local giving_methods = {
-    read = function(self: Giving, _max_bytes?: integer): string | nil, string
+    read = function(self: Giving, _max_bytes?: integer): string?, string
       local piece = table.remove(self.pieces, 1)
       if piece == nil then return nil, "" end
       return piece, ""

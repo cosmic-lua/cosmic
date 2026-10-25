@@ -32,14 +32,14 @@ local socket = raw_behind("cosmic.net") as raw_socket -- cast: the table core/so
 local FLIGHT <const> = socket.CONNECTOR_FLIGHT
 
 --- Connects `connector` to the tcp address `host`:`port`, waiting `wait`.
-local function dial(connector: Net.Connector, host: string, port: integer, wait?: integer): Net.Conn | nil, string
+local function dial(connector: Net.Connector, host: string, port: integer, wait?: integer): Net.Conn?, string
   return connector:connect(Net.tcp(host, port), { timeout_ns = wait })
 end
 
 --- The descriptors this worker holds, the one listing them included in
 --- every sample: compare counts, never a host-wide baseline.
 local function descriptor_count(): integer
-  local path = assert(sys.uname()).sysname == "Darwin" and "/dev/fd" or "/proc/self/fd"
+  local path = if assert(sys.uname()).sysname == "Darwin" then "/dev/fd" else "/proc/self/fd" end
   local count = 0
   for name in pairs((assert(sys.readdir(path)))) do
     if name:match("^%d+$") ~= nil then count = count + 1 end
@@ -290,7 +290,7 @@ end
 local function test_replies_out_of_order_reach_the_requests_their_tags_name()
   Poll.run(function()
     local pair = stream_pair()
-    local endpoints: {raw_process.ConnectorEndpoint} = {}
+    local endpoints: mut {raw_process.ConnectorEndpoint} = {}
     for i = 1, 3 do endpoints[i] = { host = "127.0.0." .. i, port = 9 } end
     local connector = assert(Connector.adopted(pair[1], endpoints, false, Clock.seconds(5)))
     local tags: {integer: integer} = {}
@@ -307,7 +307,7 @@ local function test_replies_out_of_order_reach_the_requests_their_tags_name()
       end
     end)
     local answers: {integer: string} = {}
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     for i = 1, 3 do
       tasks[i] = Poll.spawn(function()
         local conn, why = dial(connector, "127.0.0." .. i, 9, Clock.seconds(5))
@@ -347,7 +347,7 @@ local function test_a_reply_no_request_was_tagged_with_fails_every_request_waiti
     assert(busy == nil and busy_why:find("the connector is busy", 1, true) ~= nil, tostring(busy_why))
     assert(not connector:ended(), "a refusal for want of room leaves the stream in step")
     local answers: {string} = {}
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     for i = 1, 3 do
       tasks[i] = Poll.spawn(function()
         local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(5))
@@ -377,13 +377,13 @@ local function test_a_reply_another_task_reads_wakes_its_owner()
     local pair = stream_pair()
     local connector = assert(Connector.adopted(pair[1], { { host = "127.0.0.1", port = 9 },
       { host = "127.0.0.2", port = 9 } }, false, Clock.seconds(5)))
-    local first_tag = { value = nil as integer | nil }
+    local first_tag = { value = nil as integer? }
     local serving = stand_in(pair[2], function(tag: integer, request: string)
       if string.unpack(">I4", request, 5) == 1 then first_tag.value = tag end
     end)
     local started = Clock.monotonic_ns()
-    local first = { value = nil as string | nil }
-    local took = { value = nil as integer | nil }
+    local first = { value = nil as string? }
+    local took = { value = nil as integer? }
     local asking = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -422,8 +422,8 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         assert(sys.write(pair[2], string.pack(">I4I4", 999, 0)) == 8)
       end
     end)
-    local taken = { value = nil as {integer} | nil }
-    local tasks: {Poll.Task} = {}
+    local taken = { value = nil as {integer}? }
+    local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
         local conn, _ = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
@@ -433,7 +433,7 @@ local function test_a_lost_stream_sends_nothing_to_its_closed_descriptor()
         if taken.value == nil then taken.value = stream_pair() end
       end)
     end
-    local past = { value = nil as string | nil }
+    local past = { value = nil as string? }
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)
@@ -465,13 +465,13 @@ local function test_a_task_cancelled_waiting_for_room_asks_nothing()
       Clock.seconds(30)))
     local tags: {integer} = {}
     local serving = stand_in(pair[2], function(tag: integer, _: string) tags[#tags + 1] = tag end)
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     for i = 1, FLIGHT do
       tasks[i] = Poll.spawn(function()
         local _, _ = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       end)
     end
-    local cancelled = { value = nil as string | nil }
+    local cancelled = { value = nil as string? }
     local waiting = Poll.spawn(function()
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(3))
       assert(conn == nil)

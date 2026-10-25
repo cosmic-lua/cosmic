@@ -21,7 +21,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     return Fuzz.bytes(src, 48)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 24) do
     out[#out + 1] = Fuzz.pick(src, TEXT)
   end
@@ -103,7 +103,7 @@ local CLIMBS <const> = { "..", "%2e%2e", "%2E%2E", ".%2e", "%2E." }
 --- (`e`), which mostly holds no `/` or NUL, so that most paths are
 --- read rather than refused.
 local function gen_path(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
     local kind = src:int(0, 6)
     if kind == 6 then
@@ -129,11 +129,11 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
     requires = { "segments", "root", "refused", "climb refused" },
     shares = { segments = 0.1, refused = 0.1 },
     check = function(input: string): boolean, string
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       -- The names a segment escaped from them must read back as, when
       -- the path holds only such segments and no name is dropped or
       -- refused by its value.
-      local names: {string} = {}
+      local names: mut {string} = {}
       local only_names = true
       for _, part in ipairs(Fuzz.unpack(input)) do
         if part:sub(1, 1) == "e" then
@@ -176,7 +176,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
           end
         end
       end
-      Fuzz.label(#segs == 0 and "root" or "segments")
+      Fuzz.label(if #segs == 0 then "root" else "segments" end)
       return true, ""
     end,
   })
@@ -238,9 +238,9 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local function maybe(choice: string): string
-        return src:int(0, 1) == 0 and "" or choice
+        return if src:int(0, 1) == 0 then "" else choice end
       end
-      local path: {string} = {}
+      local path: mut {string} = {}
       while Fuzz.more(src, #path, 4) do path[#path + 1] = "/" .. Url.escape(gen_text(src)) end
       return Fuzz.pack({ Fuzz.pick(src, SCHEMES), maybe("u" .. Fuzz.pick(src, USERINFO)), Fuzz.pick(src, HOSTS),
         maybe("p" .. Fuzz.pick(src, PORTS)), table.concat(path), maybe("q" .. Url.escape(gen_text(src)) .. "?/"),
@@ -251,9 +251,9 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
       local f = Fuzz.unpack(input)
       if #f ~= 7 then return false, ("%d fields, not the 7 the generator packs"):format(#f) end
       local scheme, userinfo, host, port, path, query, fragment = f[1], f[2], f[3], f[4], f[5], f[6], f[7]
-      local url = scheme .. "://" .. (userinfo ~= "" and userinfo:sub(2) .. "@" or "") .. host ..
-        (port ~= "" and ":" .. port:sub(2) or "") .. path .. (query ~= "" and "?" .. query:sub(2) or "") ..
-        (fragment ~= "" and "#" .. fragment:sub(2) or "")
+      local url = scheme .. "://" .. (if userinfo ~= "" then userinfo:sub(2) .. "@" else "" end) .. host ..
+        (if port ~= "" then ":" .. port:sub(2) else "" end) .. path .. (if query ~= "" then "?" .. query:sub(2) else "" end) ..
+        (if fragment ~= "" then "#" .. fragment:sub(2) else "" end)
       local parts, why = Url.parse(url)
       if parts == nil then return false, ("refused %q: %s"):format(url, why) end
       local want_host = host:lower():match("^%[(.*)%]$") or host:lower()
@@ -284,7 +284,7 @@ end
 
 --- Pairs drawn from [`gen_text`], packed as the names and values in turn.
 local function gen_pairs(src: Fuzz.Source): string
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   while Fuzz.more(src, #fields // 2, 8) do
     fields[#fields + 1] = gen_text(src)
     fields[#fields + 1] = gen_text(src)
@@ -301,7 +301,7 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
     shares = { pairs = 0.5 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local want: {Url.Pair} = {}
+      local want: mut {Url.Pair} = {}
       for i = 1, #fields - 1, 2 do
         want[#want + 1] = { name = fields[i], value = fields[i + 1] }
       end
@@ -314,7 +314,7 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
       if #q.pairs ~= #want then
         return false, ("%q read %d pairs, not %d"):format(text, #q.pairs, #want)
       end
-      local seen: {string:integer} = {}
+      local seen: mut {string:integer} = {}
       for i, p in ipairs(want) do
         local got = q.pairs[i]
         if got.name ~= p.name or got.value ~= p.value then
@@ -340,11 +340,11 @@ local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
     name = "url query total",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       while Fuzz.more(src, #pieces, 12) do
         pieces[#pieces + 1] = (gen_text(src):gsub("&", "%%26"))
       end
-      local text = table.concat(pieces, src:int(0, 3) == 0 and ";" or "&")
+      local text = table.concat(pieces, if src:int(0, 3) == 0 then ";" else "&" end)
       if src:int(0, 2) == 0 then
         text = Fuzz.mutate(src, text, 3)
       end

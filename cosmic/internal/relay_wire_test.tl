@@ -379,7 +379,7 @@ end
 
 local function test_connect_caps_headers_at_100()
   local function with(count: integer): string
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for i = 1, count do
       lines[i] = "H" .. i .. ": v"
     end
@@ -660,12 +660,12 @@ end
 local function test_client_hello_caps_records_and_size()
   local message = Fixture.hello({ name = "caps.example", size = 200 })
   assert(#message > 64)
-  local sizes63: {integer} = {}
+  local sizes63: mut {integer} = {}
   for i = 1, 63 do
     sizes63[i] = 1
   end
   assert(sni_of(Fixture.records(message, sizes63)) == "caps.example")
-  local sizes65: {integer} = {}
+  local sizes65: mut {integer} = {}
   for i = 1, 64 do
     sizes65[i] = 1
   end
@@ -727,7 +727,7 @@ local function test_client_hello_refuses_broken_lengths()
     input: string
     says: string
   end
-  local cases: {Case} = {
+  local cases: mut {Case} = {
     { input = records_of("\2" .. good:sub(2)), says = "not a ClientHello" },
     { input = records_of("\1\0\0\0"), says = "shorter than its fixed fields" },
     { input = records_of(Fixture.hello({ name = "a.example", session = 33 })), says = "session id" },
@@ -829,7 +829,7 @@ end
 
 --- `input` fed to `feed` a byte at a time, and the last answer.
 local function dribbled<T>(feed: function(string): T, input: string): T
-  local answer: T | nil
+  local answer: T?
   for at = 1, #input do
     answer = feed(input:sub(at, at))
   end
@@ -852,7 +852,7 @@ local function string_work(work: function()): integer
   end
   local saved: {Patched} = {}
   --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
-  local function patch(host: {string: any}, name: string, cost: function({any}, {any}): integer)
+  local function patch(host: mut {string: any}, name: string, cost: function({any}, {any}): integer)
     local original = host[name] as function(...: any): any...
     saved[#saved + 1] = { host = host, name = name, original = original }
     host[name] = function(...: any): any...
@@ -907,7 +907,7 @@ local function test_a_head_fed_a_byte_at_a_time_costs_its_length()
   end
   local input = head(16384)
   assert(#input == 16384)
-  local answer = { value = nil as Wire.Connect | nil }
+  local answer = { value = nil as Wire.Connect? }
   local work = string_work(function()
     local reader = Wire.connect_reader()
     answer.value = dribbled(function(chunk: string): Wire.Connect
@@ -948,12 +948,12 @@ end
 
 local function test_a_hello_fed_a_byte_at_a_time_costs_its_length()
   local hello = Fixture.hello({ name = "dribble.example", size = 16384 })
-  local sizes: {integer} = {}
+  local sizes: mut {integer} = {}
   for i = 1, 63 do
     sizes[i] = 1
   end
   for _, input in ipairs({ Fixture.records(hello, { 16000 }), Fixture.records(hello, sizes), Fixture.records(hello, { 300, 400 }) }) do
-    local answer = { value = nil as Wire.Hello | nil }
+    local answer = { value = nil as Wire.Hello? }
     local work = string_work(function()
       local reader = Wire.hello_reader()
       answer.value = dribbled(function(chunk: string): Wire.Hello
@@ -977,7 +977,7 @@ local function test_blanks_around_a_header_value_cost_its_length()
   for _, blank in ipairs({ " ", "\t", " \t" }) do
     local value = "a" .. blank:rep(1500) .. "b" .. blank:rep(1500)
     local input = Fixture.connect("example.com:80", { "Proxy-Authorization: " .. blank:rep(100) .. value })
-    local answer = { value = nil as Wire.Connect | nil }
+    local answer = { value = nil as Wire.Connect? }
     local took = seconds(function()
       answer.value = connect_head(input)
     end)

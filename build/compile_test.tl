@@ -1,34 +1,19 @@
---- `cosmic compile` (build/compile.tl), run in this process with the
---- carried compiler: a type error is reported and its Lua written anyway,
---- a syntax error is refused naming file and line and writes nothing, a
---- well-typed file's Lua is what the compiler's own `gen` writes, and each
---- file of several gets its own output. build/compile_tool_test.tl starts
---- the program for what a process alone shows, and
---- build/compile_checker_test.tl compiles the checker's own source.
+--- `cosmic compile` (build/compile.tl), run in this process: a type error is reported and its Lua written anyway, a syntax
+--- error is refused naming file and line and writes nothing, a well-typed file's Lua is what the generator writes, and each
+--- file of several gets its own output. build/compile_tool_test.tl starts the program for what a process alone shows, and
+--- build/compile_grammar_test.tl holds the pipeline it runs.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compile = require("build.compile")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
+local Grammar = require("build.compile_grammar")
 
 Test.policy{}
 
 local record Ran
-  code: integer
-  out: string
-  err: string
-end
-
-local held: {compiler} = {}
-
---- The compiler this binary carries, without its line information (the
---- same Lua, and faster under the coverage hook), loaded once.
-local function compiler_in_use(): compiler
-  if held[1] == nil then
-    held[1] = assert(teal.load(true))
-  end
-  return held[1]
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- The directory of the test's files, which a run takes as `--root`
@@ -37,7 +22,7 @@ local where: {string} = {}
 
 --- One run: `words` after `cosmic compile`, its output collected.
 local function run(words: {string}): Ran
-  local argv: {string} = { "compile" }
+  local argv: mut {string} = { "compile" }
   local at = 2
   local rooted = false
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
@@ -53,7 +38,7 @@ local function run(words: {string}): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-  }, compiler_in_use())
+  })
   return ran
 end
 
@@ -64,13 +49,11 @@ local function file(tmp: string, name: string, text: string): string
   return path
 end
 
---- What the compiler's own `gen` writes for `text` under the defaults every
---- compile of the tree uses.
+--- What the generator writes for `text`, compiled alone as `compile` compiles a file named on its command line.
 local function generated(text: string): string
-  local built = compiler_in_use()
-  local env = assert(built.new_env({ defaults = teal.defaults() }))
-  local code, result = built.gen(text, env, nil, "tl")
-  assert(code ~= nil and #result.syntax_errors == 0)
+  local made = Grammar.compile({ { path = "x.tl", relative = "x.tl", text = text, declaration = false } })
+  local code = assert(made[1]).code
+  assert(code ~= nil and #assert(made[1]).syntax_errors == 0)
   return code
 end
 
@@ -115,7 +98,7 @@ end
 local function test_a_well_typed_file_gives_the_lua_the_compiler_writes(tmp: string)
   local text = "local record Point\n  x: integer\n  y: integer\nend\n" ..
     "local function sum(p: Point): integer\n  return p.x + p.y\nend\n" ..
-    "return sum({ x = 1, y = 2 })\n"
+    "local total: integer = sum({ x = 1, y = 2 })\nreturn total\n"
   local ran = run({ file(tmp, "point.tl", text) })
   assert(ran.code == 0, ran.err)
   assert(ran.err == "", ran.err)
@@ -158,23 +141,29 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   refused({ "--nosuch", one }, "--nosuch")
 end
 
+--- The one global the cases below use: a program has no globals but the ones a `.d.tl` file given declares.
+local REQUIRE <const> = "global require: function(string): any\n"
+
 local function test_a_d_tl_is_skipped_with_a_note_and_types_a_require(tmp: string)
+  local globals = file(tmp, "globals.d.tl", REQUIRE)
   local decl = file(tmp, "shapes.d.tl", "local record Shape\n  n: integer\nend\nreturn Shape\n")
   local user = file(tmp, "user.tl", "local Shape = require(\"shapes\")\nlocal s: Shape = { n = 1 }\nreturn s\n")
-  local ran = run({ "--errors", "-o", tmp .. "/out", decl, user })
+  local ran = run({ "--errors", "-o", tmp .. "/out", globals, decl, user })
   assert(ran.code == 0, ran.err)
-  assert(ran.err:find("shapes.d.tl: declares types and has no Lua", 1, true), ran.err)
+  assert(ran.err:find("shapes.d.tl: declares globals and types and has no Lua", 1, true), ran.err)
   assert(not ran.err:find("not found", 1, true) and not ran.err:find("type error", 1, true), ran.err)
   assert(Fs.exists(tmp .. "/out/user.lua") == true and Fs.exists(tmp .. "/out/shapes.lua") == false)
 end
 
 --- Names are relative to the root, however a path is spelt.
 local function test_a_path_is_taken_below_the_root_however_it_is_spelt(tmp: string)
-  local lib = file(tmp, "lib.tl", "return { n = 1 }\n")
+  local globals = file(tmp, "globals.d.tl", REQUIRE)
+  local lib = file(tmp, "lib.tl", "local record lib\n  n: integer\nend\nlocal l: lib = { n = 1 }\nreturn l\n")
   local main = file(tmp, "main.tl", "local lib = require(\"lib\")\nlocal s: string = lib.n\nreturn s\n")
   assert(Fs.mkdirs(tmp .. "/sub"))
-  local plain = run({ "--errors", "-o", tmp .. "/one", lib, main })
-  local spelt = run({ "--errors", "-o", tmp .. "/two", tmp .. "/./lib.tl", tmp .. "/sub/../main.tl" })
+  local plain = run({ "--errors", "-o", tmp .. "/one", globals, lib, main })
+  local spelt = run({ "--errors", "-o", tmp .. "/two", tmp .. "/./globals.d.tl", tmp .. "/./lib.tl",
+    tmp .. "/sub/../main.tl" })
   assert(plain.code == 0 and spelt.code == 0, plain.err .. spelt.err)
   assert(plain.err:find("main.tl:2:", 1, true) and not plain.err:find("not found", 1, true), plain.err)
   assert(spelt.err:find("1 type error", 1, true) and not spelt.err:find("not found", 1, true), spelt.err)
@@ -204,7 +193,7 @@ local function test_a_require_nothing_names_says_how_to_fix_it(tmp: string)
 end
 
 local function test_a_directory_that_is_a_file_is_named_once(tmp: string)
-  local one = file(tmp, "one.tl", "return 1\n")
+  local one = file(tmp, "one.tl", "local n: integer = 1\nreturn n\n")
   local ran = run({ "-o", one, one })
   assert(ran.code == 2, ran.code)
   local first = ran.err:find(one, 1, true)
@@ -228,11 +217,12 @@ end
 --- sees, whichever is named first.
 local function test_a_declaration_beside_its_source_types_a_require_in_any_order(tmp: string)
   local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
-  local source = file(tmp, "foo.tl", "return { n = \"text\" }\n")
+  local source = file(tmp, "foo.tl",
+    "local record Foo\n  n: string\nend\nlocal f: Foo = { n = \"text\" }\nreturn f\n")
   local user = file(tmp, "user.tl",
-    "local Foo = require(\"foo\")\nlocal f: Foo = { n = 1 }\nreturn f\n")
+    "local type Foo = require(\"foo\")\nlocal f: Foo = { n = 1 }\nreturn f\n")
   for _, order in ipairs({ { decl, source, user }, { source, user, decl }, { user, decl, source } }) do
-    local words: {string} = { "--errors", "-o", tmp .. "/out" }
+    local words: mut {string} = { "--errors", "-o", tmp .. "/out" }
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)

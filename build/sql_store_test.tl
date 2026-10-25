@@ -33,7 +33,7 @@ local function project(): string
 end
 
 local function argv_of(words: {string}): {string}
-  local argv: {string} = { "sql" }
+  local argv: mut {string} = { "sql" }
   for index, word in ipairs(words) do
     argv[index + 1] = word
   end
@@ -41,7 +41,7 @@ local function argv_of(words: {string}): {string}
 end
 
 --- The database [`sql.source`] picks for a command line, or nil and why.
-local function source(root: string, words: {string}): sql.Source | nil, string
+local function source(root: string, words: {string}): sql.Source?, string
   local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
     ["--store"] = false }))
   return sql.source(root, parsed)
@@ -49,10 +49,10 @@ end
 
 --- What one run wrote, stream by stream.
 local record Written
-  out: {string}
-  err: {string}
+  out: mut {string}
+  err: mut {string}
   --- The summary, as stderr would end in it; "" when the run gave none.
-  summary: string
+  mut summary: string
 end
 
 local function run(root: string, words: {string}): integer, Written

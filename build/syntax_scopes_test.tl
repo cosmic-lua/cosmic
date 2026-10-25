@@ -20,13 +20,13 @@ end
 --- its names, sorted, each `name=module` for an alias.
 local function scopes_at(source: string, places: {string}): {string}
   local bindings = bindings_of(source)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, place in ipairs(places) do
     local y, x, doc = place:match("^(%d+):(%d+)(:?d?o?c?)$")
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name, module in pairs(Lexical.in_scope(bindings, math.tointeger(tonumber(y)), math.tointeger(tonumber(x)),
         doc == ":doc")) do
-      names[#names + 1] = module ~= "" and name .. "=" .. module or name
+      names[#names + 1] = if module ~= "" then name .. "=" .. module else name end
     end
     table.sort(names)
     out[#out + 1] = place .. " " .. table.concat(names, " ")
@@ -37,7 +37,7 @@ end
 --- The members `walk` is handed for `source`, sorted.
 local function members(source: string): string
   local chunk = assert(Node.parse(source, "fixture.tl"))
-  local read: {string} = {}
+  local read: mut {string} = {}
   Lexical.walk(chunk, Node.scope(chunk, "fixture.tl"), function(module: string, name: string, line: integer)
     read[#read + 1] = module .. "." .. name .. ":" .. line
   end)
@@ -89,7 +89,7 @@ local function test_every_statement_kind_binds_what_it_declares()
     "end",
     "return function(rp: integer) end",
   })
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, each in ipairs(bindings_of(source)) do
     names[#names + 1] = each.name
   end
@@ -99,7 +99,7 @@ local function test_every_statement_kind_binds_what_it_declares()
 end
 
 local function test_a_type_nested_in_a_record_and_a_type_parameter_bind_nothing_of_a_block()
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, each in ipairs(bindings_of(lines({
       "local record Outer",
       "  record Inner",
@@ -126,7 +126,7 @@ local function test_a_loops_variable_is_in_scope_from_its_own_name()
 end
 
 local function test_the_bindings_say_which_are_the_chunks_which_are_aliases_and_which_are_annotated()
-  local found: {string: Lexical.Binding} = {}
+  local found: mut {string: Lexical.Binding} = {}
   for _, each in ipairs(bindings_of(lines({
       "local Fs = require(\"cosmic.fs\")",
       "local B: Fs.Stat = require(\"cosmic.b\")",
@@ -135,7 +135,7 @@ local function test_the_bindings_say_which_are_the_chunks_which_are_aliases_and_
       "  return Fs",
       "end",
   }))) do
-    found[each.name .. (each.top and "" or "!")] = each
+    found[each.name .. (if each.top then "" else "!" end)] = each
   end
   assert(found["Fs"].module == "cosmic.fs" and found["Fs"].top and not found["Fs"].annotated)
   assert(found["B"].module == "cosmic.b" and found["B"].annotated)

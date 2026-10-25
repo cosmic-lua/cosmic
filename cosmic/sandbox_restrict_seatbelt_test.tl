@@ -70,7 +70,7 @@ end
 
 --- What a child said: its lines, `name=value`, by name, and all of it.
 local record Said
-  lines: {string:string}
+  lines: mut {string:string}
   raw: string
 end
 

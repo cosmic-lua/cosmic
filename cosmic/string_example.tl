@@ -32,7 +32,7 @@ end
 
 --- The Teal sources among some paths.
 function Example.ends_with()
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, path in ipairs({ "a.tl", "b.lua", "c.d.tl" }) do
     if String.ends_with(path, ".tl") then found[#found + 1] = path end
   end

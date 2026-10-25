@@ -37,7 +37,7 @@ end
 --- One database's tables and indexes, largest first, each with its
 --- rows (for a table), its pages, the bytes those pages take, and the
 --- bytes that are actually payload. Returns how many tables it saw.
-local function describe(path: string): integer | nil, string
+local function describe(path: string): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
@@ -55,7 +55,7 @@ local function describe(path: string): integer | nil, string
     local _, _ = db:close()
     return nil, table_trouble
   end
-  local is_table: {string:boolean} = {}
+  local is_table: mut {string:boolean} = {}
   for _, row in ipairs(tables) do
     is_table[row:text(1)] = true
   end
@@ -147,8 +147,8 @@ local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 --- from whichever of the two databases hold one: `cosmic.db`'s modules
 --- and `build.db`'s derived rows and staged files, unless `working`
 --- is false.
-local function module_files(root: string, working: boolean): {string:string} | nil, string
-  local files: {string:string} = {}
+local function module_files(root: string, working: boolean): {string:string}?, string
+  local files: mut {string:string} = {}
   local layout = build_paths.resolve(root)
   local sources = { { layout.projection, "SELECT path, file FROM modules" } }
   if working then
@@ -181,7 +181,7 @@ end
 --- One database's tables that say which source each row is about, each
 --- with how many of its rows `about` keeps, for the tables that keep
 --- any. Returns how many rows it kept.
-local function describe_under(path: string, about: function(string): boolean): integer | nil, string
+local function describe_under(path: string, about: function(string): boolean): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
     return nil, open_trouble
@@ -203,9 +203,9 @@ local function describe_under(path: string, about: function(string): boolean): i
       local _, _ = db:close()
       return nil, column_trouble
     end
-    local has: {string:boolean} = {}
+    local has: mut {string:boolean} = {}
     for _, c in ipairs(columns) do has[c:text(1)] = true end
-    local chosen: string | nil = nil
+    local chosen: string? = nil
     for _, candidate in ipairs(source_columns) do
       if chosen == nil and has[candidate] then chosen = candidate end
     end
@@ -235,7 +235,7 @@ end
 --- whose rows this tool's code may misread: it is said once on stderr
 --- ([`work.tell_other_schema`]) and none of it beyond its schema is read.
 --- Nil and why where that cannot be told.
-local function readable(path: string): boolean | nil, string
+local function readable(path: string): boolean?, string
   local present, present_trouble = Fs.exists(path)
   if present == nil then return nil, present_trouble end
   if not present then return false, "" end

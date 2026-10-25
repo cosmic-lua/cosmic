@@ -15,7 +15,7 @@ local url = "http://cosmic.test/"
 local function test_via_that_is_no_unix_address_raises_naming_it()
   local datagram: Net.Address = { kind = "udp", host = "127.0.0.1", port = 53, path = nil }
   for _, via in ipairs({ Net.tcp("127.0.0.1", 80), datagram }) do
-    local ok, why = pcall(function(): Http.Body | nil
+    local ok, why = pcall(function(): Http.Body?
       local got = Http.get(url, { via = via })
       return got
     end)

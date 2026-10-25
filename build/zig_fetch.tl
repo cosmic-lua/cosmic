@@ -124,18 +124,22 @@ function ZigFetch.sources(version: string, name: string, mirrors: {string},
                           random?: function(integer): integer): {string}
   local pick: function(integer): integer = function(n: integer): integer return math.random(n) end
   if random ~= nil then pick = random end
-  local order: {string} = {}
+  local order: mut {string} = {}
   for _, mirror in ipairs(mirrors) do
     order[#order + 1] = mirror
   end
   for i = #order, 2, -1 do
     local j = pick(i)
     local at_i, at_j = order[i], order[j]
-    if at_i ~= nil and at_j ~= nil then
-      order[i], order[j] = at_j, at_i
+    if at_i ~= nil and at_j ~= nil and i ~= j then
+      -- A swap by removal and insertion: an index write to the array would be a hole.
+      table.remove(order, i)
+      table.remove(order, j)
+      table.insert(order, j, at_i)
+      table.insert(order, i, at_j)
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, mirror in ipairs(order) do
     if i > MIRRORS_TRIED then break end
     out[#out + 1] = mirror .. "/" .. name .. "?source=cosmic"
@@ -146,7 +150,7 @@ end
 
 --- How many downloads [`ZigFetch.fetch`] has tried.
 local record Tally
-  attempts: integer
+  mut attempts: integer
 end
 
 local function real_download(url: string, path: string, opts: Http.Options): Http.DownloadResult
@@ -190,8 +194,8 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   if via ~= nil then fetcher = via end
   local download, sleep, now = fetcher.download, fetcher.sleep, fetcher.now
   local deadline = now() + BUDGET_NS
-  local last: {string:string} = {}
-  local wrong: {string:boolean} = {}
+  local last: mut {string:string} = {}
+  local wrong: mut {string:boolean} = {}
   local tally: Tally = { attempts = 0 }
   local out_of_time = false
 
@@ -240,7 +244,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
       break
     end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, url in ipairs(urls) do
     lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
   end
@@ -271,7 +275,7 @@ end
 --- whose tarball's sha256 is `sha256`, into `work`, returning the
 --- extracted directory.
 local function unpack(work: string, version: string, host: string,
-                      sha256: string): string | nil, string
+                      sha256: string): string?, string
   local made, mtrouble = Fs.mkdirs(work)
   if not made then
     return nil, mtrouble
@@ -302,7 +306,7 @@ end
 --- host's tarball's, from [`bin/zig.pin`]; nil when the pin names none,
 --- which fails with no download.
 function ZigFetch.install(cache: string, install: string, version: string, host: string,
-                          sha256: string | nil): string | nil, string
+                          sha256: string?): string?, string
   local zig = install .. "/zig"
   local made, mtrouble = Fs.mkdirs(cache)
   if not made then
@@ -312,7 +316,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   if owned == nil then return nil, own_trouble end
   local failed = within(owned, function(holding: Fs.Scratch): string
     local work = holding.path .. "/payload"
-    local extracted, trouble: string | nil, string
+    local extracted, trouble: string?, string
     if sha256 == nil or sha256 == "" then
       extracted, trouble = nil, "bin/zig.pin names no sha256 for " .. host
     else

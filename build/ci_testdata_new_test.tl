@@ -1,10 +1,8 @@
 --- [`build.tree_checks`]'s `ci_testdata` with the new checker ([`build.pipeline`]): a file under `ci/testdata` that does
---- not check is named with its line in the checker's words, as the fork's reading names it
---- (the `ci_testdata` tests of build/tree_checks_test.tl). It needs the declarations of the standard library that the
+--- not check is named with its line in the checker's words. It needs the declarations of the standard library that the
 --- program itself carries, which a policy of the profile "cosmic" gives a worker.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -16,7 +14,7 @@ local function told(dir: string, files: {string: string}): string
     assert(Fs.mkdirs(Fs.dirname(base .. "/" .. name)))
     assert(Fs.write(base .. "/" .. name, text))
   end
-  return table.concat(tree_checks.ci_testdata(dir .. "/tree", (assert(teal.load())), "new"), "\n")
+  return table.concat(tree_checks.ci_testdata(dir .. "/tree"), "\n")
 end
 
 local function test_a_file_that_does_not_check_is_named_with_its_line_and_the_checkers_words(dir: string)
@@ -44,7 +42,7 @@ local function test_a_test_module_is_not_refused_for_what_nothing_calls_and_any_
 end
 
 local function test_a_tree_without_testdata_has_nothing_to_say(dir: string)
-  assert(#tree_checks.ci_testdata(dir .. "/nowhere", (assert(teal.load())), "new") == 0)
+  assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
 end
 
 --- What the new checker finds in a file is held to the ceilings of [testdata]: a count at its pin passes, one over is
@@ -55,9 +53,9 @@ local function test_findings_are_held_to_the_ceilings_of_the_testdata_stage(dir:
   assert(Fs.mkdirs(root .. "/ci/testdata"))
   assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
   local function pinned(count: integer): string
-    local line = count > 0 and "ci/testdata/bad.tl not_assignable " .. tostring(count) .. "\n" or ""
+    local line = if count > 0 then "ci/testdata/bad.tl not_assignable " .. tostring(count) .. "\n" else "" end
     assert(Fs.write(root .. "/build/ceilings.txt", "[testdata]\n" .. line))
-    return table.concat(tree_checks.ci_testdata(root, (assert(teal.load())), "new"), "\n")
+    return table.concat(tree_checks.ci_testdata(root), "\n")
   end
   assert(pinned(1) == "", pinned(1))
   local over = pinned(0)

@@ -17,7 +17,7 @@ local TypesPrograms = require("lang.types_programs")
 Test.policy{}
 
 local function gen_draws(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 120) do
     out[#out + 1] = tostring(src:int(0, 99))
   end
@@ -44,14 +44,14 @@ local function map_fn(
   if #f.tparams > 0 then
     return f
   end
-  local params: {Types.Param} = {}
+  local params: mut {Types.Param} = {}
   for i, p in ipairs(f.params) do
     params[i] = { type = on_param(p.type), omittable = p.omittable }
   end
   local rest = f.rest
-  local rets: {Types.Alt} = {}
+  local rets: mut {Types.Alt} = {}
   for i, alt in ipairs(f.rets) do
-    local items: {Type} = {}
+    local items: mut {Type} = {}
     for k, item in ipairs(alt.items) do
       items[k] = on_item(item)
     end
@@ -61,9 +61,9 @@ local function map_fn(
       items = items,
       tail = tail ~= nil and on_item(tail) or nil,
       -- `v is T` is invariant in T; `asserts v is T` is covariant.
-      narrows = narrows ~= nil and {
+      narrows = if narrows ~= nil then {
         param = narrows.param, to = narrows.asserts and on_item(narrows.to) or narrows.to, asserts = narrows.asserts,
-      } or nil,
+      } else nil end,
     }
   end
   return w.store:fn({
@@ -79,7 +79,7 @@ weaken = function(w: World, t: Type, salt: integer): Type
   local s = w.store
   local next_salt = salt * 7 + 3
   local result: Type = t
-  if t is Types.Atom then
+  if (t.atom == true) then
     local tag = t.tag
     if tag == "integer" then
       result = s.number
@@ -90,14 +90,14 @@ weaken = function(w: World, t: Type, salt: integer): Type
     elseif tag == "never" then
       result = salt % 2 == 0 and s.string or s:array(s.integer)
     end
-  elseif t is Types.Named then
+  elseif (t.tag == "named") then
     local name = t.decl.name
     if t.decl.kind == "enum" then
       result = s.string
     elseif name == "File" then
       result = use(w, "Stream.Reader")
     elseif name == "Duplex" then
-      result = use(w, salt % 2 == 0 and "ReadWriter" or "Stream.Reader")
+      result = use(w, if salt % 2 == 0 then "ReadWriter" else "Stream.Reader" end)
     elseif name == "KeyEvent" or name == "MouseEvent" then
       result = use(w, "Event")
     elseif name == "Ranked" then
@@ -113,12 +113,12 @@ weaken = function(w: World, t: Type, salt: integer): Type
     elseif name == "Ring" then
       result = s:array(t.args[1])
     end
-  elseif t is Types.Array then
+  elseif (t.tag == "array") then
     result = s:array(weaken(w, t.element, next_salt))
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     result = s:map(t.key, weaken(w, t.value, next_salt))
-  elseif t is Types.Union then
-    local members: {Type} = {}
+  elseif (t.tag == "union") then
+    local members: mut {Type} = {}
     for i, m in ipairs(t.members) do
       members[i] = weaken(w, m, next_salt + i)
     end
@@ -126,7 +126,7 @@ weaken = function(w: World, t: Type, salt: integer): Type
       members[#members + 1] = s:atom("nil")
     end
     result = s:union(members)
-  elseif t is Types.Fn then
+  elseif (t.tag == "fn") then
     result = map_fn(w, t, function(p: Type): Type
       return strengthen(w, p, next_salt)
     end, function(item: Type): Type
@@ -134,7 +134,7 @@ weaken = function(w: World, t: Type, salt: integer): Type
     end)
     if #t.rets == 0 and #t.tparams == 0 then
       -- a function that never returns is below the same function that answers nothing
-      local params: {Types.Param} = {}
+      local params: mut {Types.Param} = {}
       for i, p in ipairs(t.params) do
         params[i] = { type = p.type, omittable = p.omittable }
       end
@@ -151,7 +151,7 @@ end
 strengthen = function(w: World, t: Type, salt: integer): Type
   local s = w.store
   local next_salt = salt * 7 + 3
-  if t is Types.Atom then
+  if (t.atom == true) then
     local tag = t.tag
     if tag == "number" then
       return s.integer
@@ -161,14 +161,14 @@ strengthen = function(w: World, t: Type, salt: integer): Type
       return use(w, "Color")
     end
     return t
-  elseif t is Types.Named then
+  elseif (t.tag == "named") then
     local name = t.decl.name
     if name == "Stream.Reader" then
       return use(w, "File")
     elseif name == "ReadWriter" then
       return use(w, "Duplex")
     elseif name == "Event" then
-      return use(w, salt % 2 == 0 and "KeyEvent" or "MouseEvent")
+      return use(w, if salt % 2 == 0 then "KeyEvent" else "MouseEvent" end)
     elseif name == "Ordered" then
       return use(w, "Ranked")
     elseif name == "Source" and t.args[1] == s.integer then
@@ -177,7 +177,7 @@ strengthen = function(w: World, t: Type, salt: integer): Type
       return use(w, "Box", { t.args[1] })
     end
     return t
-  elseif t is Types.Array then
+  elseif (t.tag == "array") then
     if t.mut then
       return t
     end
@@ -185,7 +185,7 @@ strengthen = function(w: World, t: Type, salt: integer): Type
       return s:array(t.element, true)
     end
     return s:array(strengthen(w, t.element, next_salt))
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     if t.mut then
       return t
     end
@@ -193,12 +193,12 @@ strengthen = function(w: World, t: Type, salt: integer): Type
       return s:map(t.key, t.value, true)
     end
     return s:map(t.key, strengthen(w, t.value, next_salt))
-  elseif t is Types.Union then
+  elseif (t.tag == "union") then
     if t.nilable and #t.members > 0 and salt % 2 == 0 then
       return s:union(t.members)
     end
     return strengthen(w, t.members[1], next_salt)
-  elseif t is Types.Fn then
+  elseif (t.tag == "fn") then
     return map_fn(w, t, function(p: Type): Type
       return weaken(w, p, next_salt)
     end, function(item: Type): Type
@@ -214,7 +214,7 @@ end
 --- choice, and one past the end of the draws is the first.
 local record Cursor
   values: {integer}
-  at: integer
+  mut at: integer
   w: World
   --- Whether a type variable of the two binders of [`binders`] may be drawn.
   vars: boolean
@@ -251,7 +251,7 @@ local PLAIN <const>: {string} = {
 --- collections, unions, and, where `c` allows, type variables and `invalid`.
 local function relation_type(c: Cursor, depth: integer): Type
   local s = c.w.store
-  local n = pick(c, depth >= 3 and 16 or 29)
+  local n = pick(c, if depth >= 3 then 16 else 29 end)
   if n <= 2 then
     return s.integer
   elseif n == 3 then
@@ -267,7 +267,7 @@ local function relation_type(c: Cursor, depth: integer): Type
   elseif n == 8 then
     return s.boolean
   elseif n == 9 then
-    return s:atom(pick(c, 2) == 0 and "true" or "false")
+    return s:atom(if pick(c, 2) == 0 then "true" else "false" end)
   elseif n == 10 then
     return s.any
   elseif n == 11 then
@@ -298,11 +298,11 @@ local function relation_type(c: Cursor, depth: integer): Type
   elseif n <= 22 then
     return s:union({ relation_type(c, depth + 1), relation_type(c, depth + 1) })
   end
-  local params: {Types.Param} = {}
+  local params: mut {Types.Param} = {}
   for i = 1, pick(c, 3) do
     params[i] = { type = relation_type(c, depth + 1), omittable = pick(c, 4) == 0 }
   end
-  local rest: Type | nil
+  local rest: Type?
   if pick(c, 5) == 0 then
     rest = relation_type(c, depth + 1)
   end
@@ -358,7 +358,7 @@ end
 
 --- Draws for [`relation_pool`]: enough for a few dozen types.
 local function gen_long(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 500) do
     out[#out + 1] = tostring(src:int(0, 99))
   end
@@ -380,7 +380,7 @@ local function pool(w: World, draws: {integer}): {Type}
     end
   end
   local function slice(from: integer): {integer}
-    local part: {integer} = {}
+    local part: mut {integer} = {}
     for i = from, #draws do
       part[#part + 1] = draws[i]
     end
@@ -421,7 +421,7 @@ end
 
 --- The labels a pair of types reaches.
 local function label_pair(a: Type, b: Type, holds: boolean)
-  Fuzz.label(holds and "holds" or "refused")
+  Fuzz.label(if holds then "holds" else "refused" end)
   Fuzz.label(a.tag .. " below")
   if a.tag ~= b.tag then
     Fuzz.label("different forms")
@@ -462,7 +462,7 @@ local function test_a_type_is_below_itself_and_never_is_below_every_type_and_onl
         end
         local below_never = w.judge:subtype(t, w.store.never)
         if below_never ~= (t == w.store.never) then
-          return false, Types.display(t) .. (below_never and " is" or " is not") .. " below never"
+          return false, Types.display(t) .. (if below_never then " is" else " is not" end) .. " below never"
         end
         if not w.judge:accepts(t, w.store.any) then
           return false, Types.display(t) .. " is not an argument for a parameter declared any"
@@ -480,7 +480,7 @@ local function admits_nil(t: Type): boolean
   if t.tag == "nil" then
     return true
   end
-  return t is Types.Union and t.nilable
+  return (t.tag == "union") and t.nilable
 end
 
 local function test_only_nil_and_a_type_with_the_nil_flag_admit_nil(tmp: string)
@@ -496,7 +496,7 @@ local function test_only_nil_and_a_type_with_the_nil_flag_admit_nil(tmp: string)
       for _, t in ipairs(pool(w, draws)) do
         local below = w.judge:subtype(null, t)
         if below ~= admits_nil(t) then
-          return false, "nil is" .. (below and "" or " not") .. " below " .. Types.display(t)
+          return false, "nil is" .. (if below then "" else " not" end) .. " below " .. Types.display(t)
         end
         if w.judge:subtype(null, s:non_nil(t)) then
           return false, "nil is below " .. Types.display(t) .. " without its nil"
@@ -516,7 +516,7 @@ local function test_only_nil_and_a_type_with_the_nil_flag_admit_nil(tmp: string)
         if not w.judge:accepts(null, s.any) or w.judge:subtype(null, s.any) then
           return false, "nil and any"
         end
-        Fuzz.label(admits_nil(t) and "admits" or "does not admit")
+        Fuzz.label(if admits_nil(t) then "admits" else "does not admit" end)
         Fuzz.label(t.tag)
       end
       return true, ""
@@ -541,7 +541,7 @@ local function test_a_mut_collection_is_invariant_and_a_view_is_not_below_it(tmp
           local who = Types.display(e1) .. " and " .. Types.display(e2)
           local same = e1 == e2
           if j:subtype(s:array(e1, true), s:array(e2, true)) ~= same then
-            return false, "mut arrays of " .. who .. (same and " are refused" or " are related")
+            return false, "mut arrays of " .. who .. (if same then " are refused" else " are related" end)
           end
           if j:subtype(s:array(e1), s:array(e2, true)) then
             return false, "a view of " .. Types.display(e1) .. " is below mut of " .. Types.display(e2)
@@ -552,13 +552,13 @@ local function test_a_mut_collection_is_invariant_and_a_view_is_not_below_it(tmp
           end
           -- the key is invariant, the value is not, whether or not the collection is mut
           if j:subtype(s:map(e1, e1, true), s:map(e2, e2, true)) ~= same then
-            return false, "mut maps of " .. who .. (same and " are refused" or " are related")
+            return false, "mut maps of " .. who .. (if same then " are refused" else " are related" end)
           end
           if j:subtype(s:map(e1, e1), s:map(e2, e2, true)) then
             return false, "a view of a map is below a mut map"
           end
           if j:subtype(s:map(e1, e1), s:map(e2, e2)) ~= same then
-            return false, "map views with the keys of " .. who .. " are " .. (same and "refused" or "related")
+            return false, "map views with the keys of " .. who .. " are " .. (if same then "refused" else "related" end)
           end
           if j:subtype(s:map(e1, e1), s:map(e1, e2)) ~= covariant then
             return false, "map views of " .. who .. " are not covariant in the value"
@@ -569,8 +569,8 @@ local function test_a_mut_collection_is_invariant_and_a_view_is_not_below_it(tmp
           if j:subtype(s:map(e1, e1, true), s:map(e1, e2, true)) ~= same then
             return false, "mut maps of one key and the values " .. who
           end
-          Fuzz.label(same and "same elements" or "different elements")
-          Fuzz.label(covariant and "related elements" or "unrelated elements")
+          Fuzz.label(if same then "same elements" else "different elements" end)
+          Fuzz.label(if covariant then "related elements" else "unrelated elements" end)
           if i == k then
             Fuzz.label("the same type twice")
           end
@@ -604,10 +604,10 @@ local function test_the_laws_of_a_union_hold(tmp: string)
             for _, c in ipairs(types) do
               local each = j:subtype(a, c) and j:subtype(b, c)
               if j:subtype(u, c) ~= each then
-                return false, who .. " is " .. (each and "not " or "") .. "below " .. Types.display(c) ..
-                  ", though its members are " .. (each and "" or "not ") .. "both"
+                return false, who .. " is " .. (if each then "not " else "" end) .. "below " .. Types.display(c) ..
+                  ", though its members are " .. (if each then "" else "not " end) .. "both"
               end
-              if c.tag ~= "boolean" and not (c is Types.Union) then
+              if c.tag ~= "boolean" and not ((c.tag == "union")) then
                 -- a type that is no union is below a union when below a member, and not otherwise
                 -- (the pair `true` and `false` is the one `boolean`)
                 if j:subtype(c, u) ~= (j:subtype(c, a) or j:subtype(c, b)) and not (c.tag == "true" or c.tag == "false") then
@@ -615,7 +615,7 @@ local function test_the_laws_of_a_union_hold(tmp: string)
                 end
               end
             end
-            Fuzz.label(a ~= b and "two members" or "one member")
+            Fuzz.label(if a ~= b then "two members" else "one member" end)
             Fuzz.label(u.tag)
           end
           if a.tag ~= "any" then
@@ -681,7 +681,7 @@ local function test_a_weakening_is_above_a_type_and_a_strengthening_below_it(tmp
       local draws = TypesPrograms.numbers(input)
       local salt = draws[1] or 0
       for k = 1, 1 + (draws[2] or 0) % 3 do
-        local part: {integer} = {}
+        local part: mut {integer} = {}
         for i = 3 * k, #draws do
           part[#part + 1] = draws[i]
         end
@@ -696,8 +696,8 @@ local function test_a_weakening_is_above_a_type_and_a_strengthening_below_it(tmp
           return false, "the strengthening " .. Types.display(down) .. " is not below " .. Types.display(base) ..
             ": " .. traced(w, down, base)
         end
-        Fuzz.label(up ~= base and "weakened" or "not weakened")
-        Fuzz.label(down ~= base and "strengthened" or "not strengthened")
+        Fuzz.label(if up ~= base then "weakened" else "not weakened" end)
+        Fuzz.label(if down ~= base then "strengthened" else "not strengthened" end)
       end
       return true, ""
     end,
@@ -759,7 +759,7 @@ local function test_a_reason_agrees_with_the_answer_and_names_a_pair_that_is_not
       local w = Programs.world()
       local draws = TypesPrograms.numbers(input)
       local types = pool(w, draws)
-      local seen_codes: {string: boolean} = {}
+      local seen_codes: mut {string: boolean} = {}
       for _, a in ipairs(types) do
         for _, b in ipairs(types) do
           local answer = w.judge:subtype(a, b)
@@ -794,7 +794,7 @@ end
 --- A store with the declarations of `origin`, loaded as the text of a type meets them, after types of its
 --- own so that its ids are not another store's.
 local function crowded(origin: Types.Store): Types.Store
-  local store = Types.new(function(module: string, name: string): string | nil
+  local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
     return decl ~= nil and Types.encode_declaration(decl) or nil
   end)
@@ -826,7 +826,7 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
       end
       local other_store = crowded(w.store)
       local over = Relation.new(other_store)
-      local there: {Type} = {}
+      local there: mut {Type} = {}
       for i, t in ipairs(types) do
         local decoded, why = other_store:decode(Types.encode(t))
         if decoded == nil then
@@ -849,7 +849,7 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
               Programs.steps(r) ~= Programs.steps(there_r))) then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": another store gives another reason"
           end
-          Fuzz.label(answer and "holds" or "refused")
+          Fuzz.label(if answer then "holds" else "refused" end)
         end
       end
       return true, ""
@@ -861,7 +861,7 @@ end
 -- A refusal replayed ----------------------------------------------------------------------------------
 
 --- The type a `tail` or `narrows` step reaches in the alternative, or nil.
-local function in_list(alt: Types.Alt | nil, kind: Relation.StepKind): Type | nil
+local function in_list(alt: Types.Alt?, kind: Relation.StepKind): Type?
   if alt == nil then
     return nil
   end
@@ -879,16 +879,16 @@ end
 --- alternative of the function given where the path begins inside a list. "skip" says that the
 --- replay does not follow that step, and is not a failure.
 local function replay(
-    w: World, a: Type, b: Type, path: {Relation.Step}, start: Types.Alt | nil
-): Type | nil, Type | nil, string
+    w: World, a: Type, b: Type, path: {Relation.Step}, start: Types.Alt?
+): Type?, Type?, string
   local s = w.store
-  local given_alt: Types.Alt | nil = start
-  local wanted_alt: Types.Alt | nil
+  local given_alt: Types.Alt? = start
+  local wanted_alt: Types.Alt?
   for _, step in ipairs(path) do
     local kind = step.kind
     local index = step.index
     if kind == "member" then
-      if not (a is Types.Union) or index == nil then
+      if not ((a.tag == "union")) or index == nil then
         return nil, nil, "member of a type that is no union"
       end
       local member = a.members[index]
@@ -896,24 +896,24 @@ local function replay(
     elseif kind == "nil" then
       a = s:atom("nil")
     elseif kind == "target_alternative" then
-      if b is Types.Union and index ~= nil then
+      if (b.tag == "union") and index ~= nil then
         local member = b.members[index]
         b = member
-      elseif b is Types.Fn and index ~= nil then
+      elseif (b.tag == "fn") and index ~= nil then
         wanted_alt = b.rets[index]
       else
         return nil, nil, "an alternative of a type that has none"
       end
     elseif kind == "element" then
-      if a is Types.Array and b is Types.Array then
+      if (a.tag == "array") and (b.tag == "array") then
         local from, to = a.element, b.element
         a, b = from, to
       else
         return nil, nil, "the element of types that are no arrays"
       end
     elseif kind == "array_part" then
-      local body = a is Types.Named and a.decl.body or nil
-      if a is Types.Named and body ~= nil and b is Types.Array then
+      local body = (a.tag == "named") and a.decl.body or nil
+      if (a.tag == "named") and body ~= nil and (b.tag == "array") then
         local part = body.array
         if part == nil then
           return nil, nil, "an array part that is not there"
@@ -926,7 +926,7 @@ local function replay(
         return nil, nil, "the array part of a type that has none"
       end
     elseif kind == "key" or kind == "value" then
-      if a is Types.Map and b is Types.Map then
+      if (a.tag == "map") and (b.tag == "map") then
         local from, to = a.key, b.key
         if kind == "value" then
           from, to = a.value, b.value
@@ -936,17 +936,17 @@ local function replay(
         return nil, nil, "the " .. kind .. " of types that are no maps"
       end
     elseif kind == "argument" then
-      if a is Types.Named and b is Types.Named and index ~= nil then
+      if (a.tag == "named") and (b.tag == "named") and index ~= nil then
         local from, to = a.args[index], b.args[index]
         a, b = from, to
       else
         return nil, nil, "the argument of types that are no uses"
       end
     elseif kind == "parameter" or kind == "rest" then
-      if a is Types.Fn and b is Types.Fn then
+      if (a.tag == "fn") and (b.tag == "fn") then
         -- The roles swap: the parameter of the function wanted is below the one given.
-        local from: Type | nil
-        local to: Type | nil
+        local from: Type?
+        local to: Type?
         if index ~= nil then
           local given, wanted = a.params[index], b.params[index]
           from = wanted ~= nil and wanted.type or b.rest
@@ -960,7 +960,7 @@ local function replay(
         return nil, nil, "the parameter of types that are no functions"
       end
     elseif kind == "alternative" then
-      if a is Types.Fn and b is Types.Fn and index ~= nil then
+      if (a.tag == "fn") and (b.tag == "fn") and index ~= nil then
         given_alt = a.rets[index]
         wanted_alt = #b.rets == 1 and b.rets[1] or nil
       else
@@ -1016,10 +1016,10 @@ local function test_the_path_of_a_refusal_leads_to_the_pair_it_names(tmp: string
             if alternatives ~= nil and x ~= nil and y ~= nil then
               -- The alternatives begin at the pair the refusal names, and a list begins at the
               -- alternative of the function given.
-              local start: Types.Alt | nil
+              local start: Types.Alt?
               local last = r.path[#r.path]
               local at = last ~= nil and last.index or nil
-              if r.code == "return_unmatched" and at ~= nil and x is Types.Fn then
+              if r.code == "return_unmatched" and at ~= nil and (x.tag == "fn") then
                 start = x.rets[at]
               end
               for k, alternative in ipairs(alternatives) do
@@ -1090,7 +1090,7 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
           end
         end
         enter_all(history, scopes, count)
-        local answers: {integer: {integer: boolean}} = {}
+        local answers: mut {integer: {integer: boolean}} = {}
         for _, a in ipairs(types) do
           answers[a.id] = {}
           for _, b in ipairs(types) do
@@ -1153,7 +1153,7 @@ local function test_a_type_with_a_mistake_in_it_is_related_without_raising_and_e
           if (a.tag == "invalid" or b.tag == "invalid") and not answer then
             return false, who .. ": a mistake already reported is reported again"
           end
-          Fuzz.label(answer and "holds" or "refused")
+          Fuzz.label(if answer then "holds" else "refused" end)
           if Types.encode(a):find("invalid", 1, true) ~= nil then
             Fuzz.label("with a mistake")
           end

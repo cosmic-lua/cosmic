@@ -47,8 +47,8 @@ local record Stub
   --- listings and type arguments): a declaration the module keeps to itself and nothing reaches is not part of its type. Two
   --- declarations are the same when their canonical text ([`Types.encode_declaration`]) is, which names every other module's
   --- declaration by its path, so a module whose stub differs is told of in its own comparison and not in each that names it.
-  --- The port of [`build.stub`]'s `difference`, which walked the fork's type objects.
-  difference: function(source: Declarations.Program, stubbed: Declarations.Program, module: string): string | nil
+  --- The port of build.stub's `difference`, which walked the fork's type objects.
+  difference: function(source: Declarations.Program, stubbed: Declarations.Program, module: string): string?
 end
 
 --- What stands for a `: never` function's body.
@@ -56,31 +56,31 @@ local NEVER_BODY <const> = "error()"
 
 --- Where the stub has written to.
 local record Cursor
-  y: integer
-  x: integer
+  mut y: integer
+  mut x: integer
 end
 
 --- Tokens left out, from token `first` to `last`, with what stands in their place at the first, if anything.
 local record Span
   first: integer
   last: integer
-  instead: string | nil
+  instead: string?
 end
 
 --- Whether `rets` is the single type `never`.
-local function is_never(rets: Ast.Rets | nil): boolean
+local function is_never(rets: Ast.Rets?): boolean
   if rets == nil or #rets.lists ~= 1 then
     return false
   end
   local list = rets.lists[1]
   local only = list[1]
-  return #list == 1 and only ~= nil and only is Ast.TypeName and #only.path == 1 and only.path[1] == "never"
+  return #list == 1 and only ~= nil and (only.kind == "TypeName") and #only.path == 1 and only.path[1] == "never"
 end
 
 --- The span of the body `body` of a function with return list `rets`, or nil where it is kept: an empty body has
 --- nothing to leave out, a `: never` one too short on its own line to hold [`NEVER_BODY`] is kept whole, and so is a
 --- function literal's with no return list.
-local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets | nil, literal: boolean): Span | nil
+local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets?, literal: boolean): Span?
   if #body.stats == 0 or (literal and rets == nil) then
     return nil
   end
@@ -95,16 +95,16 @@ local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets | nil
 end
 
 --- The bodies of `stat` left out, in source order. What a body left out holds is not walked.
-local function bodies_of(chunk: Ast.Chunk, stat: Ast.Stat, found: {Span})
+local function bodies_of(chunk: Ast.Chunk, stat: Ast.Stat, found: mut {Span})
   Node.walk_until(stat, function(node: Ast.Node): boolean
-    local span: Span | nil = nil
-    if node is Ast.LocalFunction then
+    local span: Span? = nil
+    if (node.kind == "LocalFunction") then
       span = body_span(chunk, node.fn.body, node.fn.rets, false)
-    elseif node is Ast.Function then
+    elseif (node.kind == "Function") then
       span = body_span(chunk, node.fn.body, node.fn.rets, false)
-    elseif node is Ast.FunctionLit then
+    elseif (node.kind == "FunctionLit") then
       span = body_span(chunk, node.fn.body, node.fn.rets, true)
-    elseif node is Ast.Method then
+    elseif (node.kind == "Method") then
       span = body_span(chunk, node.body, node.rets, false)
     end
     if span ~= nil then
@@ -124,31 +124,31 @@ end
 --- declares one. A statement of any other kind is kept wherever it is.
 local function droppable(s: Ast.Stat): boolean
   local declared = Node.declared(s)
-  if s is Ast.Local then
+  if (s.kind == "Local") then
     return s.scope == "local"
-  elseif s is Ast.Function then
+  elseif (s.kind == "Function") then
     return #s.path >= 2
   elseif declared ~= nil then
     return declared.scope == "local"
   end
-  return s is Ast.LocalFunction or s is Ast.Assign or s is Ast.CallStat or s is Ast.If or s is Ast.ForNum or
-    s is Ast.ForIn or s is Ast.While or s is Ast.Repeat or s is Ast.Do or s is Ast.Match
+  return (s.kind == "LocalFunction") or (s.kind == "Assign") or (s.kind == "CallStat") or (s.kind == "If") or (s.kind == "ForNum") or
+    (s.kind == "ForIn") or (s.kind == "While") or (s.kind == "Repeat") or (s.kind == "Do") or (s.kind == "Match")
 end
 
 --- The names the top-level statement `s` declares, and, for a `function M.f`, the name it adds a field to ("" for any
 --- other statement).
 local function names_of(s: Ast.Stat): {string}, string
-  local declared: {string} = {}
+  local declared: mut {string} = {}
   local type_declared = Node.declared(s)
-  if s is Ast.Local and s.scope == "local" then
+  if (s.kind == "Local") and s.scope == "local" then
     for _, b in ipairs(s.bindings) do
       declared[#declared + 1] = b.name
     end
-  elseif s is Ast.LocalFunction then
+  elseif (s.kind == "LocalFunction") then
     declared[1] = s.name.name
   elseif type_declared ~= nil and type_declared.scope == "local" then
     declared[1] = type_declared.name.name
-  elseif s is Ast.Function and #s.path >= 2 then
+  elseif (s.kind == "Function") and #s.path >= 2 then
     return declared, s.path[1].text
   end
   return declared, ""
@@ -156,10 +156,10 @@ end
 
 --- The names the top-level statement `s`, an assignment, writes as plain names (`feed = function() ... end`).
 local function written_names(s: Ast.Stat): {string}
-  local written: {string} = {}
-  if s is Ast.Assign then
+  local written: mut {string} = {}
+  if (s.kind == "Assign") then
     for _, target in ipairs(s.targets) do
-      if target is Ast.Name then
+      if (target.kind == "Name") then
         written[#written + 1] = target.text
       end
     end
@@ -172,12 +172,12 @@ end
 --- these from what follows, though a later statement may narrow a local's union (see [`droppable`]).
 local function spells_its_type(s: Ast.Stat): boolean
   local declared = Node.declared(s)
-  if s is Ast.LocalFunction then
+  if (s.kind == "LocalFunction") then
     return true
   elseif declared ~= nil then
     return declared.scope == "local"
   end
-  return s is Ast.Local and s.scope == "local" and #s.bindings == 1 and #s.types == 1
+  return (s.kind == "Local") and s.scope == "local" and #s.bindings == 1 and #s.types == 1
 end
 
 --- The top-level statements of `chunk` a declaration of the module needs none of, as spans to leave out, where the
@@ -186,18 +186,18 @@ end
 --- on it adds, so the stub keeps the `return`, then what a kept statement names, to a fixed point: the declaration of
 --- each name one of its tokens spells (outside a body `bodies` left out), and each `function M.f` whose `M` is kept. A
 --- name is taken for a reference wherever it is spelt, as a field's name too, which keeps a statement at worst.
-local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
+local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span}?
   local statements = chunk.body.stats
   local tokens = chunk.tokens
   local last = statements[#statements]
-  local value = last ~= nil and last is Ast.Return and #last.values == 1 and last.values[1] or nil
-  local returned = value ~= nil and value is Ast.Name and value.text or nil
+  local value = last ~= nil and (last.kind == "Return") and #last.values == 1 and last.values[1] or nil
+  local returned = value ~= nil and (value.kind == "Name") and value.text or nil
   if returned == nil then
     return nil
   end
-  local declares: {{string}} = {}
-  local writes: {{string}} = {}
-  local owners: {string} = {}
+  local declares: mut {{string}} = {}
+  local writes: mut {{string}} = {}
+  local owners: mut {string} = {}
   local typed = false
   for i, s in ipairs(statements) do
     declares[i], owners[i] = names_of(s)
@@ -212,16 +212,16 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
   if not typed then
     return nil
   end
-  local left_out: {integer: boolean} = {}
+  local left_out: mut {integer: boolean} = {}
   for _, span in ipairs(bodies) do
     for k = span.first, span.last do
       left_out[k] = true
     end
   end
   -- The names each statement's tokens outside a body spell.
-  local spelt: {{string: boolean}} = {}
+  local spelt: mut {{string: boolean}} = {}
   for i, s in ipairs(statements) do
-    local names: {string: boolean} = {}
+    local names: mut {string: boolean} = {}
     for k = Node.base(s).first, Node.base(s).last do
       if tokens.kind[k] == "identifier" and left_out[k] ~= true then
         names[Lexer.text(tokens, k)] = true
@@ -229,8 +229,8 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
     end
     spelt[i] = names
   end
-  local kept: {integer: boolean} = { [#statements] = true }
-  local wanted: {string: boolean} = {}
+  local kept: mut {integer: boolean} = { [#statements] = true }
+  local wanted: mut {string: boolean} = {}
   local grew = true
   while grew do
     grew = false
@@ -256,7 +256,7 @@ local function unneeded(chunk: Ast.Chunk, bodies: {Span}): {Span} | nil
       end
     end
   end
-  local out: {Span} = {}
+  local out: mut {Span} = {}
   for i = 1, #statements - 1 do
     if kept[i] == nil then
       out[#out + 1] = { first = Node.base(statements[i]).first, last = Node.base(statements[i]).last, instead = nil }
@@ -271,18 +271,18 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
   for _, s in ipairs(chunk.body.stats) do
     bodies_of(chunk, s, bodies)
   end
-  local spans: {Span} = {}
+  local spans: mut {Span} = {}
   for _, span in ipairs(bodies) do
     spans[#spans + 1] = span
   end
-  local dropped: {Span} | nil = nil
+  local dropped: {Span}? = nil
   if every ~= true then dropped = unneeded(chunk, bodies) end
   for _, span in ipairs(dropped or {}) do
     spans[#spans + 1] = span
   end
   -- A token is left out when a span holds it; the first token of a span that has something instead gives it.
-  local out_of: {integer: boolean} = {}
-  local instead: {integer: string} = {}
+  local out_of: mut {integer: boolean} = {}
+  local instead: mut {integer: string} = {}
   for _, span in ipairs(spans) do
     for k = span.first, span.last do
       out_of[k] = true
@@ -308,7 +308,7 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
       cursor.y = cursor.y + 1
       last = math.tointeger(at) or 0
     end
-    cursor.x = last > 0 and #text - last + 1 or at_x + #text
+    cursor.x = if last > 0 then #text - last + 1 else at_x + #text end
   end
   for k, kind in ipairs(tokens.kind) do
     if kind == "$EOF$" then
@@ -326,12 +326,12 @@ end
 --- The declarations of `module` that its answer in `program` reaches, by name, and the names in the order they were found;
 --- and the canonical text of the type of the value it returns when that is no declaration.
 local record Reached
-  decls: {string: Types.Decl}
-  order: {string}
-  value: string
+  decls: mut {string: Types.Decl}
+  order: mut {string}
+  mut value: string
   --- The canonical text of the type of each function written `function M.f(...)`, by declaration and then by name: they are
   --- members of the declaration used as a value, and the declaration's own text ([`Types.encode_declaration`]) holds none.
-  statics: {string: {string: string}}
+  statics: mut {string: {string: string}}
 end
 
 local function reached(program: Declarations.Program, module: string): Reached
@@ -343,7 +343,7 @@ local function reached(program: Declarations.Program, module: string): Reached
       return
     end
     seen[t.id] = true
-    if t is Types.Named then
+    if (t.tag == "named") then
       add(t.decl)
     end
     for _, part in ipairs(Types.parts(t)) do
@@ -385,12 +385,12 @@ local function reached(program: Declarations.Program, module: string): Reached
     end
     -- The functions written `function R.f(...)` are members of the declaration used as a value.
     local statics = program.statics[d] or {}
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(statics) do
       names[#names + 1] = name
     end
     table.sort(names)
-    local texts: {string: string} = {}
+    local texts: mut {string: string} = {}
     for _, name in ipairs(names) do
       walk(statics[name].type)
       texts[name] = Types.encode(statics[name].type)
@@ -425,10 +425,10 @@ local function first_difference(a: string, b: string): string
   return "`" .. a:sub(from, at + 30) .. "` in the source, `" .. b:sub(from, at + 30) .. "` in the stub"
 end
 
-function Stub.difference(source: Declarations.Program, stubbed: Declarations.Program, module: string): string | nil
+function Stub.difference(source: Declarations.Program, stubbed: Declarations.Program, module: string): string?
   local a, b = reached(source, module), reached(stubbed, module)
-  local names: {string} = {}
-  local listed: {string: boolean} = {}
+  local names: mut {string} = {}
+  local listed: mut {string: boolean} = {}
   for _, list in ipairs({ a.order, b.order }) do
     for _, name in ipairs(list) do
       if listed[name] ~= true then
@@ -444,14 +444,14 @@ function Stub.difference(source: Declarations.Program, stubbed: Declarations.Pro
     elseif from == nil then
       return name .. ": declared by the stub and not by the source"
     elseif (from.body == nil) ~= (to.body == nil) then
-      return name .. ": defined by the " .. (from.body == nil and "stub" or "source") .. " only"
+      return name .. ": defined by the " .. (if from.body == nil then "stub" else "source" end) .. " only"
     elseif from.body ~= nil then
       local text, stubbed_text = Types.encode_declaration(from), Types.encode_declaration(to)
       if text ~= stubbed_text then
         return name .. ": " .. first_difference(text, stubbed_text)
       end
       local ours, theirs = a.statics[name] or {}, b.statics[name] or {}
-      local static_names: {string} = {}
+      local static_names: mut {string} = {}
       for static in pairs(ours) do
         static_names[#static_names + 1] = static
       end

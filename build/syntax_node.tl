@@ -4,11 +4,9 @@
 --- is read from the tokens ([`Ast.span`]) and a node holds no parent: [`Node.parents`] makes the map for a reader that
 --- asks. Walks keep their own stack, so a chain of any length ([`Ast.number`]) is walked.
 ---
---- The readers named `build.syntax_*` work on the tree beside the fork's, which [`build.ast`] reads: a reader takes the
---- tree and its tokens, never the compiler, and a source in the fork's Teal reaches it through
---- [`lang.translate`] until the fork goes. Each is the port of the fork's reader of the same name
---- ([`build/syntax_scopes.tl`] for [`build/scopes.tl`], [`build/syntax_node.tl`] for [`build/ast/walk.tl`] and [`build/ast/requires.tl`]), and the switch
---- moves it there.
+--- The readers named `build.syntax_*` work on the tree: a reader takes the
+--- tree and its tokens, never the compiler. Each replaced a reader of the same name
+--- of the fork's tree ([`build/syntax_scopes.tl`] for its scopes, [`build/syntax_node.tl`] for its walks and requires).
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -18,7 +16,7 @@ local record Node
   --- The name and the scope of a type declaration: a record, interface, class, enum, alias or import.
   record Declared
     name: Ast.Binding
-    scope: Ast.Scope | nil
+    scope: Ast.Scope?
   end
 
   --- What every node holds: its kind, its tokens and its id.
@@ -27,7 +25,7 @@ local record Node
   --- The tree of `source`, a program (`tl`) or, for a file named `*.d.tl` when `dialect` is not given, a declaration
   --- file. nil and the first error, worded `file:line:column: message (code): fix`, where the source has one: a
   --- reader works on a tree that is whole.
-  parse: function(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk | nil, string
+  parse: function(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk?, string
 
   --- The names of `chunk` resolved against the globals `declared`, none by default: it sets `binding` on each
   --- [`Ast.Name`] that refers to a binding and answers the facts. The chunk must come from [`Node.parse`].
@@ -37,7 +35,7 @@ local record Node
   span: function(chunk: Ast.Chunk, node: Ast.Node): Ast.Span
 
   --- The declaration `node` is, if it declares a type.
-  declared: function(node: Ast.Node): Declared | nil
+  declared: function(node: Ast.Node): Declared?
   --- A range of bytes of the source, 1-based and inclusive.
   record Range
     first: integer
@@ -85,24 +83,24 @@ function Node.base(node: Ast.Node): Ast.Base
   return node
 end
 
-function Node.declared(node: Ast.Node): Node.Declared | nil
-  if node is Ast.Record then
+function Node.declared(node: Ast.Node): Node.Declared?
+  if (node.kind == "Record") then
     return { name = node.name, scope = node.scope }
-  elseif node is Ast.Interface then
+  elseif (node.kind == "Interface") then
     return { name = node.name, scope = node.scope }
-  elseif node is Ast.Class then
+  elseif (node.kind == "Class") then
     return { name = node.name, scope = node.scope }
-  elseif node is Ast.Enum then
+  elseif (node.kind == "Enum") then
     return { name = node.name, scope = node.scope }
-  elseif node is Ast.TypeAlias then
+  elseif (node.kind == "Alias") then
     return { name = node.name, scope = node.scope }
-  elseif node is Ast.Import then
+  elseif (node.kind == "Import") then
     return { name = node.name, scope = node.scope }
   end
   return nil
 end
 
-function Node.parse(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk | nil, string
+function Node.parse(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk?, string
   local kind: Ast.Dialect = "tl"
   if dialect ~= nil then
     kind = dialect
@@ -135,7 +133,7 @@ function Node.children(node: Ast.Node): {Ast.Node}
 end
 
 function Node.walk_until(root: Ast.Node, visit: function(Ast.Node): boolean)
-  local stack: {Ast.Node} = { root }
+  local stack: mut {Ast.Node} = { root }
   local top = 1
   while top > 0 do
     local node = stack[top]
@@ -179,8 +177,8 @@ function Node.range(chunk: Ast.Chunk, node: Ast.Node): Node.Range
 end
 
 function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
-  local found: {Ast.Require} = {}
-  local wanted: {integer: boolean} = {}
+  local found: mut {Ast.Require} = {}
+  local wanted: mut {integer: boolean} = {}
   for _, r in ipairs(chunk.requires) do
     found[#found + 1] = r
     wanted[r.node] = true
@@ -193,8 +191,8 @@ function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
     local base = Node.base(node)
     if wanted[base.id] == true then nodes[base.id] = base end
   end)
-  local seen: {string: boolean} = {}
-  local out: {Node.Site} = {}
+  local seen: mut {string: boolean} = {}
+  local out: mut {Node.Site} = {}
   for _, r in ipairs(found) do
     if seen[r.module] == nil then
       seen[r.module] = true
@@ -217,7 +215,7 @@ function Node.require_sites(chunk: Ast.Chunk): {Node.Site}
 end
 
 function Node.requires(chunk: Ast.Chunk): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, site in ipairs(Node.require_sites(chunk)) do
     out[#out + 1] = site.name
   end

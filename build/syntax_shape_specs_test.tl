@@ -25,18 +25,18 @@ local STANDARD <const>: {string: string} = {
 
 --- A build of the project `files` (name to text).
 local function build_of(files: {string: string}): Driver.Build
-  local entries: {{string}} = {}
+  local entries: mut {{string}} = {}
   for name, text in pairs(files) do
     entries[#entries + 1] = { name, text }
   end
   table.sort(entries, function(a: {string}, b: {string}): boolean
     return a[1] < b[1]
   end)
-  local index = Driver.index(entries, false, function(_file: string): boolean
+  local index = Driver.index(entries, function(_file: string): boolean
     return false
   end)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))
@@ -46,7 +46,7 @@ end
 
 --- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
 --- `files` (name to text).
-local function resolved(files: {string: string}): string | nil, string
+local function resolved(files: {string: string}): string?, string
   return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"])
 end
 
@@ -61,11 +61,11 @@ local function with_record(declaration: string, call?: string): string
   }, "\n")
 end
 
-local function of_record(declaration: string, call?: string): string | nil, string
+local function of_record(declaration: string, call?: string): string?, string
   return resolved({ ["main.tl"] = with_record(declaration, call) })
 end
 
-local function has(source: string | nil, why: string, want: string)
+local function has(source: string?, why: string, want: string)
   assert(source ~= nil, why)
   local flat = source:gsub("%s+", "")
   assert(flat:find((want:gsub("%s+", "")), 1, true) ~= nil, ("the source does not hold %s:\n%s"):format(want, source))
@@ -102,7 +102,7 @@ local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
     "end",
   }, "\n"))
   has(source, why, [[Shape.record_of("R", Shape.record({
-    ["a"] = Shape.any, ["b"] = Shape.boolean, ["i"] = Shape.integer,
+    ["a"] = Shape.optional(Shape.any), ["b"] = Shape.boolean, ["i"] = Shape.integer,
     ["inner"] = Shape.record({ ["n"] = Shape.integer }),
     ["level"] = Shape.one_of("debug", "warn"),
     ["list"] = Shape.list(Shape.record({ ["n"] = Shape.integer })),
@@ -112,6 +112,22 @@ local function test_each_field_kind_is_the_shape_a_hand_written_spec_names()
     ["o"] = Shape.optional(Shape.string),
     ["omitted"] = Shape.optional(Shape.integer),
     ["s"] = Shape.string }), function(): R error("witness") end)]])
+end
+
+--- `any` holds nil, so the store folds `any?` into `any`, and `f?: any` keeps nothing of the `?` in the field's type: each is
+--- read as an optional field, as `f?: string` and `f: string?` are, and not as one a value has to carry.
+local function test_an_optional_field_of_any_is_an_optional_field()
+  local source, why = of_record(table.concat({
+    "local record R",
+    "  w?: any",
+    "  x: any?",
+    "  y?: string",
+    "  z: string?",
+    "end",
+  }, "\n"))
+  has(source, why, [[Shape.record_of("R", Shape.record({
+    ["w"] = Shape.optional(Shape.any), ["x"] = Shape.optional(Shape.any),
+    ["y"] = Shape.optional(Shape.string), ["z"] = Shape.optional(Shape.string) }), function(): R error("witness") end)]])
 end
 
 local function test_what_is_spliced_is_a_call_the_parser_reads()

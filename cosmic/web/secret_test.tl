@@ -35,7 +35,7 @@ local function test_parse_keys_refuses_an_empty_weak_or_surplus_entry()
   assert(keys == nil and why:find("entry 2 of KEYS", 1, true), why)
   keys, why = Secret.parse_keys(GOOD .. ",short", "KEYS")
   assert(keys == nil and why:find("entry 2", 1, true) and not why:find("short,", 1, true), why)
-  local six: {string} = {}
+  local six: mut {string} = {}
   for i = 1, 6 do six[i] = Secret.generate() end
   keys, why = Secret.parse_keys(table.concat(six, ","))
   assert(keys == nil and why:find("at most 5", 1, true), why)

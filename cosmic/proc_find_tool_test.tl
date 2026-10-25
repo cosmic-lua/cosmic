@@ -14,7 +14,7 @@ Test.policy{
   grants = { { path = "/bin/sh", letters = "r" } },
 }
 
-local function lookup(dir: string, path: string | nil): string
+local function lookup(dir: string, path: string?): string
   local env = this_program.environment()
   env.PATH = path
   local script = [[

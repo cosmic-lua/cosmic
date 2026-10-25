@@ -80,7 +80,7 @@ end
 --- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
 --- answer to `status-field Uid`: real, effective, saved and filesystem.
 local function uids(said: string): {integer}
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for number in said:gmatch("%d+") do
     found[#found + 1] = assert(math.tointeger(tonumber(number)))
   end

@@ -31,7 +31,7 @@ local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
   assert(Mime.gzip("app.css", ("x"):rep(1024)) == nil, "1 KiB is not past the minimum")
   assert(Mime.gzip("photo.png", text) == nil, "an image is not gzipped")
   assert(Mime.gzip("noext", text) == nil)
-  local noise: {string} = {}
+  local noise: mut {string} = {}
   local state = 12345
   for i = 1, 4000 do
     state = (state * 1103515245 + 12345) % 2147483648

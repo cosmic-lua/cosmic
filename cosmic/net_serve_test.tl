@@ -21,7 +21,7 @@ end
 
 --- The address a server listens at: a socket file at `path`, or, with none,
 --- the loopback at a port the kernel chooses.
-local function listener_at(path: string | nil): Net.Address
+local function listener_at(path: string?): Net.Address
   if path ~= nil then return Net.unix(path) end
   return Net.tcp("127.0.0.1", 0)
 end
@@ -44,7 +44,7 @@ end
 local record Client
   conn: Net.Conn
   lines: Stream.Lines
-  metamethod __close: function(Client)
+  __close: function(Client)
 end
 
 local client_mt: metatable<Client> = {
@@ -179,13 +179,13 @@ end
 --- connection in flight finishes, and one still open at grace_ns has
 --- its task killed, its protocol never resumed, before Net.serve
 --- returns.
-local function stop_drains_then_kills_after_grace_ns_at(path: string | nil)
+local function stop_drains_then_kills_after_grace_ns_at(path: string?)
   local started = { value = 0 }
   local stuck_why = { value = "" }
   local answer = { value = "" }
   local returned_at = 0
   local stopped_at = { value = 0 }
-  local stuck = { value = nil as Client | nil }
+  local stuck = { value = nil as Client? }
   assert(Net.serve{
     listeners = { listener_at(path) },
     grace_ns = Clock.ms(200),
@@ -209,7 +209,7 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string | nil)
       server:stop()
       assert(released(addresses[1]), "the listener was left")
       local refused, why = Net.connect(addresses[1])
-      assert(refused == nil and why:find(path ~= nil and "No such file" or "Connection refused", 1, true) ~= nil, why)
+      assert(refused == nil and why:find(if path ~= nil then "No such file" else "Connection refused" end, 1, true) ~= nil, why)
       answer.value = assert(slow.lines:read())
     end,
   })
@@ -287,7 +287,7 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
 end
 
 local record Closer
-  metamethod __close: function(Closer)
+  __close: function(Closer)
 end
 
 --- A protocol that ignores every failure and waits on, on its
@@ -341,7 +341,7 @@ local function test_a_killed_protocols_close_error_is_reported()
   local errors: {string} = {}
   local started = { value = false }
   local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end }
-  local held = { value = nil as Client | nil }
+  local held = { value = nil as Client? }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = 0,
@@ -373,7 +373,7 @@ local function test_a_killed_protocols_close_cannot_wait()
   local started = { value = false }
   local returned_at = 0
   local stopped_at = { value = 0 }
-  local held = { value = nil as Client | nil }
+  local held = { value = nil as Client? }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(50),
@@ -437,10 +437,10 @@ end
 
 --- A connection's protocol may stop the server it is served by, and
 --- still finish its own answer.
-local function a_protocol_stops_its_server_at(path: string | nil)
+local function a_protocol_stops_its_server_at(path: string?)
   local answer = { value = "" }
-  local serving = { value = nil as Net.Server | nil }
-  local bound = { value = nil as Net.Address | nil }
+  local serving = { value = nil as Net.Server? }
+  local bound = { value = nil as Net.Address? }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -473,9 +473,9 @@ end
 
 --- A server stopped before it accepts anything returns at once, its
 --- protocol never run; stopping it again does nothing.
-local function a_server_stopped_twice_before_accepting_returns_at(path: string | nil)
+local function a_server_stopped_twice_before_accepting_returns_at(path: string?)
   local served = { value = false }
-  local bound = { value = nil as Net.Address | nil }
+  local bound = { value = nil as Net.Address? }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(_conn: Net.Conn) served.value = true end,
@@ -514,7 +514,7 @@ end
 --- and the connection in flight finishes before Net.serve returns true.
 --- The server releases its guard, so the signal is not delivered again;
 --- a guard of the caller's around the call sees it.
-local function sigterm_stops_the_server_and_it_drains_at(path: string | nil)
+local function sigterm_stops_the_server_and_it_drains_at(path: string?)
   local started = { value = false }
   local answer = { value = "" }
   -- Closed only where an assertion fails first, which delivers the
@@ -557,10 +557,10 @@ end
 --- though it has no bound: the connection still open is killed. The
 --- first is SIGINT, to stop on either kind: a worker started with
 --- SIGINT ignored, whose guard leaves it so, fails this case.
-local function a_second_signal_ends_the_grace_at(path: string | nil)
+local function a_second_signal_ends_the_grace_at(path: string?)
   local started = { value = false }
   local stuck_why = { value = "" }
-  local stuck = { value = nil as Client | nil }
+  local stuck = { value = nil as Client? }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
   assert(Net.serve{
@@ -639,12 +639,12 @@ end
 --- on_stop is called once, however often the server is stopped, in a
 --- task of the run with the server, once the listener is closed and
 --- before the connection in flight has finished.
-local function on_stop_runs_once_at_stop_at(path: string | nil)
+local function on_stop_runs_once_at_stop_at(path: string?)
   local calls = { value = 0 }
   local finished = { value = false }
   local seen: {string} = {}
-  local serving = { value = nil as Net.Server | nil }
-  local bound = { value = nil as Net.Address | nil }
+  local serving = { value = nil as Net.Server? }
+  local bound = { value = nil as Net.Address? }
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
@@ -685,7 +685,7 @@ local function test_on_stop_runs_once_at_stop_on_a_socket_file(tmp: string)
 end
 
 --- SIGTERM calls on_stop as `stop` does, once.
-local function on_stop_runs_once_at_sigterm_at(path: string | nil)
+local function on_stop_runs_once_at_sigterm_at(path: string?)
   local calls = { value = 0 }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
@@ -720,7 +720,7 @@ end
 local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer): integer, string
   local idle: {Net.Conn: boolean} = {}
   local stopped_at = { value = 0 }
-  local idle_client = { value = nil as Client | nil }
+  local idle_client = { value = nil as Client? }
   local spec: Net.ServeSpec = {
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = grace_ns,
@@ -770,9 +770,9 @@ end
 
 --- What on_stop raises goes to on_error, with its stack, and the
 --- server stops all the same.
-local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: string | nil)
+local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: string?)
   local troubles: {string} = {}
-  local bound = { value = nil as Net.Address | nil }
+  local bound = { value = nil as Net.Address? }
   local ok, why = Net.serve{
     listeners = { listener_at(path) },
     serve = echo,
@@ -802,7 +802,7 @@ end
 
 --- A second signal cancels a wait on_stop makes, as it ends the grace,
 --- and the server returns.
-local function a_second_signal_cancels_on_stops_wait_at(path: string | nil)
+local function a_second_signal_cancels_on_stops_wait_at(path: string?)
   local waited = { value = "" }
   -- Closed only where an assertion fails first: released below otherwise.
   local outer <close> = assert(Signal.guard())
@@ -838,7 +838,7 @@ end
 local function test_on_stop_runs_when_stopped_from_a_coroutine()
   local calls = { value = 0 }
   local stopped = { value = "" }
-  local serving = { value = nil as Net.Server | nil }
+  local serving = { value = nil as Net.Server? }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)

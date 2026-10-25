@@ -33,7 +33,7 @@ local record LoadOrder
   record Use
     fn: integer
     binding: integer
-    decl: Types.Decl | nil
+    decl: Types.Decl?
     name: string
     spelled: string
   end
@@ -132,7 +132,7 @@ function LoadOrder.use(state: LoadOrder.State, within: integer, use: LoadOrder.U
 end
 
 --- Adds `fn` to `list` unless it is there.
-local function add(list: {integer}, fn: integer)
+local function add(list: mut {integer}, fn: integer)
   for _, held in ipairs(list) do
     if held == fn then
       return
@@ -142,10 +142,10 @@ local function add(list: {integer}, fn: integer)
 end
 
 --- The functions `value` is, where it is a function literal or a local that holds some; nil for any other expression.
-local function functions_of(state: LoadOrder.State, value: Ast.Exp): {integer} | nil
-  if value is Ast.FunctionLit then
+local function functions_of(state: LoadOrder.State, value: Ast.Exp): {integer}?
+  if (value.kind == "FunctionLit") then
     return { value.fn.id }
-  elseif value is Ast.Name then
+  elseif (value.kind == "Name") then
     local binding = value.binding
     if binding ~= nil then
       return state.held[binding]
@@ -232,8 +232,8 @@ local function followed(state: LoadOrder.State, use: LoadOrder.Use): {integer}
   local decl = use.decl
   if decl ~= nil then
     -- The methods of an interface are those of the classes that list it.
-    local out: {integer} = {}
-    local owners: {Types.Decl} = { decl }
+    local out: mut {integer} = {}
+    local owners: mut {Types.Decl} = { decl }
     for _, class in ipairs(state.implementers[decl] or {}) do
       owners[#owners + 1] = class
     end
@@ -250,7 +250,7 @@ local function followed(state: LoadOrder.State, use: LoadOrder.Use): {integer}
   return state.held[use.binding] or {}
 end
 
-local function search(state: LoadOrder.State, fn: integer, seen: {integer: boolean}, via: {string}): LoadOrder.Found | nil
+local function search(state: LoadOrder.State, fn: integer, seen: mut {integer: boolean}, via: mut {string}): LoadOrder.Found?
   if seen[fn] == true then
     return nil
   end
@@ -261,7 +261,7 @@ local function search(state: LoadOrder.State, fn: integer, seen: {integer: boole
   end
   for _, read in ipairs(effects.reads) do
     if state.undefined(read.decl, read.name) then
-      local path: {string} = {}
+      local path: mut {string} = {}
       for i, spelled in ipairs(via) do
         path[i] = spelled
       end

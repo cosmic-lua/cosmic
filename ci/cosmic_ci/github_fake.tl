@@ -9,7 +9,7 @@ local Json = require("cosmic.json")
 
 local record GithubFake
   record Fake
-    host: Github.Host
+    mut host: Github.Host
     --- Each request, as its method and the path below the API's address
     --- (`GET repos/o/r/actions/runs`), in order.
     calls: {string}
@@ -20,16 +20,16 @@ local record GithubFake
     --- Each wait, in seconds.
     sleeps: {integer}
     --- The time, in seconds, which each wait moves on.
-    clock: integer
+    mut clock: integer
     --- Whether the checkout's harness moved from the base asked after.
-    moved: boolean
+    mut moved: boolean
     --- The bases asked after.
     asked: {string}
   end
   --- The JSON the API answers `path`'s `nth` ask (the first is 1), nil to
   --- fail it with a 500. An array answers a listing: each element is one
   --- page, linked to the next as GitHub's `Link` header does.
-  type Answer = function(path: string, nth: integer): string | nil
+  type Answer = function(path: string, nth: integer): string?
   --- The time a fake starts at, in seconds since the epoch.
   start: function(): integer
   --- A fake answering through `answer`; `refuse` names the cache ids a
@@ -62,15 +62,15 @@ function GithubFake.count(fake: GithubFake.Fake, needle: string): integer
 end
 
 function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFake.Fake
-  local refused: {string:boolean} = {}
+  local refused: mut {string:boolean} = {}
   for _, id in ipairs(refuse or {}) do refused[id] = true end
-  local asks: {string:integer} = {}
-  local calls: {string} = {}
+  local asks: mut {string:integer} = {}
+  local calls: mut {string} = {}
   local origin <const> = "https://api.test"
   local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
     return { status = status, body = body, headers = headers or {} }
   end
-  local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
+  local function send(request: GithubApi.Request): GithubApi.Reply?, string
     local path = request.url:sub(#origin + 2)
     calls[#calls + 1] = request.method .. " " .. path
     if request.method == "DELETE" then
@@ -81,7 +81,7 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     end
     local at, number = path:match("^(.-)#page=(%d+)$")
     local asked = at or path
-    asks[asked] = (asks[asked] or 0) + (at and 0 or 1)
+    asks[asked] = (asks[asked] or 0) + (if at then 0 else 1 end)
     local text = answer(asked, assert(asks[asked]))
     if text == nil then return reply(500, ""), "" end
     local pages, _ = Json.decode_array(text)
@@ -91,15 +91,15 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     -- The fake's own marker, not GitHub's `page` parameter, keeps the
     -- path the answer is keyed by.
     return reply(200, assert(Json.encode_any(pages[index])),
-      more and { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } or nil), ""
+      if more then { link = '<' .. origin .. "/" .. asked .. "#page=" .. tostring(index + 1) .. '>; rel="next"' } else nil end), ""
   end
   local over = Github.over({ send = send, base = origin,
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })
-  local outputs: {string} = {}
-  local summaries: {string} = {}
-  local printed: {string} = {}
-  local sleeps: {integer} = {}
-  local asked_bases: {string} = {}
+  local outputs: mut {string} = {}
+  local summaries: mut {string} = {}
+  local printed: mut {string} = {}
+  local sleeps: mut {integer} = {}
+  local asked_bases: mut {string} = {}
   -- Made with a host that does nothing, which the real one, naming the fake, replaces.
   local fake: GithubFake.Fake = { calls = calls, outputs = outputs, summaries = summaries, printed = printed,
     sleeps = sleeps, clock = START, moved = false, asked = asked_bases,

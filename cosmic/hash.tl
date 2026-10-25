@@ -102,7 +102,7 @@ end
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
 --- Answers `hasher, ""`, or `nil, error` when the digest cannot start.
 --- Raises on an unknown algorithm, as `digest` and `hmac` do.
-function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher | nil, string
+function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher?, string
   return raw.hasher(algorithm)
 end
 
@@ -114,7 +114,7 @@ end
 --- a `<close>` abandoning an unfinished one. Answers `mac, ""`, or
 --- `nil, error` when the digest cannot start. Raises on an unknown
 --- algorithm.
-function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher | nil, string
+function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher?, string
   return raw.hmac_hasher(algorithm, key)
 end
 

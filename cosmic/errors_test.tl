@@ -9,7 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 --- comment of `symbol` in `module` instead), and where it was found.
 local record Row
   message: string
-  text: string | nil
+  text: string?
   module: string
   symbol: string
   file: string

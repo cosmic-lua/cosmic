@@ -7,6 +7,7 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Json = require("cosmic.json")
 local Url = require("cosmic.url")
 
 local record Types
@@ -181,28 +182,28 @@ local record Types
 
     --- The first value of header `name`, matched in any case; nil when
     --- the request has none.
-    header: function(self: Request, name: string): string | nil
+    header: function(self: Request, name: string): string?
     --- The body, read whole once and kept; also put back as
     --- `raw.body`, so a later reader of it sees the same bytes. Nil and
     --- why when the read fails (the server then answers 413, 400 or 408
     --- in place of the handler's reply), so a handler may `assert` it.
-    bytes: function(self: Request): string | nil, string
+    bytes: function(self: Request): string?, string
     --- The body as text: the `bytes` when they are valid UTF-8, else
     --- nil and why.
-    text: function(self: Request): string | nil, string
+    text: function(self: Request): string?, string
     --- The query string decoded by [`Url.decode_query`], once and kept;
     --- nil and why for a malformed escape, which is a 400. A query is not
     --- read leniently.
-    query: function(self: Request): Url.Query | nil, string
+    query: function(self: Request): Url.Query?, string
     --- The offer the request's Accept header likes best, ties going to
     --- the offer earlier in `offers`; the first offer where the request
     --- sent no Accept; nil when it accepts none.
-    accepts: function(self: Request, offers: {string}): string | nil
+    accepts: function(self: Request, offers: {string}): string?
     --- The URL of the route named `name`: see [`App.url_for`].
     url_for: function(self: Request, name: string, params?: {string: string | integer},
-        query?: {string:string}): string | nil, string
+        query?: {string:string}): string?, string
     --- The value `req:set` stored under `key`, or nil.
-    get: function<T>(self: Request, key: Key<T>): T | nil
+    get: function<T>(self: Request, key: Key<T>): T?
     --- Stores `value` under `key` for the rest of the request.
     set: function<T>(self: Request, key: Key<T>, value: T)
     --- "scheme://host[:port]" for building an absolute URL, only where the
@@ -210,7 +211,7 @@ local record Types
     --- from it is open to host-header injection). It is made from the host
     --- and port the header was validated to hold, lowercase. Nil and why
     --- otherwise.
-    base_url: function(self: Request): string | nil, string
+    base_url: function(self: Request): string?, string
   end
 
   --- Where an app writes its lines, and what [`Web.stderr_sink`] makes.
@@ -237,7 +238,7 @@ local record Types
     --- A mount of a handler: everything under the prefix is sent to it.
     fallback: Handler
     --- A mount's reverse resolver: see [`Web.MountOptions.reverse`].
-    reverse: function(prefix: string, params: {string:string}): string | nil, string
+    reverse: function(prefix: string, params: {string:string}): string?, string
     --- What a typed route binds, erased of its types; nil for a plain
     --- route and for a mount.
     input?: RouteInput
@@ -274,7 +275,7 @@ local record Types
     --- full URL, given the mount's full prefix (outer mounts included)
     --- and the params as strings. Nil and why for params it cannot
     --- resolve.
-    reverse?: function(prefix: string, params: {string:string}): string | nil, string
+    reverse?: function(prefix: string, params: {string:string}): string?, string
   end
 
   --- What [`Web.router`] takes.
@@ -468,7 +469,7 @@ local record Types
     --- Whether the name is a mount's.
     mount?: boolean
     --- A mount's resolver.
-    resolve: function(prefix: string, params: {string:string}): string | nil, string
+    resolve: function(prefix: string, params: {string:string}): string?, string
   end
 
   --- Routes compiled for matching: see [`Web.router`].
@@ -484,7 +485,7 @@ local record Types
     --- is escaped as [`Html.url_part`] does, a `*rest` split on "/" and
     --- each piece escaped.
     reverse: function(self: Router, name: string, params?: {string: string | integer},
-        query?: {string:string}): string | nil, string
+        query?: {string:string}): string?, string
 
     --- The root of the trie.
     root: Node
@@ -511,7 +512,7 @@ local record Types
     --- must not wait on [`cosmic.poll`]); returns the function that
     --- cleans up after the server stops, or nil for none. Nil and why
     --- stops [`Web.serve`] before it listens.
-    lifespan?: function(app: App): Shutdown | nil, string
+    lifespan?: function(app: App): Shutdown?, string
     --- Answers a fault with a page holding its message and stack
     --- (false by default, never taken from the environment): it
     --- exposes source paths and values.
@@ -574,7 +575,7 @@ local record Types
     handle: function(raw: Server.Request): Response
     --- [`Router.reverse`] on the app's routes.
     url_for: function(self: App, name: string, params?: {string: string | integer},
-        query?: {string:string}): string | nil, string
+        query?: {string:string}): string?, string
     --- True once the server has begun to stop; false again when
     --- [`Web.serve`] starts. A long-lived response polls it.
     stopping: function(self: App): boolean
@@ -616,10 +617,10 @@ local record Types
     --- and an event stream never ends.
     grace_ns?: integer
     --- As [`Server.ServeSpec.on_ready`].
-    on_ready: function({Net.Address}, Net.Server)
+    on_ready?: function({Net.Address}, Net.Server)
     --- Called when the server begins to stop, after `app:stopping()` is
     --- true and the functions of `app:on_stop` have run.
-    on_stop: function(Net.Server)
+    on_stop?: function(Net.Server)
   end
 
   --- What a constructor takes beside its body.
@@ -645,7 +646,7 @@ local record Types
     --- An urlencoded form body.
     form?: {string: string | {string}}
     --- A JSON body, with its Content-Type.
-    json?: any
+    json?: Json.Value
     --- A body as it is, with `content_type`.
     body?: string | Stream.Reader
     --- The Content-Type of `body`.
@@ -683,7 +684,7 @@ local record Types
     --- The body as text.
     text: function(self: TestResponse): string
     --- The body decoded as JSON; nil and why when it is none.
-    json: function(self: TestResponse): any | nil, string
+    json: function(self: TestResponse): any?, string
   end
 end
 

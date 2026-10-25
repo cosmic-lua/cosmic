@@ -82,8 +82,8 @@ local POLICY_SPEC <const> = Shape.strict_record({
 ---     print(policy.env[1], policy.tmp) -- HOME  true
 ---     local bad, why = PolicyJson.decode('{"grants":[{"path":"x","letters":"xr"}]}')
 ---     print(why) -- sandbox: pointer "/grants/0/letters": "xr" is not in the order of "rwxcu", each letter once: "rx"
-function PolicyJson.decode(json: string): Sandbox.Policy | nil, string
-  local policy, why: Sandbox.Policy | nil, string = Shape.decode_into(json, POLICY_SPEC)
+function PolicyJson.decode(json: string): Sandbox.Policy?, string
+  local policy, why: Sandbox.Policy?, string = Shape.decode_into(json, POLICY_SPEC)
   if policy == nil then return nil, "sandbox: " .. why end
   local ok, bad = Sandbox.check(policy, true)
   if not ok then return nil, bad end
@@ -130,7 +130,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   local made, why = Sandbox.merge(p)
   if made == nil then error(why, 2) end
   local merged: Sandbox.Policy = made
-  local digests: {string:string} = {}
+  local digests: mut {string:string} = {}
   for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
   for name, value in pairs(merged.set_env or {}) do digests[name] = digest_of(value) end
   local fields: {string:any} = {}
@@ -142,7 +142,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   put("connect", merged.connect or {})
   put("loopback", merged.loopback or {})
   put("env", merged.env or {})
-  local grants: {{string:string}} = {}
+  local grants: mut {{string:string}} = {}
   for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, letters = grant.letters, from = grant.from }
   end

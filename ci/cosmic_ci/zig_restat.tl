@@ -44,11 +44,11 @@ local record ZigRestat
   --- by digest and took a changed mtime for,
   --- how many it left, and how many manifests it rewrote.
   record Result
-    records: integer
-    adopted: integer
-    rehashed: integer
-    left: integer
-    manifests: integer
+    mut records: integer
+    mut adopted: integer
+    mut rehashed: integer
+    mut left: integer
+    mut manifests: integer
   end
 
   --- The stat of a file the restat has looked at, none where the file has none or is no regular file.
@@ -66,7 +66,7 @@ local metadata_flag <const> = 2
 --- of its prefix -- the manifest's own cache for 2, `roots[prefix]`
 --- otherwise -- or nil where no root is known.
 local function located(record: ZigPrune.Record, own: string,
-                       roots: {integer:string}): string | nil
+                       roots: {integer:string}): string?
   if record.path:sub(1, 1) == "/" then return record.path end
   local root = roots[record.prefix]
   if record.prefix == 2 then root = own end
@@ -82,14 +82,14 @@ end
 --- the build root); a file under a prefix it does not name is left.
 --- nil and why where a cache cannot be read or a manifest does not read
 --- as zig's, having rewritten none.
-function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): ZigRestat.Result | nil, string
+function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): ZigRestat.Result?, string
   local result: ZigRestat.Result = { records = 0, adopted = 0, rehashed = 0, left = 0,
     manifests = 0 }
   -- Each path's stat, or false where there is none; each re-hashed
   -- path's digest.
-  local stats: {string:ZigRestat.Seen} = {}
-  local digests: {string:string} = {}
-  local writes: {{string}} = {}
+  local stats: mut {string:ZigRestat.Seen} = {}
+  local digests: mut {string:string} = {}
+  local writes: mut {{string}} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
     if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
@@ -102,12 +102,12 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
         if text ~= "" then
           local records, trouble = ZigPrune.records(text)
           if records == nil then return nil, path .. ": " .. trouble end
-          local pieces: {string} = {}
+          local pieces: mut {string} = {}
           local from = 1
           for _, record in ipairs(records) do
             result.records = result.records + 1
             local file = located(record, cache.path, roots)
-            local stat: sys.Stat | nil = nil
+            local stat: sys.Stat? = nil
             if file ~= nil and record.flags & (directory_flag | metadata_flag) == 0 then
               local seen = stats[file]
               if seen == nil then
@@ -167,7 +167,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
 end
 
 --- The lib directory `bin/zig env` names, from its output `text`.
-function ZigRestat.lib_dir(text: string): string | nil
+function ZigRestat.lib_dir(text: string): string?
   return text:match('%.lib_dir = "([^"]*)"')
 end
 
@@ -178,13 +178,13 @@ end
 --- error. Nothing to do where `project` holds no manifests. It never
 --- fails (0): a cache it cannot read is left as it was and said so,
 --- since a cache left so costs only time.
-function ZigRestat.command(project: string, shared: string | nil, root: string,
+function ZigRestat.command(project: string, shared: string?, root: string,
                            lib?: string): ZigPrune.Command
   if not Predicate.is_dir(project .. "/h") then
     return { code = 0, out = "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", err = "" }
   end
-  local caches: {ZigPrune.Cache} = { { path = project, prefix = 2 } }
-  local roots: {integer:string} = { [0] = root, [4] = root }
+  local caches: mut {ZigPrune.Cache} = { { path = project, prefix = 2 } }
+  local roots: mut {integer:string} = { [0] = root, [4] = root }
   if lib ~= nil then roots[1] = lib end
   if shared ~= nil and Predicate.is_dir(shared .. "/h") then
     caches[#caches + 1] = { path = shared, prefix = 3 }
@@ -205,11 +205,11 @@ end
 --- cache bin/zig names, so that asking makes no cache of its own --
 --- only where `project` holds manifests to restat, and leaving the files
 --- under the lib directory where zig cannot say.
-function ZigRestat.run(root: string, project: string, shared: string | nil): ZigPrune.Command
+function ZigRestat.run(root: string, project: string, shared: string?): ZigPrune.Command
   if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
   local env = Maps.with(Env.all(), { COSMIC_ZIG_CACHE = project })
   if shared ~= nil then env = Maps.with(env, { COSMIC_ZIG_GLOBAL_CACHE = shared }) end
-  local lib: string | nil = nil
+  local lib: string? = nil
   local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture" })
   if ran ~= nil and ran.ok then lib = ZigRestat.lib_dir(ran.stdout or "") end
@@ -223,7 +223,7 @@ end
 function ZigRestat.restat_command(_argv: {string}): integer
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED") or ""
   local shared = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
-  local kept: string | nil = nil
+  local kept: string? = nil
   if shared ~= nil and shared ~= "" then kept = shared end
   local command = ZigRestat.run(assert(Fs.absolute(".")), seed .. "/zig-cache", kept)
   if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end

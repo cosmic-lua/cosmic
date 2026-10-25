@@ -29,7 +29,7 @@ local record Format
 end
 
 local function shown(fields: {any}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, #fields do
     out[i] = tostring(fields[i])
   end
@@ -77,8 +77,8 @@ local function hello_fresh(): function(string): Answer
   local reader = Wire.hello_reader()
   return function(chunk: string): Answer
     local r = reader:feed(chunk)
-    local status = r.status == "more" and "more" or (r.status == "name" or r.status == "no_sni" or r.status == "encrypted_sni") and
-      "done" or "refused"
+    local status = if r.status == "more" then "more" elseif (r.status == "name" or r.status == "no_sni" or r.status == "encrypted_sni") then
+      "done" else "refused" end
     return { status = status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.name }) }
   end
 end
@@ -103,7 +103,7 @@ local SOUND_ENDS <const> = { "a", "b", "z", "Q", "0", "7" }
 
 local function gen_label(src: Fuzz.Source, sound: boolean): string
   if sound then
-    local out: {string} = { Fuzz.pick(src, SOUND_ENDS) }
+    local out: mut {string} = { Fuzz.pick(src, SOUND_ENDS) }
     while Fuzz.more(src, #out, 8) do
       out[#out + 1] = Fuzz.pick(src, SOUND_INNER)
     end
@@ -113,7 +113,7 @@ local function gen_label(src: Fuzz.Source, sound: boolean): string
   if src:int(0, 3) == 0 then
     return Fuzz.pick(src, LABELS)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 10) do
     out[#out + 1] = Fuzz.pick(src, LABEL_CHARS)
   end
@@ -122,19 +122,19 @@ end
 
 --- A host name: one the rules accept when `sound`, else any of the above.
 local function gen_name(src: Fuzz.Source, sound: boolean): string
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   while Fuzz.more(src, #labels, 4) do
     labels[#labels + 1] = gen_label(src, sound)
   end
   labels[#labels + 1] = (not sound and src:int(0, 5) == 0) and gen_label(src, false) or
     Fuzz.pick(src, { "com", "example", "org", "Net" })
-  return table.concat(labels, ".") .. (src:int(0, 6) == 0 and "." or "")
+  return table.concat(labels, ".") .. (if src:int(0, 6) == 0 then "." else "" end)
 end
 
 local OCTETS <const> = { "0", "1", "127", "255", "256", "010", "08", "9", "300", "", "1a" }
 
 local function gen_ipv4(src: Fuzz.Source, sound: boolean): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 4 do
     parts[i] = (not sound and src:int(0, 3) == 0) and Fuzz.pick(src, OCTETS) or tostring(src:int(0, 255))
   end
@@ -152,7 +152,7 @@ local GROUPS <const> = { "0", "0", "0", "1", "ff", "FFFF", "abcd", "0000", "1234
 --- An IPv6 address without brackets, in the forms the notation allows
 --- (full, `::` for a run, a dotted tail) and some it does not.
 local function gen_ipv6(src: Fuzz.Source, sound: boolean): string
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for i = 1, 8 do
     groups[i] = (not sound and src:int(0, 4) == 0) and Fuzz.pick(src, GROUPS) or
       ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0)
@@ -203,14 +203,14 @@ local HEADER_VALUES <const> = { "x", "", "Basic YTpi", "  spaced \t", "\xff\xfe"
 local function gen_connect(src: Fuzz.Source): string
   local method = src:int(0, 9) == 0 and Fuzz.pick(src, { "GET", "connect", "POST", "" }) or "CONNECT"
   local version = src:int(0, 9) == 0 and Fuzz.pick(src, { "HTTP/2", "HTTP/1.0", "http/1.1", "" }) or "HTTP/1.1"
-  local lines: {string} = { method .. " " .. gen_target(src) .. " " .. version }
+  local lines: mut {string} = { method .. " " .. gen_target(src) .. " " .. version }
   while Fuzz.more(src, #lines - 1, 6) do
     local name = src:int(0, 5) == 0 and Fuzz.pick(src, HEADER_NAMES) or Fuzz.pick(src, { "Host", "Proxy-Authorization", "User-Agent" })
     local value = src:int(0, 6) == 0 and Fuzz.pick(src, HEADER_VALUES) or Fuzz.pick(src, { "x", "Basic YTpi", "v" })
     lines[#lines + 1] = name .. ": " .. value
   end
   local text = table.concat(lines, "\r\n") .. "\r\n\r\n"
-  local damaged = Fuzz.mutate(src, text, src:int(0, 2) == 0 and 2 or 0)
+  local damaged = Fuzz.mutate(src, text, if src:int(0, 2) == 0 then 2 else 0 end)
   if src:int(0, 3) == 0 then
     damaged = damaged .. "\22\3\1tunnel"
   end
@@ -218,8 +218,8 @@ local function gen_connect(src: Fuzz.Source): string
 end
 
 local function gen_greeting(src: Fuzz.Source): string
-  local out: {string} = { src:int(0, 9) == 0 and string.char(src:int(0, 255)) or "\5" }
-  local methods: {string} = {}
+  local out: mut {string} = { src:int(0, 9) == 0 and string.char(src:int(0, 255)) or "\5" }
+  local methods: mut {string} = {}
   while Fuzz.more(src, #methods, 5) do
     methods[#methods + 1] = string.char(Fuzz.pick(src, { 0, 0, 1, 2, 2, 255, src:int(0, 255) }))
   end
@@ -229,17 +229,17 @@ local function gen_greeting(src: Fuzz.Source): string
   if src:int(0, 4) == 0 then
     text = text .. Fuzz.bytes(src, 4)
   end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_auth(src: Fuzz.Source): string
   local user = Fuzz.bytes(src, 8)
   local pass = Fuzz.bytes(src, 8)
-  local text = (src:int(0, 9) == 0 and "\2" or "\1") .. string.char(#user) .. user .. string.char(#pass) .. pass
+  local text = (if src:int(0, 9) == 0 then "\2" else "\1" end) .. string.char(#user) .. user .. string.char(#pass) .. pass
   if src:int(0, 4) == 0 then
     text = text .. Fuzz.bytes(src, 4)
   end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 2 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 2 else 0 end)
 end
 
 local function gen_socks_request(src: Fuzz.Source): string
@@ -256,17 +256,17 @@ local function gen_socks_request(src: Fuzz.Source): string
     address = string.char(#name) .. name
   end
   local command = src:int(0, 6) == 0 and src:int(0, 4) or 1
-  local port = src:int(0, 9) == 0 and 0 or src:int(1, 65535)
+  local port = if src:int(0, 9) == 0 then 0 else src:int(1, 65535) end
   local text = Fixture.socks_request(command, atyp, address, port)
   if src:int(0, 4) == 0 then
     text = text .. Fuzz.bytes(src, 4)
   end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 2 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 2 else 0 end)
 end
 
 --- Extensions a hello may carry besides its server name.
 local function gen_extras(src: Fuzz.Source): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 4) do
     out[#out + 1] = Fixture.extension(Fuzz.pick(src, { 0, 10, 11, 21, 43, 0xfe0d, 0xffce, 0xff02, 0xff03, 65535 }), Fuzz.bytes(src, 8))
   end
@@ -278,7 +278,7 @@ local function gen_hello(src: Fuzz.Source): string
   if kind == 0 then
     return Fuzz.bytes(src, 24)
   end
-  local name: string | nil = nil
+  local name: string? = nil
   if src:int(0, 4) ~= 0 then
     name = gen_name(src, src:int(0, 2) ~= 0)
   end
@@ -289,7 +289,7 @@ local function gen_hello(src: Fuzz.Source): string
     extra = gen_extras(src),
     server_name = src:int(0, 14) == 0 and Fuzz.bytes(src, 12) or nil,
   })
-  local sizes: {integer} = {}
+  local sizes: mut {integer} = {}
   while Fuzz.more(src, #sizes, 4) do
     sizes[#sizes + 1] = src:int(1, 80)
   end
@@ -297,7 +297,7 @@ local function gen_hello(src: Fuzz.Source): string
   if src:int(0, 4) == 0 then
     text = text .. Fuzz.bytes(src, 6)
   end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 2 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 2 else 0 end)
 end
 
 local READERS <const>: {Format} = {
@@ -377,7 +377,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
         end
         -- And a byte at a time.
         local feed = format.fresh()
-        local last: Answer | nil
+        local last: Answer?
         for at = 1, #input do
           last = feed(input:sub(at, at))
         end
@@ -391,7 +391,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
 end
 
 local function authority_of(host: string, kind: string, port: integer): string
-  return (kind == "ipv6" and "[" .. host .. "]" or host) .. ":" .. port
+  return (if kind == "ipv6" then "[" .. host .. "]" else host end) .. ":" .. port
 end
 
 local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: string)
@@ -407,7 +407,7 @@ local function test_a_request_built_from_an_answer_reads_back_the_same(tmp: stri
         return true, ""
       end
       Fuzz.label(assert(first.kind))
-      local headers: {string} = {}
+      local headers: mut {string} = {}
       local authorization = first.authorization
       if authorization ~= nil then
         Fuzz.label("authorization")
@@ -453,7 +453,7 @@ local function test_a_socks_request_built_from_an_answer_reads_back_the_same(tmp
         address = Fixture.ipv6_bytes(host)
       end
       local first_kind2 = first.kind
-      local atyp = first_kind2 == "name" and 3 or first_kind2 == "ipv4" and 1 or 4
+      local atyp = if first_kind2 == "name" then 3 elseif first_kind2 == "ipv4" then 1 else 4 end
       local rebuilt = Fixture.socks_request(1, atyp, address, assert(first.port))
       local second = Wire.socks_request_reader():feed(rebuilt)
       if second.status ~= "done" or second.host ~= first.host or second.kind ~= first.kind or second.port ~= first.port or
@@ -534,10 +534,10 @@ local function test_a_refusal_reply_is_one_status_line_of_visible_text(tmp: stri
         return false, ("%q gave the status line of %q"):format(fields[2], reply)
       end
       local rest = reply:sub(#phrase + #tostring(status) + 13)
-      if rest ~= (status == 405 and "Allow: CONNECT\r\n" or "") .. "Connection: close\r\nContent-Length: 0\r\n\r\n" then
+      if rest ~= (if status == 405 then "Allow: CONNECT\r\n" else "" end) .. "Connection: close\r\nContent-Length: 0\r\n\r\n" then
         return false, ("%q gave more than a status line: %q"):format(fields[2], reply)
       end
-      Fuzz.label(fields[2]:find("[^\32-\126]") and "controls" or "visible")
+      Fuzz.label(if fields[2]:find("[^\32-\126]") then "controls" else "visible" end)
       return true, ""
     end,
   })
@@ -549,27 +549,27 @@ local function test_a_hello_with_an_encrypted_server_name_is_never_named(tmp: st
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local kinds: {integer} = { 0xfe0d, 0xffce, 0xff02, 0xff03 }
-      local sizes: {integer} = {}
+      local sizes: mut {integer} = {}
       while Fuzz.more(src, #sizes, 3) do
         sizes[#sizes + 1] = src:int(1, 60)
       end
-      local sizes_text: {string} = {}
+      local sizes_text: mut {string} = {}
       for i, size in ipairs(sizes) do
         sizes_text[i] = tostring(size)
       end
       return Fuzz.pack({ gen_name(src, true), tostring(Fuzz.pick(src, kinds)), Fuzz.bytes(src, 12),
-        src:int(0, 1) == 0 and "before" or "after", table.concat(sizes_text, ",") })
+        if src:int(0, 1) == 0 then "before" else "after" end, table.concat(sizes_text, ",") })
     end,
     requires = { "encrypted" },
     shares = { encrypted = 0.5 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local sizes: {integer} = {}
+      local sizes: mut {integer} = {}
       for size in fields[5]:gmatch("%d+") do
         sizes[#sizes + 1] = math.tointeger(tonumber(size))
       end
       local encrypted = Fixture.extension(math.tointeger(tonumber(fields[2])), fields[3])
-      local extras = fields[4] == "before" and { encrypted, Fixture.extension(21, "") } or { Fixture.extension(21, ""), encrypted }
+      local extras = if fields[4] == "before" then { encrypted, Fixture.extension(21, "") } else { Fixture.extension(21, ""), encrypted } end
       local hello = Fixture.hello({ name = fields[1], extra = extras })
       local r = Wire.hello_reader():feed(Fixture.records(hello, sizes))
       if r.status == "name" or r.name ~= nil then

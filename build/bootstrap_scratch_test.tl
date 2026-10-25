@@ -83,12 +83,12 @@ local function test_gate_holds_creation_until_an_owner_can_be_established(tmp: s
     local cache = root .. "/cache"
     assert(Fs.mkdirs(cache))
     local gate = holder(cache .. "/.scratch-gate")
-    local script = patch and [[
+    local script = if patch then [[
 assert(require("build.patch").prepare(%q, "lib", %q))
-]] or [[
+]] else [[
 local cache = %q
 require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
-]]
+]] end
     local body = patch and script:format(root, cache) or script:format(cache)
     body = 'print("started")\n' .. body .. '\nprint("finished")'
     local command = this_program.program({ "-e", body }, { stdout = "stream", stderr = "capture" })
@@ -117,7 +117,7 @@ assert(Fs.read(path .. "/file") == "whole")
 assert(Fs.exists(path .. "/owner") == false)
 print(path)
 ]]
-  local children: {Child.Handle} = {}
+  local children: mut {Child.Handle} = {}
   for _ = 1, 4 do
     local command = this_program.program({ "-e", script:format(tmp, cache) },
       { stdout = "capture", stderr = "capture" })

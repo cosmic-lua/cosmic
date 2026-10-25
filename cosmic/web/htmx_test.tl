@@ -23,16 +23,16 @@ local function through(fn: function(Web.Request): Web.Response, headers?: {strin
 end
 
 --- The response [`Htmx.apply`] writes `reply` to, or why it refused.
-local function applied(reply: Htmx.Reply): Web.Response | nil, string
+local function applied(reply: Htmx.Reply): Web.Response?, string
   return Htmx.apply(Web.empty(200), reply)
 end
 
-local function header(res: Web.Response, name: string): string | nil
+local function header(res: Web.Response, name: string): string?
   return Web.header(res, name)
 end
 
 local function test_request_reads_the_hx_headers()
-  local seen = { value = nil as Htmx.Request | nil }
+  local seen = { value = nil as Htmx.Request? }
   through(function(req: Web.Request): Web.Response
     seen.value = Htmx.request(req)
     return Web.text("")

@@ -8,53 +8,23 @@ defines the target; once something ships, it leaves this file.
 
 ## language and self-check
 
-- implement the cast policy in design.md. a cast is legal only from `any`, from
-  a userdata record declared in `.d.tl`, or from the enclosing generic's type
-  variable. the checker does not enforce it yet, and the tree's own Teal holds
-  about seventy `as` casts to migrate or justify first. old's
-  `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
-  implementation and migration evidence. the policy covers `is` too: `as` and `is`
-  give any target type unchecked, so one that contains a never-function (a
-  function type, or a record or container with such a field) forges the
-  guarantee of `: never`.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
-  redeclaration of them: the documented signatures then read as
-  `records_interfaces_methods` teaches, and the design note above
-  `FromStringReader` in [`cosmic/stream.tl`] shrinks. every interface of the
-  module and every record that implements one changes together. it also
-  lets the receiver exemption go from the checker: the first
-  parameter of a function-typed record field, when it is a record or an
-  interface, is the one place a record parameter is compared in either
-  direction, because those redeclarations narrow it. it closes the hole
-  that comes with it: a callback field `function(Event)` also takes a
-  `function(k: KeyEvent)`.
-- close the holes in Teal's own typing that forge any type, `: never`
-  functions among them ([doc/design.md](design.md)'s teal section states the
-  bar): a function `__index` given to `setmetatable` is declared to return
-  `any`, so what it serves is not checked against the record (a table
-  `__index` is checked, and `test_a_function_index_serves_any` in
-  [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
-  either.
-- make every guard read every place alike, in the new checker: the fork
-  narrows only a local ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)),
-  so a test of a field, an index or a global narrows nothing there and a
-  program copies the field to a local first. In the new checker a path of
-  fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
+  redeclaration of them, so that the design note above `FromStringReader` in
+  [`cosmic/stream.tl`] shrinks. every interface of the module and every record
+  that implements one changes together, with the `skip?:` and `pending?:`
+  declarations the TODO at the top of that file names. it also closes the
+  hole a function-typed record field leaves: a callback field
+  `function(Event)` also takes a `function(k: KeyEvent)`, because the first
+  parameter of such a field, when it is a record or an interface, is the one
+  place a record parameter is compared in either direction.
+- make every guard read every place alike
+  ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)):
+  a path of fixed fields (`a.b.c`) is a place, and so is an index (`t[k]`, `k` a
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`
   guards all its members, not the last pair; an assignment drops the place
   assigned and its extensions only (`r.f = v` keeps `r.foo`).
-- let `setmetatable` attach metamethods only to a record type that
-  declares them, so that "a value dispatches only through metamethods its
-  type declares" ([doc/design.md](design.md)'s narrowing paragraph) holds of
-  run-time metatables too: today `setmetatable({}, {__index = f})` gives a
-  plain map an `__index` the checker never sees, so a call it makes is not
-  one the rule that a local is assigned before it is read counts.
-  `may_dispatch` and `runs_no_code` in [`checker/tl.tl`] carry a TODO that
-  names this item, and `test_unnarrowed_field_metatable_attached_at_run_time`
-  in [`build/checker_narrowing_test.tl`] pins four programs.
-  `__gc` finalizers stay outside the claim.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
@@ -67,18 +37,12 @@ defines the target; once something ships, it leaves this file.
   raise unwinds its frame, so `assert` and the operators that raise (division
   by zero, indexing nil) need no rule of their own then. it replaces the
   rule that any code that may run, and a call that never returns, lets it out,
-  and accepts what that refuses. [`checker/flow.tl`] holds a TODO for it.
-- exclude nil from every type but one that names it. the checker's own
-  source is valid upstream Teal, which indexes no `T | nil` even after a
-  guard, so it declares a local it reads before the code that assigns it
-  `local x: T = nil` (the TODO at the top of [`checker/tl.tl`] names them);
-  those and every other place nil passes for a `T` are refused then.
+  and accepts what that refuses ([`lang/flow.tl`]).
 - list the standard library functions that run no code of the program's
-  with the declarations that say so (today [`checker/tl.tl`] marks them by
-  name where it loads [`checker/stdlib.d.tl`]), and let a declaration of the
+  in the declarations that say so ([`lang/stdlib.d.tl`]), and let a declaration of the
   program's own say it too, so a call of one given arguments that cannot
   dispatch keeps the narrowing as `tostring` and `table.concat` do.
-- add earned lint rules and their fixes to [`build/fix/rule.tl`]'s rule list.
+- add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
   the rewrite stage is in place and the list is still empty.
 - add a floor for line coverage, C included: `cosmic test --min PCT
   [--min-file PCT]` fails a whole run whose overall or any one file's line
@@ -202,7 +166,7 @@ promises lean on come first:
   needs it yet.
 - convert the sites that still read a decoded JSON value without a
   [`cosmic.shape`] check. None casts it in a function that
-  [`build/contracts.tl`]'s `casts` names; what is left:
+  build/contracts.tl's `casts` names; what is left:
   - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
     `assert` per field (`draft_ids`, `target`, `workflows_moved`,
     `asset_names`, `flag`). `prerelease_test.tl` pins `draft_ids`'
@@ -232,13 +196,13 @@ promises lean on come first:
   with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
-  [`build/shape_specs.tl`]):
+  build/shape_specs.tl):
   - `Shape.of<T>()` is not Teal: a call takes no type arguments, so `T` cannot
     be handed to a function. The name is a string, and the build splices in a
     `function(): R return nil end` that gives the result its type; a nil cast
     to the record (`Shape.of(nil as R)`) would drop the string and the
     module's `require` of the record's module, at the cost of a cast in the
-    caller, which [`build/contracts.tl`]'s rule 7 refuses outside a `casts`
+    caller, which build/contracts.tl's rule 7 refuses outside a `casts`
     entry.
   - a program with no build gets none: `--standalone` has no declarations to
     read, and parsing one at run time needs the Teal compiler (about 300 KB of
@@ -257,9 +221,9 @@ promises lean on come first:
     the checker keeps an enum as a set. A message that lists them reads
     differently from a hand-written `one_of` in another order.
   - a `module.Record` is found only inside the module's returned record
-    ([`receivers.record_named`]): a record another module declares and does
+    (receivers.record_named): a record another module declares and does
     not hand out is refused. Reading it needs the checker's types of that
-    module's own scope, which [`build.receivers`] does not keep.
+    module's own scope, which build.receivers does not keep.
   - a spec of a record and a spec in a hand-written [`Shape.list`] or
     [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
@@ -386,7 +350,7 @@ promises lean on come first:
 
 - go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
   answers diagnostics, hover and formatting today. tl's type report answers
-  both: with `env.report_types` on, which [`build/compiler.d.tl`] declares,
+  both: with `env.report_types` on, which build/compiler.d.tl declares,
   its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
   declare yet.
 
@@ -461,27 +425,17 @@ four-producer provenance join.
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
-[`build.receivers`]: ../build/receivers.tl
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
-[`build/compiler.d.tl`]: ../build/compiler.d.tl
-[`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
-[`build/fix/rule.tl`]: ../build/fix/rule.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
-[`build/shape_specs.tl`]: ../build/shape_specs.tl
-[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
-[`checker/flow.tl`]: ../checker/flow.tl
-[`checker/stdlib.d.tl`]: ../checker/stdlib.d.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
@@ -515,8 +469,9 @@ four-producer provenance join.
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
+[`lang/flow.tl`]: ../lang/flow.tl
+[`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`receivers.record_named`]: ../build/receivers.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl

@@ -14,7 +14,7 @@ local record Memprobe
   --- Where a line goes: standard error.
   sink: function(line: string)
   --- Writes the line for `label` when the probe is enabled, and answers it (nil when it is not).
-  mark: function(label: string): string | nil
+  mark: function(label: string): string?
 end
 
 --- The size in kilobytes of the field `name` ("VmRSS", "VmHWM") of /proc/self/status, 0 where the host has none.
@@ -43,7 +43,7 @@ Memprobe.sink = function(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")
 end
 
-function Memprobe.mark(label: string): string | nil
+function Memprobe.mark(label: string): string?
   if not Memprobe.enabled then
     return nil
   end

@@ -76,8 +76,8 @@ local function test_closure_follows_requires_transitively(tmp: string)
   assert(table.concat(Store.closure({ "fixture.lib" }), " ") == "fixture.leaf fixture.lib")
   assert(table.concat(Store.closure({ "fixture.loop_a" }), " ") ==
       "fixture.loop_a fixture.loop_b")
-  local expected: {string:boolean} = {}
-  local stack: {string} = { "cosmic.json" }
+  local expected: mut {string:boolean} = {}
+  local stack: mut {string} = { "cosmic.json" }
   while #stack > 0 do
     local name = table.remove(stack)
     if not expected[name] then
@@ -127,7 +127,7 @@ local function modules_of(path: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM modules ORDER BY path"))
   assert(db:close())
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, row in ipairs(rows) do
     names[#names + 1] = row:text(1)
   end
@@ -164,7 +164,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT key, value FROM meta ORDER BY key"))
   assert(db:close())
-  local meta: {string:string} = {}
+  local meta: mut {string:string} = {}
   for _, row in ipairs(rows) do
     meta[row:text(1)] = row:text(2)
   end
@@ -316,7 +316,7 @@ end
 --- A sealed module carries every edge the checker follows from it, as
 --- the database it came from holds them, an edge to a name left out
 --- among them: a compile of a project on the sealed database resolves
---- the standard library by them ([`build.compilation`]).
+--- the standard library by them ([`build.plans`]).
 local function test_seal_carries_the_checkers_edges(tmp: string)
   local path = tmp .. "/edges.db"
   assert(Store.seal({ "cosmic.time" }, path))

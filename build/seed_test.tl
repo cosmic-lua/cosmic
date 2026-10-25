@@ -23,7 +23,7 @@ local ENTRY <const> = "build/seed.tl"
 --- The files of the seed list, in order.
 local function listed(): {string}
   local text = assert(Fs.read("build/seed.txt"))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     out[#out + 1] = line
   end
@@ -34,7 +34,7 @@ end
 local function requires_of(file: string): {string}
   local text = assert(Fs.read(file))
   local parsed = Parser.parse(Lexer.lex(Translate.translate(text, file).text, file), file, "tl")
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, r in ipairs(parsed.chunk.requires) do
     out[#out + 1] = r.module
   end
@@ -42,7 +42,7 @@ local function requires_of(file: string): {string}
 end
 
 --- The `.tl` file of the module `module`, nil for one that has none: a binding of C, or a declaration file.
-local function file_of(module: string): string | nil
+local function file_of(module: string): string?
   local stem = module:gsub("%.", "/")
   for _, file in ipairs({ stem .. ".tl", stem .. "/init.tl" }) do
     if Fs.read(file) ~= nil then
@@ -54,8 +54,8 @@ end
 
 --- Every file the entry requires, itself included, by file.
 local function closure(): {string: boolean}
-  local seen: {string: boolean} = { [ENTRY] = true }
-  local files: {string} = { ENTRY }
+  local seen: mut {string: boolean} = { [ENTRY] = true }
+  local files: mut {string} = { ENTRY }
   for _, file in ipairs(files) do
     for _, module in ipairs(requires_of(file)) do
       local found = file_of(module)
@@ -70,7 +70,7 @@ end
 
 local function test_the_seed_list_is_the_require_closure_of_the_entry()
   local wanted = closure()
-  local held: {string: boolean} = {}
+  local held: mut {string: boolean} = {}
   for _, file in ipairs(listed()) do
     held[file] = true
   end
@@ -98,7 +98,7 @@ end
 
 --- The seed names each output by the file's basename, so two files of one name would be one output.
 local function test_no_two_files_of_the_seed_share_a_basename()
-  local seen: {string: string} = {}
+  local seen: mut {string: string} = {}
   for _, file in ipairs(listed()) do
     assert(file:match("%.tl$") ~= nil and file:match("%.d%.tl$") == nil, file .. " is no .tl source")
     local base = file:match("([^/]*)%.tl$") or file
@@ -108,12 +108,12 @@ local function test_no_two_files_of_the_seed_share_a_basename()
   end
 end
 
---- The seed is what replaces the fork's checker, so it holds no part of it.
+--- The seed holds no part of the fork's checker, which the tree no longer has.
 local function test_the_seed_holds_nothing_of_the_fork()
   for _, file in ipairs(listed()) do
     assert(file:find("^checker/") == nil, file .. " is the fork's")
     for _, module in ipairs(requires_of(file)) do
-      assert(module ~= "build.teal" and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
+      assert(module:find("^build%.teal") == nil and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
     end
   end
 end

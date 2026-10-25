@@ -55,7 +55,7 @@ local record RelationPrograms
   refused: function(w: World, a: Types.Type, b: Types.Type, code: Relation.Code, path?: string): Relation.Refusal
 
   --- The code of a refusal, or "" for none.
-  code_of: function(r: Relation.Refusal | nil): string
+  code_of: function(r: Relation.Refusal?): string
 end
 
 local function body(): Types.Body
@@ -179,7 +179,7 @@ function RelationPrograms.named(w: RelationPrograms.World, name: string, args?: 
 end
 
 function RelationPrograms.func(w: RelationPrograms.World, params: {Types.Type}, returns: {Types.Type}): Types.Type
-  local list: {Types.Param} = {}
+  local list: mut {Types.Param} = {}
   for i, p in ipairs(params) do
     list[i] = { type = p }
   end
@@ -187,7 +187,7 @@ function RelationPrograms.func(w: RelationPrograms.World, params: {Types.Type}, 
 end
 
 function RelationPrograms.nothing(w: RelationPrograms.World, params: {Types.Type}): Types.Type
-  local list: {Types.Param} = {}
+  local list: mut {Types.Param} = {}
   for i, p in ipairs(params) do
     list[i] = { type = p }
   end
@@ -195,10 +195,10 @@ function RelationPrograms.nothing(w: RelationPrograms.World, params: {Types.Type
 end
 
 function RelationPrograms.steps(r: Relation.Refusal): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, step in ipairs(r.path) do
     local index = step.index
-    out[#out + 1] = index ~= nil and step.kind .. " " .. index or step.kind
+    out[#out + 1] = if index ~= nil then step.kind .. " " .. index else step.kind end
   end
   return table.concat(out, " > ")
 end
@@ -232,7 +232,7 @@ function RelationPrograms.refused(
   return r
 end
 
-function RelationPrograms.code_of(r: Relation.Refusal | nil): string
+function RelationPrograms.code_of(r: Relation.Refusal?): string
   if r == nil then
     return ""
   end

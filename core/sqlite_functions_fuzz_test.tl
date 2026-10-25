@@ -20,7 +20,7 @@ local handle = assert(Sqlite.memory())
 
 --- The one value `sql` yields over `values`, as SQLite's text, or nil
 --- and the statement's error.
-local function value(sql: string, values: {Sqlite.Value}): string | nil, string
+local function value(sql: string, values: {Sqlite.Value}): string?, string
   local rows, trouble = Sqlite.text_rows(handle, sql, values)
   if rows == nil then return nil, trouble end
   assert(#rows == 1, sql .. ": " .. #rows .. " rows")
@@ -30,7 +30,7 @@ end
 --- A varint length as compress.c writes one: seven bits a byte, most
 --- significant first, the last byte's top bit set.
 local function length_prefix(n: integer): string
-  local bytes: {integer} = {}
+  local bytes: mut {integer} = {}
   repeat
     table.insert(bytes, 1, n & 0x7f)
     n = n >> 7
@@ -67,7 +67,7 @@ local function test_uncompress_is_total_and_round_trips(tmp: string)
       end
       local got, trouble = value("SELECT typeof(uncompress(?1))", { { blob = fields[2] } })
       if got == nil then return false, "uncompress failed its statement: " .. trouble end
-      Fuzz.label(got == "null" and "refused" or "decoded")
+      Fuzz.label(if got == "null" then "refused" else "decoded" end)
       return true, ""
     end,
     requires = { "round-tripped", "decoded", "refused" },
@@ -85,7 +85,7 @@ local function test_regexp_is_total(tmp: string)
     name = "sqlite regexp total",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 16) do parts[#parts + 1] = Fuzz.pick(src, PATTERN_TOKENS) end
       return Fuzz.pack({ table.concat(parts), Fuzz.bytes(src, 32) })
     end,
@@ -97,7 +97,7 @@ local function test_regexp_is_total(tmp: string)
         Fuzz.label("refused a pattern")
         if trouble == "" then return false, "a refusal must say why" end
       elseif got == "1" or got == "0" then
-        Fuzz.label(got == "1" and "matched" or "did not match")
+        Fuzz.label(if got == "1" then "matched" else "did not match" end)
       else
         return false, "REGEXP answered " .. tostring(got)
       end
@@ -157,7 +157,7 @@ end
 --- without its dashes.
 local function uuid_text(src: Fuzz.Source): string
   local hex = "0123456789abcdefABCDEF"
-  local digits: {string} = {}
+  local digits: mut {string} = {}
   for i = 1, 32 do
     local at = src:int(1, #hex)
     digits[i] = hex:sub(at, at)
@@ -175,7 +175,7 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-{}! \n#~"
-      local chars: {string} = {}
+      local chars: mut {string} = {}
       while Fuzz.more(src, #chars, 48) do
         local at = src:int(1, #alphabet)
         chars[#chars + 1] = alphabet:sub(at, at)
@@ -223,7 +223,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
     name = "sqlite ieee754 total",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local eight: {string} = {}
+      local eight: mut {string} = {}
       for i = 1, 8 do eight[i] = string.char(src:int(0, 255)) end
       local edges = { 0, 1, -1, 52, 53, 1023, 1024, 1074, 1075, 2000, -1074, -1075, -2000, 10001 }
       local e = src:int(0, 1) == 0 and Fuzz.pick(src, edges) or src:int(-3000, 3000)
@@ -244,7 +244,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
       if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
       local row = rows[1]
       local least = math.tointeger(fields[2]) == math.mininteger
-      if row:text(5) ~= (least and "null" or "real") then
+      if row:text(5) ~= (if least then "null" else "real" end) then
         return false, "ieee754(M, E) answered " .. row:text(5)
       end
       if row:text(6) ~= "real" and row:text(6) ~= "null" then
@@ -269,14 +269,14 @@ end
 --- decimal Lua writes it; nil for any other text and for a literal past
 --- the 64-bit range. Read digit by digit: Lua's own reading of a literal
 --- past the range falls back to a rounded real.
-local function literal_of(text: string): string | nil
+local function literal_of(text: string): string?
   local sign, digits = text:match("^([+-]?)(%d+)$")
   if digits == nil then return nil end
   digits = (digits:gsub("^0+", ""))
   if digits == "" then return "0" end
-  local limit = sign == "-" and "9223372036854775808" or "9223372036854775807"
+  local limit = if sign == "-" then "9223372036854775808" else "9223372036854775807" end
   if #digits > 19 or (#digits == 19 and digits > limit) then return nil end
-  return (sign == "-" and "-" or "") .. digits
+  return (if sign == "-" then "-" else "" end) .. digits
 end
 
 --- Number-shaped text, from the pieces totype's reading turns on: runs of
@@ -288,12 +288,12 @@ end
 local function gen_number(src: Fuzz.Source): string
   local digits = "0123456789"
   local function run(max: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     while Fuzz.more(src, #out, max) do
       local at = src:int(1, 10)
       out[#out + 1] = digits:sub(at, at)
     end
-    return #out == 0 and "0" or table.concat(out)
+    return if #out == 0 then "0" else table.concat(out) end
   end
   local shape = src:int(0, 5)
   if shape == 0 then
@@ -307,13 +307,13 @@ local function gen_number(src: Fuzz.Source): string
     return Fuzz.pack({ "integer", tostring(n) })
   end
   if shape <= 2 then
-    local text = (src:int(0, 1) == 0 and "-" or "") .. run(15) .. "." .. run(15) ..
+    local text = (if src:int(0, 1) == 0 then "-" else "" end) .. run(15) .. "." .. run(15) ..
       "e" .. tostring(src:int(-290, 290))
     return Fuzz.pack({ "well", text })
   end
   local pieces = { "-", "+", ".", "e", "E", " ", "\0", "x",
     "308", "309", "324", "400", "-308", "-324", "-400" }
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
     parts[#parts + 1] = src:int(0, 1) == 0 and run(30) or Fuzz.pick(src, pieces)
   end
@@ -362,10 +362,10 @@ local function test_totype_reads_text_exactly(tmp: string)
         local exact = math.tointeger((n as number) + 0.0) == n
         if (row:text(1) == "real") ~= exact then
           return false, "toreal(" .. text .. ") is " .. row:text(1) .. " though a real holds it " ..
-            (exact and "exactly" or "inexactly")
+            (if exact then "exactly" else "inexactly" end)
         end
       end
-      if row:text(6) ~= (#text == 8 and "integer" or "null") then
+      if row:text(6) ~= (if #text == 8 then "integer" else "null" end) then
         return false, "tointeger of a " .. #text .. "-byte blob answered " .. row:text(6)
       end
       if #text ~= 8 and row:text(7) ~= "null" then
@@ -385,7 +385,7 @@ local function test_uint_orders_consistently(tmp: string)
     gen = function(src: Fuzz.Source): string
       local alphabet = "0000123456789abcXYZ-+. \xc3\xa9\xff"
       local function word(): string
-        local chars: {string} = {}
+        local chars: mut {string} = {}
         while Fuzz.more(src, #chars, 40) do
           local at = src:int(1, #alphabet)
           chars[#chars + 1] = alphabet:sub(at, at)
@@ -404,15 +404,15 @@ local function test_uint_orders_consistently(tmp: string)
           "SELECT ?1 < ?2 COLLATE uint, ?1 = ?2 COLLATE uint, ?2 < ?1 COLLATE uint",
           { { text = x }, { text = y } }))
         local less, equal, more = rows[1]:text(1) == "1", rows[1]:text(2) == "1", rows[1]:text(3) == "1"
-        local held = (less and 1 or 0) + (equal and 1 or 0) + (more and 1 or 0)
+        local held = (if less then 1 else 0 end) + (if equal then 1 else 0 end) + (if more then 1 else 0 end)
         assert(held == 1, "exactly one of <, = and > holds, not " .. held)
-        return less and -1 or equal and 0 or 1
+        return if less then -1 elseif equal then 0 else 1 end
       end
       if cmp(a, padded) ~= 0 then return false, "zeros before digits changed the order" end
       local ab, bc, ac = cmp(a, b), cmp(b, c), cmp(a, c)
       if ab == bc and ac ~= ab then return false, "uint is not transitive" end
       if cmp(b, a) ~= -ab then return false, "uint is not antisymmetric" end
-      Fuzz.label(ab == 0 and "equal" or "ordered")
+      Fuzz.label(if ab == 0 then "equal" else "ordered" end)
       return true, ""
     end,
     requires = { "ordered" },
@@ -493,23 +493,23 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           { { blob = cut < n and blob:sub(1, cut) or blob .. string.rep("\0", cut - n) },
             { integer = nodeno } }
       elseif damage == "parent" then
-        sql, values = pick % 2 == 0 and "DELETE FROM b_parent WHERE nodeno = ?2" or
-          "UPDATE b_parent SET parentnode = ?1 WHERE nodeno = ?2",
+        sql, values = if pick % 2 == 0 then "DELETE FROM b_parent WHERE nodeno = ?2" else
+          "UPDATE b_parent SET parentnode = ?1 WHERE nodeno = ?2" end,
           { { integer = pick % 7 - 2 }, { integer = nodeno } }
       elseif damage == "wide" then
         local cells, padding = 4096 + pick % 61440, 1000 + (pick >> 16) % 19000
         -- The root's cells point at itself, or each at its own row: node
         -- numbers 2^32 apart, or multiples of the inverse of the golden
         -- ratio multiplier mod 2^64, which that hash sends to one slot.
-        local spread = #bytes > 0 and bytes:byte(1) % 3 or 0
+        local spread = if #bytes > 0 then bytes:byte(1) % 3 else 0 end
         local apart = spread > 0
-        local parts: {string} = {}
+        local parts: mut {string} = {}
         assert(db:exec("BEGIN"))
         if apart then
           local j = 0
           while #parts < cells do
             j = j + 1
-            local child = spread == 1 and 2 + j * (1 << 32) or j * 0xF1DE83E19937733D
+            local child = if spread == 1 then 2 + j * (1 << 32) else j * 0xF1DE83E19937733D end
             if child >= 2 then
               assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
               parts[#parts + 1] = string.pack(">i8", child) .. string.rep("\0", 16)
@@ -524,7 +524,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         end
         assert(db:exec("COMMIT"))
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
-          { { blob = string.pack(">I2>I2", apart and 1 or 1 + pick % 3, cells) .. table.concat(parts) } }
+          { { blob = string.pack(">I2>I2", if apart then 1 else 1 + pick % 3 end, cells) .. table.concat(parts) } }
       elseif damage == "below" then
         local below = -(pick % 2)
         local cell = string.pack(">i8", below) .. string.rep("\0", 16)
@@ -534,8 +534,8 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
           { { blob = string.pack(">I2>I2", 40, cells) .. cell .. cell .. root:sub(4 + 2 * 24 + 1) } }
       else
-        sql, values = pick % 2 == 0 and "DELETE FROM b_rowid WHERE rowid = ?2" or
-          "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2",
+        sql, values = if pick % 2 == 0 then "DELETE FROM b_rowid WHERE rowid = ?2" else
+          "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2" end,
           { { integer = pick % 7 - 2 }, { integer = pick % rows_n + 1 } }
       end
       assert(Sqlite.run(db, sql, values))
@@ -576,7 +576,7 @@ local LISTS <const> = { "integers", "numbers", "texts", "blobs" }
 
 local function gen_list(src: Fuzz.Source): string
   local kind = Fuzz.pick(src, LISTS)
-  local fields: {string} = { kind }
+  local fields: mut {string} = { kind }
   while Fuzz.more(src, #fields - 1, 40) do
     if kind == "integers" then
       fields[#fields + 1] = string.pack("<i8", src:int(math.mininteger, math.maxinteger))
@@ -605,9 +605,9 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       local fields = Fuzz.unpack(input)
       local kind = fields[1]
       local list: Sqlite.Value
-      local integers: {integer} = {}
-      local numbers: {number} = {}
-      local strings: {string} = {}
+      local integers: mut {integer} = {}
+      local numbers: mut {number} = {}
+      local strings: mut {string} = {}
       for i = 2, #fields do
         if kind == "integers" then
           integers[#integers + 1] = (string.unpack("<i8", fields[i]))

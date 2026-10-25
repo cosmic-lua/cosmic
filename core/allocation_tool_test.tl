@@ -64,7 +64,7 @@ end
 --- always runs from a portable artifact.
 local function spawn_again(chunk: string): integer
   local relaunch = assert(Proc.relaunch())
-  local argv: {string} = { table.unpack(relaunch.argv) }
+  local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = chunk
   return (assert(process.spawn(argv[1], argv, relaunch.env, nil, nil, nil, nil, false,
@@ -76,8 +76,8 @@ end
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
-  local received = { value = nil as raw_process.ChildStatus | nil }
-  local reaped = { value = nil as raw_process.ChildStatus | nil }
+  local received = { value = nil as raw_process.ChildStatus? }
+  local reaped = { value = nil as raw_process.ChildStatus? }
   under_every_failure(function()
     if reaped.value == nil then received.value = process.waitpid(pid, false) end
   end, function()
@@ -105,7 +105,7 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     return fd
   end
   local before = next_descriptor()
-  local received = { value = nil as integer | nil }
+  local received = { value = nil as integer? }
   local opened = { value = 0 }
   under_every_failure(function()
     received.value = process.exit_watch(pid)

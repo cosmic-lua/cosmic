@@ -286,7 +286,7 @@ local Clock = require("cosmic.clock")
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/greeter.tl", [[
 return function(argv: {string}): integer
-  print("hello, " .. argv[1])
+  print("hello, " .. (argv[1] or "world"))
   return 0
 end
 ]]))
@@ -346,7 +346,7 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, Clock.ms(10))
 if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
-print(done == nil and "still running" or "finished")
+print(if done == nil then "still running" else "finished" end)
 local ended = assert(sleeper:wait())
 print("exit " .. tostring(ended.code))
 ```

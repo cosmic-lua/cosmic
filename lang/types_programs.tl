@@ -4,7 +4,7 @@
 local Ast = require("lang.ast")
 -- The new grammar tests a record of the tree by its tag, which leaves this import unused once translated: it names the node a
 -- test below asks for.
-local _alias_node: Ast.TypeAlias | nil = nil
+local _alias_node: Ast.TypeAlias? = nil
 local Declarations = require("lang.declarations")
 local DeclPrograms = require("lang.declarations_programs")
 local Generics = require("lang.generics")
@@ -36,13 +36,13 @@ local record Programs
   --- The type that the source `source` of a type, written as the alias `local type X = ...` in the module that
   --- declares the fixture (in the grammar), lowers to, as a type of `store`; or nil and why: a parse error, or the
   --- error code of a rule it breaks (`refused <code>`).
-  parse: function(store: Types.Store, fixture: Fixture, source: string): Types.Type | nil, string
+  parse: function(store: Types.Store, fixture: Fixture, source: string): Types.Type?, string
 end
 
 -- The fixture ----------------------------------------------------------------
 
 local function declare_all(store: Types.Store): {string: Types.Decl}
-  local d: {string: Types.Decl} = {}
+  local d: mut {string: Types.Decl} = {}
   d["Node"] = store:declare("record", "m", { "Node" }, 0)
   d["Tree"] = store:declare("record", "m", { "Tree" }, 0)
   d["Forest"] = store:declare("record", "m", { "Forest" }, 0)
@@ -134,11 +134,11 @@ end
 
 local record Cursor
   values: {integer}
-  at: integer
+  mut at: integer
   store: Types.Store
   fixture: Programs.Fixture
   --- The number of type parameters of each enclosing binder, the nearest last.
-  binders: {integer}
+  binders: mut {integer}
 end
 
 --- A choice from 0 to `n - 1`. Past the end of the draws it is 0.
@@ -161,7 +161,7 @@ local function plain_named(c: Cursor): Types.Type
   return c.store:named(c.fixture.decls[name])
 end
 
-local function a_variable(c: Cursor): Types.Type | nil
+local function a_variable(c: Cursor): Types.Type?
   if #c.binders == 0 then
     return nil
   end
@@ -202,7 +202,7 @@ local function leaf(c: Cursor): Types.Type
 end
 
 local function members(c: Cursor, depth: integer, least: integer): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   for _ = 1, least + pick(c, 3) do
     out[#out + 1] = build(c, depth + 1)
   end
@@ -213,9 +213,9 @@ local a_function: function(c: Cursor, depth: integer): Types.Type
 
 a_function = function(c: Cursor, depth: integer): Types.Type
   local store = c.store
-  local tparams: {Types.TParam} = {}
+  local tparams: mut {Types.TParam} = {}
   for i = 1, pick(c, 3) do
-    local bound: Types.Type | nil
+    local bound: Types.Type?
     if pick(c, 3) == 0 then
       bound = store:named(c.fixture.decls["Stream.Reader"])
     end
@@ -224,15 +224,15 @@ a_function = function(c: Cursor, depth: integer): Types.Type
   if #tparams > 0 then
     c.binders[#c.binders + 1] = #tparams
   end
-  local params: {Types.Param} = {}
+  local params: mut {Types.Param} = {}
   for i = 1, pick(c, 4) do
     params[i] = { type = build(c, depth + 1), omittable = pick(c, 5) == 0 }
   end
-  local rest: Types.Type | nil
+  local rest: Types.Type?
   if pick(c, 6) == 0 then
     rest = build(c, depth + 1)
   end
-  local rets: {Types.Alt} | nil
+  local rets: mut {Types.Alt}?
   local shape = pick(c, 5)
   if shape == 1 then
     rets = {}
@@ -243,9 +243,9 @@ a_function = function(c: Cursor, depth: integer): Types.Type
       local alt: Types.Alt = { items = {} }
       if alts > 1 then
         -- Lists that several are told apart by a position that is `true` in one and `false` in the other.
-        alt.items[1] = store:atom(k % 2 == 1 and "true" or "false")
+        alt.items[1] = store:atom(if k % 2 == 1 then "true" else "false" end)
         if alts == 3 then
-          alt.items[2] = store:atom(k == 3 and "false" or "true")
+          alt.items[2] = store:atom(if k == 3 then "false" else "true" end)
         end
       end
       if alts == 1 and #params > 0 and pick(c, 5) == 0 then
@@ -273,7 +273,7 @@ a_function = function(c: Cursor, depth: integer): Types.Type
     -- A type parameter that nothing names is refused where a function is declared (`unused_type_parameter`), so each
     -- one that the draws left unused is given a parameter of its own.
     local draft = store:fn({ tparams = tparams, params = params, rest = rest, rets = rets })
-    if draft is Types.Fn then
+    if (draft.tag == "fn") then
       for _, index in ipairs(Generics.unused(draft)) do
         params[#params + 1] = { type = store:var(0, index - 1) }
       end
@@ -321,7 +321,7 @@ function Programs.generate(store: Types.Store, fixture: Programs.Fixture, draws:
 end
 
 function Programs.numbers(text: string): {integer}
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for word in text:gmatch("%d+") do
     out[#out + 1] = math.tointeger(tonumber(word)) or 0
   end
@@ -330,7 +330,7 @@ end
 
 -- The parser ------------------------------------------------------------------------
 
-function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: string): Types.Type | nil, string
+function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: string): Types.Type?, string
   local _ = fixture
   -- The fixture's declarations, in the grammar, with the type as the last alias of the module that declares them,
   -- lowered by [`lang.declarations`] in a store of their own and read back here by text.
@@ -353,7 +353,7 @@ function Programs.parse(store: Types.Store, fixture: Programs.Fixture, source: s
   end
   local stats = whole.chunk.body.stats
   local alias = stats[#stats]
-  if not (alias is Ast.TypeAlias) then
+  if not ((alias.kind == "Alias")) then
     return nil, "not an alias"
   end
   local lowered = whole.lowered.aliases[alias.id]

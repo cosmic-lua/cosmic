@@ -1,19 +1,17 @@
---- [`compilation.dependency_keys`] after an edit makes the keys of only the
+--- [`plans.dependency_keys`] after an edit makes the keys of only the
 --- modules that reach what it changed, and they are the keys a build that
---- kept nothing makes ([`compilation.full_keys`]), whatever the edit:
+--- kept nothing makes ([`plans.full_keys`]), whatever the edit:
 --- a body or a comment, what a module requires (in a cycle too), a
 --- declaration that joins or leaves a module, the file a module is in, a
 --- module added, removed or renamed, the compiler.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local compilation = require("build.compilation")
+local plans = require("build.plans")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
 
-local built = assert(teal.load())
 
 --- How many modules the tree can have, and the bit of `edges` that is a module of
 --- the standard library, which each may require beside the others.
@@ -23,7 +21,7 @@ local library <const> = 15
 --- A deterministic source of choices, so that a failure names the same edit
 --- on every run: `choose(n)` is in 1 to `n`.
 local record Chooser
-  state: integer
+  mut state: integer
 end
 
 local function choose(chooser: Chooser, limit: integer): integer
@@ -56,10 +54,10 @@ end
 local function differing(root: string, tool: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
-  local modules = assert(compilation.collect(handle.db))
-  local kept = assert(compilation.dependency_keys(handle.db, modules, tool))
-  local full = assert(compilation.full_keys(handle.db, modules, tool))
+  assert(importer.derive(handle, false))
+  local modules = assert(plans.collect(handle.db))
+  local kept = assert(plans.dependency_keys(handle.db, modules, tool))
+  local full = assert(plans.full_keys(handle.db, modules, tool))
   work.close(handle)
   local trouble = ""
   if #modules == 0 then trouble = "no module " end
@@ -119,7 +117,7 @@ local function walk(seed: integer, steps: integer)
   end
   for index = 1, count do
     -- Every module requires the first, which a comment there reaches them all through.
-    local held = index == 1 and 0 or 1
+    local held = if index == 1 then 0 else 1 end
     for other = 1, count do
       if choose(chooser, 4) == 1 then held = held | (1 << (other - 1)) end
     end
@@ -245,9 +243,9 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
   local function key_of(tool: string): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
-    assert(importer.derive(handle, false, built))
-    local modules = assert(compilation.collect(handle.db))
-    local keys = assert(compilation.dependency_keys(handle.db, modules, tool))
+    assert(importer.derive(handle, false))
+    local modules = assert(plans.collect(handle.db))
+    local keys = assert(plans.dependency_keys(handle.db, modules, tool))
     work.close(handle)
     return assert(keys["m2"]).key
   end

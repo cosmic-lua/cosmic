@@ -49,11 +49,11 @@ end
 --- label the line above its `====` underline gives it (empty when the
 --- bundle names none). Nil and why when a certificate block is not
 --- closed, or its body is not base64.
-local function parse_pem(pem: string): {roots.Root} | nil, string
-  local found: {roots.Root} = {}
+local function parse_pem(pem: string): {roots.Root}?, string
+  local found: mut {roots.Root} = {}
   local label = ""
   local previous = ""
-  local body: {string} | nil = nil
+  local body: mut {string}? = nil
   local number = 0
   for line in String.lines((pem:gsub("\r\n", "\n"))) do
     number = number + 1
@@ -89,8 +89,8 @@ end
 
 --- The bytes a `MULTILINE_OCTAL` value's lines spell (`\060\202...`),
 --- or nil when a line holds anything else.
-local function octal(lines: {string}): string | nil
-  local bytes: {string} = {}
+local function octal(lines: {string}): string?
+  local bytes: mut {string} = {}
   for _, line in ipairs(lines) do
     if line:find("^[\\0-7]*$") == nil then
       return nil
@@ -110,7 +110,7 @@ local type Object = {string:string}
 --- `CKA_NSS_SERVER_DISTRUST_AFTER`'s value as [`Root.distrust_after`]: an
 --- ASN.1 UTCTime `YYMMDDHHMMSSZ`, its year 19YY from 50 up (RFC 5280
 --- 4.1.2.5.1); "" for `CK_FALSE`. Nil for anything else.
-local function distrust_after(value: string | nil): string | nil
+local function distrust_after(value: string?): string?
   if value == nil or value == "CK_FALSE" then
     return ""
   end
@@ -131,11 +131,11 @@ end
 --- file's order, each with its label and server distrust date. Nil and
 --- why for an object or value the file cannot mean, or a trusted root
 --- with no certificate.
-local function parse_certdata(text: string): {roots.Root} | nil, string
-  local objects: {Object} = {}
+local function parse_certdata(text: string): {roots.Root}?, string
+  local objects: mut {Object} = {}
   local object: Object = {}
   local name = ""
-  local value_lines: {string} | nil = nil
+  local value_lines: {string}? = nil
   local number = 0
   local begun = false
   for line in String.lines((text:gsub("\r\n", "\n"))) do
@@ -179,13 +179,13 @@ local function parse_certdata(text: string): {roots.Root} | nil, string
   if not begun then
     return nil, "holds no BEGINDATA"
   end
-  local trusted: {string:boolean} = {}
+  local trusted: mut {string:boolean} = {}
   for _, one in ipairs(objects) do
     if one["CKA_CLASS"] == "CKO_NSS_TRUST" and one["CKA_TRUST_SERVER_AUTH"] == "CKT_NSS_TRUSTED_DELEGATOR" then
       trusted[(one["CKA_ISSUER"] or "") .. "\0" .. (one["CKA_SERIAL_NUMBER"] or "")] = true
     end
   end
-  local found: {roots.Root} = {}
+  local found: mut {roots.Root} = {}
   for _, one in ipairs(objects) do
     local key = (one["CKA_ISSUER"] or "") .. "\0" .. (one["CKA_SERIAL_NUMBER"] or "")
     if one["CKA_CLASS"] == "CKO_CERTIFICATE" and trusted[key] == true then
@@ -215,7 +215,7 @@ end
 --- certificates, with their distrust dates), else a PEM bundle (each
 --- certificate, with none). Nil and why when it cannot be read as the
 --- one it is.
-function roots.parse(text: string): {roots.Root} | nil, string
+function roots.parse(text: string): {roots.Root}?, string
   if text:find("\nBEGINDATA\r?\n") ~= nil then
     return parse_certdata(text)
   end
@@ -229,8 +229,8 @@ end
 --- writes a bundle it fetched through this too, so the same roots make
 --- the same table either way.
 function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): boolean, string
-  local by_digest: {string:roots.Root} = {}
-  local digests: {string} = {}
+  local by_digest: mut {string:roots.Root} = {}
+  local digests: mut {string} = {}
   for _, one in ipairs(found) do
     local digest = Hash.sha256(one.der)
     if by_digest[digest] == nil then

@@ -74,18 +74,18 @@ end
 --- A case of a `.dat` file.
 local record Case
   input: string
-  tree: {string}
+  tree: mut {string}
   --- Whether the case is not a plain document parse (a fragment's
   --- context, scripting on or off), which its tree is made under.
-  other: boolean
+  mut other: boolean
 end
 
 --- The cases of the text of a `.dat` file.
 local function cases_of(text: string): {Case}
   local cases: {Case} = {}
-  local current: Case | nil = nil
+  local current: Case? = nil
   local section = ""
-  local data: {string} = {}
+  local data: mut {string} = {}
   local function finish()
     -- A test of `current` inside this function narrows nothing: the code
     -- around it assigns `current` after the function is made.
@@ -152,7 +152,7 @@ end
 --- The cuts of a text of `length` bytes to try: both ends and a few
 --- between, the same ones every run.
 local function cuts(length: integer): {integer}
-  local list: {integer} = {}
+  local list: mut {integer} = {}
   local steps = math.min(length, 5)
   local last = -1
   for step = 0, steps do
@@ -189,7 +189,7 @@ end
 
 --- The elements a node at line `at`, `depth` deep, is inside, nearest first.
 local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
-  local list: {Element} = {}
+  local list: mut {Element} = {}
   local below = depth
   for up = at - 1, 1, -1 do
     local d, body = split(tree[up])
@@ -210,13 +210,13 @@ local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
 end
 
 --- The element an attribute line belongs to.
-local function owner_of(tree: {string}, at: integer, depth: integer): Element | nil
+local function owner_of(tree: {string}, at: integer, depth: integer): Element?
   return ancestors(tree, at, depth)[1]
 end
 
 --- Why a slot of `kind` may not be in the text of an element with these
 --- ancestors, or nil if it may.
-local function text_trouble(kind: string, up: {Element}): string | nil
+local function text_trouble(kind: string, up: {Element}): string?
   local parent = up[1]
   if parent == nil then
     return nil
@@ -255,22 +255,22 @@ local function text_trouble(kind: string, up: {Element}): string | nil
 end
 
 local record Reach
-  cases: integer
-  unclosed: integer
-  closers: integer
-  texts: integer
-  values: integer
-  hidden: integer
-  positions: integer
-  accepted: {string: integer}
-  failures: {string}
+  mut cases: integer
+  mut unclosed: integer
+  mut closers: integer
+  mut texts: integer
+  mut values: integer
+  mut hidden: integer
+  mut positions: integer
+  accepted: mut {string: integer}
+  failures: mut {string}
 end
 
 --- The elements, in a document's tree, that are foreign: the names a
 --- template could have to close to end in text.
 local function foreign_names(tree: {string}): {string}
-  local seen: {string: boolean} = {}
-  local names: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local names: mut {string} = {}
   for _, line in ipairs(tree) do
     local name = body_of(line):match("^<%a+ ([^>]+)>$")
     if name ~= nil and not seen[name] and #names < 5 then
@@ -293,8 +293,8 @@ local END_TAGS <const>: {string} = {
 --- `html` template must end there), or nil if none of the ones tried does.
 --- What follows a slot cannot change where the slot stands, so any that
 --- compiles will do, and one is found with no slot.
-local function closer_for(input: string, tree: {string}): string | nil
-  local tails: {string} = {}
+local function closer_for(input: string, tree: {string}): string?
+  local tails: mut {string} = {}
   for _, tail in ipairs(END_TAGS) do
     tails[#tails + 1] = tail
   end
@@ -351,16 +351,16 @@ local function check_case(file: string, case: Case, reach: Reach)
   local document = table.concat(tree, "\n")
   -- The attribute lines of the tree by value: the name each is written
   -- with, or false when two differ.
-  local named: {string: string | boolean} = {}
+  local named: mut {string: string | boolean} = {}
   for _, line in ipairs(tree) do
     local name, value = body_of(line):match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if name ~= nil then
       named[value] = (named[value] == nil or named[value] == name) and name or false
     end
   end
-  local closer = { value = nil as string | nil }
+  local closer = { value = nil as string? }
   local tried = { value = false }
-  local function closed(): string | nil
+  local function closed(): string?
     if not tried.value then
       tried.value = true
       closer.value = closer_for(input, tree)
@@ -383,7 +383,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       local before = input:sub(start - 1, start - 1)
       local after = input:sub(start + #text, start + #text)
       local cdata = input:sub(start - 9, start - 1) == "<![CDATA[" and input:sub(start + #text, start + #text + 2) == "]]>"
-      local use: string | nil = nil
+      local use: string? = nil
       if cdata or ((before == ">" or start == 1) and (after == "<" or after == "")) then
         use = closed()
       end
@@ -392,7 +392,7 @@ local function check_case(file: string, case: Case, reach: Reach)
         reach.texts = reach.texts + 1
         try(input, use, start - 1, #text, reach, function(kind: string, cut: integer)
           local parent = up[1]
-          note(reach, (parent ~= nil and parent.foreign) and "foreign" or "html", kind)
+          note(reach, if (parent ~= nil and parent.foreign) then "foreign" else "html" end, kind)
           if cdata then
             fail(reach, file, kind, cut, input, "the tree has a CDATA section there")
           else
@@ -406,7 +406,7 @@ local function check_case(file: string, case: Case, reach: Reach)
     elseif comment ~= nil and comment ~= "" and #comment > 2 and count(input, comment) == 1 and
         count(document, comment) == 1 then
       local start = input:find(comment, 1, true) as integer
-      local use: string | nil = nil
+      local use: string? = nil
       if input:sub(start - 4, start - 1) == "<!--" and input:sub(start + #comment, start + #comment + 2) == "-->" then
         use = closed()
       end
@@ -423,7 +423,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       local quote = input:sub(start - 1, start - 1)
       local written = (name:gsub(" ", ":")):lower()
       local before = input:sub(start - 2 - #written, start - 2):lower()
-      local use: string | nil = nil
+      local use: string? = nil
       if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and
           before == written .. "=" and owner_of(tree, at, depth) ~= nil then
         use = closed()
@@ -461,7 +461,7 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
   end
   assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   for key, count_of in pairs(reach.accepted) do
     summary[#summary + 1] = key .. "=" .. count_of
   end

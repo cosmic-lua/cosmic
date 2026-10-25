@@ -151,7 +151,7 @@ end
 ---     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
 ---     local proc = assert(Sandbox.profile("proc"))
 ---     print(proc.grants and proc.grants[1].path) -- /proc (nil on macOS)
-function Sandbox.profile(name: string): Sandbox.Policy | nil, string
+function Sandbox.profile(name: string): Sandbox.Policy?, string
   return rules.profile(name)
 end
 
@@ -163,7 +163,7 @@ end
 ---
 ---     local db = assert(Sandbox.database("/etc/hostname"))
 ---     print(#db.sha256) -- 64
-function Sandbox.database(path: string): Sandbox.Database | nil, string
+function Sandbox.database(path: string): Sandbox.Database?, string
   return rules.database(path)
 end
 
@@ -192,7 +192,7 @@ end
 ---     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
 ---     local merged = assert(Sandbox.merge(a, b))
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
-function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy | nil, string
+function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
 end
 
@@ -211,7 +211,7 @@ local PT_INTERP <const> = 3
 local function unsigned(bytes: string, position: integer, width: integer, little: boolean): integer
   local value = 0
   for i = 0, width - 1 do
-    local byte = bytes:byte(little and position + width - 1 - i or position + i)
+    local byte = bytes:byte(if little then position + width - 1 - i else position + i end)
     value = value << 8 | byte
   end
   return value
@@ -220,15 +220,15 @@ end
 --- The ELF interpreter `head` (the start of the file `fd` is open on) names,
 --- from its PT_INTERP segment; nil for a file that is not an ELF, has none,
 --- or whose segment this cannot read.
-local function elf_interpreter(fd: integer, head: string): string | nil
+local function elf_interpreter(fd: integer, head: string): string?
   if head:sub(1, 4) ~= "\127ELF" or #head < 64 then return nil end
   local class, data = head:byte(5), head:byte(6)
   if (class ~= 1 and class ~= 2) or (data ~= 1 and data ~= 2) then return nil end
   local little = data == 1
   local wide = class == 2
   local offset = wide and unsigned(head, 33, 8, little) or unsigned(head, 29, 4, little)
-  local size = unsigned(head, wide and 55 or 43, 2, little)
-  local count = unsigned(head, wide and 57 or 45, 2, little)
+  local size = unsigned(head, if wide then 55 else 43 end, 2, little)
+  local count = unsigned(head, if wide then 57 else 45 end, 2, little)
   if size < 32 or count > 256 then return nil end
   for i = 0, count - 1 do
     local entry, _ = sys.pread(fd, size, offset + i * size)
@@ -246,7 +246,7 @@ local function elf_interpreter(fd: integer, head: string): string | nil
 end
 
 --- `path` made absolute against `cwd` (the process's own when nil).
-local function absolute(path: string, cwd?: string): string | nil, string
+local function absolute(path: string, cwd?: string): string?, string
   if path:sub(1, 1) == "/" then return path end
   local base = cwd
   if base == nil then
@@ -259,11 +259,11 @@ end
 
 --- The file the kernel reads to start a program, past its own bytes: the
 --- `#!` interpreter or the ELF interpreter it names, as written.
-local function interpreter_of(path: string): string | nil
+local function interpreter_of(path: string): string?
   local fd, _ = sys.open(path, sys.O_RDONLY)
   if fd == nil then return nil end
   local head, _ = sys.read(fd, HEAD)
-  local found: string | nil
+  local found: string?
   if head ~= nil then
     found = head:match("^#!%s*([^%s]+)") or elf_interpreter(fd, head)
   end
@@ -288,9 +288,9 @@ end
 ---
 ---     local files = assert(Sandbox.loaders("/bin/sh"))
 ---     print(#files >= 1) -- true
-function Sandbox.loaders(path: string, cwd?: string): {string} | nil, string
-  local files: {string} = {}
-  local seen: {string:boolean} = {}
+function Sandbox.loaders(path: string, cwd?: string): {string}?, string
+  local files: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   local at = path
   for _ = 0, MAX_CHAIN do
     local whole, why = absolute(at, cwd)
@@ -455,11 +455,11 @@ end
 -- had without opening it: [`Proc.relaunch`] names it, but holds a descriptor
 -- on it from then on, which the restriction's check of descriptors refuses.
 local function runtime_grants(): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(store_paths()) do
     local found, _ = stat(path)
     if found ~= nil then
-      grants[#grants + 1] = { path = path, letters = path:sub(-4) == "-shm" and "rw" or "r" }
+      grants[#grants + 1] = { path = path, letters = if path:sub(-4) == "-shm" then "rw" else "r" end }
     end
   end
   local executable, _ = executable_path()
@@ -473,7 +473,7 @@ end
 --- which [`not_in_process`] passed: the profile resolves "system" to
 --- macOS's paths, not the Linux ones [`Sandbox.merge`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
@@ -570,7 +570,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   if merged == nil then return false, why end
   local trouble = not_in_process(merged)
   if trouble ~= "" then return denied(trouble) end
-  local kept: {integer} = {}
+  local kept: mut {integer} = {}
   for _, fd in ipairs(options and options.fds or {}) do
     if math.type(fd) ~= "integer" or fd < 3 then
       return denied("fds names " .. tostring(fd) .. ", which is not a descriptor above 2")
@@ -580,7 +580,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   local logged = store_unheld()
   if logged ~= "" then return denied(logged) end
   if darwin() then return held_by_seatbelt(policy, kept) end
-  local grants: {raw_process.Grant} = {}
+  local grants: mut {raw_process.Grant} = {}
   for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
@@ -589,7 +589,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     core = 0 }
   rlimits.fsize = limits.file_bytes
   rlimits.cpu = limits.cpu_seconds
-  local promises: {string} = {}
+  local promises: mut {string} = {}
   for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
     rlimits = rlimits }, kept)
@@ -633,8 +633,8 @@ function Sandbox.maps_id(text: string, id: integer): boolean
 end
 
 --- The highest id `text`, a uid_map or gid_map, maps, or nil for none.
-local function highest_mapped(text: string): integer | nil
-  local top: integer | nil
+local function highest_mapped(text: string): integer?
+  local top: integer?
   for line in text:gmatch("[^\n]+") do
     local first, _, count = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)")
     if first ~= nil then
@@ -666,7 +666,7 @@ end
 ---
 ---     local id = assert(Sandbox.user_id("0 0 4294967295\n", "0 0 4294967295\n", 0))
 ---     print(id) -- 4294963198
-function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer | nil, string
+function Sandbox.user_id(uid_map: string, gid_map: string, serial: integer): integer?, string
   local uid_top, gid_top = highest_mapped(uid_map), highest_mapped(gid_map)
   if uid_top == nil or gid_top == nil then
     return refuse("this user namespace maps no user or no group")
@@ -733,9 +733,9 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   for i = 1, #letters do
     local letter = letters:sub(i, i)
     if letter == "r" then
-      need = need | 4 | (isdir and 1 or 0)
+      need = need | 4 | (if isdir then 1 else 0 end)
     elseif letter == "w" or letter == "c" then
-      need = need | 2 | (isdir and 1 or 0)
+      need = need | 2 | (if isdir then 1 else 0 end)
     elseif letter == "x" then
       need = need | 1
     elseif letter == "u" then
@@ -746,7 +746,7 @@ function Sandbox.reach(letters: string, st: sys.Stat, uid?: integer, gid?: integ
   local group = (st.mode >> 3) & 7
   local owner = (st.mode >> 6) & 7
   local function lacking(bits: integer, whom: string): Sandbox.Reach
-    local names: {string} = {}
+    local names: mut {string} = {}
     for bit, name in ipairs({ "execute", "write", "read" }) do
       if need & (1 << (bit - 1)) ~= 0 and bits & (1 << (bit - 1)) == 0 then
         names[#names + 1] = name

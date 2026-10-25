@@ -4,7 +4,7 @@
 ---
 --- The Lua is the fork's. A statement on source line N lands on line N, types
 --- are erased, and for every construct the plan classes as a respelling the
---- bytes are the ones [`checker/tl.tl`]'s `generate` writes for the Teal the
+--- bytes are the ones the fork's generator wrote ([`lang/forked.tl`] holds them) for the Teal the
 --- translator ([`lang.translate`]) started from: the same indent, the same
 --- `; ` between statements on a line, a trailing `,` in a table that spans
 --- lines, `type(x) == "string"` for `x is string`. A node is placed at the line
@@ -158,15 +158,15 @@ end
 
 function Codegen.without_classes(text: string, chunk: Ast.Chunk): string
   local tokens = chunk.tokens
-  local dropped: {integer: boolean} = {}
+  local dropped: mut {integer: boolean} = {}
   for _, s in ipairs(chunk.body.stats) do
-    if s is Ast.Class then
+    if (s.kind == "Class") then
       for y = tokens.y[s.first], Lexer.yend(tokens, s.last) do
         dropped[y] = true
       end
     end
   end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local y = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     y = y + 1
@@ -179,7 +179,7 @@ end
 
 --- The index of the `,` that ends the argument of a call which begins at `from`, or nil: the first at no depth of
 --- brackets, outside strings.
-local function argument_end(text: string, from: integer): integer | nil
+local function argument_end(text: string, from: integer): integer?
   local depth = 0
   local i = from
   local n = #text
@@ -218,7 +218,7 @@ end
 --- The index of the `)` that ends a call of `setmetatable` whose first argument ends at `comma`, when its second is a
 --- name of `metatables` or the literal `{ __index = C }` for a `C` of `classes`; nil for any other call.
 local function metatable_call_end(text: string, comma: integer, classes: {string: boolean},
-                                  metatables: {string: boolean}): integer | nil
+                                  metatables: {string: boolean}): integer?
   local name = text:match("^%s*([%a_][%w_]*)%s*%)", comma + 1)
   if name ~= nil and metatables[name] then
     local _, stop = text:find("^%s*[%a_][%w_]*%s*%)", comma + 1)
@@ -234,7 +234,7 @@ end
 
 --- `text` with each `setmetatable(T, mt)` of such a metatable written as `T`.
 local function without_metatable_calls(text: string, classes: {string: boolean}, metatables: {string: boolean}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while true do
     local s, e = text:find("setmetatable(", at, true)
@@ -258,17 +258,17 @@ local function without_metatable_calls(text: string, classes: {string: boolean},
 end
 
 function Codegen.fork_without_classes(lua: string, chunk: Ast.Chunk, metatables: {string}): string
-  local classes: {string: boolean} = {}
+  local classes: mut {string: boolean} = {}
   for _, s in ipairs(chunk.body.stats) do
-    if s is Ast.Class then
+    if (s.kind == "Class") then
       classes[s.name.name] = true
     end
   end
-  local removed: {string: boolean} = {}
+  local removed: mut {string: boolean} = {}
   for _, name in ipairs(metatables) do
     removed[name] = true
   end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local dropping = false
   -- How many brackets the lines so far have left open: the fork writes a table that spans lines with its last line
   -- in the first column.
@@ -299,43 +299,43 @@ end
 --- A piece of the Lua being written, with the lines of the source it spans: `y` is the line it begins on, `h` how
 --- many line breaks it holds. A part is text or a piece inside it.
 local record Output
-  y: integer
-  h: integer
-  parts: {string | Output}
+  mut y: integer
+  mut h: integer
+  parts: mut {string | Output}
 end
 
 --- What one generation keeps. A function assigns a field of it, not a local of the module, so that every function
 --- reads the one `G`.
 local record State
-  tokens: Lexer.Tokens
-  scoped: Scopes.Scoped
+  mut tokens: Lexer.Tokens
+  mut scoped: Scopes.Scoped
   --- The indent the node being written is at, and the indents saved by the nodes written on one line.
-  indent: integer
-  saved: {integer}
-  errors: {Codegen.Error}
+  mut indent: integer
+  mut saved: mut {integer}
+  mut errors: mut {Codegen.Error}
   --- For each loop the function being written is inside, innermost last, whether a `continue` ends its pass.
-  loops: {boolean}
+  mut loops: mut {boolean}
   --- The declaration of each binding, by the id of its name, built when a test names a local type.
-  declarations: {integer: Ast.Node} | nil
+  mut declarations: {integer: Ast.Node}?
   --- How many `match` statements have been written, to name their temporaries apart.
-  matches: integer
+  mut matches: integer
   --- The chunk's statements.
-  body: Ast.Block | nil
+  mut body: Ast.Block?
   --- Whether an expression can be neither false nor nil.
-  truthy: function(e: Ast.Exp): boolean
+  mut truthy: function(e: Ast.Exp): boolean
   --- The `return` that ends the body of a loop that a `continue` jumps to the end of: no label may follow a
   --- `return` in its block, so it is written `do return ... end`.
-  guarded: Ast.Node | nil
+  mut guarded: Ast.Node?
   --- The name of the class each table literal makes a value of, by the id of the literal.
-  classes: {integer: string}
+  mut classes: {integer: string}
   --- The values of the enum a type node stands for, by the id of the node.
-  enums: {integer: {string}}
+  mut enums: {integer: {string}}
   --- The arguments, after the value, of the call of `__fact` that wraps the read at a node, by the id of the node.
-  wraps: {integer: string}
+  mut wraps: {integer: string}
   --- What the checker resolved a type name to, by the id of the name.
-  kinds: {integer: string}
+  mut kinds: {integer: string}
   --- Whether the build serves every module ([`Codegen.generate`]'s `served`).
-  served: boolean
+  mut served: boolean
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -411,9 +411,9 @@ end
 
 --- The text of `out` and what it holds, with an explicit stack: a chain of a hundred thousand operands nests that deep.
 local function flatten(root: Output): string
-  local pieces: {string} = {}
-  local stack: {Output} = { root }
-  local at: {integer} = { 1 }
+  local pieces: mut {string} = {}
+  local stack: mut {Output} = { root }
+  local at: mut {integer} = { 1 }
   local top = 1
   while top > 0 do
     local out = stack[top]
@@ -481,20 +481,20 @@ local RESERVED_FIELDS <const>: {string: boolean} = { ["goto"] = true, ["global"]
 local function syntactically_truthy(e: Ast.Exp): boolean
   local cur: Ast.Exp = e
   while true do
-    if cur is Ast.Paren then
+    if (cur.kind == "Paren") then
       cur = cur.inner
-    elseif cur is Ast.Cast then
+    elseif (cur.kind == "Cast") then
       cur = cur.value
-    elseif cur is Ast.Binary then
+    elseif (cur.kind == "Binary") then
       local op = cur.op
       return op ~= "or" and op ~= "and" and op ~= "<" and op ~= ">" and op ~= "<=" and op ~= ">=" and op ~= "~=" and
         op ~= "=="
-    elseif cur is Ast.Unary then
+    elseif (cur.kind == "Unary") then
       return cur.op ~= "not"
-    elseif cur is Ast.Boolean then
+    elseif (cur.kind == "Boolean") then
       return cur.value
     else
-      return cur is Ast.String or cur is Ast.Integer or cur is Ast.Float or cur is Ast.Table or cur is Ast.FunctionLit
+      return (cur.kind == "String") or (cur.kind == "Integer") or (cur.kind == "Float") or (cur.kind == "Table") or (cur.kind == "FunctionLit")
     end
   end
 end
@@ -507,12 +507,12 @@ local LUA_TYPES <const>: {string: string} = {
 
 --- The declaration of each binding of the chunk that is one: found once, when a test names a local type.
 local function declarations_of(chunk_body: Ast.Block): {integer: Ast.Node}
-  local found: {integer: Ast.Node} = {}
-  local stack: {Ast.Node} = { chunk_body }
+  local found: mut {integer: Ast.Node} = {}
+  local stack: mut {Ast.Node} = { chunk_body }
   while #stack > 0 do
     local node = table.remove(stack)
-    if node is Ast.Record or node is Ast.Interface or node is Ast.Class or node is Ast.Enum or node is Ast.TypeAlias or
-        node is Ast.Import then
+    if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") or (node.kind == "Enum") or (node.kind == "Alias") or
+        (node.kind == "Import") then
       found[node.name.id] = node
     end
     Ast.children(node, function(child: Ast.Node)
@@ -526,9 +526,9 @@ local lua_type: function(t: Ast.Type, hops: integer): string
 
 --- The type a declaration stands for, as a test of a value of it writes it.
 local function declared_type(declaration: Ast.Node, hops: integer): string
-  if declaration is Ast.Enum then
+  if (declaration.kind == "Enum") then
     return "string"
-  elseif declaration is Ast.TypeAlias then
+  elseif (declaration.kind == "Alias") then
     if hops > 0 then
       return lua_type(declaration.type, hops - 1)
     end
@@ -537,10 +537,10 @@ local function declared_type(declaration: Ast.Node, hops: integer): string
 end
 
 --- The member of the type `holder` that is called `name`, if it declares a type of that name.
-local function nested_type(holder: Ast.Node, name: string): Ast.Node | nil
-  if holder is Ast.Record or holder is Ast.Interface or holder is Ast.Class then
+local function nested_type(holder: Ast.Node, name: string): Ast.Node?
+  if (holder.kind == "Record") or (holder.kind == "Interface") or (holder.kind == "Class") then
     for _, m in ipairs(holder.members) do
-      if (m is Ast.Record or m is Ast.Interface or m is Ast.Class or m is Ast.Enum or m is Ast.TypeAlias) and
+      if ((m.kind == "Record") or (m.kind == "Interface") or (m.kind == "Class") or (m.kind == "Enum") or (m.kind == "Alias")) and
           m.name.name == name then
         return m
       end
@@ -552,7 +552,7 @@ end
 --- The declaration the type name `t` names, found through the bindings the scope builder resolved and the
 --- nested types of records; nil where it names none of this file's (a primitive, a global, a type of another module).
 --- `resolved` tells whether the head of the name is a binding at all.
-local function declaration_of(t: Ast.TypeName): Ast.Node | nil, boolean
+local function declaration_of(t: Ast.TypeName): Ast.Node?, boolean
   local path = t.path
   local var_id = G.scoped.resolved[t.id]
   if var_id == nil then
@@ -564,7 +564,7 @@ local function declaration_of(t: Ast.TypeName): Ast.Node | nil, boolean
     held = declarations_of(body)
     G.declarations = held
   end
-  local declaration: Ast.Node | nil = held ~= nil and held[G.scoped.vars[var_id].id] or nil
+  local declaration: Ast.Node? = held ~= nil and held[G.scoped.vars[var_id].id] or nil
   for i = 2, #path do
     if declaration == nil then
       break
@@ -578,7 +578,7 @@ end
 --- resolve (one of another module) is a table. `hops` bounds the aliases followed.
 lua_type = function(t: Ast.Type, hops: integer): string
   local kind = base_of(t).kind
-  if kind == "TypeName" and t is Ast.TypeName then
+  if kind == "TypeName" and (t.kind == "TypeName") then
     local declaration, resolved = declaration_of(t)
     if not resolved then
       return #t.path == 1 and LUA_TYPES[t.path[1]] or "table"
@@ -591,16 +591,16 @@ lua_type = function(t: Ast.Type, hops: integer): string
     return "function"
   elseif kind == "TypeNil" then
     return "nil"
-  elseif kind == "TypeMut" and t is Ast.TypeMut then
+  elseif kind == "TypeMut" and (t.kind == "TypeMut") then
     return lua_type(t.inner, hops)
   end
   return "table"
 end
 
-local union_members: function(t: Ast.Type, hops: integer): {Ast.Type} | nil
+local union_members: function(t: Ast.Type, hops: integer): {Ast.Type}?
 
 --- Appends `t` to `out`, or its members where it is a union.
-local function append_members(out: {Ast.Type}, t: Ast.Type, hops: integer)
+local function append_members(out: mut {Ast.Type}, t: Ast.Type, hops: integer)
   local members = union_members(t, hops)
   if members == nil then
     out[#out + 1] = t
@@ -612,22 +612,22 @@ end
 --- The types a union stands for, which `t` is where it is written as an alias of one (a program cannot write the
 --- union in a test, which has one type): the fork tests a value of a union for each member in turn. Nil where `t` is
 --- no union.
-union_members = function(t: Ast.Type, hops: integer): {Ast.Type} | nil
+union_members = function(t: Ast.Type, hops: integer): {Ast.Type}?
   local kind = base_of(t).kind
-  local out: {Ast.Type} = {}
-  if kind == "TypeUnion" and t is Ast.TypeUnion then
+  local out: mut {Ast.Type} = {}
+  if kind == "TypeUnion" and (t.kind == "TypeUnion") then
     for _, member in ipairs(t.members) do
       append_members(out, member, hops)
     end
     return out
-  elseif kind == "TypeOptional" and t is Ast.TypeOptional then
+  elseif kind == "TypeOptional" and (t.kind == "TypeOptional") then
     append_members(out, t.inner, hops)
     local missing: Ast.TypeNil = { kind = "TypeNil", id = 0, first = t.last, last = t.last }
     out[#out + 1] = missing
     return out
-  elseif kind == "TypeName" and t is Ast.TypeName and hops > 0 then
+  elseif kind == "TypeName" and (t.kind == "TypeName") and hops > 0 then
     local declaration = declaration_of(t)
-    if declaration ~= nil and declaration is Ast.TypeAlias then
+    if declaration ~= nil and (declaration.kind == "Alias") then
       return union_members(declaration.type, hops - 1)
     end
   end
@@ -637,9 +637,9 @@ end
 --- `t`, or the type it is an alias of where it names a local alias, however many hops: the type a test is for.
 local function through_aliases(t: Ast.Type, hops: integer): Ast.Type
   local cur = t
-  while hops > 0 and cur is Ast.TypeName do
+  while hops > 0 and (cur.kind == "TypeName") do
     local declaration = declaration_of(cur)
-    if declaration ~= nil and declaration is Ast.TypeAlias then
+    if declaration ~= nil and (declaration.kind == "Alias") then
       cur = declaration.type
       hops = hops - 1
     else
@@ -663,24 +663,24 @@ local POSTFIX_PRECEDENCE <const> = 100
 
 --- The precedence of the operator an expression ends in, or nil where it is not one (a name, a parenthesis, a table):
 --- an operand of a higher precedence than the operator it stands under is written in parentheses.
-local function precedence(e: Ast.Exp): integer | nil
+local function precedence(e: Ast.Exp): integer?
   local kind = base_of(e).kind
-  if kind == "Binary" and e is Ast.Binary then
+  if kind == "Binary" and (e.kind == "Binary") then
     return PRECEDENCE[e.op]
   elseif kind == "Unary" then
     return UNARY_PRECEDENCE
-  elseif kind == "IsTest" and e is Ast.IsTest then
+  elseif kind == "IsTest" and (e.kind == "IsTest") then
     if union_members(e.type, 32) ~= nil then
       -- A test for each member, or a function called on the spot where the value is no name.
       local value = e.value
-      return value is Ast.Name and PRECEDENCE["or"] or nil
+      return (value.kind == "Name") and PRECEDENCE["or"] or nil
     end
     return IS_PRECEDENCE
   elseif kind == "Cast" then
     return CAST_PRECEDENCE
   elseif kind == "Call" or kind == "MethodCall" or kind == "Field" or kind == "Index" then
     return POSTFIX_PRECEDENCE
-  elseif kind == "IfExp" and e is Ast.IfExp then
+  elseif kind == "IfExp" and (e.kind == "IfExp") then
     -- A function called on the spot is a primary expression.
     for _, arm in ipairs(e.arms) do
       if not G.truthy(arm.value) then
@@ -693,21 +693,21 @@ local function precedence(e: Ast.Exp): integer | nil
 end
 
 --- The expression that `e` is written to the left of, or nil where it has none.
-local function left_of(e: Ast.Exp): Ast.Exp | nil
+local function left_of(e: Ast.Exp): Ast.Exp?
   local kind = base_of(e).kind
-  if kind == "Binary" and e is Ast.Binary then
+  if kind == "Binary" and (e.kind == "Binary") then
     return e.left
-  elseif kind == "Call" and e is Ast.Call then
+  elseif kind == "Call" and (e.kind == "Call") then
     return e.callee
-  elseif kind == "Field" and e is Ast.Field then
+  elseif kind == "Field" and (e.kind == "Field") then
     return e.object
-  elseif kind == "Index" and e is Ast.Index then
+  elseif kind == "Index" and (e.kind == "Index") then
     return e.object
-  elseif kind == "MethodCall" and e is Ast.MethodCall then
+  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
     return e.object
-  elseif kind == "IsTest" and e is Ast.IsTest then
+  elseif kind == "IsTest" and (e.kind == "IsTest") then
     return e.value
-  elseif kind == "Cast" and e is Ast.Cast then
+  elseif kind == "Cast" and (e.kind == "Cast") then
     return e.value
   end
   return nil
@@ -723,7 +723,7 @@ local function begins_long(e: Ast.Exp): boolean
     end
     cur = nxt
   end
-  return cur is Ast.String and cur.long
+  return (cur.kind == "String") and cur.long
 end
 
 local exp: function(e: Ast.Exp): Output
@@ -733,7 +733,7 @@ local block: function(b: Ast.Block): Output
 --- the values of a statement.
 local function list(y: integer, items: {Output}): Output
   local out = new(y)
-  local space: string | nil = nil
+  local space: string? = nil
   for i, child in ipairs(items) do
     if i > 1 then
       put(out, ",")
@@ -745,7 +745,7 @@ local function list(y: integer, items: {Output}): Output
 end
 
 local function exps(values: {Ast.Exp}, y: integer): Output
-  local outs: {Output} = {}
+  local outs: mut {Output} = {}
   for i, value in ipairs(values) do
     outs[i] = exp(value)
   end
@@ -759,7 +759,7 @@ end
 
 --- The parameters of a function, as the `(`...`)` at token `open` has them.
 local function params_of(open: integer, params: {Ast.Param}): Output
-  local outs: {Output} = {}
+  local outs: mut {Output} = {}
   for i, p in ipairs(params) do
     local name = p.name
     outs[i] = text(line_of(p.first), name ~= nil and name.name or "...")
@@ -772,11 +772,11 @@ local function item(it: Ast.Item): Output
   local kind = base_of(it).kind
   local y = line_of(it.first)
   local out = new(y)
-  if kind == "Named" and it is Ast.Named then
-    add_child(out, text(y, RESERVED_FIELDS[it.name] and "[\"" .. it.name .. "\"]" or it.name))
+  if kind == "Named" and (it.kind == "Named") then
+    add_child(out, text(y, if RESERVED_FIELDS[it.name] then "[\"" .. it.name .. "\"]" else it.name end))
     put(out, " = ")
     add_child(out, exp(it.value))
-  elseif kind == "Keyed" and it is Ast.Keyed then
+  elseif kind == "Keyed" and (it.kind == "Keyed") then
     put(out, "[")
     local key = exp(it.key)
     if begins_long(it.key) then
@@ -786,7 +786,7 @@ local function item(it: Ast.Item): Output
     add_child(out, key)
     put(out, "] = ")
     add_child(out, exp(it.value))
-  elseif it is Ast.Positional then
+  elseif (it.kind == "Positional") then
     add_child(out, exp(it.value))
   end
   return out
@@ -798,7 +798,7 @@ local function table_literal(node: Ast.Table): Output
   local items = node.items
   local out = new(y)
   local class = G.classes[node.id]
-  local made = class ~= nil and " @ " .. class or ""
+  local made = if class ~= nil then " @ " .. class else "" end
   if #items == 0 then
     put(out, "{}" .. made)
     return out
@@ -806,7 +806,7 @@ local function table_literal(node: Ast.Table): Output
   local child_y = line_of(items[1].first)
   indent_in(y, child_y)
   put(out, "{")
-  local children: {Output} = {}
+  local children: mut {Output} = {}
   for i, it in ipairs(items) do
     children[i] = item(it)
   end
@@ -850,16 +850,16 @@ end
 local function guard(own: integer, operand: Ast.Exp, child: Output)
   local inner = precedence(operand)
   -- `a == type(b) == "string"` is not `a == (b is string)`.
-  if inner ~= nil and (own > inner or (own == IS_PRECEDENCE and inner == IS_PRECEDENCE and operand is Ast.IsTest)) then
+  if inner ~= nil and (own > inner or (own == IS_PRECEDENCE and inner == IS_PRECEDENCE and (operand.kind == "IsTest"))) then
     parenthesize(child)
   end
 end
 
 --- The class a type names, through the aliases of the file, or nil where it names none of this file's.
-local function class_named(t: Ast.Type): Ast.Class | nil
-  if t is Ast.TypeName then
+local function class_named(t: Ast.Type): Ast.Class?
+  if (t.kind == "TypeName") then
     local declaration = declaration_of(t)
-    if declaration ~= nil and declaration is Ast.Class then
+    if declaration ~= nil and (declaration.kind == "Class") then
       return declaration
     end
   end
@@ -882,13 +882,13 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "@")
     add_child(out, value, "", G.indent)
     put(out, " == " .. class.name.name)
-  elseif kind == "TypeName" and t is Ast.TypeName and #t.path == 1 and t.path[1] == "integer" then
+  elseif kind == "TypeName" and (t.kind == "TypeName") and #t.path == 1 and t.path[1] == "integer" then
     put(out, "math.type(")
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
   elseif G.enums[base_of(t).id] ~= nil then
     -- A string that is the type's kind is no member of an enum: the test is for the values.
-    local members: {string} = {}
+    local members: mut {string} = {}
     for i, v in ipairs(G.enums[base_of(t).id]) do
       members[i] = "[" .. string.format("%q", v):gsub("\\\n", "\\n") .. "] = true"
     end
@@ -909,9 +909,9 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     else
       put(out, " == false")
     end
-  elseif kind == "TypeBool" and t is Ast.TypeBool then
+  elseif kind == "TypeBool" and (t.kind == "TypeBool") then
     add_child(out, value, "", G.indent)
-    put(out, t.value and " == true" or " == false")
+    put(out, if t.value then " == true" else " == false" end)
   else
     put(out, "type(")
     add_child(out, value, "", G.indent)
@@ -936,7 +936,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
   end
   local y = value.y
   local out = new(line_of(node.value.last + 1))
-  local held = not (value_node is Ast.Name)
+  local held = not ((value_node.kind == "Name"))
   if held then
     put(out, "(function(__v) return ")
   end
@@ -966,7 +966,7 @@ end
 --- written before the indent is read, as the fork writes a node after its children.
 local function combine(e: Ast.Exp, left: Output): Output
   local kind = base_of(e).kind
-  if kind == "Binary" and e is Ast.Binary then
+  if kind == "Binary" and (e.kind == "Binary") then
     local op = e.op
     local own = PRECEDENCE[op]
     local out = new(line_of(e.left.last + 1))
@@ -978,7 +978,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     put(out, op)
     add_child(out, right, " ", G.indent)
     return out
-  elseif kind == "Field" and e is Ast.Field then
+  elseif kind == "Field" and (e.kind == "Field") then
     local out = new(line_of(e.object.last + 1))
     add_child(out, left, "", G.indent)
     if RESERVED_FIELDS[e.name] then
@@ -988,7 +988,7 @@ local function combine(e: Ast.Exp, left: Output): Output
       add_child(out, text(line_of(e.last), e.name), "", G.indent)
     end
     return out
-  elseif kind == "Index" and e is Ast.Index then
+  elseif kind == "Index" and (e.kind == "Index") then
     local out = new(line_of(e.object.last + 1))
     local key = exp(e.key)
     if begins_long(e.key) then
@@ -1000,7 +1000,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, key, "", G.indent)
     put(out, "]")
     return out
-  elseif kind == "Call" and e is Ast.Call then
+  elseif kind == "Call" and (e.kind == "Call") then
     local y = line_of(e.callee.last + 1)
     local out = new(y)
     local args = exps(e.args, y)
@@ -1009,7 +1009,7 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, args, "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "MethodCall" and e is Ast.MethodCall then
+  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
     local colon = e.object.last + 1
     local y = line_of(colon + 2)
     local method = new(line_of(colon))
@@ -1023,9 +1023,9 @@ local function combine(e: Ast.Exp, left: Output): Output
     add_child(out, args, "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "IsTest" and e is Ast.IsTest then
+  elseif kind == "IsTest" and (e.kind == "IsTest") then
     return is_test(e, left)
-  elseif kind == "Cast" and e is Ast.Cast then
+  elseif kind == "Cast" and (e.kind == "Cast") then
     local out = new(line_of(e.value.last + 1))
     add_child(out, left, "", G.indent)
     return out
@@ -1035,12 +1035,12 @@ end
 
 --- Whether `node` or a node under it, apart from those of a function inside, is a `...`.
 local function holds_vararg(node: Ast.Node): boolean
-  local stack: {Ast.Node} = { node }
+  local stack: mut {Ast.Node} = { node }
   while #stack > 0 do
     local cur = table.remove(stack)
-    if cur is Ast.Vararg then
+    if (cur.kind == "Vararg") then
       return true
-    elseif not (cur is Ast.FunctionLit) then
+    elseif not ((cur.kind == "FunctionLit")) then
       Ast.children(cur, function(child: Ast.Node)
         stack[#stack + 1] = child
       end)
@@ -1058,8 +1058,8 @@ local function if_expression(node: Ast.IfExp): Output
   for _, arm in ipairs(arms) do
     plain = plain and G.truthy(arm.value)
   end
-  local conds: {Output} = {}
-  local values: {Output} = {}
+  local conds: mut {Output} = {}
+  local values: mut {Output} = {}
   for i, arm in ipairs(arms) do
     conds[i] = exp(arm.cond)
     values[i] = exp(arm.value)
@@ -1072,9 +1072,9 @@ local function if_expression(node: Ast.IfExp): Output
   if not plain then
     local varargs = holds_vararg(node)
     local out = new(line_of(node.first))
-    put(out, varargs and "(function(...)" or "(function()")
+    put(out, if varargs then "(function(...)" else "(function()" end)
     for i, arm in ipairs(arms) do
-      add_child(out, text(line_of(arm.first - 1), i == 1 and "if" or "elseif"), " ", G.indent)
+      add_child(out, text(line_of(arm.first - 1), if i == 1 then "if" else "elseif" end), " ", G.indent)
       add_child(out, conds[i], " ", G.indent)
       add_child(out, text(line_of(arm.value.first - 1), "then return ("), " ", G.indent)
       add_child(out, values[i], "", G.indent)
@@ -1083,10 +1083,10 @@ local function if_expression(node: Ast.IfExp): Output
     add_child(out, text(line_of(node.else_value.first - 1), "else return ("), " ", G.indent)
     add_child(out, rest, "", G.indent)
     put(out, ")")
-    add_child(out, text(line_of(node.last), varargs and "end end)(...)" or "end end)()"), " ", G.indent)
+    add_child(out, text(line_of(node.last), if varargs then "end end)(...)" else "end end)()" end), " ", G.indent)
     return out
   end
-  local acc: Output | nil = nil
+  local acc: Output? = nil
   for i, arm in ipairs(arms) do
     local both = new(line_of(arm.value.first - 1))
     add_child(both, conds[i], "", G.indent)
@@ -1115,7 +1115,7 @@ local function leaf(e: Ast.Exp): Output
   local kind = base_of(e).kind
   local first = base_of(e).first
   local y = line_of(first)
-  if kind == "Name" and e is Ast.Name then
+  if kind == "Name" and (e.kind == "Name") then
     return text(y, e.text)
   elseif kind == "String" then
     return text(y, Lexer.text(G.tokens, first))
@@ -1123,21 +1123,21 @@ local function leaf(e: Ast.Exp): Output
     return text(y, number_text(first))
   elseif kind == "Nil" then
     return text(y, "nil")
-  elseif kind == "Boolean" and e is Ast.Boolean then
-    return text(y, e.value and "true" or "false")
+  elseif kind == "Boolean" and (e.kind == "Boolean") then
+    return text(y, if e.value then "true" else "false" end)
   elseif kind == "Vararg" then
     return text(y, "...")
-  elseif kind == "Paren" and e is Ast.Paren then
+  elseif kind == "Paren" and (e.kind == "Paren") then
     local out = new(y)
     put(out, "(")
     add_child(out, exp(e.inner), "", G.indent)
     put(out, ")")
     return out
-  elseif kind == "FunctionLit" and e is Ast.FunctionLit then
+  elseif kind == "FunctionLit" and (e.kind == "FunctionLit") then
     return function_literal(e)
-  elseif kind == "Table" and e is Ast.Table then
+  elseif kind == "Table" and (e.kind == "Table") then
     return table_literal(e)
-  elseif kind == "Unary" and e is Ast.Unary then
+  elseif kind == "Unary" and (e.kind == "Unary") then
     local out = new(y)
     local own = UNARY_PRECEDENCE
     put(out, e.op)
@@ -1148,11 +1148,11 @@ local function leaf(e: Ast.Exp): Output
     else
       -- `--` would begin a comment.
       local inner = e.operand
-      local nested = e.op == "-" and inner is Ast.Unary and inner.op == "-"
-      add_child(out, operand, nested and " " or "", G.indent)
+      local nested = e.op == "-" and (inner.kind == "Unary") and inner.op == "-"
+      add_child(out, operand, if nested then " " else "" end, G.indent)
     end
     return out
-  elseif kind == "IfExp" and e is Ast.IfExp then
+  elseif kind == "IfExp" and (e.kind == "IfExp") then
     return if_expression(e)
   end
   return new(y)
@@ -1172,7 +1172,7 @@ local function checked_read(e: Ast.Exp, out: Output): Output
 end
 
 exp = function(e: Ast.Exp): Output
-  local spine: {Ast.Exp} = {}
+  local spine: mut {Ast.Exp} = {}
   local cur = e
   while true do
     local nxt = left_of(cur)
@@ -1195,18 +1195,18 @@ local stat: function(s: Ast.Stat): Output
 
 --- The text that closes a loop: `word`, after the `::continue::` that the loop's `continue` statements jump to.
 local function close_text(word: string, y: integer, labelled: boolean): Output
-  return text(y, labelled and "::continue:: " .. word or word)
+  return text(y, if labelled then "::continue:: " .. word else word end)
 end
 
 --- Whether a `continue` ends a pass of the loop whose body is `body`: one in it, not in a loop or a function inside.
 local function continues(body: Ast.Block): boolean
-  local stack: {Ast.Node} = { body }
+  local stack: mut {Ast.Node} = { body }
   while #stack > 0 do
     local cur = table.remove(stack)
-    if cur is Ast.Continue then
+    if (cur.kind == "Continue") then
       return true
-    elseif not (cur is Ast.While or cur is Ast.Repeat or cur is Ast.ForNum or cur is Ast.ForIn or
-        cur is Ast.FunctionLit or cur is Ast.LocalFunction or cur is Ast.Function or cur is Ast.Method) then
+    elseif not ((cur.kind == "While") or (cur.kind == "Repeat") or (cur.kind == "ForNum") or (cur.kind == "ForIn") or
+        (cur.kind == "FunctionLit") or (cur.kind == "LocalFunction") or (cur.kind == "Function") or (cur.kind == "Method")) then
       Ast.children(cur, function(child: Ast.Node)
         stack[#stack + 1] = child
       end)
@@ -1220,7 +1220,7 @@ local function loop_body(body: Ast.Block): Output, boolean
   -- A `continue` of this loop, and a `return` that ends the body.
   local last = body.stats[#body.stats]
   local outer = G.guarded
-  if last ~= nil and last is Ast.Return and continues(body) then
+  if last ~= nil and (last.kind == "Return") and continues(body) then
     G.guarded = last
   end
   G.loops[#G.loops + 1] = false
@@ -1233,13 +1233,13 @@ end
 --- Whether the value of `s` ends in an expression, so that a line that begins with `(` after it would continue it.
 local function ends_in_expression(s: Ast.Stat): boolean
   local kind = base_of(s).kind
-  if kind == "Local" and s is Ast.Local then
+  if kind == "Local" and (s.kind == "Local") then
     return #s.values > 0
   elseif kind == "Assign" or kind == "CallStat" then
     return true
-  elseif kind == "Return" and s is Ast.Return then
+  elseif kind == "Return" and (s.kind == "Return") then
     return #s.values > 0
-  elseif kind == "Function" and s is Ast.Function then
+  elseif kind == "Function" and (s.kind == "Function") then
     -- `R.goto = function() end` ends in an expression.
     return RESERVED_FIELDS[s.path[#s.path].text] == true
   end
@@ -1249,11 +1249,11 @@ end
 block = function(b: Ast.Block): Output
   local out = new(line_of(b.first))
   local stats = b.stats
-  local children: {Output} = {}
+  local children: mut {Output} = {}
   for i = 1, #stats do
     children[i] = stat(stats[i])
   end
-  local space: string | nil = nil
+  local space: string? = nil
   for i = 1, #stats do
     add_child(out, children[i], space, G.indent)
     -- The fork's parser ends a statement with a `;` where the next begins a line with `(`, which would continue it.
@@ -1273,9 +1273,9 @@ end
 
 --- The nested records of `members`, written as the table `{ A = {}, B = { C = {} } }`.
 local function record_table(members: {Ast.Member}): string
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for _, m in ipairs(members) do
-    if m is Ast.Record then
+    if (m.kind == "Record") then
       pieces[#pieces + 1] = " " .. m.name.name .. " = " .. record_table(m.members)
     end
   end
@@ -1289,12 +1289,12 @@ end
 --- blocks has a table to name.
 local function refuse_nested_classes(members: {Ast.Member})
   for _, m in ipairs(members) do
-    if m is Ast.Class then
+    if (m.kind == "Class") then
       refuse("class_nested_refused", m.first, "the class `" .. m.name.name .. "` is declared inside another type, and " ..
           "has no table of its own at run time",
         "declare `" .. m.name.name .. "` beside the type around it")
     end
-    if m is Ast.Record or m is Ast.Class or m is Ast.Interface then
+    if (m.kind == "Record") or (m.kind == "Class") or (m.kind == "Interface") then
       refuse_nested_classes(m.members)
     end
   end
@@ -1318,7 +1318,7 @@ local function record_statement(node: Ast.Record): Output
   put(out, "local")
   add_child(out, text(line_of(node.name.first), node.name.name), " ")
   put(out, " =")
-  add_child(out, text(y, #node.typeparams > 0 and "{}" or record_table(node.members)), " ")
+  add_child(out, text(y, if #node.typeparams > 0 then "{}" else record_table(node.members) end), " ")
   return out
 end
 
@@ -1382,13 +1382,13 @@ end
 local function if_statement(s: Ast.If): Output
   local y = line_of(s.first)
   local out = new(y)
-  local pieces: {Output} = {}
+  local pieces: mut {Output} = {}
   for i, arm in ipairs(s.arms) do
     local ay = line_of(arm.first - 1)
     local body_y = line_of(arm.body.first)
     indent_in(ay, body_y)
     local piece = new(ay)
-    put(piece, i == 1 and "if" or "elseif")
+    put(piece, if i == 1 then "if" else "elseif" end)
     add_child(piece, exp(arm.cond), " ")
     put(piece, " then")
     add_child(piece, block(arm.body), " ")
@@ -1407,7 +1407,7 @@ local function if_statement(s: Ast.If): Output
     pieces[#pieces + 1] = piece
   end
   for i, piece in ipairs(pieces) do
-    add_child(out, piece, i > 1 and " " or nil, piece.y ~= y and G.indent or nil)
+    add_child(out, piece, if i > 1 then " " else nil end, piece.y ~= y and G.indent or nil)
   end
   add_child(out, text(line_of(s.last), "end"), " ", G.indent)
   return out
@@ -1473,7 +1473,7 @@ local function for_in_statement(s: Ast.ForIn): Output
   indent_in(y, body_y)
   local out = new(y)
   put(out, "for")
-  local names: {Output} = {}
+  local names: mut {Output} = {}
   for i, b in ipairs(s.vars) do
     names[i] = text(line_of(b.first), b.name)
   end
@@ -1499,33 +1499,33 @@ local function match_statement(s: Ast.Match): Output
   end
   local y = line_of(s.first)
   local out = new(y)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for i = 1, width do
     names[i] = prefix .. i
   end
   put(out, "do local " .. table.concat(names, ", ") .. " =")
   add_child(out, exp(s.scrutinee), " ")
-  local pieces: {Output} = {}
+  local pieces: mut {Output} = {}
   for k, arm in ipairs(s.arms) do
     local ay = line_of(arm.first)
     local body_y = line_of(arm.body.first)
     indent_in(ay, body_y)
     local piece = new(ay)
-    local tests: {string} = {}
-    local bound: {string} = {}
-    local values: {string} = {}
+    local tests: mut {string} = {}
+    local bound: mut {string} = {}
+    local values: mut {string} = {}
     for i, p in ipairs(arm.pats) do
-      if p is Ast.PatBool then
-        tests[#tests + 1] = names[i] .. " == " .. (p.value and "true" or "false")
-      elseif p is Ast.PatBind then
+      if (p.kind == "PatBool") then
+        tests[#tests + 1] = names[i] .. " == " .. (if p.value then "true" else "false" end)
+      elseif (p.kind == "PatBind") then
         bound[#bound + 1] = p.name.name
         values[#values + 1] = names[i]
       end
     end
     if #tests == 0 then
-      put(piece, k == 1 and "if true then" or "else")
+      put(piece, if k == 1 then "if true then" else "else" end)
     else
-      put(piece, (k == 1 and "if " or "elseif ") .. table.concat(tests, " and ") .. " then")
+      put(piece, (if k == 1 then "if " else "elseif " end) .. table.concat(tests, " and ") .. " then")
     end
     if #bound > 0 then
       put(piece, " local " .. table.concat(bound, ", ") .. " = " .. table.concat(values, ", "))
@@ -1572,11 +1572,11 @@ local function class_statement(s: Ast.Class): Output
   put(out, "local")
   add_child(out, text(line_of(s.name.first), name), " ")
   put(out, " =")
-  add_child(out, text(y, #s.typeparams > 0 and "{}" or record_table(s.members)), " ")
+  add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members) end), " ")
   put(out, "; " .. name .. ".__index = " .. name)
   refuse_nested_classes(s.members)
   for _, m in ipairs(s.members) do
-    if m is Ast.Method then
+    if (m.kind == "Method") then
       add_child(out, method_statement(s, m), "; ", G.indent)
     end
   end
@@ -1586,13 +1586,13 @@ end
 stat = function(s: Ast.Stat): Output
   local kind = base_of(s).kind
   local first = base_of(s).first
-  if kind == "Local" and s is Ast.Local then
+  if kind == "Local" and (s.kind == "Local") then
     return local_statement(s)
-  elseif kind == "Assign" and s is Ast.Assign then
+  elseif kind == "Assign" and (s.kind == "Assign") then
     return assign_statement(s)
-  elseif kind == "CallStat" and s is Ast.CallStat then
+  elseif kind == "CallStat" and (s.kind == "CallStat") then
     return exp(s.call)
-  elseif kind == "LocalFunction" and s is Ast.LocalFunction then
+  elseif kind == "LocalFunction" and (s.kind == "LocalFunction") then
     local y = line_of(first)
     local outer = G.loops
     G.loops = {}
@@ -1604,7 +1604,7 @@ stat = function(s: Ast.Stat): Output
     function_rest(out, y, s.fn)
     G.loops = outer
     return out
-  elseif kind == "Function" and s is Ast.Function then
+  elseif kind == "Function" and (s.kind == "Function") then
     local y = line_of(first)
     local outer = G.loops
     G.loops = {}
@@ -1626,10 +1626,10 @@ stat = function(s: Ast.Stat): Output
     function_rest(out, y, s.fn)
     G.loops = outer
     return out
-  elseif kind == "Return" and s is Ast.Return then
+  elseif kind == "Return" and (s.kind == "Return") then
     local out = new(line_of(first))
     local wrapped = G.guarded == s
-    put(out, wrapped and "do return" or "return")
+    put(out, if wrapped then "do return" else "return" end)
     local values = s.values
     if #values > 0 then
       add_child(out, exps(values, line_of(values[1].first)), " ")
@@ -1638,7 +1638,7 @@ stat = function(s: Ast.Stat): Output
       add_child(out, text(line_of(s.last), "end"), " ", G.indent)
     end
     return out
-  elseif kind == "Do" and s is Ast.Do then
+  elseif kind == "Do" and (s.kind == "Do") then
     local y = line_of(first)
     local body_y = line_of(s.body.first)
     indent_in(y, body_y)
@@ -1653,25 +1653,25 @@ stat = function(s: Ast.Stat): Output
   elseif kind == "Continue" then
     G.loops[#G.loops] = true
     return text(line_of(first), "goto continue")
-  elseif kind == "While" and s is Ast.While then
+  elseif kind == "While" and (s.kind == "While") then
     return while_statement(s)
-  elseif kind == "Repeat" and s is Ast.Repeat then
+  elseif kind == "Repeat" and (s.kind == "Repeat") then
     return repeat_statement(s)
-  elseif kind == "If" and s is Ast.If then
+  elseif kind == "If" and (s.kind == "If") then
     return if_statement(s)
-  elseif kind == "ForNum" and s is Ast.ForNum then
+  elseif kind == "ForNum" and (s.kind == "ForNum") then
     return for_num_statement(s)
-  elseif kind == "ForIn" and s is Ast.ForIn then
+  elseif kind == "ForIn" and (s.kind == "ForIn") then
     return for_in_statement(s)
-  elseif kind == "Match" and s is Ast.Match then
+  elseif kind == "Match" and (s.kind == "Match") then
     return match_statement(s)
-  elseif kind == "Record" and s is Ast.Record then
+  elseif kind == "Record" and (s.kind == "Record") then
     return record_statement(s)
-  elseif kind == "Import" and s is Ast.Import then
+  elseif kind == "Import" and (s.kind == "Import") then
     return import_statement(s)
-  elseif kind == "Class" and s is Ast.Class then
+  elseif kind == "Class" and (s.kind == "Class") then
     return class_statement(s)
-  elseif kind == "Interface" and s is Ast.Interface then
+  elseif kind == "Interface" and (s.kind == "Interface") then
     refuse_nested_classes(s.members)
   end
   -- An interface, an enum and an alias are types only; a failed production's [`Ast.Error`] node is a refusal the parser already made.

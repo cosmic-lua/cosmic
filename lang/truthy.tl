@@ -25,21 +25,21 @@ local NUMBERY <const>: {string: boolean} = {
 function Truthy.never_false(e: Ast.Exp): boolean
   local cur: Ast.Node = e
   while true do
-    if cur is Ast.Paren then
+    if (cur.kind == "Paren") then
       cur = cur.inner
-    elseif cur is Ast.Cast then
+    elseif (cur.kind == "Cast") then
       -- A cast is a promise about the type, not a value: `v as string` is false or nil when `v` is.
       cur = cur.value
-    elseif cur is Ast.Binary then
+    elseif (cur.kind == "Binary") then
       return NUMBERY[cur.op] == true
-    elseif cur is Ast.Unary then
+    elseif (cur.kind == "Unary") then
       local op = cur.op
       return op == "-" or op == "#" or op == "~"
-    elseif cur is Ast.Boolean then
+    elseif (cur.kind == "Boolean") then
       return cur.value
     else
-      return cur is Ast.String or cur is Ast.Integer or cur is Ast.Float or cur is Ast.Table or
-        cur is Ast.FunctionLit
+      return (cur.kind == "String") or (cur.kind == "Integer") or (cur.kind == "Float") or (cur.kind == "Table") or
+        (cur.kind == "FunctionLit")
     end
   end
 end

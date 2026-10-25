@@ -42,13 +42,13 @@ local function test_nonmonotonic_failure_survives_a_passing_midpoint()
 end
 
 local function test_deletion_removes_an_indivisible_twelve_draw_block()
-  local draws: {Shrink.Draw} = {}
+  local draws: mut {Shrink.Draw} = {}
   for i = 1, 14 do
-    local value = i == 1 and 101 or i == 14 and 102 or 7
+    local value = if i == 1 then 101 elseif i == 14 then 102 else 7 end
     draws[i] = { min = value, max = value, value = value }
   end
   local function fails(values: {integer}): boolean, {Shrink.Draw}
-    local used: {Shrink.Draw} = {}
+    local used: mut {Shrink.Draw} = {}
     for i, value in ipairs(values) do used[i] = { min = value, max = value, value = value } end
     return (#values == 2 or #values == 14) and values[1] == 101 and values[#values] == 102, used
   end
@@ -99,7 +99,7 @@ local function test_replay_cannot_grow_the_best_failure()
 end
 
 local function test_repetitive_replays_bound_proposals_too()
-  local draws: {Shrink.Draw} = {}
+  local draws: mut {Shrink.Draw} = {}
   for i = 1, 128 do draws[i] = { min = 0, max = 0, value = 0 } end
   local function fails(_values: {integer}): boolean, {Shrink.Draw}
     return true, draws
@@ -121,7 +121,7 @@ end
 
 local function test_duplicate_deletions_cannot_starve_integer_reduction()
   local function fails(values: {integer}): boolean, {Shrink.Draw}
-    local used: {Shrink.Draw} = {}
+    local used: mut {Shrink.Draw} = {}
     for i = 1, 1024 do used[i] = { min = 0, max = 100, value = values[i] or 0 } end
     return used[1].value >= 60, used
   end

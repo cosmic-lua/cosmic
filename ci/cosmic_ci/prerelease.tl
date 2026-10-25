@@ -24,7 +24,7 @@ local record Prerelease
   --- What `stage` reads from its environment: PRODUCTS, RELEASE,
   --- SOURCE_COMMIT and SOURCE_RUN_URL.
   record Stage
-    products: string
+    mut products: string
     release: string
     commit: string
     run_url: string
@@ -38,7 +38,7 @@ local record Prerelease
     release: string
     commit: string
     run_prefix: string
-    temp: string
+    mut temp: string
   end
   --- The release `publish` makes: a draft prerelease.
   record NewRelease
@@ -105,7 +105,7 @@ end
 --- The digest an executed-cosmic.sha256 manifest names: its text,
 --- trailing newlines aside, is exactly `<64 lowercase hex>  cosmic`.
 --- nil and why otherwise.
-function Prerelease.manifest_digest(text: string): string | nil, string
+function Prerelease.manifest_digest(text: string): string?, string
   local line = substituted(text)
   local digest = line:match("^([0-9a-f]+)  cosmic$")
   if digest == nil or #digest ~= 64 then
@@ -160,7 +160,7 @@ function Prerelease.complete_assets(names: {string}): boolean, string
   if #names ~= #ASSETS then
     return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. tostring(#ASSETS)
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
   for _, name in ipairs(ASSETS) do
     if seen[name] ~= true then return false, "the release holds no " .. name end
@@ -176,6 +176,11 @@ function Prerelease.known_asset(name: string): boolean
   return false
 end
 
+-- TODO: go back to [`Shape.record_of`] for the records below that have an optional field, once ci/cosmic-driver.pin
+-- names a release whose Shape.record_of reads optional fields: the pinned release's reads `f?: any` as a required field (it
+-- does not know that `any` holds nil), and a payload without one is refused. Each is spelled out with [`Shape.record`] and
+-- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
+
 --- One release of the releases list. The flags and ids are `any` so that a
 --- release without them is refused by name ([`Prerelease.draft_ids`]).
 local record ReleaseRow
@@ -183,7 +188,9 @@ local record ReleaseRow
   draft?: any
   tag_name?: any
 end
-local RELEASE_ROW <const> = Shape.record_of("ReleaseRow")
+local RELEASE_ROW <const> = Shape.record_of("ReleaseRow", Shape.record({
+  ["draft"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any), ["tag_name"] = Shape.optional(Shape.any) }),
+  function(): ReleaseRow error("witness") end)
 
 --- The ids of the drafts tagged `tag` on `page`, one page of 100 of the
 --- releases list as the API's JSON, and whether the list's drafts end
@@ -193,9 +200,9 @@ local RELEASE_ROW <const> = Shape.record_of("ReleaseRow")
 --- the scan would pass over unseen is one the publish would make again
 --- beside it.
 function Prerelease.draft_ids(page: string, tag: string): Prerelease.Drafts
-  local items, why: {any} | nil, string = Shape.decode_into(page, Shape.list(Shape.any))
+  local items, why: {any}?, string = Shape.decode_into(page, Shape.list(Shape.any))
   assert(items ~= nil, "a page of the releases list is no array: " .. why)
-  local ids: {integer} = {}
+  local ids: mut {integer} = {}
   local published = false
   for _, item in ipairs(items) do
     local release, trouble = RELEASE_ROW:into(item)
@@ -231,7 +238,7 @@ end
 --- `portable-product-*` that is itself a directory, not a link to one,
 --- as `find -mindepth 1 -maxdepth 1 -type d` finds them, sorted.
 local function product_directories(products: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(products)))) do
     if name:match("^portable%-product%-") then
       local path = products .. "/" .. name
@@ -258,7 +265,7 @@ function Prerelease.stage(s: Prerelease.Stage)
       "expected portable-product-" .. lane .. ", found " .. assert(found[i]))
   end
   local baseline = read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic")
-  local digest: string | nil = nil
+  local digest: string? = nil
   for _, lane in ipairs(LANES) do
     local product = s.products .. "/portable-product-" .. lane
     for _, name in ipairs({ "cosmic", "executed-cosmic.sha256", "expected-platforms" }) do
@@ -323,7 +330,8 @@ local list_pages <const> = 10
 local record ReleaseId
   id?: any
 end
-local RELEASE_ID <const> = Shape.record_of("ReleaseId")
+local RELEASE_ID <const> = Shape.record_of("ReleaseId", Shape.record({ ["id"] = Shape.optional(Shape.any) }),
+  function(): ReleaseId error("witness") end)
 
 --- The ids of the releases tagged with `p`'s tag, a draft's among them.
 --- The list of releases serves only its first 1000, so it is not read
@@ -337,8 +345,8 @@ local RELEASE_ID <const> = Shape.record_of("ReleaseId")
 --- lead to making anything.
 local function release_ids(p: Prerelease.Publish): {integer}
   local tag = tag_of(p)
-  local ids: {integer} = {}
-  local taken: {integer:boolean} = {}
+  local ids: mut {integer} = {}
+  local taken: mut {integer:boolean} = {}
   local by_tag = "repos/" .. p.repository .. "/releases/tags/" .. tag
   local found, why = GithubApi.request(p.client, "GET", by_tag)
   assert(found ~= nil, why)
@@ -380,10 +388,12 @@ local record GitRef
   ref?: any
   object?: GitObject
 end
-local GIT_REF <const> = Shape.record_of("GitRef")
+local GIT_REF <const> = Shape.record_of("GitRef", Shape.record({
+  ["object"] = Shape.optional(Shape.record({ ["sha"] = Shape.optional(Shape.any), ["type"] = Shape.optional(Shape.any) })),
+  ["ref"] = Shape.optional(Shape.any) }), function(): GitRef error("witness") end)
 
 --- The git object `object` (a ref's or a tag's `object` field) names.
-local function target(object: GitObject | nil, what: string): string, string
+local function target(object: GitObject?, what: string): string, string
   assert(object ~= nil, what .. " names no object")
   local sha, kind = object.sha, object.type
   assert(sha is string and kind is string, what .. " names no object")
@@ -420,7 +430,8 @@ end
 local record Repository
   default_branch?: any
 end
-local REPOSITORY <const> = Shape.record_of("Repository")
+local REPOSITORY <const> = Shape.record_of("Repository", Shape.record({ ["default_branch"] = Shape.optional(Shape.any) }),
+  function(): Repository error("witness") end)
 
 --- A file of a compare.
 local record ChangedFile
@@ -430,7 +441,9 @@ end
 local record Comparison
   files?: {ChangedFile}
 end
-local COMPARISON <const> = Shape.record_of("Comparison")
+local COMPARISON <const> = Shape.record_of("Comparison", Shape.record({
+  ["files"] = Shape.optional(Shape.list(Shape.record({ ["filename"] = Shape.optional(Shape.any) }))) }),
+  function(): Comparison error("witness") end)
 
 --- Whether the repository's default branch holds workflows other than
 --- `p.commit`'s: the files the compare from the commit to the branch
@@ -499,7 +512,11 @@ local record ReleaseView
   upload_url?: any
   assets?: {AssetRow}
 end
-local RELEASE_VIEW <const> = Shape.record_of("ReleaseView")
+local RELEASE_VIEW <const> = Shape.record_of("ReleaseView", Shape.record({
+  ["assets"] = Shape.optional(Shape.list(Shape.record({
+    ["id"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any) }))),
+  ["draft"] = Shape.optional(Shape.any), ["prerelease"] = Shape.optional(Shape.any),
+  ["upload_url"] = Shape.optional(Shape.any) }), function(): ReleaseView error("witness") end)
 
 --- The release `id`, as GET releases/ID answers: by id, not by tag, as
 --- the by-tag endpoint finds no draft.
@@ -514,8 +531,8 @@ end
 local function assets_of(release: ReleaseView): {string}, {string:integer}
   local assets = release.assets
   assert(assets ~= nil, "the release's assets are no array")
-  local names: {string} = {}
-  local ids: {string:integer} = {}
+  local names: mut {string} = {}
+  local ids: mut {string:integer} = {}
   -- TODO: an asset whose `state` is not "uploaded" is what a run that
   -- died mid-upload leaves: delete it (`DELETE releases/assets/ID`) and
   -- upload it again. Until then a re-run fails on it (it is listed as an
@@ -592,7 +609,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
   local ids = release_ids(p)
-  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (if #ids == 1 then " is" else " are" end) .. " tagged " .. tag)
   local release: integer
   if #ids == 1 then
     release = assert(ids[1])
@@ -625,7 +642,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   assert(upload_url is string, tag .. " names no upload URL")
   -- Resume an interrupted draft by accepting only identical existing
   -- assets. source.json may name an earlier successful run for this SHA.
-  local existing: {string:boolean} = {}
+  local existing: mut {string:boolean} = {}
   local names, asset_ids = assets_of(state)
   for _, name in ipairs(names) do
     assert(Prerelease.known_asset(name), tag .. " holds an unexpected asset: " .. name)

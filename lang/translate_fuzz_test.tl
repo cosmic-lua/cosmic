@@ -16,13 +16,13 @@ local gen_type: function(src: Fuzz.Source, depth: integer): string
 
 --- A base type, a function type among them.
 local function gen_base(src: Fuzz.Source, depth: integer): string
-  local k = src:int(1, depth > 0 and 9 or 7)
+  local k = src:int(1, if depth > 0 then 9 else 7 end)
   if k <= 7 then
     return Fuzz.pick(src, BASES)
   elseif k == 8 then
     return "{" .. gen_type(src, depth - 1) .. "}"
   end
-  local params: {string} = {}
+  local params: mut {string} = {}
   while Fuzz.more(src, #params, 3) do
     local form = src:int(1, 4)
     local t = gen_type(src, depth - 1)
@@ -36,12 +36,12 @@ local function gen_base(src: Fuzz.Source, depth: integer): string
       params[#params + 1] = t
     end
   end
-  return "function(" .. table.concat(params, ", ") .. ")" .. (src:int(0, 1) == 1 and ": " .. gen_type(src, depth - 1) or "")
+  return "function(" .. table.concat(params, ", ") .. ")" .. (if src:int(0, 1) == 1 then ": " .. gen_type(src, depth - 1) else "" end)
 end
 
 --- A type, often a union with `nil` and sometimes a parenthesized one.
 gen_type = function(src: Fuzz.Source, depth: integer): string
-  local members: {string} = { gen_base(src, depth) }
+  local members: mut {string} = { gen_base(src, depth) }
   local nil_at = src:int(0, 3)
   while Fuzz.more(src, #members, 3) do
     members[#members + 1] = gen_base(src, depth)
@@ -67,7 +67,7 @@ end
 local OPERANDS <const>: {string} = { "x", "y", "f()", "n == 1", "a.b", "\"s\"", "1", "{ 1 }", "2 + n", "s .. \"z\"", "nil" }
 
 local function gen_ternary(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local arms = src:int(1, 3)
   for _ = 1, arms do
     out[#out + 1] = Fuzz.pick(src, OPERANDS) .. " and " .. Fuzz.pick(src, OPERANDS) .. " or "
@@ -77,7 +77,7 @@ local function gen_ternary(src: Fuzz.Source): string
 end
 
 --- One top-level statement, ended by a line break, and the comment it carries.
-local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classes: {integer})
+local function gen_statement(src: Fuzz.Source, n: integer, out: mut {string}, classes: mut {integer})
   local k = src:int(1, 21)
   local tag = "-- c" .. n
   if k <= 3 then
@@ -89,7 +89,7 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classe
   elseif k == 5 or k == 6 then
     out[#out + 1] = "local t" .. n .. " = " .. gen_ternary(src) .. "; " .. tag
   elseif k == 7 then
-    out[#out + 1] = Fuzz.pick(src, { "for", "while", "repeat" }) == "repeat" and "repeat" or "for i = 1, 3 do " .. tag
+    out[#out + 1] = if Fuzz.pick(src, { "for", "while", "repeat" }) == "repeat" then "repeat" else "for i = 1, 3 do " .. tag end
     local last = out[#out]
     if last == "repeat" then
       out[#out] = "repeat " .. tag
@@ -103,7 +103,7 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classe
     end
   elseif k == 8 then
     out[#out + 1] = "local type R" .. n .. " = " .. Fuzz.pick(src, { "record", "enum" }) .. " " .. tag
-    out[#out + 1] = "  " .. (out[#out]:find("enum", 1, true) and "\"a\"" or "x: " .. gen_type(src, 1))
+    out[#out + 1] = "  " .. (if out[#out]:find("enum", 1, true) then "\"a\"" else "x: " .. gen_type(src, 1) end)
     out[#out + 1] = "end"
   elseif k == 9 then
     out[#out + 1] = "local n" .. n .. " = " .. Fuzz.pick(src, { "1_000", "0x1p4", "0xFF_FF", "3" }) .. " " .. tag
@@ -150,12 +150,12 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classe
     out[#out + 1] = "end"
   elseif k == 17 then
     local items = src:int(2, 5)
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local keyed = src:int(0, 1) == 1
     for i = 1, items do
-      parts[i] = keyed and "k" .. i .. " = " .. i or tostring(i)
+      parts[i] = if keyed then "k" .. i .. " = " .. i else tostring(i) end
     end
-    out[#out + 1] = "local t" .. n .. " = { " .. table.concat(parts, "; ") .. (src:int(0, 1) == 1 and ";" or "") .. " } " .. tag
+    out[#out + 1] = "local t" .. n .. " = { " .. table.concat(parts, "; ") .. (if src:int(0, 1) == 1 then ";" else "" end) .. " } " .. tag
   elseif k == 18 then
     out[#out + 1] = "--[[ a" .. n .. " ]] --[==[ b ]==] " .. tag
     out[#out + 1] = "local y" .. n .. " = 1"
@@ -169,7 +169,7 @@ local function gen_statement(src: Fuzz.Source, n: integer, out: {string}, classe
     out[#out + 1] = "  ::continue::"
     out[#out + 1] = "end"
   elseif k == 20 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for i = 1, src:int(2, 4) do
       local form = src:int(1, 3)
       if form == 1 then
@@ -231,7 +231,7 @@ end
 
 --- The comments `-- cN` that `text` holds.
 local function marks(text: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for mark in text:gmatch("%-%- (c%d+)") do
     out[#out + 1] = mark
   end
@@ -247,7 +247,7 @@ local OWN <const>: {string: boolean} = {
 --- The names and strings of `text` in order, less those the rows add or drop: the
 --- sequence a respelling must not change.
 local function spelled(text: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local tokens = Lexer.lex(text, "f.tl").tokens
   for i, kind in ipairs(tokens.kind) do
     local word = Lexer.text(tokens, i)
@@ -330,7 +330,7 @@ local PIECES <const>: {string} = {
 }
 
 local function gen_pieces(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 60) do
     out[#out + 1] = Fuzz.pick(src, PIECES)
     out[#out + 1] = " "
@@ -344,7 +344,7 @@ local function tiles(input: string): (boolean, string)
   if not ok then
     return false, why
   end
-  Fuzz.label(#result.errors == 0 and "clean" or "refused")
+  Fuzz.label(if #result.errors == 0 then "clean" else "refused" end)
   return true, ""
 end
 

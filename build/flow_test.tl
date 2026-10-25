@@ -297,7 +297,7 @@ local function test_width_is_held_where_a_node_lands()
   doc.root = flow.update(doc.root, { jobs = { a = { steps = Json.array(), branches = long } } })
   for line in flow.render(doc):gmatch("[^\n]+") do assert(#line <= 100, line) end
   doc = assert(flow.parse("{\n  a: [1],\n}\n"))
-  local many: {integer} = {}
+  local many: mut {integer} = {}
   for i = 1, 60 do many[i] = i end
   doc.root = flow.update(doc.root, { a = Json.array(many) })
   for line in flow.render(doc):gmatch("[^\n]+") do assert(#line <= 100, line) end
@@ -335,7 +335,7 @@ end
 --- keeps its line: only one that changes is held to the width.
 local function test_update_over_itself_keeps_a_long_line()
   local Json = require("cosmic.json")
-  local items: {string} = {}
+  local items: mut {string} = {}
   for i = 1, 20 do items[i] = "\"item" .. i .. "\"" end
   local text = "{\n  a: [" .. table.concat(items, ", ") .. "],\n}\n"
   assert(formatted(text) == text)

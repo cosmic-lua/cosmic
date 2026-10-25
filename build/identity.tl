@@ -1,6 +1,7 @@
 --- The tool's input policy, fingerprints and semantic identities.
 --- These read the staged rows; [`build.work`] owns how they are staged.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local bind = require("build.bind")
@@ -23,11 +24,14 @@ local record identity
   ---
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
-  --- ([`identity.compiler_identity`]), among them [`build.teal`], which names
-  --- the globals the checker is stripped of, the checker's own source
-  --- ([`checker/tl.tl`]) with the Lua standard library's declarations it is
-  --- compiled with ([`checker/stdlib.d.tl`]), and the pins and patches the
-  --- compiler and Lua are built from.
+  --- ([`identity.compiler_identity`]), among them [`build.withheld`], which names
+  --- the globals the checker is stripped of, the declarations of the
+  --- Lua standard library the new checker types a program with
+  --- (lang/prelude.d.tl, lang/stdlib.d.tl), and the pins and patches
+  --- Lua is built from. The checker's own source (`lang/`) is not in it:
+  --- a compile is keyed by the code that reads ([`build.pipeline`]'s
+  --- `coded`) and a parse by the analyzer's modules ([`build.importer`]'s
+  --- `analyzer_identity`), each of which holds the modules of `lang/` it runs.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
   --- changing bytecode quietly), and is left out, as is the rest of the
@@ -81,16 +85,9 @@ local tool_trees: {string:boolean} = {
   ["cosmic"] = true,
   ["cmd"] = true,
   ["patch"] = true,
-  ["checker"] = true,
+  ["lang"] = true,
 }
 
---- The trees of cosmic's own that hold Teal no module is: the checker
---- ([`checker/tl.tl`]) is compiled at boot, from the seed, into the
---- compiler the tree is built with, and is no module of the tree it
---- compiles, nor a test. Another project's `checker/` is its own.
-local checker_trees: {string:boolean} = {
-  ["checker"] = true,
-}
 local tool_files: {string:boolean} = {
   ["build.zig"] = true,
   ["build.zig.zon"] = true,
@@ -219,7 +216,7 @@ local static_path_limit <const> = 255
 --- or nil when it can: too big, a name that needs escaping in every URL
 --- and tag the app writes (a control byte, `\`, `%`, `?` or `#`), or a
 --- path too long. The reason leads with the file's own path.
-function identity.static_refusal(file: string, size: integer): string | nil
+function identity.static_refusal(file: string, size: integer): string?
   local name = file:sub(8)
   if size > static_limit then
     return ("%s: %d MiB is past the %d MiB limit for an embedded asset; serve it from disk " ..
@@ -242,7 +239,7 @@ end
 --- is made of, nor the declarations of the new checker's globals (`global_declarations`).
 function identity.is_input(file: string, own_tree: boolean): boolean
   local first = identity.first_of(file)
-  if not_input[first] or (own_tree and (foreign_trees[first] or checker_trees[first] or global_declarations[file])) then
+  if not_input[first] or (own_tree and (foreign_trees[first] or global_declarations[file])) then
     return false
   end
   if identity.is_static(file) then
@@ -301,7 +298,7 @@ function identity.is_tool(file: string, own_tree: boolean): boolean
 end
 
 --- The hash over some of the rows of `tool`, in path order.
-function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, string
+function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
       "ORDER BY path)))) FROM tool WHERE " .. where)
@@ -311,30 +308,52 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, str
   return rows[1]:text(1)
 end
 
+--- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
+--- seed list (a project's), whose tool's compiler is the one it was given.
+local function seed_paths(root: string): {string}?, string
+  local path = root .. "/build/seed.txt"
+  local present, missing = Fs.exists(path)
+  if present == nil then return nil, "seed list: " .. missing end
+  if not present then return {}, "" end
+  local listed, trouble = Fs.read(path)
+  if listed == nil then return nil, "seed list: " .. trouble end
+  local paths: mut {string} = {}
+  for line in listed:gmatch("[^\n]+") do paths[#paths + 1] = line end
+  return paths, ""
+end
+
 --- The tool's fingerprints, over `tool` (which holds no test: see
 --- [`is_tool`]): `boot` over every row, and `image` over what the C core
 --- is built from. That is `core/` but the Teal beside its C (no core is
 --- built from it), the zig build and wrapper, every vendored tree's pin
 --- and patches, and [`build/patch.tl`], which applies them: only
 --- `bin/zig build boot` applies a patch record to a pin, so a change under
---- `patch/*` or to the applier needs it too. The checker ([`checker/tl.tl`])
---- is in it as well, though no core is built from it: only a boot compiles
---- it into the compiler the tool carries, so a tool built from an older
---- checker is stale.
+--- `patch/*` or to the applier needs it too. The bridge, core/bridge.lua, is
+--- under `core/` and so in it.
 --- [`build/launcher.tl`] also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes. So does
 --- [`build/artifact.tl`], which lays the artifact out: a rebuild lays it
 --- out with the running tool's own copy, so an edit to it boots too.
 ---
+--- The seed ([`build/seed.txt`] and each file it lists) is in it too: a boot compiles the compiler the tool carries from
+--- those files alone (core/bridge.lua's `bootstrap`), and a rebuild by the running tool carries its own compiler on, so
+--- an edit to one of them ([`lang/check.tl`], say) is a tool that only a boot makes.
+---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
 --- so a project reads them rather than computing any. Returns the
 --- fingerprint written; [`identity.recorded_boot_hash`] reads it back.
-function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | nil, string
+function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
     return nil, boot_trouble
   end
+  local seed, seed_trouble = seed_paths(root)
+  if seed == nil then
+    return nil, seed_trouble
+  end
+  local quoted: mut {string} = { "'build/seed.txt'" }
+  for _, path in ipairs(seed) do quoted[#quoted + 1] = "'" .. path:gsub("'", "''") .. "'" end
   local image, image_trouble = identity.hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
       "path IN ('build.zig', 'build.zig.zon', " ..
@@ -342,7 +361,7 @@ function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | 
       "'build/patch.tl') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
       "path GLOB 'patch/*' OR " ..
-      "path GLOB 'checker/*'")
+      "path IN (" .. table.concat(quoted, ", ") .. ")")
   if image == nil then
     return nil, image_trouble
   end
@@ -364,7 +383,7 @@ end
 --- accurate), not to restage anything itself. `nil, ""` when the
 --- database holds no such row yet: a fresh build directory, or one nothing has
 --- staged for.
-function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
+function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'boot_hash'")
   if rows == nil then
@@ -376,38 +395,35 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
   return rows[1]:text(1)
 end
 
---- The Teal compiler's and Lua's pins and sources, as one text: the pin
---- of Lua, the checker's source ([`checker/tl.tl`]) and the Lua standard
---- library's declarations it is compiled with ([`checker/stdlib.d.tl`]),
---- the declarations the new checker types a program against ([`lang/prelude.d.tl`], [`lang/stdlib.d.tl`]),
+--- The pins and declarations of the compiler's basis, as one text: the pin
+--- of Lua, the declarations the new checker types a program against ([`lang/prelude.d.tl`], [`lang/stdlib.d.tl`]),
 --- and Lua's patches. Part of the compiler's identity, and the whole of
 --- `runtime_basis`. [`ci/cosmic-driver.pin`], which names the release that
 --- seeds a boot, is not in it: a boot loads
---- the checker's source compiled twice (core/bridge.lua's `bootstrap`),
+--- the seed's source compiled twice (core/bridge.lua's `bootstrap`),
 --- and the compiler it carries is the second stage, a function of that
---- source alone (build/compiler_test.tl holds it to a fixed point), so no
---- release's emitter is in what it is.
+--- source alone, so no release's emitter is in what it is.
 local pins <const> =
   "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
   "ORDER BY path) FROM tool WHERE path = 'vendor/lua/PIN' " ..
-  "OR path GLOB 'checker/*' OR path IN ('lang/prelude.d.tl', 'lang/stdlib.d.tl') OR path GLOB 'patch/lua/*'), '')"
+  "OR path IN ('lang/prelude.d.tl', 'lang/stdlib.d.tl') OR path GLOB 'patch/lua/*'), '')"
 
 --- What a module of the tree in the working database requires, as
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
 --- [`identity.writer_modules`] take over it.
-local function requires_in(db: Sqlite.Handle): function(string): {string} | nil, string
+local function requires_in(db: Sqlite.Handle): function(string): {string}?, string
   -- Every module's names are read at the first walk's first step: a query
   -- for each of the some three hundred modules a walk reaches took a tenth
   -- of a second a build.
   local held: {{string:{string}}} = {}
-  return function(name: string): {string} | nil, string
+  return function(name: string): {string}?, string
     local all = held[1]
     if all == nil then
       local rows, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
       if rows == nil then return nil, rows_trouble end
-      local read: {string:{string}} = {}
+      local read: mut {string:{string}} = {}
       for _, row in ipairs(rows) do
         local list = read[row:text(1)]
         if list == nil then
@@ -420,7 +436,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string} | nil,
       all = read
     end
     local found = all[name]
-    local required: {string} = {}
+    local required: mut {string} = {}
     if found ~= nil then
       for i, item in ipairs(found) do required[i] = item end
     end
@@ -430,9 +446,9 @@ end
 
 --- The hash of the source hash of each of `names` the tree holds, by
 --- path, then `extra`, an SQL expression.
-local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string | nil, string
-  local slots: {string} = {}
-  local values: {Sqlite.Value} = {}
+local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
+  local slots: mut {string} = {}
+  local values: mut {Sqlite.Value} = {}
   for index, name in ipairs(names) do
     slots[#slots + 1] = "?" .. index
     values[#values + 1] = text(name)
@@ -452,19 +468,13 @@ end
 --- they run to decide what they store. See
 --- [`identity.compiler_identity`].
 local compiler_roots: {string} = {
-  "build.compilation", "build.derivation",
+  "build.plans", "build.derivation",
   -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
-  "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
-  "build.compiler", "build.doctest", "build.gen_syscalls", "build.link_text",
-  -- The compile's own: the checker's environment, the rules a module is
-  -- refused by and the tree they hold in, and the record-field uses
-  -- the checker finds.
-  "build.contracts", "build.receivers", "build.teal", "build.tree",
-  -- Splices the specs [`Shape.record_of`] names into the source a compile
-  -- checks ([`build.shape_specs`]): its output is part of the bytecode.
-  "build.shape_specs",
+  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "build.link_text",
+  -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
+  "build.tree", "build.withheld",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`
@@ -474,9 +484,9 @@ local compiler_roots: {string} = {
 --- submodules), whose output [`build.derivation`] stores. Every root is
 --- followed without exceptions; the importer coordinates these
 --- operations from outside their closure.
-function identity.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
-  local reached: {string:boolean} = {}
-  local stack: {string} = {}
+function identity.compiler_modules(requires: function(string): {string}?, string): {string}?, string
+  local reached: mut {string:boolean} = {}
+  local stack: mut {string} = {}
   for _, name in ipairs(compiler_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
@@ -487,7 +497,7 @@ function identity.compiler_modules(requires: function(string): {string} | nil, s
       for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(reached) do
     if name:sub(1, 6) == "build." or name == "cosmic.template" or
         name:sub(1, 16) == "cosmic.template." then
@@ -500,8 +510,8 @@ end
 
 --- The compiler's identity ([`Identities.compiler`]) over what the
 --- working database holds now, recorded nowhere: the source hash of each
---- of [`identity.compiler_modules`] the tree holds, the checker's source and
---- the compiler's and Lua's pins and patches. A boot names its analyzer by it before it
+--- of [`identity.compiler_modules`] the tree holds, the declarations the new checker
+--- types a program with and Lua's pins and patches. A boot names its analyzer by it before it
 --- parses ([`build.importer.tree_code`]).
 ---
 --- What a module requires is what `requires` holds of its source, which
@@ -514,17 +524,20 @@ end
 --- own key (a module's Lua, bytecode, record-field uses and refusal, and
 --- a source's rows in the analysis tables), and nothing else:
 ---
---- - the pinned compiler and Lua, and the checker's source
----   ([`checker/tl.tl`]), which decides what every compile accepts and
----   emits;
---- - [`build.compilation`] and [`build.derivation`];
---- - the checker's environment ([`build.teal`]), and the names it is
----   stripped of, which build.teal spells itself (its `withheld`) rather
+--- - the pinned Lua and its patches, and the declarations the new
+---   checker types a program with (lang/prelude.d.tl, lang/stdlib.d.tl),
+---   which decide what every compile accepts. The checker's source
+---   (`lang/`) is not here: a compile is keyed by [`build.pipeline`]'s
+---   `coded` over what reads and writes in the new mode, and a parse by
+---   [`build.importer`]'s `analyzer_identity`, which hold the modules of
+---   `lang/` they reach;
+--- - build.plans and [`build.derivation`];
+--- - the names the globals are stripped of, which build.withheld spells itself rather
 ---   than reading [`cosmic.removed`]: the rest of that catalog is only
 ---   what a refusal says, which no compile keeps;
 --- - the rules a module is refused by and the tree they hold in
----   ([`build.contracts`], [`build.tree`]);
---- - the uses the checker finds ([`build.receivers`]);
+---   (build.syntax_contracts, [`build.tree`]);
+--- - the uses the checker finds ([`build.syntax_receivers`]);
 --- - the analyzer, whose `tests` rows a test module's compile is
 ---   appended from;
 --- - the schema of the rows a parse stores and of the `inputs` view a
@@ -540,7 +553,7 @@ end
 --- importer_test's `test_the_compiler_modules_are_closed_under_require`
 --- checks the closed semantic boundary and classifies the coordinator's
 --- imports outside it.
-function identity.compiler_identity(db: Sqlite.Handle): string | nil, string
+function identity.compiler_identity(db: Sqlite.Handle): string?, string
   local names, trouble = identity.compiler_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -580,11 +593,11 @@ local writer_left_out <const>: {string:string} = {
 --- that `writer_left_out` names. build/importer_test.tl's
 --- `test_the_writer_modules_are_closed_under_require` holds that list
 --- to the roots' requires.
-function identity.writer_modules(requires: function(string): {string} | nil, string): {string} | nil, string
-  local roots: {string:boolean} = {}
+function identity.writer_modules(requires: function(string): {string}?, string): {string}?, string
+  local roots: mut {string:boolean} = {}
   for _, name in ipairs(writer_roots) do roots[name] = true end
-  local reached: {string:boolean} = {}
-  local stack: {string} = {}
+  local reached: mut {string:boolean} = {}
+  local stack: mut {string} = {}
   for _, name in ipairs(writer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
@@ -599,7 +612,7 @@ function identity.writer_modules(requires: function(string): {string} | nil, str
       end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(reached) do names[#names + 1] = name end
   table.sort(names)
   return names, ""
@@ -608,7 +621,7 @@ end
 --- What `writer_left_out` names, for build/importer_test.tl to hold
 --- the roots' requires to.
 function identity.writer_left_out(): {string:string}
-  local copy: {string:string} = {}
+  local copy: mut {string:string} = {}
   for name, why in pairs(writer_left_out) do copy[name] = why end
   return copy
 end
@@ -621,7 +634,7 @@ end
 --- An edit to a module outside it -- build.positions, build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
-local function writer_identity(db: Sqlite.Handle): string | nil, string
+local function writer_identity(db: Sqlite.Handle): string?, string
   local names, trouble = identity.writer_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -636,7 +649,7 @@ end
 --- ([`build.importer.derive`]) first: on a fresh working database the
 --- closure would otherwise stop at its roots, and keys
 --- made under that identity would match no later build's.
-function identity.record_identities(db: Sqlite.Handle): identity.Identities | nil, string
+function identity.record_identities(db: Sqlite.Handle): identity.Identities?, string
   local compiler, compiler_trouble = identity.compiler_identity(db)
   if compiler == nil then
     return nil, compiler_trouble

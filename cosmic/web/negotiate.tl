@@ -19,11 +19,11 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 
 --- The weight `text` (a `q` parameter's value) spells in thousandths, or
 --- nil where it is no number from 0 to 1 with three decimals at most.
-local function weight_of(text: string): integer | nil
+local function weight_of(text: string): integer?
   local whole, dot, fraction = text:match("^([01])(%.?)(%d*)$")
   if whole == nil or #fraction > 3 or (dot == "" and fraction ~= "") then return nil end
   local thousandths = math.tointeger(tonumber(whole)) * 1000 +
-    (fraction == "" and 0 or math.tointeger(tonumber(fraction .. ("0"):rep(3 - #fraction))))
+    (if fraction == "" then 0 else math.tointeger(tonumber(fraction .. ("0"):rep(3 - #fraction))) end)
   if thousandths > 1000 then return nil end
   return thousandths
 end
@@ -31,14 +31,14 @@ end
 --- The ranges of `header`, in order, skipping any that is no media range
 --- or has a weight that is no number. Nothing here raises on its text.
 local function ranges_of(header: string): {Negotiate.Range}
-  local out: {Negotiate.Range} = {}
+  local out: mut {Negotiate.Range} = {}
   for piece in header:gmatch("[^,]+") do
     local media, rest = piece:match("^%s*([^;%s]+)(.*)$")
     if media ~= nil then
       local params = String.trim(rest)
       local kind, subtype = media:lower():match("^(" .. TOKEN .. ")/(" .. TOKEN .. ")$")
       if kind ~= nil and not (kind == "*" and subtype ~= "*") then
-        local weight: integer | nil = 1000
+        local weight: integer? = 1000
         for param in params:gmatch(";%s*([^;]*)") do
           local value = param:match("^[qQ]%s*=%s*(%S+)%s*$")
           if value ~= nil then weight = weight_of(value) end
@@ -83,11 +83,11 @@ end
 --- @param header string | nil The Accept header's value
 --- @param offers {string} The media types that can be made, best first
 --- @return string | nil The offer chosen
-function Negotiate.best(header: string | nil, offers: {string}): string | nil
+function Negotiate.best(header: string?, offers: {string}): string?
   if header == nil or header:find("^%s*$") then return offers[1] end
   local ranges = ranges_of(header)
   if #ranges == 0 then return offers[1] end
-  local chosen: string | nil = nil
+  local chosen: string? = nil
   local top = 0
   for _, offer in ipairs(offers) do
     local weight = weight_for(ranges, offer)

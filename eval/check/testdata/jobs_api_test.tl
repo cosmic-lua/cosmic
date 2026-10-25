@@ -89,7 +89,7 @@ end
 -- compile tells an enum from an alias of string, which would pass too.
 local function test_status_holds_the_five_words()
   local all: {jobs.Status} = { "ok", "failed", "timeout", "skipped", "interrupted" }
-  local seen: {jobs.Status: boolean} = {}
+  local seen: mut {jobs.Status: boolean} = {}
   for _, status in ipairs(all) do
     seen[status] = true
   end

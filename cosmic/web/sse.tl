@@ -63,7 +63,7 @@ local record Sse
     --- nil and [`Poll.TIMEOUT`] when none came in time (the stream then
     --- sends a heartbeat), nil and "" at the end of the stream, and nil
     --- and why when it failed, which also ends the stream.
-    next: function(EventSource, timeout_ns?: integer): Event | nil, string
+    next: function(EventSource, timeout_ns?: integer): Event?, string
     --- Ends the source: a `next` that waits wakes and answers the end.
     --- Safe to call twice, and never waits (the stream calls it from the
     --- app's stop and from a killed task's `<close>`).
@@ -127,7 +127,7 @@ local record Sse
     --- with a `reset` event. Without `after` it starts with the next
     --- publish. Nil and why when over a limit ("full") or the hub is
     --- closed ("closed").
-    subscribe: function(Hub, topics: {string}, opts?: SubscribeOptions): Subscription | nil, string
+    subscribe: function(Hub, topics: {string}, opts?: SubscribeOptions): Subscription?, string
     --- How many subscriptions are open, to `topic` when given.
     subscribers: function(Hub, topic?: string): integer
     --- Closes every subscription: their streams end and the browsers
@@ -176,7 +176,7 @@ local record Sse
   new_hub: function(opts?: HubOptions): Hub
 
   --- The `Last-Event-ID` the client sent.
-  last_event_id: function(req: Types.Request): string | nil
+  last_event_id: function(req: Types.Request): string?
 
   --- A source over a queue of events.
   from_queue: function(queue: Channel.Queue<Event>): EventSource
@@ -199,7 +199,7 @@ local HEARTBEAT <const> = ": ping\n\n"
 local function lines_of(text: string): {string}
   local unified = text:gsub("\r\n", "\n")
   unified = unified:gsub("\r", "\n")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (unified .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   return lines
 end
@@ -209,7 +209,7 @@ end
 local function field_text(name: string, value: any, forbidden: string): string
   if not value is string then error("sse: " .. name .. " must be a string", 3) end
   if value:find(forbidden) then
-    error("sse: " .. name .. " must not hold a line ending" .. (forbidden:find("%z", 1, true) and " or NUL" or ""), 3)
+    error("sse: " .. name .. " must not hold a line ending" .. (if forbidden:find("%z", 1, true) then " or NUL" else "" end), 3)
   end
   return value
 end
@@ -222,7 +222,7 @@ end
 --- checked to be UTF-8; a client reads bad bytes as U+FFFD.
 local function format_event(ev: Sse.Event): string
   if type(ev) ~= "table" then error("sse: an event must be a table", 2) end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local comment = ev.comment
   if comment ~= nil then
     if type(comment) ~= "string" then error("sse: comment must be a string", 2) end
@@ -275,7 +275,7 @@ end
 
 --- The `Last-Event-ID` the client sent, which a reconnecting browser
 --- sets; nil when absent, empty or over 1024 bytes.
-local function last_event_id(req: Types.Request): string | nil
+local function last_event_id(req: Types.Request): string?
   local id = req.headers["last-event-id"]
   if id == nil or id == "" or #id > LAST_EVENT_ID_BYTES then return nil end
   return id
@@ -283,11 +283,11 @@ end
 
 local record QueueSource is Sse.EventSource
   queue: Channel.Queue<Sse.Event>
-  next: function(QueueSource, timeout_ns?: integer): Sse.Event | nil, string
+  next: function(QueueSource, timeout_ns?: integer): Sse.Event?, string
   close: function(QueueSource)
 end
 
-function QueueSource.next(self: QueueSource, timeout_ns?: integer): Sse.Event | nil, string
+function QueueSource.next(self: QueueSource, timeout_ns?: integer): Sse.Event?, string
   local ev, why = self.queue:receive(timeout_ns)
   if ev ~= nil then return ev, "" end
   if self.queue:closed() then return nil, "" end
@@ -309,7 +309,7 @@ end
 -- The stream.
 
 local record Guard
-  metamethod __close: function(Guard)
+  __close: function(Guard)
 end
 
 --- The Reader that is a stream's body.
@@ -317,16 +317,16 @@ local record Body is Stream.Reader
   app: Types.App
   source: Sse.EventSource
   heartbeat_ns: integer
-  deadline?: integer
+  mut deadline?: integer
   on_close: function(why: string)
-  pending: string
-  started: boolean
-  held: boolean
-  done: boolean
-  waiting: boolean
-  guard?: Guard
-  prologue: string
-  read: function(Body, max_bytes?: integer): string | nil, string
+  mut pending: string
+  mut started: boolean
+  mut held: boolean
+  mut done: boolean
+  mut waiting: boolean
+  mut guard?: Guard
+  mut prologue: string
+  read: function(Body, max_bytes?: integer): string?, string
   close: function(Body): boolean, string
 end
 
@@ -353,7 +353,7 @@ local function finish(self: Body, why: string)
   end
 end
 
-function Body.read(self: Body, max_bytes?: integer): string | nil, string
+function Body.read(self: Body, max_bytes?: integer): string?, string
   if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 1) then
     error("sse: read takes a positive integer of bytes", 2)
   end
@@ -386,7 +386,7 @@ function Body.read(self: Body, max_bytes?: integer): string | nil, string
       end
       if timeout == nil or left < timeout then timeout = left end
     end
-    local ev: Sse.Event | nil = nil
+    local ev: Sse.Event? = nil
     local why = ""
     do
       -- The guard covers only a wait in `source:next`: a task killed there
@@ -435,7 +435,7 @@ local EVENT_STREAM_FIELDS <const>: {string:boolean} = {
 }
 
 --- Why `value` is no integer of at least `least`; nil when it is, or nil.
-local function not_counted(what: string, value: integer | nil, least: integer): string | nil
+local function not_counted(what: string, value: integer?, least: integer): string?
   if value ~= nil and (math.type(value) ~= "integer" or value < least) then
     return ("sse: %s must be an integer of at least %d"):format(what, least)
   end
@@ -443,7 +443,7 @@ local function not_counted(what: string, value: integer | nil, least: integer): 
 end
 
 --- Why `given` is no table or holds a field `known` lacks; nil when fine.
-local function not_checked(given: any, known: {string:boolean}, what: string): string | nil
+local function not_checked(given: any, known: {string:boolean}, what: string): string?
   if given == nil then return nil end
   if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end
   for key in pairs(given) do
@@ -455,7 +455,7 @@ local function not_checked(given: any, known: {string:boolean}, what: string): s
 end
 
 --- Raises unless `value` is nil or an integer of at least `least`.
-local function counted(what: string, value: integer | nil, least: integer)
+local function counted(what: string, value: integer?, least: integer)
   local why = not_counted(what, value, least)
   if why ~= nil then error(why, 3) end
 end
@@ -492,7 +492,7 @@ end
 -- a trusted client key; until then one client may hold every slot.
 local function event_stream(req: Types.Request, source: Sse.EventSource,
                             opts?: Sse.EventStreamOptions): Types.Response
-  local function bad(why: string | nil)
+  local function bad(why: string?)
     if why ~= nil then
       source:close()
       error(why, 3)
@@ -507,7 +507,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   if app:stopping() then return refused(source, "the server is stopping") end
   if app.stream_count >= app.stream_limit then return refused(source, "too many open streams") end
   local retry_ms = given.retry_ms or DEFAULT_RETRY_MS
-  local first: {string} = {}
+  local first: mut {string} = {}
   if retry_ms > 0 then first[1] = ("retry: %d\n\n"):format(retry_ms) end
   local initial: {Sse.Event} = given.initial or {}
   for _, ev in ipairs(initial) do
@@ -533,7 +533,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   end }
   body.guard = setmetatable(guard, guard_mt)
   req.bodies[#req.bodies + 1] = body
-  local headers: {string: string | {string}} = {
+  local headers: mut {string: string | {string}} = {
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",
   }
   for name, value in pairs(given.headers or {}) do headers[name] = value end
@@ -550,14 +550,14 @@ end
 
 local record Sub is Sse.Subscription
   queue: Channel.Queue<Sse.Event>
-  detach: function()
-  next: function(Sub, timeout_ns?: integer): Sse.Event | nil, string
+  mut detach: function()
+  next: function(Sub, timeout_ns?: integer): Sse.Event?, string
   close: function(Sub)
   closed: function(Sub): boolean
   dropped: function(Sub): integer
 end
 
-function Sub.next(self: Sub, timeout_ns?: integer): Sse.Event | nil, string
+function Sub.next(self: Sub, timeout_ns?: integer): Sse.Event?, string
   local ev, why = self.queue:receive(timeout_ns)
   if ev ~= nil then return ev, "" end
   if self.queue:closed() then return nil, "" end
@@ -588,12 +588,12 @@ local record State is Sse.Hub
   max_per_topic: integer
   max_total: integer
   max_event_bytes: integer
-  topics: {string: Topic}
-  total: integer
-  seq: integer
-  shut: boolean
+  topics: mut {string: Topic}
+  mut total: integer
+  mut seq: integer
+  mut shut: boolean
   publish: function(State, topic: string, ev: Sse.Event): integer
-  subscribe: function(State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription | nil, string
+  subscribe: function(State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription?, string
   subscribers: function(State, topic?: string): integer
   close: function(State)
   attach: function(State, app: Types.App)
@@ -653,7 +653,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
     end
   end
   local reached = 0
-  local cut: {Sub} = {}
+  local cut: mut {Sub} = {}
   for sub in pairs(topic.subs) do
     local sent, _ = sub.queue:try_send(kept)
     if sent then
@@ -669,8 +669,8 @@ end
 
 --- The events of the rings of `names` after the one with id `after`:
 --- nil where no ring holds it.
-local function replayed(self: State, names: {string}, after: string): {Sse.Event} | nil
-  local found: integer | nil = nil
+local function replayed(self: State, names: {string}, after: string): {Sse.Event}?
+  local found: integer? = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil then
@@ -690,7 +690,7 @@ local function replayed(self: State, names: {string}, after: string): {Sse.Event
     local topic = self.topics[name]
     if topic ~= nil and topic.evicted > found then return nil end
   end
-  local later: {Entry} = {}
+  local later: mut {Entry} = {}
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil then
@@ -700,14 +700,14 @@ local function replayed(self: State, names: {string}, after: string): {Sse.Event
     end
   end
   table.sort(later, function(a: Entry, b: Entry): boolean return a.seq < b.seq end)
-  local events: {Sse.Event} = {}
+  local events: mut {Sse.Event} = {}
   for i, entry in ipairs(later) do events[i] = entry.event end
   return events
 end
 
 --- The id of the newest event the rings of `names` hold.
-local function head_id(self: State, names: {string}): string | nil
-  local best: Entry | nil = nil
+local function head_id(self: State, names: {string}): string?
+  local best: Entry? = nil
   for _, name in ipairs(names) do
     local topic = self.topics[name]
     if topic ~= nil and topic.last >= topic.first then
@@ -718,12 +718,12 @@ local function head_id(self: State, names: {string}): string | nil
   return best ~= nil and best.event.id or nil
 end
 
-function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription | nil, string
+function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription?, string
   if not topics is {string} or #topics == 0 then
     error("sse: subscribe takes a list of topic names", 2)
   end
-  local names: {string} = {}
-  local seen: {string: boolean} = {}
+  local names: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   for _, name in ipairs(topics) do
     if not name is string then error("sse: subscribe takes a list of topic names", 2) end
     if not seen[name] then
@@ -731,7 +731,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
       names[#names + 1] = name
     end
   end
-  local after: string | nil = nil
+  local after: string? = nil
   if opts ~= nil then
     if type(opts) ~= "table" then error("sse: subscribe takes a table of options", 2) end
     if type(opts.after) == "string" and opts.after ~= "" then after = opts.after end
@@ -743,7 +743,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
       if self:subscribers(name) >= self.max_per_topic then return nil, "full" end
     end
   end
-  local replay: {Sse.Event} = {}
+  local replay: mut {Sse.Event} = {}
   local gap = false
   if after ~= nil then
     local later = replayed(self, names, after)
@@ -787,8 +787,8 @@ end
 
 function State.close(self: State)
   self.shut = true
-  local all: {Sub} = {}
-  local seen: {Sub: boolean} = {}
+  local all: mut {Sub} = {}
+  local seen: mut {Sub: boolean} = {}
   for _, topic in pairs(self.topics) do
     for sub in pairs(topic.subs) do
       if not seen[sub] then

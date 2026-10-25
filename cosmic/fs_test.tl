@@ -63,7 +63,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   local real_write = sys.write
   local temporaries: {string} = {}
   local nested = { value = false }
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       temporaries[#temporaries + 1] = file.path
@@ -71,7 +71,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
     if file == nil then return nil, trouble, number end
     return file
   end
-  sys.write = function(fd: integer, data: string): integer | nil, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer
     if not nested.value then
       nested.value = true
       assert(Fs.write(path, "inner"))
@@ -92,13 +92,13 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local real_write = sys.write
   local created = { value = "" }
   local real_open_temporary = sys.open_temporary
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created.value = file.path end
     if file == nil then return nil, trouble, number end
     return file
   end
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected write failure", 0
   end
   local ok, trouble = Fs.write(path, "new")
@@ -116,7 +116,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   local real_open_temporary = sys.open_temporary
   local created = { value = "" }
   local injected_fd = { value = -1 }
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       created.value = file.path
@@ -147,7 +147,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
   local created = { value = "" }
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile | nil, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created.value = file.path end
     if file == nil then return nil, trouble, number end
@@ -191,7 +191,7 @@ local function test_create_failures_name_the_path_and_stay(tmp: string)
   local path = tmp .. "/target"
   local real_write = sys.write
   local file = assert(Fs.create(path))
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected write failure", 0
   end
   local ok, trouble = file:write("data")
@@ -213,7 +213,7 @@ local function test_put_rejects_zero_progress(tmp: string)
   local path = tmp .. "/stream"
   local fd = assert(Fs.open_write(path))
   local real_write = sys.write
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return 0, "", 0
   end
   local ok, trouble = Fs.put(fd, "data")
@@ -422,8 +422,8 @@ local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: 
   local close = (getmetatable(scratch) as metatable<Fs.Scratch>).__close as function(Fs.Scratch)
   local owner = scratch.owner
   close(scratch)
-  local opened: {integer} = {}
-  local reused: integer | nil
+  local opened: mut {integer} = {}
+  local reused: integer?
   for i = 1, 64 do
     local fd = assert(sys.open(tmp .. "/reused" .. i, sys.O_RDWR | sys.O_CREAT, 0x180))
     opened[#opened + 1] = fd
@@ -562,7 +562,7 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   assert(Fs.write(path, data))
   local real_read = sys.read
   local reads = { value = 0 }
-  sys.read = function(fd: integer, count: integer): string | nil, string, integer
+  sys.read = function(fd: integer, count: integer): string?, string, integer
     reads.value = reads.value + 1
     return real_read(fd, count)
   end
@@ -577,7 +577,7 @@ end
 local function test_write_resumes_a_short_write(tmp: string)
   local path = tmp .. "/short"
   local real_write = sys.write
-  sys.write = function(fd: integer, bytes: string): integer | nil, string, integer
+  sys.write = function(fd: integer, bytes: string): integer?, string, integer
     return real_write(fd, bytes:sub(1, 3))
   end
   local ok, trouble = Fs.write(path, "abcdefghij")
@@ -781,7 +781,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
   assert(Fs.mkdirs(root .. "/sub"))
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"

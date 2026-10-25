@@ -39,7 +39,7 @@ end
 --- The publications of each of `documents` whose diagnostics changed
 --- since it last published them, in the order given.
 local function changed(o: Open, documents: {check.Document}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, document in ipairs(documents) do
     local before = document.published
     local now = check.diagnose(o.checker, document, o.encoding)
@@ -51,13 +51,13 @@ local function changed(o: Open, documents: {check.Document}): {string}
 end
 
 --- Every open document but `except`, by URI.
-local function others(o: Open, except: check.Document | nil): {check.Document}
-  local uris: {string} = {}
+local function others(o: Open, except: check.Document?): {check.Document}
+  local uris: mut {string} = {}
   for uri, document in pairs(o.documents) do
     if document ~= except then uris[#uris + 1] = uri end
   end
   table.sort(uris)
-  local out: {check.Document} = {}
+  local out: mut {check.Document} = {}
   for _, uri in ipairs(uris) do
     local document = o.documents[uri]
     if document ~= nil then out[#out + 1] = document end
@@ -77,7 +77,7 @@ end
 --- found it requiring other modules than before, those of every other
 --- open document that changed.
 function publish.with(o: Open, document: check.Document): {string}
-  local out: {string} = { one(o, document) }
+  local out: mut {string} = { one(o, document) }
   if not check.moved(o.checker) then return out end
   for _, publication in ipairs(changed(o, others(o, document))) do out[#out + 1] = publication end
   check.moved(o.checker)
@@ -92,7 +92,7 @@ end
 function publish.closed(o: Open, document: check.Document): {string}
   check.closed(o.checker, document)
   local cleared: {string} = {}
-  local out: {string} = { protocol.publication(document.uri, cleared) }
+  local out: mut {string} = { protocol.publication(document.uri, cleared) }
   if not check.moved(o.checker) then return out end
   for _, publication in ipairs(changed(o, others(o, nil))) do out[#out + 1] = publication end
   check.moved(o.checker)
@@ -104,12 +104,12 @@ end
 --- order: those whose diagnostics may change with what it serves.
 function publish.dependents(o: Open, name: string): {string}
   local open = o.checker.open
-  local opened: {string:{string}} = {}
+  local opened: mut {string:{string}} = {}
   for file, other in pairs(open) do
     local requires = other.requires
     if requires ~= nil then opened[file] = requires end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(graph.dependents(o.checker.source, name, opened)) do
     local other = open[file]
     if other ~= nil and file ~= name then out[#out + 1] = other.uri end

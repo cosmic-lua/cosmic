@@ -14,7 +14,6 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 local entry_source = "local record entry\nend\nreturn entry\n"
@@ -29,8 +28,8 @@ local function write_fixture(root: string, outside: boolean)
   assert(Fs.mkdirs(root .. "/case"))
   assert(Fs.write(root .. "/case/init.tl", entry_source))
   assert(Fs.write(root .. "/case/sibling.tl", sibling_source))
-  local user_path = outside and (root .. "/outsider.tl") or
-    (root .. "/case/insider.tl")
+  local user_path = if outside then (root .. "/outsider.tl") else
+    (root .. "/case/insider.tl") end
   assert(Fs.write(user_path, user_source))
 end
 
@@ -49,17 +48,13 @@ end
 local function write_unentered_fixture(root: string, inside: boolean)
   assert(Fs.mkdirs(root .. "/deep/dir"))
   assert(Fs.write(root .. "/deep/dir/x.tl", sibling_source))
-  local user_path = inside and (root .. "/deep/dir/user.tl") or
-    (root .. "/outsider.tl")
+  local user_path = if inside then (root .. "/deep/dir/user.tl") else
+    (root .. "/outsider.tl") end
   assert(Fs.write(user_path, "local x = require(\"deep.dir.x\")\nreturn x\n"))
 end
 
 --- Builds the fixture at `root` and reports whether the tree compiled.
 local function try_build(root: string): boolean, string
-  local built, load_trouble = teal.load()
-  if built == nil then
-    return false, load_trouble
-  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return false, open_trouble
@@ -69,7 +64,7 @@ local function try_build(root: string): boolean, string
     work.close(handle)
     return false, stage_trouble
   end
-  local result, trouble = importer.compile(handle, built, "visibility-test")
+  local result, trouble = importer.compile(handle, "visibility-test")
   work.close(handle)
   if result == nil then
     return false, trouble

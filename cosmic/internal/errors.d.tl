@@ -7,7 +7,7 @@ local record errors
   --- The place of the Lua frame at or above `level` (1 is the caller),
   --- "source:line", skipping a frame that runs C; nil where the stack has
   --- none. It costs a frame, not a traceback.
-  where: function(level?: integer): string | nil
+  where: function(level?: integer): string?
   --- The call stack of coroutine `co` as text, from its top -- from the
   --- caller, for the running one -- with `message` at the top when one
   --- is given: for one that raised, where it raised, kept until the

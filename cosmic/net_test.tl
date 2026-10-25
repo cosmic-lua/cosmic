@@ -19,7 +19,7 @@ local record Pair
   server: Net.Listener
   client: Net.Conn
   accepted: Net.Conn
-  metamethod __close: function(Pair)
+  __close: function(Pair)
 end
 
 local pair_mt: metatable<Pair> = {
@@ -146,7 +146,7 @@ end
 local record Full
   server: Net.Listener
   held: {Net.Conn}
-  metamethod __close: function(Full)
+  __close: function(Full)
 end
 
 local full_mt: metatable<Full> = {
@@ -158,7 +158,7 @@ local full_mt: metatable<Full> = {
 
 local function full(path: string): Full
   local server = assert(Net.listen(Net.unix(path), { backlog = 1 }))
-  local held: {Net.Conn} = {}
+  local held: mut {Net.Conn} = {}
   for _ = 1, 16 do
     local conn = Net.connect(server.address, { timeout_ns = 0 })
     if conn == nil then break end
@@ -540,7 +540,7 @@ local function test_in_a_run_a_server_serves_connections_at_once()
         end)
       end
     end)
-    local clients: {Net.Conn} = {}
+    local clients: mut {Net.Conn} = {}
     for i = 1, 3 do
       clients[i] = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     end
@@ -649,7 +649,7 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _full <close> = full(path)
-  local conn = { value = nil as Net.Conn | nil }
+  local conn = { value = nil as Net.Conn? }
   local why = { value = "" }
   local began = Clock.monotonic_ns()
   Poll.run(function()

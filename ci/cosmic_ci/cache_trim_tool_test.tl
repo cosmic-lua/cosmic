@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -37,7 +38,7 @@ error("the original signal was swallowed")
   -- TODO: hold the child in a `<close>` local again, once ci/cosmic-driver.pin names a release that declares
   -- [`Child.Handle`] as a class: a `<close>` local must be one.
   local handle = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
-    { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
+    { cwd = project, env = Grammar.driver(Env.all()), stdout = "capture", stderr = "capture" }))
   local ran, raised = pcall(function()
     local deadline = Clock.monotonic_ns() + Clock.seconds(30)
     while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
@@ -81,7 +82,7 @@ end
 ]=]):format(candidate, candidate .. "/does-not-exist", candidate .. "/missing/cache.db")
   assert(Fs.write(project .. "/check.tl", script))
   local result = assert(Child.run({ assert(Proc.executable()), project .. "/check.tl" },
-    { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
+    { cwd = project, env = Grammar.driver(Env.all()), stdout = "capture", stderr = "capture" }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
   assert(Fs.stat(candidate .. "/o") == nil and Fs.stat(candidate .. "/missing") == nil)
 end

@@ -1,8 +1,6 @@
---- `cosmic test --check-types` end to end, in a project of its own: it reports
---- the value that crossed a typed boundary as a kind its type does not
---- admit, at the caller's line, in the summary and in the working
---- database, and changes no verdict; and neither it nor the variable that
---- asks for it puts a check into what `cosmic build` writes.
+--- `cosmic test --check-types` end to end, in a project of its own: it reports a fact the checker took from a test that is
+--- false at run time, at its read, in the summary and in the working database, and changes no verdict; and neither it nor
+--- the variable that asks for it puts a check into what `cosmic build` writes.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -15,32 +13,44 @@ local this_program = require("build.this_program")
 --- The program itself, which this test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
+--- The module under test: `hello` takes nil out of `name` with an `assert`, and the checker takes the `assert` for what it
+--- is, so the read of `name` after it is wrapped in a call of `__fact` in a checked run.
 local greeting = table.concat({
   "local record greet",
+  "  hello: function(string?): string",
   "end",
   "",
-  "function greet.hello(name: string): string",
-  "  return \"hello, \" .. (name or \"?\")",
-  "end",
-  "",
-  "return greet",
+  "local module: greet = {",
+  "  hello = function(name: string?): string",
+  "    assert(name)",
+  "    return name",
+  "  end,",
+  "}",
+  "return module",
   "",
 }, "\n")
 
+--- The tests: a read with a name passes, and a read after an `assert` that does not raise (the global is replaced by one
+--- that answers its arguments, as a program that shadows `assert` would) is found where it is false.
 local suite = table.concat({
   "local greet = require(\"greet\")",
   "",
   "local function test_hello_with_nothing()",
-  "  local names: {string:string} = {}",
-  "  assert(greet.hello(names.nobody) == \"hello, ?\")",
+  "  local plant = assert(load(\"planted = assert; assert = function(...) return ... end\", \"=plant\"))",
+  "  local restore = assert(load(\"assert = planted\", \"=restore\"))",
+  "  plant()",
+  "  local ok, message = pcall(greet.hello, nil)",
+  "  restore()",
+  "  assert(ok or tostring(message):find(\"fact violated at greet.tl:\", 1, true) ~= nil, tostring(message))",
   "end",
   "",
   "local function test_hello_with_a_name()",
-  "  assert(greet.hello(\"you\") == \"hello, you\")",
+  "  assert(greet.hello(\"you\") == \"you\")",
   "end",
   "",
 }, "\n")
 
+-- (`ok` is true where no hook checks the fact: the read answers nil.)
 local main = table.concat({
   "local greet = require(\"greet\")",
   "",
@@ -90,20 +100,20 @@ local function violations(root: string): Sqlite.Rows
   return rows
 end
 
---- The line of `suite` the call of `hello` with nothing is on.
-local function nothing_line(): integer
+--- The place in `greeting` of the read of `name` the fact is about: "line:column".
+local function read_site(): string
   local line = 0
-  for each in (suite .. "\n"):gmatch("([^\n]*)\n") do
+  for each in (greeting .. "\n"):gmatch("([^\n]*)\n") do
     line = line + 1
-    if each:find("greet.hello(names.nobody)", 1, true) then return line end
+    local at = each:find("return name", 1, true)
+    if at ~= nil then return tostring(line) .. ":" .. tostring(at + 7) end
   end
   error("no such line")
 end
 
---- A checked run reports the nil given the parameter, at the line of the
---- call, and passes the tests it passes without it; a run without the
---- flag says nothing of types.
-local function test_a_checked_run_reports_a_nil_parameter_and_changes_no_verdict(tmp: string)
+--- A checked run reports the read of `name` that is false, at its place, and passes the tests it passes without it; a run
+--- without the flag says nothing of types.
+local function test_a_checked_run_reports_a_false_fact_and_changes_no_verdict(tmp: string)
   local root = project(tmp)
   local plain, plain_text = invoke(root, tmp, { "test", "--all" })
   assert(plain.ok and plain_text:find("test: 2 tests passed in ", 1, true), plain_text)
@@ -112,15 +122,13 @@ local function test_a_checked_run_reports_a_nil_parameter_and_changes_no_verdict
   local checked, text = invoke(root, tmp, { "test", "--check-types" })
   assert(checked.ok and text:find("test: 2 tests passed in ", 1, true), text)
   assert(text:find("run-time types: 1 violation, 1 distinct, at 1 place", 1, true), text)
-  assert(text:find("greet_test.tl:" .. nothing_line() .. ": parameter name of hello " ..
-      "(greet.tl:4) declared string got nil (1 time)", 1, true), text)
+  assert(text:find("greet.tl:" .. read_site() .. ": name declared not nil got nil (1 time)", 1, true), text)
   assert(text:find("2 ran, 0 stood", 1, true), "a standing verdict hid a test from the report: " .. text)
 
   local rows = violations(root)
   assert(#rows == 1, #rows .. " rows")
-  assert(rows[1]:text(1) == "parameter" and rows[1]:text(2) == "greet_test.tl:" .. nothing_line() and
-      rows[1]:text(3) == "parameter name of hello (greet.tl:4)" and rows[1]:text(4) == "string" and
-      rows[1]:text(5) == "nil" and rows[1]:text(6) == "1", table.concat(rows[1]:texts(), " | "))
+  assert(table.concat(rows[1]:texts(), " | ") == "fact | greet.tl:" .. read_site() .. " | name | not nil | nil | 1",
+    table.concat(rows[1]:texts(), " | "))
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })
@@ -137,15 +145,15 @@ local function test_no_executable_carries_a_check(tmp: string)
   assert(checked.ok, text)
   local directory = assert(build_paths.directory(root))
   local aside = assert(Fs.read(directory .. "/cosmic.checked.db"))
-  assert(aside:find("__cosmic_tc", 1, true), "the checked projection carries no check")
+  assert(aside:find("__fact", 1, true), "the checked projection carries no check")
 
   local built, built_text = invoke(root, tmp, { "build", "--host" },
     { COSMIC_TEST_CHECK_TYPES = "1" })
   assert(built.ok, built_text)
   local executable = assert(Fs.read(directory .. "/bin/hello"))
-  assert(executable:find("hello, ", 1, true), "the executable does not carry the program's code")
-  assert(not executable:find("__cosmic_tc", 1, true), "an executable carries a run-time check")
+  assert(executable:find("hello", 1, true), "the executable does not carry the program's code")
+  assert(not executable:find("__fact", 1, true), "an executable carries a run-time check")
   local projection = assert(Fs.read(directory .. "/cosmic.db"))
-  assert(not projection:find("__cosmic_tc", 1, true), "the tree's projection carries a check")
+  assert(not projection:find("__fact", 1, true), "the tree's projection carries a check")
   assert(projection:find("greet", 1, true))
 end

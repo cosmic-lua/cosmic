@@ -18,8 +18,8 @@ local sys = require("cosmic.sys")
 
 local record Perf
   record Interval
-    low: number | nil
-    high: number | nil
+    low: number?
+    high: number?
     lower_bounded: boolean
     upper_bounded: boolean
   end
@@ -42,7 +42,7 @@ local record Ranks
   upper: integer
 end
 
-local rank_cache: {string:Ranks} = {}
+local rank_cache: mut {string:Ranks} = {}
 
 --- Relative binomial masses start at the mode, avoiding the underflow of
 --- p^n at large n. Each outward recurrence decreases; normalizing their sum
@@ -54,18 +54,20 @@ local function ranks(n: integer, numerator: integer, denominator: integer,
   local cached = rank_cache[key]
   if cached ~= nil then return cached.lower, cached.upper end
   local mode = ((n + 1) * numerator) // denominator
-  local weights: {number} = {}
-  for _ = 1, n + 1 do weights[#weights + 1] = 0.0 end
-  weights[mode + 1] = 1
+  -- The weights below the mode come from the mode down, and are put in rank order.
+  local below: mut {number} = {}
   local weight = 1.0
   for k = mode, 1, -1 do
     weight = weight * k * (denominator - numerator) / ((n - k + 1) * numerator)
-    weights[k] = weight
+    below[#below + 1] = weight
   end
+  local weights: mut {number} = {}
+  for at = #below, 1, -1 do weights[#weights + 1] = assert(below[at]) end
+  weights[#weights + 1] = 1
   weight = 1.0
   for k = mode, n - 1 do
     weight = weight * (n - k) * numerator / ((k + 1) * (denominator - numerator))
-    weights[k + 2] = weight
+    weights[#weights + 1] = weight
   end
   local total = 0.0
   for _, each in ipairs(weights) do total = total + each end
@@ -86,7 +88,7 @@ local function ranks(n: integer, numerator: integer, denominator: integer,
   return lower, upper
 end
 
-local function interval(low: number | nil, high: number | nil): Perf.Interval
+local function interval(low: number?, high: number?): Perf.Interval
   assert(low == nil or (low == low and math.abs(low) < math.huge), "lower bound is not finite")
   assert(high == nil or (high == high and math.abs(high) < math.huge), "upper bound is not finite")
   return { low = low, high = high, lower_bounded = low ~= nil, upper_bounded = high ~= nil }
@@ -104,7 +106,7 @@ end
 --- by Bonferroni, even when observations within each pair are dependent.
 function Perf.distribution(values: {number}): Perf.Distribution
   assert(#values >= 6, "at least six observations for a 95% median interval")
-  local sorted: {number} = {}
+  local sorted: mut {number} = {}
   for _, value in ipairs(values) do
     assert(value == value and math.abs(value) < math.huge, "observations must be finite")
     sorted[#sorted + 1] = value
@@ -133,7 +135,7 @@ local record Reading
   tail_interval: Perf.Interval
   calibration_tail_delta: number
   calibration_tail_interval: Perf.Interval
-  tail_noise: number | nil
+  tail_noise: number?
   sample_count: integer
   calibration_count: integer
   status: string
@@ -141,20 +143,20 @@ local record Reading
 end
 
 local function deviations(values: {number}, median: number): Perf.Distribution
-  local out: {number} = {}
+  local out: mut {number} = {}
   for _, value in ipairs(values) do out[#out + 1] = math.abs(value - median) end
   return Perf.distribution(out)
 end
 
 local function difference(a: Perf.Interval, b: Perf.Interval): Perf.Interval
   local al, ah, bl, bh = a.low, a.high, b.low, b.high
-  local low, high: number | nil, number | nil
+  local low, high: number?, number?
   if bl ~= nil and ah ~= nil then low = bl - ah end
   if bh ~= nil and al ~= nil then high = bh - al end
   return interval(low, high)
 end
 
-local function radius(bounds: Perf.Interval): number | nil
+local function radius(bounds: Perf.Interval): number?
   local low, high = bounds.low, bounds.high
   if low == nil or high == nil then return nil end
   return math.max(math.abs(low), math.abs(high))
@@ -164,8 +166,8 @@ end
 --- A wholly positive median or tail interval cannot pass; each statistic's
 --- own A/A uncertainty distinguishes regression from unresolved evidence.
 function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
-  local noise, a, b, deltas: {number}, {number}, {number}, {number} = {}, {}, {}, {}
-  local ca, cb: {number}, {number} = {}, {}
+  local noise, a, b, deltas: mut {number}, mut {number}, mut {number}, mut {number} = {}, {}, {}, {}
+  local ca, cb: mut {number}, mut {number} = {}, {}
   for _, pair in ipairs(calibration) do
     noise[#noise + 1], ca[#ca + 1], cb[#cb + 1] = pair.b - pair.a, pair.a, pair.b
   end
@@ -182,7 +184,7 @@ function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
   local tail_resolution = radius(ctail)
   local calibration_deviation = deviations(noise, calibrated.median)
   local candidate_deviation = deviations(deltas, delta.median)
-  local reasons: {string} = {}
+  local reasons: mut {string} = {}
   local median_unbiased = calibrated.low <= 0 and calibrated.high >= 0
   local ctl, cth, tl, th = ctail.low, ctail.high, tail.low, tail.high
   local tail_unbiased = ctl ~= nil and cth ~= nil and ctl <= 0 and cth >= 0
@@ -200,7 +202,7 @@ function Perf.compare(calibration: {Perf.Pair}, samples: {Perf.Pair}): Reading
   if candidate_deviation.low > calibration_deviation.high then
     reasons[#reasons + 1] = "increased_dispersion"
   end
-  local status = #reasons == 0 and "pass" or "inconclusive"
+  local status = if #reasons == 0 then "pass" else "inconclusive" end
   if enough and ((median_unbiased and delta.low > resolution) or
       (tail_unbiased and tl ~= nil and tail_resolution ~= nil and tl > tail_resolution)) then
     status = "regression"
@@ -254,8 +256,8 @@ local record Fixture
   host: string
   portable: string
   host_tool: string
-  logs: string
-  output: string
+  mut logs: string
+  mut output: string
   env: {string:string}
 end
 
@@ -283,25 +285,20 @@ local record Observation
   stderr: string
   before: {string}
   after: {string}
-  leaf_value?: integer
-end
-
---- `value` as an `any`, which a parameter declared `any` takes and answers.
-local function passed(value: any): any
-  return value
+  mut leaf_value?: integer
 end
 
 --- A value as the JSON files hold it: itself, and `null` where it is missing, which a record's missing field
 --- would leave out (doc/performance.md: an unbounded side is `null`).
-local function shown(value?: number): any
+local function shown(value?: number): number | Json.Null
   if value == nil then return Json.null end
-  return passed(value)
+  return value
 end
 
 --- An [`Perf.Interval`] as the JSON files hold it.
 local record IntervalJson
-  low: any
-  high: any
+  low: number | Json.Null
+  high: number | Json.Null
   lower_bounded: boolean
   upper_bounded: boolean
 end
@@ -328,7 +325,7 @@ local record ReadingJson
   tail_interval: IntervalJson
   calibration_tail_delta: number
   calibration_tail_interval: IntervalJson
-  tail_noise: any
+  tail_noise: number | Json.Null
   sample_count: integer
   calibration_count: integer
   status: string
@@ -410,7 +407,8 @@ end
 
 local function fixture(binary: string, root: string): Fixture
   assert(Fs.mkdirs(root .. "/cmd/noop"))
-  local env = Env.all()
+  local env: mut {string: string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
   for name in pairs(env) do
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
   end
@@ -480,7 +478,7 @@ end
     if remaining <= 0 then break end
     assert(Clock.sleep_ns(remaining))
   end
-  local setup: {Child.Result} = {}
+  local setup: mut {Child.Result} = {}
   setup[#setup + 1] = command({ binary, "build", "--host" }, f)
   assert(Fs.write(f.host, assert(Fs.read(f.output .. "/bin/noop")), 493))
   setup[#setup + 1] = command({ binary, "build" }, f)
@@ -558,7 +556,7 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
     assert(db:close())
   end
   local before = latest_build(f)
-  local result: Child.Result | nil
+  local result: Child.Result?
   local start = Clock.monotonic_ns()
   for _ = 1, w.batch do result = command(argv, f) end
   local elapsed = Clock.monotonic_ns() - start
@@ -594,9 +592,9 @@ local function measure(f: Fixture, w: Workload, phase: string, pair: integer,
 end
 
 local function run_pairs(a: Fixture, b: Fixture, w: Workload, phase: string,
-                         count: integer, raw: {Observation}, offset: integer, mutation_offset: integer): {Perf.Pair}
-  local paired: {Perf.Pair} = {}
-  local observations: {Observation} = {}
+                         count: integer, raw: mut {Observation}, offset: integer, mutation_offset: integer): {Perf.Pair}
+  local paired: mut {Perf.Pair} = {}
+  local observations: mut {Observation} = {}
   -- Three discarded warmups follow exactly the same preparation and checks.
   for i = 1, count + 3 do
     local first, second: Observation, Observation
@@ -669,13 +667,13 @@ local record Metadata
   candidate_commit?: string
   fixtures: {Entry}
   counter_columns: {string}
-  supervisor_with_true_ns?: DistributionJson | string
+  mut supervisor_with_true_ns?: DistributionJson | string
 end
 
 --- The shared body of [`Perf.benchmark`] and [`Perf.rehearse`]: `count` sample pairs
 --- after three discarded warmups, and `probes` timings of `/usr/bin/true`.
 local function experiment(argv: {string}, count: integer, probes: integer, program: string): integer
-  local selected: {Workload} = {}
+  local selected: mut {Workload} = {}
   for _, w in ipairs(workloads()) do
     if argv[5] == nil or argv[5] == w.name then selected[#selected + 1] = w end
   end
@@ -686,15 +684,15 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
   assert(not exists, "output directory must not already exist")
   assert(Fs.mkdirs(given_output))
   local output = assert(Fs.absolute(given_output))
-  local binaries: {string} = {}
-  local artifacts: {Artifact} = {}
+  local binaries: mut {string} = {}
+  local artifacts: mut {Artifact} = {}
   local cpuinfo, _ = Fs.read("/proc/cpuinfo")
   local kernel, _ = Fs.read("/proc/version")
   local controller = assert(Proc.executable())
   local script = assert(Fs.absolute(program))
   local pin_path = script:gsub("/build/perf.tl$", "/ci/cosmic-driver.pin")
   local pin, _ = Fs.read(pin_path)
-  local timer: {number} = {}
+  local timer: mut {number} = {}
   for _ = 1, 100 do
     local start = Clock.monotonic_ns()
     timer[#timer + 1] = Clock.monotonic_ns() - start
@@ -729,7 +727,7 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     fixtures = manifest,
     counter_columns = { "compiled", "cached", "read", "verdict", "run", "builds" } }
   save(output .. "/metadata.json", metadata)
-  local fixtures: {Fixture} = {}
+  local fixtures: mut {Fixture} = {}
   for _, entry in ipairs(manifest) do
     local binary = binaries[entry.artifact_index]
     assert(binary ~= nil, "the manifest names an artifact that was not retained")
@@ -744,7 +742,7 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     "baseline and candidate must use the same target/configuration")
   local has_true, _ = Fs.exists("/usr/bin/true")
   if has_true == true then
-    local supervisor: {number} = {}
+    local supervisor: mut {number} = {}
     for _ = 1, probes do
       local start = Clock.monotonic_ns()
       command({ "/usr/bin/true" }, a)
@@ -755,8 +753,8 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     metadata.supervisor_with_true_ns = "unmeasured: /usr/bin/true unavailable"
   end
   save(output .. "/metadata.json", metadata)
-  local raw: {Observation} = {}
-  local summaries: {string:ReadingJson} = {}
+  local raw: mut {Observation} = {}
+  local summaries: mut {string:ReadingJson} = {}
   local failed = false
   local stride = ((count + 4) // 2) * 2
   for index, w in ipairs(selected) do

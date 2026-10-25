@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 local Types = require("lang.types")
 -- The new grammar tests a type of the checker by its tag, which leaves this import unused once translated: it names the type the
 -- asserts below test for.
-local _fn_type: Types.Fn | nil = nil
+local _fn_type: Types.Fn? = nil
 local Warnings = require("lang.warnings")
 
 Test.policy{}
@@ -16,7 +16,7 @@ Test.policy{}
 local function found(source: string, modules?: {string: string}): {string}
   local run = Programs.run(source, modules)
   assert(#run.before == 0, table.concat(run.before, " ") .. " in\n" .. source)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, w in ipairs(run.result.warnings) do
     out[#out + 1] = tostring(w.code) .. " " .. tostring(w.y) .. ":" .. tostring(w.x)
   end
@@ -146,19 +146,19 @@ local function test_the_type_report_gives_the_overload_a_call_took_for_its_calle
     "More.run(function(): string\n  return \"x\"\nend)\n"
   local run = Programs.run(source)
   assert(Programs.codes(run) == "", Programs.codes(run))
-  local wanted: {integer} = {}
+  local wanted: mut {integer} = {}
   for _, s in ipairs(run.chunk.body.stats) do
-    local call: Ast.CallExp | nil = nil
-    if s is Ast.CallStat then
+    local call: Ast.CallExp? = nil
+    if (s.kind == "CallStat") then
       call = s.call
     end
-    if call ~= nil and call is Ast.Call then
+    if call ~= nil and (call.kind == "Call") then
       local callee = run.result.types[call.callee.id]
-      assert(callee ~= nil and callee is Types.Fn, "the callee has a function type")
+      assert(callee ~= nil and (callee.tag == "fn"), "the callee has a function type")
       local param = callee.params[1]
       assert(param ~= nil)
       local taken = param.type
-      assert(taken is Types.Fn)
+      assert((taken.tag == "fn"))
       wanted[#wanted + 1] = #taken.params
     end
   end
@@ -167,7 +167,7 @@ end
 
 local function test_every_code_has_one_row_of_the_kind_it_reports()
   assert(#Warnings.codes == #Warnings.catalog)
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for i, row in ipairs(Warnings.catalog) do
     assert(row.code == Warnings.codes[i], tostring(row.code))
     assert(seen[tostring(row.code)] == nil, "twice: " .. tostring(row.code))
@@ -175,7 +175,7 @@ local function test_every_code_has_one_row_of_the_kind_it_reports()
     assert(Warnings.kind_of(row.code) == row.kind, tostring(row.code))
     assert(row.rule ~= "" and row.why ~= "" and row.fix ~= "", tostring(row.code))
   end
-  local kinds: {string: boolean} = {}
+  local kinds: mut {string: boolean} = {}
   for _, row in ipairs(Warnings.catalog) do
     kinds[tostring(row.kind)] = true
   end
@@ -198,7 +198,7 @@ end
 local function value_of(run: Programs.Run, index: integer): Ast.Exp
   local seen = 0
   for _, s in ipairs(run.chunk.body.stats) do
-    if s is Ast.Local then
+    if (s.kind == "Local") then
       seen = seen + 1
       if seen == index then
         local value = s.values[1]
@@ -213,7 +213,7 @@ end
 local function test_the_type_report_gives_the_type_of_each_expression_by_the_id_of_its_node()
   local run = Programs.run("local a = 1\nlocal b = \"s\"\nlocal c = a + 2\n")
   local binary = value_of(run, 3)
-  assert(binary is Ast.Binary)
+  assert((binary.kind == "Binary"))
   local t = run.result.types[binary.id]
   assert(t ~= nil and t.tag == "integer", "a + 2")
   local left = run.result.types[binary.left.id]
@@ -232,11 +232,11 @@ local function test_the_type_report_covers_chains_calls_and_the_values_of_a_call
   assert(called ~= nil and called.tag == "integer", "the first value of the call")
   local measured = value_of(run, 3)
   assert(types[measured.id] ~= nil and types[measured.id].tag == "integer", "#r.names")
-  assert(measured is Ast.Unary)
+  assert((measured.kind == "Unary"))
   local names = types[measured.operand.id]
   assert(names ~= nil and names.tag == "array", "r.names")
   local object = measured.operand
-  assert(object is Ast.Field)
+  assert((object.kind == "Field"))
   local record = types[object.object.id]
   assert(record ~= nil and record.tag == "named", "r")
 end

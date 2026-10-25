@@ -104,7 +104,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
   for _, retried in ipairs({ false, true }) do
     local notices = { value = 0 }
     local guard <close> = assert(Signal.guard())
-    local sender: Child.Handle | nil
+    local sender: Child.Handle?
     if retried then
       sender = signaller()
     else
@@ -122,7 +122,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
     guard:release()
     assert(opened == nil and reason:find("interrupted", 1, true), reason)
     assert(caught == sys.SIGTERM)
-    assert(notices.value == (retried and 1 or 0), notices.value .. " notices")
+    assert(notices.value == (if retried then 1 else 0 end), notices.value .. " notices")
     if sender ~= nil then done(sender) end
   end
   assert(assert(holder.stdin_stream):close())

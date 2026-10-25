@@ -232,12 +232,12 @@ local record Relation
     --- Whether `a` is below `b`. Raises for a type of another store.
     subtype: function(Judge, a: Type, b: Type): boolean
     --- Nil where `a` is below `b`, else why not.
-    refuse: function(Judge, a: Type, b: Type): Refusal | nil
+    refuse: function(Judge, a: Type, b: Type): Refusal?
     --- Whether `argument` may be passed to a parameter of type `param`: below it, or any
     --- value where the parameter is declared `any`.
     accepts: function(Judge, argument: Type, param: Type): boolean
     --- Nil where `argument` may be passed to `param`, else why not.
-    refuse_argument: function(Judge, argument: Type, param: Type): Refusal | nil
+    refuse_argument: function(Judge, argument: Type, param: Type): Refusal?
     --- Every interface that the declaration of `n` lists after `is`, and every one those extend,
     --- with the arguments of each listing read through the declarations, in the order the
     --- listings are met. Raises where a declaration it reads is not defined.
@@ -257,7 +257,7 @@ local record Relation
   --- by the matching type of `args`, which stand where the declaration is used; or nil where the
   --- type it makes would nest deeper than the store allows ([`Types.max_depth`]). Raises where `t`
   --- names a variable of a binder other than the one declaration's, or `args` is another store's.
-  instantiate: function(store: Store, t: Type, args: {Type}): Type | nil
+  instantiate: function(store: Store, t: Type, args: {Type}): Type?
 
   --- The binder of a declaration: its type parameters and their bounds. Raises where the
   --- declaration has no body.
@@ -266,7 +266,7 @@ local record Relation
   --- The generic function type `f` with each of its type parameters replaced by the matching type of `args`, which
   --- stand where the function is used: a function type with no type parameters. Nil where the type it makes would
   --- nest deeper than the store allows. The variables of the binders around `f` keep their meaning.
-  specialize: function(store: Store, f: Fn, args: {Type}): Fn | nil
+  specialize: function(store: Store, f: Fn, args: {Type}): Fn?
 
   --- The refusal's code and path in one line, for a test or a log: not what an error prints.
   trace: function(r: Refusal): string
@@ -296,11 +296,11 @@ end
 
 --- `r` seen from a pair that holds its pair at `kind`. A refusal is never changed, since the
 --- reasons of one request are shared.
-local function through(why: boolean, kind: Relation.StepKind, index: integer | nil, r: Relation.Refusal): Relation.Refusal
+local function through(why: boolean, kind: Relation.StepKind, index: integer?, r: Relation.Refusal): Relation.Refusal
   if not why then
     return r
   end
-  local path: {Relation.Step} = { { kind = kind, index = index } }
+  local path: mut {Relation.Step} = { { kind = kind, index = index } }
   for _, step in ipairs(r.path) do
     path[#path + 1] = step
   end
@@ -316,7 +316,7 @@ end
 --- or more. `level` is how many binders of `t` itself the walk is inside. A type that
 --- reaches fewer is returned as it is.
 local function rewrite(
-    store: Store, t: Type, level: integer, on_var: function(v: Var, level: integer): Type, memo: {string: Type}
+    store: Store, t: Type, level: integer, on_var: function(v: Var, level: integer): Type, memo: mut {string: Type}
 ): Type
   if t.open <= level then
     return t
@@ -327,20 +327,20 @@ local function rewrite(
     return held
   end
   local out: Type
-  if t is Var then
+  if (t.tag == "var") then
     out = on_var(t, level)
-  elseif t is Named then
-    local args: {Type} = {}
+  elseif (t.tag == "named") then
+    local args: mut {Type} = {}
     for i, part in ipairs(t.args) do
       args[i] = rewrite(store, part, level, on_var, memo)
     end
     out = store:named(t.decl, args, t.value)
-  elseif t is Array then
+  elseif (t.tag == "array") then
     out = store:array(rewrite(store, t.element, level, on_var, memo), t.mut)
-  elseif t is Map then
+  elseif (t.tag == "map") then
     out = store:map(rewrite(store, t.key, level, on_var, memo), rewrite(store, t.value, level, on_var, memo), t.mut)
-  elseif t is Union then
-    local members: {Type} = {}
+  elseif (t.tag == "union") then
+    local members: mut {Type} = {}
     for i, m in ipairs(t.members) do
       members[i] = rewrite(store, m, level, on_var, memo)
     end
@@ -348,21 +348,21 @@ local function rewrite(
       members[#members + 1] = store:atom("nil")
     end
     out = store:union(members)
-  elseif t is Fn then
-    local inside = #t.tparams > 0 and level + 1 or level
-    local tparams: {Types.TParam} = {}
+  elseif (t.tag == "fn") then
+    local inside = if #t.tparams > 0 then level + 1 else level end
+    local tparams: mut {Types.TParam} = {}
     for i, tp in ipairs(t.tparams) do
       local bound = tp.bound
       tparams[i] = { bound = bound ~= nil and rewrite(store, bound, inside, on_var, memo) or nil }
     end
-    local params: {Types.Param} = {}
+    local params: mut {Types.Param} = {}
     for i, p in ipairs(t.params) do
       params[i] = { type = rewrite(store, p.type, inside, on_var, memo), omittable = p.omittable }
     end
     local rest = t.rest
-    local rets: {Alt} = {}
+    local rets: mut {Alt} = {}
     for i, alt in ipairs(t.rets) do
-      local items: {Type} = {}
+      local items: mut {Type} = {}
       for k, item in ipairs(alt.items) do
         items[k] = rewrite(store, item, inside, on_var, memo)
       end
@@ -371,9 +371,9 @@ local function rewrite(
       rets[i] = {
         items = items,
         tail = tail ~= nil and rewrite(store, tail, inside, on_var, memo) or nil,
-        narrows = narrows ~= nil and {
+        narrows = if narrows ~= nil then {
           param = narrows.param, to = rewrite(store, narrows.to, inside, on_var, memo), asserts = narrows.asserts,
-        } or nil,
+        } else nil end,
       }
     end
     out = store:fn({
@@ -420,7 +420,7 @@ end
 -- or an array part nest past the store's depth, and drop this, once the lowering checks the height
 -- that each listing chain adds: until then such a listing or array part is dropped, and a pair
 -- that holds by it is refused.
-local function instantiate_within(store: Store, t: Type, args: {Type}): Type | nil
+local function instantiate_within(store: Store, t: Type, args: {Type}): Type?
   local made: {Type} = {}
   local ok, why = pcall(function()
     made[1] = instantiate(store, t, args)
@@ -451,7 +451,7 @@ local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
     return held
   end
   local closure: Relation.Closure = { set = {}, list = {}, by_decl = {}, complete = true }
-  local queue: {Named} = { n }
+  local queue: mut {Named} = { n }
   local head = 1
   while head <= #queue do
     local x = queue[head]
@@ -460,13 +460,13 @@ local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
     local body = x.decl.body
     if body ~= nil then
       for _, super in ipairs(body.supers) do
-        local listed: Type | nil = super
+        local listed: Type? = super
         if #x.args > 0 then
           listed = instantiate_within(j.store, super, x.args)
         end
         if listed == nil then
           closure.complete = false
-        elseif listed is Named and not closure.set[listed.id] then
+        elseif (listed.tag == "named") and not closure.set[listed.id] then
           if #closure.list >= MAX_LISTED then
             closure.complete = false
           else
@@ -508,7 +508,7 @@ local function lists(closure: Relation.Closure, target: Named): boolean
 end
 
 --- The type `n`'s declaration gives its array part, with the arguments of `n` put in, or nil.
-local function array_part_of(j: Relation.Judge, n: Named): Type | nil
+local function array_part_of(j: Relation.Judge, n: Named): Type?
   defined(n)
   local body = n.decl.body
   if body == nil then
@@ -541,14 +541,14 @@ local function specialize(store: Store, f: Fn, args: {Type}): Fn
   local function part(t: Type): Type
     return rewrite(store, t, 0, on_var, memo)
   end
-  local params: {Types.Param} = {}
+  local params: mut {Types.Param} = {}
   for i, p in ipairs(f.params) do
     params[i] = { type = part(p.type), omittable = p.omittable }
   end
   local rest = f.rest
-  local rets: {Alt} = {}
+  local rets: mut {Alt} = {}
   for i, alt in ipairs(f.rets) do
-    local items: {Type} = {}
+    local items: mut {Type} = {}
     for k, item in ipairs(alt.items) do
       items[k] = part(item)
     end
@@ -557,18 +557,18 @@ local function specialize(store: Store, f: Fn, args: {Type}): Fn
     rets[i] = {
       items = items,
       tail = tail ~= nil and part(tail) or nil,
-      narrows = narrows ~= nil and { param = narrows.param, to = part(narrows.to), asserts = narrows.asserts } or nil,
+      narrows = if narrows ~= nil then { param = narrows.param, to = part(narrows.to), asserts = narrows.asserts } else nil end,
     }
   end
   local made = store:fn({ tparams = {}, params = params, rest = rest ~= nil and part(rest) or nil, rets = rets })
-  if not (made is Fn) then
+  if not ((made.tag == "fn")) then
     error("relation: a function type is a function type")
   end
   return made
 end
 
 --- [`specialize`], or nil where the type it makes would nest past what the store allows.
-local function specialize_within(store: Store, f: Fn, args: {Type}): Fn | nil
+local function specialize_within(store: Store, f: Fn, args: {Type}): Fn?
   local made: {Fn} = {}
   local ok, why = pcall(function()
     made[1] = specialize(store, f, args)
@@ -584,7 +584,7 @@ end
 
 -- The relation ---------------------------------------------------------------------------------
 
-local rel: function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal | nil
+local rel: function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
 
 --- The memo that a pair may be kept in.
 local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
@@ -599,7 +599,7 @@ local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
 end
 
 --- The bound of the type variable `v` under the binders entered, or nil.
-local function bound_of(j: Relation.Judge, v: Var): Type | nil
+local function bound_of(j: Relation.Judge, v: Var): Type?
   local scope = j.scopes[#j.scopes - v.depth]
   if scope == nil then
     return nil
@@ -617,7 +617,7 @@ local function member_set(j: Relation.Judge, u: Union): {integer: boolean}
   if held ~= nil then
     return held
   end
-  local set: {integer: boolean} = {}
+  local set: mut {integer: boolean} = {}
   for _, m in ipairs(u.members) do
     set[m.id] = true
   end
@@ -625,7 +625,7 @@ local function member_set(j: Relation.Judge, u: Union): {integer: boolean}
   return set
 end
 
-local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): Relation.Refusal | nil
+local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): Relation.Refusal?
   for i, m in ipairs(a.members) do
     local r = rel(j, m, b, why)
     if r ~= nil then
@@ -645,7 +645,7 @@ end
 -- arrays, maps or functions in the tree: a type below none of n members, or below only the last
 -- of them, is compared with each, and n such types make n^2 comparisons. A member that is one of
 -- the target's is found by its id, so a union checked against a superset costs n.
-local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): Relation.Refusal | nil
+local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): Relation.Refusal?
   if a.tag == "nil" then
     if b.nilable then
       return nil
@@ -663,7 +663,7 @@ local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): R
   if not why then
     return j.none
   end
-  local alternatives: {Relation.Refusal} = {}
+  local alternatives: mut {Relation.Refusal} = {}
   for i, m in ipairs(b.members) do
     if i > MAX_ALTERNATIVES then
       break
@@ -678,7 +678,7 @@ end
 
 --- Whether `t` is a recursive alias ([`Types.DeclKind`] `alias`), which is what it names and nothing else.
 local function is_alias(t: Type): boolean
-  return t is Named and t.decl.kind == "alias"
+  return (t.tag == "named") and t.decl.kind == "alias"
 end
 
 --- `a` below `b` where one of them is a recursive alias: that one is read as the type it names, one level, and
@@ -688,21 +688,21 @@ end
 --- (a body that mentions its own alias would send two of them round for ever), and are unrelated, as two declarations are.
 --- A type that holds itself (a record whose array part is the record) does not get smaller, and is why a record, a class
 --- or an interface is refused here before the alias is read. The refusal names the alias as it was written.
-local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal | nil
+local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   local a_alias, b_alias = is_alias(a), is_alias(b)
   if a_alias and b_alias then
     return leaf(j, why, "nominal", a, b)
   end
   -- A record, a class or an interface is never an arm of an alias: a record with an array part is below `{T}`, but it may have fields and methods
   -- besides (an encoder meets a table that mixes keys), so only the arrays and maps an alias names stand for it.
-  if b_alias and a is Named and (a.decl.kind == "record" or a.decl.kind == "class" or a.decl.kind == "interface") then
+  if b_alias and (a.tag == "named") and (a.decl.kind == "record" or a.decl.kind == "class" or a.decl.kind == "interface") then
     return leaf(j, why, "mismatch", a, b)
   end
   local ua, ub = Types.unfold(a), Types.unfold(b)
   if ua == a and ub == b then
     error("relation: " .. Types.display(a_alias and a or b) .. " is not defined", 0)
   end
-  if a_alias and b is Union and member_set(j, b)[a.id] then
+  if a_alias and (b.tag == "union") and member_set(j, b)[a.id] then
     return nil
   end
   local r = rel(j, ua, ub, why)
@@ -715,7 +715,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   }
 end
 
-local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Relation.Refusal | nil
+local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Relation.Refusal?
   local tag = a.tag
   if tag == "nil" then
     return leaf(j, why, "nil", a, b)
@@ -729,16 +729,16 @@ local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Rel
   return leaf(j, why, "mismatch", a, b)
 end
 
-local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal | nil
-  if b is Named and a.value ~= b.value then
+local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal?
+  if (b.tag == "named") and a.value ~= b.value then
     return leaf(j, why, "declaration_value", a, b)
   elseif a.value then
     -- The table of a declaration's functions lists no interface, is no enum and has no array part.
-    if not (b is Named) then
+    if not ((b.tag == "named")) then
       return leaf(j, why, "mismatch", a, b)
     end
   end
-  if b is Named then
+  if (b.tag == "named") then
     if a.decl == b.decl then
       if #a.args ~= #b.args then
         -- The count is not known until the declaration is defined.
@@ -760,7 +760,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       if not why then
         return j.none
       end
-      local copied: {Type} = {}
+      local copied: mut {Type} = {}
       for i, listed in ipairs(closure.list) do
         copied[i] = listed
       end
@@ -769,7 +769,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
     return leaf(j, why, "nominal", a, b)
   elseif b.tag == "string" and a.decl.kind == "enum" then
     return nil
-  elseif b is Array then
+  elseif (b.tag == "array") then
     local part = array_part_of(j, a)
     if part == nil then
       return leaf(j, why, "mismatch", a, b)
@@ -782,14 +782,14 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       return through(why, "array_part", nil, r)
     end
     return nil
-  elseif b is Map then
+  elseif (b.tag == "map") then
     return leaf(j, why, "record_as_map", a, b)
   end
   return leaf(j, why, "mismatch", a, b)
 end
 
-local function from_array(j: Relation.Judge, a: Array, b: Type, why: boolean): Relation.Refusal | nil
-  if not (b is Array) then
+local function from_array(j: Relation.Judge, a: Array, b: Type, why: boolean): Relation.Refusal?
+  if not ((b.tag == "array")) then
     return leaf(j, why, "mismatch", a, b)
   end
   if b.mut then
@@ -808,17 +808,17 @@ local function from_array(j: Relation.Judge, a: Array, b: Type, why: boolean): R
   return nil
 end
 
-local function from_map(j: Relation.Judge, a: Map, b: Type, why: boolean): Relation.Refusal | nil
-  if b is Named then
+local function from_map(j: Relation.Judge, a: Map, b: Type, why: boolean): Relation.Refusal?
+  if (b.tag == "named") then
     return leaf(j, why, "map_as_record", a, b)
-  elseif not (b is Map) then
+  elseif not ((b.tag == "map")) then
     return leaf(j, why, "mismatch", a, b)
   end
   if b.mut and not a.mut then
     return leaf(j, why, "view_as_mut", a, b)
   end
   if a.key ~= b.key and a.key.tag ~= "invalid" and b.key.tag ~= "invalid" then
-    return through(why, "key", nil, leaf(j, why, b.mut and "invariant_mut" or "invariant_key", a.key, b.key))
+    return through(why, "key", nil, leaf(j, why, if b.mut then "invariant_mut" else "invariant_key" end, a.key, b.key))
   end
   if b.mut then
     if a.value ~= b.value and a.value.tag ~= "invalid" and b.value.tag ~= "invalid" then
@@ -836,7 +836,7 @@ end
 --- The type of the parameter at `i` of `f`, whether a call may leave it out, and whether it is
 --- the rest parameter, which stands at every position past the last parameter. Nil where `f`
 --- takes none.
-local function slot(f: Fn, i: integer): Type | nil, boolean, boolean
+local function slot(f: Fn, i: integer): Type?, boolean, boolean
   if i <= #f.params then
     local p = f.params[i]
     return p.type, p.omittable == true, false
@@ -858,7 +858,7 @@ local function arity(j: Relation.Judge, why: boolean, f: Fn, g: Fn, i: integer):
 end
 
 --- Whether `f` accepts every argument list that callers of `g` pass, parameter by parameter.
-local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal | nil
+local function parameters_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal?
   local widest = math.max(#f.params, #g.params)
   for i = 1, widest do
     local gt, g_may_omit, g_is_rest = slot(g, i)
@@ -899,7 +899,7 @@ end
 --- below the matching one, and the narrowing `ga` declares.
 local function alternative_below(
     j: Relation.Judge, f: Fn, g: Fn, fa: Alt, ga: Alt, why: boolean
-): Relation.Refusal | nil
+): Relation.Refusal?
   local g_narrows = ga.narrows
   local f_narrows = fa.narrows
   if g_narrows ~= nil then
@@ -944,7 +944,7 @@ end
 -- TODO: index the alternatives of the function wanted by their first item, once a declaration with
 -- many alternatives appears in the tree: an alternative below none of n, or only the last, is
 -- compared with each. The tree's functions have two or three.
-local function returns_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal | nil
+local function returns_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Relation.Refusal?
   for i, fa in ipairs(f.rets) do
     local matched = false
     for _, ga in ipairs(g.rets) do
@@ -966,7 +966,7 @@ local function returns_below(j: Relation.Judge, f: Fn, g: Fn, why: boolean): Rel
           return through(true, "alternative", i, r)
         end
       end
-      local alternatives: {Relation.Refusal} = {}
+      local alternatives: mut {Relation.Refusal} = {}
       for k, ga in ipairs(g.rets) do
         if k > MAX_ALTERNATIVES then
           break
@@ -993,7 +993,7 @@ local function hooks_of(j: Relation.Judge): Generics.Hooks
     listed = function(n: Named): {Type}
       return closure_of(j, n).list
     end,
-    array_part = function(n: Named): Type | nil
+    array_part = function(n: Named): Type?
       return array_part_of(j, n)
     end,
   }
@@ -1002,7 +1002,7 @@ end
 --- The generic function `a` where the function type `b` is wanted: `a` with its type parameters taken from what `b` is
 --- called with and answers, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
 --- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bound.
-local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal | nil
+local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal?
   local solver = Generics.new(j.store, a, hooks_of(j))
   for i, p in ipairs(a.params) do
     local wanted = b.params[i]
@@ -1028,7 +1028,7 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
       Generics.match(solver, ours_tail, theirs_tail, "from", 0)
     end
   end
-  local args: {Type} = {}
+  local args: mut {Type} = {}
   for i = 1, #a.tparams do
     local held = Generics.value(solver, i)
     if held == nil then
@@ -1056,8 +1056,8 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
   return returns_below(j, instance, b, why)
 end
 
-local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relation.Refusal | nil
-  if not (b is Fn) then
+local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relation.Refusal?
+  if not ((b.tag == "fn")) then
     return leaf(j, why, "mismatch", a, b)
   end
   if #b.tparams > 0 then
@@ -1072,9 +1072,9 @@ local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relatio
   return returns_below(j, a, b, why)
 end
 
-local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relation.Refusal | nil
+local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relation.Refusal?
   local bound = bound_of(j, a)
-  if bound == nil or b is Var then
+  if bound == nil or (b.tag == "var") then
     return leaf(j, why, "variable", a, b)
   end
   local r = rel(j, bound, b, why)
@@ -1086,36 +1086,36 @@ end
 
 --- `a` below `b` where they are different types, neither `invalid`, `a` is not `never`, and the
 --- result is not known.
-local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal | nil
+local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if b.tag == "never" then
     return leaf(j, why, "never_target", a, b)
   elseif a.tag == "any" then
     return leaf(j, why, "any_source", a, b)
   elseif b.tag == "any" then
     return leaf(j, why, "any_sink", a, b)
-  elseif a is Union then
+  elseif (a.tag == "union") then
     return from_union(j, a, b, why)
   elseif is_alias(a) or is_alias(b) then
     return from_alias(j, a, b, why)
-  elseif b is Union then
+  elseif (b.tag == "union") then
     return into_union(j, a, b, why)
-  elseif b is Var and not (a is Var) and a.tag ~= "nil" then
+  elseif (b.tag == "var") and not ((a.tag == "var")) and a.tag ~= "nil" then
     return leaf(j, why, "variable", a, b)
-  elseif a is Atom then
+  elseif (a.atom == true) then
     return from_atom(j, a, b, why)
-  elseif a is Named then
+  elseif (a.tag == "named") then
     return from_named(j, a, b, why)
-  elseif a is Array then
+  elseif (a.tag == "array") then
     return from_array(j, a, b, why)
-  elseif a is Map then
+  elseif (a.tag == "map") then
     return from_map(j, a, b, why)
-  elseif a is Fn then
+  elseif (a.tag == "fn") then
     return from_fn(j, a, b, why)
   end
   return from_var(j, a, b, why)
 end
 
-rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal | nil
+rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if a == b then
     return nil
   end
@@ -1162,7 +1162,7 @@ Relation.Judge.subtype = function(self: Relation.Judge, a: Type, b: Type): boole
   return rel(self, a, b, false) == nil
 end
 
-Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal | nil
+Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal?
   owned(self, a)
   owned(self, b)
   self.explained = {}
@@ -1177,7 +1177,7 @@ Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: T
   return param.tag == "any" or rel(self, argument, param, false) == nil
 end
 
-Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal | nil
+Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal?
   if param.tag == "any" then
     owned(self, argument)
     owned(self, param)
@@ -1189,7 +1189,7 @@ end
 Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing
   owned(self, n)
   local closure = closure_of(self, n)
-  local copied: {Type} = {}
+  local copied: mut {Type} = {}
   for i, listed in ipairs(closure.list) do
     copied[i] = listed
   end
@@ -1197,13 +1197,13 @@ Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listi
 end
 
 Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam})
-  local copied: {Types.TParam} = {}
+  local copied: mut {Types.TParam} = {}
   for i, tp in ipairs(tparams) do
     local bound = tp.bound
     if bound ~= nil then
       owned(self, bound)
       -- The bound is read as it is, with no variable of a binder outside it to shift.
-      if not (bound is Named) or bound.decl.kind ~= "interface" or #bound.args > 0 then
+      if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
         error("relation: a bound is an interface used with no arguments, not " .. Types.display(bound), 2)
       end
     end
@@ -1219,7 +1219,7 @@ Relation.Judge.leave = function(self: Relation.Judge)
   self.scopes[#self.scopes] = nil
 end
 
-function Relation.instantiate(store: Store, t: Type, args: {Type}): Type | nil
+function Relation.instantiate(store: Store, t: Type, args: {Type}): Type?
   for _, a in ipairs(args) do
     if a.owner ~= store.owner then
       error("relation: a type of another store", 2)
@@ -1231,7 +1231,7 @@ function Relation.instantiate(store: Store, t: Type, args: {Type}): Type | nil
   return instantiate_within(store, t, args)
 end
 
-function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn | nil
+function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn?
   for _, a in ipairs(args) do
     if a.owner ~= store.owner then
       error("relation: a type of another store", 2)
@@ -1250,7 +1250,7 @@ function Relation.new(store: Store): Relation.Judge
 end
 
 function Relation.binder(decl: Types.Decl): {Types.TParam}
-  local out: {Types.TParam} = {}
+  local out: mut {Types.TParam} = {}
   local body = decl.body
   if body == nil then
     error("relation: " .. decl.name .. " is not defined", 0)
@@ -1266,10 +1266,10 @@ function Relation.binder(decl: Types.Decl): {Types.TParam}
 end
 
 function Relation.trace(r: Relation.Refusal): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, step in ipairs(r.path) do
     local index = step.index
-    parts[#parts + 1] = index ~= nil and step.kind .. " " .. index or step.kind
+    parts[#parts + 1] = if index ~= nil then step.kind .. " " .. index else step.kind end
   end
   local where = #parts > 0 and table.concat(parts, " > ") or "here"
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)

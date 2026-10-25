@@ -26,6 +26,11 @@ local function cosmic(dir: string, words: {string}): Ran
   return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
 end
 
+--- A module with a number in it, and the one global a `require` needs: a program has no globals but the ones a `.d.tl`
+--- file named declares.
+local LIB <const> = "local record lib\n  n: integer\nend\nlocal l: lib = { n = 1 }\nreturn l\n"
+local REQUIRE <const> = "global require: function(string): any\n"
+
 local function test_it_prints_the_lua_and_no_summary(tmp: string)
   assert(Fs.write(tmp .. "/n.tl", "local n: integer = 7\nreturn n\n"))
   local ran = cosmic(tmp, { "compile", "n.tl" })
@@ -46,9 +51,10 @@ end
 --- `require` of another is typed from that file: a wrong use is a type
 --- error about its type, not a module that is not found.
 local function test_a_require_of_a_named_file_is_typed_from_it(tmp: string)
-  assert(Fs.write(tmp .. "/lib.tl", "return { n = 1 }\n"))
+  assert(Fs.write(tmp .. "/lib.tl", LIB))
   assert(Fs.write(tmp .. "/main.tl", "local lib = require(\"lib\")\nlocal s: string = lib.n\nreturn s\n"))
-  local ran = cosmic(tmp, { "compile", "--errors", "-o", "out", "lib.tl", "main.tl" })
+  assert(Fs.write(tmp .. "/globals.d.tl", REQUIRE))
+  local ran = cosmic(tmp, { "compile", "--errors", "-o", "out", "globals.d.tl", "lib.tl", "main.tl" })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("main.tl:2:", 1, true) and not ran.err:find("not found", 1, true), ran.err)
   assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
@@ -62,11 +68,13 @@ end
 
 --- A run from another directory with `--root` gives what a run at the root does.
 local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: string)
-  assert(Fs.write(tmp .. "/lib.tl", "return { n = 1 }\n"))
+  assert(Fs.write(tmp .. "/lib.tl", LIB))
   assert(Fs.write(tmp .. "/main.tl", "local lib = require(\"lib\")\nlocal s: string = lib.n\nreturn s\n"))
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
-  local here = cosmic(tmp, { "compile", "-o", "out", "lib.tl", "main.tl" })
-  local there = cosmic(tmp .. "/elsewhere", { "compile", "--root", "..", "-o", "../out2", "../lib.tl", "../main.tl" })
+  assert(Fs.write(tmp .. "/globals.d.tl", REQUIRE))
+  local here = cosmic(tmp, { "compile", "-o", "out", "globals.d.tl", "lib.tl", "main.tl" })
+  local there = cosmic(tmp .. "/elsewhere", { "compile", "--root", "..", "-o", "../out2", "../globals.d.tl", "../lib.tl",
+    "../main.tl" })
   assert(here.code == 0 and there.code == 0, here.err .. there.err)
   assert(here.err:find("1 type error", 1, true) and there.err:find("1 type error", 1, true), there.err)
   assert(Fs.read(tmp .. "/out/main.lua") == Fs.read(tmp .. "/out2/main.lua"))
@@ -74,13 +82,17 @@ local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: s
   assert(without.code == 2 and without.err:find("pass --root", 1, true), without.err)
 end
 
---- The grammar is the flag's, in a process as in one run: the same text is a program under `--grammar new` and a
---- syntax error as Teal.
+--- The grammar is the new one, by default and by name; the fork's, which `--grammar teal` names, is refused, naming
+--- the verb that rewrites a project to the new one.
 local function test_the_grammar_flag_reads_the_new_grammar(tmp: string)
   assert(Fs.write(tmp .. "/n.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nlocal n = 7\n"))
   local new = cosmic(tmp, { "compile", "--grammar", "new", "n.tl" })
   assert(new.code == 0, new.err)
   assert(new.out:find("goto continue", 1, true) and new.out:find("local n = 7", 1, true), new.out)
-  local teal = cosmic(tmp, { "compile", "n.tl" })
-  assert(teal.code == 2 and teal.err:find("n.tl:2:", 1, true), teal.err)
+  local default = cosmic(tmp, { "compile", "n.tl" })
+  assert(default.code == 0 and default.out == new.out, default.err)
+  local teal = cosmic(tmp, { "compile", "--grammar", "teal", "n.tl" })
+  assert(teal.code == 2 and teal.out == "", teal.err)
+  assert(teal.err:find("--grammar teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one",
+    1, true) ~= nil, teal.err)
 end

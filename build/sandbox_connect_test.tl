@@ -23,17 +23,17 @@ local PROXY <const> = "socks5h://127.0.0.1:1080"
 
 --- The `ALL_PROXY` for a relay at `port`.
 local function proxy_at(port: integer, userinfo?: string): string
-  return "socks5h://" .. (userinfo ~= nil and (userinfo .. "@") or "") .. "127.0.0.1:" .. port
+  return "socks5h://" .. (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. port
 end
 
 --- What a run of the client left.
 local record Ran
-  code: integer
-  complaints: {string}
+  mut code: integer
+  complaints: mut {string}
   --- The client's own step lines (COSMIC_CONNECT_TRACE), which a failure shows.
-  trace: {string}
+  trace: mut {string}
   --- What it wrote to its standard output, to its end.
-  out: string
+  mut out: string
 end
 
 --- How long any wait of a test may last: short of the worker's own 10 seconds, so
@@ -45,11 +45,11 @@ local WAIT <const> = Clock.seconds(4)
 --- and the descriptors' glue is the tool test's.
 local record Streams
   --- What the program has sent and not yet been read, and whether it ended.
-  waiting: string
+  mut waiting: string
   ended: boolean
   --- What the client wrote to its standard output, and whether it closed it.
-  out: string
-  closed: boolean
+  mut out: string
+  mut closed: boolean
 end
 
 local function streams(): Streams
@@ -60,9 +60,9 @@ end
 local function io_of(held: Streams, variables: {string:string}, complaints: function(line: string),
                      answer_ns?: integer): connect.Io
   return {
-    getenv = function(name: string): string | nil return variables[name] end,
+    getenv = function(name: string): string? return variables[name] end,
     err = complaints,
-    read = function(): string | nil, string
+    read = function(): string?, string
       while held.waiting == "" and not held.ended do
         local ok, why = Poll.delay(Clock.ms(1))
         if not ok then return nil, why end
@@ -116,7 +116,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
         end
       end, timeout_ns))
     end)
-    local relay = { value = nil as Net.Conn | nil }
+    local relay = { value = nil as Net.Conn? }
     -- However the body ends, the listener and the connection are closed, so
     -- that one failing test leaves nothing for the next.
     local ok, trouble = pcall(function()
@@ -165,7 +165,7 @@ local function asked(relay: Net.Conn): string
 end
 
 local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
-  local request = { value = nil as string | nil }
+  local request = { value = nil as string? }
   local seen_end = { value = false }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
     request.value = asked(relay)
@@ -189,7 +189,7 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
 end
 
 local function test_an_address_is_asked_for_as_an_address()
-  local request = { value = nil as string | nil }
+  local request = { value = nil as string? }
   local ran = against({ "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     request.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -198,7 +198,7 @@ local function test_an_address_is_asked_for_as_an_address()
   end)
   assert(ran.code == 0, table.concat(ran.complaints))
   assert(request.value == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
-  local ipv6 = { value = nil as string | nil }
+  local ipv6 = { value = nil as string? }
   assert(against({ "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     ipv6.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -274,9 +274,9 @@ local function test_it_refuses_a_command_line_or_environment_that_is_not_a_sandb
   local function refused(args: {string}, env: {string:string}, why: string)
     local complaints: {string} = {}
     local code = connect.run(args, {
-      getenv = function(name: string): string | nil return env[name] end,
+      getenv = function(name: string): string? return env[name] end,
       err = function(line: string) complaints[#complaints + 1] = line end,
-      read = function(): string | nil, string return "", "" end,
+      read = function(): string?, string return "", "" end,
       write = function(): boolean, string return true, "" end,
       finish = function(): boolean, string return true, "" end,
     })
@@ -313,7 +313,7 @@ end
 
 local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
   -- A port that was just listened at and is shut: nothing is there.
-  local port = { value = nil as integer | nil }
+  local port = { value = nil as integer? }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     port.value = listener.address.port
@@ -322,12 +322,12 @@ local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
   local closed = assert(port.value, "the listener was made")
   local complaints: {string} = {}
   local code = connect.run({ "host", "22" }, {
-    getenv = function(name: string): string | nil
+    getenv = function(name: string): string?
       if name == "ALL_PROXY" then return proxy_at(closed) end
       return nil
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
-    read = function(): string | nil, string return "", "" end,
+    read = function(): string?, string return "", "" end,
     write = function(): boolean, string return true, "" end,
     finish = function(): boolean, string return true, "" end,
   })
@@ -351,7 +351,7 @@ end
 --- its username and password and its request, answering the method 2 and
 --- `verdict` ("\1\0" accepts): the user, the password and the request's bytes
 --- (nil where the verdict refused).
-local function asked_with_login(relay: Net.Conn, verdict: string): string, string, string | nil
+local function asked_with_login(relay: Net.Conn, verdict: string): string, string, string?
   assert(bytes(relay, 3) == "\5\1\2", "the greeting offers a password alone")
   assert(relay:write(RelayWire.socks_method_reply(2)))
   assert(bytes(relay, 1) == "\1", "RFC 1929's version")
@@ -365,9 +365,9 @@ local function asked_with_login(relay: Net.Conn, verdict: string): string, strin
 end
 
 local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
-  local user = { value = nil as string | nil }
-  local password = { value = nil as string | nil }
-  local request = { value = nil as string | nil }
+  local user = { value = nil as string? }
+  local password = { value = nil as string? }
+  local request = { value = nil as string? }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, _: function(string), finish: function())
     user.value, password.value, request.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner"))
@@ -379,7 +379,7 @@ local function test_a_userinfo_is_sent_as_the_username_and_password_percent_deco
   assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
   assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
   -- An empty user name is sent as a name the relay takes.
-  local named = { value = nil as string | nil }
+  local named = { value = nil as string? }
   local anonymous = against({ "h", "1" }, function(relay: Net.Conn)
     named.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("refused")))
@@ -389,7 +389,7 @@ end
 
 local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_the_password()
   local secret <const> = "SECRET-token-1234"
-  local seen = { value = nil as string | nil }
+  local seen = { value = nil as string? }
   local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
     local _, got = asked_with_login(relay, "\1\1")
     seen.value = got
@@ -433,12 +433,12 @@ local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
   local function refused(value: string, why: string)
     local complaints: {string} = {}
     local code = connect.run({ "host", "22" }, {
-      getenv = function(name: string): string | nil
+      getenv = function(name: string): string?
         if name == "ALL_PROXY" then return value end
         return nil
       end,
       err = function(line: string) complaints[#complaints + 1] = line end,
-      read = function(): string | nil, string return "", "" end,
+      read = function(): string?, string return "", "" end,
       write = function(): boolean, string return true, "" end,
       finish = function(): boolean, string return true, "" end,
     })

@@ -121,7 +121,7 @@ local function test_value_binds_a_column_back_as_it_was_read()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE copy (a, b, c, d, e)"))
   local row = typed()
-  local bound: {Sqlite.Value} = {}
+  local bound: mut {Sqlite.Value} = {}
   for index = 1, row:count() do bound[index] = row:value(index) end
   assert(bound[1].integer == 7 and bound[2].number == 1.5 and bound[3].text == "seven")
   assert(bound[4].blob == "a\0\255" and bound[5].integer == nil and bound[5].text == nil and bound[5].blob == nil)
@@ -242,7 +242,7 @@ end
 local function test_map_refuses_a_projection_that_answers_nothing()
   local db = assert(Sqlite.memory())
   local seen = raises(function(): any
-    local nothing = function(_: Sqlite.Row): integer | nil
+    local nothing = function(_: Sqlite.Row): integer?
       return nil
     end
     local project = nothing as function(Sqlite.Row): integer -- cast: a projection that breaks its contract

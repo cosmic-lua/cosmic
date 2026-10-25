@@ -6,16 +6,15 @@
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local compile = require("build.compile")
 local Grammar = require("build.compile_grammar")
 
 Test.policy{}
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local type IsColor = function(string): boolean
@@ -26,7 +25,7 @@ local where: {string} = {}
 
 --- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
 local function run(words: {string}): Ran
-  local argv: {string} = { "compile", "--root", where[1] or "" }
+  local argv: mut {string} = { "compile", "--root", where[1] or "" }
   local at = 4
   local named = false
   for _, word in ipairs(words) do named = named or word == "--grammar" end
@@ -62,7 +61,7 @@ end
 
 --- The module `name` of the files written to `dir`, run with a `require` that finds the others there.
 local function module_of_dir(dir: string, name: string): any
-  local env: {string: any} = {}
+  local env: mut {string: any} = {}
   local made: {string: any} = {}
   env["require"] = function(wanted: string): any
     if made[wanted] == nil then
@@ -82,7 +81,7 @@ local function test_a_type_error_is_reported_and_the_lua_is_written_line_for_lin
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("typed.tl:3:", 1, true) and ran.err:find("(not_assignable)", 1, true), ran.err)
   assert(ran.err:find("1 type error", 1, true) and ran.err:find("written anyway", 1, true), ran.err)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (ran.out .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
   assert(lines[1] == "local count = 1" and lines[3] == "local s = count" and lines[4] == "return s", ran.out)
   assert(value_of(ran.out) == 1)
@@ -146,15 +145,14 @@ local function test_a_form_the_grammar_cuts_is_a_syntax_error(tmp: string)
   assert(ran.err:find("cut.tl:1:", 1, true) and ran.err:find("(nil_union)", 1, true), ran.err)
 end
 
---- The grammar is named: the same text is a program in one and a syntax error in the other.
-local function test_the_grammar_is_named_and_never_guessed_from_the_text(tmp: string)
+--- The grammar is the new one, named or not: the fork's is refused naming `cosmic migrate`, and a text in the fork's forms is a
+--- syntax error.
+local function test_the_grammar_is_new_and_teal_is_refused(tmp: string)
   local new_only = file(tmp, "new.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nreturn 1\n")
   local teal_only = file(tmp, "teal.tl", "local x: string | nil = nil\nreturn x\n")
   local as_teal = run({ "--grammar", "teal", new_only })
   assert(as_teal.code == 2, as_teal.err)
-  assert(as_teal.err:find("new.tl:2:", 1, true), as_teal.err)
-  local by_default = run({ "--grammar", "teal", teal_only })
-  assert(by_default.code == 0, by_default.err)
+  assert(as_teal.err:find("the fork's grammar is gone", 1, true) and as_teal.err:find("cosmic migrate", 1, true), as_teal.err)
   local as_new = run({ teal_only })
   assert(as_new.code == 2, as_new.err)
   assert(as_new.err:find("teal.tl:1:", 1, true), as_new.err)
@@ -165,7 +163,7 @@ end
 local function test_a_grammar_that_is_neither_is_refused(tmp: string)
   local ran = run({ "--grammar", "lua", file(tmp, "x.tl", "return 1\n") })
   assert(ran.code == 2 and ran.out == "", ran.out)
-  assert(ran.err:find("--grammar names teal or new, not lua", 1, true), ran.err)
+  assert(ran.err:find("--grammar names new, not lua", 1, true), ran.err)
 end
 
 --- A module of the binary's own is one the new checker cannot declare: typed `invalid`, and said so.
@@ -205,7 +203,7 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
   local main = file(tmp, "main.tl",
     "local Box = require(\"pkg.lib\")\nlocal b: Box = { n = \"text\" }\nreturn b\n")
   for _, order in ipairs({ { lib, main }, { main, lib } }) do
-    local words: {string} = { "--errors", "-o", tmp .. "/out" }
+    local words: mut {string} = { "--errors", "-o", tmp .. "/out" }
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)
@@ -238,13 +236,20 @@ local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
   assert(Fs.exists(tmp .. "/out/user.lua") == false)
 end
 
---- A declaration beside its source would be two files for one module: the new grammar's program has one.
-local function test_a_declaration_and_a_source_of_one_module_are_refused(tmp: string)
+--- A declaration beside its source is one module, as in a build: a require reads the declaration, and the source is
+--- compiled as the implementation. Two sources of one module are two files for it, which the program has one of.
+local function test_a_declaration_beside_its_source_is_one_module_and_two_sources_are_refused(tmp: string)
   local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
-  local source = file(tmp, "foo.tl", "return 1\n")
+  local source = file(tmp, "foo.tl", "local record Foo\n  n: integer\nend\nlocal f: Foo = { n = 1 }\nreturn f\n")
   local ran = run({ "-o", tmp .. "/out", decl, source })
-  assert(ran.code == 2, ran.err)
-  assert(ran.err:find("both the module foo", 1, true), ran.err)
+  assert(ran.code == 0, ran.err)
+  assert(Fs.exists(tmp .. "/out/foo.lua") == true)
+  assert(Fs.exists(tmp .. "/out/foo.d.lua") == false)
+  assert(Fs.mkdirs(tmp .. "/foo"))
+  local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")
+  local twice = run({ "-o", tmp .. "/out2", source, nested })
+  assert(twice.code == 2, twice.err)
+  assert(twice.err:find("both the module foo", 1, true), twice.err)
 end
 
 --- Two files that name each other's types: the one lowered first finds the other declared, not lowered.
@@ -414,18 +419,18 @@ local function test_an_is_test_of_an_enum_of_another_file_tests_its_values(tmp: 
   assert(test("red") == true and test("blue") == false)
 end
 
---- A build over `text`, the module `m`, in the grammar `translate` says (the fork's Teal when it does).
-local function built(text: string, translate: boolean): Driver.Build
+--- A build over `text`, the module `m`.
+local function built(text: string): Driver.Build
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   build:provide(Driver.files(Driver.index({ { "m.tl", text }, { "d.d.tl", "local record D\n  n: integer\nend\nreturn D\n" } },
-    translate, function(_file: string): boolean
+    function(_file: string): boolean
       return false
     end)))
   return build
 end
 
 local function test_emit_writes_the_lua_of_a_module_checked_with_its_bodies_and_a_declaration_has_none()
-  local build = built("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r\n", false)
+  local build = built("local record R\n  n: integer\nend\nlocal r: R = { n = 1 }\nreturn r\n")
   local emitted = Grammar.emit(build, assert(build:result("m", true)))
   local code = emitted.code
   assert(code ~= nil and emitted.trouble == "" and type(value_of(code)) == "table")
@@ -434,21 +439,16 @@ local function test_emit_writes_the_lua_of_a_module_checked_with_its_bodies_and_
   local none = Grammar.emit(build, assert(build:result("d", true)))
   assert(none.code == nil and none.trouble == "")
   -- a module whose bodies were not checked has none either
-  local unchecked = built("return 1\n", false)
+  local unchecked = built("return 1\n")
   assert(Grammar.emit(unchecked, assert(unchecked:result("m", false))).code == nil)
 end
 
--- The translator writes an `if` expression only for a middle value that is never false. The generator is told so for every
--- source, or it writes a function called on the spot where the fork writes `and` and `or`: the text read as the new grammar
--- gives the same Lua as the fork's Teal it was translated from.
-local function test_emit_tells_the_generator_what_is_never_false_of_an_if_expression_whichever_grammar_it_was_read_in()
-  local fork = "local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n"
-  local translated = built(fork, true)
-  local told = assert(Grammar.emit(translated, assert(translated:result("m", true))).code)
-  assert(told:find("function", 1, true) == nil, told)
-  -- the same text, read as the new grammar, is told the same
-  local plain = built(Translate.translate(fork, "m.tl").text, false)
+-- A file writes an `if` expression only for a middle value that is never false. The generator is told so for every source, or
+-- it writes a function called on the spot where a file writes `and` and `or`.
+local function test_emit_tells_the_generator_what_is_never_false_of_an_if_expression()
+  local text = "local n = 3\nlocal s: string = if n > 2 then \"v\" else \"z\" end\nreturn s\n"
+  local plain = built(text)
   local written = assert(Grammar.emit(plain, assert(plain:result("m", true))).code)
-  assert(written == told, written)
-  assert(value_of(told) == "v" and value_of(written) == "v")
+  assert(written:find("function", 1, true) == nil, written)
+  assert(value_of(written) == "v")
 end

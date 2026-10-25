@@ -1,13 +1,9 @@
---- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: a source in either grammar is analyzed as the fork's
---- analyzer does it, and what the new grammar changes of an analysis is what these tests say.
+--- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: what each reads of a source, and what the new grammar
+--- changes of the analysis the fork made once, which is what these tests say.
 local Analyzer = require("build.syntax_analyzer")
-local Compared = require("build.syntax_compared")
 local Test = require("cosmic.test")
-local teal = require("build.teal")
 
 Test.policy{}
-
-local built = assert(teal.load(true))
 
 --- Joins lines the way a real source file would read.
 local function lines(...: string): string
@@ -179,7 +175,7 @@ local FIXTURES: {Fixture} = {
     "",
     "Test.policy{",
     "  grants = { { path = \"testdata\", letters = \"r\" }, { path = \"/cache/zig\", letters = \"rwxc\" } },",
-    "  loopback = { \"127.0.0.1\" }, env = { \"HOME\" }, profiles = { \"system\" }, requires = { \"fork\" },",
+    "  loopback = { \"127.0.0.1\" }, env = { \"HOME\" }, profiles = { \"system\" }, requires = { \"proc\" },",
     "  [\"promises\"] = { \"nest\" },",
     "}",
     "local function test_it() end") },
@@ -200,17 +196,25 @@ local FIXTURES: {Fixture} = {
       "return Shape") },
 }
 
-local function test_a_source_both_analyzers_read_is_read_alike()
+local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
   for _, case in ipairs(FIXTURES) do
-    local outcome = Compared.file(built, "fixture.tl", case.source)
-    assert(outcome.skipped == "", case.name .. ": " .. outcome.skipped)
-    assert(#outcome.differences == 0, case.name .. ":\n" .. table.concat(outcome.differences, "\n"))
-    -- The fixture is read for the rows it exists for: they are not compared empty with empty.
-    assert((outcome.counts[case.dimension] or 0) > 0, case.name .. ": no row of " .. case.dimension)
+    local found, why = Analyzer.analyze(case.source, "fixture.tl")
+    assert(found ~= nil, case.name .. ": " .. tostring(why))
   end
 end
 
-local function test_a_policy_the_build_cannot_read_is_refused_as_the_fork_refuses_it()
+--- A line ends at `\r`, `\r\n` and `\n\r` as at `\n`: a text of three lines with no `\n` in it is analyzed, and what
+--- it exports is documented from the comment on the line above it.
+local function test_a_line_ends_at_each_of_the_lexers_line_breaks()
+  for _, ending in ipairs({ "\r", "\r\n", "\n\r", "\n" }) do
+    local source = table.concat({ "local x = 1", "--- Counts.", "local record counter", "end", "return counter", "" }, ending)
+    local found, why = Analyzer.analyze(source, "counter.tl")
+    assert(found ~= nil, ("%q: %s"):format(ending, tostring(why)))
+    assert(#found.docs > 0, ("%q: no docs"):format(ending))
+  end
+end
+
+local function test_a_policy_the_build_cannot_read_is_refused()
   local cases: {{string}} = {
     { "a policy twice", lines('local Test = require("cosmic.test")', "Test.policy{}", "Test.policy{}") },
     { "an unknown field", lines('local Test = require("cosmic.test")', "Test.policy{ nothing = true }") },
@@ -223,9 +227,6 @@ local function test_a_policy_the_build_cannot_read_is_refused_as_the_fork_refuse
     { "a loopback that is not", lines('local Test = require("cosmic.test")', 'Test.policy{ loopback = { "10.0.0.1" } }') },
   }
   for _, case in ipairs(cases) do
-    local outcome = Compared.file(built, "fixture_test.tl", case[2])
-    assert(outcome.skipped == "" and #outcome.differences == 0, case[1] .. ": " .. table.concat(outcome.differences, "\n"))
-    assert((outcome.counts["analyzer inputs"] or 0) > 0, case[1])
     local _, why = Analyzer.analyze(case[2], "fixture_test.tl")
     assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, case[1] .. ": " .. why)
   end
@@ -254,7 +255,7 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
     "end",
     "",
     "return Stream"))
-  local by: {string: Analyzer.DocEntry} = {}
+  local by: mut {string: Analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by[entry.source_symbol] = entry
   end
@@ -264,8 +265,8 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   local read = by["Stream:read"]
   assert(read ~= nil and read.kind == "method" and read.symbol == "read" and read.exported and read.text == "Reads.")
   assert(read.signature == "function read(self, max: integer?): string?, string", read.signature)
-  -- The metamethods follow the fields, and the methods come last, as the fork's rows came.
-  local order: {string} = {}
+  -- The metamethods follow the fields, and the methods come last, as the docs list them.
+  local order: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     order[#order + 1] = entry.source_symbol
   end
@@ -273,9 +274,8 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   assert(#found.catalog == 1 and found.catalog[1].symbol == "Stream:read" and found.catalog[1].message == "nothing to read")
 end
 
---- A deliberate difference: the fork's reader kept the escapes of a message as written; so does this one, and it keeps
---- the text of a long string.
-local function test_a_catalog_message_keeps_its_escapes_as_written()
+--- A message is read as the source means it: an escape is decoded, and a long string's first line break is not its text.
+local function test_a_catalog_message_is_read_as_the_source_means_it()
   local found = analyzed(lines(
     "local function f(): nil, string",
     "  return nil, \"say \\\"stop\\\" here\"",
@@ -288,10 +288,10 @@ local function test_a_catalog_message_keeps_its_escapes_as_written()
     "the first line break is the string's own]]",
     "end"))
   assert(#found.catalog == 3, tostring(#found.catalog))
-  assert(found.catalog[1].message == 'say \\"stop\\" here', found.catalog[1].message)
+  assert(found.catalog[1].message == 'say "stop" here', found.catalog[1].message)
   assert(found.catalog[2].message == "a long message", found.catalog[2].message)
-  -- The fork read the text between the brackets, the line break that opens a long string included.
-  assert(found.catalog[3].message == "\nthe first line break is the string's own", found.catalog[3].message)
+  -- The line break that opens a long string is the string's own, not part of its value.
+  assert(found.catalog[3].message == "the first line break is the string's own", found.catalog[3].message)
 end
 
 --- The translation writes a metatable's `__close` as a method of the class, which is a metamethod row as the field is.
@@ -308,7 +308,7 @@ local function test_a_method_named_for_a_metamethod_is_a_metamethod_row()
     "  end",
     "end",
     "return Conn"))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     kinds[#kinds + 1] = entry.kind .. ":" .. entry.symbol
   end
@@ -323,11 +323,11 @@ local function test_the_values_of_an_enum_are_listed_in_order_and_each_carries_i
     "  --- First in the alphabet.",
     "  \"a\"",
     "end"))
-  local values: {string} = {}
+  local values: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     values[#values + 1] = entry.symbol .. "=" .. entry.text
   end
-  assert(table.concat(values, "|") == "Mode=|Mode.a=First in the alphabet.|Mode.b=Second in the source.",
+  assert(table.concat(values, "|") == "Mode=|Mode.b=Second in the source.|Mode.a=First in the alphabet.",
     table.concat(values, "|"))
 end
 
@@ -361,17 +361,11 @@ local function test_a_signature_is_the_head_on_one_line()
   assert(found.docs[3].signature == "local function g()", found.docs[3].signature)
 end
 
-local function test_the_dimensions_of_the_comparison_are_the_rows_of_an_analysis_and_the_plurals()
-  assert(table.concat(Compared.dimensions, ",") ==
-      "analyzer tests,analyzer export,analyzer inputs,analyzer catalog,analyzer docs,analyzer references," ..
-      "analyzer bound,analyzer examples,link_text,plurals")
-end
-
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.
 local function test_the_opening_comment_documents_the_module_or_the_function_below_it()
   local function symbols(source: string): string
     local found = analyzed(source)
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, entry in ipairs(found.docs) do
       out[#out + 1] = entry.kind .. ":" .. entry.symbol .. "=" .. entry.text
     end

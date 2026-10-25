@@ -11,7 +11,7 @@ local PIECES <const>: {string} = { "a", "b", "sid", "=", ";", ",", " ", "\t", '"
   "\r", "Path=/", "Secure", "; ", ", ", "==" }
 
 local function gen_header(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 24) do
     if src:int(0, 4) == 0 then
       parts[#parts + 1] = Fuzz.bytes(src, 8)
@@ -46,7 +46,7 @@ local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
         end
       end
       if n > 100 then return false, n .. " cookies" end
-      Fuzz.label(n > 0 and "some" or "none")
+      Fuzz.label(if n > 0 then "some" else "none" end)
       return true, ""
     end,
   })
@@ -65,8 +65,8 @@ local function test_what_format_writes_is_read_back_by_both_parsers(tmp: string)
       local fields = Fuzz.unpack(input)
       local name, value, bits = fields[1], fields[2], math.tointeger(tonumber(fields[3])) or 0
       local line = Cookies.format(name, value, {
-        secure = bits & 1 ~= 0, http_only = bits & 2 ~= 0, max_age = bits & 4 ~= 0 and 30 or nil,
-        same_site = bits & 1 ~= 0 and "None" or "Lax", path = "/",
+        secure = bits & 1 ~= 0, http_only = bits & 2 ~= 0, max_age = if bits & 4 ~= 0 then 30 else nil end,
+        same_site = if bits & 1 ~= 0 then "None" else "Lax" end, path = "/",
       })
       if line == nil then
         Fuzz.label("refused")

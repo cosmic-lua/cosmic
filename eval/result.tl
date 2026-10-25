@@ -60,7 +60,7 @@ local ORDER <const>: {string} = {
   "tools", "skills", "mcp_servers",
 }
 
-local function decode(line: string): {string: any} | nil
+local function decode(line: string): {string: any}?
   local value, _ = Json.decode(line, { max_depth = 1000, lone_surrogates = true })
   if value is {string: any} then return value end
   return nil
@@ -68,7 +68,7 @@ end
 
 --- `event[key]`, [`Json.null`] where there is no event or no such key
 --- (a `false` is a value).
-local function reported_field(event: {string: any} | nil, key: string): any
+local function reported_field(event: {string: any}?, key: string): any
   if event == nil or event[key] == nil then return Json.null end
   return event[key]
 end
@@ -78,13 +78,13 @@ local function number(value: any): any
   return Json.null
 end
 
-local function stamp(text: string | nil): integer | nil
+local function stamp(text: string?): integer?
   if text == nil then return nil end
   local ns, _ = Time.parse_rfc3339((text:gsub("%s+$", "")))
   return ns
 end
 
-local function integer_of(text: string | nil): integer | nil
+local function integer_of(text: string?): integer?
   if text == nil then return nil end
   return math.tointeger(tonumber((text:gsub("%s+$", ""))))
 end
@@ -94,7 +94,7 @@ end
 --- under any other status (a crash), `turn_cap` when the CLI stopped at
 --- --max-turns, `api_error` when it reports an error of any other kind,
 --- else `completed`.
-local function status_of(exit_code: integer | nil, result: {string: any} | nil): string
+local function status_of(exit_code: integer?, result: {string: any}?): string
   if exit_code == 124 then return "timeout" end
   if result == nil then return "no_result" end
   if result["subtype"] == "error_max_turns" then return "turn_cap" end
@@ -107,7 +107,7 @@ end
 
 --- The grade's verdict word for its exit status: PASS, FAIL, TIMEOUT
 --- (the grader's deadline) or ERROR for any other (a usage error).
-function Result.verdict(code: integer | nil): any
+function Result.verdict(code: integer?): any
   if code == nil then return Json.null end
   if code == 0 then return "PASS" end
   if code == 1 then return "FAIL" end
@@ -123,11 +123,11 @@ end
 --- The result.json fields, as a table with [`Json.null`] for each value
 --- that is unavailable, for a transcript's text (nil when there is
 --- none), the arena's `files`, the `grade` and what the caller knows.
-function Result.build(transcript: string | nil, files: Result.Files, grade: Result.Grade,
+function Result.build(transcript: string?, files: Result.Files, grade: Result.Grade,
                       meta?: Result.Meta): {string: any}
   meta = meta or {}
-  local init: {string: any} | nil = nil
-  local result: {string: any} | nil = nil
+  local init: {string: any}? = nil
+  local result: {string: any}? = nil
   local tool_calls = 0
   if transcript ~= nil then
     for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
@@ -172,7 +172,7 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
   local contamination: any = Json.null
   local summary = files.summary
   if summary ~= nil then
-    local flagged: {string} = {}
+    local flagged: mut {string} = {}
     for line in summary:gmatch("[^\n]+") do
       if line:sub(1, 8) == "BREACH: " or line:sub(1, 15) == "CONTAMINATION: " then
         flagged[#flagged + 1] = line
@@ -180,7 +180,7 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
     end
     contamination = Json.array(flagged)
   end
-  local function text_or_null(value: string | nil): any
+  local function text_or_null(value: string?): any
     if value == nil then return Json.null end
     return (value:gsub("%s+$", ""))
   end
@@ -205,7 +205,7 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
     grade_verdict = Result.verdict(grade.exit_code),
     grade_log = grade.log or Json.null,
     contamination = contamination,
-    transcript = transcript ~= nil and "transcript.jsonl" or Json.null,
+    transcript = if transcript ~= nil then "transcript.jsonl" else Json.null end,
     turns = result ~= nil and number(result["num_turns"]) or Json.null,
     tool_calls = transcript ~= nil and tool_calls or Json.null,
     cost_usd = result ~= nil and number(result["total_cost_usd"]) or Json.null,
@@ -224,8 +224,8 @@ function Result.build(transcript: string | nil, files: Result.Files, grade: Resu
 end
 
 --- `fields` as JSON text in the README's order, one field a line.
-function Result.encode(fields: {string: any}): string | nil, string
-  local lines: {string} = {}
+function Result.encode(fields: {string: any}): string?, string
+  local lines: mut {string} = {}
   for _, key in ipairs(ORDER) do
     local value = fields[key]
     if value == nil then value = Json.null end
@@ -246,7 +246,7 @@ local USAGE <const> = "usage: eval/result <arena> [--grade-exit N] [--grade-log 
 --- The harness commit: `git rev-parse HEAD` in `repo`, with git found
 --- on `path` (PATH by default) -- Child.run does not search PATH --
 --- nil where git or the repository is not there.
-function Result.git_head(repo: string, path?: string): string | nil
+function Result.git_head(repo: string, path?: string): string?
   local git, _ = Proc.find("git", path)
   if git == nil then return nil end
   local ran, _ = Child.run({ git, "-C", repo, "rev-parse", "HEAD" },
@@ -258,7 +258,7 @@ end
 --- @param argv the words after the script's path
 --- @param program this script's own path
 local function run(argv: {string}, program: string): integer
-  local arena: string | nil = nil
+  local arena: string? = nil
   local grade: Result.Grade = {}
   local meta: Result.Meta = {}
   local i = 1
@@ -320,7 +320,7 @@ local function run(argv: {string}, program: string): integer
   end
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")
   if repo ~= nil then meta.harness_commit = Result.git_head(repo) end
-  local function read(name: string): string | nil
+  local function read(name: string): string?
     local text, _ = Fs.read(directory .. "/" .. name)
     return text
   end

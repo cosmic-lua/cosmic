@@ -56,12 +56,15 @@ local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signa
 local Http = require("cosmic.http")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
+local record Calls
+  mut asked: integer
+end
 return function(argv: {string}): integer
   local guard = assert(Signal.guard())
-  local calls = { asked = 0 }
+  local calls: Calls = { asked = 0 }
   local body = string.rep("z", 300000)
-  local ok, why = Http.download("http://cosmic.test/", argv[1] .. "/target", {
-    script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. #body ..
+  local ok, why = Http.download("http://cosmic.test/", assert(argv[1]) .. "/target", {
+    script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) ..
       "\r\nConnection: close\r\n\r\n" .. body },
     cancelled = function(): boolean
       calls.asked = calls.asked + 1

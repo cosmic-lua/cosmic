@@ -31,7 +31,7 @@
 ---   core has none of the instruments such a test uses, so it is n/a there;
 --- - `all_cores`: the tool carries a core for every release target, which
 ---   `bin/zig build boot -Dboot-cores=all` gives it and a bare boot does not
----   (a placeholder stands where each other core goes: `host_only`, which the
+---   (a placeholder stands where each other core goes: [`host_only`], which the
 ---   runner answers from the tool's prefix): only such a tool makes a
 ---   portable program. What tests one is skipped where it is not, saying
 ---   so, and a leg that promises `all_cores` fails the run that skips;
@@ -243,12 +243,12 @@ local MOST_BYTES <const> = 64 << 20
 local record Opened
   --- What it is, as fstat of the open descriptor says ("file", "dir",
   --- "fifo", ...); "" where it could not be opened.
-  kind: string
+  mut kind: string
   --- Its bytes where it is a regular file within `MOST_BYTES`.
-  data: string
+  mut data: string
   --- Why there is none, "" where there is; and the errno of a failed open.
-  why: string
-  errno: integer
+  mut why: string
+  mut errno: integer
 end
 
 --- Opens `path` once, without waiting (a FIFO with no writer would
@@ -268,7 +268,7 @@ local function slurp(path: string): Opened
   end
   local opened: Opened = { kind = st.kind, data = "", why = "", errno = 0 }
   if st.kind == "file" then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local total = 0
     while true do
       local chunk, failure, read_errno = sys.read(fd, 1 << 20)
@@ -298,7 +298,7 @@ end
 --- `path`'s bytes, or nil and the rule a file that is no regular one or too
 --- large breaks; raises where it cannot be opened or read, since a key that
 --- could not hold the file would stand on whatever it held.
-local function bytes_of(path: string): string | nil, string
+local function bytes_of(path: string): string?, string
   local opened = slurp(path)
   if opened.kind == "" then error("host_requires: " .. opened.why, 0) end
   if opened.why ~= "" then return nil, opened.why end
@@ -318,7 +318,7 @@ end
 --- The sysctl at `path` as a number, or nil where the host has none: the read
 --- answers that there is no such file. Any other failure, or text that is
 --- no number, raises: neither is the setting's absence.
-local function sysctl(host: host_requires.Host, path: string): integer | nil
+local function sysctl(host: host_requires.Host, path: string): integer?
   local read = reader(host)(path)
   if read.why ~= "" then
     if read.missing then return nil end
@@ -388,16 +388,16 @@ end
 --- binary loads are not keyed, so a library changed under an unchanged
 --- program moves no key. Nil and the rule where the file is no regular
 --- one or too large.
-local function program_key(path: string, search: string | nil): string | nil, string
+local function program_key(path: string, search: string?): string?, string
   local data, why = bytes_of(path)
   if data == nil then return nil, why end
   local key = "sha256:" .. hex_sha256(data)
   local line = data:match("^#![ \t]*([^\n]*)")
   if line == nil then return key, "" end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
   --- The digest of the file at `named`, as an interpreter's, or a marker where it cannot be keyed.
-  local function interpreter_digest(named: string | nil): string
+  local function interpreter_digest(named: string?): string
     if named == nil then return "absent" end
     local opened = slurp(named)
     if opened.kind == "" or opened.why ~= "" then return "unkeyed" end
@@ -432,7 +432,7 @@ end
 --- mounted elsewhere is caught by the regular-file check and the size cap,
 --- which a file that never ends or changes as it is read breaks, not by
 --- where it is.
-local function file_key(path: string): string | nil, string
+local function file_key(path: string): string?, string
   local real, trouble = realpath(path)
   if real == nil then error("host_requires: " .. trouble, 0) end
   for _, virtual in ipairs({ "/proc", "/sys" }) do
@@ -476,7 +476,7 @@ local table_of: {string:Entry} = {
     end },
   landlock = { platform_has = linux,
     probe = function(argument: string, _: host_requires.Host): Found
-      local wanted = argument == "" and 1 or assert(math.tointeger(tonumber(argument)))
+      local wanted = if argument == "" then 1 else assert(math.tointeger(tonumber(argument))) end
       local abi, why = landlock_abi()
       if abi == nil then return absent("no Landlock: " .. why) end
       if abi < wanted then return absent("Landlock ABI " .. abi .. " is below " .. wanted) end
@@ -491,7 +491,7 @@ local table_of: {string:Entry} = {
       if getuid() == 0 and not may_map_ids() then
         return absent("root without CAP_SETUID, CAP_SETGID and CAP_SETFCAP cannot map the user a sandbox runs as")
       end
-      return present(getuid() == 0 and "root" or "user")
+      return present(if getuid() == 0 then "root" else "user" end)
     end },
   own_proc = { platform_has = linux,
     probe = function(_: string, _: host_requires.Host): Found
@@ -579,7 +579,7 @@ end
 --- @param names requirements as written
 --- @return an answer for each
 function host_requires.answer(host: host_requires.Host, names: {string}): {host_requires.Answer}
-  local out: {host_requires.Answer} = {}
+  local out: mut {host_requires.Answer} = {}
   for i, name in ipairs(names) do
     local cached = host.found[name]
     if cached == nil then

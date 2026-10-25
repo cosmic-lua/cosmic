@@ -14,22 +14,22 @@ local function memory_store(): Session.Store
   local count = { value = 0 }
   local store: Session.Store = {
     revocable = true,
-    load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data | nil, string
+    load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
       local row = rows[token]
       if row == nil or row.expires <= now then return nil, "" end
-      local values: {string:any} = {}
+      local values: mut {string:any} = {}
       for k, v in pairs(row.values) do values[k] = v end
       return { values = values, created = row.created, expires = row.expires }, ""
     end,
     save = function(_self: Session.Store, previous: string, data: Session.Data, changes: Session.Changes,
-                    _now: integer, _cookie: string): string | nil, string
+                    _now: integer, _cookie: string): string?, string
       local id = previous
       if id == "" or changes.regenerated then
         count.value = count.value + 1
         id = "id" .. count.value
         rows[previous] = nil
       end
-      local values: {string:any} = {}
+      local values: mut {string:any} = {}
       for k, v in pairs(data.values) do values[k] = v end
       rows[id] = { values = values, created = data.created, expires = data.expires }
       return id, ""
@@ -161,13 +161,13 @@ local function test_a_token_altered_in_any_way_is_refused()
   refused(token:sub(1, 85))
   refused(token .. "A")
   refused(token .. "=")
-  refused(token:sub(1, 85) .. (token:sub(86, 86) == "A" and "B" or "A"))
+  refused(token:sub(1, 85) .. (if token:sub(86, 86) == "A" then "B" else "A" end))
   refused(token:sub(33, 86) .. token:sub(1, 32))
   refused(("A"):rep(86))
   refused(("!"):rep(86))
   refused(token:upper())
   refused(" " .. token)
-  local flipped = token:sub(1, 40) .. (token:sub(41, 41) == "A" and "B" or "A") .. token:sub(42)
+  local flipped = token:sub(1, 40) .. (if token:sub(41, 41) == "A" then "B" else "A" end) .. token:sub(42)
   refused(flipped)
   local two = client:post("/do", { headers = { ["X-CSRF-Token"] = token .. ", " .. token } })
   assert(two.status == 403, "a repeated header is joined, and then it is no token")
@@ -208,7 +208,7 @@ end
 
 local function test_an_unsafe_request_from_another_origin_is_refused_even_with_the_token()
   local client, token = session_with_token(make_app())
-  local function post(origin: string | nil, extra?: {string:string}): integer
+  local function post(origin: string?, extra?: {string:string}): integer
     local headers = extra or {}
     if origin ~= nil then headers["Origin"] = origin end
     headers["X-CSRF-Token"] = token
@@ -262,7 +262,7 @@ local function test_trusted_origins_pass_the_origin_layer_and_still_need_the_tok
   local app = make_app({ trusted_origins = { "https://partner.example:443", "null" } })
   local client, token = session_with_token(app)
   local function post(origin: string, with_token: boolean): integer
-    local headers: {string:string} = { Origin = origin, ["Sec-Fetch-Site"] = "cross-site" }
+    local headers: mut {string:string} = { Origin = origin, ["Sec-Fetch-Site"] = "cross-site" }
     if with_token then headers["X-CSRF-Token"] = token end
     return client:post("/do", { headers = headers }).status
   end
@@ -401,7 +401,7 @@ local TYPE <const> = "multipart/form-data; boundary=" .. B
 
 local function part(name: string, value: string, filename?: string): string
   return "--" .. B .. '\r\nContent-Disposition: form-data; name="' .. name .. '"' ..
-    (filename ~= nil and ('; filename="' .. filename .. '"') or "") .. "\r\n\r\n" .. value .. "\r\n"
+    (if filename ~= nil then ('; filename="' .. filename .. '"') else "" end) .. "\r\n\r\n" .. value .. "\r\n"
 end
 
 local function multipart(...: string): string
@@ -421,7 +421,7 @@ local function test_a_multipart_token_anywhere_but_first_is_refused_and_a_header
   assert(client:post("/upload", { body = late, content_type = TYPE }).status == 403, "second part")
   local file = multipart(part("csrf_token", token, "t.txt"), part("name", "ada"))
   assert(client:post("/upload", { body = file, content_type = TYPE }).status == 403, "a file part named csrf_token")
-  local last = token:sub(1, 40) .. (token:sub(41, 41) == "A" and "B" or "A") .. token:sub(42)
+  local last = token:sub(1, 40) .. (if token:sub(41, 41) == "A" then "B" else "A" end) .. token:sub(42)
   local wrong = multipart(part("csrf_token", last), part("name", "ada"))
   assert(client:post("/upload", { body = wrong, content_type = TYPE }).status == 403)
   local none = multipart(part("name", "ada"))
@@ -441,7 +441,7 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   local read = { value = 0 }
   local app = make_app({ exempt = function(req: Web.Request): boolean
     local inner = req.raw.body
-    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       read.value = read.value + 1
       return inner:read(max_bytes)
     end, close = function(_self: Stream.Reader): boolean, string

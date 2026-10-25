@@ -12,12 +12,10 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 
-local built = assert(teal.load())
 
 --- Writes a minimal one-module project at `root`, greeting `whom`, so
 --- two projects built from a different `whom` compile to different
@@ -51,7 +49,7 @@ local function build_and_write(root: string, whom: string, out: string,
   write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, tool or "writer-test"))
+  local result = assert(importer.compile(handle, tool or "writer-test"))
   assert(writer.write_result(handle, out, result))
   return handle, result
 end
@@ -164,7 +162,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
-    "local function greeting(): string | nil, string",
+    "local function greeting(): string?, string",
     '  if greet.hello() ~= "hello, world" then',
     '    return nil, "greet_test: the greeting changed"',
     "  end",
@@ -197,7 +195,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "return shared",
     "",
   }, "\n")))
-  assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
+  assert(Fs.write(root .. "/fixture_test.tl", 'local record Fixture\n  name: string\nend\nlocal fixture: Fixture = { name = "x" }\nreturn fixture\n'))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
   -- A bill of materials, as cosmic's own tree's projection holds one.
@@ -567,7 +565,7 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
 
   write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local stale = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM deflated WHERE source_hash NOT IN (SELECT source_hash FROM inputs)"))
@@ -595,7 +593,7 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(handle.db:exec("UPDATE deflated SET data = x'00'"))
   assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated"))
   assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
@@ -615,13 +613,12 @@ local function test_paired_declaration_projects_each_source_in_its_role(tmp: str
     ["decl_dep.tl"] = "local record Dep\n  declared: integer\nend\nreturn Dep\n",
     ["impl_dep.tl"] = "local record Dep\n  executed: integer\nend\nreturn Dep\n",
     ["foo.d.tl"] = 'local Dep = require("decl_dep")\n' ..
-      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\n" ..
-      'local x = Dep.declared\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "declaration error"\nend\nreturn Foo\n',
+      "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\n" ..
+      "  fail: function(): nil, string\nend\nreturn Foo\n",
     ["foo.tl"] = 'local Dep = require("impl_dep")\n' ..
       "--- Private implementation.\n--- See [`Dep.executed`].\nlocal record Foo\n  answer: integer\nend\n" ..
       'local x = Dep.executed\nfunction Foo.fail(): nil, string\n' ..
-      '  return nil, "implementation error"\nend\nreturn {answer = 42} as Foo\n',
+      '  return nil, "implementation error"\nend\nlocal value: Foo = { answer = 42 }\nreturn value\n',
     ["only.d.tl"] = "--- Declaration alone.\nlocal record Only\nend\nreturn Only\n",
   })
   local function rows(sql: string): Sqlite.Rows
@@ -666,7 +663,7 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
     local rows = assert(Sqlite.text_rows(db,
       "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
         "ORDER BY requires"))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for index, row in ipairs(rows) do out[index] = row:text(1) end
     return table.concat(out, ",")
   end
@@ -687,7 +684,7 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   write_project(tmp, "retry")
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   assert(handle.db:exec("DROP TABLE compiled"))
   local out = tmp .. "/out.db"
   local written, trouble = writer.write_result(handle, out, result)
@@ -698,7 +695,7 @@ local function test_a_failed_projection_can_be_retried(tmp: string)
   assert(handle.db:exec("DETACH out"))
   assert(work.begin(handle))
   assert(work.stage(handle, false))
-  local retried = assert(importer.compile(handle, built, "writer-test"))
+  local retried = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, out, retried))
   assert(work.close(handle))
   assert(projected(out) ~= "", "the retry did not publish a signed projection")
@@ -720,7 +717,7 @@ end
 local function write_projection(root: string, out: string)
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "writer-test"))
+  local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, out, result))
   assert(work.close(handle))
 end
@@ -777,7 +774,7 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   local before = assert(writer.signature(handle, result, "binary"))
   local real = Store.bytecode
-  Store.bytecode = function(name: string): string | nil, string
+  Store.bytecode = function(name: string): string?, string
     if name == "cosmic.mime" then return "an edited cosmic.mime" end
     return real(name)
   end

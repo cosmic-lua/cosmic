@@ -19,7 +19,7 @@ end
 
 --- Everything `fd` holds now, without waiting for more.
 local function drained(fd: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local data, _, errno = sys.read(fd, 1 << 16)
     if data == nil or data == "" then
@@ -76,8 +76,8 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
   local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
   local ticks = { value = 0 }
   local elapsed = { value = 0 }
-  local chunk = { value = nil as string | nil }
-  local why = { value = nil as string | nil }
+  local chunk = { value = nil as string? }
+  local why = { value = nil as string? }
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
@@ -171,12 +171,12 @@ end
 local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local reader, writer = fifo(tmp, "hook")
   local body = string.rep("0123456789abcdef", 1 << 15)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local asked = 0
   local calls = { value = 0 }
-  local fail: string | nil = nil
+  local fail: string? = nil
   local w = Stream.to_fd(writer, { nonblocking = true, wait = function(fd: integer,
-                                                                       events: integer, left: integer | nil): boolean, string
+                                                                       events: integer, left: integer?): boolean, string
     calls.value = calls.value + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
     if fail ~= nil then return false, fail end
@@ -208,7 +208,7 @@ local function test_the_options_are_checked()
   raises(function() local _ = Stream.from_fd(0, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
   raises(function() local _ = Stream.to_fd(1, { timeout_ns = Clock.ms(5) }) end, "nonblocking")
   raises(function()
-    local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer | nil):
+    local _ = Stream.to_fd(1, { wait = function(_: integer, _: integer, _: integer?):
         boolean, string return true, "" end })
   end, "nonblocking")
   raises(function() local _ = Stream.from_fd(0, { nonblocking = true, timeout_ns = -1 }) end,

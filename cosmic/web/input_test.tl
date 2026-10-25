@@ -9,19 +9,19 @@ local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
 --- Why `invalid` refuses, or nil for none.
-local function message_of(invalid: Types.Invalid | nil): string | nil
+local function message_of(invalid: Types.Invalid?): string?
   if invalid == nil then return nil end
   return invalid.message
 end
 
-local type Color = enum
+local enum Color
   "red"
   "green"
 end
 
 local record Address
   city: string
-  zip: integer | nil
+  zip: integer?
 end
 
 local record Everything
@@ -30,10 +30,10 @@ local record Everything
   score: number
   admin: boolean
   color: Color
-  nick: string | nil
-  limit: integer | nil
-  ratio: number | nil
-  flag: boolean | nil
+  nick: string?
+  limit: integer?
+  ratio: number?
+  flag: boolean?
   tags: {string}
   nums: {integer}
   address: Address
@@ -42,7 +42,7 @@ local EVERYTHING <const> = Shape.record_of("Everything")
 
 local record Counts
   n: integer
-  big: integer | nil
+  big: integer?
 end
 local COUNTS <const> = Shape.record_of("Counts")
 
@@ -82,7 +82,7 @@ local function test_every_kind_is_read_from_text()
   assert(e.limit == nil and e.ratio == nil and e.flag == nil, "an empty optional of another kind is nil")
 end
 
-local function bound_count(text: string): integer | nil, string
+local function bound_count(text: string): integer?, string
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded(text), COUNTS.spec)
   local invalid = r.invalid
   if invalid ~= nil then return nil, invalid.errors[1].code end
@@ -112,7 +112,7 @@ local record Nums
 end
 local NUMS <const> = Shape.record_of("Nums")
 
-local function number_of(text: string): number | nil
+local function number_of(text: string): number?
   local r: Types.Parsed<Nums> = Input.bind_strings(decoded("x=" .. text), NUMS.spec)
   if r.invalid ~= nil then return nil end
   return assert(r.value).x
@@ -130,11 +130,11 @@ end
 
 local record Flags
   a: boolean
-  b: boolean | nil
+  b: boolean?
 end
 local FLAGS <const> = Shape.record_of("Flags")
 
-local function flags(text: string): Flags | nil, string
+local function flags(text: string): Flags?, string
   local r: Types.Parsed<Flags> = Input.bind_strings(decoded(text), FLAGS.spec)
   local invalid = r.invalid
   if invalid ~= nil then return nil, invalid.errors[1].code end
@@ -181,7 +181,7 @@ end
 
 local record Pick
   color: Color
-  n: integer | nil
+  n: integer?
 end
 local PICK <const> = Shape.record_of("Pick")
 
@@ -258,7 +258,7 @@ local function test_every_field_error_is_collected_in_field_order()
     EVERYTHING.spec, { secret = { "password", "token" }, source = "query" })
   local bad = assert(r.invalid)
   assert(bad.status == 422)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for i, e in ipairs(bad.errors) do
     fields[i] = e.field
     assert(e.source == "query" and e.pointer == nil)
@@ -334,9 +334,9 @@ local function with_request(method: string, opts: Web.TestOptions, fn: function(
 end
 
 local function test_media_type_parses_parameters()
-  local function of(content_type: string | nil): Input.MediaType
-    local got = { value = nil as Input.MediaType | nil }
-    local headers: {string:string} = {}
+  local function of(content_type: string?): Input.MediaType
+    local got = { value = nil as Input.MediaType? }
+    local headers: mut {string:string} = {}
     local opts: Web.TestOptions = { headers = headers }
     if content_type ~= nil then headers["content-type"] = content_type end
     with_request("GET", opts, function(req: Web.Request)
@@ -376,7 +376,7 @@ local function test_a_form_after_json_is_415()
 end
 
 local function test_a_wrong_content_type_is_415()
-  local function status_of(content_type: string | nil, body: string, kind: string): integer
+  local function status_of(content_type: string?, body: string, kind: string): integer
     local got = { value = 0 }
     local opts: Web.TestOptions = { body = body, content_type = content_type }
     with_request("POST", opts, function(req: Web.Request)
@@ -424,7 +424,7 @@ end
 local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all()
   local pulled = { value = 0 }
   local reader: Stream.Reader = {
-    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled.value = pulled.value + 1
       if pulled.value > 100 then return nil, "" end
       return ("y"):rep(math.min(max_bytes or 10, 10)), ""
@@ -451,7 +451,7 @@ end
 --- what a second read with a larger limit answers.
 local function failing_body(why: string): integer, integer
   local reader: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       return nil, why
     end,
     close = function(_self: Stream.Reader): boolean, string
@@ -486,7 +486,7 @@ end
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
   local pulled = { value = 0 }
   local reader: Stream.Reader = {
-    read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled.value = pulled.value + 1
       if pulled.value > 100 then return nil, "" end
       return ("y"):rep(math.min(max_bytes or 10, 10)), ""
@@ -502,7 +502,7 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
     local larger = Input.form(req, { max_bytes = 1 << 20 }).invalid
     statuses[2] = larger and larger.status or 0
     local data = req:bytes()
-    bytes_status.value = data == nil and "failed" or "truncated"
+    bytes_status.value = if data == nil then "failed" else "truncated" end
     return Web.text("ok")
   end) } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
@@ -564,13 +564,13 @@ end
 local record Item
   title: string
   qty: integer
-  address: Address | nil
-  tags: {string} | nil
+  address: Address?
+  tags: {string}?
 end
 local ITEM <const> = Shape.record_of("Item")
 
 local function json_error(text: string): Types.FieldError
-  local got = { value = nil as Types.FieldError | nil }
+  local got = { value = nil as Types.FieldError? }
   with_request("POST", { body = text, content_type = "application/json" }, function(req: Web.Request)
     local read = Input.json_into(req, ITEM)
     local invalid = read.invalid
@@ -602,10 +602,10 @@ end
 local function test_a_json_pointer_with_escapes_is_one_dotted_field()
   local spec = Shape.record({ ["a/b"] = Shape.record({ ["c~d"] = Shape.integer }) })
   local typed: Shape.Typed<{string:any}> = { spec = spec,
-    into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any} | nil, string
+    into = function(_self: Shape.Typed<{string:any}>, _v: any): {string:any}?, string
       return nil, ""
     end,
-    decode_into = function(_self: Shape.Typed<{string:any}>, _t: string): {string:any} | nil, string
+    decode_into = function(_self: Shape.Typed<{string:any}>, _t: string): {string:any}?, string
       return nil, ""
     end }
   with_request("POST", { json = { ["a/b"] = { ["c~d"] = "x" } } }, function(req: Web.Request)

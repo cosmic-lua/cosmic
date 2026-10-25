@@ -11,7 +11,7 @@ local Fuzz = require("build.fuzz")
 local record Pair
   name: string
   encode: function(string): string
-  decode: function(string): string | nil, string
+  decode: function(string): string?, string
 end
 
 local PAIRS <const>: {Pair} = {
@@ -28,7 +28,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 1) == 0 then
     return Fuzz.bytes(src, 64)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 64) do
     local at = src:int(1, #TEXT)
     out[#out + 1] = TEXT:sub(at, at)

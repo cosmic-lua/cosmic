@@ -37,7 +37,7 @@ end
 
 local compiled <const> = "compiled_v2"
 local parsed <const> = "parsed_v1"
-local bridge <const> = "bridge_v1"
+local bridge <const> = "bridge_v2"
 local declared <const> = "declared_v1"
 local stores <const> = "stores_v1"
 cache_formats.compiled, cache_formats.parsed = compiled, parsed

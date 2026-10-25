@@ -68,10 +68,6 @@ local record closure_store
     --- ([`required_by`]).
     decl_requires: {string:{string}}
   end
-
-  --- Modules a module loads by other means than `require`, by that
-  --- module (`loaded_beside`).
-  loaded_beside: {string:{string}}
 end
 
 --- `value`, bound as TEXT: [`build.bind`]'s `text`, restated rather than
@@ -108,12 +104,12 @@ local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
 --- carries, so one this leaves out is one no test can read, and a test
 --- that types it fails rather than standing. Scanned here rather than taken from the
 --- importer's parse, which the projection does not keep of a
---- declaration: a require of build.analyzer would salt every store's
+--- declaration: a require of [`build.syntax_analyzer`] would salt every store's
 --- address with it ([`build.test`]'s `store_writer`). [`build.tree_checks`]
 --- holds the tree to declarations that require only declarations
 --- (`declared`).
 function closure_store.required_by(source: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, pattern in ipairs({ "require%s*%(?%s*[\"']([%w_%.]+)[\"']",
       "require%s*%(?%s*%[(=*)%[([%w_%.]+)%]%1%]" }) do
     for first, second in source:gmatch(pattern) do
@@ -130,8 +126,8 @@ end
 --- its first NUL, which a blob's hex does not (as [`build.declared_key`]'s
 --- `carried_digest` quotes it).
 local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: string,
-                       order: string): {string:string} | nil, string
-  local quoted: {string} = {}
+                       order: string): {string:string}?, string
+  local quoted: mut {string} = {}
   for i, column in ipairs(columns) do
     quoted[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
       ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
@@ -141,7 +137,7 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
       table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
       "FROM " .. from .. " GROUP BY " .. of)
   if rows == nil then return nil, trouble end
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
   return out, ""
 end
@@ -158,7 +154,7 @@ end
 --- the file is younger than two seconds: a write inside the tick of the
 --- clock that stamped it would leave all of these as they were, so a
 --- basis is kept only of a file already older than that.
-local function memo_token(whole: string): string | nil
+local function memo_token(whole: string): string?
   local st, _ = sys.stat(whole)
   if st == nil then return nil end
   local written = st.mtime * 1000000000 + st.mtime_ns
@@ -171,13 +167,13 @@ end
 
 --- Where a read of a kept basis is, and the basis it made.
 local record Reading
-  at: integer
-  basis: closure_store.Basis | nil
+  mut at: integer
+  mut basis: closure_store.Basis?
 end
 
 --- The basis kept beside `whole` under `token`, or nil where none is, or
 --- it is of another file or another code, or it is not whole.
-local function remembered(whole: string, token: string): closure_store.Basis | nil
+local function remembered(whole: string, token: string): closure_store.Basis?
   local bytes, _ = Fs.read(memo_path(whole))
   if bytes == nil then return nil end
   local data: string = bytes
@@ -208,7 +204,7 @@ local function remembered(whole: string, token: string): closure_store.Basis | n
     for _ = 1, next_count() do
       local path = next_string()
       out.decls[path] = next_string()
-      local required: {string} = {}
+      local required: mut {string} = {}
       for i = 1, next_count() do required[i] = next_string() end
       out.decl_requires[path] = required
     end
@@ -259,11 +255,11 @@ end
 
 --- The basis of the closure stores of the projection at `whole`, read from
 --- every row of it.
-local function read_basis(whole: string): closure_store.Basis | nil, string
+local function read_basis(whole: string): closure_store.Basis?, string
   local opened, trouble = Sqlite.open(whole)
   if opened == nil then return nil, whole .. ": " .. trouble end
   local db: Sqlite.Handle = opened
-  local function read(): closure_store.Basis | nil, string
+  local function read(): closure_store.Basis?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
         "lower(hex(source_hash)) || char(9) || lower(hex(sha256(bytecode))) || char(9) || " ..
@@ -272,8 +268,8 @@ local function read_basis(whole: string): closure_store.Basis | nil, string
     if rows == nil then return nil, rows_trouble end
     -- The rows `closed` carries of each module, as it carries them: by
     -- its path, or, for its examples, by its file.
-    local carried: {{string:string}} = {}
-    local by_file: {boolean} = {}
+    local carried: mut {{string:string}} = {}
+    local by_file: mut {boolean} = {}
     -- The links', the names' and the edges' digests, which a
     -- declaration's line takes too.
     local linked: {string:string} = {}
@@ -291,7 +287,7 @@ local function read_basis(whole: string): closure_store.Basis | nil, string
             "links", "module, symbol, path, anchor, from_file, line, column" },
         { "path", "source", "stubs", "path" },
     }) do
-      local columns: {string} = {}
+      local columns: mut {string} = {}
       for column in group[2]:gmatch("%S+") do columns[#columns + 1] = column end
       local digests, group_trouble = grouped(db, group[1], columns, group[3], group[4])
       if digests == nil then return nil, group_trouble end
@@ -321,7 +317,7 @@ local function read_basis(whole: string): closure_store.Basis | nil, string
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
     }
     for _, row in ipairs(rows) do
-      local line: {string} = { row:text(2) }
+      local line: mut {string} = { row:text(2) }
       for i, digests in ipairs(carried) do
         line[#line + 1] = digests[by_file[i] and row:text(3) or row:text(1)] or ""
       end
@@ -347,7 +343,7 @@ end
 --- from the file beside it where an earlier run kept one of this very
 --- file ([`memo_token`]), which saves hashing every row of the
 --- projection, some half a second for cosmic's own tree.
-function closure_store.basis(whole: string): closure_store.Basis | nil, string
+function closure_store.basis(whole: string): closure_store.Basis?, string
   local token = memo_token(whole)
   if token ~= nil then
     local kept = remembered(whole, token)
@@ -359,20 +355,20 @@ function closure_store.basis(whole: string): closure_store.Basis | nil, string
   return made, ""
 end
 
---- Modules a module loads by other means than `require`, which a
---- closure store carries beside it: build.teal loads the compiler as
---- bytecode (`Store.bytecode("vendor.tl")`), which no parse follows.
-local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
-closure_store.loaded_beside = loaded_beside
+--- Declarations a module reads by other means than `require`, which a closure store carries beside it: the new
+--- checker's declarations of the globals and of the standard library, which [`build.checker_declarations`]'s `carried`
+--- reads by name ([`Store.source`]) for any compile of a project, such as a test's.
+local declared_beside: {string:{string}} = {
+  ["build.checker_declarations"] = { "lang.prelude", "lang.stdlib" },
+}
 
 --- The modules of `basis` a closure store for `names` -- an import
 --- closure's module names ([`test_inputs.modules`]) -- holds, sorted: each
---- that the projection holds, and what each loads beside
---- (`loaded_beside`). A name only a declaration answers for is none:
+--- that the projection holds. A name only a declaration answers for is none:
 --- `declared` answers those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local function add(name: string)
     if seen[name] or basis.modules[name] == nil then return end
     seen[name] = true
@@ -380,7 +376,6 @@ local function stored(basis: closure_store.Basis, names: {string}): {string}
   end
   for _, name in ipairs(names) do
     add(name)
-    for _, beside in ipairs(loaded_beside[name] or {}) do add(beside) end
   end
   table.sort(out)
   return out
@@ -408,10 +403,13 @@ end
 --- (`declarations`) refuses a declaration that requires anything but
 --- a declaration.
 local function declared(basis: closure_store.Basis, names: {string}): {string}
-  local seen: {string:boolean} = {}
-  local out: {string} = {}
-  local stack: {string} = {}
-  for _, name in ipairs(names) do stack[#stack + 1] = name end
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  local stack: mut {string} = {}
+  for _, name in ipairs(names) do
+    stack[#stack + 1] = name
+    for _, beside in ipairs(declared_beside[name] or {}) do stack[#stack + 1] = beside end
+  end
   while #stack > 0 do
     local name = table.remove(stack)
     if not seen[name] and basis.decls[name] ~= nil then
@@ -430,7 +428,7 @@ end
 --- of them is longest names the module its examples are about.
 local function candidates(basis: closure_store.Basis, name: string): {string}
   local stem = name:sub(1, #name - #"_example")
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, path in ipairs(basis.pairable) do
     if path == stem or String.starts_with(stem, path .. "_") then out[#out + 1] = path end
   end
@@ -472,7 +470,7 @@ end
 --- -- name stores of the same bytes, which a key holds alike.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string): string
-  local lines: {string} = { basis.shared, salt }
+  local lines: mut {string} = { basis.shared, salt }
   for _, name in ipairs(stored(basis, names)) do
     lines[#lines + 1] = digest_of_line(basis.modules[name])
     if basis.kinds[name] == "example" then
@@ -492,7 +490,7 @@ end
 --- files among them; the declarations `temp.declared` names
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
---- [`build.compilation`] reads of a standard-library module on a sealed
+--- [`build.plans`] reads of a standard-library module on a sealed
 --- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
@@ -519,8 +517,8 @@ local function closed(uses_from: string): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
-    -- The stubs ([`build.stub`]) of its standard-library modules, which a
-    -- checker run in the worker ([`teal.standard_text`]) reads as a
+    -- The stubs (build.stub) of its standard-library modules, which a
+    -- checker run in the worker (teal.standard_text) reads as a
     -- project's does.
     "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.wanted ORDER BY path",
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..
@@ -615,7 +613,7 @@ end
 function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
-    local statements: {string} = {}
+    local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
     for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"

@@ -237,7 +237,7 @@ local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp:
   local database, other = tmp .. "/sealed.db", tmp .. "/other.db"
   assert(Fs.write(database, "a regular file"))
   assert(Fs.write(other, "another one"))
-  local paths: {string:Seatbelt.Path} = {
+  local paths: mut {string:Seatbelt.Path} = {
     ["/core"] = { path = "/private/core", directory = false },
     [database] = { path = database, directory = false },
     [other] = { path = other, directory = false },
@@ -256,7 +256,7 @@ end
 
 --- What a policy reaches on macOS is macOS's "system" list, not Linux's.
 local function test_the_grants_a_policy_reaches_are_macoss_own()
-  local held: {string:string} = {}
+  local held: mut {string:string} = {}
   for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
       grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
   assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
@@ -272,7 +272,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   local profile = rules.system_profile("darwin", function(_: string): boolean return true end)
   local merged = assert(Sandbox.merge(profile))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
-  local paths: {string:Seatbelt.Path} = {}
+  local paths: mut {string:Seatbelt.Path} = {}
   for _, grant in ipairs(Seatbelt.grants(raw)) do
     paths[grant.path] = { path = "/real" .. grant.path, directory = true }
   end
@@ -280,7 +280,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
   assert(want.parameters.PATH_1 ~= nil)
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
-    local seen: {string:string} = {}
+    local seen: mut {string:string} = {}
     for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
     assert(seen["/System/Library"] == "rx" and seen["/sbin"] == "rx" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")

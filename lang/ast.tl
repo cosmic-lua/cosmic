@@ -24,14 +24,13 @@
 --- deep as its source nests, and as a chain of `a + a + ...` is long, so a
 --- recursive walker can overflow the stack where [`Ast.number`] does not.
 
--- TODO: at the switch, replace each `where` clause with the single-member enum tag the
--- plan's tagged unions use, write each test `n is Ast.Local` of a node (here and in every
--- module that imports this one) as a tag test or a `match` in the same change, and read the
--- nodes in `number` and `children` by their kinds in place of as `{string: any}`
--- (doc/plans/strict-teal.md, "the switch"): the new code generator writes a test `is` of a
--- record as one for a table once the clause is gone, and of a union of unions as well. The
--- pinned release is the fork's, which discriminates only by a `where` clause, so nothing
--- earlier makes this due.
+-- TODO: replace each blanked `where` clause of a record here with the single-member enum tag the plan's tagged
+-- unions use, write each test `n.kind == "Local"` of a node (here and in every module that imports this one, about 900
+-- sites with their tests) as a tag test or a `match`, and read the nodes in `number` and `children` by their kinds in
+-- place of as `{string: any}`: the translation of the tree dropped the clauses and wrote each test `n is Ast.Local` as a
+-- compare of `kind`, since the code generator writes a test `is` of a record as one for a table once the clause is gone,
+-- and of a union of unions as well. Waits on a change of its own that rewrites those sites together (the switch
+-- landed without it, doc/plans/strict-teal.md, "the switch"); no ceiling pins them.
 local Lexer = require("lang.lexer")
 
 local record Ast
@@ -98,7 +97,7 @@ local record Ast
   end
 
   record Chunk is Base
-    where self.kind == "Chunk"
+
     body: Block
     tokens: Lexer.Tokens
     requires: {Require}
@@ -123,95 +122,95 @@ local record Ast
   --- Its last token is the one that ended it: `end`, `else`, `elseif`,
   --- `until`, `}`-less, or the `$EOF$` of the chunk. `close` is that token's index.
   record Block is Base
-    where self.kind == "Block"
+
     stats: {Stat}
     close: integer
   end
 
   record Local is Base
-    where self.kind == "Local"
+
     scope: Scope
     bindings: {Binding}
     types: {Type}
     values: {Exp}
   end
   record LocalFunction is Base
-    where self.kind == "LocalFunction"
+
     name: Binding
     typeparams: {TypeParam}
     fn: Fn
   end
   --- `function R.m(...)`: `path` is `R` and `m`. Its `doc` is the doc comment of the statement.
   record Function is Base
-    where self.kind == "Function"
+
     path: {Name}
     typeparams: {TypeParam}
     fn: Fn
     doc?: {Lexer.Comment}
   end
   record Assign is Base
-    where self.kind == "Assign"
+
     targets: {Exp}
     values: {Exp}
   end
   record CallStat is Base
-    where self.kind == "CallStat"
+
     call: CallExp
   end
   record Return is Base
-    where self.kind == "Return"
+
     values: {Exp}
   end
   record Do is Base
-    where self.kind == "Do"
+
     body: Block
   end
   record Break is Base
-    where self.kind == "Break"
+
   end
   record Continue is Base
-    where self.kind == "Continue"
+
   end
   record While is Base
-    where self.kind == "While"
+
     cond: Exp
     body: Block
   end
   record Repeat is Base
-    where self.kind == "Repeat"
+
     body: Block
     cond: Exp
   end
   record If is Base
-    where self.kind == "If"
+
     arms: {Arm}
     else_body?: Block
   end
   record Arm is Base
-    where self.kind == "Arm"
+
     cond: Exp
     body: Block
   end
   record Match is Base
-    where self.kind == "Match"
+
     scrutinee: CallExp
     arms: {MatchArm}
   end
   record MatchArm is Base
-    where self.kind == "MatchArm"
+
     pats: {PatItem}
     body: Block
   end
   record PatBool is Base
-    where self.kind == "PatBool"
+
     value: boolean
   end
   record PatBind is Base
-    where self.kind == "PatBind"
+
     name: Binding
   end
   record ForNum is Base
-    where self.kind == "ForNum"
+
     var: Binding
     from: Exp
     to: Exp
@@ -219,118 +218,118 @@ local record Ast
     body: Block
   end
   record ForIn is Base
-    where self.kind == "ForIn"
+
     vars: {Binding}
     iterators: {Exp}
     body: Block
   end
 
   record Name is Base
-    where self.kind == "Name"
+
     text: string
     --- The id of the [`Binding`] it refers to, set by the scope builder.
     binding?: integer
   end
   record Nil is Base
-    where self.kind == "Nil"
+
   end
   record Boolean is Base
-    where self.kind == "Boolean"
+
     value: boolean
   end
   record Integer is Base
-    where self.kind == "Integer"
+
     value: integer
   end
   record Float is Base
-    where self.kind == "Float"
+
     value: number
   end
   record String is Base
-    where self.kind == "String"
+
     --- The decoded contents.
     value: string
     long: boolean
   end
   record Vararg is Base
-    where self.kind == "Vararg"
+
   end
   record Paren is Base
-    where self.kind == "Paren"
+
     inner: Exp
   end
   record FunctionLit is Base
-    where self.kind == "FunctionLit"
+
     fn: Fn
   end
   record Table is Base
-    where self.kind == "Table"
+
     items: {Item}
   end
   record Positional is Base
-    where self.kind == "Positional"
+
     value: Exp
   end
   record Named is Base
-    where self.kind == "Named"
+
     name: string
     value: Exp
   end
   record Keyed is Base
-    where self.kind == "Keyed"
+
     key: Exp
     value: Exp
   end
   record Field is Base
-    where self.kind == "Field"
+
     object: Exp
     name: string
   end
   record Index is Base
-    where self.kind == "Index"
+
     object: Exp
     key: Exp
   end
   record Call is Base
-    where self.kind == "Call"
+
     callee: Exp
     args: {Exp}
   end
   record MethodCall is Base
-    where self.kind == "MethodCall"
+
     object: Exp
     name: string
     args: {Exp}
   end
   record Unary is Base
-    where self.kind == "Unary"
+
     op: UnaryOp
     operand: Exp
   end
   record Binary is Base
-    where self.kind == "Binary"
+
     op: BinaryOp
     left: Exp
     right: Exp
   end
   record IsTest is Base
-    where self.kind == "IsTest"
+
     value: Exp
     type: Type
   end
   --- The transition form `e as T`. The checker refuses it.
   record Cast is Base
-    where self.kind == "Cast"
+
     value: Exp
     type: Type
   end
   record IfExp is Base
-    where self.kind == "IfExp"
+
     arms: {ExpArm}
     else_value: Exp
   end
   record ExpArm is Base
-    where self.kind == "ExpArm"
+
     cond: Exp
     value: Exp
   end
@@ -338,7 +337,7 @@ local record Ast
   --- A function's parameters, return list and body. `rets` is nil where the
   --- source has no return list.
   record Fn is Base
-    where self.kind == "Fn"
+
     params: {Param}
     rets?: Rets
     body: Block
@@ -346,70 +345,70 @@ local record Ast
   --- Two or more `lists` are a union of value lists. `variadic` marks a
   --- trailing `T...` on the one list.
   record Rets is Base
-    where self.kind == "Rets"
+
     lists: {{RType}}
     variadic: boolean
   end
   --- `name` is nil for the rest parameter `...: T`, which has `variadic`.
   record Param is Base
-    where self.kind == "Param"
+
     name?: Binding
     optional: boolean
     type?: Type
     variadic: boolean
   end
   record Binding is Base
-    where self.kind == "Binding"
+
     name: string
     attr?: Attr
     doc?: {Lexer.Comment}
   end
 
   record TypeName is Base
-    where self.kind == "TypeName"
+
     path: {string}
     args: {Type}
   end
   record TypeBool is Base
-    where self.kind == "TypeBool"
+
     value: boolean
   end
   record TypeNil is Base
-    where self.kind == "TypeNil"
+
   end
   record TypeError is Base
-    where self.kind == "TypeError"
+
   end
   record TypeArray is Base
-    where self.kind == "TypeArray"
+
     element: Type
   end
   record TypeMap is Base
-    where self.kind == "TypeMap"
+
     key: Type
     value: Type
   end
   record TypeUnion is Base
-    where self.kind == "TypeUnion"
+
     members: {Type}
   end
   record TypeOptional is Base
-    where self.kind == "TypeOptional"
+
     inner: Type
   end
   record TypeMut is Base
-    where self.kind == "TypeMut"
+
     inner: Type
   end
   record TypeFunction is Base
-    where self.kind == "TypeFunction"
+
     typeparams: {TypeParam}
     params: {PType}
     rets?: Rets
   end
   --- A parameter of a function type. `name` is nil where only the type is written.
   record PType is Base
-    where self.kind == "PType"
+
     name?: string
     optional: boolean
     variadic: boolean
@@ -417,20 +416,20 @@ local record Ast
   end
   --- A return item `v is T` or `asserts v is T`.
   record Narrows is Base
-    where self.kind == "Narrows"
+
     param: string
     type: Type
     asserts: boolean
   end
   record TypeParam is Base
-    where self.kind == "TypeParam"
+
     name: Binding
     constraint?: TypeName
   end
 
   --- `is` names the array part (`record Node is {Node}`) or the one interface.
   record Record is Base
-    where self.kind == "Record"
+
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
@@ -439,7 +438,7 @@ local record Ast
     members: {Member}
   end
   record Interface is Base
-    where self.kind == "Interface"
+
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
@@ -447,7 +446,7 @@ local record Ast
     members: {Member}
   end
   record Class is Base
-    where self.kind == "Class"
+
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
@@ -455,19 +454,19 @@ local record Ast
     members: {Member}
   end
   record Enum is Base
-    where self.kind == "Enum"
+
     scope?: Scope
     name: Binding
     values: {EnumValue}
   end
   record EnumValue is Base
-    where self.kind == "EnumValue"
+
     value: string
     doc?: {Lexer.Comment}
   end
   --- `type Name = T`, the draft's `Alias` kind. The record is [`TypeAlias`], which names no other type of the tree.
   record TypeAlias is Base
-    where self.kind == "Alias"
+
     scope?: Scope
     name: Binding
     typeparams: {TypeParam}
@@ -475,13 +474,13 @@ local record Ast
   end
   --- `type name = require("module")`.
   record Import is Base
-    where self.kind == "Import"
+
     scope?: Scope
     name: Binding
     module: string
   end
   record FieldDecl is Base
-    where self.kind == "FieldDecl"
+
     name: Binding
     mut: boolean
     omittable: boolean
@@ -490,7 +489,7 @@ local record Ast
   end
   --- A method of a class. `params` begins with `self`.
   record Method is Base
-    where self.kind == "Method"
+
     name: Binding
     params: {Param}
     rets?: Rets
@@ -498,11 +497,11 @@ local record Ast
     doc?: {Lexer.Comment}
   end
   record Userdata is Base
-    where self.kind == "Userdata"
+
   end
   --- The tokens a failed production skipped; the parser reports why.
   record Error is Base
-    where self.kind == "Error"
+
   end
 
   type Stat = Local | LocalFunction | Function | Assign | CallStat | Return | Do | Break | Continue |
@@ -584,8 +583,8 @@ local SPEC <const>: {string: string} = {
 Ast.fields = {}
 Ast.depths = {}
 for kind, spec in pairs(SPEC) do
-  local names: {string} = {}
-  local depths: {integer} = {}
+  local names: mut {string} = {}
+  local depths: mut {integer} = {}
   for name, stars in spec:gmatch("([%w_]+)(%*?%*?)") do
     names[#names + 1] = name
     depths[#depths + 1] = #stars
@@ -597,7 +596,7 @@ end
 local fields, depths = Ast.fields, Ast.depths
 
 --- Pushes the nodes of `value`, which is a node, a list of nodes or, `depth` 2, of lists, last first.
-local function push(stack: {{string: any}}, top: integer, value: {any}, depth: integer): integer
+local function push(stack: mut {{string: any}}, top: integer, value: {any}, depth: integer): integer
   for i = #value, 1, -1 do
     local item = value[i]
     if depth == 1 then
@@ -613,7 +612,7 @@ local function push(stack: {{string: any}}, top: integer, value: {any}, depth: i
 end
 
 local function number(root: any): integer
-  local stack: {{string: any}} = {}
+  local stack: mut {{string: any}} = {}
   local top = 0
   if root is {string: any} then
     top = 1
@@ -656,7 +655,7 @@ local function visit_list(list: {any}, depth: integer, visit: function(Ast.Node)
   for i = 1, #list do
     local item = list[i]
     if depth == 1 then
-      if item is Ast.Node then
+      if (item.kind == "Chunk" or item.kind == "Block" or item.kind == "Local" or item.kind == "LocalFunction" or item.kind == "Function" or item.kind == "Assign" or item.kind == "CallStat" or item.kind == "Return" or item.kind == "Do" or item.kind == "Break" or item.kind == "Continue" or item.kind == "While" or item.kind == "Repeat" or item.kind == "If" or item.kind == "Arm" or item.kind == "Match" or item.kind == "MatchArm" or item.kind == "PatBool" or item.kind == "PatBind" or item.kind == "ForNum" or item.kind == "ForIn" or item.kind == "Name" or item.kind == "Nil" or item.kind == "Boolean" or item.kind == "Integer" or item.kind == "Float" or item.kind == "String" or item.kind == "Vararg" or item.kind == "Paren" or item.kind == "FunctionLit" or item.kind == "Table" or item.kind == "Positional" or item.kind == "Named" or item.kind == "Keyed" or item.kind == "Field" or item.kind == "Index" or item.kind == "Call" or item.kind == "MethodCall" or item.kind == "Unary" or item.kind == "Binary" or item.kind == "IsTest" or item.kind == "Cast" or item.kind == "IfExp" or item.kind == "ExpArm" or item.kind == "Fn" or item.kind == "Rets" or item.kind == "Param" or item.kind == "Binding" or item.kind == "TypeName" or item.kind == "TypeBool" or item.kind == "TypeNil" or item.kind == "TypeError" or item.kind == "TypeArray" or item.kind == "TypeMap" or item.kind == "TypeUnion" or item.kind == "TypeOptional" or item.kind == "TypeMut" or item.kind == "TypeFunction" or item.kind == "PType" or item.kind == "Narrows" or item.kind == "TypeParam" or item.kind == "Record" or item.kind == "Interface" or item.kind == "Class" or item.kind == "Enum" or item.kind == "EnumValue" or item.kind == "Alias" or item.kind == "Import" or item.kind == "FieldDecl" or item.kind == "Method" or item.kind == "Userdata" or item.kind == "Error") then
         visit(item)
       end
     elseif item is {any} then
@@ -675,7 +674,7 @@ local function children_of(owner: {string: any}, visit: function(Ast.Node))
     local value = owner[names[i]]
     if type(value) == "table" then
       if depth[i] == 0 then
-        if value is Ast.Node then
+        if (value.kind == "Chunk" or value.kind == "Block" or value.kind == "Local" or value.kind == "LocalFunction" or value.kind == "Function" or value.kind == "Assign" or value.kind == "CallStat" or value.kind == "Return" or value.kind == "Do" or value.kind == "Break" or value.kind == "Continue" or value.kind == "While" or value.kind == "Repeat" or value.kind == "If" or value.kind == "Arm" or value.kind == "Match" or value.kind == "MatchArm" or value.kind == "PatBool" or value.kind == "PatBind" or value.kind == "ForNum" or value.kind == "ForIn" or value.kind == "Name" or value.kind == "Nil" or value.kind == "Boolean" or value.kind == "Integer" or value.kind == "Float" or value.kind == "String" or value.kind == "Vararg" or value.kind == "Paren" or value.kind == "FunctionLit" or value.kind == "Table" or value.kind == "Positional" or value.kind == "Named" or value.kind == "Keyed" or value.kind == "Field" or value.kind == "Index" or value.kind == "Call" or value.kind == "MethodCall" or value.kind == "Unary" or value.kind == "Binary" or value.kind == "IsTest" or value.kind == "Cast" or value.kind == "IfExp" or value.kind == "ExpArm" or value.kind == "Fn" or value.kind == "Rets" or value.kind == "Param" or value.kind == "Binding" or value.kind == "TypeName" or value.kind == "TypeBool" or value.kind == "TypeNil" or value.kind == "TypeError" or value.kind == "TypeArray" or value.kind == "TypeMap" or value.kind == "TypeUnion" or value.kind == "TypeOptional" or value.kind == "TypeMut" or value.kind == "TypeFunction" or value.kind == "PType" or value.kind == "Narrows" or value.kind == "TypeParam" or value.kind == "Record" or value.kind == "Interface" or value.kind == "Class" or value.kind == "Enum" or value.kind == "EnumValue" or value.kind == "Alias" or value.kind == "Import" or value.kind == "FieldDecl" or value.kind == "Method" or value.kind == "Userdata" or value.kind == "Error") then
           visit(value)
         end
       elseif value is {any} then

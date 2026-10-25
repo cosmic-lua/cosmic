@@ -67,7 +67,7 @@ end
 --- `concat` joins pieces in one pass; `trust` is the one door that
 --- does not escape, for markup the program wrote.
 function Example.concat()
-  local items: {Html.SafeHtml} = {}
+  local items: mut {Html.SafeHtml} = {}
   for _, name in ipairs({ "Fish & Chips", "Bread <3" }) do
     items[#items + 1] = Html.concat({ Html.trust("<li>"), Html.escape(name), Html.trust("</li>") })
   end

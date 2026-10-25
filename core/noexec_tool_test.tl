@@ -61,7 +61,7 @@ local function test_noexec_is_inherited_through_an_explicit_child_sandbox(tmp: s
   })
   assert(result ~= nil, trouble)
   assert(result.ok, result.stderr)
-  local raw: raw_process | nil = nil
+  local raw: raw_process? = nil
   for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then raw = extra as raw_process end -- cast: the table core/process.h declares

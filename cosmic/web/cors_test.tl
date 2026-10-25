@@ -12,7 +12,7 @@ local shared: Web.Response = { status = 200, headers = { ["Content-Type"] = "tex
   body = "shared" }
 
 local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
-  local stack: {Web.Middleware} = { Cors.middleware(opts) }
+  local stack: mut {Web.Middleware} = { Cors.middleware(opts) }
   for _, each in ipairs(more or {}) do stack[#stack + 1] = each end
   return Web.app{
     sink = { line = function(_self: Web.Sink, _text: string) end },
@@ -42,15 +42,15 @@ local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
   }
 end
 
-local function get(client: Web.TestClient, origin: string | nil, path?: string): Web.TestResponse
-  local headers: {string:string} = {}
+local function get(client: Web.TestClient, origin: string?, path?: string): Web.TestResponse
+  local headers: mut {string:string} = {}
   if origin ~= nil then headers["Origin"] = origin end
   return client:get(path or "/data", { headers = headers })
 end
 
-local function preflight(client: Web.TestClient, origin: string, method: string | nil,
+local function preflight(client: Web.TestClient, origin: string, method: string?,
                          asked?: string): Web.TestResponse
-  local headers: {string:string} = { Origin = origin }
+  local headers: mut {string:string} = { Origin = origin }
   if method ~= nil then headers["Access-Control-Request-Method"] = method end
   if asked ~= nil then headers["Access-Control-Request-Headers"] = asked end
   return client:options("/save", { headers = headers })

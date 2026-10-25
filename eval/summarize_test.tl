@@ -279,7 +279,7 @@ local function test_a_mention_of_the_repository_or_skills_is_contamination()
     call("3", "Write", { file_path = "x", content = "see ~/.claude/plugins" }),
   })
   local report = Summarize.report(text, arena, repo)
-  local marks: {string} = {}
+  local marks: mut {string} = {}
   for mark in report:gmatch("CONTAMINATION: a tool call named ([^\n]+)") do
     marks[#marks + 1] = mark
   end

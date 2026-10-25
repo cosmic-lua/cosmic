@@ -19,9 +19,9 @@
 local String = require("cosmic.string")
 
 local record Modifiers
-  continue: boolean
-  file: string | nil
-  skip: string | nil
+  mut continue: boolean
+  mut file: string?
+  mut skip: string?
 end
 
 local record Block
@@ -59,8 +59,8 @@ end
 ---   fallible return admits at most two slots, and there is no single
 ---   value here to carry the other in
 --- @return string why `info` was refused
-local function parse_tag(info: string): Tag | nil, string
-  local words: {string} = {}
+local function parse_tag(info: string): Tag?, string
+  local words: mut {string} = {}
   for word in info:gmatch("%S+") do
     words[#words + 1] = word
   end
@@ -102,7 +102,7 @@ end
 
 --- The column-0 fence opening `line`, including its marker, run length,
 --- and info string, or nil when the line is not an opener.
-local function open_fence(line: string): Fence | nil
+local function open_fence(line: string): Fence?
   local run, info = line:match("^(```+)(.*)$")
   if run == nil then
     run, info = line:match("^(~~~+)(.*)$")
@@ -116,7 +116,7 @@ end
 --- Whether `line` closes `fence`: only whitespace may surround a same-marker
 --- run at least as long as the opening run.
 local function closes_fence(line: string, fence: Fence): boolean
-  local run: string | nil
+  local run: string?
   if fence.marker == "`" then
     run = line:match("^%s*(```+)%s*$")
   else
@@ -144,12 +144,12 @@ end
 ---   one this grammar knows, or a line looks like an indented fence
 ---   this grammar does not support
 --- @return string why, naming the source line
-function markdown.parse_blocks(source: string): {Block} | nil, string
-  local lines: {string} = {}
+function markdown.parse_blocks(source: string): {Block}?, string
+  local lines: mut {string} = {}
   for line in String.lines(source) do
     lines[#lines + 1] = line
   end
-  local blocks: {Block} = {}
+  local blocks: mut {Block} = {}
   local i = 1
   while i <= #lines do
     local fence = open_fence(lines[i])
@@ -176,7 +176,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       i = i + 1
     else
       local open_line = i
-      local content_lines: {string} = {}
+      local content_lines: mut {string} = {}
       local j = i + 1
       local closed = false
       while j <= #lines do

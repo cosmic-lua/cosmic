@@ -42,7 +42,7 @@ local COMPRESSIBLE <const>: {string:boolean} = {
 
 --- The lowercase extension of the last component of `path`, without its dot;
 --- nil for a name with none (a leading dot alone is no extension).
-local function extension(path: string): string | nil
+local function extension(path: string): string?
   local name = path:match("([^/]*)$")
   local ext = name:match("^.+%.([^.]*)$")
   if ext == nil or ext == "" then return nil end
@@ -85,7 +85,7 @@ local GZIP_MIN <const> = 1024
 --- @param path string A file name or path
 --- @param data string The file's bytes
 --- @return string | nil The gzip, or nil
-function Mime.gzip(path: string, data: string): string | nil
+function Mime.gzip(path: string, data: string): string?
   local ext = extension(path)
   if ext == nil or #data <= GZIP_MIN then return nil end
   local kind = TYPES[ext]

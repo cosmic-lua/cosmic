@@ -52,7 +52,7 @@ function Fuzz.discover(root: string): {string}
   local found = assert(Fs.walk(root, function(entry: string, _name: string, _kind: sys.Kind): boolean
     return pruned[entry] == true
   end))
-  local tests: {string} = {}
+  local tests: mut {string} = {}
   for _, entry in ipairs(found) do
     local name = Fs.basename(entry)
     if String.ends_with(name, suffix) then
@@ -65,7 +65,7 @@ end
 
 --- Up to `limit` of `from`, a line each.
 local function joined(from: {string}, limit: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, line in ipairs(from) do
     if i > limit then break end
     out[#out + 1] = line .. "\n"
@@ -75,7 +75,7 @@ end
 
 --- How many bytes of the line being read [`each_line`] has kept.
 local record Taken
-  length: integer
+  mut length: integer
 end
 
 --- Calls `each` with every line `next_chunk` answers, as grep reads them
@@ -84,7 +84,7 @@ end
 --- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean)
-  local line: {string} = {}
+  local line: mut {string} = {}
   local taken: Taken = { length = 0 }
   local function add(piece: string)
     if taken.length < cut and #piece > 0 then
@@ -124,8 +124,8 @@ end
 --- time from `next_chunk` until it answers "": every failing test's
 --- line first, then the reports beneath them, bounded.
 function Fuzz.failure(next_chunk: function(): string, seed: string): string
-  local failing: {string} = {}
-  local reports: {string} = {}
+  local failing: mut {string} = {}
+  local reports: mut {string} = {}
   each_line(next_chunk, function(line: string): boolean
     if (line:sub(1, 10) == "test: FAIL" or line:match("^test: %d+ of %d+ tests? failed, ") ~= nil) and
         #failing < failing_lines then
@@ -164,14 +164,14 @@ end
 
 --- The lines [`Fuzz.tail`] has read, kept where the function that reads them under `pcall` can add to them.
 local record Tailed
-  lines: {string}
+  lines: mut {string}
 end
 
 --- The last `tail_lines` lines of the file at `path`, as `tail -n` and
 --- `cut` answer them, or nil when there is no such file. It reads the
 --- file backwards from its end only as far as those lines begin, and
 --- then only each one's first `cut` bytes.
-function Fuzz.tail(path: string): {string} | nil
+function Fuzz.tail(path: string): {string}?
   local opened, _ = Fs.open_read(path)
   if opened == nil then return nil end
   local fd: integer = opened
@@ -186,7 +186,7 @@ function Fuzz.tail(path: string): {string} | nil
     -- excluded, the last line first.
     local stop = size
     if at(size - 1, 1) == "\n" then stop = size - 1 end
-    local spans: {Span} = {}
+    local spans: mut {Span} = {}
     local block_end = stop
     while #spans < tail_lines do
       if block_end == 0 then
@@ -224,7 +224,7 @@ end
 
 --- What a cancelled run's summary says: the end of the output the run
 --- kept, as [`Fuzz.tail`] answers it, or none when it kept none.
-function Fuzz.cancelled_summary(tail: {string} | nil): string
+function Fuzz.cancelled_summary(tail: {string}?): string
   return "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
     " a property\nthat hangs is the likeliest cause. The end of its output:\n\n" ..
     "~~~~\n" .. joined(tail or {}, tail_lines) .. "~~~~\n"
@@ -233,9 +233,9 @@ end
 --- What [`streamed`] learns of the run, kept where the functions that run it under `pcall` can set it.
 local record Streamed
   --- The child's exit status, once it is known.
-  status?: integer
+  mut status?: integer
   --- Why the output is not whole, "" when it is.
-  trouble: string
+  mut trouble: string
 end
 
 --- Keeps merged output in `out` and offers it to `log` as it arrives.
@@ -263,7 +263,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     -- [`Child.Handle`] as a class: a `<close>` local must be one.
     local handle = started
     local function supervise(): string
-      local deadline: integer | nil = nil
+      local deadline: integer? = nil
       local eof = false
       while true do
         local signal = guard:take()
@@ -318,7 +318,7 @@ end
 
 --- A failed run's summary, kept where the function that makes it under `pcall` can set it.
 local record Failed
-  text: string
+  mut text: string
 end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing
@@ -331,12 +331,12 @@ function Fuzz.execute(r: Fuzz.Run): integer
   -- shrunk input it kept (build/test.tl's sweep).
   local scratch = r.temp .. "/fuzz"
   assert(Fs.mkdirs(scratch))
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for name, value in pairs(r.env) do env[name] = value end
   env["TMPDIR"] = scratch
   env["COSMIC_AUTO_BOOT"] = "0"
   env["COSMIC_TEST_TIMEOUT"] = "1200"
-  local argv: {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
+  local argv: mut {string} = { BuildPaths.directory(r.root, env) .. executable, "test", "--all" }
   for _, test in ipairs(Fuzz.discover(r.root)) do argv[#argv + 1] = test end
   local out = r.temp .. "/fuzz.out"
   -- Streamed to the log as it runs, and kept for the summary: a run

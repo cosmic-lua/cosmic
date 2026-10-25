@@ -13,8 +13,9 @@ local function test_a_position_counts_utf16_units_or_bytes()
   assert(lines.byte_of('"😀x"', 3, "utf-16") == 6)
 end
 
-local function test_the_checker_counts_lines_at_a_newline_alone()
-  local starts = lines.checker_starts("a\r\nb\rc\n")
-  assert(#starts == 3 and starts[2] == 4 and starts[3] == 8,
-    tostring(#starts) .. ": " .. tostring(starts[2]) .. "," .. tostring(starts[3]))
+local function test_the_checker_counts_lines_as_its_lexer_does()
+  -- "\r\n" and "\n\r" are one break each, a lone "\r" and a lone "\n" are one.
+  local starts = lines.checker_starts("a\r\nb\rc\nd\n\re")
+  assert(#starts == 5 and starts[2] == 4 and starts[3] == 6 and starts[4] == 8 and starts[5] == 11,
+    table.concat(starts, ","))
 end

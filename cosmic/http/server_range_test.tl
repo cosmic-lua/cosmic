@@ -6,7 +6,7 @@ local Server = require("cosmic.http.server")
 
 --- What `Server.range(header, size)` answers, as text: "whole",
 --- "unsatisfiable", or the span's "first-last".
-local function ranged(header: string | nil, size: integer): string
+local function ranged(header: string?, size: integer): string
   local r = Server.range(header, size)
   if r.kind == "span" then return ("%d-%d"):format(r.first, r.last) end
   assert(r.first == nil and r.last == nil, "a bound set for " .. r.kind)

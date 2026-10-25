@@ -14,14 +14,14 @@ local NS <const> = 1000000000
 local NOW <const> = 1772971200 * NS + 123456789
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One run of `cosmic time` with `words`, the clock at NOW and Tokyo the host's zone.
 local function run(words: {string}, writes?: boolean): Ran
-  local argv: {string} = { "time" }
+  local argv: mut {string} = { "time" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = time_verb.run(argv, {
@@ -32,7 +32,7 @@ local function run(words: {string}, writes?: boolean): Ran
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     now = function(): integer return NOW end,
-    local_zone = function(): Time.Zone | nil, string
+    local_zone = function(): Time.Zone?, string
       return Time.zone("Asia/Tokyo")
     end,
   })
@@ -90,7 +90,7 @@ end
 
 local function test_a_time_in_a_gap_lands_after_it_by_default()
   local function gap(...: string): string
-    local words: {string} = { "convert", "2026-03-08T02:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-03-08T02:30", "--from", "America/New_York", "--to", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -106,7 +106,7 @@ end
 
 local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   local function overlap(...: string): string
-    local words: {string} = { "convert", "2026-11-01T01:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-11-01T01:30", "--from", "America/New_York", "--to", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -162,7 +162,7 @@ end
 --- two hours go by while the date moves from the 29th to the 31st.
 local function test_between_across_a_day_a_zone_skipped()
   local function between(...: string): string
-    local words: {string} = { "between", "2011-12-29T23:00", "2011-12-31T01:00", "--zone", "Pacific/Apia" }
+    local words: mut {string} = { "between", "2011-12-29T23:00", "2011-12-31T01:00", "--zone", "Pacific/Apia" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -384,7 +384,7 @@ end
 
 local function test_a_gap_and_an_overlap_are_resolved_as_asked()
   local ny = assert(Time.zone("America/New_York"))
-  local function read(text: string, how?: Time.Disambiguation): integer | nil, string
+  local function read(text: string, how?: Time.Disambiguation): integer?, string
     local got, why = time_verb.parse_input(text, ny, how)
     if got == nil then return nil, why end
     return got.ns, ""

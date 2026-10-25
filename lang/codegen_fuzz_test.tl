@@ -4,6 +4,7 @@
 --- Lua the fork writes for the Teal ([`build.compile`]'s `lua`), line for line, once the layout of a `continue`
 --- is set aside. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Codegen = require("lang.codegen")
+local Forked = require("lang.forked")
 local Fuzz = require("build.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -12,19 +13,24 @@ local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
-local compile = require("build.compile")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
 
-Test.policy{}
+Test.policy{ grants = { { path = "testdata/forked/codegen_fuzz.txt", letters = "r" } } }
 
-local held: {compiler} = {}
+--- What the fork wrote of each program the properties drew from `FUZZ_SEED=1`, recorded from the tool of main before the
+--- switch ([`lang.forked`]): a draw of any other seed has no text of the fork's to be held to.
+local record Held
+  mut kept: {string: Forked.Said}?
+end
 
-local function fork(): compiler
-  if held[1] == nil then
-    held[1] = assert(teal.load(true))
+local held: Held = { kept = nil }
+
+local function forked(): {string: Forked.Said}
+  local kept = held.kept
+  if kept == nil then
+    kept = Forked.load("testdata/forked/codegen_fuzz.txt")
+    held.kept = kept
   end
-  return held[1]
+  return kept
 end
 
 local NAMES <const>: {string} = { "a", "b", "c", "d", "t", "u", "f", "g" }
@@ -37,14 +43,14 @@ local FIELDS <const>: {string} = { "x", "y", "len", "match", "end_", "name" }
 
 local record Gen
   src: Fuzz.Source
-  out: {string}
+  out: mut {string}
   --- For each loop being written, innermost last, whether its body ends with the label `continue` jumps to.
-  labels: {boolean}
+  labels: mut {boolean}
   --- Whether the draw may break a line before the token about to be written.
   breaks: boolean
   --- How many comparisons the expression being written is under: the fork writes `a < b is T` as `a < type(b) == "T"`,
   --- which is no test of `b`, and the generator parenthesizes it, so no test is drawn there.
-  comparing: integer
+  mut comparing: integer
 end
 
 --- A token written to the program. A line break may stand before it in place of the blank, except before a token a
@@ -140,7 +146,7 @@ end
 
 --- A prefix expression: what a suffix may follow.
 local function gen_prefix(g: Gen, depth: integer)
-  local k = g.src:int(1, depth > 0 and 7 or 2)
+  local k = g.src:int(1, if depth > 0 then 7 else 2 end)
   if k <= 2 then
     add(g, pick(g, NAMES))
   elseif k == 3 then
@@ -173,7 +179,7 @@ local function gen_prefix(g: Gen, depth: integer)
 end
 
 gen_exp = function(g: Gen, depth: integer)
-  local k = g.src:int(1, depth > 0 and 16 or 6)
+  local k = g.src:int(1, if depth > 0 then 16 else 6 end)
   if k <= 3 then
     gen_prefix(g, depth)
   elseif k == 4 then
@@ -185,11 +191,11 @@ gen_exp = function(g: Gen, depth: integer)
   elseif k == 7 then
     local op = pick(g, BINARY)
     local comparison = op == "<" or op == ">" or op == "<=" or op == ">=" or op == "~=" or op == "=="
-    g.comparing = g.comparing + (comparison and 1 or 0)
+    g.comparing = g.comparing + (if comparison then 1 else 0 end)
     gen_exp(g, depth - 1)
     add(g, op)
     gen_exp(g, depth - 1)
-    g.comparing = g.comparing - (comparison and 1 or 0)
+    g.comparing = g.comparing - (if comparison then 1 else 0 end)
   elseif k == 8 then
     add(g, pick(g, { "not", "#", "~" }))
     gen_exp(g, depth - 1)
@@ -216,11 +222,11 @@ gen_exp = function(g: Gen, depth: integer)
     add(g, "(")
     local op = pick(g, BINARY)
     local comparison = op == "<" or op == ">" or op == "<=" or op == ">=" or op == "~=" or op == "=="
-    g.comparing = g.comparing + (comparison and 1 or 0)
+    g.comparing = g.comparing + (if comparison then 1 else 0 end)
     gen_exp(g, depth - 1)
     add(g, op)
     gen_exp(g, depth - 1)
-    g.comparing = g.comparing - (comparison and 1 or 0)
+    g.comparing = g.comparing - (if comparison then 1 else 0 end)
     add(g, ")")
   elseif k == 15 then
     add(g, "-")
@@ -229,15 +235,15 @@ gen_exp = function(g: Gen, depth: integer)
     gen_prefix(g, depth - 1)
     local op = pick(g, BINARY)
     local comparison = op == "<" or op == ">" or op == "<=" or op == ">=" or op == "~=" or op == "=="
-    g.comparing = g.comparing + (comparison and 1 or 0)
+    g.comparing = g.comparing + (if comparison then 1 else 0 end)
     add(g, op)
     gen_exp(g, depth - 1)
-    g.comparing = g.comparing - (comparison and 1 or 0)
+    g.comparing = g.comparing - (if comparison then 1 else 0 end)
   end
 end
 
 local function gen_statement(g: Gen, depth: integer, loop: boolean)
-  local k = g.src:int(1, depth > 0 and 16 or 5)
+  local k = g.src:int(1, if depth > 0 then 16 else 5 end)
   if k == 1 then
     add(g, "local", pick(g, NAMES))
     if g.src:int(1, 3) == 1 then
@@ -367,7 +373,8 @@ local function gen_program(src: Fuzz.Source): string
   end, { unknown = true, loop_writes = false })
 end
 
---- Asserts the generator writes the fork's Lua for `input`, or labels why it cannot be compared.
+--- Asserts the generator writes the fork's Lua for `input`, or labels why it cannot be compared: where no text of the
+--- fork's is kept (a draw of another seed) the generator is held not to refuse the program, and nothing more.
 local function agrees(input: string): boolean, string
   local made = Translate.translate(input, "p.tl")
   if #made.errors > 0 then
@@ -379,8 +386,8 @@ local function agrees(input: string): boolean, string
     Fuzz.label("unparsed")
     return true, ""
   end
-  local lua, _ = compile.lua(fork(), "p.tl", input)
-  if lua == nil then
+  local said = Forked.said(forked(), input)
+  if said.known and said.text == nil then
     Fuzz.label("refused by the fork")
     return true, ""
   end
@@ -388,6 +395,12 @@ local function agrees(input: string): boolean, string
   if #ours.errors > 0 then
     return false, "the generator refused: " .. ours.errors[1].msg
   end
+  local kept = said.text
+  if kept == nil then
+    Fuzz.label("not recorded")
+    return true, ""
+  end
+  local lua = kept
   -- The programs are drawn without regard to what Lua refuses (an assignment to a constant), so the Lua must load
   -- where the fork's does.
   local loaded, why = load(ours.text, "=p", "t", {})
@@ -413,8 +426,6 @@ local function test_a_drawn_program_is_written_as_the_fork_writes_it(tmp: string
     dir = tmp,
     gen = gen_module,
     check = agrees,
-    requires = { "compared" },
-    shares = { compared = 0.4 },
   })
 end
 
@@ -424,15 +435,29 @@ local function test_a_program_that_binds_names_in_every_way_is_written_as_the_fo
     dir = tmp,
     gen = gen_program,
     check = agrees,
-    requires = { "compared" },
-    shares = { compared = 0.8 },
   })
+end
+
+--- The programs the properties draw from the default seed are the ones the file keeps the fork's text of, and most are
+--- compared: a draw that changed (the generator of programs edited) would leave the file's entries unread.
+local function test_the_programs_of_the_default_seed_are_the_ones_the_forks_text_is_kept_of()
+  local compared, refused = 0, 0
+  for source, said in pairs(forked()) do
+    if said.text == nil then
+      refused = refused + 1
+    else
+      local ok, why = agrees(source)
+      assert(ok, why)
+      compared = compared + 1
+    end
+  end
+  assert(compared >= 60 and refused >= 1, tostring(compared) .. " compared, " .. tostring(refused) .. " refused by the fork")
 end
 
 -- programs that run -------------------------------------------------------------------------------------------------
 
 --- Runs `lua`, the text of a program, and answers what it returns; nil and why where it does not load.
-local function execute(lua: string): {any} | nil, string
+local function execute(lua: string): {any}?, string
   local env: {string: any} = { select = select, table = table, math = math, type = type }
   local chunk, why = load(lua, "=r", "t", env)
   if chunk == nil then
@@ -442,7 +467,7 @@ local function execute(lua: string): {any} | nil, string
 end
 
 --- Runs the generator's Lua for `source`, a program of the new grammar, and answers what it returns.
-local function generated_run(source: string): {any} | nil, string
+local function generated_run(source: string): {any}?, string
   local parsed = Parser.parse(Lexer.lex(source, "r.tl"), "r.tl", "tl")
   if #parsed.errors > 0 then
     return nil, "the program does not parse: " .. parsed.errors[1].msg .. "\n" .. source
@@ -487,7 +512,7 @@ local VALUES <const>: {string} = { "side(false)", "side(nil)", "side(1)", "false
 
 --- The conditions and values of an `if` expression with some arms, one to a line, the `else` value last.
 local function gen_ifs(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _ = 1, src:int(1, 3) do
     parts[#parts + 1] = Fuzz.pick(src, VALUES)
     parts[#parts + 1] = Fuzz.pick(src, VALUES)
@@ -499,15 +524,15 @@ end
 --- An `if` expression runs as the `if` statement it stands for, whatever its values: which are given, which are not
 --- evaluated, and a false or nil value is the result.
 local function runs_like_an_if_statement(input: string): boolean, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in (input .. "\n"):gmatch("(.-)\n") do
     parts[#parts + 1] = part
   end
-  local arms: {string} = {}
-  local statement: {string} = {}
+  local arms: mut {string} = {}
+  local statement: mut {string} = {}
   for i = 1, #parts - 1, 2 do
-    arms[#arms + 1] = (i == 1 and "if " or "elseif ") .. parts[i] .. " then " .. parts[i + 1]
-    statement[#statement + 1] = (i == 1 and "if " or "elseif ") .. parts[i] .. " then return (" .. parts[i + 1] .. ")"
+    arms[#arms + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then " .. parts[i + 1]
+    statement[#statement + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then return (" .. parts[i + 1] .. ")"
   end
   local last = parts[#parts]
   local new = "local n = 0\nlocal x = 5\nlocal function side(v: any): any\n  n = n + 1\n  return v\nend\n" ..
@@ -540,7 +565,7 @@ local function runs_like_a_goto(input: string): boolean, string
   if variant == nil then
     return true, ""
   end
-  local last = ends == "1" and "    return acc\n" or ""
+  local last = if ends == "1" then "    return acc\n" else "" end
   local opening: string
   local closing: string
   local step = ""
@@ -552,14 +577,14 @@ local function runs_like_a_goto(input: string): boolean, string
     opening, closing, step = "  local i = 0\n  repeat\n", "  until i >= " .. n .. "\n", "    i = i + 1\n"
   end
   -- A loop inside, which also `continue`s, so that each label is its own.
-  local inner = nested == "1" and "    for j = 1, 2 do\n      if j == 1 then continue end\n      acc = acc + 100\n    end\n" or ""
-  local inner_plain = nested == "1" and "    for j = 1, 2 do\n      if j == 1 then goto continue end\n      acc = acc + 100\n      ::continue::\n    end\n" or ""
+  local inner = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then continue end\n      acc = acc + 100\n    end\n" else "" end
+  local inner_plain = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then goto continue end\n      acc = acc + 100\n      ::continue::\n    end\n" else "" end
   local function body(skip: string, label: string, tail: string, nest: string): string
     return "local function f(): integer\n  local acc = 0\n" .. opening .. step .. nest ..
       "    if i % " .. m .. " == 0 then " .. skip .. " end\n    acc = acc + i\n" .. tail .. label .. closing ..
       "  return acc\nend\nreturn f()\n"
   end
-  local plain = body("goto continue", "    ::continue::\n", ends == "1" and "    do return acc end\n" or "", inner_plain)
+  local plain = body("goto continue", "    ::continue::\n", if ends == "1" then "    do return acc end\n" else "" end, inner_plain)
   return same_run(body("continue", "", last, inner), (plain:gsub("%(%): integer", "()")))
 end
 
@@ -575,8 +600,8 @@ end
 
 --- A `match` over the arms drawn: `T` and `F` for an arm of `true` and one of `false`, then perhaps `C`.
 local function gen_match(src: Fuzz.Source): string
-  local arms: {string} = {}
-  local seen: {string: boolean} = {}
+  local arms: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   while Fuzz.more(src, #arms, 2) do
     local arm = Fuzz.pick(src, { "T", "F" })
     if not seen[arm] then
@@ -594,8 +619,8 @@ local function gen_match(src: Fuzz.Source): string
 end
 
 local function runs_like_an_if_on_the_flag(input: string): boolean, string
-  local lines: {string} = {}
-  local has: {string: boolean} = {}
+  local lines: mut {string} = {}
+  local has: mut {string: boolean} = {}
   for arm in input:gmatch(".") do
     has[arm] = true
     if arm == "T" then

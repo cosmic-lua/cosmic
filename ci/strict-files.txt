@@ -1,0 +1,39 @@
+# The Teal files a fixture, a step or a script of CI has the running product compile at run time with no ceiling: a file
+# the product runs by a path outside its working directory is built as a project of its own, and a file run
+# `--standalone` stands alone, so the checker holds either to every rule, where `bin/cosmic fix --check .` holds the tree's
+# files to build/ceilings.txt. A pin on one of them passes that check and stops the run, so each has none:
+# build/ci_tree_test.tl holds the list to it. One path a line from the checkout's root, with what a `#` starts and
+# blank lines left out.
+#
+# What it does not cover: a file a CI step runs with the pinned release, which holds it to its own rules (the
+# bootstrap scripts below are run by it too, and are listed for the product that follows its pin), and a Teal
+# source a test writes into a fixture of its own, which its own test runs.
+
+# test/portable/probe.tl and what it requires, run from the tree ci/fixtures/runtime_test.tl and identity_test.tl unpack
+# (ci/cosmic_ci/runtime_setup.tl): the checkout's build/artifact.tl, which takes the raw store as its loader's argument,
+# is replaced there by the file below it.
+test/portable/probe.tl
+test/portable/init.tl
+ci/testdata/portable/artifact_row.tl
+
+# Run by path from ci/fixtures/self_driven_test.tl.
+test/terminal/pty.tl
+test/terminal/relay.tl
+
+# The portable fixtures' own sources (ci/cosmic_ci/runtime_setup.tl, product_setup.tl, ci/fixtures/runtime_test.tl).
+ci/testdata/portable/retained_probe.tl
+ci/testdata/portable/work_db_integrity.tl
+ci/testdata/portable/runtime_test.tl
+ci/testdata/portable/cmd/hello/main.tl
+ci/testdata/portable/cmd/second/main.tl
+
+# Run `--standalone`: the credentials proof (.github/scripts/credentials-proof.sh, COSMIC_STANDALONE=1) and the bootstrap
+# scripts (bin/, ci/fixtures/performance_test.tl, ci/cosmic_ci/islands.tl's Islands.scripts).
+build/credentials_proof.tl
+build/patch.tl
+build/paths.tl
+build/perf.tl
+build/vendor.tl
+build/verify_codesign.tl
+build/zig.tl
+build/zig_fetch.tl

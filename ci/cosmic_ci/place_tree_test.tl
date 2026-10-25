@@ -110,8 +110,8 @@ ffffffffffffffffffffffffffffffffffffffff checked schedule 1 322e3b17c5eaead
 
 --- A host over `env`, collecting what it prints and warns.
 local function host(env: {string:string}): PlaceTree.Host, {string}, {string}
-  local out: {string} = {}
-  local err: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
   return {
     env = env,
     print = function(line: string) out[#out + 1] = line end,
@@ -123,7 +123,7 @@ end
 --- where `declared` is "1", for a checkout at `workspace` where given.
 local function environment(sha: string, leg: string, event?: string, declared?: string,
                            workspace?: string): {string:string}
-  local values: {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
+  local values: mut {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
     GITHUB_EVENT_NAME = event or "push", COSMIC_CI_DECLARED_KEYS = declared or "0" }
   if workspace ~= nil then values["GITHUB_WORKSPACE"] = workspace end
   return values
@@ -157,7 +157,7 @@ end
 local LEGS <const> = { "linux-x86_64", "linux-aarch64", "macos-aarch64", "alpine-x86_64", "fuzz", "checked" }
 
 local function test_every_commit_and_leg_names_one_directory_of_its_own_length()
-  local lengths: {integer: boolean} = {}
+  local lengths: mut {integer: boolean} = {}
   local distinct = 0
   for n = 0, 15 do
     local sha = string.format("%x", n) .. SHA:sub(2)
@@ -228,7 +228,7 @@ end
 --- Everything under `root`, a line each: a link with its target, a
 --- directory, or a file with its contents.
 local function layout(root: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function walk(relative: string)
     for _, entry in ipairs((assert(Fs.list(root .. relative)))) do
       local path = relative .. "/" .. entry

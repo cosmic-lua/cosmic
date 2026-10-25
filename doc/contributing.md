@@ -181,31 +181,23 @@ every `TODO:` the release unblocks, which
 `bin/cosmic todos '"cosmic-driver.pin"'` lists. otherwise say in the PR
 that the pin was left alone.
 
-the pin is also the seed a boot compiles the checker from: a `build.zig`
-step runs the release's `cosmic compile` over `checker/*.tl`, and the
-boot's first stage is the Lua it writes. the checker's source may use only
-what that release parses; a boot whose seed refuses it fails naming the
-file and line, and the pin must move to a release that parses it. a change
-to what the generator in [`checker/tl.tl`] writes also differs from the
-seed, which the boot refuses unless the change adds `checker/SEED_DIFFERS`
-naming, one a line, each seed output file whose Lua differs (`tl.lua`,
-`flow.lua`, ...): bare output file names, no paths and no comments. a
-difference in a file not listed still fails the boot, as does a listed
-file that does not differ; the pin move that takes a release carrying
-the change empties the list and removes the file.
-the same holds for the new checker's own source, `lang/`, which the pinned release compiles (`compile --grammar new`) once the
-switch makes it the seed of the tool. Until then CI's rehearsal job compiles the translation of all of `lang/` with the
-tree's compile and with the pinned release, and holds the files whose Lua differs to `lang/SEED_DIFFERS`, one bare output
-name a line (`codegen.lua`), both ways: a change to what the new checker's code generator writes that the pin lacks lists its files there, a
-listed file that does not differ fails, and the pin move that takes a release carrying the change empties the list and
-removes the file (`bin/cosmic build/lang_proof_main.tl prove <dir> --seed $(bin/cosmic-bootstrap)` runs it).
-the seed the switch boots from is [`build/seed.txt`] (the files of the entry [`build/seed.tl`] and what it requires), compiled
-by the pinned release, and the bridge that loads it is [`core/bridge_new.lua`]; neither boots anything yet.
-`bin/cosmic build/seed_proof_main.tl prove <dir>` writes the translated tree, compiles the seed with the pinned release,
-and boots the tree through that bridge up to [`build.boot`]; with `--tool` it boots a copy of the tree and leaves a tool to
-test. for the bridge `lang/SEED_DIFFERS` names source paths ([`lang/codegen.tl`]); the proof of lang/ reads those too.
+the pin is also the seed a boot compiles the tool's compiler from: a
+`build.zig` step runs the release's `cosmic compile --grammar new` over the
+files of [`build/seed.txt`] ([`build/seed.tl`] and what it requires), and the
+bridge ([`core/bridge.lua`]) loads the Lua it writes as the boot's first
+stage. The first stage compiles the same files again from the tree (the
+second stage, the tree's own generator applied to the tree's own source), and
+the second stage compiles everything up to [`build.boot`]. The seed's source
+may use only what that release parses; a boot whose seed refuses it fails
+naming the file and line, and the pin must move to a release that parses it.
+a change to what the generator in [`lang/codegen.tl`] writes also differs from
+the seed, which the bridge refuses unless the change adds `lang/SEED_DIFFERS`
+naming, one a line, each seed source whose Lua differs ([`lang/codegen.tl`], ...):
+source paths, no comments. a difference in a file not listed still fails the
+boot, as does a listed file that does not differ; the pin move that takes a
+release carrying the change empties the list and removes the file.
 `COSMIC_BOOTSTRAP` names another cosmic for the seed too. with it pointing
-at the tree's own tool, the seed is always what the checker compiles itself
+at the tree's own tool, the seed is always what the generator compiles itself
 to, so a standing entry fails the boot saying to remove it: boot with the
 pinned release (unset `COSMIC_BOOTSTRAP`) or leave the file out locally,
 and keep the entry in the commit.
@@ -223,11 +215,10 @@ and keep the entry in the commit.
 [`build/seed.tl`]: ../build/seed.tl
 [`build/seed.txt`]: ../build/seed.txt
 [`build/zig.tl`]: ../build/zig.tl
-[`checker/tl.tl`]: ../checker/tl.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/README.md`]: ../ci/README.md
 [`ci/run-local`]: ../ci/run-local
-[`core/bridge_new.lua`]: ../core/bridge_new.lua
+[`core/bridge.lua`]: ../core/bridge.lua
 [`doc/c.md`]: c.md
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md

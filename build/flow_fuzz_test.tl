@@ -20,15 +20,15 @@ local GAPS <const> = { "", " ", "\n", "\n\n", " # c\n", "\n  # d\n", "\n\n# e\n\
 
 local function gap(src: Fuzz.Source): string
   if src:int(0, 2) == 0 then return Fuzz.pick(src, GAPS) end
-  return src:int(0, 1) == 0 and " " or "\n"
+  return if src:int(0, 1) == 0 then " " else "\n" end
 end
 
 --- A flow-style value, its members drawn with [`Fuzz.more`].
 local function gen_value(src: Fuzz.Source, depth: integer): string
-  local kind = depth <= 0 and 0 or src:int(0, 2)
+  local kind = if depth <= 0 then 0 else src:int(0, 2) end
   if kind == 0 then return Fuzz.pick(src, SCALARS) end
   local object = kind == 1
-  local parts: {string} = { object and "{" or "[", gap(src) }
+  local parts: mut {string} = { if object then "{" else "[" end, gap(src) }
   local count = 0
   while Fuzz.more(src, count, 5) do
     count = count + 1
@@ -37,7 +37,7 @@ local function gen_value(src: Fuzz.Source, depth: integer): string
     parts[#parts + 1] = gap(src)
     if src:int(0, 5) > 0 then parts[#parts + 1] = "," .. gap(src) end
   end
-  parts[#parts + 1] = object and "}" or "]"
+  parts[#parts + 1] = if object then "}" else "]" end
   return table.concat(parts)
 end
 
@@ -95,7 +95,7 @@ end
 
 --- A Teal value [`flow.from`] takes, drawn.
 local function gen_teal(src: Fuzz.Source, depth: integer): any
-  local kind = depth <= 0 and 0 or src:int(0, 2)
+  local kind = if depth <= 0 then 0 else src:int(0, 2) end
   if kind == 0 then
     local pick = src:int(0, 4)
     if pick == 0 then
@@ -105,7 +105,7 @@ local function gen_teal(src: Fuzz.Source, depth: integer): any
     if pick == 2 then return Json.null end
     return src:int(-999, 999)
   end
-  local out: {any: any} = {}
+  local out: mut {any: any} = {}
   local count = 0
   while Fuzz.more(src, count, 4) do
     count = count + 1

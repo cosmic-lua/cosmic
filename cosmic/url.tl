@@ -85,9 +85,9 @@ end
 --- Every byte's escape, by the byte: itself for an unreserved one
 --- (A-Z a-z 0-9 - . _ ~), `%` and two uppercase hex digits for any
 --- other. `gsub` takes the table as its replacement, one lookup a byte.
-local escape_of: {string:string} = {}
+local escape_of: mut {string:string} = {}
 --- Every pair of hex digits, either case, to the byte it spells.
-local byte_of_hex: {string:string} = {}
+local byte_of_hex: mut {string:string} = {}
 do
   for byte = 0, 255 do
     local ch = string.char(byte)
@@ -124,7 +124,7 @@ end
 --- `text` with each `%` and two hex digits, of either case, replaced by
 --- the byte they spell; `offset` is added to a byte position named in a
 --- refusal, for text taken from inside a longer string.
-local function unescape(text: string, offset: integer): string | nil, string
+local function unescape(text: string, offset: integer): string?, string
   local at = text:find("%", 1, true)
   while at ~= nil do
     if not text:find("^%x%x", at + 1) then
@@ -143,7 +143,7 @@ end
 --- @param text string The escaped text
 --- @return string | nil The bytes it spells
 --- @return string Why it was refused, or "" when it was not
-function Url.unescape(text: string): string | nil, string
+function Url.unescape(text: string): string?, string
   return unescape(text, 0)
 end
 
@@ -162,11 +162,11 @@ end
 --- @param path string A path, still escaped, starting with "/"
 --- @return {string} | nil Its segments, unescaped
 --- @return string Why it was refused, or "" when it was not
-function Url.segments(path: string): {string} | nil, string
+function Url.segments(path: string): {string}?, string
   if path:sub(1, 1) ~= "/" then
     return refuse("the path does not start with '/'")
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 2
   while at <= #path do
     local slash = path:find("/", at, true) or #path + 1
@@ -193,7 +193,7 @@ end
 --- Reads `piece`, which starts at byte `at` of the whole text, as a name
 --- or a value: `+` as a space, then escapes. In `lenient` mode a stray `%`
 --- stays.
-local function decode_piece(piece: string, at: integer, lenient: boolean): string | nil, string
+local function decode_piece(piece: string, at: integer, lenient: boolean): string?, string
   piece = (piece:gsub("%+", " "))
   if lenient then
     return (piece:gsub("%%(%x%x)", byte_of_hex)), ""
@@ -220,7 +220,7 @@ end
 --- @param opts QueryOptions | nil Limits and leniency
 --- @return Query | nil The pairs, in order and by name
 --- @return string Why it was refused, or "" when it was not
-function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query | nil, string
+function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query?, string
   if type(text) ~= "string" then
     error("Url.decode_query: text must be a string, not " .. type(text), 2)
   end
@@ -231,8 +231,8 @@ function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query | ni
   if max_bytes ~= nil and #text > max_bytes then
     return refuse(("the query is longer than max_bytes (%d)"):format(max_bytes))
   end
-  local pairs_: {Url.Pair} = {}
-  local by_name: {string:{string}} = {}
+  local pairs_: mut {Url.Pair} = {}
+  local by_name: mut {string:{string}} = {}
   local at = 1
   while at <= #text + 1 do
     local amp = text:find("&", at, true) or #text + 1
@@ -250,7 +250,7 @@ function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query | ni
       if name == nil then
         return nil, why
       end
-      local value: string | nil
+      local value: string?
       value, why = decode_piece(raw_value, at + (eq or 0), lenient)
       if value == nil then
         return nil, why
@@ -275,7 +275,7 @@ end
 --- @param query Query A decoded query
 --- @param name string The name
 --- @return string | nil Its first value
-function Url.query_first(query: Url.Query, name: string): string | nil
+function Url.query_first(query: Url.Query, name: string): string?
   local values = query.by_name[name]
   return values and values[1]
 end
@@ -285,7 +285,7 @@ end
 --- @param query Query A decoded query
 --- @param name string The name
 --- @return string | nil Its last value
-function Url.query_last(query: Url.Query, name: string): string | nil
+function Url.query_last(query: Url.Query, name: string): string?
   local values = query.by_name[name]
   return values and values[#values]
 end
@@ -296,7 +296,7 @@ end
 --- @param name string The name
 --- @return {string} Its values
 function Url.query_all(query: Url.Query, name: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, v in ipairs(query.by_name[name] or {}) do
     out[i] = v
   end
@@ -310,7 +310,7 @@ end
 --- @param list {Pair} The pairs, in the order to write
 --- @return string The encoded text
 function Url.encode_query(list: {Url.Pair}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, pair in ipairs(list) do
     if type(pair.name) ~= "string" or type(pair.value) ~= "string" then
       error(("Url.encode_query: pair %d needs a string name and value"):format(i), 2)
@@ -330,8 +330,8 @@ local function unescaped_byte(text: string): string
     return ""
   end
   local byte = text:byte(at)
-  local what = byte == 32 and "a space" or byte == 0 and "a NUL" or
-    ("control byte 0x%02x"):format(byte)
+  local what = if byte == 32 then "a space" elseif byte == 0 then "a NUL" else
+    ("control byte 0x%02x"):format(byte) end
   return ("url: the URL holds %s at byte %d; escape a path segment or query value with Url.escape"):
     format(what, at)
 end
@@ -441,7 +441,7 @@ end
 --- @param text string The URL
 --- @return Parts | nil Its parts
 --- @return string Why it was refused, or "" when it was not
-function Url.parse(text: string): Url.Parts | nil, string
+function Url.parse(text: string): Url.Parts?, string
   local unescaped = unescaped_byte(text)
   if unescaped ~= "" then
     return nil, unescaped

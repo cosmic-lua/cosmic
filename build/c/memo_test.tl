@@ -60,7 +60,7 @@ local function rules_found(tmp: string, store: Sqlite.Handle): {string}
   local outcome = assert(c.check(root, { "case.c" }, tmp, nil, store)[1])
   local found = outcome.findings
   assert(found ~= nil, outcome.trouble)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, f in ipairs(found) do
     out[#out + 1] = f.file .. ":" .. tostring(f.line) .. " " .. f.rule
   end

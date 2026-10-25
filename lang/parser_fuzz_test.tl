@@ -28,7 +28,7 @@ local function name(src: Fuzz.Source): string
   return Fuzz.pick(src, NAMES)
 end
 
-local function add(out: {string}, ...: string)
+local function add(out: mut {string}, ...: string)
   for i = 1, select("#", ...) do
     out[#out + 1] = (select(i, ...))
   end
@@ -47,7 +47,7 @@ end
 --- Writes a type that is not a union or an optional. Answers whether `?` and `|` may follow it: a
 --- function type takes them into its return list.
 local function gen_base_type(src: Fuzz.Source, depth: integer, out: {string}): boolean
-  local k = src:int(1, depth > 0 and 9 or 3)
+  local k = src:int(1, if depth > 0 then 9 else 3 end)
   if k <= 3 then
     add(out, Fuzz.pick(src, TYPES))
   elseif k == 4 then
@@ -124,7 +124,7 @@ local function gen_args(src: Fuzz.Source, depth: integer, out: {string})
 end
 
 gen_exp = function(src: Fuzz.Source, depth: integer, out: {string})
-  local k = src:int(1, depth > 0 and 17 or 6)
+  local k = src:int(1, if depth > 0 then 17 else 6 end)
   if k <= 3 then
     add(out, name(src))
   elseif k == 4 then
@@ -147,7 +147,7 @@ gen_exp = function(src: Fuzz.Source, depth: integer, out: {string})
     add(out, name(src), ":", "m")
     gen_args(src, depth, out)
   elseif k == 11 then
-    add(out, name(src), src:int(1, 2) == 1 and "." or "[", "k")
+    add(out, name(src), if src:int(1, 2) == 1 then "." else "[" end, "k")
     if out[#out - 1] == "[" then add(out, "]") end
   elseif k == 12 then
     add(out, "{")
@@ -191,9 +191,9 @@ end
 local function gen_declaration(src: Fuzz.Source, depth: integer, out: {string})
   local k = src:int(1, 6)
   if k <= 2 then
-    add(out, "local", k == 1 and "record" or "interface", "R", src:int(1, 3) == 1 and "<T>" or "", "\n")
+    add(out, "local", if k == 1 then "record" else "interface" end, "R", if src:int(1, 3) == 1 then "<T>" else "" end, "\n")
     for i = 1, src:int(0, 3) do
-      add(out, src:int(1, 3) == 1 and "mut" or "", "f" .. i, src:int(1, 3) == 1 and "?" or "", ":")
+      add(out, if src:int(1, 3) == 1 then "mut" else "" end, "f" .. i, if src:int(1, 3) == 1 then "?" else "" end, ":")
       gen_type(src, depth - 1, out)
       add(out, "\n")
     end
@@ -217,7 +217,7 @@ local function gen_declaration(src: Fuzz.Source, depth: integer, out: {string})
 end
 
 local function gen_statement(src: Fuzz.Source, depth: integer, loop: boolean, out: {string})
-  local k = src:int(1, depth > 0 and 17 or 4)
+  local k = src:int(1, if depth > 0 then 17 else 4 end)
   if k == 1 then
     add(out, "local", name(src))
     if src:int(1, 3) == 1 then
@@ -287,7 +287,7 @@ local function gen_statement(src: Fuzz.Source, depth: integer, loop: boolean, ou
     end
     add(out, "end")
   elseif k == 14 and loop then
-    add(out, src:int(1, 2) == 1 and "break" or "continue")
+    add(out, if src:int(1, 2) == 1 then "break" else "continue" end)
   else
     gen_declaration(src, depth, out)
   end
@@ -330,7 +330,7 @@ local PIECES <const>: {string} = {
 }
 
 local function gen_pieces(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 60) do
     out[#out + 1] = Fuzz.pick(src, PIECES)
   end
@@ -364,7 +364,7 @@ local function gen_bytes(src: Fuzz.Source): string
 end
 
 local function dialect_of(input: string): Ast.Dialect
-  return #input % 2 == 0 and "tl" or "decl"
+  return if #input % 2 == 0 then "tl" else "decl" end
 end
 
 local function parse(input: string, dialect: Ast.Dialect): Parser.Parsed
@@ -378,7 +378,7 @@ local function holds(input: string, dialect: Ast.Dialect): boolean, string
   if not ok then
     return false, why
   end
-  Fuzz.label(#parsed.errors == 0 and "clean" or "refused")
+  Fuzz.label(if #parsed.errors == 0 then "clean" else "refused" end)
   for _, e in ipairs(parsed.errors) do
     Fuzz.label(e.code)
   end

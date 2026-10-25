@@ -1,0 +1,109 @@
+@@ source
+local a: {integer} = { 1 }
+for k, v in pairs(a) do print(k, v) end
+@@ answer
+hint@2
+@@ end
+@@ source
+local _x = 1
+local _ = 2
+@@ answer
+
+@@ end
+@@ source
+local record R
+  n: integer
+  get: function(self: R): integer
+end
+local r: R = { n = 1, get = function(self: R): integer return self.n end }
+print(r.get(r))
+print(r:get())
+@@ answer
+hint@6
+@@ end
+@@ source
+local function f(a: integer)
+  a = 2
+end
+f(1)
+@@ answer
+argument a@1
+@@ end
+@@ source
+local function f(...: integer) end
+f()
+@@ answer
+unused argument ...@1
+@@ end
+@@ source
+local x = 1
+x = 2
+@@ answer
+variable x@1
+@@ end
+@@ source
+local x: integer = 1
+if x is integer then print(1) else print(2) end
+@@ answer
+
+@@ end
+@@ source
+for i = 1, 3 do end
+for k, v in ipairs({ 1 }) do end
+@@ answer
+unused variable i@1
+unused variable k@2
+unused variable v@2
+@@ end
+@@ source
+local function f(n: integer): integer
+  return f(n)
+end
+@@ answer
+unused function f@1
+@@ end
+@@ source
+local f = function() end
+@@ answer
+unused function f@1
+@@ end
+@@ source
+local x = 1
+@@ answer
+unused variable x@1
+@@ end
+@@ source
+local record R
+end
+local x: R = nil
+local function g(): R
+  return x
+end
+local d: integer = 0
+local e = g()
+d = 1
+print(d, e)
+@@ answer
+
+@@ end
+@@ source
+local x: integer = 1
+if not (x is string) then print(1) end
+@@ answer
+branch@2
+@@ end
+@@ source
+local function f(a: integer) end
+local record R
+end
+local type T = integer
+local enum E
+  "a"
+end
+@@ answer
+unused argument a@1
+unused function f@1
+unused type E@5
+unused type R@2
+unused type T@4
+@@ end

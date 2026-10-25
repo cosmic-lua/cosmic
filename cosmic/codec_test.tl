@@ -27,7 +27,7 @@ local function test_unhex_reads_either_case()
 end
 
 local function test_hex_covers_every_byte()
-  local all: {string} = {}
+  local all: mut {string} = {}
   for b = 0, 255 do all[#all + 1] = string.char(b) end
   local bytes = table.concat(all)
   local text = Codec.hex(bytes)
@@ -106,9 +106,9 @@ local function test_unbase64url_refuses_padding_and_the_standard_alphabet()
 end
 
 local function test_a_megabyte_round_trips()
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 4096 do
-    local row: {integer} = {}
+    local row: mut {integer} = {}
     for j = 1, 256 do row[j] = (i * 31 + j * 7) & 255 end
     parts[i] = string.char(table.unpack(row))
   end

@@ -32,10 +32,10 @@ end
 --- An open stream: a connection past the head of the reply, and its chunks.
 local record Feed
   conn: Net.Conn
-  buf: string
-  status: integer
-  headers: {string:string}
-  ended: boolean
+  mut buf: string
+  mut status: integer
+  headers: mut {string:string}
+  mut ended: boolean
 end
 
 local function fill(feed: Feed)
@@ -77,7 +77,7 @@ local function open(host: string, path: string, headers?: {string:string}): Feed
 end
 
 --- The next chunk of the body; nil once the last chunk has come.
-local function chunk(feed: Feed): string | nil
+local function chunk(feed: Feed): string?
   if feed.ended then return nil end
   local size = assert(tonumber(line(feed), 16))
   if size == 0 then
@@ -149,7 +149,7 @@ local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
 end
 
 local function test_a_stream_sends_retry_events_and_heartbeats_then_ends_with_its_source()
-  local queue = { value = nil as Channel.Queue<Sse.Event> | nil }
+  local queue = { value = nil as Channel.Queue<Sse.Event>? }
   local closed: {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
@@ -183,7 +183,7 @@ local function test_a_source_that_fails_ends_the_stream_and_says_why()
   local closed: {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Sse.EventSource = {
-      next = function(_self: Sse.EventSource, _t?: integer): Sse.Event | nil, string
+      next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
         return nil, "database gone"
       end,
       close = function(_self: Sse.EventSource) end,
@@ -202,7 +202,7 @@ local function test_a_source_that_fails_ends_the_stream_and_says_why()
 end
 
 local function test_max_age_ends_a_stream_cleanly()
-  local queue = { value = nil as Channel.Queue<Sse.Event> | nil }
+  local queue = { value = nil as Channel.Queue<Sse.Event>? }
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue.value = source
@@ -343,7 +343,7 @@ end
 local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
   local hub = Sse.new_hub({})
   Web.with_server(hub_app(hub), function(client: Web.LoopbackClient)
-    local feeds: {Feed} = {}
+    local feeds: mut {Feed} = {}
     for i = 1, 3 do
       feeds[i] = open(client.host, "/events/news")
       assert(chunk(feeds[i]) == "retry: 100\n\n")
@@ -456,7 +456,7 @@ end
 local function test_the_budget_is_half_the_connections_unless_the_app_says()
   local hub = Sse.new_hub({})
   local app = hub_app(hub)
-  local seen = { value = nil as integer | nil }
+  local seen = { value = nil as integer? }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, limits = { connections = 10 },
     on_ready = function(_addresses: {Net.Address}, server: Net.Server)
       seen.value = app.stream_limit
@@ -469,7 +469,7 @@ end
 
 --- Serves `app` with a grace of `grace_ns`, and calls `fn` with the address and the server.
 local function serving(app: Web.App, grace_ns: integer, fn: function(host: string, server: Net.Server))
-  local failure = { value = nil as string | nil }
+  local failure = { value = nil as string? }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = grace_ns,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ran, trouble = pcall(function()
@@ -485,7 +485,7 @@ end
 
 local function test_stopping_the_server_ends_every_stream_long_before_the_grace()
   local hub = Sse.new_hub({})
-  local queue = { value = nil as Channel.Queue<Sse.Event> | nil }
+  local queue = { value = nil as Channel.Queue<Sse.Event>? }
   local ended: {string} = {}
   local app = hub_app(hub, { heartbeat_ns = Clock.seconds(30), retry_ms = 100 }, { hubs = { hub } })
   local routes = assert(app.spec.routes)
@@ -514,7 +514,7 @@ end
 local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_released()
   local closed: {string} = {}
   local stuck: Sse.EventSource = {
-    next = function(_self: Sse.EventSource, _t?: integer): Sse.Event | nil, string
+    next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
       local _, _ = Poll.delay(Clock.seconds(60))
       return nil, ""
     end,
@@ -537,7 +537,7 @@ local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_r
 end
 
 local function test_a_stream_asked_for_while_the_app_is_stopping_is_refused()
-  local queue = { value = nil as Channel.Queue<Sse.Event> | nil }
+  local queue = { value = nil as Channel.Queue<Sse.Event>? }
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Channel.Queue<Sse.Event> = Channel.new()
     queue.value = source
@@ -616,7 +616,7 @@ end
 local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts()
   local hub = Sse.new_hub({})
   local app = hub_app(hub, { heartbeat_ns = Clock.ms(25), retry_ms = 100 })
-  local failure = { value = nil as string | nil }
+  local failure = { value = nil as string? }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(100), idle_ns = Clock.ms(100), grace_ns = Clock.seconds(1),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

@@ -21,7 +21,7 @@ local served: {Types.Handler} = {}
 
 local function handler(): Types.Handler
   if served[1] == nil then
-    local held: {string:string} = {}
+    local held: mut {string:string} = {}
     for path, file in pairs(Htmx.assets()) do held[path:sub(#PREFIX + 3)] = file.data end
     served[1] = StaticFiles.handler{
       source = Assets.memory(held, { gzip = true }),
@@ -35,7 +35,7 @@ end
 --- Answers `req` where it is under `/_web/`, else nil.
 --- @param req Types.Request The request
 --- @return Types.Response | nil The reply, or nil for a path that is not ours
-function Builtin.handle(req: Types.Request): Types.Response | nil
+function Builtin.handle(req: Types.Request): Types.Response?
   if req.segments[1] ~= PREFIX then return nil end
   req.mount_path = "/" .. PREFIX
   return handler()(req)

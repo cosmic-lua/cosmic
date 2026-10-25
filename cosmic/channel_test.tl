@@ -3,7 +3,7 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 
 local record Closer
-  metamethod __close: function(Closer)
+  __close: function(Closer)
 end
 
 local function raises(fn: function(), words: string)
@@ -14,7 +14,7 @@ end
 
 --- A task that receives until `count` items or a failure, appending what
 --- it gets to `into` and its last failure to `last`.
-local function consumer(queue: Channel.Queue<integer>, into: {integer}, last: {string},
+local function consumer(queue: Channel.Queue<integer>, into: mut {integer}, last: mut {string},
                         timeout_ns?: integer): Poll.Task
   return Poll.spawn(function()
     while true do
@@ -82,7 +82,7 @@ local function test_drop_oldest_keeps_the_newest_and_counts_the_drops()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 3, overflow = "drop_oldest" })
     for i = 1, 7 do assert(queue:send(i)) end
     assert(queue:dropped() == 4 and queue:len() == 3)
-    local got: {integer} = {}
+    local got: mut {integer} = {}
     for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end
     assert(table.concat(got as {string}, ",") == "5,6,7")
     assert(queue:try_send(8))
@@ -95,7 +95,7 @@ local function test_drop_newest_keeps_the_oldest_and_counts_the_drops()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 3, overflow = "drop_newest" })
     for i = 1, 7 do assert(queue:send(i)) end
     assert(queue:dropped() == 4 and queue:len() == 3)
-    local got: {integer} = {}
+    local got: mut {integer} = {}
     for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end
     assert(table.concat(got as {string}, ",") == "1,2,3")
   end)
@@ -291,7 +291,7 @@ local function test_close_wakes_receivers_and_senders_and_drains_first()
   Poll.run(function()
     local idle: Channel.Queue<integer> = Channel.new()
     local reasons: {string} = {}
-    local receivers: {Poll.Task} = {}
+    local receivers: mut {Poll.Task} = {}
     for _ = 1, 3 do
       receivers[#receivers + 1] = Poll.spawn(function()
         local item, why = idle:receive()
@@ -301,7 +301,7 @@ local function test_close_wakes_receivers_and_senders_and_drains_first()
     end
     local full: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(full:send(1))
-    local senders: {Poll.Task} = {}
+    local senders: mut {Poll.Task} = {}
     for i = 1, 3 do
       senders[#senders + 1] = Poll.spawn(function()
         local ok, why = full:send(i + 1)
@@ -351,7 +351,7 @@ local function test_many_producers_and_consumers_lose_and_repeat_nothing()
   local seen: {integer: integer} = {}
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 3 })
-    local makers: {Poll.Task} = {}
+    local makers: mut {Poll.Task} = {}
     for p = 1, producers do
       makers[#makers + 1] = Poll.spawn(function()
         for n = 1, per do
@@ -360,7 +360,7 @@ local function test_many_producers_and_consumers_lose_and_repeat_nothing()
         end
       end)
     end
-    local takers: {Poll.Task} = {}
+    local takers: mut {Poll.Task} = {}
     for _ = 1, consumers do
       takers[#takers + 1] = Poll.spawn(function()
         while true do
@@ -387,7 +387,7 @@ local function test_one_consumer_sees_each_producers_items_in_order()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 2 })
     local last: {string} = {}
     local task = consumer(queue, got, last)
-    local makers: {Poll.Task} = {}
+    local makers: mut {Poll.Task} = {}
     for p = 1, 3 do
       makers[#makers + 1] = Poll.spawn(function()
         for n = 1, 20 do assert(queue:send(p * 100 + n)) end
@@ -398,7 +398,7 @@ local function test_one_consumer_sees_each_producers_items_in_order()
     assert(task:join())
   end)
   assert(#got == 60)
-  local at: {integer: integer} = {}
+  local at: mut {integer: integer} = {}
   for _, item in ipairs(got) do
     local p, n = item // 100, item % 100
     assert(n == (at[p] or 0) + 1, "producer " .. p .. " out of order at " .. n)
@@ -407,7 +407,7 @@ local function test_one_consumer_sees_each_producers_items_in_order()
 end
 
 local function test_a_queue_of_another_run_is_refused_when_it_waits()
-  local stale = { value = nil as Channel.Queue<integer> | nil }
+  local stale = { value = nil as Channel.Queue<integer>? }
   Poll.run(function() stale.value = Channel.new() end)
   local other = assert(stale.value)
   Poll.run(function()

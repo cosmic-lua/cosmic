@@ -4,7 +4,7 @@ local Address = require("cosmic.relay.address")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, resolved in ipairs(found) do
     lines[#lines + 1] = resolved.family .. " " .. resolved.address
   end

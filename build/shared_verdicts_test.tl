@@ -17,7 +17,7 @@ local function test_a_cache_that_answers_nothing_says_what_it_holds(tmp: string)
   local empty = assert(shared_verdicts.census(cache, {}))
   assert(empty.rows == 0 and empty.of_tests == 0)
   assert(shared_verdicts.unmatched(path, 3, empty, {}) == nil, "an empty cache said something")
-  local kept: {shared_verdicts.Kept} = {}
+  local kept: mut {shared_verdicts.Kept} = {}
   for i, test in ipairs({ "a_test.tl test_a", "a_test.tl test_b", "b_test.tl test_c" }) do
     kept[#kept + 1] = { key = "k" .. i, test = test, hits = "", elapsed_ns = 1 }
   end
@@ -61,7 +61,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.declared(cache, "old") ~= nil, "the earlier row went")
   local now = shared_verdicts.named({ { "runtime", "r1" }, { "harness", "e1-00000000-t60000" } })
   assert(now == "runtime r1, harness e1-00000000-t60000", now)
-  local kept: {shared_verdicts.Kept} = {}
+  local kept: mut {shared_verdicts.Kept} = {}
   for i = 1, 2 do
     kept[i] = { key = "k" .. i, test = "b_test.tl test_" .. i, hits = "", elapsed_ns = 1 }
   end

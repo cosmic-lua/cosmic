@@ -22,7 +22,7 @@ local record Literals
   record PatternRead
     --- The kind of each capture, in order: `string` for `( ... )` and `position` for `()`.
     captures: {string}
-    problem: Problem | nil
+    problem: Problem?
   end
 
   --- The values a format takes and its fault, if it has one.
@@ -30,7 +30,7 @@ local record Literals
     --- The type each argument after the format has, in order: `integer` (`c d i u o x X`), `number` (`a A e E f g G`), `any`
     --- (`s p`) or `quoted` (`q`, which writes a string, a number, a boolean or nil).
     kinds: {string}
-    problem: Problem | nil
+    problem: Problem?
   end
 
   --- What a replacement string of `gsub` is, and its fault, if it has one.
@@ -40,7 +40,7 @@ local record Literals
     kinds: {string}
     --- Whether it holds an option whose size depends on the value (`s`, `z`), which `packsize` cannot answer.
     variable: boolean
-    problem: Problem | nil
+    problem: Problem?
   end
 
   --- A fault found in the literal arguments of a call.
@@ -67,7 +67,7 @@ local record Literals
   pattern: function(pattern: string): PatternRead
 
   --- Reads `replacement`, the string a `gsub` writes for each match, given the number of captures of its pattern.
-  replacement: function(replacement: string, captures: integer): Problem | nil
+  replacement: function(replacement: string, captures: integer): Problem?
 
   --- Reads `format` as `string.format` does.
   format: function(format: string): FormatRead
@@ -84,7 +84,7 @@ local record Literals
   --- The type of the keys of the table a `gsub` with the literal `pattern` looks its matches up in: `integer` where
   --- the first capture is a position `()`, and `string` otherwise (the whole match, or a captured text). Nil when
   --- the pattern is malformed.
-  key: function(pattern: string): string | nil
+  key: function(pattern: string): string?
 end
 
 --- `LUA_MAXCAPTURES`.
@@ -113,7 +113,7 @@ end
 --- The index after the set that opens at `i` (a `[`), or nil when no `]` closes it. A `]` right after the opening
 --- (or after `^`) belongs to the set, and a `%` skips the character after it. A repetition mark and a `$` are characters
 --- like the rest to this walk, which looks for the faults of a pattern and not for what it matches.
-local function set_end(pattern: string, i: integer): integer | nil
+local function set_end(pattern: string, i: integer): integer?
   local n = #pattern
   local p = i + 1
   if pattern:sub(p, p) == "^" then
@@ -134,10 +134,10 @@ end
 
 local function read_pattern(pattern: string): Literals.PatternRead
   local n = #pattern
-  local kinds: {string} = {}
-  local closed: {integer: boolean} = {}
-  local starts: {integer: integer} = {}
-  local unfinished: {integer} = {}
+  local kinds: mut {string} = {}
+  local closed: mut {integer: boolean} = {}
+  local starts: mut {integer: integer} = {}
+  local unfinished: mut {integer} = {}
   local function stop(msg: string, fix: string): Literals.PatternRead
     return { captures = kinds, problem = problem(msg, fix) }
   end
@@ -232,7 +232,7 @@ local function read_pattern(pattern: string): Literals.PatternRead
   return { captures = kinds, problem = nil }
 end
 
-local function read_replacement(replacement: string, captures: integer): Literals.Problem | nil
+local function read_replacement(replacement: string, captures: integer): Literals.Problem?
   local n = #replacement
   local i = 1
   while i <= n do
@@ -242,13 +242,13 @@ local function read_replacement(replacement: string, captures: integer): Literal
         local k = d:byte() - 48
         -- `%1` is the whole match when the pattern has no capture
         if k > 1 and k > captures then
-          return problem("`%" .. d .. "` is used, and the pattern has " .. (captures == 0 and "no capture" or
-            tostring(captures) .. (captures == 1 and " capture" or " captures")) .. " (" .. at(i) .. "), where Lua raises " ..
+          return problem("`%" .. d .. "` is used, and the pattern has " .. (if captures == 0 then "no capture" else
+            tostring(captures) .. (if captures == 1 then " capture" else " captures" end) end) .. " (" .. at(i) .. "), where Lua raises " ..
               "\"invalid capture index %" .. d .. "\"",
             "use `%0` for the whole match and `%1` to `%" .. tostring(math.max(captures, 1)) .. "` for the captures")
         end
       elseif d ~= "%" then
-        return problem("the replacement has a `%` that is followed by " .. (d == "" and "nothing" or shown(d)) .. " (" .. at(i) ..
+        return problem("the replacement has a `%` that is followed by " .. (if d == "" then "nothing" else shown(d) end) .. " (" .. at(i) ..
             "), and Lua raises \"invalid use of '%' in replacement string\"",
           "write `%%` for a percent sign, or `%0` to `%9` for the match and the captures")
       end
@@ -305,7 +305,7 @@ local FORMAT_KINDS <const>: {string: string} = {
 
 local function read_format(format: string): Literals.FormatRead
   local n = #format
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   local i = 1
   while i <= n do
     if format:sub(i, i) ~= "%" then
@@ -347,7 +347,7 @@ local function read_format(format: string): Literals.FormatRead
           return { kinds = kinds, problem = problem("`" .. form .. "` has a flag, width or precision that `%" ..
               conversion .. "` does not take (" .. at(i) .. "), and Lua raises \"invalid conversion specification: '" .. form ..
               "'\"", "`%" .. conversion .. "` takes the flags `" .. rule.flags .. "`, a width of at most two digits" ..
-              (rule.precision and " and a precision of at most two digits" or " and no precision")) }
+              (if rule.precision then " and a precision of at most two digits" else " and no precision" end)) }
         end
       end
       i = spec_at + 1
@@ -376,14 +376,14 @@ end
 local record PackState
   format: string
   --- The next character.
-  i: integer
-  variable: boolean
+  mut i: integer
+  mut variable: boolean
   --- The widest alignment `!` allows.
-  max_align: integer
+  mut max_align: integer
   --- The type of each value, in order.
-  kinds: {string}
+  kinds: mut {string}
   --- The first fault.
-  bad: Literals.Problem | nil
+  mut bad: Literals.Problem?
 end
 
 local SIZES <const>: {string: integer} = {
@@ -423,7 +423,7 @@ local function plain(kind: string, size: integer, value: boolean): Option
 end
 
 --- Reads the option at the walk and moves past it. A fault is left in the state, and the option is then nil.
-local function pack_option(s: PackState): Option | nil
+local function pack_option(s: PackState): Option?
   local at_i = s.i
   local c = s.format:sub(at_i, at_i)
   s.i = at_i + 1
@@ -431,7 +431,7 @@ local function pack_option(s: PackState): Option | nil
   if fixed ~= nil then
     return plain(c, fixed, true)
   elseif c == "i" or c == "I" or c == "s" or c == "!" then
-    local size = pack_number(s, c == "s" and 8 or c == "!" and NATIVE_ALIGN or 4)
+    local size = pack_number(s, if c == "s" then 8 else c == "!" and NATIVE_ALIGN end or 4)
     if size < 1 or size > MAX_INT_SIZE then
       pack_stop(s, "`" .. c .. tostring(size) .. "` is out of range (" .. at(at_i) .. "), and Lua raises \"integral size (" ..
           tostring(size) .. ") out of limits [1,16]\"", "write a size from 1 to 16 after `" .. c .. "`")
@@ -477,12 +477,12 @@ local function read_pack(format: string): Literals.PackRead
       local align = o.size
       if o.kind == "X" then
         local next_at = s.i
-        local after: Option | nil = nil
+        local after: Option? = nil
         if next_at <= #format then
           after = pack_option(s)
         end
         if s.bad == nil and (after == nil or after.fixed_string or after.size == 0) then
-          pack_stop(s, "`X` aligns to " .. (after == nil and "nothing" or "an option that has no alignment") .. " (" ..
+          pack_stop(s, "`X` aligns to " .. (if after == nil then "nothing" else "an option that has no alignment" end) .. " (" ..
               at(at_i) .. "), and Lua raises \"invalid next option for option 'X'\"",
             "follow `X` with an option of a size, such as `Xi4`")
         end
@@ -513,7 +513,7 @@ local function finding(code: Codes.Code, place: integer, what: string, fn: strin
 end
 
 local function check(call: Literals.Call): {Literals.Finding}
-  local found: {Literals.Finding} = {}
+  local found: mut {Literals.Finding} = {}
   local fn = call.fn
   local first = call.literals[1]
   local second = call.literals[2]
@@ -552,12 +552,12 @@ local function check(call: Literals.Call): {Literals.Finding}
   return found
 end
 
-local function key_of(pattern: string): string | nil
+local function key_of(pattern: string): string?
   local read = read_pattern(pattern)
   if read.problem ~= nil then
     return nil
   end
-  return read.captures[1] == "position" and "integer" or "string"
+  return if read.captures[1] == "position" then "integer" else "string" end
 end
 
 Literals.pattern = read_pattern

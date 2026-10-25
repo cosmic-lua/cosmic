@@ -85,7 +85,7 @@ local function test_the_relay_connects_through_the_native_connector()
     local log: {string} = {}
     local relay = Relay.start({
       http = front, grants = { "127.0.0.1:" .. port, "127.0.0.1:" .. closed },
-      connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, to: integer, timeout_ns: integer): Net.Conn?, string
         asked.value = asked.value + 1
         return connector:connect(Net.tcp(address, to), { timeout_ns = timeout_ns })
       end,

@@ -126,7 +126,7 @@ end
 --- @return Parsed | nil What the line held
 --- @return string Why it was refused, or "" when it was not
 function Flags.parse(argv: {string}, from: integer,
-                     spec: {string:boolean | Flags.Option}): Flags.Parsed | nil, string
+                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
       error("flags: " .. name .. " is not an option a spec can name", 2)
@@ -145,7 +145,7 @@ function Flags.parse(argv: {string}, from: integer,
   -- Records `name`'s value: `value` when the word held it, otherwise
   -- the next word, which must not look like an option. `same` is how a
   -- value is attached to `name` in one word, for the refusal to show.
-  local function valued(name: string, value: string | nil, same: string): string
+  local function valued(name: string, value: string?, same: string): string
     if value == nil then
       cursor.slot = cursor.slot + 1
       value = argv[cursor.slot]
@@ -187,7 +187,7 @@ function Flags.parse(argv: {string}, from: integer,
       if entry == nil then
         return nil, "no such option: " .. name
       elseif takes_value(entry) then
-        local trouble = valued(name, value, #name > 2 and "=" or "")
+        local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
           return nil, trouble
         end
@@ -237,14 +237,14 @@ end
 --- of its value -- beside what it does, in a column: sorted by name
 --- without its dashes, each line indented two spaces.
 local function option_lines(spec: {string:boolean | Flags.Option}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(spec) do names[#names + 1] = name end
   table.sort(names, function(a: string, b: string): boolean
     local bare_a, bare_b = a:gsub("^%-+", ""), b:gsub("^%-+", "")
     if bare_a ~= bare_b then return bare_a < bare_b end
     return a < b
   end)
-  local heads: {string} = {}
+  local heads: mut {string} = {}
   local width = 0
   for index, name in ipairs(names) do
     local entry = spec[name]
@@ -258,7 +258,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     heads[index] = head
     if columns(head) > width then width = columns(head) end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local about = entry is Flags.Option and entry.about or nil
@@ -308,8 +308,8 @@ function Flags.help(command: Flags.Command, name: string): string
     error("flags: help's name is empty", 2)
   end
   local spec = command.spec or {}
-  local usage = command.usage or (next(spec) ~= nil and "[options]" or "")
-  local parts: {string} = { "usage: " .. (usage ~= "" and name .. " " .. usage or name) }
+  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
   local about = command.about
   if about ~= nil and about ~= "" then
     parts[#parts + 1] = "\n" .. about
@@ -322,7 +322,7 @@ end
 
 --- The help of `program` as a whole: its commands, each with its about.
 local function commands_help(program: string, commands: {string:Flags.Command}): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   local width = 0
   for name in pairs(commands) do
     names[#names + 1] = name
@@ -334,8 +334,8 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
     local spec = command.spec
     if spec ~= nil and next(spec) ~= nil then any_options = true end
   end
-  local usage = "usage: " .. program .. " <command>" .. (any_options and " [options]" or "")
-  local lines: {string} = { usage, "", "commands:" }
+  local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
+  local lines: mut {string} = { usage, "", "commands:" }
   for _, name in ipairs(names) do
     local about = commands[name].about
     if about ~= nil and about ~= "" then
@@ -405,7 +405,7 @@ end
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {string}, from: integer,
-                        commands: {string:Flags.Command}, program: string): Flags.Dispatched | nil, string
+                        commands: {string:Flags.Command}, program: string): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
@@ -429,7 +429,7 @@ function Flags.dispatch(argv: {string}, from: integer,
     return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, ""
   end
   if name == nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for known in pairs(commands) do names[#names + 1] = known end
     table.sort(names)
     return nil, "needs a command: " .. table.concat(names, ", ")

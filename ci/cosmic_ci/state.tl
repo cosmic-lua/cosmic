@@ -68,7 +68,7 @@ end
 function State.external_path(path: string, candidate: string): string
   local directory = State.canonical_directory(Fs.dirname(path))
   local leaf = Fs.basename(path)
-  local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
+  local unresolved = if directory == "/" then "/" .. leaf else directory .. "/" .. leaf end
   local resolved, trouble = Fs.absolute(unresolved)
   local absolute: string
   if resolved == nil then
@@ -103,7 +103,7 @@ local SUITE_COLUMNS <const>: {string} = { "worker", "run", "attempt", "phase", "
 --- The columns of `suite_runs` in `db`, as a set: one written before a
 --- column was lacks it.
 local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
-  local out: {string:boolean} = {}
+  local out: mut {string:boolean} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db,
       "SELECT name FROM pragma_table_info('suite_runs')")))) do
     out[row:text(1)] = true
@@ -116,7 +116,7 @@ function State.open(path: string): Sqlite.Handle
   assert(db:exec(SCHEMA))
   -- A table written before a key part or `held` was gains its column.
   local present = suite_columns_of(db)
-  local wanted: {string} = { "held" }
+  local wanted: mut {string} = { "held" }
   for _, part in ipairs(KEY_PARTS) do wanted[#wanted + 1] = part.column end
   for _, name in ipairs(wanted) do
     if present[name] ~= true then
@@ -140,8 +140,8 @@ end
 
 function State.complete(path: string, id: integer, worker: string, run: string,
                         attempt: string, phase: string, at: integer, elapsed: integer,
-                        status: string, code: integer | nil, signal: integer | nil,
-                        timed_out: integer, detail: string | nil)
+                        status: string, code: integer?, signal: integer?,
+                        timed_out: integer, detail: string?)
   local db = State.open(path)
   assert(Sqlite.run(db, [[INSERT INTO operation_events
     (start_id,event,worker,run,attempt,phase,monotonic_ns,elapsed_ns,status,
@@ -164,7 +164,7 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   local present = assert(Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suite_runs'"))
   if #present == 0 then return {} end
-  local selected: {string} = {}
+  local selected: mut {string} = {}
   for _, name in ipairs(SUITE_COLUMNS) do
     selected[#selected + 1] = name .. " IS NULL, COALESCE(CAST(" .. name .. " AS TEXT), '')"
   end
@@ -184,26 +184,26 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
-  local out: {State.SuiteRun} = {}
+  local out: mut {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
-    local texts: {string:string} = {}
-    local figures: {string:integer} = {}
+    local texts: mut {string:string} = {}
+    local figures: mut {string:integer} = {}
     local column = 1
     for _, name in ipairs(SUITE_COLUMNS) do
       if cells:text(column) ~= "1" then
         local value = cells:text(column + 1)
-        local count: integer | nil
+        local count: integer?
         if integer_columns[name] == true then count = math.tointeger(tonumber(value)) end
         if count ~= nil then figures[name] = count else texts[name] = value end
       end
       column = column + 2
     end
-    local parts: {string:string} = {}
+    local parts: mut {string:string} = {}
     for _, part in ipairs(KEY_PARTS) do
       if cells:text(column) ~= "1" then parts[part.said] = cells:text(column + 1) end
       column = column + 2
     end
-    local held: string | nil
+    local held: string?
     if cells:text(column) ~= "1" then held = cells:text(column + 1) end
     out[#out + 1] = { worker = texts["worker"] or "", run = texts["run"] or "",
       attempt = texts["attempt"] or "", phase = texts["phase"] or "",
@@ -218,15 +218,15 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
 end
 
 function State.suite(path: string, row: State.SuiteRun)
-  local function maybe_integer(v: integer | nil): Sqlite.Value
+  local function maybe_integer(v: integer?): Sqlite.Value
     return v and integer(v) or null()
   end
-  local function maybe_text(v: string | nil): Sqlite.Value
+  local function maybe_text(v: string?): Sqlite.Value
     return v and text(v) or null()
   end
-  local columns: {string} = {}
+  local columns: mut {string} = {}
   for _, name in ipairs(SUITE_COLUMNS) do columns[#columns + 1] = name end
-  local values: {Sqlite.Value} = { text(row.worker), text(row.run),
+  local values: mut {Sqlite.Value} = { text(row.worker), text(row.run),
     text(row.attempt), text(row.phase), text(row.suite), text(row.status),
     maybe_integer(row.exit_code), maybe_integer(row.tests),
     maybe_integer(row.modules), maybe_integer(row.ran), maybe_integer(row.stood),
@@ -240,7 +240,7 @@ function State.suite(path: string, row: State.SuiteRun)
   end
   columns[#columns + 1] = "held"
   values[#values + 1] = maybe_text(row.held)
-  local marks: {string} = {}
+  local marks: mut {string} = {}
   for i = 1, #columns do marks[#marks + 1] = "?" .. tostring(i) end
   local db = State.open(path)
   assert(Sqlite.run(db, "INSERT INTO suite_runs (" .. table.concat(columns, ",") ..

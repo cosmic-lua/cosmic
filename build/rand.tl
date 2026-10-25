@@ -59,9 +59,9 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The whole of standard input, or nil and why.
-    stdin: function(): string | nil, string
+    stdin: function(): string?, string
     --- The operating system's entropy: [`Rand.entropy`] when nil.
-    entropy: function(count: integer): string | nil, string
+    entropy: function(count: integer): string?, string
     --- The wall clock in nanoseconds: [`Clock.now_ns`] when nil.
     now_ns: function(): integer
   end
@@ -87,7 +87,7 @@ local record Source
 end
 
 --- Parses `word` as a whole decimal integer, or nil.
-local function integer_of(word: string): integer | nil
+local function integer_of(word: string): integer?
   if not word:match("^[+-]?%d+$") then return nil end
   return math.tointeger(tonumber(word))
 end
@@ -95,12 +95,12 @@ end
 --- What `argv` asks for, checked against the subcommand.
 local record Request
   command: string
-  version: integer
-  count: integer | nil
-  bytes: integer
-  encoding: string
-  seed: integer | nil
-  words: {string}
+  mut version: integer
+  mut count: integer?
+  mut bytes: integer
+  mut encoding: string
+  mut seed: integer?
+  words: mut {string}
 end
 
 --- The prefix that keeps a negative number from being read as an option.
@@ -110,7 +110,7 @@ local NEGATIVE <const> = "\1"
 --- reads it as a word, not an option: `cosmic rand int -5 5` works
 --- without a `--`. An option's value is left alone.
 local function marked(argv: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for key, word in ipairs(argv) do out[key] = word end
   if argv[2] ~= "int" then return out end
   local slot = 3
@@ -137,7 +137,7 @@ local allowed: {string:{string:boolean}} = {
 }
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {string}): Request | nil, string
+local function arguments(argv: {string}): Request?, string
   local command = argv[2]
   if command == nil then
     return nil, "give a subcommand"
@@ -211,7 +211,7 @@ local function arguments(argv: {string}): Request | nil, string
 end
 
 --- The bytes of standard input, refusing a terminal.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("no file given and standard input is a terminal; give a file or pipe lines in")
 end
 
@@ -227,7 +227,7 @@ local standard: verb.Io = {
 --- last line's newline ends it and does not begin another, so "" is no
 --- lines and "a\n\nb" is three.
 local function lines_of(text: string): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while at <= #text do
     local stop = text:find("\n", at, true)
@@ -264,9 +264,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- may be a secret is made from bytes this returns; a seeded
   -- generator ([`Rand.new`]) is reached only from `seeded` below.
   local record Drawn
-    broken: string | nil
-    pool: string
-    used: integer
+    mut broken: string?
+    mut pool: string
+    mut used: integer
   end
   local drawn: Drawn = { pool = "", used = 0 }
   local function fetch(count: integer): string
@@ -315,8 +315,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   -- Output goes out in pieces, so a large -n is never held whole.
   local record Output
-    pending: {string}
-    size: integer
+    mut pending: mut {string}
+    mut size: integer
   end
   local output: Output = { pending = {}, size = 0 }
   local function flush(): boolean
@@ -394,7 +394,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     else
       local file = request.words[1]
-      local text: string | nil
+      local text: string?
       local why: string
       if file == nil or file == "-" then
         text, why = to.stdin()

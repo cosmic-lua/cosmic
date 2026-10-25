@@ -10,8 +10,9 @@
 --- and its whitespace but where they move a token: an edit that moves
 --- none, such as one to a comment's words or to the spaces ending a
 --- line, checks no dependent, and any change of a type changes a token.
---- A dependent's message that names a place in the module (a type
---- "inferred at" it) is checked again once the place moves.
+--- A dependent is checked again once a token moves, though no message of
+--- the checker names a place in another module today: the key stays exact
+--- so that one which does is never stale.
 ---
 --- What the dependents were last checked against is what was keyed of
 --- the module, by its file: closing a document compares that with what
@@ -35,22 +36,22 @@ local record dependents
   record Queue
     --- The files, by name, whose served form changed since their
     --- dependents were found.
-    due: {string:boolean}
+    mut due: mut {string:boolean}
     --- The dependents found, by URI, in the order they are checked, and
     --- the set of them.
-    waiting: {string}
-    queued: {string:boolean}
+    waiting: mut {string}
+    queued: mut {string:boolean}
     --- The key of what each open document served when last keyed, by
     --- URI, and the documents to key yet, by URI: "open" for one just
     --- opened, "change" for one whose text changed since.
-    served: {string:string}
-    keying: {string:string}
+    served: mut {string:string}
+    mut keying: mut {string:string}
     --- The files of the documents closed, by name, and the key their
     --- dependents were last checked against: "?", which no key is, where
     --- that is not known.
-    closing: {string:string}
+    mut closing: mut {string:string}
     --- How many dependents were checked, all told: what a test reads.
-    checked: integer
+    mut checked: integer
   end
 
   --- What one step of [`dependents.next`] did: the publications of the
@@ -74,19 +75,9 @@ end
 local function key_of(checker: check.Checker, name: string): string
   local listed = source.module(checker.source, name)
   if listed == nil then return "" end
-  local built = check.compiler(checker)
-  local served = source.served(checker.source, built, listed.path, check.open_files(checker), true)
+  local served = source.served(checker.source, listed.path, check.open_files(checker), true)
   if served == nil then return "" end
-  local parts: {string} = {}
-  if checker.source.grammar == "new" then
-    parts = syntax_read.token_parts(served.text, served.file)
-  else
-    local tokens, _ = built.lex(served.text, served.file)
-    for _, token in ipairs(tokens) do
-      parts[#parts + 1] = tostring(token.y) .. ":" .. tostring(token.x) .. " " .. token.tk
-    end
-  end
-  return Hash.hex_sha256(table.concat(parts, "\0"))
+  return Hash.hex_sha256(table.concat(syntax_read.token_parts(served.text, served.file), "\0"))
 end
 
 --- Takes `uri` out of the dependents to check: its document was just
@@ -160,7 +151,7 @@ function dependents.next(q: Queue, o: publish.Open, waiting: function(): boolean
   if waiting() then return none end
   keyed(q, o)
   if next(q.due) ~= nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(q.due) do names[#names + 1] = name end
     table.sort(names)
     q.due = {}

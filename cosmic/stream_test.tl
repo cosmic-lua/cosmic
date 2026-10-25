@@ -9,14 +9,14 @@ local Stream = require("cosmic.stream")
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
   pending: function(Fake): boolean
-  update: function(Fake, string): string | nil, string
-  finish: function(Fake): string | nil, string
+  update: function(Fake, string): string?, string
+  finish: function(Fake): string?, string
   done: function(Fake): boolean
   rest: function(Fake): string
 end
 
 local function drain(reader: Stream.Reader, max_bytes?: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(max_bytes)
     assert(trouble == "", trouble)
@@ -157,8 +157,8 @@ local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: 
   local collected = Stream.collect()
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string | nil, string return chunk, "" end,
-    finish = function(_self: Fake): string | nil, string return "", "" end,
+    update = function(_self: Fake, chunk: string): string?, string return chunk, "" end,
+    finish = function(_self: Fake): string?, string return "", "" end,
   }
   local transformed = Stream.transform_writer(Stream.collect(), codec)
   local hashing = assert(Stream.hashing("sha256"))
@@ -190,7 +190,7 @@ local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
   local sys = require("cosmic.sys")
   local path = tmp .. "/target"
   local real_write = sys.write
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, "injected failure", 0
   end
   local w = assert(Stream.create(path))
@@ -220,13 +220,13 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   local pending = { value = "" }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string | nil, string
+    update = function(_self: Fake, chunk: string): string?, string
       pending.value = pending.value .. chunk:upper()
       local out = pending.value:sub(1, 1)
       pending.value = pending.value:sub(2)
       return out, ""
     end,
-    finish = function(_self: Fake): string | nil, string
+    finish = function(_self: Fake): string?, string
       return pending.value, ""
     end,
     done = function(_self: Fake): boolean
@@ -245,11 +245,11 @@ local function test_transform_writer_flushes_the_codec_on_close()
   local held = { value = "" }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string | nil, string
+    update = function(_self: Fake, chunk: string): string?, string
       held.value = held.value .. chunk
       return "", ""
     end,
-    finish = function(_self: Fake): string | nil, string
+    finish = function(_self: Fake): string?, string
       return held.value, ""
     end,
     done = function(_self: Fake): boolean
@@ -300,12 +300,12 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   local given = { value = false }
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string | nil, string
+    update = function(_self: Fake, chunk: string): string?, string
       if given.value then return "", "" end
       given.value = true
       return chunk, ""
     end,
-    finish = function(_self: Fake): string | nil, string
+    finish = function(_self: Fake): string?, string
       return "", ""
     end,
     done = function(_self: Fake): boolean
@@ -340,7 +340,7 @@ local function test_a_truncated_compressed_stream_fails_at_its_end_every_time()
   local packed = assert(deflater:update("hello, world")) .. assert(deflater:finish())
   local inflater = assert(Compress.inflater("gzip"))
   local r = Stream.transform(Stream.from_string(packed:sub(1, #packed - 4)), inflater)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local trouble = ""
   while true do
     local chunk, why = r:read()
@@ -496,10 +496,10 @@ end
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string): string | nil, string
+    update = function(_self: Fake, chunk: string): string?, string
       return chunk, ""
     end,
-    finish = function(_self: Fake): string | nil, string
+    finish = function(_self: Fake): string?, string
       return nil, "injected finish failure"
     end,
   }
@@ -519,7 +519,7 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
   -- the rest with update("") before it is given new input.
   local held = { value = "" }
   local codec: Fake = {
-    update = function(_self: Fake, chunk: string): string | nil, string
+    update = function(_self: Fake, chunk: string): string?, string
       assert(chunk == "" or held.value == "", "fed new input while output was pending")
       for i = 1, #chunk do held.value = held.value .. string.rep(chunk:sub(i, i), 10) end
       local out = held.value:sub(1, 4)
@@ -527,7 +527,7 @@ local function test_transform_drains_a_pending_codec_before_feeding_it_more()
       return out, ""
     end,
     pending = function(_self: Fake): boolean return held.value ~= "" end,
-    finish = function(_self: Fake): string | nil, string
+    finish = function(_self: Fake): string?, string
       assert(held.value == "", "finished while output was pending")
       return "", ""
     end,
@@ -540,10 +540,10 @@ end
 --- nothing back: it upper-cases, and ends with "!".
 local function shouting(): Stream.Transform
   local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, chunk: string): string | nil, string
+  t.update = function(_self: Stream.Transform, chunk: string): string?, string
     return chunk:upper(), ""
   end
-  t.finish = function(_self: Stream.Transform): string | nil, string
+  t.finish = function(_self: Stream.Transform): string?, string
     return "!", ""
   end
   return t
@@ -561,37 +561,32 @@ end
 
 --- A Writer that keeps what it is given and whether it was closed or
 --- aborted, for a test of what a held write lets through.
-local record Recorded is Stream.Writer
-  got: string
-  ended: string
+local class Recorded is Stream.Writer
+  mut got: string
+  mut ended: string
   --- The byte count at which a write is refused, nil for none.
   limit?: integer
-  write: function(Recorded, string): boolean, string
-  close: function(Recorded): boolean, string
-  abort: function(Recorded): boolean, string
-end
 
-function Recorded:write(data: string): boolean, string
-  local limit = self.limit
-  if limit ~= nil and #self.got + #data >= limit then return false, "sink full" end
-  self.got = self.got .. data
-  return true, ""
-end
+  function write(self, data: string): boolean, string
+    local limit = self.limit
+    if limit ~= nil and #self.got + #data >= limit then return false, "sink full" end
+    self.got = self.got .. data
+    return true, ""
+  end
 
-function Recorded:close(): boolean, string
-  self.ended = "closed"
-  return true, ""
-end
+  function close(self): boolean, string
+    self.ended = "closed"
+    return true, ""
+  end
 
-function Recorded:abort(): boolean, string
-  self.ended = "aborted"
-  return true, ""
+  function abort(self): boolean, string
+    self.ended = "aborted"
+    return true, ""
+  end
 end
-
-local recorded_mt: metatable<Recorded> = { __index = Recorded }
 
 local function recording(limit?: integer): Recorded
-  local r: Recorded = setmetatable({ got = "", ended = "", limit = limit }, recorded_mt)
+  local r: Recorded = { got = "", ended = "", limit = limit }
   return r
 end
 
@@ -600,11 +595,11 @@ end
 --- refuses.
 local function strict(cut?: boolean): Stream.Transform
   local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, chunk: string): string | nil, string
+  t.update = function(_self: Stream.Transform, chunk: string): string?, string
     if chunk:find("!", 1, true) then return nil, "bang" end
     return chunk:upper(), ""
   end
-  t.finish = function(_self: Stream.Transform): string | nil, string
+  t.finish = function(_self: Stream.Transform): string?, string
     if cut then return nil, "cut short" end
     return ".", ""
   end
@@ -741,13 +736,13 @@ local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
   -- The second call of one write, the drain, refuses.
   local calls = { value = 0 }
   local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, _chunk: string): string | nil, string
+  t.update = function(_self: Stream.Transform, _chunk: string): string?, string
     calls.value = calls.value + 1
     if calls.value == 2 then return nil, "drain failed" end
     return "x", ""
   end
   t.pending = function(_self: Stream.Transform): boolean return true end
-  t.finish = function(_self: Stream.Transform): string | nil, string return "", "" end
+  t.finish = function(_self: Stream.Transform): string?, string return "", "" end
   local out = recording()
   local w = Stream.transform_writer(out, t, { hold = 1 })
   local ok, trouble = w:write("ab")
@@ -849,7 +844,7 @@ end
 --- stopped.
 local function all_lines(reader: Stream.Reader, max_bytes?: integer): {string}, string
   local lines = Stream.lines(reader, max_bytes)
-  local got: {string} = {}
+  local got: mut {string} = {}
   while true do
     local line, trouble = lines:read()
     if line == nil then return got, trouble end
@@ -861,7 +856,7 @@ end
 local function trickle(s: string): Stream.Reader
   local inner = Stream.from_string(s)
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     return inner:read(1)
   end
   r.close = function(_self: Stream.Reader): boolean, string
@@ -930,7 +925,7 @@ local function test_a_long_line_in_small_chunks_costs_linear_time()
     for i, line in ipairs(want) do assert(got[i] == line) end
     return elapsed
   end
-  local eight: {string} = {}
+  local eight: mut {string} = {}
   for i = 1, 8 do eight[i] = short end
   -- The least of three of each, taken in turn, so a pause elsewhere on
   -- the host inflates neither.
@@ -949,14 +944,14 @@ end
 local function test_lines_stop_at_a_reader_failure()
   local inner = Stream.from_string("a\nb")
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     local chunk, trouble = inner:read(max_bytes)
     if chunk == nil and trouble == "" then return nil, "boom" end
     return chunk, trouble
   end
   r.close = function(_self: Stream.Reader): boolean, string return true, "" end
   local lines = Stream.lines(r)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
   assert(#seen == 1 and seen[1] == "a", table.concat(seen, "|"))
   assert(lines:failure() == "boom", lines:failure())
@@ -964,7 +959,7 @@ end
 
 local function test_each_reads_every_line_and_leaves_no_failure()
   local lines = Stream.lines(Stream.from_string("x\ny\n"))
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
   assert(table.concat(seen, "|") == "x|y" and lines:failure() == "")
 end
@@ -1004,7 +999,7 @@ local function test_rest_after_the_last_line_reads_nothing_more()
   local inner = Stream.from_string("a\nb")
   local ended = { value = false }
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     assert(not ended.value, "read past the end")
     local chunk, trouble = inner:read(max_bytes)
     if chunk == nil then ended.value = true end
@@ -1012,7 +1007,7 @@ local function test_rest_after_the_last_line_reads_nothing_more()
   end
   r.close = function(_self: Stream.Reader): boolean, string return true, "" end
   local lines = Stream.lines(r)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
   assert(table.concat(seen, "|") == "a|b")
   local chunk, trouble = lines:rest():read()
@@ -1039,7 +1034,7 @@ local function test_rest_after_a_raise_keeps_the_start_of_a_line()
   local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
   local next_answer = { value = 0 }
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     next_answer.value = next_answer.value + 1
     local answer = answers[next_answer.value]
     if answer == false then error("raised") end
@@ -1060,7 +1055,7 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
   local closes = { value = 0 }
   local inner = Stream.from_string("a\nb\n")
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     return inner:read(max_bytes)
   end
   r.close = function(_self: Stream.Reader): boolean, string
@@ -1089,36 +1084,31 @@ end
 
 --- A Writer whose writes fail from the `fails_at`th on, counting its
 --- aborts and closes.
-local record Failing is Stream.Writer
-  aborts: integer
-  closes: integer
-  writes: integer
+local class Failing is Stream.Writer
+  mut aborts: integer
+  mut closes: integer
+  mut writes: integer
   fails_at: integer
-  write: function(Failing, string): boolean, string
-  close: function(Failing): boolean, string
-  abort: function(Failing): boolean, string
-end
 
-function Failing:write(_data: string): boolean, string
-  self.writes = self.writes + 1
-  if self.writes >= self.fails_at then return false, "disk full" end
-  return true, ""
-end
+  function write(self, _data: string): boolean, string
+    self.writes = self.writes + 1
+    if self.writes >= self.fails_at then return false, "disk full" end
+    return true, ""
+  end
 
-function Failing:close(): boolean, string
-  self.closes = self.closes + 1
-  return true, ""
-end
+  function close(self): boolean, string
+    self.closes = self.closes + 1
+    return true, ""
+  end
 
-function Failing:abort(): boolean, string
-  self.aborts = self.aborts + 1
-  return true, ""
+  function abort(self): boolean, string
+    self.aborts = self.aborts + 1
+    return true, ""
+  end
 end
-
-local failing_mt: metatable<Failing> = { __index = Failing }
 
 local function failing(fails_at: integer): Failing
-  local f: Failing = setmetatable({ aborts = 0, closes = 0, writes = 0, fails_at = fails_at }, failing_mt)
+  local f: Failing = { aborts = 0, closes = 0, writes = 0, fails_at = fails_at }
   return f
 end
 
@@ -1127,7 +1117,7 @@ end
 local function chunked(chunks: {string}, failure: string): Stream.Reader
   local at = { value = 0 }
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     at.value = at.value + 1
     if chunks[at.value] == nil then return nil, failure end
     return chunks[at.value], ""

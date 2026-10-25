@@ -13,7 +13,7 @@
 --- files, every fuzz corpus (`testdata/fuzz/`) when that closure holds
 --- [`build.fuzz`], and a pinned environment; its module declares the
 --- rest. The build reads the call from the source without running the
---- module ([`build.analyzer`]): a statement at the top level of a test or
+--- module ([`build.syntax_analyzer`]): a statement at the top level of a test or
 --- example module, once, on the name a `local` binds
 --- `require("cosmic.test")` to, handed one table literal whose every
 --- value is written out. An alias (`local policy = Test.policy`) is

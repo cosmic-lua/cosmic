@@ -23,8 +23,8 @@ end
 --- not yet taken.
 local record Peer
   conn: Net.Conn
-  buf: string
-  metamethod __close: function(Peer)
+  mut buf: string
+  __close: function(Peer)
 end
 
 local peer_mt: metatable<Peer> = {
@@ -70,7 +70,7 @@ local function reply(p: Peer, method?: string): Got
   local status_line = line(p)
   local status = math.tointeger(tonumber(status_line:match("^HTTP/1%.1 (%d%d%d) ")))
   assert(status ~= nil, "status line: " .. status_line)
-  local headers: {string:string} = {}
+  local headers: mut {string:string} = {}
   while true do
     local text = line(p)
     if text == "" then break end
@@ -85,7 +85,7 @@ local function reply(p: Peer, method?: string): Got
   elseif headers["content-length"] ~= nil then
     body = bytes(p, assert(math.tointeger(tonumber(headers["content-length"]))))
   elseif headers["transfer-encoding"] == "chunked" then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while true do
       local size = assert(math.tointeger(tonumber(line(p), 16)))
       if size == 0 then break end
@@ -198,11 +198,11 @@ local function test_head_is_answered_with_no_body()
   local read_from = { value = false }
   local closed = { value = false }
   local record Watched is Stream.Reader
-    read: function(Watched, max_bytes?: integer): string | nil, string
+    read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
   end
   local watched: Watched = setmetatable({}, { __index = {
-    read = function(_self: Watched, _max_bytes?: integer): string | nil, string
+    read = function(_self: Watched, _max_bytes?: integer): string?, string
       read_from.value = true
       return nil, ""
     end,
@@ -464,7 +464,7 @@ end
 local function test_stopping_closes_idle_connections_at_once()
   local started = Clock.monotonic_ns()
   local idle_ended = { value = false }
-  local in_flight = { value = nil as Got | nil }
+  local in_flight = { value = nil as Got? }
   local release = { value = false }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -600,11 +600,11 @@ end
 local function test_a_reply_body_that_raises_closes_the_connection()
   local closed = { value = false }
   local record Raising is Stream.Reader
-    read: function(Raising, max_bytes?: integer): string | nil, string
+    read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
   end
   local raising: Raising = setmetatable({}, { __index = {
-    read = function(_self: Raising, _max_bytes?: integer): string | nil, string
+    read = function(_self: Raising, _max_bytes?: integer): string?, string
       error("the body broke")
     end,
     close = function(_self: Raising): boolean, string
@@ -632,12 +632,12 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
   local paths: {string} = {}
   local record Lenient is Stream.Reader
     source: Stream.Reader
-    read: function(Lenient, max_bytes?: integer): string | nil, string
+    read: function(Lenient, max_bytes?: integer): string?, string
     close: function(Lenient): boolean, string
   end
   local lenient_methods = {
     -- Reads every failure as the end.
-    read = function(self: Lenient, max_bytes?: integer): string | nil, string
+    read = function(self: Lenient, max_bytes?: integer): string?, string
       local piece, _ = self.source:read(max_bytes)
       if piece == nil then return nil, "" end
       return piece, ""
@@ -663,7 +663,7 @@ end
 --- A request carries the connection's far end: the loopback address and
 --- the client's own port, which is not the server's.
 local function test_a_request_carries_its_peer_address()
-  local seen = { value = nil as Net.Address | nil }
+  local seen = { value = nil as Net.Address? }
   local server_port = { value = 0 }
   local troubles = serving(function(req: Server.Request): Server.Reply
     seen.value = req.peer
@@ -686,9 +686,9 @@ end
 --- stopping.
 local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   local calls = { value = 0 }
-  local given = { value = nil as Net.Server | nil }
+  local given = { value = nil as Net.Server? }
   local idle_ended = { value = false }
-  local idle_peer = { value = nil as Peer | nil }
+  local idle_peer = { value = nil as Peer? }
   local troubles = serving(echo, function(address: Net.Address)
     local idle = peer(address)
     idle_peer.value = idle
@@ -856,7 +856,7 @@ end
 --- A handler that works past body_ns before it reads a body the client
 --- sent in good time gets the body: the time runs from its first read.
 local function test_a_slow_handler_reading_a_prompt_body_gets_it()
-  local read = { value = nil as string | nil }
+  local read = { value = nil as string? }
   local troubles = serving(function(req: Server.Request): Server.Reply
     assert(Poll.delay(Clock.ms(500)))
     read.value = assert(Stream.read_all(req.body))
@@ -935,11 +935,11 @@ end
 --- then, and a reply still in flight, finished once on_stop lets it go,
 --- carries `Connection: close`.
 local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
-  local idle_peer = { value = nil as Peer | nil }
-  local busy_peer = { value = nil as Peer | nil }
+  local idle_peer = { value = nil as Peer? }
+  local busy_peer = { value = nil as Peer? }
   local idle_ended_at_stop = { value = false }
   local release = { value = false }
-  local in_flight = { value = nil as Got | nil }
+  local in_flight = { value = nil as Got? }
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
       while not release.value do assert(Poll.delay(Clock.ms(5))) end

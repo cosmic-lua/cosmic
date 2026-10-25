@@ -9,36 +9,103 @@ local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local identity = require("build.identity")
 local docs = require("build.docs")
-local derivation = require("build.derivation")
 local importer = require("build.importer")
-local compilation = require("build.compilation")
-local receivers = require("build.receivers")
-local type Compiler = require("build.compiler")
+local GrammarMode = require("build.grammar_mode")
+local Pipeline = require("build.pipeline")
 local type _ = require("build.test_inputs")
 -- Read as source by the closure checks below, though the modules above
 -- name it only by type, which no closure follows.
 local type _ = require("build.module")
 local type _ = require("build.inputs")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local SyntaxNode = require("build.syntax_node")
 
 --- Whether the tree is cosmic's own. The tests that read the projection
 --- beyond this module's closure -- the docs a compile's hint names --
 --- are build/importer_store_test.tl's.
-Test.policy{ grants = { { path = "core", letters = "r" } } }
+Test.policy{
+  grants = { { path = "core", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+    { path = "lang/stdlib.d.tl", letters = "r" } },
+}
 
-local built = assert(teal.load())
+--- The modules the source `source` of the file `file` requires, as a parse of it finds them.
+local function requires_of(source: string, file: string): {string}
+  local parsed = Parser.parse(Lexer.lex(source, file), file, "tl")
+  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+  return SyntaxNode.requires(parsed.chunk)
+end
+
+
+--- A module requiring each of `uses`, by name.
+local function module_requiring(uses: {string}): string
+  local lines: mut {string} = {}
+  for index, used in ipairs(uses) do
+    lines[#lines + 1] = "local m" .. index .. " = require(\"" .. used .. "\")"
+  end
+  lines[#lines + 1] = "local record M\n  uses: {any}\nend"
+  local names: mut {string} = {}
+  for index = 1, #uses do names[#names + 1] = "m" .. index end
+  lines[#lines + 1] = "M.uses = { " .. table.concat(names, ", ") .. " }"
+  lines[#lines + 1] = "return M"
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- A module returning a record that holds `n`, as the grammar takes a module's value.
+local function valued(n: integer): string
+  return "local record Valued\n  value: integer\nend\nlocal valued: Valued = { value = " .. tostring(n) ..
+    " }\nreturn valued\n"
+end
+
+--- A module `types` whose record has the type `Thing` of a `value` and builds one.
+local TYPES_IMPLEMENTED <const> = "local record Types\n  record Thing\n    value: number\n  end\n  make: function(): Types.Thing\nend\n" ..
+  "function Types.make(): Types.Thing\n  return { value = 1 }\nend\nreturn Types\n"
+
+--- The declaration of the module `types` of [`TYPES_IMPLEMENTED`], with a `value` of `kind`.
+local function types_declared(kind: string): string
+  return "local record Types\n  record Thing\n    value: " .. kind .. "\n  end\n  make: function(): Types.Thing\nend\nreturn Types\n"
+end
+
+--- The module `dep` over the record the declaration `dep.d.tl` gives, holding `n`.
+local function dep_valued(n: integer): string
+  return "local record Dep\n  value: number\nend\nlocal dep: Dep = { value = " .. tostring(n) .. " }\nreturn dep\n"
+end
+
+--- A module returning a record that holds the value of the module `name`.
+local function requiring(name: string): string
+  return "local " .. name .. " = require(\"" .. name .. "\")\nlocal record Requiring\n  value: integer\nend\n" ..
+    "local requiring: Requiring = { value = " .. name .. ".value }\nreturn requiring\n"
+end
+
+--- The compile of the staged tree in `handle`, which must refuse no module.
+local function compiled_clean(handle: work.Handle): importer.Result
+  local result, trouble = importer.compile(handle, "importer-test")
+  assert(result ~= nil, trouble)
+  assert(#result.refused == 0, table.concat(result.refused, "\n"))
+  return result
+end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
-local function write_fixture(case: string, files: {string:string}): string | nil, string
+local function write_fixture(case: string, files: {string:string}): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
     return nil, trouble
   end
+  local all: mut {string:string} = {}
   for filename, source in pairs(files) do
+    all[filename] = source
+  end
+  -- A tree that is cosmic's own ([`build.tree`]) is checked against the declarations of the standard library it holds.
+  if files["build/importer.tl"] ~= nil then
+    all["lang/prelude.d.tl"] = assert(Fs.read("lang/prelude.d.tl"))
+    all["lang/stdlib.d.tl"] = assert(Fs.read("lang/stdlib.d.tl"))
+    all["build/ceilings.txt"] = "[checked]\n"
+  end
+  for filename, source in pairs(all) do
     local parent = filename:match("^(.+)/[^/]+$")
     if parent and not Fs.mkdirs(root .. "/" .. parent) then
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
@@ -54,7 +121,7 @@ end
 
 --- Builds the fixture project at `root` and returns the `requires` of
 --- whichever compiled module has import path `path`.
-local function requires_of_fixture(root: string, path: string): {string} | nil, string
+local function requires_of_fixture(root: string, path: string): {string}?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -64,10 +131,13 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built, "importer-test")
+  local result, compile_trouble = importer.compile(handle, "importer-test")
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
+  end
+  if #result.refused > 0 then
+    return nil, table.concat(result.refused, "\n")
   end
   for _, m in ipairs(result.modules) do
     if m.path == path then
@@ -79,7 +149,7 @@ end
 
 --- Stages and compiles one fixture run. Reopening the same root keeps its
 --- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -89,19 +159,23 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built,
+  local result, compile_trouble = importer.compile(handle,
     "declaration-cache-test")
   work.close(handle)
+  -- The new checker goes on past a module it refuses and says so in `refused`: that is no compile, as the tests ask.
+  if result ~= nil and #result.refused > 0 then
+    return nil, table.concat(result.refused, "\n")
+  end
   return result, compile_trouble
 end
 
 --- Observes the real derive and compile through an empty shared cache.
 --- Offers must survive a later failure, and no operation may follow finish.
 local record SharedTrace
-  finished: integer
-  offered: integer
-  kept: {string}
-  flushed: {string}
+  mut finished: integer
+  mut offered: integer
+  kept: mut {string}
+  flushed: mut {string}
 end
 
 local function traced_cache(): importer.Shared, SharedTrace
@@ -118,7 +192,7 @@ local function traced_cache(): importer.Shared, SharedTrace
       active()
       return {}
     end,
-    parse = function(_analyzer: string, _hash: string, _mapped: boolean): importer.Shared.Parse | nil
+    parse = function(_analyzer: string, _hash: string, _mapped: boolean): importer.Shared.Parse?
       active()
       return nil
     end,
@@ -126,7 +200,7 @@ local function traced_cache(): importer.Shared, SharedTrace
       active()
       trace.offered = trace.offered + 1
     end,
-    look = function(_module: importer.Module, _own: boolean): importer.Shared.Compile | nil
+    look = function(_module: importer.Module, _own: boolean): importer.Shared.Compile?
       active()
       return nil
     end,
@@ -146,19 +220,20 @@ end
 local function test_compile_consumes_shared_cache_on_success_and_failure()
   for _, failing in ipairs({ false, true }) do
     local root = assert(write_fixture("cache-compile", {
-      ["a.tl"] = "return { value = 1 }\n",
-      ["z.tl"] = failing and "local value: string = 1\nreturn value\n" or
-        "return { value = 2 }\n",
+      ["a.tl"] = valued(1),
+      ["z.tl"] = if failing then "local value: string = 1\nreturn value\n" else
+        valued(2) end,
     }))
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
     local shared, trace = traced_cache()
-    local result, trouble = importer.compile(handle, built, "cache-lifetime", false, shared)
+    local result, trouble = importer.compile(handle, "cache-lifetime", false, shared)
     assert(trace.finished == 1, "compile did not finish its cache exactly once")
     assert(trace.offered == 2, "derive did not offer both sources")
     assert(trace.flushed[1] == "a", "a successful compile was lost before finishing")
     if failing then
-      assert(result == nil and trouble:find("z.tl", 1, true), trouble)
+      assert(result ~= nil, trouble)
+      assert(#result.refused == 1 and result.refused[1]:find("z.tl", 1, true) ~= nil, table.concat(result.refused, "\n"))
       assert(#trace.flushed == 1, "a refused compile was shared")
     else
       assert(result ~= nil, trouble)
@@ -173,7 +248,7 @@ local function test_compile_finishes_shared_cache_when_derivation_fails()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local shared, trace = traced_cache()
-  local result, trouble = importer.compile(handle, built, "cache-lifetime", false, shared)
+  local result, trouble = importer.compile(handle, "cache-lifetime", false, shared)
   assert(result == nil and trouble:find("reserved", 1, true), trouble)
   assert(trace.finished == 1 and trace.offered == 0 and #trace.flushed == 0)
   assert(work.close(handle))
@@ -183,6 +258,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
   for _, phase in ipairs({ "success", "record", "select" }) do
     local root = assert(write_fixture("cache-identity", {
       ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+      ["build/pipeline.tl"] = "local fs = require(\"cosmic.fs\")\nlocal record Pipeline\nend\nlocal pipeline: Pipeline = {}\nlocal _ = fs\nreturn pipeline\n",
       ["core/empty.h"] = "",
     }))
     local handle = assert(work.open(root))
@@ -193,10 +269,11 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     end
     local shared, trace = traced_cache()
     local selected = { value = false }
-    local result, trouble = importer.compile_tree(handle, built,
-      function(recorded: identity.Identities): string | nil, string
+    local result, trouble = importer.compile_tree(handle,
+      function(recorded: identity.Identities): string?,
+      string
         selected.value = true
-        assert(trace.finished == 0 and trace.offered == 1,
+        assert(trace.finished == 0 and trace.offered == 2,
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
           "SELECT value FROM meta WHERE key = 'compiler'"))
@@ -208,11 +285,18 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
-      assert(result.tool == "chosen-compiler" and result.parses.parsed == 1)
-      assert(trace.offered == 1 and #trace.flushed == 1)
+      -- The tool the selection answered, as the compile in the new mode keys it ([`Pipeline.coded_of`]).
+      local chosen = "chosen-compiler"
+      local moded = GrammarMode.tool(chosen, "new")
+      local c1, c2 = Pipeline.coded(chosen), assert(Pipeline.coded_of(chosen, handle.db))
+      local c3, c4 = Pipeline.coded(moded), assert(Pipeline.coded_of(moded, handle.db))
+      assert(result.parses.parsed == 2, tostring(result.parses.parsed))
+      assert(result.tool == c1 or result.tool == c2 or result.tool == c3 or result.tool == c4,
+        result.tool .. " not in " .. c1 .. " " .. c2 .. " " .. c3 .. " " .. c4)
+      assert(trace.offered == 2 and #trace.flushed == 2)
     else
       assert(result == nil and trouble:find("refused", 1, true), trouble)
-      assert(trace.offered == 1 and #trace.flushed == 0)
+      assert(trace.offered == 2 and #trace.flushed == 0)
     end
     assert(work.close(handle))
   end
@@ -230,13 +314,12 @@ local function test_declaration_edit_invalidates_a_warm_dependent()
       "return thing",
       "",
     }, "\n"),
-    ["types.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
-    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+    ["types.tl"] = TYPES_IMPLEMENTED,
+    ["types.d.tl"] = types_declared("number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   assert(compile_fixture(root))
-  assert(Fs.write(root .. "/types.d.tl",
-    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  assert(Fs.write(root .. "/types.d.tl", types_declared("string")))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a warm compile reused code checked against the old declaration")
   assert(trouble:find("string", 1, true) ~= nil,
@@ -248,7 +331,16 @@ end
 --- invalidate `helper` and then main in a warm database.
 local function test_declaration_edit_invalidates_transitive_type_only_dependents()
   local root, write_trouble = write_fixture("transitive-declaration-cache", {
-    ["main.tl"] = 'local helper = require("helper")\nreturn helper.make()\n',
+    ["main.tl"] = table.concat({
+      'local helper = require("helper")',
+      "local record Main",
+      "  value: number",
+      "end",
+      "local made = helper.make()",
+      "local main: Main = { value = made.value }",
+      "return main",
+      "",
+    }, "\n"),
     ["helper.tl"] = table.concat({
       'local type Types = require("types")',
       "local record helper",
@@ -260,12 +352,11 @@ local function test_declaration_edit_invalidates_transitive_type_only_dependents
       "return helper",
       "",
     }, "\n"),
-    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+    ["types.d.tl"] = types_declared("number"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   assert(compile_fixture(root))
-  assert(Fs.write(root .. "/types.d.tl",
-    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  assert(Fs.write(root .. "/types.d.tl", types_declared("string")))
   local result, trouble = compile_fixture(root)
   assert(result == nil, "a warm compile missed a transitive declaration edit")
   assert(trouble:find("string", 1, true) ~= nil,
@@ -277,7 +368,7 @@ end
 --- key so a previously passing verdict is not reused.
 local function test_implementation_edit_invalidates_a_declared_dependent()
   local root, write_trouble = write_fixture("declared-implementation-cache", {
-    ["dep.tl"] = "return { value = 1 }\n",
+    ["dep.tl"] = dep_valued(1),
     ["dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
     ["main_test.tl"] = table.concat({
       'local dep = require("dep")',
@@ -289,7 +380,7 @@ local function test_implementation_edit_invalidates_a_declared_dependent()
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   assert(compile_fixture(root))
-  assert(Fs.write(root .. "/dep.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/dep.tl", dep_valued(2)))
   local result, trouble = compile_fixture(root)
   assert(result ~= nil, "the edited fixture did not compile: " .. tostring(trouble))
   assert(result.compiled == 2,
@@ -298,13 +389,13 @@ end
 
 --- A module's own compile is keyed by its file as well as its import
 --- path: `x.tl` moved to `x/init.tl`, the same module of the same source,
---- is compiled again (build.contracts' exemptions are by file), while a
+--- is compiled again (build.syntax_contracts' exemptions are by file), while a
 --- module that requires it, whose compile no file of its dependency
 --- decides, stands, and so does the graph key a test's verdict is kept by.
 local function test_a_module_moved_to_its_init_file_is_compiled_again()
   local root, write_trouble = write_fixture("moved-to-init", {
-    ["x.tl"] = "return { value = 1 }\n",
-    ["main.tl"] = 'local x = require("x")\nreturn x.value\n',
+    ["x.tl"] = valued(1),
+    ["main.tl"] = requiring("x"),
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local first = assert(compile_fixture(root))
@@ -331,7 +422,7 @@ local function asked_of(root: string, sql: string): {{string}}
   local handle = assert(work.open(root))
   local rows = assert(Sqlite.text_rows(handle.db, sql))
   work.close(handle)
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
   return out
 end
@@ -342,12 +433,12 @@ end
 --- module that requires nothing of it holds stands.
 local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them()
   local root = assert(write_fixture("keys-memo", {
-    ["x.tl"] = "return { value = 1 }\n",
-    ["main.tl"] = 'local x = require("x")\nreturn x.value\n',
-    ["other.tl"] = "return { value = 2 }\n",
+    ["x.tl"] = valued(1),
+    ["main.tl"] = requiring("x"),
+    ["other.tl"] = valued(2),
   }))
   local function keys_of(result: importer.Result): {string:string}
-    local out: {string:string} = {}
+    local out: mut {string:string} = {}
     for _, m in ipairs(result.modules) do
       out[m.path] = (m.key or "") .. " " .. (m.graph_key or "")
     end
@@ -360,13 +451,13 @@ local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them
   for path, key in pairs(first) do
     assert(again[path] == key, path .. ": the kept keys are not the ones made")
   end
-  assert(Fs.write(root .. "/x.tl", "return { value = 3 }\n"))
+  assert(Fs.write(root .. "/x.tl", valued(3)))
   local edited = keys_of((assert(compile_fixture(root))))
   assert(#asked_of(root, "SELECT fp FROM keys_memo") == 2, "an edit was answered with the keys before it")
   assert(edited["x"] ~= first["x"], "x: an edit kept its key")
   assert(edited["main"] ~= first["main"], "main: an edit to what it requires kept its key")
   assert(edited["other"] == first["other"], "other: an edit to another module moved its key")
-  assert(Fs.write(root .. "/x.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/x.tl", valued(1)))
   local undone = keys_of((assert(compile_fixture(root))))
   for path, key in pairs(first) do
     assert(undone[path] == key, path .. ": undoing the edit did not find its keys again")
@@ -378,7 +469,7 @@ end
 --- only once it is many runs old, so a compile in use is never dropped.
 local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
   local root = assert(write_fixture("seen-lazily", {
-    ["x.tl"] = "return { value = 1 }\n",
+    ["x.tl"] = valued(1),
   }))
   assert(compile_fixture(root))
   local function seen_of(): integer
@@ -404,7 +495,7 @@ end
 --- and not compiled.
 local function test_a_standing_compile_used_many_runs_later_is_marked_not_compiled()
   local root = assert(write_fixture("seen-by-runs", {
-    ["x.tl"] = "return { value = 1 }\n",
+    ["x.tl"] = valued(1),
   }))
   assert(compile_fixture(root))
   local function seen_of(): integer
@@ -427,7 +518,7 @@ end
 local function compile_again(root: string): importer.Result
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test", false, nil, nil, nil, nil, true))
+  local result = assert(importer.compile(handle, "importer-test", false, nil, nil, true))
   work.close(handle)
   return result
 end
@@ -437,8 +528,8 @@ end
 --- edit, a file gone, or a plan another run replaced is built afresh.
 local function test_a_build_asked_for_again_is_the_one_before_only_while_nothing_moved()
   local root = assert(write_fixture("again", {
-    ["x.tl"] = "return { value = 1 }\n",
-    ["y.tl"] = "local x = require(\"x\")\nreturn { value = x.value }\n",
+    ["x.tl"] = valued(1),
+    ["y.tl"] = requiring("x"),
   }))
   local first = compile_again(root)
   assert(first.compiled == 2, "the first build compiled " .. tostring(first.compiled))
@@ -446,7 +537,7 @@ local function test_a_build_asked_for_again_is_the_one_before_only_while_nothing
   assert(again.compiled == 0 and again.cached == 2, "a build nothing moved was made again")
   assert(again.modules == first.modules, "the build before was not handed back")
 
-  assert(Fs.write(root .. "/x.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/x.tl", valued(2)))
   local edited = compile_again(root)
   assert(edited.compiled >= 1, "an edit was not built")
   assert(compile_again(root).compiled == 0, "the build after an edit was not handed back")
@@ -507,7 +598,7 @@ local function test_declaration_dependency_keys_allow_cycles()
 end
 
 --- A `require("cosmic.hidden_dep")` inside a comment or a string literal
---- is not an import: `requires_of` finds no `require` call in this
+--- is not an import: [`requires_of`] finds no `require` call in this
 --- source, though its bytes carry that text twice. A match over the
 --- source text, with no notion of a comment or a string, would report
 --- `cosmic.hidden_dep` as a dependency.
@@ -532,8 +623,8 @@ end
 --- A genuine top-level require of a real sibling module is found.
 local function test_finds_a_real_top_level_require()
   local root, write_trouble = write_fixture("real-require", {
-    ["main.tl"] = 'local dep = require("real_dep")\nreturn dep\n',
-    ["real_dep.tl"] = "local record real_dep\nend\nreturn real_dep\n",
+    ["main.tl"] = 'local dep = require("real_dep")\nlocal record Main\n  name: string\nend\nlocal main: Main = { name = dep.name }\nreturn main\n',
+    ["real_dep.tl"] = "local record real_dep\n  name: string\nend\nlocal real: real_dep = { name = \"x\" }\nreturn real\n",
   })
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
   local requires, trouble = requires_of_fixture(root, "main")
@@ -570,7 +661,7 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.boot
 end
@@ -579,22 +670,9 @@ end
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.image
-end
-
---- The checker is compiled into the compiler only by a boot, so an edit to
---- it moves the image hash, which a rebuild without a boot cannot serve.
-local function test_image_hash_covers_the_checker()
-  local root = assert(Fs.mkdtemp("cosmic-importer-test-image-checker-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "bin" }) do
-    assert(Fs.mkdirs(root .. "/" .. dir))
-  end
-  assert(Fs.write(root .. "/checker/tl.tl", "original"))
-  local image = image_hash_of(root)
-  assert(Fs.write(root .. "/checker/tl.tl", "changed"))
-  assert(image_hash_of(root) ~= image, "an edit to the checker did not move the image hash")
 end
 
 --- A Teal test beside the core's C is not a core input, nor one of the
@@ -636,32 +714,31 @@ end
 --- compiler's and Lua's pins and patches, and the build's own modules a
 --- compile or a parse runs ([`identity.compiler_modules`]). The standard
 --- library the importer runs on is not in it, so an edit there does not
---- recompile the world. Nor is [`cosmic.removed`], though [`build.teal`]
---- quotes it in a refusal: the names it strips from the checker, which
+--- recompile the world. Nor is [`cosmic.removed`], though a refusal
+--- quotes it: the names it strips from the checker, which
 --- decide what a compile accepts, it spells itself, and no compile keeps
 --- a refusal. A stdlib-simplifying change adds to the catalog on almost
 --- every edit, and must not compile every module again for it.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic",
       "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
   assert(Fs.write(root .. "/cosmic/removed.tl",
     "local record Removed\nend\nreturn Removed\n"))
-  assert(Fs.write(root .. "/build/teal.tl",
+  assert(Fs.write(root .. "/build/withheld.tl",
     "local Fs = require(\"cosmic.fs\")\nlocal Removed = require(\"cosmic.removed\")\n" ..
-      "local record teal\nend\nteal.fs = Fs\nteal.removed = Removed\nreturn teal\n"))
+      "local record withheld\nend\nwithheld.fs = Fs\nwithheld.removed = Removed\nreturn withheld\n"))
   assert(Fs.write(root .. "/build/importer.tl",
-    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
-      "importer.teal = teal\nreturn importer\n"))
+    "local withheld = require(\"build.withheld\")\nlocal record importer\nend\n" ..
+      "importer.withheld = withheld\nreturn importer\n"))
   local function identities(): {string}
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    assert(importer.derive(handle, true, built))
+    assert(importer.derive(handle, true))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
@@ -677,56 +754,13 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local after_removed = identities()
   assert(after_removed[1] == original[1], "an edit to cosmic.removed moved the compiler identity")
   assert(after_removed[2] == original[2], "an edit to cosmic.removed moved the runtime basis")
-  assert(Fs.write(root .. "/build/teal.tl",
+  assert(Fs.write(root .. "/build/withheld.tl",
     "local Fs = require(\"cosmic.fs\")\nlocal Removed = require(\"cosmic.removed\")\n" ..
-      "local record teal\nend\nteal.fs = Fs\nteal.removed = Removed\n" ..
-      "teal.withheld = { \"io\" }\nreturn teal\n"))
+      "local record withheld\nend\nwithheld.fs = Fs\nwithheld.removed = Removed\n" ..
+      "withheld.globals = { \"io\" }\nreturn withheld\n"))
   local after_withheld = identities()
   assert(after_withheld[1] ~= original[1],
     "an edit to the names the checker strips did not move the compiler identity")
-  assert(Fs.write(root .. "/checker/tl.tl", "another checker"))
-  local after_checker = identities()
-  assert(after_checker[1] ~= after_withheld[1],
-    "an edit to the checker did not move the compiler identity")
-  assert(after_checker[2] ~= original[2], "an edit to the checker did not move the runtime basis")
-end
-
---- The Lua standard library's declarations, [`checker/stdlib.d.tl`], are
---- compiled into the checker at boot, so an edit to one moves what every
---- compile is a function of (the compiler's identity, so each compile's
---- key, and the runtime basis) and the hashes that make a boot (the
---- tool's and the core's image): an edit that moved none would leave
---- every module compiled against the declaration it was edited from.
-local function test_compiler_identity_follows_the_standard_library_declarations()
-  local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-declarations-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/lua", "bin" }) do
-    assert(Fs.mkdirs(root .. "/" .. dir))
-  end
-  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/checker/tl.tl", "a checker"))
-  assert(Fs.write(root .. "/checker/stdlib.d.tl", "do\n   global function f(): string\n   end\nend\n"))
-  assert(Fs.write(root .. "/build/teal.tl", "local record teal\nend\nreturn teal\n"))
-  assert(Fs.write(root .. "/build/importer.tl",
-    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
-      "importer.teal = teal\nreturn importer\n"))
-  local function hashes(): {string}
-    local handle = assert(work.open(root))
-    assert(work.stage(handle, true))
-    assert(importer.derive(handle, true, built))
-    local found = assert(identity.record_identities(handle.db))
-    local fingerprint = assert(identity.record_fingerprint(handle.db))
-    work.close(handle)
-    return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }
-  end
-  local original = hashes()
-  assert(hashes()[1] == original[1], "a second open of the same tree moved the identity")
-  assert(Fs.write(root .. "/checker/stdlib.d.tl", "do\n   global function f(): integer\n   end\nend\n"))
-  local after = hashes()
-  assert(after[1] ~= original[1], "an edit to a standard library declaration did not move the compiler identity")
-  assert(after[2] ~= original[2], "an edit to a standard library declaration did not move the runtime basis")
-  assert(after[3] ~= original[3], "an edit to a standard library declaration did not move the image hash")
-  assert(after[4] ~= original[4], "an edit to a standard library declaration did not move the boot hash")
 end
 
 --- The declarations the new checker types a program against, [`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`], are carried as
@@ -740,16 +774,16 @@ local function test_compiler_identity_follows_the_new_checkers_declarations()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", "do\nend\n"))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", "do\n   global record Seen\n      n?: integer\n   end\nend\n"))
-  assert(Fs.write(root .. "/build/teal.tl", "local record teal\nend\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/withheld.tl", "local record withheld\nend\nreturn withheld\n"))
   assert(Fs.write(root .. "/build/importer.tl",
-    "local teal = require(\"build.teal\")\nlocal record importer\nend\n" ..
-      "importer.teal = teal\nreturn importer\n"))
+    "local withheld = require(\"build.withheld\")\nlocal record importer\nend\n" ..
+      "importer.withheld = withheld\nreturn importer\n"))
   local function hashes(): {string}, boolean
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    assert(importer.derive(handle, true, built))
+    assert(importer.derive(handle, true))
     local found = assert(identity.record_identities(handle.db))
-    local fingerprint = assert(identity.record_fingerprint(handle.db))
+    local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
     local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
     work.close(handle)
     return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }, assert(rows[1]):text(1) == "0"
@@ -774,12 +808,12 @@ end
 --- never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker", "vendor/lua", "bin" }) do
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   local paths = {
     "build/main.tl", "core/main.c", "cosmic/example.tl",
-    "cosmic/example_example.tl", "checker/tl.tl", "vendor/lua/PIN",
+    "cosmic/example_example.tl", "lang/check.tl", "vendor/lua/PIN",
     "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
   }
   for _, path in ipairs(paths) do
@@ -878,14 +912,16 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
     ["shapes.tl"] = table.concat({
       "local record Shapes",
       "  record Box",
-      "    width: integer",
+      "    mut width: integer",
       "    area: function(Box): integer",
       "  end",
+      "  box: function(integer): Shapes.Box",
+      "end",
+      "local function area(self: Shapes.Box): integer",
+      "  return self.width * self.width",
       "end",
       "function Shapes.box(width: integer): Shapes.Box",
-      "  local made: Shapes.Box = { width = width }",
-      "  made.area = function(self: Shapes.Box): integer return self.width * self.width end",
-      "  return made",
+      "  return { width = width, area = area }",
       "end",
       "return Shapes",
       "",
@@ -918,13 +954,13 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
+  local result = compiled_clean(handle)
   assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, row in ipairs(rows) do
     got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
   end
@@ -934,7 +970,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   local view = assert(docs.view({ shipped }))
   for _, query in ipairs({ "Shapes.Box.area", "Box.area", "area" }) do
     local uses = assert(docs.uses(view, query))
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, use in ipairs(uses) do
       lines[#lines + 1] = use.from_file .. ":" .. use.line
     end
@@ -947,205 +983,6 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   work.close(handle)
 end
 
---- A method called through a value of the record a module returns is a use
---- of that method (`tally add`), found by the value's type: a local, a
---- parameter, a field, a value the constructor made, and `self` inside the
---- module. A method of the same name on another module's record is another
---- symbol.
-local function test_uses_of_a_method_follow_the_type_of_the_value_of_the_record_a_module_returns()
-  local root = assert(write_fixture("returned-record-method-uses", {
-    ["tally.tl"] = table.concat({
-      "local record Tally",
-      "  count: integer",
-      "  add: function(Tally, integer): integer",
-      "  bump: function(Tally)",
-      "  new: function(): Tally",
-      "end",
-      "local function add(self: Tally, n: integer): integer",
-      "  self:bump()",
-      "  return self.count + n",
-      "end",
-      "local function bump(self: Tally)",
-      "  self.count = self.count + 1",
-      "end",
-      "function Tally.new(): Tally",
-      "  return { count = 0, add = add, bump = bump }",
-      "end",
-      "return Tally",
-      "",
-    }, "\n"),
-    ["pile.tl"] = table.concat({
-      "local record Pile",
-      "  add: function(Pile, integer): integer",
-      "  new: function(): Pile",
-      "end",
-      "function Pile.new(): Pile",
-      "  return { add = function(_: Pile, n: integer): integer return n end }",
-      "end",
-      "return Pile",
-      "",
-    }, "\n"),
-    ["main.tl"] = table.concat({
-      'local type Tally = require("tally")',
-      'local Pile = require("pile")',
-      "local record Holder",
-      "  held: Tally",
-      "end",
-      "local record Main",
-      "end",
-      "function Main.run(p: Tally, h: Holder): integer",
-      "  local made = Tally.new()",
-      "  local total = made:add(1)",
-      "  total = total + p:add(2)",
-      "  total = total + h.held:add(3)",
-      "  total = total + Pile.new():add(4)",
-      "  return total + made.count",
-      "end",
-      "return Main",
-      "",
-    }, "\n"),
-  }))
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
-  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
-  local rows = assert(Sqlite.text_rows(shipped,
-    "SELECT from_module, module, symbol, line FROM uses WHERE symbol = 'add' OR symbol = 'bump' " ..
-      "ORDER BY from_module, line, module, symbol"))
-  local got = ""
-  for _, row in ipairs(rows) do
-    got = got .. row:text(4) .. " " .. row:text(1) .. ">" .. row:text(2) .. " " .. row:text(3) .. ", "
-  end
-  -- the four calls of main on lines 10 to 13 and `self:bump()` on line 8 of tally
-  local want = "10 main>tally add, 11 main>tally add, 12 main>tally add, 13 main>pile add, 8 tally>tally bump, "
-  assert(got == want, got)
-  assert(shipped:close())
-  work.close(handle)
-end
-
---- A record nested in one module's record that is also the record another module returns (a value typed as it) is used
---- under the nesting, and a record nested in a module that lists the interface another module returns is not taken for
---- that module's own record: the module's own record is no one's member to be a use of except by a method called through
---- its values.
-local function test_uses_of_a_nested_record_that_is_also_a_modules_own_are_the_nested_ones()
-  -- The pairs name their modules in both orders ([`build.syntax_receivers_test`] fixes which is walked first).
-  local record_of = "local record Types\n  record Def\n    name: string\n  end\nend\nreturn Types\n"
-  local value_of = function(types: string): string
-    return 'local types = require("' .. types .. '")\nlocal def: types.Def = { name = "d" }\nreturn def\n'
-  end
-  local root = assert(write_fixture("nested-and-own-record-uses", {
-    ["a_types1.tl"] = record_of,
-    ["z_def1.tl"] = value_of("a_types1"),
-    ["z_types2.tl"] = record_of,
-    ["a_def2.tl"] = value_of("z_types2"),
-    ["iface.d.tl"] = table.concat({
-      "local interface Ifc",
-      "  area: function(Ifc): integer",
-      "end",
-      "return Ifc",
-      "",
-    }, "\n"),
-    ["holder.tl"] = table.concat({
-      'local type Ifc = require("iface")',
-      "local record Holder",
-      "  record Item is Ifc",
-      "    w: integer",
-      "  end",
-      "  make: function(): Item",
-      "end",
-      "function Holder.make(): Holder.Item",
-      "  return { w = 1, area = function(self: Holder.Item): integer return self.w end }",
-      "end",
-      "return Holder",
-      "",
-    }, "\n"),
-    ["main.tl"] = table.concat({
-      'local def1 = require("z_def1")',
-      'local def2 = require("a_def2")',
-      'local Holder = require("holder")',
-      "local record Main",
-      "end",
-      "function Main.run(): string",
-      "  local item = Holder.make()",
-      "  local total = tostring(item:area())",
-      "  total = total .. def1.name",
-      "  total = total .. def2.name",
-      "  return total",
-      "end",
-      "return Main",
-      "",
-    }, "\n"),
-  }))
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
-  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
-  local rows = assert(Sqlite.text_rows(shipped,
-    "SELECT module, symbol, line FROM uses WHERE from_module = 'main' AND symbol LIKE '%.%' ORDER BY line, module, symbol"))
-  local got = ""
-  for _, row in ipairs(rows) do
-    got = got .. row:text(3) .. " " .. row:text(1) .. " " .. row:text(2) .. ", "
-  end
-  -- `item:area()` is on line 8 of main.tl, and the two reads of `.name` below it
-  local want = "8 holder Item.area, 9 a_types1 Def.name, 10 z_types2 Def.name, "
-  assert(got == want, got)
-  assert(shipped:close())
-  work.close(handle)
-end
-
---- A field a record inherits is a use of the interface that declares
---- it, through an interface that extends another too; the record's own
---- field stays the record's.
-local function test_uses_of_an_inherited_field_name_its_interface()
-  local root = assert(write_fixture("inherited-field-uses", {
-    ["io.tl"] = table.concat({
-      "local record Io",
-      "  interface Closer",
-      "    close: function(Closer)",
-      "  end",
-      "  interface Writer is Closer",
-      "    write: function(Writer, string)",
-      "  end",
-      "  record Collector is Writer",
-      "    result: function(Collector): string",
-      "  end",
-      "end",
-      "return Io",
-      "",
-    }, "\n"),
-    ["main.tl"] = table.concat({
-      'local type Io = require("io")',
-      "local record Main",
-      "end",
-      "function Main.run(c: Io.Collector): string",
-      "  c:write(\"x\")",
-      "  c:close()",
-      "  return c:result()",
-      "end",
-      "return Main",
-      "",
-    }, "\n"),
-  }))
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
-  assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
-  local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
-  local rows = assert(Sqlite.text_rows(shipped,
-    "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
-      "ORDER BY line, module, symbol"))
-  local got: {string} = {}
-  for _, row in ipairs(rows) do
-    got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
-  end
-  local want = "5 io Writer.write, 6 io Closer.close, 7 io Collector.result"
-  assert(table.concat(got, ", ") == want, table.concat(got, ", "))
-  assert(shipped:close())
-  work.close(handle)
-end
-
 --- The compiler identity closes over what its roots require
 --- ([`identity.compiler_modules`]), so it is the same whether the working
 --- database is fresh or has parsed the tree before -- a boot on an empty
@@ -1154,7 +991,7 @@ end
 --- not in it: the importer is outside the semantic closure.
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic",
       "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -1163,17 +1000,17 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "local record helper\nend\nreturn helper\n"))
   assert(Fs.write(root .. "/build/other.tl",
     "local record other\nend\nreturn other\n"))
-  assert(Fs.write(root .. "/build/teal.tl",
-    "local helper = require(\"build.helper\")\nlocal record teal\nend\n" ..
-      "teal.helper = helper\nreturn teal\n"))
+  assert(Fs.write(root .. "/build/withheld.tl",
+    "local helper = require(\"build.helper\")\nlocal record withheld\nend\n" ..
+      "withheld.helper = helper\nreturn withheld\n"))
   assert(Fs.write(root .. "/build/importer.tl",
-    "local teal = require(\"build.teal\")\nlocal other = require(\"build.other\")\n" ..
-      "local record importer\nend\nimporter.teal = teal\nimporter.other = other\n" ..
+    "local withheld = require(\"build.withheld\")\nlocal other = require(\"build.other\")\n" ..
+      "local record importer\nend\nimporter.withheld = withheld\nimporter.other = other\n" ..
       "return importer\n"))
   local function compiler_identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    assert(importer.derive(handle, true, built))
+    assert(importer.derive(handle, true))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.compiler
@@ -1200,7 +1037,7 @@ end
 --- tool whose writer stands writes what the tree's own would.
 local function test_writer_identity_follows_the_writer_closure()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-writer-identity-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
       "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -1228,7 +1065,7 @@ local function test_writer_identity_follows_the_writer_closure()
   local function writer_identity(): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    assert(importer.derive(handle, true, built))
+    assert(importer.derive(handle, true))
     local found = assert(identity.record_identities(handle.db))
     work.close(handle)
     return found.writer
@@ -1295,7 +1132,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
     "end",
     "",
     "function lines.fail(): boolean, string",
-    "  return nil, \"line fifteen fails\"",
+    "  return false, \"line fifteen fails\"",
     "end",
     "",
     "return lines",
@@ -1303,9 +1140,8 @@ local function test_generated_lua_keeps_teal_line_numbers()
   assert(Fs.write(root .. "/lines.tl", source))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result, compile_trouble = importer.compile(handle, built, "importer-test")
-  assert(result ~= nil, tostring(compile_trouble))
-  local lua: string | nil = nil
+  local result = compiled_clean(handle)
+  local lua: string? = nil
   for _, m in ipairs(result.modules) do
     if m.path == "lines" then
       lua = m.lua
@@ -1313,7 +1149,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   end
   work.close(handle)
   assert(lua ~= nil, "lines did not compile")
-  local generated: {string} = {}
+  local generated: mut {string} = {}
   for line in String.lines(lua) do
     generated[#generated + 1] = line
   end
@@ -1332,7 +1168,7 @@ end
 --- was derived.
 local function test_a_changed_analyzer_forgets_what_it_derived()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-analyzer-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
       "patch/lua", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -1360,7 +1196,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
           "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
           "FROM inputs WHERE path = 'cosmic.thing'"))
     end
-    assert(importer.derive(handle, true, built))
+    assert(importer.derive(handle, true))
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
@@ -1377,156 +1213,13 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     "rows another analyzer derived were kept")
 end
 
---- tl's checker silently accepts a `_`-prefixed name as intentionally
---- unused ([`checker/tl.tl`]'s own `var_name:sub(1, 1) == "_"` check),
---- but its warning for every other name does not mention that escape,
---- and cosmic refuses the whole compile over any warning (see
---- `complain`). `with_unused_hint` names the escape in the message.
-local function test_unused_variable_warning_names_its_own_fix()
-  local root = assert(write_fixture("unused-hint", {
-    ["thing.tl"] = "local function f(x: integer): integer\n  return 0\nend\nreturn f\n",
-  }))
-  local result, compile_trouble = compile_fixture(root)
-  assert(result == nil, "expected the unused argument to refuse the compile")
-  assert(compile_trouble:find(
-    "name it _ or _<name> to mark it intentionally unused", 1, true) ~= nil,
-    compile_trouble)
-end
-
---- A hint the same for several lines -- each field read of one untyped
---- variable, each unused name -- is printed once, on the first, saying
---- how many more it holds for; the rest carry the checker's words alone.
-local function test_a_repeated_hint_is_printed_once()
-  local root = assert(write_fixture("repeated-hint", {
-    ["thing.tl"] = "return function(cfg: any, a: integer, b: integer): integer\n" ..
-      "  print(cfg.cmd, cfg.cwd, cfg.env)\n  return 0\nend\n",
-  }))
-  local result, compile_trouble = compile_fixture(root)
-  assert(result == nil, "expected the untyped reads to refuse the compile")
-  assert(compile_trouble == table.concat({
-    "thing.tl: the compiler refused it",
-    "thing.tl:2:13: cannot index key 'cmd' in variable 'cfg' of type <any type> -- 'cfg' is " ..
-      "any (untyped, as Json.decode answers): check it against a record with " ..
-      "`local spec, err = Shape.record_of(\"Spec\"):into(cfg)` " ..
-      "(local Shape = require(\"cosmic.shape\")), or cast it unchecked: `cfg as Spec` " ..
-      "(same for 2 more)",
-    "thing.tl:2:22: cannot index key 'cwd' in variable 'cfg' of type <any type>",
-    "thing.tl:2:31: cannot index key 'env' in variable 'cfg' of type <any type>",
-    "thing.tl:1:27: unused argument a: integer -- name it _ or _<name> to mark it " ..
-      "intentionally unused (same for 1 more)",
-    "thing.tl:1:39: unused argument b: integer",
-  }, "\n"), compile_trouble)
-end
-
---- A module's type named from another module, where the module declares
---- it beside its record rather than inside, is told that the name is
---- misspelt or what the module must declare.
-local function test_a_type_beside_a_module_s_record_is_told_to_nest()
-  local root = assert(write_fixture("module-type-hint", {
-    ["ledger.tl"] = "local record Transaction\n  amount: integer\nend\nlocal record Ledger\n" ..
-      "  total: function({Transaction}): integer\nend\n" ..
-      "function Ledger.total(ts: {Transaction}): integer\n  return #ts\nend\nreturn Ledger\n",
-    ["main.tl"] = 'local Ledger = require("ledger")\n' ..
-      "return function(t: Ledger.Transaction): integer\n  return Ledger.total({ t })\nend\n",
-  }))
-  local result, compile_trouble = compile_fixture(root)
-  assert(result == nil, "expected the unknown type to refuse the compile")
-  assert(compile_trouble:find("main.tl:2:20: unknown type Ledger.Transaction -- " ..
-      "Ledger has no type Transaction: check its spelling, or declare `record Transaction ... end` " ..
-      "inside the record ledger returns (a `local record Transaction` beside that record is its " ..
-      "file's alone)", 1, true) ~= nil, compile_trouble)
-end
-
---- The refusal of a `local type` require of `module_source`, a module
---- `ledger` returning a value, from a `main.tl` that names
---- `Ledger.Month` through it and declares `local n: integer = "Ledger.x"`.
-local function type_require_refusal(case: string, module_source: string): string
-  local root = assert(write_fixture(case, {
-    ["ledger.tl"] = module_source,
-    ["main.tl"] = 'local type Ledger = require("ledger")\nlocal n: integer = "Ledger.x"\n' ..
-      "return function(m: Ledger.Month): integer\n  return m.days + n\nend\n",
-  }))
-  local result, compile_trouble = compile_fixture(root)
-  assert(result == nil, "expected the type require of a value to refuse the compile")
-  return compile_trouble
-end
-
-local LEDGER_RECORD <const> = "local record Ledger\n  record Month\n    days: integer\n  end\nend\n"
-
-local REFUSAL_HINT <const> = " -- ledger returns a value of its record, not the record type: " ..
-  "a `local type` require needs the type, as `local record M ... end return M` or a `.d.tl` " ..
-  "does; or require it as a value"
-
-local VALUE_HINT <const> = " -- ledger returns a value, not a type: a `local type` require " ..
-  "needs the module to return one, as `local record M ... end return M` or a `.d.tl` does"
-
---- A `local type` require of a module that returns a value of its record
---- is told what the module must return. The checker's other errors stand
---- as they are, but `unknown type Ledger.Month` is told no hint that
---- Ledger lacks Month: its record may well declare it.
-local function test_a_type_require_of_a_value_is_told_what_the_module_must_return()
-  local trouble = type_require_refusal("type-require-of-value",
-    LEDGER_RECORD .. "local ledger: Ledger = {}\nreturn ledger\n")
-  assert(trouble == "main.tl: the compiler refused it\n" ..
-      "main.tl:1:21: 'require' did not return a type, got record Ledger" .. REFUSAL_HINT .. "\n" ..
-      "main.tl:2:20: in local declaration: n: got string \"Ledger.x\", expected integer\n" ..
-      "main.tl:3:20: unknown type Ledger.Month\n" ..
-      "main.tl:4:12: cannot index key 'days' in variable 'm' of type Ledger.Month",
-    trouble)
-end
-
---- A module that returns a value other than a record (a function taking
---- its record, a map of it, a number) is told to return a type, and not
---- to require it as a value, whose type would hold none of the record's.
---- The refusal is said though it names `Ledger.Month` itself.
-local function test_a_type_require_of_a_value_not_a_record_is_told_to_return_a_type()
-  for _, value in ipairs({
-      LEDGER_RECORD .. "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
-      LEDGER_RECORD .. "local by_name: {string: Ledger.Month} = {}\nreturn by_name\n",
-      "return 1\n",
-  }) do
-    local trouble = type_require_refusal("type-require-of-value-" .. #value, value)
-    local refusal = trouble:match("main%.tl:1:21: 'require' did not return a type, got [^\n]*")
-    assert(refusal ~= nil and refusal:sub(-#VALUE_HINT) == VALUE_HINT, trouble)
-    assert(value == "return 1\n" or refusal:find("Ledger.Month", 1, true) ~= nil, refusal)
-    assert(trouble:find('n: got string "Ledger.x", expected integer', 1, true) ~= nil, trouble)
-    assert(trouble:find("has no type", 1, true) == nil, trouble)
-  end
-end
-
---- A `local type` require written over two lines, without parentheses,
---- or with a comment between its tokens is found as one on a line is: its
---- refusal is told what the module must return, and `Ledger.Month`, with
---- a `Month` declared beside `Ledger`, is not told to move `Month` into
---- a local record the file does not declare.
-local function test_a_type_require_however_written_is_told_what_the_module_must_return()
-  for i, case in ipairs({
-      { declaration = 'local type Ledger =\n  require("ledger")', at = "2:3" },
-      { declaration = 'local type Ledger = require "ledger"', at = "1:21" },
-      { declaration = "local type Ledger = require'ledger'", at = "1:21" },
-      { declaration = 'local type Ledger = --[[ the ledger ]] require(\n  "ledger"\n)', at = "1:40" },
-  }) do
-    local root = assert(write_fixture("type-require-written-" .. i, {
-      ["ledger.tl"] = LEDGER_RECORD .. "local ledger: Ledger = {}\nreturn ledger\n",
-      ["main.tl"] = case.declaration .. "\nlocal record Month\n  days: integer\nend\n" ..
-        "return function(m: Ledger.Month): integer\n  return m.days\nend\n",
-    }))
-    local result, trouble = compile_fixture(root)
-    assert(result == nil, "expected the type require of a value to refuse the compile")
-    assert(trouble:find("main.tl:" .. case.at .. ": 'require' did not return a type, " ..
-        "got record Ledger" .. REFUSAL_HINT .. "\n", 1, true) ~= nil, trouble)
-    assert(trouble:find("unknown type Ledger.Month\n", 1, true) ~= nil, trouble)
-    assert(trouble:find("declared beside", 1, true) == nil, trouble)
-  end
-end
-
 --- `ci/` is the pinned CI driver's own project, walked and built by
 --- the pinned host with cwd `ci/`, never by cosmic's own build: staging
 --- cosmic's own tree must record nothing under `ci/`, and deriving
 --- inputs from what was staged must yield no module from there either.
 local function test_own_tree_staging_skips_the_ci_driver_tree()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-skip-ci-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "lang",
       "patch/lua", "vendor/lua", "bin",
       "ci/cosmic_ci", "ci/o" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
@@ -1544,7 +1237,7 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
     "SELECT path FROM files WHERE path GLOB 'ci/*'"))
   assert(#staged == 0, "staging recorded a file under ci/: " .. tostring(staged[1]))
 
-  assert(importer.derive(handle, true, built))
+  assert(importer.derive(handle, true))
   local inputs = assert(Sqlite.text_rows(handle.db,
     "SELECT file FROM inputs WHERE file GLOB 'ci/*'"))
   assert(#inputs == 0, "derived inputs included a module under ci/: " ..
@@ -1552,318 +1245,7 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
---- Writes the smallest tree [`tree.is_own`] takes for cosmic's own, with
---- the modules `files` names under `build/`.
-local function write_own_tree(case: string, files: {string:string}): string
-  local root = assert(Fs.mkdtemp("cosmic-importer-test-" .. case .. "-"))
-  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "checker",
-      "patch/lua", "vendor/lua", "bin" }) do
-    assert(Fs.mkdirs(root .. "/" .. dir))
-  end
-  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
-  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
-  for name, source in pairs(files) do
-    assert(Fs.write(root .. "/build/" .. name .. ".tl", source))
-  end
-  return root
-end
-
---- The stub the fixture at `root` derived for the module `path`.
-local function stub_text_of(root: string, path: string): string
-  local handle = assert(work.open(root))
-  local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash WHERE i.path = ?1",
-    { { text = path } }))
-  work.close(handle)
-  return assert(rows[1]):text(1)
-end
-
---- How many stub verdicts of the fixture at `root` hold.
-local function held_stubs(root: string): integer
-  local handle = assert(work.open(root))
-  local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM stub_holds WHERE held = 1"))
-  work.close(handle)
-  return math.tointeger(assert(rows[1]):text(1)) or 0
-end
-
---- A module of cosmic's own tree that requires another is checked against
---- the other's stub once a compile has held the stub to its source's type
---- ([`compilation.stub_lookup`]): what that serves must never be a type
---- the source no longer has. A dependency whose exported type changes
---- reaches its dependent's check, and a stub that is not the one verified
---- is not served.
-local function test_a_stale_stub_is_not_served_to_a_dependent_check()
-  local dep = "local record dep\n  value: number\n  size: function(): integer\nend\n" ..
-    "dep.value = 1\nfunction dep.size(): integer return 1 end\nreturn dep\n"
-  local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
-  local root = write_own_tree("stub-verdict", { dep = dep, user = user })
-  assert(compile_fixture(root))
-  assert(held_stubs(root) >= 1, "no stub was held to its source's type")
-
-  -- Another type the dependency exports: the dependent must see it.
-  local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
-  assert(Fs.write(root .. "/build/dep.tl", changed))
-  local result, trouble = compile_fixture(root)
-  assert(result == nil, "the dependent was checked against the type the dependency had")
-  assert(trouble:find("string", 1, true) ~= nil, "the new type did not reach the check: " .. trouble)
-
-  -- The dependency as it was, and its stub made to say another type: the
-  -- verdict was of the stub's text before, so the dependent is checked
-  -- against the source, which it passes.
-  assert(Fs.write(root .. "/build/dep.tl", dep))
-  assert(compile_fixture(root))
-  local handle = assert(work.open(root))
-  assert(Sqlite.run(handle.db, "UPDATE stubs SET text = replace(text, 'value: number', 'value: string')"))
-  work.close(handle)
-  assert(Fs.write(root .. "/build/user.tl", user .. "-- edited\n"))
-  local again, again_trouble = compile_fixture(root)
-  assert(again ~= nil, "a stub no verdict was given for was served: " .. tostring(again_trouble))
-end
-
---- A verdict that a stub has its source's type holds for the source it
---- judged, and no other: a module's stub text can stay the same while its
---- type changes, when the change is in a body the stub leaves out (`function
---- e.f` inside a function adds `f` to the record `e`). Here only `e` changes,
---- `d` stays byte for byte and its stub names `e`'s type rather than
---- spelling it. The verdict is kept under the key, so the new `e` is judged
---- again and `user` is checked against the `f` it has; and a lookup under
---- another key is not given the stub, whatever text the verdict was kept for.
----
---- The importer compiles in dependency order in one environment, so a module
---- whose key moved is compiled before anything reads it, and the lookup's key
---- is not what fails a compile that drops it: the lookup is asked directly.
-local function test_a_verdict_is_kept_under_the_key_of_the_source_it_judged()
-  -- A stub keeps each token where the source had it, so both bodies are
-  -- two lines long.
-  local e_before = "local record e\nend\nfunction e.setup()\n  print(1)\n  print(2)\nend\nreturn e\n"
-  local e_after = "local record e\nend\nfunction e.setup()\n" ..
-    "  function e.f(): integer return 1 end\n  print(2)\nend\nreturn e\n"
-  local d = "local e = require(\"build.e\")\nlocal record d\n  inner: e\nend\nreturn d\n"
-  local user = "local d = require(\"build.d\")\nlocal v: d = { inner = {} }\n" ..
-    "local n: integer = v.inner.f()\nreturn n\n"
-  local root = write_own_tree("stub-key", { e = e_before, d = d })
-  assert(compile_fixture(root))
-  assert(held_stubs(root) >= 2, "the stubs of e and d were not held")
-
-  local handle = assert(work.open(root))
-  local modules = assert(compilation.collect(handle.db))
-  local keys = assert(compilation.dependency_keys(handle.db, modules, "declaration-cache-test"))
-  local named = assert(keys["build.e"])
-  assert(compilation.stub_lookup(handle.db, keys, true)("build.e") ~= nil, "a held stub was not served")
-  local moved: {string:compilation.Keys} = { ["build.e"] = { key = named.key .. "-moved", graph = named.graph } }
-  assert(compilation.stub_lookup(handle.db, moved, true)("build.e") == nil,
-    "a verdict was served under a key it was not kept for")
-  work.close(handle)
-
-  -- Only e changes, in a body: its stub text is the same, its type is not.
-  -- user is first written now, as it cannot pass the e of before.
-  local stub_before = stub_text_of(root, "build.e")
-  assert(Fs.write(root .. "/build/e.tl", e_after))
-  assert(Fs.write(root .. "/build/user.tl", user))
-  local result, trouble = compile_fixture(root)
-  assert(stub_text_of(root, "build.e") == stub_before, "the fixture's stub of e changed")
-  assert(result ~= nil, "user was checked against a type e no longer has: " .. tostring(trouble))
-  local after = assert(work.open(root))
-  local after_modules = assert(compilation.collect(after.db))
-  local after_keys = assert(compilation.dependency_keys(after.db, after_modules, "declaration-cache-test"))
-  assert(assert(after_keys["build.e"]).key ~= named.key, "the key of e did not move")
-  assert(compilation.stub_lookup(after.db, after_keys, true)("build.e") == nil,
-    "the stub of e was served under a new key it was never judged under")
-  work.close(after)
-end
-
---- A module whose key moved because something it reaches changed, but not
---- in what a check of it can see (a body, a comment: the stub it is checked
---- against is held to the same type), takes the compile it had
---- ([`compilation.interface_keys`]) instead of being compiled again: only the
---- changed module is, and the dependent's compile stands. What does change
---- the interface compiles it again, and its check sees the new type.
-local function test_a_dependent_takes_its_compile_when_only_a_body_changed()
-  local dep = "local record dep\n  value: number\n  size: function(): integer\nend\n" ..
-    "dep.value = 1\nfunction dep.size(): integer\n  return 1\nend\nreturn dep\n"
-  local user = "local dep = require(\"build.dep\")\nlocal n: number = dep.value\nreturn n\n"
-  local root = write_own_tree("interface-reuse", { dep = dep, user = user })
-  local first = assert(compile_fixture(root))
-  assert(first.compiled >= 2, "the fixture compiled " .. tostring(first.compiled))
-  assert(held_stubs(root) >= 2, "the stubs were not held")
-  local function bytecode_of(path: string): string
-    local handle = assert(work.open(root))
-    local rows = assert(Sqlite.text_rows(handle.db,
-      "SELECT c.bytecode FROM plan p JOIN compiled c ON c.key = p.key WHERE p.path = ?1",
-      { { text = path } }))
-    work.close(handle)
-    return assert(rows[1]):text(1)
-  end
-  local before = bytecode_of("build.user")
-
-  -- A body of dep: dep is compiled, user is not.
-  assert(Fs.write(root .. "/build/dep.tl", (dep:gsub("return 1", "return 2"))))
-  local body = assert(compile_fixture(root))
-  assert(body.compiled == 1, "a body edit compiled " .. tostring(body.compiled) .. " modules")
-  assert(bytecode_of("build.user") == before, "the dependent's compile is not the one it had")
-  assert(held_stubs(root) >= 2, "the reused module lost its verdict on its stub")
-
-  -- Edited again, and put back: still only the module itself.
-  assert(Fs.write(root .. "/build/dep.tl", dep .. "-- a comment\n"))
-  local commented = assert(compile_fixture(root))
-  assert(commented.compiled == 1, "a comment compiled " .. tostring(commented.compiled) .. " modules")
-
-  -- What a check can see: user must be compiled, against the new type.
-  local changed = dep:gsub("value: number", "value: string"):gsub("dep%.value = 1", "dep.value = \"1\"")
-  assert(Fs.write(root .. "/build/dep.tl", changed))
-  local result, trouble = compile_fixture(root)
-  assert(result == nil, "the dependent kept the compile it made against the old type")
-  assert(trouble:find("string", 1, true) ~= nil, trouble)
-end
-
---- A type a stub does not say moves the interface of what reaches it: `e`
---- gains a field in a body, `d` holds an `e` and is unchanged byte for
---- byte, and `user` reads the field through `d`. Neither `d` nor `user`
---- takes the compile it had.
-local function test_a_dependent_of_a_type_a_body_changed_is_compiled_again()
-  local e_before = "local record e\nend\nfunction e.setup()\n  print(1)\n  print(2)\nend\nreturn e\n"
-  local e_after = "local record e\nend\nfunction e.setup()\n" ..
-    "  function e.f(): integer return 1 end\n  print(2)\nend\nreturn e\n"
-  local d = "local e = require(\"build.e\")\nlocal record d\n  inner: e\nend\nreturn d\n"
-  local user = "local d = require(\"build.d\")\nlocal v: d = { inner = {} }\nreturn v\n"
-  local root = write_own_tree("interface-type", { e = e_before, d = d, user = user })
-  assert(compile_fixture(root))
-  assert(Fs.write(root .. "/build/e.tl", e_after))
-  local again = assert(compile_fixture(root))
-  assert(again.compiled == 3, "e, d and user were compiled " .. tostring(again.compiled) .. " times")
-  -- With the field in use, the new type must reach user.
-  assert(Fs.write(root .. "/build/user.tl",
-    (user:gsub("return v", "local n: integer = v.inner.f()\nreturn n"))))
-  assert(compile_fixture(root))
-end
-
---- What a tree's compile holds for each planned module: its Lua, its
---- bytecode and the record-field uses found, which a compile made fresh
---- in another root must hold the same of.
-local function compile_outputs(root: string): string
-  local handle = assert(work.open(root))
-  local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT group_concat(one, char(10) || '====' || char(10)) FROM (SELECT p.path || char(10) || c.lua || " ..
-      "char(10) || hex(c.bytecode) || char(10) || " ..
-      "coalesce((SELECT group_concat(module || '|' || member || '|' || line, ';') FROM " ..
-      "(SELECT module, member, line FROM typed_refs t WHERE t.key = p.key ORDER BY ordinal)), '') AS one " ..
-      "FROM plan p JOIN compiled c ON c.key = p.key ORDER BY p.path)"))
-  work.close(handle)
-  return assert(rows[1]):text(1)
-end
-
---- Writes `files` (`build/<name>`) under a fresh own-tree root.
-local function write_tree_files(case: string, files: {string:string}): string
-  local root = write_own_tree(case, {})
-  for name, source in pairs(files) do
-    assert(Fs.write(root .. "/build/" .. name, source))
-  end
-  return root
-end
-
---- A compile that took what an earlier tree compiled for a module whose
---- key moved is the compile made fresh, over edits that leave a stub as it
---- was (a body, a comment) and edits that do not (a constant a stub keeps,
---- an enum, a declaration standing in front of a module), with and
---- without the run-time checks, which write what a dependency's type says
---- into a dependent.
-local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
-  local lim = "local record lim\n  enum Mode\n    \"a\"\n    \"b\"\n  end\n  MAX: integer\n" ..
-    "  name: function(): string\nend\nlim.MAX = 5\nfunction lim.name(): string\n" ..
-    "  return \"x\"\nend\nreturn lim\n"
-  local mid = "local lim = require(\"build.lim\")\nlocal record mid\n  m: lim.Mode\n" ..
-    "  top: function(): integer\nend\nfunction mid.top(): integer\n  return lim.MAX\nend\nreturn mid\n"
-  local user = "local mid = require(\"build.mid\")\nlocal lim = require(\"build.lim\")\n" ..
-    "local limit <const> = lim.MAX\nlocal chosen: lim.Mode = \"a\"\n" ..
-    "local function f(m: mid): integer\n  return limit + mid.top() + #lim.name() + #chosen + " ..
-    "(m.m == \"a\" and 1 or 0)\nend\nreturn f\n"
-  local decl = "local record lim\n  enum Mode\n    \"a\"\n    \"b\"\n  end\n  MAX: integer\n" ..
-    "  name: function(): string\nend\nreturn lim\n"
-  local record Step
-    name: string
-    --- Every file of the tree after the edit.
-    files: {string:string}
-    --- Whether only the edited module is compiled: the compile of each
-    --- that reaches it stands. False where an interface moved, and
-    --- each that reaches it is compiled again.
-    single?: boolean
-  end
-  local steps: {Step} = {
-    { name = "a body", single = true,
-      files = { ["lim.tl"] = lim:gsub("return \"x\"", "return \"yy\""), ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a comment", single = true,
-      files = { ["lim.tl"] = lim .. "-- noted\n", ["mid.tl"] = mid, ["user.tl"] = user } },
-    -- An edit that moves the lines after it moves the stub's text and
-    -- no token of it.
-    { name = "a comment line above everything", single = true,
-      files = { ["lim.tl"] = "-- noted\n" .. lim, ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "blank lines in the declaration", single = true,
-      files = { ["lim.tl"] = lim:gsub("  MAX: integer\n", "\n\n  MAX: integer\n"), ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a body that grows", single = true,
-      files = { ["lim.tl"] = lim:gsub("  return \"x\"\n", "  local y = \"x\"\n\n  -- why\n  return y\n"),
-        ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a comment line above mid", single = true,
-      files = { ["lim.tl"] = lim, ["mid.tl"] = "-- noted\n" .. mid, ["user.tl"] = user } },
-    { name = "the lines move and an enum changes", single = false,
-      files = { ["lim.tl"] = ("-- noted\n\n" .. lim):gsub("\"b\"\n", "\"b\"\n    \"c\"\n"),
-        ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a constant the stub keeps",
-      files = { ["lim.tl"] = lim:gsub("lim.MAX = 5", "lim.MAX = 6"), ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "an enum",
-      files = { ["lim.tl"] = lim:gsub("\"b\"\n", "\"b\"\n    \"c\"\n"), ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a declaration in front",
-      files = { ["lim.tl"] = lim, ["lim.d.tl"] = decl, ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "the module's body, with the declaration",
-      files = { ["lim.tl"] = lim:gsub("return \"x\"", "return \"zzz\""), ["lim.d.tl"] = decl,
-        ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "the declaration gone",
-      files = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user } },
-    { name = "a body of mid",
-      files = { ["lim.tl"] = lim, ["mid.tl"] = mid:gsub("return lim.MAX", "return lim.MAX + 0"), ["user.tl"] = user } },
-  }
-  for _, checks in ipairs({ false, true }) do
-    local before: {string:string} = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user }
-    local root = write_tree_files("reused-" .. tostring(checks), before)
-    local function compile_with_checks(at: string): importer.Result | nil, string
-      local handle = assert(work.open(at))
-      assert(work.stage(handle, false))
-      local result, trouble = importer.compile(handle, built, "declaration-cache-test", false, nil, nil, checks)
-      work.close(handle)
-      return result, trouble
-    end
-    assert(compile_with_checks(root))
-    for _, step in ipairs(steps) do
-      for name in pairs(before) do
-        if step.files[name] == nil then assert(Fs.remove(root .. "/build/" .. name)) end
-      end
-      for name, source in pairs(step.files) do
-        assert(Fs.write(root .. "/build/" .. name, source))
-      end
-      before = step.files
-      local made, trouble = compile_with_checks(root)
-      if made ~= nil and step.single == true then
-        assert(made.compiled == 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, not the one")
-        local handle = assert(work.open(root))
-        local named = assert(Sqlite.text_rows(handle.db,
-          "SELECT count(*) FROM plan p JOIN compiled_interface i ON i.key = p.key WHERE p.path = 'build.user'"))
-        work.close(handle)
-        assert(assert(named[1]):text(1) == "1", step.name .. ": the interface key names a compile the run did not keep")
-      end
-      if made ~= nil and step.single == false then
-        assert(made.compiled > 1, step.name .. " compiled " .. tostring(made.compiled) .. " modules, a stand-in for a changed interface")
-      end
-      local fresh_root = write_tree_files("fresh-" .. tostring(checks), step.files)
-      local fresh, fresh_trouble = compile_with_checks(fresh_root)
-      assert((made == nil) == (fresh == nil), step.name .. ": " .. tostring(trouble) .. " / " .. tostring(fresh_trouble))
-      if made ~= nil then
-        assert(compile_outputs(root) == compile_outputs(fresh_root),
-          "checks=" .. tostring(checks) .. ", " .. step.name .. ": a reused compile is not a fresh one")
-      end
-    end
-  end
-end
-
---- [`build.contracts`] holds a module's exports to rule 10 as it compiles,
+--- [`build.syntax_contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
@@ -1890,13 +1272,14 @@ local function test_compile_rejects_an_exported_tuple()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result, trouble = importer.compile(handle, built, "api-contract-test")
+  local result, trouble = importer.compile(handle, "api-contract-test")
   work.close(handle)
-  assert(result == nil)
-  assert(trouble:find("Bad.split: an exported function answers one result", 1, true), trouble)
+  assert(result ~= nil, trouble)
+  local refused = table.concat(result.refused, "\n")
+  assert(refused:find("Bad.split: an exported function answers one result", 1, true), refused)
 end
 
---- The error-slot discipline ([`build.contracts`]) is checked beside the
+--- The error-slot discipline ([`build.syntax_contracts`]) is checked beside the
 --- checker as cosmic's own modules compile: a dropped reason refuses
 --- the module, whatever the compiled cache holds.
 local function test_compile_rejects_a_dropped_error_slot()
@@ -1914,7 +1297,7 @@ local function test_compile_rejects_a_dropped_error_slot()
     }, "\n") .. "\n",
     ["cosmic/dropped.tl"] = table.concat({
       "local record Dropped end",
-      "local function get(): integer | nil, string return nil, 'none' end",
+      "local function get(): integer?, string return nil, 'none' end",
       "function Dropped.value(): integer",
       "  return get() or 0",
       "end",
@@ -1923,10 +1306,11 @@ local function test_compile_rejects_a_dropped_error_slot()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result, trouble = importer.compile(handle, built, "error-slot-test")
+  local result, trouble = importer.compile(handle, "error-slot-test")
   work.close(handle)
-  assert(result == nil)
-  assert(trouble:find("cosmic/dropped.tl:4: get: its error slot is dropped", 1, true), trouble)
+  assert(result ~= nil, trouble)
+  local refused = table.concat(result.refused, "\n")
+  assert(refused:find("cosmic/dropped.tl:4: get: its error slot is dropped", 1, true), refused)
 end
 
 --- [`cosmic.sys`]'s documentation points into the header it is generated
@@ -1955,7 +1339,8 @@ local function test_generated_syscall_docs_carry_header_lines()
     }, "\n") .. "\n",
     ["cosmic/sys_example.tl"] = table.concat({
       'local syscalls = require("cosmic.sys")',
-      "local Example = {}",
+      "local record Example",
+      "end",
       "function Example.read()",
       "  syscalls.read(0)",
       "end",
@@ -1964,7 +1349,7 @@ local function test_generated_syscall_docs_carry_header_lines()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result = assert(importer.compile(handle, built, "syscall-lines-test"))
+  local result = assert(importer.compile(handle, "syscall-lines-test"))
   assert(writer.write_result(handle, root .. "/out.db", result))
   work.close(handle)
 
@@ -1985,26 +1370,12 @@ end
 
 --- The file of the tree's module `name`, as the build finds it: nil
 --- where the tree has none.
-local function tree_file_of(name: string): string | nil
+local function tree_file_of(name: string): string?
   local base = name:gsub("%.", "/")
   for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
     if Fs.exists(candidate) then return candidate end
   end
   return nil
-end
-
---- A module requiring each of `uses`, by name.
-local function module_requiring(uses: {string}): string
-  local lines: {string} = {}
-  for index, used in ipairs(uses) do
-    lines[#lines + 1] = "local m" .. index .. " = require(\"" .. used .. "\")"
-  end
-  lines[#lines + 1] = "local record M\n  uses: {any}\nend"
-  local names: {string} = {}
-  for index = 1, #uses do names[#names + 1] = "m" .. index end
-  lines[#lines + 1] = "M.uses = { " .. table.concat(names, ", ") .. " }"
-  lines[#lines + 1] = "return M"
-  return table.concat(lines, "\n") .. "\n"
 end
 
 --- A tree laid out as cosmic's own is, as far as the compiler's identity
@@ -2014,24 +1385,18 @@ end
 local function identity_fixture(case: string): string
   local files: {string:string} = {
     ["vendor/lua/PIN"] = "version 1",
-    ["checker/tl.tl"] = "a checker",
     ["patch/lua/01.txt"] = "a record",
     ["cosmic/fs.tl"] = module_requiring({}),
     ["cosmic/removed.tl"] = module_requiring({}),
-    ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.analyzer",
-      "build.teal", "build.contracts", "build.receivers", "build.tree", "build.work",
-      "build.positions", "build.symbols", "build.caches" }),
-    ["build/compilation.tl"] = module_requiring({ "build.analyzer", "build.teal" }),
-    ["build/derivation.tl"] = module_requiring({ "build.analyzer", "build.analysis_schema" }),
+    ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.plans", "build.withheld", "build.tree",
+      "build.work", "build.positions", "build.symbols", "build.caches" }),
+    ["build/plans.tl"] = module_requiring({ "build.withheld", "build.bind" }),
+    ["build/derivation.tl"] = module_requiring({ "build.analysis_schema", "build.cache_names", "build.bind" }),
     ["build/analysis_schema.tl"] = module_requiring({}),
-    ["build/analyzer.tl"] = module_requiring({ "build.ast", "build.cache_names" }),
-    ["build/ast.tl"] = module_requiring({}),
+    ["build/bind.tl"] = module_requiring({}),
     ["build/cache_names.tl"] = module_requiring({}),
-    ["build/teal.tl"] = module_requiring({ "cosmic.fs", "cosmic.removed", "build.teal_helper" }),
-    ["build/teal_helper.tl"] = module_requiring({}),
-    ["build/shape_specs.tl"] = module_requiring({ "build.ast" }),
-    ["build/contracts.tl"] = module_requiring({ "build.ast", "build.receivers" }),
-    ["build/receivers.tl"] = module_requiring({ "build.ast" }),
+    ["build/withheld.tl"] = module_requiring({ "cosmic.fs", "cosmic.removed", "build.withheld_helper" }),
+    ["build/withheld_helper.tl"] = module_requiring({}),
     ["build/tree.tl"] = module_requiring({ "cosmic.fs" }),
     ["build/work.tl"] = module_requiring({ "build.analysis_schema", "build.todo_scan" }),
     ["build/todo_scan.tl"] = module_requiring({}),
@@ -2056,7 +1421,7 @@ end
 local function identities_of(root: string): {string}
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  assert(importer.derive(handle, true, built))
+  assert(importer.derive(handle, true))
   local found = assert(identity.record_identities(handle.db))
   local analyzer = importer.analyzer_identity((assert(importer.tree_code(handle))))
   work.close(handle)
@@ -2074,7 +1439,7 @@ end
 --- reports, the check that fails a whole build before any key is looked
 --- up, the host's caches and build/zig.tl, which the caches reach, the
 --- catalog of removed names, which only a refusal quotes, though
---- build.teal requires it -- compiles and parses nothing again: it moves
+--- build.withheld requires it -- compiles and parses nothing again: it moves
 --- neither the compiler's identity nor the analyzer's.
 local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local root = identity_fixture("identity-leaves-out")
@@ -2096,14 +1461,11 @@ end
 --- identities: every compile and parse is made again.
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   local original = identities_of(root)
   seen[original[1]] = "the original tree"
-  for _, path in ipairs({ "build/compilation.tl", "build/derivation.tl", "build/teal.tl", "build/teal_helper.tl", "build/shape_specs.tl",
-      "build/contracts.tl", "build/receivers.tl", "build/tree.tl",
-      "build/analysis_schema.tl", "build/analyzer.tl",
-      "build/cache_names.tl", "build/ast.tl",
-      "checker/tl.tl", "vendor/lua/PIN",
+  for _, path in ipairs({ "build/plans.tl", "build/derivation.tl", "build/withheld.tl", "build/withheld_helper.tl",
+      "build/tree.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl", "vendor/lua/PIN",
       "patch/lua/01.txt" }) do
     local before = identities_of(root)
     edit(root, path)
@@ -2113,28 +1475,6 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
     assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
     seen[after[1]] = path
   end
-end
-
---- The checker's source decides what every module is accepted as and
---- compiled to, and every module's compile key holds the compiler's
---- identity ([`build.importer`]'s `Result`), so a tree whose
---- [`checker/tl.tl`] differs must name another identity, and so another key
---- for every module and parse, or a cache made by the old checker would
---- serve the new tree. The identity is a function of the checker's bytes:
---- the same bytes name it again, and a tree with no checker names a third.
-local function test_an_edit_to_the_checker_source_moves_every_compile_key()
-  local root = identity_fixture("identity-checker")
-  local original = identities_of(root)
-  local checker = root .. "/checker/tl.tl"
-  assert(Fs.read(checker) == "a checker")
-  assert(Fs.write(checker, "a checker, edited"))
-  local edited = identities_of(root)
-  assert(edited[1] ~= original[1], "an edit to the checker did not move the compiler identity")
-  assert(edited[2] ~= original[2], "an edit to the checker did not move the analyzer identity")
-  assert(Fs.write(checker, "a checker"))
-  assert(identities_of(root)[1] == original[1], "the same checker source named another identity")
-  assert(Fs.remove(checker))
-  assert(identities_of(root)[1] ~= original[1], "a tree with no checker named the identity of one with it")
 end
 
 --- The compiler's identity holds what a compile or a parse runs to
@@ -2152,7 +1492,7 @@ end
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
 --- cannot tell that from data that decides what a compile accepts, so
---- none may be: [`build.teal`] spells the globals it strips rather than
+--- none may be: [`build.withheld`] spells the globals it strips rather than
 --- reading [`cosmic.removed`]'s, and requires the catalog by no name a
 --- parse records, for a refusal's words alone.
 ---
@@ -2163,17 +1503,15 @@ end
 --- identity has a declaration of its own but build.compiler, which
 --- requires nothing.
 local function test_the_compiler_modules_are_closed_under_require()
-  local ast = require("build.ast")
   local modules = assert(identity.compiler_modules(Store.requires))
-  local covered: {string:boolean} = {}
+  local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
     assert(covered[name] or name:match("^cosmic%.") ~= nil,
       name .. " is the analyzer's but not in the compiler's identity")
   end
-  for _, name in ipairs({ "build.compilation", "build.derivation", "build.module", "build.teal", "build.contracts",
-      "build.receivers", "build.tree", "build.shape_specs", "build.analysis_schema",
-      "build.cache_names", "build.ast.match" }) do
+  for _, name in ipairs({ "build.plans", "build.derivation", "build.module", "build.withheld", "build.tree",
+      "build.analysis_schema", "build.cache_names" }) do
     assert(covered[name], name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
@@ -2193,24 +1531,19 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
-    ["build.symbols"] = "names what the projection documents in a refusal's hint, " ..
-      "which no compile keeps",
     ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
-    ["build.grammar_mode"] = "names the checker a run asks for, and no compile stores anything it decides: the new one's " ..
-      "keys carry the mode in the tool string",
   }
   assert(not covered["build.importer"], "cache coordination and diagnostics entered compiler identity")
-  local used: {string:boolean} = {}
-  local missing: {string} = {}
-  local checked: {string} = { "build.importer" }
+  local used: mut {string:boolean} = {}
+  local missing: mut {string} = {}
+  local checked: mut {string} = { "build.importer" }
   for _, name in ipairs(modules) do checked[#checked + 1] = name end
   for _, name in ipairs(checked) do
     local file = tree_file_of(name)
     assert(file ~= nil, name .. " is in the compiler's identity but is no module of the tree's")
     local source = assert(Fs.read(file))
-    local parsed = assert(ast.parse(assert(built), source, file))
-    for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
+    for _, required in ipairs(requires_of(source, file)) do
       local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
         not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
       if ours and not covered[required] then
@@ -2248,7 +1581,7 @@ end
 --- here until it is one or the other.
 local function test_the_writer_modules_are_closed_under_require()
   local modules = assert(identity.writer_modules(Store.requires))
-  local covered: {string:boolean} = {}
+  local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
       "build.roots", "build.tree", "build.bind", "build.symbols",
@@ -2256,7 +1589,7 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(covered[name], name .. " is not in the writer's identity: " ..
         table.concat(modules, ", "))
   end
-  local roots_require: {string:boolean} = {}
+  local roots_require: mut {string:boolean} = {}
   for _, root in ipairs({ "build.writer", "build.identity" }) do
     for _, name in ipairs((assert(Store.requires(root)))) do roots_require[name] = true end
   end
@@ -2266,13 +1599,13 @@ local function test_the_writer_modules_are_closed_under_require()
         "but neither build.writer nor build.identity requires it")
     assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
   end
-  local compiler: {string:boolean} = {}
+  local compiler: mut {string:boolean} = {}
   for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
     compiler[name] = true
   end
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
-  local neither: {string:string} = {
+  local neither: mut {string:string} = {
     ["build.work"] = "stages rows and owns transactions and history",
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
@@ -2285,8 +1618,8 @@ local function test_the_writer_modules_are_closed_under_require()
   }
   --- What [`build.writer`] reaches, without going on from the modules named in `stop`.
   local function reach(stop: {string:boolean}): {string:boolean}
-    local seen: {string:boolean} = {}
-    local pending: {string} = { "build.writer" }
+    local seen: mut {string:boolean} = {}
+    local pending: mut {string} = { "build.writer" }
     while #pending > 0 do
       local name = table.remove(pending)
       if seen[name] == nil then
@@ -2302,24 +1635,25 @@ local function test_the_writer_modules_are_closed_under_require()
   end
   local reached = reach({})
   -- The new grammar's compile (`COSMIC_GRAMMAR=new`, build.pipeline and what it reads) runs only where the build is asked for
-  -- it, and its output is keyed apart from the compiler's by `Pipeline.coded` over those sources; no projection of the
+  -- it, and its output is keyed apart from the compiler's by [`Pipeline.coded`] over those sources; no projection of the
   -- default compile turns on them.
   local through_pipeline = reach({ ["build.pipeline"] = true })
   neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
-  local only_pipeline: {string:boolean} = {}
+  local only_pipeline: mut {string:boolean} = {}
   for name in pairs(reached) do
     if through_pipeline[name] == nil then
       only_pipeline[name] = true
     end
   end
-  local unclassified: {string} = {}
-  local used: {string:boolean} = {}
+  local unclassified: mut {string} = {}
+  local used: mut {string:boolean} = {}
   for name in pairs(reached) do
     if neither[name] ~= nil then
       used[name] = true
       assert(not covered[name] and not compiler[name],
         name .. " is named as in neither identity, but is in one")
-    elseif only_pipeline[name] == true then
+    elseif only_pipeline[name] == true or name:sub(1, 5) == "lang." then
+      -- The new checker's own modules: the code a compile and a parse are keyed by is [`Pipeline.coded`] over them.
       used[name] = true
     elseif not covered[name] and not compiler[name] then
       unclassified[#unclassified + 1] = name
@@ -2340,32 +1674,26 @@ end
 --- it edited. That holds only while the set is closed: every module of
 --- the tree's that one of them requires, as a parse of its source finds
 --- it, is in it too -- including a module only reached through another
---- ([`build.ast.match`]), and never one the importer alone reaches
+--- ([`build.syntax_match`]), and never one the importer alone reaches
 --- ([`build.test`]). No semantic module has an exception. The importer
 --- coordinates them from outside the closure. A declaration of a C binding (`cosmic.internal.*`) is
 --- types over the core, not analysis.
 local function test_the_analyzer_modules_are_closed_under_require()
-  local ast = require("build.ast")
   local modules = assert(importer.analyzer_modules())
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, name in ipairs(modules) do listed[name] = true end
-  assert(listed["build.derivation"] and listed["build.ast.match"] and
-      listed["cosmic.string"], table.concat(modules, ", "))
-  assert(not listed["build.importer"] and not listed["build.test"] and not listed["build.receivers"],
+  assert(listed["build.derivation"] and listed["cosmic.string"], table.concat(modules, ", "))
+  assert(not listed["build.importer"] and not listed["build.test"] and not listed["build.syntax_receivers"],
     table.concat(modules, ", "))
-  -- The source analyzer is in the set; the privacy-by-position check,
-  -- which only the importer calls, is not.
-  assert(listed["build.analyzer"] and not listed["build.positions"],
-    table.concat(modules, ", "))
-  -- The analysis schema and the names of the caches a test may declare
-  -- are; the rest of the working database and the caches themselves,
-  -- which reach build/zig.tl, are not.
-  assert(listed["build.analysis_schema"] and listed["build.cache_names"],
-    table.concat(modules, ", "))
+  -- The readers of the new syntax tree are named by the code that reads the tree in the new mode ([`Pipeline.coded`]) and not
+  -- by this set; the privacy-by-position check, which only the importer calls, is in neither.
+  assert(not listed["build.syntax_analyzer"] and not listed["build.positions"], table.concat(modules, ", "))
+  -- The analysis schema is; the rest of the working database and the caches themselves, which reach build/zig.tl, are not.
+  assert(listed["build.analysis_schema"], table.concat(modules, ", "))
   assert(not listed["build.work"] and not listed["build.caches"] and
       not listed["build.zig"], table.concat(modules, ", "))
   local file_of = tree_file_of
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for _, name in ipairs(modules) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
@@ -2373,8 +1701,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
         "so the analyzer could only be named by the whole binary")
     do
       local source = assert(Fs.read(file))
-      local parsed = assert(ast.parse(assert(built), source, file))
-      for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
+      for _, required in ipairs(requires_of(source, file)) do
         local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
           not required:match("^cosmic%.internal%.")
         if ours and not listed[required] and file_of(required) ~= nil then
@@ -2387,7 +1714,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
 end
 
 --- A stale tool rebuilding itself compiles without judging the tree by
---- its own, older build.contracts; the next judged compile judges every
+--- its own, older build.syntax_contracts; the next judged compile judges every
 --- module compiled so, rather than finding it cached.
 local function test_an_unjudged_compile_is_judged_by_the_next()
   local root = assert(write_fixture("unjudged", {
@@ -2404,23 +1731,25 @@ local function test_an_unjudged_compile_is_judged_by_the_next()
     }, "\n") .. "\n",
     ["cosmic/casting.tl"] = table.concat({
       "local record Casting end",
-      "function Casting.value(v: any): integer",
-      "  return v as integer",
+      "local function get(): integer?, string return nil, 'none' end",
+      "function Casting.value(): integer",
+      "  return get() or 0",
       "end",
       "return Casting",
     }, "\n") .. "\n",
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local unjudged, unjudged_trouble = importer.compile(handle, built, "unjudged-test", true)
+  local unjudged, unjudged_trouble = importer.compile(handle, "unjudged-test", true)
   assert(unjudged ~= nil, unjudged_trouble)
-  local result, trouble = importer.compile(handle, built, "unjudged-test")
+  local result, trouble = importer.compile(handle, "unjudged-test")
   work.close(handle)
-  assert(result == nil)
-  assert(trouble:find("cosmic/casting.tl:3: Casting.value: a cast", 1, true), trouble)
+  assert(result ~= nil, trouble)
+  local refused = table.concat(result.refused, "\n")
+  assert(refused:find("cosmic/casting.tl:4: get: its error slot is dropped", 1, true), refused)
 end
 
---- A compile a stale tool's rebuild keeps though build.contracts
+--- A compile a stale tool's rebuild keeps though build.syntax_contracts
 --- refuses it is that run's alone: never offered the compiles every
 --- checkout shares, while the rest of the same run's are.
 local function test_an_unjudged_refused_compile_is_not_shared()
@@ -2438,8 +1767,9 @@ local function test_an_unjudged_refused_compile_is_not_shared()
     }, "\n") .. "\n",
     ["cosmic/casting.tl"] = table.concat({
       "local record Casting end",
-      "function Casting.value(v: any): integer",
-      "  return v as integer",
+      "local function get(): integer?, string return nil, 'none' end",
+      "function Casting.value(): integer",
+      "  return get() or 0",
       "end",
       "return Casting",
     }, "\n") .. "\n",
@@ -2448,12 +1778,14 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   local path = root .. "/cache/cache.db"
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local result, trouble = importer.compile(handle, built, "unjudged-test", true,
+  local result, trouble = importer.compile(handle,
+    "unjudged-test",
+    true,
     shared_compiles.for_build({ COSMIC_BUILD_CACHE = path }))
   work.close(handle)
   assert(result ~= nil, trouble)
   local cache = assert(shared_compiles.open(path))
-  local shared: {string:boolean} = {}
+  local shared: mut {string:boolean} = {}
   for _, m in ipairs(result.modules) do
     local found, look_trouble = shared_compiles.look(cache,
       shared_compiles.key(assert(m.key), true, m.generated))
@@ -2490,10 +1822,10 @@ local function test_a_passing_unjudged_compile_is_cached()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local unjudged, unjudged_trouble = importer.compile(handle, built, "unjudged-test", true)
+  local unjudged, unjudged_trouble = importer.compile(handle, "unjudged-test", true)
   assert(unjudged ~= nil, unjudged_trouble)
   assert(unjudged.compiled > 0, "the rebuild compiled nothing")
-  local result, trouble = importer.compile(handle, built, "unjudged-test")
+  local result, trouble = importer.compile(handle, "unjudged-test")
   work.close(handle)
   assert(result ~= nil, trouble)
   assert(result.compiled == 0 and result.cached == unjudged.compiled,
@@ -2502,10 +1834,12 @@ end
 
 --- A declaration of what a test reads holds for its own module's tests,
 --- so a module that is no test is refused one, naming its line.
+local HELPER_BODY <const> = "local record Helper\nend\nlocal helper: Helper = {}\nreturn helper\n"
+
 local function test_only_a_test_module_declares_its_inputs()
   local root = assert(write_fixture("inputs-kind", {
     ["lib/helper.tl"] = "local Test = require(\"cosmic.test\")\n" ..
-      "Test.policy { grants = { { path = \"data/\", letters = \"r\" } } }\nreturn {}\n",
+      "Test.policy { grants = { { path = \"data/\", letters = \"r\" } } }\n" .. HELPER_BODY,
     ["lib/helper_test.tl"] = "local helper = require(\"lib.helper\")\n" ..
       "local Test = require(\"cosmic.test\")\n" ..
       "Test.policy { grants = { { path = \"data/\", letters = \"r\" } } }\n" ..
@@ -2515,7 +1849,7 @@ local function test_only_a_test_module_declares_its_inputs()
   assert(requires == nil, "a module no test's declared its inputs")
   assert(trouble:find("lib/helper.tl:2: test.policy: only a test or example module", 1, true),
     trouble)
-  assert(Fs.write(root .. "/lib/helper.tl", "return {}\n"))
+  assert(Fs.write(root .. "/lib/helper.tl", HELPER_BODY))
   local again = assert(requires_of_fixture(root, "lib.helper_test"))
   assert(again[1] == "lib.helper")
 end
@@ -2527,8 +1861,9 @@ local function compiled_with_references(case: string): work.Handle
     ["shapes.tl"] = table.concat({
       "local record Shapes",
       "  record Box",
-      "    width: integer",
+      "    mut width: integer",
       "  end",
+      "  box: function(integer): Shapes.Box",
       "end",
       "function Shapes.box(width: integer): Shapes.Box",
       "  return { width = width }",
@@ -2538,15 +1873,21 @@ local function compiled_with_references(case: string): work.Handle
     }, "\n"),
     ["main.tl"] = table.concat({
       'local Shapes = require("shapes")',
-      "local b = Shapes.box(2)",
-      "b.width = 3",
-      "return b.width",
+      "local record Main",
+      "  run: function(): integer",
+      "end",
+      "function Main.run(): integer",
+      "  local b = Shapes.box(2)",
+      "  b.width = 3",
+      "  return b.width",
+      "end",
+      "return Main",
       "",
     }, "\n"),
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.compile(handle, built, "importer-test"))
+  compiled_clean(handle)
   return handle
 end
 
@@ -2566,7 +1907,7 @@ local function test_a_compile_sweeps_the_uses_of_a_vanished_compile()
   assert(Sqlite.run(handle.db,
     "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
       "VALUES ('no-such-compile', 1, 'shapes', 'Box.width', 3)"))
-  local again = assert(importer.compile(handle, built, "importer-test"))
+  local again = compiled_clean(handle)
   assert(again.compiled == 0, again.compiled .. " compiled on a warm run")
   assert(count_of(handle.db,
     "SELECT count(*) FROM typed_refs WHERE key = 'no-such-compile'") == 0,
@@ -2585,7 +1926,7 @@ local function test_the_reference_sweep_reads_compiled_once()
   local plan = assert(Sqlite.text_rows(handle.db,
     "EXPLAIN QUERY PLAN " .. importer.prune_references))
   work.close(handle)
-  local details: {string} = {}
+  local details: mut {string} = {}
   for _, row in ipairs(plan) do
     details[#details + 1] = row:text(4)
   end
@@ -2594,71 +1935,11 @@ local function test_the_reference_sweep_reads_compiled_once()
   assert(said:find("LIST SUBQUERY", 1, true), said)
 end
 
---- Refusal belongs to the compiler's semantic boundary, even when its
---- diagnostic presenter supplies no text. A successful compile never
---- calls the presenter, so its words cannot reject an accepted source.
-local function test_diagnostic_rendering_cannot_change_acceptance()
-  local root = assert(write_fixture("presentation", {
-    ["good.tl"] = "return 1\n",
-    ["bad.tl"] = "local unused = 1\nreturn 1\n",
-  }))
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
-  local modules = assert(compilation.collect(handle.db))
-  local calls = { value = 0 }
-  local function render(_file: string, _source: string, _result: Compiler.Result): string
-    calls.value = calls.value + 1
-    return ""
-  end
-  for _, m in ipairs(modules) do
-    local env = assert(teal.environment_for(built, handle.db, handle.root))
-    local typed = receivers.install(env)
-    local made, trouble = compilation.generate(m, built, env, typed, false, true, render)
-    if m.path == "bad" then
-      assert(made == nil and trouble:find("the compiler refused it", 1, true) ~= nil,
-        "an empty diagnostic accepted a warning")
-    else
-      assert(made ~= nil, trouble)
-    end
-  end
-  assert(calls.value == 1, "successful compilation consulted diagnostic presentation")
-  work.close(handle)
-end
-
---- What Lua's compiler refuses of a chunk the checker passed is said at
---- the Teal file and its line, not at the chunk's module name: more locals
---- than a function may hold, after declarations the generated Lua writes
---- in fewer lines than the Teal.
-local function test_a_lua_refusal_is_said_at_the_teal_line()
-  local locals: {string} = {}
-  for i = 1, 201 do
-    locals[#locals + 1] = "local v" .. i .. " = " .. i .. " print(v" .. i .. ")\n"
-  end
-  local root = assert(write_fixture("lua-refusal", {
-    ["lib/serve.tl"] = "local record Point\n  x: integer\n  y: integer\nend\n" ..
-      "local enum Mode\n  \"a\"\n  \"b\"\nend\n" ..
-      "local mode: Mode = \"a\"\nprint(mode, Point)\n" .. table.concat(locals),
-  }))
-  local handle = assert(work.open(root))
-  assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
-  local modules = assert(compilation.collect(handle.db))
-  assert(#modules == 1 and modules[1].path == "lib.serve", tostring(#modules))
-  local env = assert(teal.environment_for(built, handle.db, handle.root))
-  local typed = receivers.install(env)
-  local made, trouble = compilation.generate(modules[1], built, env, typed, false, true,
-    function(_file: string, _source: string, _result: Compiler.Result): string return "" end)
-  assert(made == nil, "more locals than a function holds compiled")
-  assert(trouble == "lib/serve.tl:209: too many local variables (limit is 200) in main function near ';'", trouble)
-  work.close(handle)
-end
-
 --- A shared record must not bring code generation into a position or
 --- input-declaration reader's import closure.
-local function test_the_module_shape_does_not_reach_compilation()
-  local seen: {string:boolean} = {}
-  local pending: {string} = { "build.positions", "build.test_inputs" }
+local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
+  local seen: mut {string:boolean} = {}
+  local pending: mut {string} = { "build.positions", "build.test_inputs" }
   while #pending > 0 do
     local name = table.remove(pending)
     if not seen[name] then
@@ -2669,25 +1950,8 @@ local function test_the_module_shape_does_not_reach_compilation()
     end
   end
   assert(seen["build.module"], "position and input readers lost their shared module shape")
-  for _, name in ipairs({ "build.compilation", "build.contracts", "build.receivers" }) do
+  for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(not seen[name], "the shared module shape pulled in " .. name)
   end
 end
 
---- The compiler is one row, whatever file an older build named it by:
---- putting one replaces a row left under another file, so no working
---- database holds two.
-local function test_putting_the_compiler_replaces_an_older_row(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/root"))
-  local handle = assert(work.open(tmp .. "/root"))
-  assert(Sqlite.run(handle.db,
-    "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
-      "source_hash) VALUES ('o/older.lua', 'vendor.tl', 'vendor', " ..
-      "'vendor', 'old', 'return {}', 'old')", {}))
-  assert(derivation.put_compiler(handle.db, "return { new = true }"))
-  local rows = assert(Sqlite.text_rows(handle.db,
-    "SELECT file, source FROM derived WHERE origin = 'vendor'"))
-  assert(#rows == 1 and rows[1]:text(2) == "return { new = true }",
-    "the compiler is one row: " .. tostring(#rows))
-  assert(work.close(handle))
-end

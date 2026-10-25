@@ -1,7 +1,7 @@
 --- Turns a markdown doc's fenced code-block examples into one Teal
 --- source string, per doc/writing.md's grammar. The result is the source of
---- an ordinary `kind = "test"` module: [`build.compilation.collect`]
---- treats it like a hand-written `_test.tl`. [`build.analyzer.analyze`]
+--- an ordinary `kind = "test"` module: [`build.plans`]'s `collect`
+--- treats it like a hand-written `_test.tl`. [`build.syntax_analyzer`]'s `analysis_of`
 --- discovers its tests and [`build.test`] runs them. Nothing
 --- here runs a test, discovers one, or records a verdict: doc/writing.md
 --- says a doc needs no doctest machinery of its own.
@@ -22,7 +22,7 @@ end
 ---   error -- an unterminated fence, an unknown tag, or
 ---   a block ordering the grammar in doc/writing.md does not allow
 --- @return string why, naming the source line the trouble sits at
-function doctest.extract(source: string, file: string): string | nil, string
+function doctest.extract(source: string, file: string): string?, string
   local blocks, block_trouble = markdown.parse_blocks(source)
   if blocks == nil then
     return nil, block_trouble
@@ -35,7 +35,7 @@ end
 --- @param source string the doc's own markdown text
 --- @return {generate.Entry} | nil nil on a grammar error, as `extract`
 --- @return string why
-function doctest.entries(source: string): {generate.Entry} | nil, string
+function doctest.entries(source: string): {generate.Entry}?, string
   local blocks, block_trouble = markdown.parse_blocks(source)
   if blocks == nil then
     return nil, block_trouble
@@ -48,7 +48,7 @@ end
 --- @param source string the doc's own markdown text
 --- @return {markdown.Block} | nil nil on a grammar error, as `extract`
 --- @return string why
-function doctest.blocks(source: string): {markdown.Block} | nil, string
+function doctest.blocks(source: string): {markdown.Block}?, string
   return markdown.parse_blocks(source)
 end
 

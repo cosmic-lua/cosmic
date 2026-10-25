@@ -33,20 +33,20 @@ local CHUNKS <const> = { "a", "hello", "\r\n", "0\r\n\r\n", "GET / HTTP/1.1\r\n"
 
 --- One request as drawn: what the writer below makes into bytes.
 local record Request
-  method: string
-  target: integer
-  version: string
+  mut method: string
+  mut target: integer
+  mut version: string
   --- "\r\n" or "\n".
-  eol: string
+  mut eol: string
   --- Name and value pairs.
-  headers: {{string}}
+  headers: mut {{string}}
   --- "none", "length" or "chunked".
-  framing: string
-  chunks: {string}
+  mut framing: string
+  chunks: mut {string}
 end
 
 --- Draws one request's fields onto `fields`, each a letter and its text.
-local function draw_request(src: Fuzz.Source, fields: {string})
+local function draw_request(src: Fuzz.Source, fields: mut {string})
   fields[#fields + 1] = "r"
   fields[#fields + 1] = "m" .. Fuzz.pick(src, METHODS)
   fields[#fields + 1] = "t" .. tostring(src:int(1, #TARGETS))
@@ -67,8 +67,8 @@ end
 
 --- The requests `fields` hold, from the first "r" on.
 local function requests_of(fields: {string}): {Request}
-  local out: {Request} = {}
-  local current: Request | nil = nil
+  local out: mut {Request} = {}
+  local current: Request? = nil
   for _, f in ipairs(fields) do
     local letter, text = f:sub(1, 1), f:sub(2)
     if letter == "r" then
@@ -104,7 +104,7 @@ local function written(r: Request): string
   local eol = r.eol
   local framing = r.framing
   if framing == "chunked" and r.version == "HTTP/1.0" then framing = "length" end
-  local lines: {string} = { r.method .. " " .. TARGETS[r.target][1] .. " " .. r.version, "Host: h.test" }
+  local lines: mut {string} = { r.method .. " " .. TARGETS[r.target][1] .. " " .. r.version, "Host: h.test" }
   for _, pair in ipairs(r.headers) do lines[#lines + 1] = pair[1] .. ": " .. pair[2] end
   local body = table.concat(r.chunks)
   local encoded = ""
@@ -113,7 +113,7 @@ local function written(r: Request): string
     encoded = body
   elseif framing == "chunked" then
     lines[#lines + 1] = "Transfer-Encoding: chunked"
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for _, chunk in ipairs(r.chunks) do
       if chunk ~= "" then parts[#parts + 1] = ("%x"):format(#chunk) .. "\r\n" .. chunk .. "\r\n" end
     end
@@ -125,33 +125,29 @@ end
 
 --- A Reader of `data` in pieces of `sizes`, then the rest whole; a read
 --- asking for less gets less.
-local record Pieces is Stream.Reader
+local class Pieces is Stream.Reader
   data: string
   sizes: {integer}
-  at: integer
-  next_size: integer
-  read: function(Pieces, max_bytes?: integer): string | nil, string
-  close: function(Pieces): boolean, string
-end
+  mut at: integer
+  mut next_size: integer
 
-local pieces_mt: metatable<Pieces> = { __index = Pieces }
+  function read(self, max_bytes?: integer): string?, string
+    if self.at > #self.data then return nil, "" end
+    local n = self.sizes[self.next_size] or #self.data
+    self.next_size = self.next_size + 1
+    if max_bytes ~= nil and max_bytes < n then n = max_bytes end
+    local piece = self.data:sub(self.at, self.at + n - 1)
+    self.at = self.at + #piece
+    return piece, ""
+  end
 
-function Pieces:read(max_bytes?: integer): string | nil, string
-  if self.at > #self.data then return nil, "" end
-  local n = self.sizes[self.next_size] or #self.data
-  self.next_size = self.next_size + 1
-  if max_bytes ~= nil and max_bytes < n then n = max_bytes end
-  local piece = self.data:sub(self.at, self.at + n - 1)
-  self.at = self.at + #piece
-  return piece, ""
-end
-
-function Pieces:close(): boolean, string
-  return true, ""
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 local function pieces(data: string, sizes: {integer}): Stream.Reader
-  local r: Pieces = setmetatable({ data = data, sizes = sizes, at = 1, next_size = 1 }, pieces_mt)
+  local r: Pieces = { data = data, sizes = sizes, at = 1, next_size = 1 }
   return r
 end
 
@@ -161,7 +157,7 @@ end
 --- answers, a body past its limit, or more requests than bytes.
 local function transcript(data: string, sizes: {integer}): string
   local input = wire.input(pieces(data, sizes))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for count = 1, #data + 1 do
     local read = wire.read_head(input, LIMITS)
     local head = read.head
@@ -173,10 +169,10 @@ local function transcript(data: string, sizes: {integer}): string
     end
     Fuzz.label("head")
     if count == 2 then Fuzz.label("second pipelined request") end
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(head.headers) do names[#names + 1] = name end
     table.sort(names)
-    local fields: {string} = { head.method, head.target, head.path, head.query, head.version,
+    local fields: mut {string} = { head.method, head.target, head.path, head.query, head.version,
       tostring(head.length), tostring(head.chunked), tostring(head.close), tostring(head.continue) }
     for _, name in ipairs(names) do fields[#fields + 1] = name .. "=" .. head.headers[name] end
     out[#out + 1] = table.concat(fields, "|")
@@ -186,7 +182,7 @@ local function transcript(data: string, sizes: {integer}): string
     out[#out + 1] = "body " .. body.state .. " " .. (got or "")
     if body.state ~= "done" then return table.concat(out, "\n") end
     if got ~= nil and got ~= "" then
-      Fuzz.label(head.chunked and "chunked body" or "content-length body")
+      Fuzz.label(if head.chunked then "chunked body" else "content-length body" end)
     end
   end
   error("more requests read than bytes")
@@ -201,18 +197,18 @@ local function gen_bytes(src: Fuzz.Source): string
     count = count + 1
     draw_request(src, fields)
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, r in ipairs(requests_of(fields)) do parts[#parts + 1] = written(r) end
   local data = table.concat(parts)
   if src:int(0, 2) == 0 then data = Fuzz.mutate(src, data, 4) end
-  local packed: {string} = { data }
+  local packed: mut {string} = { data }
   while Fuzz.more(src, #packed - 1, 12) do packed[#packed + 1] = tostring(src:int(1, 24)) end
   return Fuzz.pack(packed)
 end
 
 local function bytes_and_sizes(input: string): string, {integer}
   local fields = Fuzz.unpack(input)
-  local sizes: {integer} = {}
+  local sizes: mut {integer} = {}
   for i = 2, #fields do
     sizes[#sizes + 1] = math.max(1, math.tointeger(tonumber(fields[i])) or 1)
   end
@@ -247,7 +243,7 @@ local function test_any_chunking_reads_the_same(tmp: string)
       local whole = transcript(data, {})
       local cut = transcript(data, sizes)
       if whole ~= cut then return false, "whole:\n" .. whole .. "\ncut:\n" .. cut end
-      local bytewise: {integer} = {}
+      local bytewise: mut {integer} = {}
       for i = 1, #data do bytewise[i] = 1 end
       local single = transcript(data, bytewise)
       if whole ~= single then
@@ -279,7 +275,7 @@ local function test_a_written_request_reads_back(tmp: string)
       local in_put = wire.input(Stream.from_string(written(r)))
       local read = wire.read_head(in_put, LIMITS)
       local head = read.head
-      local expectations: {string} = {}
+      local expectations: mut {string} = {}
       for _, pair in ipairs(r.headers) do
         if pair[1] == "Expect" and r.version == "HTTP/1.1" then
           for member in pair[2]:lower():gmatch("[^,]+") do
@@ -301,11 +297,11 @@ local function test_a_written_request_reads_back(tmp: string)
           head.path ~= target[2] or head.query ~= target[3] then
         return false, "the request line read differs"
       end
-      local expected: {string:string} = {}
+      local expected: mut {string:string} = {}
       for _, pair in ipairs(r.headers) do
         local name = pair[1]:lower()
-        local joiner = name == "cookie" and "; " or ", "
-        expected[name] = expected[name] ~= nil and expected[name] .. joiner .. pair[2] or pair[2]
+        local joiner = if name == "cookie" then "; " else ", " end
+        expected[name] = if expected[name] ~= nil then expected[name] .. joiner .. pair[2] else pair[2] end
       end
       expected["host"] = target[4]
       if framing == "length" then expected["content-length"] = tostring(#body) end
@@ -319,11 +315,11 @@ local function test_a_written_request_reads_back(tmp: string)
         if expected[name] == nil then return false, "header " .. name .. " was never sent" end
       end
       local got, why = Stream.read_all(wire.body(in_put, head, LIMITS))
-      if got ~= (framing == "none" and "" or body) then
+      if got ~= (if framing == "none" then "" else body end) then
         return false, "the body differs: " .. why
       end
       if head.chunked ~= (framing == "chunked") then return false, "chunked differs" end
-      if framing ~= "chunked" and head.length ~= (framing == "length" and #body or 0) then
+      if framing ~= "chunked" and head.length ~= (if framing == "length" then #body else 0 end) then
         return false, "the length differs"
       end
       Fuzz.label(framing .. " framing")
@@ -353,7 +349,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
         Fuzz.pick(src, { "GET", "HEAD", "POST" }), tostring(status),
         Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.0" }),
         Fuzz.pick(src, { "none", "string", "reader", "sized", SHORT }),
-        src:int(0, 2) == 0 and "" or Fuzz.bytes(src, 40),
+        if src:int(0, 2) == 0 then "" else Fuzz.bytes(src, 40) end,
         -- A Content-Length the handler gives: none, the body's size, or
         -- one more.
         Fuzz.pick(src, { "", "", "same", "more" }), Fuzz.pick(src, LENGTH_NAMES),
@@ -366,7 +362,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local method, status, version, kind, text = f[1], math.tointeger(tonumber(f[2])), f[3], f[4], f[5]
       local given, given_name = f[6] or "", f[7] or "Content-Length"
       local cookies = math.tointeger(tonumber(f[8] or "0")) or 0
-      local reply_headers: {string: string | {string}} = { ["X-A"] = "1" }
+      local reply_headers: mut {string: string | {string}} = { ["X-A"] = "1" }
       local reply: wire.Reply = { status = status, headers = reply_headers, method = method,
         version = version, date = "Thu, 01 Jan 1970 00:00:00 GMT" }
       if kind == "string" then reply.body = text end
@@ -374,17 +370,17 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       if kind == "sized" then reply.body, reply.length = Stream.from_string(text), #text end
       if kind == SHORT then reply.body, reply.length = Stream.from_string(text), #text + 3 end
       if cookies > 0 then
-        local list: {string} = {}
+        local list: mut {string} = {}
         for i = 1, cookies do list[i] = ("c%d=v; Expires=Wed, 21 Oct 2026"):format(i) end
         reply_headers["Set-Cookie"] = list
       end
-      local declared: integer | nil = nil
+      local declared: integer? = nil
       if given ~= "" then
-        declared = given == "same" and #text or #text + 1
+        declared = if given == "same" then #text else #text + 1 end
         reply_headers[given_name] = tostring(declared)
       end
       local bodiless = status < 200 or status == 204 or status == 304
-      local sent_text = kind == "none" and "" or text
+      local sent_text = if kind == "none" then "" else text end
       local why = wire.check(reply)
       if bodiless and kind ~= "none" and not (kind == "string" and text == "") then
         if why == "" then return false, "a body for a " .. status .. " was taken" end
@@ -393,7 +389,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       end
       -- What a given size may not be: other than `length`, given a 1xx
       -- or 204, or not the body's, which is 0 for none but to HEAD.
-      local own: integer | nil = nil
+      local own: integer? = nil
       if kind == "string" and text ~= "" then
         own = #text
       elseif (kind == "none" or kind == "string") and method ~= "HEAD" then
@@ -416,7 +412,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       local stop = out:find("\r\n\r\n", 1, true)
       if stop == nil then return false, "no head" end
       local head, rest = out:sub(1, stop + 1), out:sub(stop + 4)
-      local headers: {string:string} = {}
+      local headers: mut {string:string} = {}
       local lines = 0
       for name, value in head:gmatch("\r\n([^:]+): ([^\r]*)") do
         if name == "Set-Cookie" then
@@ -464,7 +460,7 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
       elseif headers["transfer-encoding"] == "chunked" then
         Fuzz.label("chunked")
         if method == "HEAD" then return true, "" end
-        local got: {string} = {}
+        local got: mut {string} = {}
         local at = 1
         while true do
           local size_text, after = rest:match("^(%x+)\r\n()", at)

@@ -62,7 +62,7 @@ end
 -- that releases it. The hook "after_validation" pauses through the native
 -- `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
--- startup whatever the hook's name, and runs `tool.tl
+-- startup whatever the hook's name, and runs `probe.tl
 -- retained-prefix-probe` from `tool`, the runtime setup's copy of it
 -- ([`Fixture.tool_tree`]). Every other hook name (e.g.
 -- "after_select") goes through the named
@@ -81,7 +81,7 @@ local function run_paused(tool: string, work: string, diagnostics: string,
       COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
       COSMIC_PORTABLE_STARTUP_TEST_GO = go,
     })
-    child = start("paused", { program, tool .. "/test/portable/tool.tl",
+    child = start("paused", { program, tool .. "/test/portable/probe.tl",
       "retained-prefix-probe", expected_hash, expected_marker }, tool,
       values, diagnostics)
   else
@@ -120,7 +120,7 @@ end
 local function selected_header_line(artifact_bytes: string, host: string):
     string
   local header = artifact_bytes:sub(1, 16384)
-  local line: string | nil = nil
+  local line: string? = nil
   for candidate in header:gmatch("[^\n]+") do
     if String.starts_with(candidate, "  " .. host) then
       assert(line == nil, "duplicate selected manifest header line")
@@ -275,7 +275,7 @@ end
 
 -- Startup removes the whole reserved prefix without a count or length cap,
 -- keeps the public cache setting, and leaves ordinary variables alone.
--- tool.tl's `environment_clean` reads the cache value as its own first
+-- probe.tl's `environment_clean` reads the cache value as its own first
 -- positional argument and checks it against `COSMIC_PORTABLE_CACHE` in the
 -- real environment -- both are set to the same string here.
 local function test_runtime_environment_scrubbing(tmp: string)
@@ -288,7 +288,7 @@ local function test_runtime_environment_scrubbing(tmp: string)
 
   local cache = work .. "/cache-environment"
   local names = { "COSMIC_PORTABLE_ADJACENT_A", "COSMIC_PORTABLE_ADJACENT_B" }
-  local values: {string:string} = {
+  local values: mut {string:string} = {
     COSMIC_PORTABLE_ADJACENT_A = "a",
     COSMIC_PORTABLE_ADJACENT_B = "b",
   }
@@ -302,12 +302,12 @@ local function test_runtime_environment_scrubbing(tmp: string)
   values[long_name] = "long"
   values["COSMIC_PORTABLE_CACHE"] = cache
 
-  local argv: {string} = { fixture_dir .. "/runtime.old",
-    tool .. "/test/portable/tool.tl", "environment-clean", cache }
+  local argv: mut {string} = { fixture_dir .. "/runtime.old",
+    tool .. "/test/portable/probe.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  -- tool.tl's require("build.artifact") and require("test.portable")
-  -- resolve relative to the process cwd, so this (like every other tool.tl
+  -- probe.tl's require("build.artifact") and require("test.portable")
+  -- resolve relative to the process cwd, so this (like every other probe.tl
   -- invocation here) runs from `tool`, not `work`.
   local outcome = Fixture.run("environment-clean", argv, tool, diagnostics,
     values)
@@ -431,11 +431,11 @@ local function test_runtime_corrupt_ranges(tmp: string)
 
   local cache = work .. "/cache-release"
   Fixture.run("corrupt-ranges", { fixture_dir .. "/runtime.release",
-    tool .. "/test/portable/tool.tl", "corrupt-ranges",
+    tool .. "/test/portable/probe.tl", "corrupt-ranges",
     fixture_dir .. "/runtime.release", work, tostring(offset) }, tool,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
-  local selected_corrupt: string | nil = nil
+  local selected_corrupt: string? = nil
   local nonselected_count = 0
   local index = 0
   for line in Fixture.read(work .. "/corrupt-ranges"):gmatch("[^\n]+") do
@@ -451,7 +451,7 @@ local function test_runtime_corrupt_ranges(tmp: string)
 
     local probe = Fixture.call_with_environment("corrupt-probe-" ..
         tostring(index),
-      { path, tool .. "/test/portable/tool.tl", "retained-prefix-probe",
+      { path, tool .. "/test/portable/probe.tl", "retained-prefix-probe",
         release_hash, "corrupt" }, tool, diagnostics,
       Fixture.environment({ COSMIC_PORTABLE_CACHE = cache }))
     assert(not probe.result.ok,
@@ -500,7 +500,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   local program = fixture_dir .. "/runtime.release"
   Fixture.run("stamp-cold", { program, "help" }, work, diagnostics, values)
 
-  local key: string | nil = nil
+  local key: string? = nil
   for _, name in ipairs((assert(Fs.list(cache)))) do
     if name:sub(1, 5) == "core-" then key = name end
   end
@@ -572,7 +572,7 @@ local function test_runtime_replace_while_paused(tmp: string)
       "replace-while-paused: paused probe output differs")
 
     local fresh = Fixture.call_with_environment("post-replace",
-      { program, tool .. "/test/portable/tool.tl", "retained-prefix-probe",
+      { program, tool .. "/test/portable/probe.tl", "retained-prefix-probe",
         new_hash, "new" }, tool, diagnostics,
       Fixture.environment({ COSMIC_PORTABLE_CACHE = cache }))
     assert(fresh.result.ok, "post-replace probe failed")
@@ -617,7 +617,7 @@ end
 -- boot mode. This is the one race that uses the "after_select" hook, an
 -- earlier point in startup than "after_validation", so it runs the copied
 -- `probe.tl` fixture script from `work/run space` via the bare
--- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `tool.tl
+-- `COSMIC_PORTABLE_TEST_HOOK` mechanism, not `probe.tl
 -- retained-prefix-probe` from `tool`.
 local function test_runtime_mismatch_after_select(tmp: string)
   Fixture.builds_beneath(tmp .. "/build")

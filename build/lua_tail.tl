@@ -1,7 +1,6 @@
---- What is done to the Lua of a module after a compiler has written it, whichever compiler it was: the tail of a test module
---- that hands its tests to the runner, and the bytecode of the chunk, which every target must read alike. Shared by
---- [`build.compilation`]'s `generate`, which the fork's compiler feeds, and by [`build.pipeline`], which the new checker's code
---- generator feeds.
+--- What is done to the Lua of a module after the code generator has written it: the tail of a test module
+--- that hands its tests to the runner, and the bytecode of the chunk, which every target must read alike. Used by
+--- [`build.pipeline`], which the code generator feeds.
 local String = require("cosmic.string")
 
 local record LuaTail
@@ -13,7 +12,7 @@ local record LuaTail
 
   --- The bytecode of `code` (compiled from the module `name`, whose source is `file`), checked to be the shape every target
   --- shares; nil and why where Lua refuses the chunk, said at the line of `file` it is on, or the host dumps another shape.
-  bytecode_of: function(code: string, name: string, file: string): string | nil, string
+  bytecode_of: function(code: string, name: string, file: string): string?, string
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -36,7 +35,7 @@ function LuaTail.with_test_tail(code: string, tests: {string}): string
   if #tests == 0 then
     return code
   end
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for _, name in ipairs(tests) do
     fields[#fields + 1] = name .. " = " .. name
   end
@@ -55,7 +54,7 @@ local function at_source_line(trouble: string, file: string): string
   return file .. ":" .. line .. ": " .. said
 end
 
-function LuaTail.bytecode_of(code: string, name: string, file: string): string | nil, string
+function LuaTail.bytecode_of(code: string, name: string, file: string): string?, string
   local chunk, load_trouble = load(code, "@" .. name, "t")
   if chunk == nil then
     -- TODO: tl's checker passes what Lua 5.5 refuses only here:

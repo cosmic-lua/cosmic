@@ -113,7 +113,7 @@ end
 
 --- A count, kept where the closure that adds to it can write.
 local record Tally
-  value: integer
+  mut value: integer
 end
 
 --- How many compiles `path` holds, and how many of them a build took
@@ -194,7 +194,7 @@ end
 -- as every source file in the tree does: joining the result with "\n" and
 -- appending one final "\n" reproduces it.
 local function split_lines(text: string): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while true do
     local newline = text:find("\n", at, true)
@@ -213,7 +213,7 @@ end
 -- edit unapplied.
 local function insert_after(lines: {string}, marker: string,
                             extra: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local found = false
   for _, line in ipairs(lines) do
     out[#out + 1] = line
@@ -452,7 +452,7 @@ local function run_refusal_case(fixture_dir: string,
     local pin = tree .. "/vendor/lua/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
   elseif name == "tl-checker" then
-    local checker = tree .. "/checker/tl.tl"
+    local checker = tree .. "/lang/check.tl"
     Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
@@ -588,7 +588,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
-  local said: {string} = {}
+  local said: mut {string} = {}
   supervised(function(active: Process.Fleet)
     for n = 1, 3 do
       Process.adopt(active, start("concurrent-" .. tostring(n),

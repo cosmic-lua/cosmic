@@ -113,9 +113,9 @@ local record Shape
     --- declares.
     spec: Spec
     --- [`into`] over `spec`, answering a `T`.
-    into: function(self: Typed<T>, value: any): T | nil, string
+    into: function(self: Typed<T>, value: any): T?, string
     --- [`decode_into`] over `spec`, answering a `T`.
-    decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T | nil, string
+    decode_into: function(self: Typed<T>, text: string, opts?: Json.DecodeOptions): T?, string
   end
 
   --- Any string.
@@ -186,8 +186,8 @@ end
 
 --- A record's spec over a copy of `fields`, its names in byte order.
 local function record_spec(fields: {string: Spec}, strict: boolean, what: string): Spec
-  local own: {string: Spec} = {}
-  local names: {string} = {}
+  local own: mut {string: Spec} = {}
+  local names: mut {string} = {}
   for name, spec in pairs(fields) do
     need_spec(spec, ("%s's field %q"):format(what, name))
     own[name] = spec
@@ -289,7 +289,7 @@ end
 --- What `spec` asks for, for a message.
 local function wanted(spec: Spec): string
   if spec.kind == "one_of" then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for i, v in ipairs(assert(spec.values)) do parts[i] = shown(v) end
     return "one of " .. table.concat(parts, ", ")
   end
@@ -385,7 +385,7 @@ local function walk_record(t: {any: any}, spec: Spec, path: string): any, string
     local unknown = unknown_key(t, spec, path)
     if unknown ~= "" then return nil, unknown end
   end
-  local out: {string: any} = {}
+  local out: mut {string: any} = {}
   local fields, names = spec.fields, spec.names
   if fields == nil or names == nil then error("shape: a record spec holds no fields", 2) end
   for _, name in ipairs(names) do
@@ -404,8 +404,8 @@ local function walk_list(t: {any: any}, spec: Spec, path: string): any, string
     return nil, refusal(path, "list", least_refused(t, is_index))
   end
   local keys = members.keys
-  local count = #keys > 0 and #keys or members.extent
-  local out: {any} = {}
+  local count = if #keys > 0 then #keys else members.extent end
+  local out: mut {any} = {}
   local after = 0
   local of = assert(spec.of)
   for i = 1, count do
@@ -436,7 +436,7 @@ local function walk_map(t: {any: any}, spec: Spec, path: string): any, string
   if members.layout ~= "object" then
     return nil, refusal(path, "map", least_refused(t, is_name))
   end
-  local out: {string: any} = {}
+  local out: mut {string: any} = {}
   local of = assert(spec.of)
   for _, k in ipairs(members.keys) do
     if k is string then
@@ -500,7 +500,7 @@ end
 --- @param spec Spec The shape it must have
 --- @return T The value, typed
 --- @return string "" or what did not fit
-function Shape.into<T>(value: any, spec: Spec): T | nil, string
+function Shape.into<T>(value: any, spec: Spec): T?, string
   need_spec(spec, "into's shape")
   local out, failed = walk(value, spec, "")
   if failed ~= "" then return nil, failed end
@@ -528,21 +528,21 @@ end
 --- @param opts Json.DecodeOptions What [`Json.decode`] takes
 --- @return T The value, typed
 --- @return string "" or what was wrong with the text
-function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T | nil, string
+function Shape.decode_into<T>(text: string, spec: Spec, opts?: Json.DecodeOptions): T?, string
   need_spec(spec, "decode_into's shape")
   local decoded, trouble = Json.decode(text, opts)
   if decoded == nil and trouble ~= "" then return nil, trouble end
-  local out, failed: T | nil, string = Shape.into(decoded, spec)
+  local out, failed: T?, string = Shape.into(decoded, spec)
   if out == nil then return nil, failed end
   return out, ""
 end
 
-local function typed_into<T>(self: Shape.Typed<T>, value: any): T | nil, string
+local function typed_into<T>(self: Shape.Typed<T>, value: any): T?, string
   return Shape.into(value, self.spec)
 end
 
 local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
-                                    opts?: Json.DecodeOptions): T | nil, string
+                                    opts?: Json.DecodeOptions): T?, string
   return Shape.decode_into(text, self.spec, opts)
 end
 
@@ -567,9 +567,12 @@ end
 --- [`one_of`] with its values in byte order; records of those; and a
 --- field typed `T | nil`, as `optional`. A function, a union of more
 --- than one type, a generic, an interface and a record that holds itself
---- are refused when the module is built, naming the field. The record
---- keeps its fields only: a key the payload grew is dropped, as `record`
---- does, and `spec` is a [`Spec`] to put inside any other.
+--- are refused when the module is built, naming the field. A field of type
+--- `any` is read as `optional(any)`, since `any` holds nil: a payload that
+--- lacks its key is accepted and the field is nil, where a field of any other
+--- type must be there. To refuse a missing key, test the field after `into`.
+--- The record keeps its fields only: a key the payload grew is dropped, as
+--- `record` does, and `spec` is a [`Spec`] to put inside any other.
 ---
 --- The build, not the program, reads the declaration: it splices the
 --- spec and the record's type in after `name`, which are `built` and

@@ -129,7 +129,7 @@ fe80000000000000a00027fffe4e66a1 02 40 20 80     eth0
 
 local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables()
   local found = RelayConfig.parse_addresses(FIB_TRIE, IF_INET6)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, address in ipairs(found) do
     assert(not seen[address], address .. " is listed twice")
     seen[address] = true

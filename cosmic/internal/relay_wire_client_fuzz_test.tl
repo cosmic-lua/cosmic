@@ -56,7 +56,7 @@ local function gen_method(src: Fuzz.Source): string
   local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 255 })
   local text = string.char(version, method)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_method_password(src: Fuzz.Source): string
@@ -64,7 +64,7 @@ local function gen_method_password(src: Fuzz.Source): string
   local method = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 2, 2, 0, 255 })
   local text = string.char(version, method)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_auth_status(src: Fuzz.Source): string
@@ -72,7 +72,7 @@ local function gen_auth_status(src: Fuzz.Source): string
   local status = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 0, 1 })
   local text = string.char(version, status)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 4) end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 1 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 1 else 0 end)
 end
 
 local function gen_answer(src: Fuzz.Source): string
@@ -89,10 +89,10 @@ local function gen_answer(src: Fuzz.Source): string
     address = string.char(src:int(0, 9) == 0 and src:int(0, 255) or #name) .. name
   end
   local code = src:int(0, 4) == 0 and src:int(0, 255) or src:int(0, 8)
-  local text = "\5" .. string.char(code) .. (src:int(0, 9) == 0 and "\1" or "\0") .. string.char(atyp) .. address ..
+  local text = "\5" .. string.char(code) .. (if src:int(0, 9) == 0 then "\1" else "\0" end) .. string.char(atyp) .. address ..
     Fuzz.bytes(src, 2)
   if src:int(0, 4) == 0 then text = text .. Fuzz.bytes(src, 6) end
-  return Fuzz.mutate(src, text, src:int(0, 3) == 0 and 2 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 3) == 0 then 2 else 0 end)
 end
 
 local READERS <const>: {Format} = {
@@ -160,7 +160,7 @@ local function test_feeding_in_pieces_agrees_with_feeding_the_whole(tmp: string)
           end
         end
         local feed = format.fresh()
-        local last_key: string | nil
+        local last_key: string?
         for at = 1, #input do
           local _, _, each = feed(input:sub(at, at))
           last_key = each
@@ -183,7 +183,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
     name = "client request round trip",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local host: {string} = {}
+      local host: mut {string} = {}
       local kind = src:int(0, 3)
       if kind == 0 then
         for i = 1, 4 do host[i] = tostring(src:int(0, 255)) end
@@ -280,7 +280,7 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
         return false, ("read back as %s with %d bytes taken"):format(whole.status, whole.consumed)
       end
       local reader = Wire.socks_auth_reader()
-      local last: Wire.SocksAuth | nil
+      local last: Wire.SocksAuth?
       for at = 1, #message do last = reader:feed(message:sub(at, at)) end
       local final = assert(last, "the message has a byte")
       if final.status ~= "done" or final.password ~= password then

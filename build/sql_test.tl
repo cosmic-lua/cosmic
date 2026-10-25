@@ -24,7 +24,7 @@ local function project(): string
 end
 
 local function argv_of(words: {string}): {string}
-  local argv: {string} = { "sql" }
+  local argv: mut {string} = { "sql" }
   for index, word in ipairs(words) do
     argv[index + 1] = word
   end
@@ -33,10 +33,10 @@ end
 
 --- What one run wrote, stream by stream.
 local record Written
-  out: {string}
-  err: {string}
+  out: mut {string}
+  err: mut {string}
   --- The summary, as stderr would end in it; "" when the run gave none.
-  summary: string
+  mut summary: string
 end
 
 local function run(root: string, words: {string}, input?: string): integer, Written
@@ -51,14 +51,14 @@ local function run(root: string, words: {string}, input?: string): integer, Writ
       assert(written.summary == "", "a second summary: " .. written.summary)
       written.summary = "sql: " .. detail
     end,
-  }, function(): string | nil, string
+  }, function(): string?, string
     if input == nil then return nil, "no standard input given" end
     return input, ""
   end)
   return code, written
 end
 
-local function query(path: string, statement: string): {string} | nil, string
+local function query(path: string, statement: string): {string}?, string
   local opened = assert(sql.open({ name = path, path = path }))
   local lines, trouble = sql.query(opened.db, statement)
   assert(opened.db:close())

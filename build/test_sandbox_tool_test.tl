@@ -325,7 +325,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
     true), text)
   local seen = text:match("seen|([^\n]*)|end")
   assert(seen ~= nil, text)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for field in (seen .. "|"):gmatch("([^|]*)|") do fields[#fields + 1] = field end
   assert(fields[1] == real_root and fields[3] == "declared" and fields[4] == "undeclared" and
       fields[5] == "true" and fields[6] == "d" and fields[7] == "nil" and
@@ -341,7 +341,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
       text:find("), keyed by declared inputs, sharing no verdicts\n", 1, true), text)
   -- Required, the run fails instead.
   env.COSMIC_TEST_SANDBOX = "1"
-  local required: string | nil = nil
+  local required: string? = nil
   required, ok = run(root, tmp .. "/required", env)
   assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",
     1, true), required)

@@ -25,16 +25,18 @@ place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
-`islands.txt` lists the files that stay Teal until the pin moves past
-the switch (doc/plans/strict-teal.md): `ci/`, the scripts
-`bin/cosmic-bootstrap` runs and the ones `build/zig.tl` runs on that
-release's binary (`build/patch.tl`, `build/zig_fetch.tl`). CI's `check-islands` command
-(`cosmic-driver cosmic_ci/driver.tl check-islands`) gives each file of the
-list to the running driver's `compile`, which parses and type-checks it
-and runs nothing, and fails on a syntax error or any type error. A
-directory of the list is compiled by the driver's own tests.
-`build/islands_test.tl` holds the list to the tree, and is its only other
-reader.
+`bin/cosmic-bootstrap` runs the pinned release with `COSMIC_GRAMMAR=new`, and
+the CI driver is put on the job's PATH by a two-line wrapper that sets it,
+so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
+ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
+`build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
+no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
+lists as Teal. CI's `check-islands` command (`cosmic-driver
+cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
+on the running driver, which refuses a script that has a finding before it
+runs, and fails on a syntax error or any finding; `ci/` is compiled by the
+driver's own tests. `build/islands_test.tl` holds the scripts' list to those
+of `bin/` and `build/zig.tl`.
 
 ## running the platform job locally
 
@@ -314,7 +316,7 @@ there is a runner's start and some seconds. build/branch_scope_test.tl
 holds the list to what the caches and the driver check hash, so it
 cannot drift from them, and the script to `full` wherever it cannot tell
 (a failed compare, a diff of 300 files). A full branch push runs the
-queue's jobs (the checked shares, the narrowing run and the rehearsal
+queue's jobs (the checked shares and the narrowing run
 too), and decides the harness as the queue does: the script's merge base
 is the leg's `COSMIC_CI_BASE_SHA`, so a change that moves
 build/harness_epoch.tl runs every test (`harness_moved`). It saves
@@ -637,48 +639,6 @@ where none did, against 1934 to 2326 s of the one job and the legs' 946 to
 1503 s. The narrowing run, 150 to 195 s to its boot, its 726 to 861 s and
 10 s, takes 890 to 1070 s. So the longest of them ends with the shortest
 leg, and the legs are the queue's path.
-
-### the rehearsal job
-
-The rehearsal of the switch (doc/plans/strict-teal.md, "the switch") runs in a job of its own, `rehearsal`
-(`linux-x86_64-new-grammar`), on the checked job's host. It is informational until the switch, where it becomes required: it
-runs on a full run only, `continue-on-error` marks its failure on the run and no job waits on it, so the `ci` join does not
-require it, and the job that cancels a queue run on a failed leg passes over it (ci.yml's `EXEMPT`; build/workflows_test.tl
-holds every `continue-on-error` job to both). A branch push shows the job as skipped, one of the exceptions
-`build/workflows_test.tl` names. The job restores linux-x86_64's zig build outputs and compiles and saves neither, and runs these phases in order:
-
-1. `boot`: the tree, with the fork's compiler, as every leg boots it: `bin/zig build cores boot -Dboot-cores=all`, the portable tool of every core. A bare `boot` writes a tool of the host's core alone, with a placeholder for each other core, which no leg verifies.
-2. `rehearsal-examples`: the examples (`*_example.tl`) and the code blocks of `doc/guides`, which a user copies, each compiled alone
-   by the new checker (`build/example_checks_main.tl`, the example part of `COSMIC_GRAMMAR=new cosmic fix --check .`), on the tool
-   `boot` built: the check asks for the new checker itself. What they still write in a form only the new grammar reads, or a type
-   the new checker lacks, is pinned per file and code under `[examples]` in `build/ceilings.txt`: a finding over its pin and a pin
-   above its findings fail the phase, so the pins only fall. Every step after `boot` runs on `boot`'s outcome alone
-   (`if: always() && ...`), so a regression in an example fails this step and skips none of the rest.
-3. `rehearsal-boot`: the tree again, with `COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`. The new pipeline (`build/pipeline.tl`) compiles
-   it in one process, taking no compile another run made, and the tool it leaves carries the Lua the new generator wrote and
-   the declarations of the standard library a project is typed against (`build/checker_declarations.tl`). It records that it was
-   built so (its `compiled_by` is not its `compiler`, `reboot.settled_by`), so that a run that asks for the fork's builds it
-   again and one that asks for the new checker's does not. The phase fails for a tool that does not say so. A boot holds about
-   7 GB of memory at its peak.
-4. `rehearsal`: the whole suite on that tool (`cosmic test` with `COSMIC_GRAMMAR=new`), in the verdicts of a file of its own,
-   `new-grammar.db`, under a cache name of its own: a verdict of one grammar stands for no run of the other. The suite runs
-   without `--bail`, which a queue run adds: the failures are judged over every test. A run that built the tool again is no
-   run on the tool the phase booted, and fails.
-5. `rehearsal-project`: the two projects of `testdata/rehearsal`, each built and tested outside the tree with the new checker,
-   which holds a project to the whole checker, the error-slot rules of `build/contracts.tl` included (the fork holds cosmic's
-   own tree alone to them).
-   `project` is written in the Teal both checkers read and passes; `fork_only` is written in forms only the fork reads (nil
-   given for a type that does not hold it, a function assigned to a path of two dots) and is refused with the new checker's words
-   and fix, and with no word of a pin or of `build/ceilings.txt`, which a project has none of. There is no fork to fall back to.
-6. `rehearsal-seed`: all of `lang/` translated, compiled with `compile --grammar new`, and its tests run against the Lua
-   (`build/lang_proof.tl`); then the same translation compiled by the pinned release (`bin/cosmic-bootstrap`), whose Lua differs
-   from the tree's only in the files `lang/SEED_DIFFERS` lists, held both ways as the bridge holds `checker/SEED_DIFFERS`. The
-   bridge, `build.zig`'s `seedCompiler` and `checker/SEED_DIFFERS` stay the fork's until the switch.
-
-The run's failures are held to `testdata/gate/rehearsal.txt`, the failures the new checker is expected to have, one
-`<failure> -- <reason>` a line: a test (`<module> <test>`), a module the new checker refused (`<file> <code>`, the code of its
-first error) or a C function no test entered (`<file>:<function>`). The job fails for a failure the list lacks and for an
-entry whose failure did not happen, so the list only shrinks, and is empty at the switch (`ci/cosmic_ci/rehearsal.tl`).
 
 ### the Linux legs' container
 

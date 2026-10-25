@@ -1,7 +1,7 @@
 --- The entry of the tool's seed: the one module the pinned release compiles, with the files it requires
 --- ([`build/seed.txt`]), so that a boot can compile the tool's own build code without a checker carried from
---- elsewhere. Nothing boots from it yet: the bridge ([`core/bridge_new.lua`]) and [`build/seed_proof.tl`] use it, and the
---- switch to the new checker (doc/plans/strict-teal.md, "the switch") makes it the seed of every boot.
+--- elsewhere. Every boot starts from it: the bridge ([`core/bridge.lua`]) loads the Lua the pinned release wrote for it, and
+--- then the Lua the tree's own generator writes.
 ---
 --- It exposes the two things a boot needs of the new checker:
 ---
@@ -12,16 +12,15 @@
 ---   `require` for the build's code up to [`build.boot`].
 ---
 --- THE FILES ARE READ AS WRITTEN. The tree holds the text the new checker reads, so a source is never translated here
---- ([`Driver.Source.translate`] is off), and the module a path names is the one [`lang.declarations`]'s `module_of` says.
+--- (`Driver.Source.translate` is off), and the module a path names is the one [`lang.declarations`]'s `module_of` says.
 ---
 --- THE LUA IS THE BUILD'S. A module is written as the build's own compile writes it ([`build.pipeline`]): a test of a record or
 --- an interface is written as the test for a table (`counted`), as the fork writes it and as the pins of `[checked]` count,
 --- and a type import that is never read as a value is not loaded (`served`). The type errors of a module are not
 --- refused (the code of the tool is held to its ceilings by the checks of the tree, not by a boot); a syntax error is,
 --- and so is a construct the generator does not write.
--- TODO: lower the `view_written` pins of build/seed.tl, build/seed_proof.tl and build/seed_test.tl (40 writes to a local the
--- checker takes for a view: each list and map these files build) by declaring those locals `mut` once the files are read in the
--- new grammar alone, which `cosmic migrate` writes (doc/plans/strict-teal.md, "the switch"): the fork's Teal has no spelling of it.
+-- TODO: lower the `view_written` pins of build/seed.tl and build/seed_test.tl (writes to a local the checker takes for a
+-- view: each list and map these files build) by declaring those locals `mut`, which `cosmic migrate` writes.
 
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
@@ -39,7 +38,7 @@ local record Seed
   record Program
     --- The Lua of the module `name`, nil and "" where the tree has no source for it (a binding of C, a declaration
     --- file), nil and why where it has one the compiler refuses.
-    module: function(name: string): Module | nil, string
+    module: function(name: string): Module?, string
   end
 
   --- Compiles `sources` together as `cosmic compile --grammar new` does ([`CompileGrammar.compile`]).
@@ -57,7 +56,7 @@ local STDLIB <const> = "lang/stdlib.d.tl"
 --- The declaration file `file` of the tree at `root`, a source of globals.
 local function declaration(root: string, file: string): Driver.Source
   local text = assert(Fs.read(root .. "/" .. file))
-  return Driver.declarations(CompileGrammar.module_of(file), file, text, false, {})
+  return Driver.declarations(CompileGrammar.module_of(file), file, text, {})
 end
 
 --- The files a `require` of `name` may name, in the order they are tried: a declaration before the source it stands for.
@@ -77,7 +76,7 @@ end
 
 function Seed.program(root: string, declared: {string: string}): Seed.Program
   -- TODO: give the build the globals adjustment of [`build.tree_program`]'s `globals` (the names the runtime withholds taken
-  -- away, `_G` added) once the switch deletes build/teal.tl, whose `withheld` it reads: the build here declares every name of
+  -- away, `_G` added) once build/withheld.tl, which it reads, is in the seed list (build/seed.txt): the build here declares every name of
   -- the standard library's declarations, so a use of a withheld one is not reported. The Lua is the same either way.
   local build = Driver.new({
     globals = { declaration(root, PRELUDE), declaration(root, STDLIB) }, adjust = nil, external = {}, types = false,
@@ -85,7 +84,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: {string: Driver.Source} = {}
   local absent: {string: boolean} = {}
-  build:provide(function(name: string): Driver.Source | nil
+  build:provide(function(name: string): Driver.Source?
     local held = sources[name]
     if held ~= nil then
       return held
@@ -101,7 +100,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     for _, file in ipairs(candidates(name)) do
       local read, _ = Fs.read(root .. "/" .. file)
       if read ~= nil then
-        local made = Driver.source(name, file, read, file:match("%.d%.tl$") ~= nil and "decl" or "tl")
+        local made = Driver.source(name, file, read, if file:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
         sources[name] = made
         return made
       end
@@ -110,7 +109,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     return nil
   end)
   --- The Lua of `name`, its file; nil and why.
-  local function module(name: string): Seed.Module | nil, string
+  local function module(name: string): Seed.Module?, string
     local found = build:parsed(name)
     if found == nil then
       return nil, ""
@@ -120,7 +119,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     if found.broken then
       local said = ""
       for _, p in ipairs(found.syntax) do
-        said = said .. (said == "" and "" or "\n") .. line_of(file, p)
+        said = said .. (if said == "" then "" else "\n" end) .. line_of(file, p)
       end
       return nil, said
     end

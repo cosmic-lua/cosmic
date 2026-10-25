@@ -33,7 +33,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
-Fs.put(Fs.stdout, trouble or "")
+local _, _ = Fs.put(Fs.stdout, trouble)
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
@@ -80,11 +80,11 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
-  local url, marker = argv[1], argv[2]
+  local url, marker = (argv[1] or ""), (argv[2] or "")
   local guard = assert(Signal.guard())
 ]] .. body .. [[
   local caught = assert(guard:release())
-  Fs.put(Fs.stdout, " " .. tostring(caught))
+  local _, _ = Fs.put(Fs.stdout, " " .. tostring(caught))
   return 0
 end
 ]]))
@@ -117,7 +117,7 @@ local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
   assert(assert(response:read()) == "part")
   assert(Fs.write(marker, ""))
   local data, why = response:read()
-  Fs.put(Fs.stdout, tostring(data) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(data) .. " " .. why)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
@@ -137,7 +137,7 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
       return guard:cancelled() ~= 0
     end,
   })
-  Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
@@ -160,8 +160,9 @@ local function served(tmp: string, method: string, body?: string): string, strin
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local got, trouble = Http.request(argv[1], argv[2], { body = argv[3] })
-  Fs.put(Fs.stdout, got ~= nil and tostring(got.status) .. " " .. got.body or trouble)
+  local body = argv[3]
+  local got, trouble = Http.request((argv[1] or ""), (argv[2] or ""), if body ~= nil then { body = body } else {} end)
+  local _, _ = Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else trouble end)
   return 0
 end
 ]]))

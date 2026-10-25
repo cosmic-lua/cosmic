@@ -115,12 +115,12 @@ local record verb
   --- The schemes a redirect of `url` may lead to, for
   --- `Http.Options.redirect_protocols`: https only when `url` is https
   --- and `allow_downgrade` is not given, nil (both) otherwise.
-  redirect_protocols: function(url: string, allow_downgrade: boolean): {string} | nil
+  redirect_protocols: function(url: string, allow_downgrade: boolean): {string}?
   --- What to print for `why`, an `Http` failure, when the fetch was
   --- limited to https redirects: a plain sentence where curl's is
   --- `Protocol "http" is disabled (in redirect)`; `why` as given
   --- otherwise, or when `protocols` is nil.
-  refusal: function(why: string, protocols: {string} | nil): string
+  refusal: function(why: string, protocols: {string}?): string
 end
 
 local spec = Cli.verbs.fetch.spec or {}
@@ -141,12 +141,12 @@ local algorithms: {Algorithm} = {
   { name = "sha512", digits = 128, keys = { "sha512", "sha512sum" } },
 }
 
-function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string} | nil
+function verb.redirect_protocols(url: string, allow_downgrade: boolean): {string}?
   if allow_downgrade or url:match("^(%a+)://"):lower() ~= "https" then return nil end
   return { "https" }
 end
 
-function verb.refusal(why: string, protocols: {string} | nil): string
+function verb.refusal(why: string, protocols: {string}?): string
   if protocols ~= nil and why:find('Protocol "http" is disabled (in redirect)', 1, true) then
     return "refused a redirect from https to http (--allow-downgrade follows it)"
   end
@@ -154,7 +154,7 @@ function verb.refusal(why: string, protocols: {string} | nil): string
 end
 
 --- Whether `key` is a fragment key that names one of `algorithms`.
-local function recognized(key: string | nil): boolean
+local function recognized(key: string?): boolean
   for _, algorithm in ipairs(algorithms) do
     for _, name in ipairs(algorithm.keys) do
       if key == name then return true end
@@ -181,11 +181,11 @@ end
 --- `--roots`'s value as [`Http.Options`]'s `roots`, or nil and why: a
 --- set's name, or root digests joined by commas, each 64 hex digits
 --- with or without a `:` between bytes.
-local function roots_of(value: string): string | {string} | nil, string
+local function roots_of(value: string): ((string | {string})?, string)
   if value == "mozilla" or value == "minimal" or value == "none" then
     return value, ""
   end
-  local digests: {string} = {}
+  local digests: mut {string} = {}
   for digest in (value .. ","):gmatch("([^,]*),") do
     local bare_hex = digest:gsub(":", "")
     if #bare_hex ~= 64 or bare_hex:find("[^%x]") ~= nil then
@@ -277,7 +277,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- What the body must hash to, by algorithm, and where each came from.
   local wants: {string:string} = {}
   local from: {string:string} = {}
-  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string | nil
+  local function want_digest(algorithm: Algorithm, digest: string, source: string, sep: string): string?
     local name = algorithm.name
     if #digest ~= algorithm.digits or digest:find("[^%x]") then
       return source .. " wants " .. plural.count(algorithm.digits, "hex digit") .. ", not " .. digest
@@ -321,14 +321,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse("--head prints no body, so there is nothing for -o or a digest")
   end
 
-  local roots: string | {string} | nil = nil
+  local roots: (string | {string})? = nil
   local given_roots = parsed.values["--roots"]
   if given_roots ~= nil then
     local chosen, why = roots_of(given_roots)
     if chosen == nil then return refuse(why) end
     roots = chosen
   end
-  local ca: string | nil = nil
+  local ca: string? = nil
   local cacert = parsed.values["--cacert"]
   if cacert ~= nil then
     local text, why = Fs.read(cacert)
@@ -385,7 +385,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local ok2 = response.status >= 200 and response.status < 300
 
   if head then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(response.headers) do names[#names + 1] = name end
     table.sort(names)
     local text: string
@@ -401,7 +401,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       text = encoded .. "\n"
     else
       -- The reason phrase is not kept, so the status line is `HTTP <code>`.
-      local lines: {string} = { "HTTP " .. response.status }
+      local lines: mut {string} = { "HTTP " .. response.status }
       for _, name in ipairs(names) do
         -- A repeated Set-Cookie arrives joined with "\n": a line each.
         for value in String.lines(response.headers[name]) do

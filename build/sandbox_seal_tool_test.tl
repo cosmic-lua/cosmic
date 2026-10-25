@@ -58,7 +58,7 @@ end
 
 --- What a run left of the directories it seals into, under TMPDIR.
 local function left_over(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list((assert(sys.getenv("TMPDIR"))))))) do
     if name:find("^sandbox%-") then found[#found + 1] = name end
   end
@@ -69,9 +69,13 @@ end
 --- `require` of another finds.
 local SCRIPT <const> = [[
 local Json = require("cosmic.json")
-print("json", (Json.encode({ a = 1 })))
+local text, _ = Json.encode({ a = 1 })
+print("json", text)
 print("args", arg[0], arg[1], arg[2])
-print("outside", (pcall(require, "cosmic.archive")))
+match pcall(require, "cosmic.archive") do
+  | (true, _) then print("outside", true)
+  | (false, _) then print("outside", false)
+end
 return function(args: {string}): integer
   print("main", args[1])
   return 3
@@ -91,12 +95,13 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
   assert(again.code == 3 and again.out:find("main\tnil", 1, true), again.out .. again.err)
 end
 
---- A script in the new grammar (`mut`) is compiled by the new checker under `COSMIC_GRAMMAR=new`, and the modules it requires
---- are read from that checker's syntax tree: the closure is sealed from them. The fork's parse reads none of it.
+--- A script in the new grammar (`mut`) is compiled by the new checker, and the modules it requires are read from its syntax
+--- tree: the closure is sealed from them. The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone.
 local NEW_SCRIPT <const> = [[
 local Json = require("cosmic.json")
 local words: mut {string} = {}
-words[#words + 1] = Json.encode({ a = 1 }) or "nil"
+local text, _ = Json.encode({ a = 1 })
+words[#words + 1] = assert(text)
 print("json", words[1])
 match pcall(require, "cosmic.archive") do
   | (true, _) then print("outside", true)
@@ -116,7 +121,8 @@ local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_fr
   assert(ran.code == 3 and ran.out == 'json\t{"a":1}\noutside\tfalse\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
   assert(#left_over() == 0, table.concat(left_over(), " "))
   local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
-  assert(forked.code == 125 and forked.err:find("new.tl:2:", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
+  assert(forked.code == 125 and forked.err:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
+    "`cosmic migrate` rewrites a project to the new one", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
 end
 
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require
@@ -126,8 +132,11 @@ local function test_closure_takes_the_cores_modules_and_leaves_type_requires_out
 local sys = require("cosmic.sys")
 local type Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
-local _: Archive | nil = nil
-print("sys", type(sys.getpid), type(Fs.read), (pcall(require, "cosmic." .. "archive")))
+local _: Archive? = nil
+match pcall(require, "cosmic." .. "archive") do
+  | (true, _) then print("sys", type(sys.getpid), type(Fs.read), true)
+  | (false, _) then print("sys", type(sys.getpid), type(Fs.read), false)
+end
 ]]))
   searchable.share(tmp .. "/sys.tl")
   local ran = cosmic(tmp, { "sandbox", "--closure", "--", (assert(Proc.executable())), "sys.tl" })
@@ -168,7 +177,7 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
   assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true),
     alone.code .. alone.err)
-  local names: {string} = { main }
+  local names: mut {string} = { main }
   for _, name in ipairs(Store.closure({ main })) do
     if name ~= main then names[#names + 1] = name end
   end

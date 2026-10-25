@@ -13,7 +13,7 @@
 ---   (a test or an example declares its own and returns no type), or
 --- - `module.name.Record`, a record the module `module.name` declares inside the record it returns, which the calling
 ---   module must `require` at its top level (`local Fs = require("cosmic.fs")`), so the compile is keyed by it
----   ([`build.compilation`]'s `dependency_keys`).
+---   ([`build.plans`]'s `dependency_keys`).
 ---
 --- What a record may hold is what [`cosmic.shape`] can check: strings, integers, numbers, booleans and `any`; arrays and
 --- string-keyed maps of those; enums, as `one_of` in byte order; records of those; and `T?` for a field that may be
@@ -37,7 +37,7 @@ local record ShapeSpecs
   --- nil and the refusal, as the compiler words one (`file:line: ...`), when a call cannot be resolved: a name that is
   --- not a string literal, a record the module does not reach, a field with no shape. A source the compiler would
   --- refuse anyway comes back as it is, for the compile that follows to report.
-  resolve: function(build: Driver.Build, module: string, file: string, source: string): string | nil, string
+  resolve: function(build: Driver.Build, module: string, file: string, source: string): string?, string
 
   --- One call's resolution: `text` goes after byte `at` of the source.
   record Splice
@@ -68,7 +68,7 @@ local type Type = Types.Type
 
 --- Names in byte order, as [`Shape.record`] keeps them.
 local function sorted(names: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do
     out[#out + 1] = name
   end
@@ -81,11 +81,11 @@ local LEAVES <const>: {string: boolean} = {
 }
 
 local spec_of: function(t: Type, path: string, shape: string, holding: {Types.Decl: boolean}, store: Types.Store):
-  string | nil, string
+  string?, string
 
 --- `T?` as `Shape.optional(T)`: the one union a spec has a word for.
 local function optional_of(t: Types.Union, path: string, shape: string, holding: {Types.Decl: boolean},
-                           store: Types.Store): string | nil, string
+                           store: Types.Store): string?, string
   local present = t.members[1]
   if #t.members > 1 then
     return nil, path .. ": a union of more than one type has no shape; " ..
@@ -98,8 +98,8 @@ local function optional_of(t: Types.Union, path: string, shape: string, holding:
   return shape .. ".optional(" .. inner .. ")", ""
 end
 
-local function record_spec(decl: Types.Decl, path: string, shape: string, holding: {Types.Decl: boolean},
-                           store: Types.Store): string | nil, string
+local function record_spec(decl: Types.Decl, path: string, shape: string, holding: mut {Types.Decl: boolean},
+                           store: Types.Store): string?, string
   local body = decl.body
   if body == nil then
     return nil, path .. ": a declaration the checker did not resolve"
@@ -116,20 +116,27 @@ local function record_spec(decl: Types.Decl, path: string, shape: string, holdin
     return nil, path .. ": a record that holds itself has no finite shape"
   end
   holding[decl] = true
-  local by_name: {string: Types.Field} = {}
-  local names: {string} = {}
+  local fields: mut {Types.Field} = {}
   for _, field in ipairs(body.fields) do
-    by_name[field.name] = field
-    names[#names + 1] = field.name
+    fields[#fields + 1] = field
   end
-  local parts: {string} = {}
-  for _, name in ipairs(sorted(names)) do
-    local inner, why = spec_of(by_name[name].type, path .. "." .. name, shape, holding, store)
+  table.sort(fields, function(x: Types.Field, y: Types.Field): boolean
+    return x.name < y.name
+  end)
+  local parts: mut {string} = {}
+  for _, field in ipairs(fields) do
+    local inner, why = spec_of(field.type, path .. "." .. field.name, shape, holding, store)
     if inner == nil then
       holding[decl] = nil
       return nil, why
     end
-    parts[#parts + 1] = ("[%q] = %s"):format(name, inner)
+    -- A field written `f?: T` is omittable whatever `T` is, and a field of `any` may be nil, as `any` holds nil: the store
+    -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
+    local nilable = field.omittable == true or field.type == store.any
+    if nilable and inner:sub(1, #shape + 10) ~= shape .. ".optional(" then
+      inner = shape .. ".optional(" .. inner .. ")"
+    end
+    parts[#parts + 1] = ("[%q] = %s"):format(field.name, inner)
   end
   holding[decl] = nil
   return shape .. ".record({ " .. table.concat(parts, ", ") .. " })", ""
@@ -138,23 +145,23 @@ end
 --- The Teal expression, over the `shape` alias, that builds the spec of `t`, or nil and why it has none. `path` names
 --- where `t` is, for the message, and `holding` the records being read, which none may hold.
 spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: boolean}, store: Types.Store):
-    string | nil, string
-  if t is Types.Atom then
+    string?, string
+  if (t.atom == true) then
     if LEAVES[t.tag] then
       return shape .. "." .. t.tag, ""
     elseif t.tag == "invalid" then
       return nil, path .. ": a type the checker did not resolve"
     end
     return nil, ("%s: a %s type has no shape"):format(path, t.tag)
-  elseif t is Types.Array then
+  elseif (t.tag == "array") then
     local inner, why = spec_of(t.element, path .. "[]", shape, holding, store)
     if inner == nil then
       return nil, why
     end
     return shape .. ".list(" .. inner .. ")", ""
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     local key = t.key
-    if not (key is Types.Atom and key.tag == "string") then
+    if not ((key.atom == true) and key.tag == "string") then
       return nil, path .. ": a map keyed by anything but a string has no shape"
     end
     local inner, why = spec_of(t.value, path .. "{}", shape, holding, store)
@@ -162,15 +169,15 @@ spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: b
       return nil, why
     end
     return shape .. ".map(" .. inner .. ")", ""
-  elseif t is Types.Union then
+  elseif (t.tag == "union") then
     return optional_of(t, path, shape, holding, store)
-  elseif t is Types.Named then
+  elseif (t.tag == "named") then
     local decl = t.decl
     local body = decl.body
     if #t.args > 0 or (body ~= nil and #body.tparams > 0) then
       return nil, path .. ": a generic type has no shape"
     elseif decl.kind == "enum" then
-      local values: {string} = {}
+      local values: mut {string} = {}
       if body ~= nil then
         for _, value in ipairs(sorted(body.values)) do
           values[#values + 1] = ("%q"):format(value)
@@ -187,19 +194,19 @@ spec_of = function(t: Type, path: string, shape: string, holding: {Types.Decl: b
     elseif decl.kind == "alias" then
       return nil, path .. ": a recursive alias has no shape"
     end
-    return nil, ("%s: %s has no shape"):format(path, decl.kind == "interface" and "an interface" or "a class")
-  elseif t is Types.Fn then
+    return nil, ("%s: %s has no shape"):format(path, if decl.kind == "interface" then "an interface" else "a class" end)
+  elseif (t.tag == "fn") then
     return nil, path .. ": a function has no shape"
   end
   return nil, path .. ": a generic type has no shape"
 end
 
 --- The module `call` requires, when it is `require("name")`.
-local function required_name(call: Ast.Exp | nil): string | nil
-  if call ~= nil and call is Ast.Call then
+local function required_name(call: Ast.Exp?): string?
+  if call ~= nil and (call.kind == "Call") then
     local callee = call.callee
     local only = call.args[1]
-    if callee is Ast.Name and callee.text == "require" and #call.args == 1 and only ~= nil and only is Ast.String then
+    if (callee.kind == "Name") and callee.text == "require" and #call.args == 1 and only ~= nil and (only.kind == "String") then
       return only.value
     end
   end
@@ -209,16 +216,16 @@ end
 --- The modules the chunk requires at its top level, each by the name it binds (`local Fs = require("cosmic.fs")`,
 --- or `local type Fs = ...`). A module bound twice answers its first name.
 local function required(chunk: Ast.Chunk): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, statement in ipairs(chunk.body.stats) do
-    local name: string | nil = nil
-    local alias: string | nil = nil
-    if statement is Ast.Local then
+    local name: string? = nil
+    local alias: string? = nil
+    if (statement.kind == "Local") then
       if #statement.bindings == 1 and #statement.values == 1 then
         alias = statement.bindings[1].name
         name = required_name(statement.values[1])
       end
-    elseif statement is Ast.Import then
+    elseif (statement.kind == "Import") then
       alias, name = statement.name.name, statement.module
     end
     if name ~= nil and alias ~= nil and out[name] == nil then
@@ -238,7 +245,7 @@ end
 
 --- The target for what `entry` stands for, a declaration or an alias, spelled `spelled`; nil and why where it is generic,
 --- and a type of it needs arguments, or an alias is not lowered.
-local function entry_target(store: Types.Store, entry: Declarations.Entry, spelled: string): Target | nil, string
+local function entry_target(store: Types.Store, entry: Declarations.Entry, spelled: string): Target?, string
   local decl = entry.decl
   if decl ~= nil then
     if (decl.arity or 0) > 0 then
@@ -256,7 +263,7 @@ end
 
 --- The entry for the declaration or alias at `names` below `module`, then `rest` (a dotted path inside it, or "").
 local function entry_at(program: Declarations.Program, module: string, names: {string}, rest: string):
-    Declarations.Entry | nil
+    Declarations.Entry?
   local path = table.concat(names, ".")
   if rest ~= "" then
     path = path .. "." .. rest
@@ -266,7 +273,7 @@ end
 
 --- `name`, read as a record, or nil and why it is none. `at` is the token of the call, for the names in scope there.
 local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: string, at: integer,
-                            required_by: {string: string}): Target | nil, string
+                            required_by: {string: string}): Target?, string
   local program = build.program
   local first = name:match("^[^.]+")
   local rest = name:sub(#first + 2)
@@ -325,21 +332,21 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   if pattern == nil then
     return { splices = none, refusal = pattern_trouble, line = 0 }
   end
-  local calls: {Match.Hit} = {}
+  local calls: mut {Match.Hit} = {}
   for _, hit in ipairs(Match.find_all(pattern, chunk, chunk)) do
     local on = hit.caps["_S"]
     local head = on ~= nil and on.nodes[1] or nil
-    if head ~= nil and head is Ast.Name and head.text == shape then
+    if head ~= nil and (head.kind == "Name") and head.text == shape then
       calls[#calls + 1] = hit
     end
   end
-  local splices: {Splice} = {}
+  local splices: mut {Splice} = {}
   for _, hit in ipairs(calls) do
     local span = Node.span(chunk, hit.node)
     local where = ("%s:%d: %s.record_of"):format(file, span.y, shape)
     local named = hit.caps["_N"]
     local literal = named ~= nil and named.nodes[1] or nil
-    if literal == nil or not (literal is Ast.String) then
+    if literal == nil or not ((literal.kind == "String")) then
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a string literal, which the build reads" }
     end
@@ -356,11 +363,11 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
         refusal = ("%s(%q): %s"):format(where, literal.value, unresolved) }
     end
     local at = target.type
-    if not (at is Types.Named) or at.decl.kind ~= "record" then
+    if not ((at.tag == "named")) or at.decl.kind ~= "record" then
       local what = "a type, not a record"
-      if at is Types.Named then
-        what = at.decl.kind == "enum" and "an enum, which " .. shape .. ".one_of checks" or
-          "a " .. at.decl.kind .. ", not a record"
+      if (at.tag == "named") then
+        what = if at.decl.kind == "enum" then "an enum, which " .. shape .. ".one_of checks" else
+          "a " .. at.decl.kind .. ", not a record" end
       end
       return { splices = none, line = span.y,
         refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
@@ -390,7 +397,7 @@ function ShapeSpecs.spliced(source: string, splices: {Splice}): string
 end
 
 function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, source: string):
-    string | nil, string
+    string?, string
   local found = ShapeSpecs.splices(build, module, file, source)
   if found.refusal ~= "" then
     return nil, found.refusal

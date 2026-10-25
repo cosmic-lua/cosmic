@@ -27,7 +27,7 @@ local function linked_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(tmp .. "/shared/lib"))
   assert(Fs.mkdirs(project))
-  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local util = {}\nutil.answer = 42\nreturn util\n"))
+  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local record util\n  answer: integer\nend\nlocal u: util = { answer = 42 }\nreturn u\n"))
   assert(Fs.write(tmp .. "/shared/linked_test.tl",
     'local util = require("lib.util")\n\nlocal function test_linked()\n  assert(util.answer == 42)\nend\n'))
   assert(Fs.write(project .. "/main_test.tl",

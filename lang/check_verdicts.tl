@@ -1,10 +1,10 @@
---- The verdict of the new checker on a program of the fork's grammar, as the switch's gate reads it
+--- The verdict of the new checker on a program of the fork's grammar, as the switch's gate read it
 --- ([`doc/plans/strict-teal.md`], "the switch"): the program put in the new grammar ([`lang.translate`]), read, scoped,
 --- lowered and checked against the standard library ([`lang.check_programs`]), and what refused it, if anything.
 ---
 --- The verdict table is data: [`testdata/gate/verdicts.json`] holds one row for each program the fork's tests pin
---- ([`build/teal_test.tl`]) and each input of the checker corpora (`testdata/fuzz/checker-total`, `checker-sound`),
---- with what the fork said of it (frozen, since the fork goes at the switch) and what the new checker says. The rule
+--- (build/teal_test.tl) and each input of the checker corpora (`testdata/fuzz/checker-total`, `checker-sound`),
+--- with what the fork said of it (frozen: the fork went with the switch) and what the new checker says. The rule
 --- behind each difference is in [`testdata/gate/retired.json`] (the fork refuses and the new checker takes) and
 --- [`testdata/gate/rules.json`] (a code of the lexer, the parser or the scope builder, which no catalog holds yet). The
 --- gate is a query that finds a difference with no rule, which [`Verdicts.problems`] runs, and `cosmic sql` runs on the
@@ -13,12 +13,16 @@
 ---     cosmic sql --from testdata/gate/verdicts.json --from retired=testdata/gate/retired.json \
 ---       "select id from verdicts where fork = 'refused' and new = 'accepted' and id not in (select id from retired)"
 ---
---- `bin/cosmic build/gate_record.tl` writes the table again.
+--- `bin/cosmic build/gate_record.tl` writes the new checker's side of the table again, keeping the fork's.
+---
+--- TODO: let build/gate_record.tl add the row of a program the fork never saw, with the fork's columns empty, once the gate
+--- drops the fork's columns or decides they may be empty: the fork went with the switch, so an input added to a checker corpus
+--- or a program of testdata/gate/refusal_programs.txt can get no row today, and the tests that ask for one fail.
 ---
 --- The table holds the programs the fork refuses with every message it can ([`testdata/gate/fork_refusals.json`] lists the messages,
 --- as templates read from its source), so that a refusal of the fork no program of the table has is seen: [`Verdicts.refusal_problems`]
 --- finds one a row does not cover and no reason excuses. What the fork refuses and the new checker takes, and no rule of the plan
---- admits yet, is in [`testdata/gate/open.json`], which the switch waits on.
+--- admits yet, is in [`testdata/gate/open.json`], which the switch waited on and which is empty.
 local Codes = require("lang.check_codes")
 local Declarations = require("lang.declarations")
 local Hash = require("cosmic.hash")
@@ -74,7 +78,7 @@ local record RetiredData
   twin_code: string
 end
 
---- A message the fork's checker can refuse a program with, read from its source ([`build.fork_refusals`]) with the parts
+--- A message the fork's checker can refuse a program with, read from its source (`build.fork_refusals`) with the parts
 --- that vary written `%s`. The gate asks the new checker about the programs the fork refuses, so a refusal that no row of
 --- the table has is one it is never asked about: each template is covered by a row, or says why none can be.
 local record RefusalData
@@ -147,19 +151,19 @@ local record Verdicts
   judge: function(prelude: string, stdlib: string): function(source: string, new_grammar?: boolean): Verdict
 
   --- The rows in `text`, or what is wrong with it.
-  read_rows: function(text: string): {Row} | nil, string
+  read_rows: function(text: string): {Row}?, string
 
   --- The rules in `text`.
-  read_rules: function(text: string): {Rule} | nil, string
+  read_rules: function(text: string): {Rule}?, string
 
   --- The retired programs in `text`.
-  read_retired: function(text: string): {Retired} | nil, string
+  read_retired: function(text: string): {Retired}?, string
 
   --- The fork's refusals in `text`.
-  read_refusals: function(text: string): {Refusal} | nil, string
+  read_refusals: function(text: string): {Refusal}?, string
 
   --- The open programs in `text`.
-  read_open: function(text: string): {Open} | nil, string
+  read_open: function(text: string): {Open}?, string
 
   --- The text of `rows`, one row to a line.
   write_rows: function(rows: {Row}): string
@@ -199,7 +203,7 @@ end
 -- TODO: read the rule of a code of the lexer, the parser and the scope builder from its row in [`lang.syntax_codes`] (which
 -- build/error_catalog_test.tl holds to the same words), and delete testdata/gate/rules.json, once this gate reads a catalog
 -- for every code.
-local catalogued: {string: boolean} = {}
+local catalogued: mut {string: boolean} = {}
 for _, code in ipairs(Codes.codes) do
   catalogued[code] = true
 end
@@ -207,12 +211,12 @@ for _, code in ipairs(Declarations.codes) do
   catalogued[code] = true
 end
 
-local parser_codes: {string: boolean} = {}
+local parser_codes: mut {string: boolean} = {}
 for _, code in ipairs(Parser.codes) do
   parser_codes[code] = true
 end
 
-local scope_codes: {string: boolean} = {}
+local scope_codes: mut {string: boolean} = {}
 for _, code in ipairs(Scopes.codes) do
   scope_codes[code] = true
 end
@@ -252,7 +256,7 @@ local function verdict_of(run: Programs.Run): Verdicts.Verdict
   for _, e in ipairs(run.errors) do
     stage = note(e.code, "check")
   end
-  local silent: {string} = {}
+  local silent: mut {string} = {}
   if #codes == 0 then
     for _, v in ipairs(run.scoped.list) do
       local t = run.result.vars[v.id]
@@ -265,7 +269,7 @@ local function verdict_of(run: Programs.Run): Verdicts.Verdict
 end
 
 local record Counter
-  count: integer
+  mut count: integer
 end
 
 function Verdicts.judge(prelude: string, stdlib: string): function(source: string, new_grammar?: boolean): Verdicts.Verdict
@@ -286,7 +290,7 @@ function Verdicts.with_new(row: Verdicts.Row, verdict: Verdicts.Verdict): Verdic
   return {
     id = row.id, origins = row.origins, source = row.source, fork = row.fork, fork_stage = row.fork_stage,
     fork_codes = row.fork_codes, fork_templates = row.fork_templates,
-    new = verdict.refused and "refused" or "accepted", new_stage = verdict.stage,
+    new = if verdict.refused then "refused" else "accepted" end, new_stage = verdict.stage,
     new_codes = table.concat(verdict.codes, " "),
   }
 end
@@ -299,60 +303,60 @@ local RETIRED <const>: Shape.Typed<RetiredData> = Shape.record_of("RetiredData")
 local REFUSAL <const>: Shape.Typed<RefusalData> = Shape.record_of("RefusalData")
 local OPEN <const>: Shape.Typed<OpenData> = Shape.record_of("OpenData")
 
-function Verdicts.read_rows(text: string): {Verdicts.Row} | nil, string
+function Verdicts.read_rows(text: string): {Verdicts.Row}?, string
   local decoded, trouble = Json.decode(text)
   if decoded == nil then
     return nil, trouble
   end
-  local rows, why: {Verdicts.Row} | nil, string = Shape.into(decoded, Shape.list(ROW.spec))
+  local rows, why: {Verdicts.Row}?, string = Shape.into(decoded, Shape.list(ROW.spec))
   if rows == nil then
     return nil, why
   end
   return rows, ""
 end
 
-function Verdicts.read_rules(text: string): {Verdicts.Rule} | nil, string
+function Verdicts.read_rules(text: string): {Verdicts.Rule}?, string
   local decoded, trouble = Json.decode(text)
   if decoded == nil then
     return nil, trouble
   end
-  local rules, why: {Verdicts.Rule} | nil, string = Shape.into(decoded, Shape.list(RULE.spec))
+  local rules, why: {Verdicts.Rule}?, string = Shape.into(decoded, Shape.list(RULE.spec))
   if rules == nil then
     return nil, why
   end
   return rules, ""
 end
 
-function Verdicts.read_retired(text: string): {Verdicts.Retired} | nil, string
+function Verdicts.read_retired(text: string): {Verdicts.Retired}?, string
   local decoded, trouble = Json.decode(text)
   if decoded == nil then
     return nil, trouble
   end
-  local retired, why: {Verdicts.Retired} | nil, string = Shape.into(decoded, Shape.list(RETIRED.spec))
+  local retired, why: {Verdicts.Retired}?, string = Shape.into(decoded, Shape.list(RETIRED.spec))
   if retired == nil then
     return nil, why
   end
   return retired, ""
 end
 
-function Verdicts.read_refusals(text: string): {Verdicts.Refusal} | nil, string
+function Verdicts.read_refusals(text: string): {Verdicts.Refusal}?, string
   local decoded, trouble = Json.decode(text)
   if decoded == nil then
     return nil, trouble
   end
-  local refusals, why: {Verdicts.Refusal} | nil, string = Shape.into(decoded, Shape.list(REFUSAL.spec))
+  local refusals, why: {Verdicts.Refusal}?, string = Shape.into(decoded, Shape.list(REFUSAL.spec))
   if refusals == nil then
     return nil, why
   end
   return refusals, ""
 end
 
-function Verdicts.read_open(text: string): {Verdicts.Open} | nil, string
+function Verdicts.read_open(text: string): {Verdicts.Open}?, string
   local decoded, trouble = Json.decode(text)
   if decoded == nil then
     return nil, trouble
   end
-  local open, why: {Verdicts.Open} | nil, string = Shape.into(decoded, Shape.list(OPEN.spec))
+  local open, why: {Verdicts.Open}?, string = Shape.into(decoded, Shape.list(OPEN.spec))
   if open == nil then
     return nil, why
   end
@@ -360,7 +364,7 @@ function Verdicts.read_open(text: string): {Verdicts.Open} | nil, string
 end
 
 function Verdicts.write_list<T>(list: {T}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i, entry in ipairs(list) do
     lines[i] = "  " .. assert(Json.encode_any(entry))
   end
@@ -374,7 +378,7 @@ end
 -- The gate -----------------------------------------------------------------------------------------------------------
 
 local function words(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for word in text:gmatch("%S+") do
     out[#out + 1] = word
   end
@@ -384,8 +388,8 @@ end
 function Verdicts.problems(rows: {Verdicts.Row}, rules: {Verdicts.Rule}, retired: {Verdicts.Retired},
                            judge?: function(source: string, new_grammar?: boolean): Verdicts.Verdict,
                            open?: {Verdicts.Open}): {string}
-  local out: {string} = {}
-  local by_id: {string: Verdicts.Row} = {}
+  local out: mut {string} = {}
+  local by_id: mut {string: Verdicts.Row} = {}
   for _, row in ipairs(rows) do
     if by_id[row.id] ~= nil then
       out[#out + 1] = row.id .. " is in the table twice"
@@ -395,7 +399,7 @@ function Verdicts.problems(rows: {Verdicts.Row}, rules: {Verdicts.Rule}, retired
       out[#out + 1] = row.id .. " is not the digest of its source"
     end
   end
-  local ruled: {string: boolean} = {}
+  local ruled: mut {string: boolean} = {}
   for _, rule in ipairs(rules) do
     if rule.rule == "" or rule.why == "" then
       out[#out + 1] = "the rule of " .. rule.code .. " has no name or no reason"
@@ -405,14 +409,14 @@ function Verdicts.problems(rows: {Verdicts.Row}, rules: {Verdicts.Rule}, retired
     end
     ruled[rule.code] = true
   end
-  local listed: {string: Verdicts.Retired} = {}
+  local listed: mut {string: Verdicts.Retired} = {}
   for _, entry in ipairs(retired) do
     if listed[entry.id] ~= nil then
       out[#out + 1] = entry.id .. " is retired twice"
     end
     listed[entry.id] = entry
   end
-  local opened: {string: Verdicts.Open} = {}
+  local opened: mut {string: Verdicts.Open} = {}
   for _, entry in ipairs(open or {}) do
     if opened[entry.id] ~= nil then
       out[#out + 1] = entry.id .. " is open twice"
@@ -482,14 +486,14 @@ function Verdicts.problems(rows: {Verdicts.Row}, rules: {Verdicts.Rule}, retired
 end
 
 function Verdicts.read_programs(text: string): {Verdicts.Program}
-  local out: {Verdicts.Program} = {}
-  local headers: {{string}} = {}
-  local lines: {{string}} = {}
+  local out: mut {Verdicts.Program} = {}
+  local headers: mut {{string}} = {}
+  local lines: mut {{string}} = {}
   local body = text
   if body:sub(-1) ~= "\n" then
     body = body .. "\n"
   end
-  local current: {string} | nil = nil
+  local current: mut {string}? = nil
   for line in body:gmatch("([^\n]*)\n") do
     local header = line:match("^=== (.*)$")
     if header ~= nil then
@@ -512,20 +516,20 @@ end
 
 function Verdicts.program_problems(programs: {Verdicts.Program}, rows: {Verdicts.Row}, refusals: {Verdicts.Refusal},
                                    retired: {Verdicts.Retired}, open: {Verdicts.Open}): {string}
-  local out: {string} = {}
-  local by_id: {string: Verdicts.Row} = {}
+  local out: mut {string} = {}
+  local by_id: mut {string: Verdicts.Row} = {}
   for _, row in ipairs(rows) do
     by_id[row.id] = row
   end
-  local ruled: {string: boolean} = {}
+  local ruled: mut {string: boolean} = {}
   for _, entry in ipairs(retired) do
     ruled[entry.id] = true
   end
-  local unruled: {string: boolean} = {}
+  local unruled: mut {string: boolean} = {}
   for _, entry in ipairs(open) do
     unruled[entry.id] = true
   end
-  local template_ids: {string: {string}} = {}
+  local template_ids: mut {string: {string}} = {}
   for _, each in ipairs(refusals) do
     local ids = template_ids[each.template] or {}
     ids[#ids + 1] = each.id
@@ -537,7 +541,7 @@ function Verdicts.program_problems(programs: {Verdicts.Program}, rows: {Verdicts
     if program.expected == "" then
       out[#out + 1] = named .. ": the program says no code, `open` or `retired` for the new checker"
     elseif row == nil then
-      out[#out + 1] = named .. ": the program has no row: run bin/cosmic build/gate_record.tl --fork"
+      out[#out + 1] = named .. ": the program has no row, and the fork that gave a row its first columns is gone (see the TODO of lang/check_verdicts.tl)"
     else
       if row.fork ~= "refused" then
         out[#out + 1] = named .. ": the fork takes the program"
@@ -560,7 +564,7 @@ function Verdicts.program_problems(programs: {Verdicts.Program}, rows: {Verdicts
         local held = table_of[row.id] == true
         if row.new ~= "accepted" or not held then
           out[#out + 1] = named .. ": expected " .. program.expected .. ", and the new checker says " .. row.new .. " " ..
-            row.new_codes .. (held and "" or ", and the entry is missing")
+            row.new_codes .. (if held then "" else ", and the entry is missing" end)
         end
       else
         local says = false
@@ -580,8 +584,8 @@ end
 local REASONS <const>: {string: boolean} = { internal = true, unreachable = true, unproven = true, needs_module = true }
 
 function Verdicts.refusal_problems(rows: {Verdicts.Row}, refusals: {Verdicts.Refusal}): {string}
-  local out: {string} = {}
-  local known: {string: Verdicts.Refusal} = {}
+  local out: mut {string} = {}
+  local known: mut {string: Verdicts.Refusal} = {}
   for _, refusal in ipairs(refusals) do
     if known[refusal.id] ~= nil then
       out[#out + 1] = refusal.id .. " is in the list twice"
@@ -589,7 +593,7 @@ function Verdicts.refusal_problems(rows: {Verdicts.Row}, refusals: {Verdicts.Ref
     known[refusal.id] = refusal
   end
   -- the programs the fork refuses name the templates its messages are, and those it takes name none
-  local covered: {string: string} = {}
+  local covered: mut {string: string} = {}
   for _, row in ipairs(rows) do
     local named = words(row.fork_templates)
     if row.fork == "refused" and #named == 0 then

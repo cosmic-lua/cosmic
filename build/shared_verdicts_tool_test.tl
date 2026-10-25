@@ -42,7 +42,7 @@ end
 local function run(root: string, output: string, env: {string:string},
                    words?: {string}, fails?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -109,7 +109,7 @@ local function test_reads_flavour()
 end
 
 local function test_reads_everything()
-  assert(Env.all().FLAVOUR ~= nil)
+  assert(Env.all()["FLAVOUR"] ~= nil)
 end
 
 local function test_plain()
@@ -132,7 +132,7 @@ end
 ]]))
 end
 
-local type Said = function(string, string, string, ?{string}): string
+local type Said = function(string, string, string, arg4?: {string}): string
 
 --- A shared cache seeded by a first checkout's run under `tmp`: the
 --- environment its runs are given, a `said` that runs `cosmic test` on
@@ -301,7 +301,8 @@ local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
   assert(db:close())
-  assert(rows[1]:text(1) == "one", rows[1]:text(1))
+  local row = assert(rows[1])
+  assert(row:text(1) == "one", row:text(1))
 end
 ]]))
   end
@@ -319,7 +320,7 @@ end
 
 --- A checkout at `root` whose tests read what `suite/link` is and
 --- where it leads: a link to `target`, or a file where it is nil.
-local function link_checkout(root: string, target: string | nil)
+local function link_checkout(root: string, target: string?)
   assert(Fs.mkdirs(root .. "/suite"))
   if target ~= nil then
     assert(Fs.symlink(target, root .. "/suite/link"))
@@ -347,7 +348,7 @@ end
 --- The environment the link cases run in, sharing through a cache in
 --- `tmp`, once a first checkout whose link leads to "a" has run and
 --- shared its verdicts; nil where it shared nothing.
-local function linked(tmp: string): {string:string} | nil
+local function linked(tmp: string): {string:string}?
   local env = environment()
   env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
   env.COSMIC_TEST_ALL = nil

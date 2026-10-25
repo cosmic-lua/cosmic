@@ -80,7 +80,7 @@ local record sqlite
     bind_blobs: function(Statement, index: integer, list: {string}): boolean, string
 
     --- "row" when a row is ready, "done" when the statement is finished.
-    step: function(Statement): string | nil, string
+    step: function(Statement): string?, string
     --- "row" or "done" without a result allocation; a captured failure otherwise.
     step_result: function(Statement): string | ExecResult
     --- Binds a dense list of explicit Values. Invalid parameter shapes raise.
@@ -133,7 +133,7 @@ local record sqlite
     --- SQLite can refuse a lock without calling any busy handler.
     busy_timeout: function(Handle, timeout_ns: integer)
     --- Compiles `sql`, which must hold exactly one statement.
-    prepare: function(Handle, sql: string): Statement | nil, string
+    prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.
     --- Empty, multiple, overlong or NUL-containing SQL raises.
     prepare_result: function(Handle, sql: string): PrepareResult
@@ -172,7 +172,7 @@ local record sqlite
   --- open it the ordinary read-only way instead. Giving it with
   --- `writable` raises. Writable opens create a missing file unless
   --- `create` is explicitly false; read-only opens never create.
-  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle | nil, string
+  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle?, string
   --- A captured open outcome. Invalid path/options raise.
   open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
   --- The SQLite library's version, such as "3.54.0".

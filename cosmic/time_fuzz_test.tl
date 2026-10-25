@@ -22,7 +22,7 @@ local function gen_moment(src: Fuzz.Source): integer
     return Fuzz.pick(src, { math.mininteger, math.maxinteger, 0, -1, 1, 951782400 * NS })
   end
   local s = src:int(math.mininteger // NS + 1, math.maxinteger // NS - 1)
-  local n = src:int(0, 2) == 0 and 0 or src:int(0, NS - 1)
+  local n = if src:int(0, 2) == 0 then 0 else src:int(0, NS - 1) end
   return s * NS + n
 end
 
@@ -34,20 +34,20 @@ end
 
 --- `ns` as RFC 3339 text `minutes` east of UTC, or nil when the local
 --- clock reading is outside what an integer holds.
-local function at_offset(ns: integer, minutes: integer, opts: Time.FormatOptions | nil): string | nil
+local function at_offset(ns: integer, minutes: integer, opts: Time.FormatOptions?): string?
   local shift = minutes * 60 * NS
   if (shift > 0 and ns > math.maxinteger - shift) or (shift < 0 and ns < math.mininteger - shift) then
     return nil
   end
-  local sign = minutes < 0 and "-" or "+"
+  local sign = if minutes < 0 then "-" else "+" end
   local text = Time.format_rfc3339(ns + shift, nil, opts)
   return text:sub(1, -2) .. ("%s%02d:%02d"):format(sign, math.abs(minutes) // 60, math.abs(minutes) % 60)
 end
 
 local function round_trips(input: string): boolean, string
   local ns, minutes, digits = string.unpack("<i8i4i1", input)
-  local opts: Time.FormatOptions | nil = digits >= 0 and { digits = digits } or nil
-  local want: integer | nil = ns
+  local opts: Time.FormatOptions? = if digits >= 0 then { digits = digits } else nil end
+  local want: integer? = ns
   if digits >= 0 then
     local unit = 1
     for _ = digits + 1, 9 do unit = unit * 10 end
@@ -134,14 +134,14 @@ local DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 
 --- `ns` cut toward the past to a multiple of `unit`, or nil when that
 --- is before the range.
-local function cut(ns: integer, unit: integer): integer | nil
+local function cut(ns: integer, unit: integer): integer?
   if ns < math.mininteger + ns % unit then return nil end
   return ns - ns % unit
 end
 
 --- Whether `text` parses as `want` (nil for a refusal), and why not.
-local function parses_as(parse: function(string): (integer | nil, string), text: string,
-                         want: integer | nil, ns: integer): boolean, string
+local function parses_as(parse: function(string): (integer?, string), text: string,
+                         want: integer?, ns: integer): boolean, string
   local back, why = parse(text)
   if back ~= want then
     return false, ("%d wrote %q, which parsed as %s, not %s: %s"):format(ns, text,
@@ -239,12 +239,12 @@ local BETWEEN_ZONES <const> = { "UTC", "Asia/Kolkata", "America/New_York", "Paci
 --- of changes, and a zone, packed.
 local function gen_pair(src: Fuzz.Source): string
   local function moment(): integer
-    return src:int(-2500000000, 5000000000) * NS + (src:int(0, 2) == 0 and 0 or src:int(0, NS - 1))
+    return src:int(-2500000000, 5000000000) * NS + (if src:int(0, 2) == 0 then 0 else src:int(0, NS - 1) end)
   end
   local from = moment()
   -- Often near the first, where the calendar's small counts and its edges are.
-  local to = src:int(0, 2) == 0 and from + src:int(-40, 40) * 86400 * NS + src:int(-5, 5) * 3600 * NS or
-    moment()
+  local to = if src:int(0, 2) == 0 then from + src:int(-40, 40) * 86400 * NS + src:int(-5, 5) * 3600 * NS else
+    moment() end
   return string.pack("<i8i8", from, to) .. Fuzz.pick(src, BETWEEN_ZONES)
 end
 
@@ -264,12 +264,12 @@ local function between_holds(input: string): boolean, string
       back.ns ~= d.ns then
     return false, text .. " does not read back"
   end
-  local dir = to > from and 1 or to < from and -1 or 0
+  local dir = if to > from then 1 elseif to < from then -1 else 0 end
   if ((d.years or 0) * dir < 0) or ((d.months or 0) * dir < 0) or ((d.days or 0) * dir < 0) or
       ((d.ns or 0) * dir < 0) then
     return false, ("%d to %d in %s: %s is against the sign of the span"):format(from, to, name, text)
   end
-  Fuzz.label(to < from and "negative" or "positive")
+  Fuzz.label(if to < from then "negative" else "positive" end)
   if d.months ~= 0 then Fuzz.label("months") end
   if d.days ~= 0 then Fuzz.label("days") end
   if name ~= "UTC" and name ~= "Asia/Kolkata" then Fuzz.label("a zone with changes") end

@@ -52,7 +52,7 @@ end
 
 --- A fresh directory to probe the sandbox in (`available`), removed by
 --- the caller.
-function test_sandbox_probe.directory(): string | nil, string
+function test_sandbox_probe.directory(): string?, string
   local made, trouble = Fs.mkdtemp("cosmic-sandbox-probe-")
   if made == nil then return nil, trouble end
   return Fs.absolute(made)
@@ -69,7 +69,7 @@ local probe_timeout_ns <const> = Clock.seconds(30)
 --- names) is run.
 local function least_policy(program: string, scratch: string,
                             environment: {string:string}): Sandbox.Policy
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for _, path in ipairs(confine.worker_unveil(nil, scratch).reads) do
     -- A policy's sandbox has a /proc of its own.
     if path ~= "/proc" then reads[#reads + 1] = path end
@@ -111,7 +111,7 @@ end
 --- whether that is a defect (`broken`) rather than a limit of the host.
 local function ran_under(argv: {string}, fds: {integer:integer | string},
                          policy: Sandbox.Policy): test_sandbox_probe.Answer
-  local given: {integer:integer | string} = {}
+  local given: mut {integer:integer | string} = {}
   for number, fd in pairs(fds) do given[number] = fd end
   -- Started and waited for, not [`Child.run`], which would take the one
   -- signal guard a caller running tests in-process may hold.
@@ -136,8 +136,8 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
     local said = (result.stdout or ""):gsub("%s+$", "")
     local signal = result.signal
     return { ok = false, broken = not host_limit(said), why = "a sandboxed start of this program " ..
-        (signal ~= nil and ("was killed by signal " .. tostring(signal)) or
-          ("exited " .. tostring(result.code))) .. (said ~= "" and (": " .. said) or "") }
+        (if signal ~= nil then ("was killed by signal " .. tostring(signal)) else
+          ("exited " .. tostring(result.code)) end) .. (if said ~= "" then (": " .. said) else "" end) }
   end
   return { ok = true, why = "", broken = false }
 end
@@ -159,7 +159,7 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   local unmet = test_policy.unmet()
   if unmet ~= "" then return { ok = false, why = unmet, broken = false } end
   local policy = least_policy(argv[1], scratch, env)
-  local command: {string} = {}
+  local command: mut {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
   -- ([`confine.forbid_running`]): where it cannot, no worker is
@@ -201,7 +201,7 @@ local function noexec_works(): boolean, string
   local grants = policy.grants or {}
   grants[#grants + 1] = { path = noexec_place, from = directory .. "/noexec", letters = "rwc" }
   policy.grants = grants
-  local command: {string} = {}
+  local command: mut {string} = {}
   for i, word in ipairs(start.argv) do command[i] = word end
   command[#command + 1] = "-e"
   command[#command + 1] = [[
@@ -234,7 +234,7 @@ function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, san
   local trouble = known.worker
   if trouble == nil then
     local ok, why = noexec_works()
-    trouble = ok and "" or "noexec scratch is unavailable: " .. why
+    trouble = if ok then "" else "noexec scratch is unavailable: " .. why end
     known.worker = trouble
   end
   effective.noexec_ready, effective.noexec_trouble = trouble == "", trouble

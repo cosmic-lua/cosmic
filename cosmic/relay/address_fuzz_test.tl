@@ -59,7 +59,7 @@ local function render(g: {integer}, at: integer, count: integer, upper: boolean,
     return text
   end
   local function list(from: integer, to: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i = from, to do
       local text = part(i)
       if text ~= "" then out[#out + 1] = text end
@@ -79,7 +79,7 @@ local function gen_text(src: Fuzz.Source): string
   local mode = src:int(0, 3)
   if mode == 0 then return Fuzz.bytes(src, 48) end
   if mode == 1 then
-    local out: {string} = {}
+    local out: mut {string} = {}
     while Fuzz.more(src, #out, 20) do out[#out + 1] = Fuzz.pick(src, TOKENS) end
     return table.concat(out)
   end
@@ -87,7 +87,7 @@ local function gen_text(src: Fuzz.Source): string
   if mode == 2 then
     sample = dotted(four(src))
   else
-    local g: {integer} = {}
+    local g: mut {integer} = {}
     for i = 1, 8 do g[i] = gen_group(src) end
     sample = render(g, src:int(1, 8), src:int(0, 8), src:int(0, 1) == 1, src:int(0, 1) == 1)
   end
@@ -104,19 +104,19 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
     check = function(text: string): boolean, string
       local ok, parsed = pcall(relay_address.parse, text)
       if not ok then return false, "parse raised: " .. tostring(parsed) end
-      local checked, allowed, why = pcall(relay_address.check, text, 443, { (text:find(":", 1, true) and "[" .. text .. "]" or text) .. ":443" }, NO_OWN)
+      local checked, allowed, why = pcall(relay_address.check, text, 443, { (if text:find(":", 1, true) then "[" .. text .. "]" else text end) .. ":443" }, NO_OWN)
       if not checked then return false, "check raised: " .. tostring(allowed) end
       local selected, picked, reason = pcall(relay_address.permitted,
         { { address = text, family = "inet" } }, 443, NONE, NO_OWN)
       if not selected then return false, "permitted raised: " .. tostring(picked) end
-      local bytes = parsed as {integer} | nil
+      local bytes = parsed as {integer}?
       if bytes == nil then
         Fuzz.label("rejected")
         if allowed then return false, "allowed text that is no address" end
         if picked ~= nil then return false, "selected text that is no address" end
         return true, ""
       end
-      Fuzz.label(#bytes == 4 and "ipv4" or "ipv6")
+      Fuzz.label(if #bytes == 4 then "ipv4" else "ipv6" end)
       if #bytes ~= 4 and #bytes ~= 16 then return false, "bytes of length " .. #bytes end
       for _, b in ipairs(bytes) do
         if math.type(b) ~= "integer" or b < 0 or b > 255 then return false, "byte out of range" end
@@ -131,7 +131,7 @@ end
 
 --- Sixteen bytes from eight drawn groups.
 local function gen_bytes16(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _ = 1, 8 do
     local g = gen_group(src)
     out[#out + 1] = string.char(g >> 8, g & 0xff)
@@ -140,7 +140,7 @@ local function gen_bytes16(src: Fuzz.Source): string
 end
 
 local function groups_of(bytes: string): {integer}
-  local g: {integer} = {}
+  local g: mut {integer} = {}
   for i = 1, 8 do g[i] = bytes:byte(2 * i - 1) * 256 + bytes:byte(2 * i) end
   return g
 end
@@ -165,10 +165,10 @@ local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: 
       if src:int(0, 2) > 0 then
         -- Zero the run the style compresses, so that it can be.
         local at, count = style:byte(1), style:byte(2)
-        local zeroed: {string} = {}
+        local zeroed: mut {string} = {}
         for i = 1, 8 do
           local inside = i >= at and i < at + count
-          zeroed[i] = inside and "\0\0" or bytes:sub(2 * i - 1, 2 * i)
+          zeroed[i] = if inside then "\0\0" else bytes:sub(2 * i - 1, 2 * i) end
         end
         bytes = table.concat(zeroed)
       end
@@ -184,7 +184,7 @@ local function test_an_ipv6_address_reads_as_the_bytes_it_was_written_from(tmp: 
       if string.char(table.unpack(parsed)) ~= fields[1] then
         return false, text .. " read as other bytes"
       end
-      Fuzz.label(text:find("::", 1, true) and "compressed" or "plain")
+      Fuzz.label(if text:find("::", 1, true) then "compressed" else "plain" end)
       if text:find(".", 1, true) then Fuzz.label("tail") end
       return true, ""
     end,
@@ -248,7 +248,7 @@ local function gen_address(src: Fuzz.Source): string
 end
 
 local function target(address: string, port: integer): string
-  return (address:find(":", 1, true) and "[" .. address .. "]" or address) .. ":" .. port
+  return (if address:find(":", 1, true) then "[" .. address .. "]" else address end) .. ":" .. port
 end
 
 local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_in_order(tmp: string)
@@ -256,7 +256,7 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
     name = "relay address grants and selection",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local list: {string} = {}
+      local list: mut {string} = {}
       -- A fourth of the lists hold only addresses a whole class refuses.
       local refused = src:int(0, 3) == 0
       while Fuzz.more(src, #list, 8) do
@@ -274,7 +274,7 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
     check = function(input: string): boolean, string
       local list = Fuzz.unpack(input)
       local port = 8443
-      local answers: {relay_address.Answer} = {}
+      local answers: mut {relay_address.Answer} = {}
       for _, a in ipairs(list) do answers[#answers + 1] = { address = a, family = "" } end
       -- A grant of an address opens it on its port or any, and no other address.
       for i, a in ipairs(list) do
@@ -299,7 +299,7 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
         end
       end
       -- Selection: every answer check allows, in order, else a reason naming every one.
-      local want: {integer} = {}
+      local want: mut {integer} = {}
       for i, a in ipairs(list) do
         if relay_address.check(a, port, NONE, NO_OWN) then want[#want + 1] = i end
       end

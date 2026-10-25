@@ -42,7 +42,7 @@ local record resolv
     --- the connector's wait ran out, and [`Poll.CANCELLED`] where the task
     --- was cancelled). It waits in a task of a run through the run, so the
     --- others go on.
-    connect: function(index: integer, port: integer, deadline: integer | nil): resolv.Connection | nil, string
+    connect: function(index: integer, port: integer, deadline: integer?): resolv.Connection?, string
   end
 
   --- A connected socket `connect` made, for the lookup to copy.
@@ -62,7 +62,7 @@ end
 --- or nil for an entry of none of the list's forms or a link-local server
 --- written with its interface (a "%" and its name), which a connector's
 --- endpoint cannot carry.
-local function nameserver_of(entry: string): resolv.Endpoint | nil
+local function nameserver_of(entry: string): resolv.Endpoint?
   local host, port, rest: string, string, string
   local uri = entry:match("^dns://(.*)$")
   if uri ~= nil then
@@ -98,10 +98,10 @@ end
 --- @return string Why there are none, "" otherwise
 -- TODO: reach a link-local name server (fe80::1%eth0) through a connector
 -- once a connector's endpoint carries an interface: it is left out today.
-function resolv.nameservers(resolv_conf?: string): {resolv.Endpoint} | nil, string
+function resolv.nameservers(resolv_conf?: string): {resolv.Endpoint}?, string
   local listed, trouble = raw.nameservers(resolv_conf)
   if listed == nil then return nil, trouble end
-  local servers: {resolv.Endpoint} = {}
+  local servers: mut {resolv.Endpoint} = {}
   local skipped = ""
   for entry in listed:gmatch("[^,]+") do
     local server = nameserver_of(entry)
@@ -128,15 +128,15 @@ local function said(trouble: string, errno: integer): string
 end
 
 --- Runs the lookup of [`resolv.lookup`].
-local function run(name: string, request: resolv.Request): {raw_socket.Resolved} | nil, string
+local function run(name: string, request: resolv.Request): {raw_socket.Resolved}?, string
   local timeout_ns = request.timeout_ns
-  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
+  local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   local lookup, why, errno = raw.lookup(name, Poll.milliseconds(timeout_ns), request.servers, request.hosts,
     request.through)
   if lookup == nil then return nil, said(why, errno) end
   local _closing <close> = lookup
   local in_task = Poll.in_task()
-  local ready_fds, ready_events: {integer} | nil, {integer} | nil
+  local ready_fds, ready_events: {integer}?, {integer}?
   while true do
     local done, fds, events, timer_ms, wants = lookup:step(ready_fds, ready_events)
     ready_fds, ready_events = nil, nil
@@ -156,7 +156,7 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
       end
     end
     if #wants == 0 then
-      local left = deadline ~= nil and deadline - Clock.monotonic_ns() or nil
+      local left = if deadline ~= nil then deadline - Clock.monotonic_ns() else nil end
       if left ~= nil and left <= 0 then return nil, Poll.TIMEOUT end
       local wait_ns = left
       local timer_ns = timer_ms >= 0 and Clock.ms(timer_ms) or Clock.ms(100)
@@ -197,7 +197,7 @@ end
 --- [`Poll.CANCELLED`] for a task cancelled, "name not found", "name has no
 --- address", "name server failed", "Invalid argument", or the system's
 --- words ("Connection refused" where every server refuses)
-function resolv.lookup(name: string, request: resolv.Request): {raw_socket.Resolved} | nil, string
+function resolv.lookup(name: string, request: resolv.Request): {raw_socket.Resolved}?, string
   return run(name, request)
 end
 

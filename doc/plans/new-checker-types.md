@@ -32,7 +32,7 @@ one counts again with the checker's own rows.
   read.
 - **the declarations.** a `.d.tl` signature is the only typing taken without
   proof ("declarations are the trust boundary" in [strict-teal.md]): the Lua
-  library's in [`checker/stdlib.d.tl`], the tree's bindings in
+  library's in `checker/stdlib.d.tl`, the tree's bindings in
   `cosmic/internal/*.d.tl`.
 - **what the tree writes.** 1,786 records, 56 interfaces, 88 enums, 13
   generic records and interfaces, 65 `function<`, 6 constraints (four on one
@@ -397,7 +397,7 @@ it; nothing else is inferred, so a signature never depends on a body.
 ### narrowing and reachability
 
 the flow is [narrowing by construction] with the new places and joins.
-[`checker/facts.tl`] knows no type beyond identity (it takes `unite`, `is_a`
+`checker/facts.tl` knows no type beyond identity (it takes `unite`, `is_a`
 and `fixed`), so it is reused as written with interned types as its values.
 
 - **places** are a local, keyed by [`Var.id`], and a path of fixed fields from
@@ -552,7 +552,7 @@ the fork, and rows and incremental checking come after it.
   tests: interning is idempotent, a union does not depend on member order, an
   encoded type decodes to the same type in a second store.
 - **the relation.** every rule above, with the refused programs of the plan
-  (the pinned holes of [`build/teal_test.tl`], translated). property tests:
+  (the pinned holes of build/teal_test.tl, translated). property tests:
   reflexive, transitive, `never` below everything, only `nil` and optionals
   admit nil, a `mut` collection is invariant.
 - **declarations.** lowering of every declaration and annotation with its
@@ -599,7 +599,7 @@ the fork, and rows and incremental checking come after it.
 - **the bindings of C.** the driver reads the `.d.tl` declarations the build
   derives for [`cosmic.sys`] and the raw C modules, so a call into C has a
   callee, a result type and a contract. the fork enforces the contract
-  rules ([`build/contracts.tl`]) on about 740 such call sites, and a
+  rules (build/contracts.tl) on about 740 such call sites, and a
   checker that leaves them untyped does not see them. the piece lands
   before the switch, with a `[typed]` ceiling for the calls that still have
   no callee ([the switch]), and the `unchecked_binding` ceilings fall with
@@ -616,7 +616,7 @@ the fork, and rows and incremental checking come after it.
   it, after declarations. rows are encoding, Merkle hashes, interface hashes
   and decoding, with a test that checks a module in a second process from
   rows alone and compares every verdict. incremental is the trace, the worker
-  split that replaces [`build/shards.tl`], and the speed workloads.
+  split that replaces build/shards.tl, and the speed workloads.
 
 ## decisions
 
@@ -864,7 +864,7 @@ readings, takes the one that refuses more. *not adopted:* each reading's looser 
   returns the first alone (`io.open`, `FILE:close`, `os.remove`, `utf8.len`, `load`), unlike the tree's own `T?, string` that
   its functions answer. The callbacks of
   `string.gsub` are enumerated by the number of captures they take (0 to 3) and answer `string | number | nil`, a nil
-  keeping the match. The fork's file ([`checker/stdlib.d.tl`]) lets a result that may be nil be added and passed on, so the
+  keeping the match. The fork's file (`checker/stdlib.d.tl`) lets a result that may be nil be added and passed on, so the
   corrected declarations are the new checker's own, in [`lang/stdlib.d.tl`]. A capture is declared a `string` and a position capture `()` is an
   integer: a TODO until the checker reads patterns. `select` and `string.match` are unchanged: what they answer past
   the first value is a tail, which reads `T?` as one value. *not adopted:* alternatives (`(T) | (nil, string, integer)`) for the
@@ -1081,17 +1081,12 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build/alias_members.tl`]: ../../build/alias_members.tl
 [`build/cache.tl`]: ../../build/cache.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
 [`build/error_render.tl`]: ../../build/error_render.tl
 [`build/removed_fix.tl`]: ../../build/removed_fix.tl
-[`build/shards.tl`]: ../../build/shards.tl
-[`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
-[`checker/facts.tl`]: ../../checker/facts.tl
-[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`cosmic.internal.process`]: ../../core/process.h
 [`cosmic.internal.socket`]: ../../core/socket.h
 [`cosmic.poll`]: ../../cosmic/poll.tl

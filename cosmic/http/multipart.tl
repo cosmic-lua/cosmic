@@ -85,7 +85,7 @@ local record Multipart
     --- The next part, skipping what is unread of the last one; nil and ""
     --- after the closing delimiter, nil and a reason when the body is
     --- malformed or its source fails (the source's own reason, as it gave it).
-    next_part: function(Reader): Part | nil, string
+    next_part: function(Reader): Part?, string
     --- Ends the parser; it does not close the source.
     close: function(Reader): boolean, string
   end
@@ -109,44 +109,40 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 --- The body of a part. What it asks of its parser (the generation it is on, its state and failure, the bytes of the part it
 --- hands out, and failing it) it asks through the functions the parser gave it: the parser is no type of this record, whose
 --- class stands above the parser's, which makes it.
-local record BodyReader is Stream.Reader
+local class BodyReader is Stream.Reader
   generation: integer
-  finished: boolean
+  mut finished: boolean
   parsed_generation: function(): integer
   state: function(): string
   failure: function(): string
-  take: function(max: integer): string | nil, string
+  take: function(max: integer): string?, string
   fail: function(why: string): nil, string
-  read: function(BodyReader, max_bytes?: integer): string | nil, string
-  close: function(BodyReader): boolean, string
+
+  function read(self, max_bytes?: integer): string?, string
+    if max_bytes ~= nil and max_bytes < 1 then
+      error("multipart: a part body reads at least one byte", 2)
+    end
+    if self.finished then return nil, "" end
+    if self.parsed_generation() ~= self.generation then
+      return nil, "multipart: the part was passed by next_part"
+    end
+    local state = self.state()
+    if state == "failed" then return nil, self.failure() end
+    if state == "done" then return nil, "multipart: the parser was closed" end
+    local chunk, why = self.take(max_bytes or CHUNK)
+    if chunk == nil then return self.fail(why) end
+    if chunk == "" then
+      self.finished = true
+      return nil, ""
+    end
+    return chunk, ""
+  end
+
+  function close(self): boolean, string
+    self.finished = true
+    return true, ""
+  end
 end
-
-local body_mt: metatable<BodyReader> = { __index = BodyReader }
-
---- What the parser is in: "start" (nothing read), "headers" (a delimiter is
---- consumed up to its line end), "body" (inside a part), "delimited" (a
---- part's end delimiter is at the head of the buffer), "done" (after the
---- closing delimiter or a close) or "failed".
-local record Parser is Multipart.Reader
-  source: Stream.Reader
-  delim: string
-  buf: string
-  --- Whether the source has ended.
-  eof: boolean
-  state: string
-  failure: string
-  count: integer
-  generation: integer
-  --- Bytes at the head of `buf` known to hold no delimiter.
-  safe: integer
-  max_parts: integer
-  max_header_bytes: integer
-  max_header_lines: integer
-  next_part: function(Parser): Multipart.Part | nil, string
-  close: function(Parser): boolean, string
-end
-
-local parser_mt: metatable<Parser> = { __index = Parser }
 
 local function fail(p: Parser, why: string): nil, string
   p.state = "failed"
@@ -167,40 +163,6 @@ local function fill(p: Parser): boolean, string
   end
   p.buf = p.buf .. chunk
   return true, ""
-end
-
---- Whether `boundary` is 1 to 70 bytes of RFC 2046's set, not ending in a
---- space.
-local function good_boundary(boundary: string): boolean
-  return #boundary >= 1 and #boundary <= 70 and boundary:find("^[%w'()+_,./:=?%- ]+$") ~= nil and
-    boundary:sub(-1) ~= " "
-end
-
---- A parser over `source`. Raises on an option that is not a positive integer.
---- @param source Stream.Reader The body
---- @param opts Multipart.Options The boundary and limits
---- @return Multipart.Reader The parser, or nil
---- @return string Why not: the boundary is unusable
-function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader | nil, string
-  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes,
-      max_header_lines = opts.max_header_lines }) do
-    if v ~= nil and v < 1 then
-      error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)
-    end
-  end
-  local boundary = opts.boundary
-  if type(boundary) ~= "string" or not good_boundary(boundary) then
-    return nil, "multipart: the boundary is empty, longer than 70 bytes or has a byte outside RFC 2046's set"
-  end
-  local p: Parser = setmetatable({
-    source = source, delim = "\r\n--" .. boundary,
-    -- The first delimiter has no CRLF before it when the body starts with it.
-    buf = "\r\n", eof = false, state = "start", failure = "", count = 0, generation = 0, safe = 0,
-    max_parts = opts.max_parts or DEFAULT_PARTS,
-    max_header_bytes = opts.max_header_bytes or DEFAULT_HEADER_BYTES,
-    max_header_lines = opts.max_header_lines or DEFAULT_HEADER_LINES,
-  }, parser_mt)
-  return p, ""
 end
 
 --- The refusal for a preamble over the cap, the same however the source
@@ -236,7 +198,7 @@ end
 
 --- Reads the two bytes after a delimiter: "end" for the closing `--`,
 --- "headers" for a line end.
-local function after_delimiter(p: Parser): string | nil, string
+local function after_delimiter(p: Parser): string?, string
   while #p.buf < 2 do
     if p.eof then return nil, TRUNCATED end
     local ok, why = fill(p)
@@ -273,7 +235,7 @@ end
 
 --- The bytes of the RFC 8187 value `text`, `charset'language'escaped`,
 --- as UTF-8; nil and why for another charset or a bad escape.
-local function ext_value(text: string): string | nil, string
+local function ext_value(text: string): string?, string
   local charset, escaped = text:match("^([%w-]+)'[%w-]*'(.*)$")
   if charset == nil then return nil, "multipart: filename* is not charset'language'value" end
   local read = { bad = false }
@@ -295,8 +257,8 @@ end
 
 --- The parameters of a Content-Disposition value after `form-data`, by
 --- lowercase name; nil and why when it is malformed or names one twice.
-local function disposition_params(value: string): {string:string} | nil, string
-  local params: {string:string} = {}
+local function disposition_params(value: string): {string:string}?, string
+  local params: mut {string:string} = {}
   local _, head, kind = value:find("^[ \t]*(" .. TOKEN .. ")[ \t]*")
   if kind == nil or kind:lower() ~= "form-data" then
     return nil, "multipart: a part's Content-Disposition is not form-data"
@@ -332,7 +294,7 @@ end
 
 --- `raw`, a client's filename, reduced to its last path component; nil and
 --- why when it holds a control byte, is not UTF-8 or is too long.
-local function clean_filename(raw: string): string | nil, string
+local function clean_filename(raw: string): string?, string
   if has_control(raw) then return nil, "multipart: a filename holds a control byte" end
   -- Cut at the last separator by a scan from the end: `[^/\\]*$` retries at
   -- every byte of a long name.
@@ -347,9 +309,9 @@ end
 
 --- The part the header block `block` (without its last line end) describes
 --- apart from its body.
-local function parse_headers(p: Parser, block: string, body: Stream.Reader): Multipart.Part | nil, string
+local function parse_headers(p: Parser, block: string, body: Stream.Reader): Multipart.Part?, string
   if block == "" then return nil, "multipart: a part has no headers" end
-  local headers: {string:string} = {}
+  local headers: mut {string:string} = {}
   local lines = 0
   local pos = 1
   local text = block .. "\r\n"
@@ -383,7 +345,7 @@ local function parse_headers(p: Parser, block: string, body: Stream.Reader): Mul
   if has_control(name) or not utf8.len(name) then
     return nil, "multipart: a part's name holds a control byte or is not UTF-8"
   end
-  local filename: string | nil = nil
+  local filename: string? = nil
   local claimed = params["filename"]
   if claimed ~= nil then
     local clean, trouble = clean_filename(unescape(claimed))
@@ -409,7 +371,7 @@ end
 
 --- Reads the header block after a delimiter's line end and the part it
 --- describes; the buffer is left at the start of the body.
-local function read_part_headers(p: Parser, body: Stream.Reader): Multipart.Part | nil, string
+local function read_part_headers(p: Parser, body: Stream.Reader): Multipart.Part?, string
   local from = 1
   while true do
     local at = p.buf:find("\r\n\r\n", from, true)
@@ -433,7 +395,7 @@ end
 
 --- The next bytes of the body of the current part, at most `max`; "" when
 --- the part is over, with the delimiter at the head of the buffer.
-local function take(p: Parser, max: integer): string | nil, string
+local function take(p: Parser, max: integer): string?, string
   while true do
     if p.safe > 0 then
       local n = math.min(p.safe, max)
@@ -460,31 +422,6 @@ local function take(p: Parser, max: integer): string | nil, string
   end
 end
 
-function BodyReader:read(max_bytes?: integer): string | nil, string
-  if max_bytes ~= nil and max_bytes < 1 then
-    error("multipart: a part body reads at least one byte", 2)
-  end
-  if self.finished then return nil, "" end
-  if self.parsed_generation() ~= self.generation then
-    return nil, "multipart: the part was passed by next_part"
-  end
-  local state = self.state()
-  if state == "failed" then return nil, self.failure() end
-  if state == "done" then return nil, "multipart: the parser was closed" end
-  local chunk, why = self.take(max_bytes or CHUNK)
-  if chunk == nil then return self.fail(why) end
-  if chunk == "" then
-    self.finished = true
-    return nil, ""
-  end
-  return chunk, ""
-end
-
-function BodyReader:close(): boolean, string
-  self.finished = true
-  return true, ""
-end
-
 --- Skips what is left of the current part, up to its end delimiter.
 local function drain(p: Parser): boolean, string
   while p.state == "body" do
@@ -497,52 +434,107 @@ local function drain(p: Parser): boolean, string
   return true, ""
 end
 
-function Parser:next_part(): Multipart.Part | nil, string
-  if self.state == "failed" then return nil, self.failure end
-  if self.state == "done" then return nil, "" end
-  if self.state == "body" then
-    local ok, _ = drain(self)
-    if not ok then return nil, self.failure end
+--- What the parser is in: "start" (nothing read), "headers" (a delimiter is
+--- consumed up to its line end), "body" (inside a part), "delimited" (a
+--- part's end delimiter is at the head of the buffer), "done" (after the
+--- closing delimiter or a close) or "failed".
+local class Parser is Multipart.Reader
+  source: Stream.Reader
+  delim: string
+  mut buf: string
+  --- Whether the source has ended.
+  mut eof: boolean
+  mut state: string
+  mut failure: string
+  mut count: integer
+  mut generation: integer
+  --- Bytes at the head of `buf` known to hold no delimiter.
+  mut safe: integer
+  max_parts: integer
+  max_header_bytes: integer
+  max_header_lines: integer
+
+  function next_part(self): Multipart.Part?, string
+    if self.state == "failed" then return nil, self.failure end
+    if self.state == "done" then return nil, "" end
+    if self.state == "body" then
+      local ok, _ = drain(self)
+      if not ok then return nil, self.failure end
+    end
+    local ok: boolean
+    local why: string
+    if self.state == "start" then
+      ok, why = seek_first(self)
+    else
+      -- "delimited": the delimiter is at the head of the buffer.
+      self.buf = self.buf:sub(#self.delim + 1)
+      ok, why = true, ""
+    end
+    if not ok then return fail(self, why) end
+    local what, trouble = after_delimiter(self)
+    if what == nil then return fail(self, trouble) end
+    if what == "end" then
+      self.state = "done"
+      self.buf = ""
+      return nil, ""
+    end
+    self.count = self.count + 1
+    if self.count > self.max_parts then return fail(self, "multipart: more than max_parts parts") end
+    local body: BodyReader = {
+      generation = self.generation + 1, finished = false,
+      parsed_generation = function(): integer return self.generation end,
+      state = function(): string return self.state end,
+      failure = function(): string return self.failure end,
+      take = function(max: integer): string?, string return take(self, max) end,
+      fail = function(reason: string): nil, string return fail(self, reason) end,
+    }
+    local part, bad = read_part_headers(self, body)
+    if part == nil then return fail(self, bad) end
+    self.state = "body"
+    self.safe = 0
+    self.generation = body.generation
+    return part, ""
   end
-  local ok: boolean
-  local why: string
-  if self.state == "start" then
-    ok, why = seek_first(self)
-  else
-    -- "delimited": the delimiter is at the head of the buffer.
-    self.buf = self.buf:sub(#self.delim + 1)
-    ok, why = true, ""
-  end
-  if not ok then return fail(self, why) end
-  local what, trouble = after_delimiter(self)
-  if what == nil then return fail(self, trouble) end
-  if what == "end" then
-    self.state = "done"
+
+  function close(self): boolean, string
+    if self.state ~= "failed" then self.state = "done" end
     self.buf = ""
-    return nil, ""
+    return true, ""
   end
-  self.count = self.count + 1
-  if self.count > self.max_parts then return fail(self, "multipart: more than max_parts parts") end
-  local body: BodyReader = setmetatable({
-    generation = self.generation + 1, finished = false,
-    parsed_generation = function(): integer return self.generation end,
-    state = function(): string return self.state end,
-    failure = function(): string return self.failure end,
-    take = function(max: integer): string | nil, string return take(self, max) end,
-    fail = function(reason: string): nil, string return fail(self, reason) end,
-  }, body_mt)
-  local part, bad = read_part_headers(self, body)
-  if part == nil then return fail(self, bad) end
-  self.state = "body"
-  self.safe = 0
-  self.generation = body.generation
-  return part, ""
 end
 
-function Parser:close(): boolean, string
-  if self.state ~= "failed" then self.state = "done" end
-  self.buf = ""
-  return true, ""
+--- Whether `boundary` is 1 to 70 bytes of RFC 2046's set, not ending in a
+--- space.
+local function good_boundary(boundary: string): boolean
+  return #boundary >= 1 and #boundary <= 70 and boundary:find("^[%w'()+_,./:=?%- ]+$") ~= nil and
+    boundary:sub(-1) ~= " "
+end
+
+--- A parser over `source`. Raises on an option that is not a positive integer.
+--- @param source Stream.Reader The body
+--- @param opts Multipart.Options The boundary and limits
+--- @return Multipart.Reader The parser, or nil
+--- @return string Why not: the boundary is unusable
+function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader?, string
+  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes,
+      max_header_lines = opts.max_header_lines }) do
+    if v ~= nil and v < 1 then
+      error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)
+    end
+  end
+  local boundary = opts.boundary
+  if type(boundary) ~= "string" or not good_boundary(boundary) then
+    return nil, "multipart: the boundary is empty, longer than 70 bytes or has a byte outside RFC 2046's set"
+  end
+  local p: Parser = {
+    source = source, delim = "\r\n--" .. boundary,
+    -- The first delimiter has no CRLF before it when the body starts with it.
+    buf = "\r\n", eof = false, state = "start", failure = "", count = 0, generation = 0, safe = 0,
+    max_parts = opts.max_parts or DEFAULT_PARTS,
+    max_header_bytes = opts.max_header_bytes or DEFAULT_HEADER_BYTES,
+    max_header_lines = opts.max_header_lines or DEFAULT_HEADER_LINES,
+  }
+  return p, ""
 end
 
 return Multipart

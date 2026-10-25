@@ -104,7 +104,7 @@ the lexer is Lua 5.5's with these changes.
   ending on the line before a declaration's first token; the parser
   attaches it once to the declaration, field, method or enum value.
   tokens keep the comments before them, and gain a byte offset and
-  length, so `line_starts` and `offset_of` in [`build/ast/rewrite.tl`] and
+  length, so `line_starts` and `offset_of` in build/ast/rewrite.tl and
   the formatter's token scan read one table.
 - **reserved:** Lua's `and break do else elseif end false for function if
   in local nil not or repeat return then true until while`, and `goto` and
@@ -121,7 +121,7 @@ the lexer is Lua 5.5's with these changes.
   would have to be written `x["goto"](x, ...)`, evaluating `x` twice.
 - **`>>` closing two type-argument lists** (`Cache<K, List<V>>`) is one
   token consumed as two closers, without rewriting it; the fork rewrites
-  it and [`build/ast/node.tl`] puts it back after the parse.
+  it and build/ast/node.tl puts it back after the parse.
 - **a call opens on its line.** a `(` that begins a line does not
   continue the expression before it. the fork inserts a `;` token on
   seeing this and the formatter writes it out; here it is a rule of the
@@ -428,20 +428,20 @@ rewritten by hand in Teal first, so the translator never meets them.
   not unique (`a.b.c` has three nodes at one start).
 - **nothing is inserted.** the fork's parser adds a `;` and a `self` the
   source never wrote; the tree holds only tokens and nodes the source has.
-- **no node points up.** `if_parent` goes; [`build/ast/walk.tl`] supplies
+- **no node points up.** `if_parent` goes; build/ast/walk.tl supplies
   parents where a reader asks.
 - **types are syntax nodes** with kinds and spans, apart from the
   checker's semantic types, so the tree keeps how a type was spelled.
   the parser makes no semantic type and no `typeid`.
 - **the tree is typed by construction.** `Node` is a tagged union on
-  `kind`. the cast in [`build/ast/node.tl`], its entry in the casts table
-  of [`build/contracts.tl`] and the note on [`compiler.Result`] in
-  [`build/compiler.d.tl`] go.
+  `kind`. the cast in build/ast/node.tl, its entry in the casts table
+  of build/contracts.tl and the note on compiler.Result in
+  build/compiler.d.tl go.
 - **a declaration is not a use.** a `Binding` (a name that introduces a
   variable, parameter, loop variable, type or field) is a different kind
   from a `Name`; the fork's `identifier` and `variable` make every reader
   tell them apart by context. the scope builder, not the parser, sets
-  which `Binding` a `Name` refers to, so [`build/scopes.tl`] stays the one
+  which `Binding` a `Name` refers to, so build/scopes.tl stays the one
   place that decides.
 - **each kind lists its child fields in source order,** so a walker needs
   no code per kind. the parser never raises: an `Error` node holds the
@@ -639,7 +639,7 @@ errors are the account of what the translator did not handle.
 
 ### what the scope builder settled
 
-[`lang/scopes.tl`] resolves the names of a parsed chunk; [`build/scopes.tl`]
+[`lang/scopes.tl`] resolves the names of a parsed chunk; build/scopes.tl
 stays what the `build/` readers use until they are rewritten to the tree, and
 then goes. it sets [`Name.binding`] and answers a `Var` per `Binding` by the
 node's id, the uses of each (`reads`, `writes`, the type names that name it),
@@ -705,26 +705,26 @@ and the globals the chunk uses. its rules:
 
 ### who reads what
 
-- [`build/analyzer.tl`] and [`build/link_text.tl`]: declarations and their
+- build/analyzer.tl and [`build/link_text.tl`]: declarations and their
   `doc`, the `path` of a `Function` (what it hangs off), `Field` and
   `Name` chains for references, string values.
-- [`build/contracts.tl`]: calls, `Return`, `Local`, function bodies,
+- build/contracts.tl: calls, `Return`, `Local`, function bodies,
   parameter and return lists, and one kind per operator in place of a
   switch on `op.op`.
-- [`build/scopes.tl`]: `Block` extents from its tokens, every `Binding`,
+- build/scopes.tl: `Block` extents from its tokens, every `Binding`,
   loops, `Function`, `If`, and `Repeat` (the `until` sees the body's
-  locals). [`build/stub.tl`]: function-body spans to cut, `rets` nil for a
+  locals). build/stub.tl: function-body spans to cut, `rets` nil for a
   literal typed by context.
 - [`build/fix/`]: tokens with comments and offsets, spans, [`Block.close`],
   `Table` items, [`Binding.attr`].
-- [`build/shape_specs.tl`], [`build/receivers.tl`], [`build/teal.tl`],
-  [`build/importer.tl`], [`build/globals.tl`], [`build/tree_checks.tl`]:
+- build/shape_specs.tl, build/receivers.tl, build/teal.tl,
+  [`build/importer.tl`], build/globals.tl, [`build/tree_checks.tl`]:
   type nodes, `Require`, `Name` and `Binding` text, `Table` keys, node ids
   for the type report.
 
 ### the interface
 
-[`build/compiler.d.tl`] declares what the tree uses of the checker, and
+build/compiler.d.tl declares what the tree uses of the checker, and
 nothing else reaches into it. the new interface keeps its calls and
 changes their types.
 
@@ -732,11 +732,11 @@ changes their types.
   dialect): Chunk`, where `dialect` is `tl` or `decl`. `Token`
   gains `offset` and `length`.
 - `check(chunk, env, name): Result` and `generate(chunk, options):
-  string`. [`Result.ast`] is a `Chunk`, not `any`; `Result.types` is the
-  type report keyed by node id, so [`build/receivers.tl`] reads no
+  string`. Result.ast is a `Chunk`, not `any`; `Result.types` is the
+  type report keyed by node id, so build/receivers.tl reads no
   positions.
 - `Error` keeps its code, places and fix, so the hints in
-  [`build/teal.tl`] read the same fields; the grammar adds the codes
+  build/teal.tl read the same fields; the grammar adds the codes
   `reserved_word`, `label_or_goto`, `nil_union`, `method_in_record`,
   `continue_outside_loop` and `cast_refused`. the checker's rows keep
   their schemas ([what the language keeps working]).
@@ -761,7 +761,7 @@ returns as the production named, when a use appears.
 - **a `lua` dialect** (0: no doc example outside `vendor/` is tagged `lua`).
   it would add a third value of `dialect`, with Lua's reserved words alone
   and none of the cut forms below, to the lexer and the parser.
-- **long comments** (27, all in [`checker/stdlib.d.tl`]): rewritten as line
+- **long comments** (27, all in `checker/stdlib.d.tl`): rewritten as line
   comments. would add `--[==[ ... ]==]` to the lexer.
 - **`_` digit separators** (4 tokens) and **hex floats** (1): the fork
   strips the separators, so removing them keeps the Lua. both would
@@ -828,8 +828,8 @@ returns as the production named, when a use appears.
   the fork. [`build/tree_checks.tl`]'s `lexed` lexes every `.tl` file of
   the tree in `fix --check .` and holds it to the cut forms it still writes,
   pinned by file and code. its `lex` answers a `Lexed` record of the tokens and the errors,
-  since [`build/contracts.tl`] holds an exported function to one result; the
-  declaration in [`build/compiler.d.tl`] may keep the pair.
+  since build/contracts.tl holds an exported function to one result; the
+  declaration in build/compiler.d.tl may keep the pair.
 - `cosmic compile --grammar new` ([`build/compile.tl`]) reads files in the
   grammar: lex, parse, scope, lower, check and generate, writing the line
   for line Lua despite type errors, as it does for Teal. the grammar is
@@ -847,11 +847,11 @@ returns as the production named, when a use appears.
   lexer, parser and code generator are checked against the fork's Lua
   alone; then [`build/fix/`] and the readers above are rewritten to the
   tree beside the checker, the typed `Node` replacing the cast in
-  [`build/ast/node.tl`].
+  build/ast/node.tl.
 - the first readers are rewritten as `build/syntax_<name>.tl` beside the one they replace ([`build/syntax_node.tl`],
   which also walks the tree and lists what a file requires, `_match`, `_rewrite`, `_scopes`, `_globals`, `_stub`,
   `_shape_specs`, `_derivation` and
-  [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. [`build/syntax_compared.tl`]
+  [`build/coverage/syntax_lines.tl`]), each taking the tree and never the compiler. `build/syntax_compared.tl`
   reads every file of the tree through the fork's readers and through these, over the translated file
   ([`lang.translate`]), and `fix --check .` holds the answers equal but for the `[read]` pins of
   [`build/ceilings.txt`] (no program declares a global and the check leaves out declaration files, so the globals are
@@ -877,15 +877,15 @@ returns as the production named, when a use appears.
   GLOB sites of the member listings and the parameter search, and a class method is now a `method` row whose signature
   is `function read(self, ...)`.
 - the readers that need the checker's types follow: [`build/syntax_receivers.tl`] (the record-field uses `typed_refs` holds),
-  [`build/syntax_contracts.tl`] (the eleven rules of [`build/contracts.tl`], whose exemption tables it shares) and the stub
-  check ([`build/syntax_stub.tl`]'s `difference`, the port of [`build/stub.tl`]'s), over the type of each node and the
+  [`build/syntax_contracts.tl`] (the eleven rules of build/contracts.tl, whose exemption tables it shares) and the stub
+  check ([`build/syntax_stub.tl`]'s `difference`, the port of build/stub.tl's), over the type of each node and the
   function each call took ([`Check.Checked.callees`], which the report lacked: a method call has no node for its callee),
   with [`build/syntax_report.tl`] for what they share. [`build/tree_checks.tl`]'s `typed` (run by `fix --check .` after
   `[read]`) reads every file through them and sets the answer against what the fork's build wrote of the same tree, read
   from the working database (the `typed_refs` rows, and the compile marked refused for a breach of the discipline or a stub
-  that types otherwise), in the dimensions of [`build/syntax_typed.tl`]; a dimension that compared no row, or a rule that
+  that types otherwise), in the dimensions of build/syntax_typed.tl; a dimension that compared no row, or a rule that
   judged no place, fails it. Differences the new checker makes, each counted and tested in
-  [`build/syntax_typed_test.tl`]. The bindings of C ([`cosmic.sys`] and the raw process and socket tables) are typed
+  build/syntax_typed_test.tl. The bindings of C ([`cosmic.sys`] and the raw process and socket tables) are typed
   from the declarations the build derives of the core's headers, in the tree checks alone until the build's own compile
   declares them; a call with no callee the checker recorded is counted per file in the `[untyped]` ceilings; a value
   typed `invalid` hides the uses through it; a field written as a name (`hints: importer.Hints`) is a callback and no function the module defines; an
@@ -913,29 +913,17 @@ returns as the production named, when a use appears.
 
 [`Binding.attr`]: ../../lang/ast.tl
 [`Block.close`]: ../../lang/ast.tl
-[`build/analyzer.tl`]: ../../build/analyzer.tl
-[`build/ast/node.tl`]: ../../build/ast/node.tl
-[`build/ast/rewrite.tl`]: ../../build/ast/rewrite.tl
-[`build/ast/walk.tl`]: ../../build/ast/walk.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
 [`build/compile.tl`]: ../../build/compile.tl
-[`build/compiler.d.tl`]: ../../build/compiler.d.tl
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/coverage/syntax_lines.tl`]: ../../build/coverage/syntax_lines.tl
 [`build/docs.tl`]: ../../build/docs.tl
-[`build/globals.tl`]: ../../build/globals.tl
 [`build/importer.tl`]: ../../build/importer.tl
 [`build/link_files.tl`]: ../../build/link_files.tl
 [`build/link_text.tl`]: ../../build/link_text.tl
 [`build/links.tl`]: ../../build/links.tl
 [`build/policy_rules.tl`]: ../../build/policy_rules.tl
-[`build/receivers.tl`]: ../../build/receivers.tl
-[`build/scopes.tl`]: ../../build/scopes.tl
-[`build/shape_specs.tl`]: ../../build/shape_specs.tl
-[`build/stub.tl`]: ../../build/stub.tl
 [`build/syntax_analyzer.tl`]: ../../build/syntax_analyzer.tl
 [`build/syntax_analyzer_test.tl`]: ../../build/syntax_analyzer_test.tl
-[`build/syntax_compared.tl`]: ../../build/syntax_compared.tl
 [`build/syntax_contracts.tl`]: ../../build/syntax_contracts.tl
 [`build/syntax_derivation.tl`]: ../../build/syntax_derivation.tl
 [`build/syntax_link_text.tl`]: ../../build/syntax_link_text.tl
@@ -944,16 +932,11 @@ returns as the production named, when a use appears.
 [`build/syntax_receivers.tl`]: ../../build/syntax_receivers.tl
 [`build/syntax_report.tl`]: ../../build/syntax_report.tl
 [`build/syntax_stub.tl`]: ../../build/syntax_stub.tl
-[`build/syntax_typed.tl`]: ../../build/syntax_typed.tl
-[`build/syntax_typed_test.tl`]: ../../build/syntax_typed_test.tl
-[`build/teal.tl`]: ../../build/teal.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
 [`Check.Checked.callees`]: ../../lang/check.tl
-[`checker/stdlib.d.tl`]: ../../checker/stdlib.d.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
 [`ci/cosmic_ci/orchestration_test.tl`]: ../../ci/cosmic_ci/orchestration_test.tl
-[`compiler.Result`]: ../../build/compiler.d.tl
 [`cosmic.sys`]: ../../core/syscalls.h
 [`cosmic/channel.tl`]: ../../cosmic/channel.tl
 [`cosmic/http/wire.tl`]: ../../cosmic/http/wire.tl
@@ -966,6 +949,5 @@ returns as the production named, when a use appears.
 [`lang/scopes.tl`]: ../../lang/scopes.tl
 [`lang/translate.tl`]: ../../lang/translate.tl
 [`Name.binding`]: ../../lang/ast.tl
-[`Result.ast`]: ../../build/compiler.d.tl
 [`Stream.Reader`]: ../../cosmic/stream.tl
 [`Var.copies`]: ../../lang/scopes.tl

@@ -38,10 +38,10 @@ local function run(root: string, output: string, env: {string:string},
   return ran.text, ran.ok
 end
 
---- What the suites below share: the raw process table, and a way to
---- have it refuse every sandbox, as a kernel with no user namespaces
---- for this user does.
-local preamble = [[
+--- What the suites below share: a way to have the raw process table refuse every sandbox, as a kernel with no user
+--- namespaces for this user does. The worker's own [`build.confine`] and the raw table are read through `package.loaded` and the
+--- searchers, which no typed file may do, so a case is a chunk of Lua that `lua` runs with the modules it needs.
+local preamble = [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -49,47 +49,36 @@ local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } }, promises = { "nest" } }
 
-local record Confine
-  confine: function(declared: {string:{string}} | nil)
-  must_confine: function(declared: {string:{string}} | nil)
-  unveil_max: integer
-  call: function(fn: function(any...): (any...), argument?: any, own?: {string}): {string:any}
-end
--- The worker's own, which a suite outside the tree cannot require.
-local confine = package.loaded["build.confine"] as Confine
-local type raw_process = require("cosmic.internal.process")
-local type Searcher = function(string): any, any
-
-local function raw(): raw_process
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
+local function lua(body: string, tmp: string)
+  local chunk = assert(load([=[
+local tmp, Child, Fs, sys = ...
+local confine = package.loaded["build.confine"]
+local function raw()
+  for _, searcher in ipairs(package.searchers) do
     local loader, extra = searcher("build.confine")
-    if type(loader) == "function" and type(extra) == "table" then
-      return extra as raw_process
-    end
+    if type(loader) == "function" and type(extra) == "table" then return extra end
   end
   error("no raw table")
 end
-
-local function refusing(fn: function())
+local function refusing(fn)
   local process = raw()
   local spawn = process.spawn
-  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
-                           cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                           stderr: integer | nil, process_group: boolean,
-                           fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
-                       credentials?: raw_process.Credentials):
-                           integer | nil, string, integer
+  process.spawn = function(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds, sandbox,
+                           credentials)
     if sandbox ~= nil then return nil, "Operation not permitted", sys.EPERM end
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds, sandbox, credentials)
   end
-  local ok, trouble: boolean, any = pcall(fn)
+  local ok, trouble = pcall(fn)
   process.spawn = spawn
   if not ok then error(trouble, 0) end
 end
-]]
+]=] .. body, "=refused_test"))
+  chunk(tmp, Child, Fs, sys)
+end
+]==]
 
 --- The line a run printed for one failing test of the refused suite.
-local function failure(text: string, name: string): string | nil
+local function failure(text: string, name: string): string?
   return failure_of(text, "refused_test", name)
 end
 
@@ -104,67 +93,79 @@ end
 local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)
   local root = tmp .. "/root"
   suite_tree(tmp, root)
-  assert(Fs.write(root .. "/suite/refused_test.tl", preamble .. [[
+  assert(Fs.write(root .. "/suite/refused_test.tl", preamble .. [==[
 
 --- Refusals are made under a stand-in of the test's own, which
 --- for spawn wraps `refusing`'s; the one running the test hears them
 --- too.
 local function test_passed_over(tmp: string)
-  local inner: {{string:any}} = {}
-  refusing(function()
-    inner[1] = confine.call(function()
-      confine.must_confine({ reads = { "bin/probe" } })
-      local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
-      confine.confine(nil)
-      assert(ran == nil, "an unconfined process ran in its place")
-    end, nil, { tmp })
-  end)
-  assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
-  assert(not assert(inner[1]).ok, "the inner stand-in's call fails")
+  lua([=[
+local inner = {}
+refusing(function()
+  inner[1] = confine.call(function()
+    confine.must_confine({ reads = { "bin/probe" } })
+    local ran, _ = Child.run({ "bin/probe", "write " .. tmp .. "/ran ran" })
+    confine.confine(nil)
+    assert(ran == nil, "an unconfined process ran in its place")
+  end, nil, { tmp })
+end)
+assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
+assert(not assert(inner[1]).ok, "the inner stand-in's call fails")
+]=], tmp)
 end
 
 local function test_raised_too(tmp: string)
-  refusing(function()
-    local _ = confine.call(function()
-      confine.must_confine({ reads = { "bin/probe" } })
-      local _, _ = Child.run({ "bin/probe", "exit 0" })
-      confine.confine(nil)
-    end, nil, { tmp })
-  end)
-  error("its own failure")
+  lua([=[
+refusing(function()
+  local _ = confine.call(function()
+    confine.must_confine({ reads = { "bin/probe" } })
+    local _, _ = Child.run({ "bin/probe", "exit 0" })
+    confine.confine(nil)
+  end, nil, { tmp })
+end)
+error("its own failure")
+]=], tmp)
 end
 
 local function test_too_many(tmp: string)
-  local many: {string} = {}
-  for i = 1, confine.unveil_max + 1 do many[i] = tmp .. "/many" .. tostring(i) end
-  confine.must_confine({ reads = many })
-  local _, _ = Child.run({ "bin/probe", "exit 0" })
-  confine.confine(nil)
+  lua([=[
+local many = {}
+for i = 1, confine.unveil_max + 1 do many[i] = tmp .. "/many" .. tostring(i) end
+confine.must_confine({ reads = many })
+local _, _ = Child.run({ "bin/probe", "exit 0" })
+confine.confine(nil)
+]=], tmp)
 end
 
 local function test_pledged_alone()
-  confine.must_confine({ reads = { "bin/probe" } })
-  local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
-    nil, { pledge = {} })
-  confine.confine(nil)
+  lua([=[
+confine.must_confine({ reads = { "bin/probe" } })
+local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
+  nil, { pledge = {} })
+confine.confine(nil)
+]=], "")
 end
 
 local function test_a_policys_grants_alone()
-  confine.must_confine({ reads = { "bin/probe" } })
-  local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
-    nil, { grants = {}, promises = {} })
-  confine.confine(nil)
+  lua([=[
+confine.must_confine({ reads = { "bin/probe" } })
+local _, _ = raw().spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false,
+  nil, { grants = {}, promises = {} })
+confine.confine(nil)
+]=], "")
 end
 
 local function test_stale(tmp: string)
-  local taken: {any} = {}
-  local _ = confine.call(function() taken[1] = raw().spawn end, nil, { tmp })
-  confine.must_confine({ reads = { "bin/probe" } })
-  local spawn = taken[1] as function(string, {string}, any, any, any, any, any, boolean): any
-  local _ = spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false)
-  confine.confine(nil)
+  lua([=[
+local taken = {}
+local _ = confine.call(function() taken[1] = raw().spawn end, nil, { tmp })
+confine.must_confine({ reads = { "bin/probe" } })
+local spawn = taken[1]
+local _ = spawn("bin/probe", { "bin/probe", "exit 0" }, nil, nil, nil, nil, nil, false)
+confine.confine(nil)
+]=], tmp)
 end
-]]))
+]==]))
   local text, ok = run(root, tmp .. "/out", environment(nil), { "--all" })
   assert(not ok, text)
   local refused = "must_confine: bin/probe could not start confined: unveil and offline " ..

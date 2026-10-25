@@ -1,4 +1,4 @@
---- The scopes of a chunk as [`build.analyzer`]'s references through an alias and [`build.link_text`]'s names a comment
+--- The scopes of a chunk as [`build.syntax_analyzer`]'s references through an alias and [`build.link_text`]'s names a comment
 --- sees read them, over [`lang.scopes`]: the bindings it resolved, with where each is in scope, and each `alias.member`
 --- whose `alias` is still the module a direct `require` bound.
 ---
@@ -43,7 +43,7 @@ local record Lexical
   --- line it is on. An assignment to the alias ends the reads that count, from the end of its statement, wherever
   --- the assignment is.
   walk: function(chunk: Ast.Chunk, scoped: Resolved.Scoped,
-                 member: function(module: string, name: string, line: integer) | nil): {Binding}
+                 member: (function(module: string, name: string, line: integer))?): {Binding}
 
   --- The names `bindings` holds in scope at line `y`, column `x`, each with the module it is an alias of, or "": the
   --- innermost binding of each, as Lua reads it there. With `heading`, the place is a doc comment's above a statement
@@ -73,11 +73,11 @@ local function declared_by(chunk: Ast.Chunk): {integer: Declared}
     local function head_of(): integer
       return Lexical.position(Lexer.y(chunk.tokens, Node.base(node).first), 0)
     end
-    if node is Ast.Local then
+    if (node.kind == "Local") then
       for i, b in ipairs(node.bindings) do
         out[Node.base(b).id] = { head = head_of(), annotated = node.types[i] ~= nil }
       end
-    elseif node is Ast.LocalFunction then
+    elseif (node.kind == "LocalFunction") then
       out[Node.base(node.name).id] = { head = head_of(), annotated = false }
     else
       local declared = Node.declared(node)
@@ -92,7 +92,7 @@ end
 function Lexical.bindings_of(chunk: Ast.Chunk, scoped: Resolved.Scoped): {Lexical.Binding}
   local declared = declared_by(chunk)
   local tokens = chunk.tokens
-  local out: {Lexical.Binding} = {}
+  local out: mut {Lexical.Binding} = {}
   for _, v in ipairs(scoped.list) do
     if counted(v) then
       -- A loop's variable is in scope from its own name, as a parameter is: the header's iterators see it.
@@ -127,7 +127,7 @@ local record Read
 end
 
 function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
-                      member: function(module: string, name: string, line: integer) | nil): {Lexical.Binding}
+                      member: (function(module: string, name: string, line: integer))?): {Lexical.Binding}
   local bindings = Lexical.bindings_of(chunk, scoped)
   if member == nil then
     return bindings
@@ -138,12 +138,12 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
   -- What an assignment's targets hold is written, not read: `Fs.stderr = fd` is no reference to `stderr`.
   local written: {integer: boolean} = {}
   Node.walk(chunk, function(node: Ast.Node)
-    if node is Ast.Assign then
+    if (node.kind == "Assign") then
       for _, target in ipairs(node.targets) do
         Node.walk(target, function(under: Ast.Node)
           written[Node.base(under).id] = true
         end)
-        if target is Ast.Name and target.binding ~= nil then
+        if (target.kind == "Name") and target.binding ~= nil then
           local held = ends[target.binding]
           local last = Node.base(node).last
           if held == nil or last < held then
@@ -151,19 +151,19 @@ function Lexical.walk(chunk: Ast.Chunk, scoped: Resolved.Scoped,
           end
         end
       end
-    elseif node is Ast.Field and not written[Node.base(node).id] then
+    elseif (node.kind == "Field") and not written[Node.base(node).id] then
       local object = node.object
       local line = chunk.tokens.y[Node.base(object).first]
-      if object is Ast.Name then
+      if (object.kind == "Name") then
         local v = object.binding ~= nil and scoped.vars[object.binding] or nil
         if v ~= nil and v.module ~= "" then
           reads[#reads + 1] = { var = v.id, module = v.module, name = node.name, line = line, token = Node.base(node).first }
         end
-      elseif object is Ast.Call then
+      elseif (object.kind == "Call") then
         local callee = object.callee
         local only = object.args[1]
-        if callee is Ast.Name and callee.text == "require" and callee.binding == nil and #object.args == 1 and
-            only ~= nil and only is Ast.String then
+        if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #object.args == 1 and
+            only ~= nil and (only.kind == "String") then
           reads[#reads + 1] = { var = 0, module = only.value, name = node.name, line = line, token = Node.base(node).first }
         end
       end
@@ -181,8 +181,8 @@ end
 function Lexical.in_scope(bindings: {Lexical.Binding}, y: integer, x: integer, heading: boolean): {string: string}
   local at = Lexical.position(y, x)
   local line = Lexical.position(y, 0)
-  local out: {string: string} = {}
-  local from: {string: integer} = {}
+  local out: mut {string: string} = {}
+  local from: mut {string: integer} = {}
   for _, each in ipairs(bindings) do
     local seen = each.from <= at or heading and each.head == line
     if seen and at <= each.to and (from[each.name] == nil or each.from >= from[each.name]) then

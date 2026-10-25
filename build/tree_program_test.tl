@@ -6,7 +6,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local TreeProgram = require("build.tree_program")
 local importer = require("build.importer")
-local teal = require("build.teal")
+local withheld = require("build.withheld")
 local work = require("build.work")
 
 Test.policy{ grants = {
@@ -15,56 +15,42 @@ Test.policy{ grants = {
   { path = "core/socket.h", letters = "r" }, { path = "core", letters = "r" },
 } }
 
-local built = assert(teal.load())
 
 --- The files of the sources of `index`, in order, as one line.
 local function files_of(index: Driver.Index): string
-  local files: {string} = {}
+  local files: mut {string} = {}
   for _, source in ipairs(index.sources) do
     files[#files + 1] = source.filename
   end
   return table.concat(files, " ")
 end
 
-local function test_the_fork_checker_and_the_programs_of_testdata_are_left_out_of_the_program()
+local function test_the_programs_of_testdata_are_left_out_of_the_program()
   local index = TreeProgram.index({
-    { "checker/tl.tl", "return 1\n" }, { "checker/stdlib.d.tl", "do\nend\n" }, { "testdata/t.tl", "return 2\n" }, { "ci/testdata/b/c.tl", "return 3\n" },
-    { "x/testdata/y.tl", "return 4\n" }, { "checker/flow.tl", "return 5\n" }, { "mytestdata/a.tl", "return 6\n" },
+    { "testdata/t.tl", "return 2\n" }, { "ci/testdata/b/c.tl", "return 3\n" },
+    { "x/testdata/y.tl", "return 4\n" }, { "mytestdata/a.tl", "return 6\n" },
     { "lang/a.tl", "local x = 1\nreturn x\n" },
     { "doc/guides/g.md", "return 7\n", "doc.guides.g" }, { "gen/s.d.tl", "return 8\n", "cosmic.s", "core/s.h" },
-  }, true, {})
+  }, {})
   local kept = files_of(index)
-  assert(kept == "checker/flow.tl mytestdata/a.tl lang/a.tl doc/guides/g.md gen/s.d.tl", kept)
-  assert(assert(index.by_module["lang.a"]).translate)
+  assert(kept == "mytestdata/a.tl lang/a.tl doc/guides/g.md gen/s.d.tl", kept)
   assert(assert(index.by_module["doc.guides.g"]).filename == "doc/guides/g.md")
   assert(assert(index.by_module["cosmic.s"]).pinned == "core/s.h")
-end
-
---- A project's `checker/` is its own, so its files of the fork's names are modules of it; only cosmic's own tree leaves them out.
-local function test_a_project_keeps_a_file_of_the_forks_name()
-  local entries = { { "checker/tl.tl", "return 1\n" }, { "checker/stdlib.d.tl", "do\nend\n" }, { "testdata/t.tl", "return 2\n" },
-    { "m.tl", "return 3\n" } }
-  local kept = files_of(TreeProgram.index(entries, false, {}))
-  assert(kept == "checker/tl.tl checker/stdlib.d.tl m.tl", kept)
-  local own = files_of(TreeProgram.index(entries, true, {}))
-  assert(own == "m.tl", own)
 end
 
 local function test_the_globals_are_the_prelude_and_the_library_less_what_the_runtime_withholds()
   local made = TreeProgram.tree_globals(".")
   assert(#made.sources == 2)
   local prelude, stdlib = assert(made.sources[1]), assert(made.sources[2])
-  assert(prelude.module == "checker.prelude" and stdlib.module == "checker.stdlib")
+  assert(prelude.module == "lang.prelude" and stdlib.module == "lang.stdlib")
   assert(prelude.filename == "lang/prelude.d.tl" and stdlib.filename == "lang/stdlib.d.tl")
-  -- both are in the new grammar already
-  assert(not prelude.translate and not stdlib.translate)
   assert(prelude.text == assert(Fs.read("lang/prelude.d.tl")) and stdlib.text == assert(Fs.read("lang/stdlib.d.tl")))
   local globals = Driver.globals(made.sources, made.adjust)
   for _, kept in ipairs({ "string", "table", "math", "metatable", "Coroutine", "_G", "print" }) do
     assert(globals[kept] ~= nil, kept .. " is no global")
   end
-  for _, withheld in ipairs(teal.withheld) do
-    assert(globals[withheld] == nil, withheld .. " is a global")
+  for _, name in ipairs(withheld.globals) do
+    assert(globals[name] == nil, name .. " is a global")
   end
   -- `userdata` marks a record in the new grammar and is no type, and the prelude declares no `interface`
   assert(globals["userdata"] == nil and globals["interface"] == nil)
@@ -74,7 +60,7 @@ local function test_a_tree_without_the_prelude_has_the_library_alone_and_nothing
   assert(Fs.mkdirs(tmp .. "/lang"))
   assert(Fs.write(tmp .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   local alone = TreeProgram.tree_globals(tmp)
-  assert(#alone.sources == 1 and assert(alone.sources[1]).module == "checker.stdlib")
+  assert(#alone.sources == 1 and assert(alone.sources[1]).module == "lang.stdlib")
   local only = Driver.globals(alone.sources, alone.adjust)
   assert(only["string"] ~= nil and only["metatable"] == nil and only["_G"] ~= nil)
   -- and with no library either, only what the runtime adds
@@ -87,14 +73,14 @@ end
 
 local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyped_where_nothing_does()
   local globals = TreeProgram.tree_globals(".")
-  local none = TreeProgram.build(TreeProgram.index({}, false, {}), globals)
+  local none = TreeProgram.build(TreeProgram.index({}, {}), globals)
   for _, name in ipairs({ "cosmic.sys", "cosmic.internal.process", "cosmic.internal.socket" }) do
     assert(none.program.external[name] == true, name)
   end
   local bindings = TreeProgram.bindings_of(".")
   assert(#bindings == 3)
-  local typed = TreeProgram.build(TreeProgram.index(bindings, false, {}), globals)
-  local names: {string} = {}
+  local typed = TreeProgram.build(TreeProgram.index(bindings, {}), globals)
+  local names: mut {string} = {}
   for _, entry in ipairs(bindings) do
     names[#names + 1] = assert(entry[3])
     assert(typed.program.external[assert(entry[3])] ~= true)
@@ -102,8 +88,8 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
     assert(entry[1]:find("%.d%.tl$") ~= nil and entry[4]:find("^core/%w+%.h$") ~= nil, entry[1] .. " " .. entry[4])
   end
   -- a provider that answers one is a declaration too
-  local provided = TreeProgram.build(TreeProgram.index({}, false, {}), globals, false, nil, function(module: string): Driver.Source | nil
-    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", false, {}) or nil
+  local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
+    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) or nil
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
   -- the declarations the headers give have no error of their own: no ceiling holds them
@@ -135,9 +121,9 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   local entries = assert(TreeProgram.derived_of(root))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  assert(importer.derive(handle, false, built))
+  assert(importer.derive(handle, false))
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT file, path, source, origin FROM derived ORDER BY file"))
-  local derived: {{string}} = {}
+  local derived: mut {{string}} = {}
   for _, row in ipairs(rows) do
     if row:text(4) == "doctest" or row:text(4) == "template" then
       derived[#derived + 1] = { row:text(1), row:text(2), row:text(3) }
@@ -164,33 +150,6 @@ local function test_a_guide_or_template_the_build_refuses_is_refused_with_its_re
   assert(entries == nil and why:find("bad.tmpl", 1, true) ~= nil, tostring(why))
 end
 
-local TAGGED <const> = "local record Ast\n  record Local is Base\n    where self.kind == \"Local\"\n  end\n" ..
-  "  record Other is Base\n    where self.kind == \"Other\"\n  end\nend\n"
-
-local function test_the_steps_blank_the_clauses_and_write_a_test_of_a_record_they_told_apart_as_its_tag()
-  local entries = {
-    { "lang/ast.tl", TAGGED }, { "lang/types.tl", "local record Types\nend\nreturn Types\n" },
-    { "lang/use.tl", "local Ast = require(\"lang.ast\")\nlocal function f(x: Ast.Local | Ast.Other): boolean\n" ..
-        "  return x is Ast.Local\nend\nreturn f\n" },
-    { "lang/plain.tl", "return 1\n" },
-  }
-  local mended = TreeProgram.index(entries, true, {})
-  local ast = assert(mended.by_module["lang.ast"]).mend
-  assert(ast ~= nil)
-  local blanked = ast(TAGGED)
-  assert(blanked:find("where", 1, true) == nil and select(2, blanked:gsub("\n", "")) == select(2, TAGGED:gsub("\n", "")),
-    blanked)
-  local use = assert(mended.by_module["lang.use"])
-  local rewrite = use.mend
-  assert(rewrite ~= nil)
-  local tested = rewrite(use.text)
-  assert(tested:find("x.kind == \"Local\"", 1, true) ~= nil and tested:find("is Ast.Local", 1, true) == nil, tested)
-  -- a module that mentions neither is read as it is, and so is every module where the steps are not asked for
-  assert(assert(mended.by_module["lang.plain"]).mend == nil)
-  local plain = TreeProgram.index(entries, false, {})
-  assert(assert(plain.by_module["lang.ast"]).mend == nil and assert(plain.by_module["lang.use"]).mend == nil)
-end
-
 local function test_the_files_and_the_sources_written_from_them_are_one_list_with_the_written_told_apart()
   local files = { { "a.tl", "return 1\n" } }
   local written = { { "doc/guides/g.md", "return 2\n", "doc.guides.g" } }
@@ -205,7 +164,7 @@ local function test_a_module_without_a_call_to_resolve_is_left_as_it_is_and_one_
   build:provide(Driver.files(TreeProgram.index({
     { "a.tl", "local record R\n  n: integer\nend\nreturn R\n" },
     { "b.tl", "return 2\n" },
-  }, false, {})))
+  }, {})))
   assert(TreeProgram.splice(build, "a", "a.tl") == false and TreeProgram.splice(build, "b", "b.tl") == false)
   local lacking, why = TreeProgram.splice(build, "nowhere", "nowhere.tl")
   assert(lacking == nil and why:find("nowhere.tl", 1, true) ~= nil, tostring(why))
@@ -220,7 +179,7 @@ local function test_modules_are_streamed_after_the_modules_among_them_that_they_
     { "other.tl", "local x = require(\"cosmic.fs\")\nreturn x\n" },
     { "cycle/one.tl", "local two = require(\"cycle.two\")\nreturn two\n" },
     { "cycle/two.tl", "local one = require(\"cycle.one\")\nreturn one\n" },
-  }, false, {})
+  }, {})
   local function streamed(modules: {string}): string
     local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
     build:provide(Driver.files(index))

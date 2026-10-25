@@ -7,7 +7,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 local function source(path: string, body: string, environment?: boolean)
   assert(Fs.mkdirs(path .. "/build"))
-  assert(Fs.write(path .. "/build/paths.tl", (environment == true and 'local Env = require("cosmic.env")\n' or "") .. [[
+  assert(Fs.write(path .. "/build/paths.tl", (if environment == true then 'local Env = require("cosmic.env")\n' else "" end) .. [[
 local Fs = require("cosmic.fs")
 local record Paths end
 function Paths.main(_argv: {string}): integer
@@ -21,7 +21,7 @@ local function test_resolution_uses_the_child_environment_and_source_checkout(tm
   local checkout, project = tmp .. "/source tree", tmp .. "/application"
   assert(Fs.mkdirs(project))
   source(checkout, [[
-  assert(Fs.put(Fs.stdout, assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Fs.basename(_argv[1]) .. "\n"))
+  assert(Fs.put(Fs.stdout, assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Fs.basename(assert(_argv[1])) .. "\n"))
   return 0
 ]], true)
   local a, b = { COSMIC_BUILD_HOME = tmp .. "/a" }, { COSMIC_BUILD_HOME = tmp .. "/b" }
@@ -56,4 +56,12 @@ local function test_the_driver_names_where_it_builds_a_project(tmp: string)
   local built = BuildPaths.driven(project)
   assert(built:sub(1, 1) == "/", built)
   assert(not Fs.within(built, project), built)
+end
+
+--- The driver is the pinned release and what it runs is the tree's Teal, in the new grammar: a caller's values that do not
+--- name the grammar (a fixture's environment) still start it with COSMIC_GRAMMAR=new.
+local function test_the_driver_is_started_in_the_new_grammar()
+  local driver = BuildPaths.driver({ "--standalone", "build/paths.tl" }, { HOME = "/nowhere" })
+  assert(driver.env["COSMIC_GRAMMAR"] == "new", "the driver was started without the new grammar")
+  assert(driver.env["HOME"] == "/nowhere", "the caller's values were lost")
 end

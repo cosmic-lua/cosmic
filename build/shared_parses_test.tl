@@ -10,11 +10,9 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local shared_compiles = require("build.shared_compiles")
-local teal = require("build.teal")
 local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 
-local built = assert(teal.load())
 
 --- Every row `sql` answers of the database at `path`, a line each, and
 --- every row of every parse table of a working database.
@@ -22,24 +20,23 @@ local dump = parses_fixture.dump
 local parse_rows = parses_fixture.rows
 
 --- The tree a boot case derives: [`build.importer`] and the analyzer
---- modules it names ([`build.analyzer`], [`build.ast`]), what they reach
+--- modules it names (build.derivation, build.ast), what they reach
 --- (`build.thing`, `build.helper`, the declaration `build.raw`), and a
 --- module no analyzer module reaches.
 local analyzer_tree: {string:string} = {
   ["build/helper.tl"] = "local record helper\n  n: integer\nend\nhelper.n = 1\nreturn helper\n",
   ["build/importer.tl"] = "local helper = require(\"build.helper\")\n" ..
     "local record importer\n  n: integer\nend\nimporter.n = helper.n\nreturn importer\n",
-  ["build/derivation.tl"] = "local record derivation\nend\nreturn derivation\n",
-  ["build/analyzer.tl"] = "local ast = require(\"build.ast\")\n" ..
+  ["build/derivation.tl"] = "local ast = require(\"build.ast\")\n" ..
     "local thing = require(\"build.thing\")\n--- The analyzer.\n" ..
-    "local record analyzer\n  n: integer\nend\nanalyzer.n = ast.n + thing.n\nreturn analyzer\n",
+    "local record derivation\n  n: integer\nend\nderivation.n = ast.n + thing.n\nreturn derivation\n",
   ["build/ast.tl"] = "local raw = require(\"build.raw\")\n" ..
     "local record ast\n  n: integer\nend\nast.n = raw.n\nreturn ast\n",
   ["build/thing.tl"] = "local record thing\n  n: integer\nend\nthing.n = 2\nreturn thing\n",
   ["build/raw.d.tl"] = "local record raw\n  n: integer\nend\nreturn raw\n",
   -- Declares a global, whose row a taken parse must carry as it does the rest.
-  ["build/other.tl"] = "--- Other.\nlocal record other\n  n: integer\nend\nother.n = 3\n" ..
-    "global count: integer = 1\nreturn other\n",
+  ["build/other.tl"] = "--- Other.\nlocal record other\n  n: integer\nend\nother.n = 3\nreturn other\n",
+  ["build/counter.d.tl"] = "global count: integer\n",
 }
 
 --- What a boot of the tree at `root` derives, sharing through the cache
@@ -52,11 +49,11 @@ local function boot(root: string, path: string): importer.Parses, string, string
   assert(work.stage(handle, true))
   local shared = shared_compiles.for_build({ COSMIC_BUILD_CACHE = path })
   local meta = Store.meta
-  Store.meta = function(key: string): string | nil
+  Store.meta = function(key: string): string?
     if key == "boot_hash" then return nil end
     return meta(key)
   end
-  local ok, parses, trouble = pcall(importer.derive, handle, true, built, shared)
+  local ok, parses, trouble = pcall(importer.derive, handle, true, shared)
   Store.meta = meta
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(parses))
@@ -71,7 +68,7 @@ end
 --- A tree like `analyzer_tree` at `root`, with `changed` written over it.
 local function analyzer_checkout(root: string, changed?: {string:string})
   for _, dir in ipairs({ "build", "core" }) do assert(Fs.mkdirs(root .. "/" .. dir)) end
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(analyzer_tree) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do assert(Fs.write(root .. "/" .. name, source)) end
@@ -110,7 +107,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   assert(declined_named ~= named and declined_named == alone_named and
       declined_rows == alone_rows, "a declined analyzer's parse differs from one made alone")
   -- The first tree's analyzer again, but the cache's `requires` of
-  -- build.analyzer leave build.thing out: the name those rows give is
+  -- build.derivation leave build.thing out: the name those rows give is
   -- not the analyzer's, so it is declined, the tree parsed, and the
   -- row made here replaces the one that led astray.
   local analyzer_hash = rows:match("\n([0-9a-f]+)\t1\tbuild%.ast\n")
@@ -130,7 +127,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
 end
 
 --- A guess can accept an analyzer that is not the tree's: here the
---- cache's parse of build.analyzer, damaged, leaves out a require of
+--- cache's parse of build.derivation, damaged, leaves out a require of
 --- build.extra, a module the first tree lacked, so the rows it guesses
 --- by name the first tree's analyzer over a tree that has it. The
 --- damaged row fails its digest and is parsed here, which finds the
@@ -140,13 +137,13 @@ end
 local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local path = tmp .. "/cache/cache.db"
-  local reaching: {string:string} = { ["build/analyzer.tl"] = "local ast = require(\"build.ast\")\n" ..
+  local reaching: {string:string} = { ["build/derivation.tl"] = "local ast = require(\"build.ast\")\n" ..
       "local thing = require(\"build.thing\")\nlocal extra = require(\"build.extra\")\n" ..
-      "--- The analyzer.\nlocal record analyzer\n  n: integer\nend\n" ..
-      "analyzer.n = ast.n + thing.n + extra.n\nreturn analyzer\n" }
+      "--- The analyzer.\nlocal record derivation\n  n: integer\nend\n" ..
+      "derivation.n = ast.n + thing.n + extra.n\nreturn derivation\n" }
   analyzer_checkout(tmp .. "/lacking", reaching)
   local _, lacking_named, lacking_rows = boot(tmp .. "/lacking", path)
-  local having: {string:string} = {
+  local having: mut {string:string} = {
     ["build/extra.tl"] = "local record extra\n  n: integer\nend\nextra.n = 4\nreturn extra\n",
   }
   for name, source in pairs(reaching) do having[name] = source end

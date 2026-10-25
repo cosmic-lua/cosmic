@@ -272,7 +272,7 @@ end
 --- The database is named in what a refusal says, whatever its reason,
 --- and nothing runs.
 local function refused(core: string, path: string, reason: string, argv?: {string})
-  local command: {string} = { core, "--database", path }
+  local command: mut {string} = { core, "--database", path }
   for _, word in ipairs(argv or {}) do command[#command + 1] = word end
   local r = run(command)
   assert(r.code == 2, reason .. ": exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))

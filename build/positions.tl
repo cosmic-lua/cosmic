@@ -110,8 +110,8 @@ end
 ---   which tells a project tree's Teal `cosmic.internal.*` from a raw table
 function positions.check(modules: {positions.Module}, own_tree: boolean,
                          carried?: function(name: string): boolean): boolean, string
-  local by_path: {string:positions.Module} = {}
-  local entries: {string:string} = {}
+  local by_path: mut {string:positions.Module} = {}
+  local entries: mut {string:string} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
     if basename(m.file) == "init.tl" or basename(m.file) == "init.tmpl" then
@@ -135,8 +135,8 @@ function positions.check(modules: {positions.Module}, own_tree: boolean,
         local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
           (own_tree and (home == "cosmic/internal" or OPEN_MEMBERS[name] == true))
         if not open and not Fs.within(m.file, home) then
-          local entry = entries[home] ~= nil and ("its entry is " .. entries[home]) or
-            (home .. "/ has no init.tl entry")
+          local entry = if entries[home] ~= nil then ("its entry is " .. entries[home]) else
+            (home .. "/ has no init.tl entry") end
           return false, m.file .. ": " .. name .. " is private to " .. home ..
             "/; only a file inside it may import it (" .. entry .. ")"
         end

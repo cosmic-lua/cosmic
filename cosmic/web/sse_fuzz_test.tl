@@ -13,7 +13,7 @@ local PIECES <const>: {string} = {
 
 --- A field value: pieces, and at times a stray byte.
 local function gen_text(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 8) do
     if src:int(0, 9) == 0 then
       parts[#parts + 1] = Fuzz.bytes(src, 3)
@@ -27,10 +27,10 @@ end
 --- Five fields, each present or not, and a retry.
 local function gen_event(src: Fuzz.Source): string
   local present = ""
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for i = 1, 4 do
     local has = src:int(0, 2) ~= 0
-    present = present .. (has and "1" or "0")
+    present = present .. (if has then "1" else "0" end)
     local text = has and gen_text(src) or ""
     -- The event and the id are mostly drawn to be valid, so most inputs reach the formatter.
     if (i == 2 or i == 3) and src:int(0, 4) ~= 0 then text = text:gsub("[%c]", "") end
@@ -86,11 +86,11 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if out:sub(-2) ~= "\n\n" or out:find("\n\n", 1, true) ~= #out - 1 then
         return false, "a blank line before the end of the event"
       end
-      local seen: {string: integer} = {}
-      local data: {string} = {}
-      local comment: {string} = {}
-      local id: string | nil = nil
-      local event: string | nil = nil
+      local seen: mut {string: integer} = {}
+      local data: mut {string} = {}
+      local comment: mut {string} = {}
+      local id: string? = nil
+      local event: string? = nil
       for line in out:sub(1, -3):gmatch("[^\n]*") do
         local name, value = line:match("^(%a+): (.*)$")
         if line:sub(1, 2) == ": " then

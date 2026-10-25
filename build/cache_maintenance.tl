@@ -50,9 +50,9 @@ end
 
 local record Database
   --- Nil once closed, and for a database [`owned`] has none yet.
-  db?: Sqlite.Handle
+  mut db?: Sqlite.Handle
   transaction: boolean
-  metamethod __close: function(Database)
+  __close: function(Database)
 end
 
 local database_mt: metatable<Database> = {
@@ -82,19 +82,19 @@ local function quoted(name: string): string
   return '"' .. name:gsub('"', '""') .. '"'
 end
 
-local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer | nil, string
+local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer?, string
   local rows, why = Sqlite.rows(db, sql, values)
   if rows == nil then return nil, why end
   return rows[1]:integer(1), ""
 end
 
 --- A column's shape, including hidden/generated columns that table_info omits.
-local function columns(db: Sqlite.Handle, name: string): {string} | nil, string
+local function columns(db: Sqlite.Handle, name: string): {string}?, string
   local rows, why = Sqlite.text_rows(db,
     'SELECT name, upper(type), "notnull", coalesce(dflt_value, \'\'), pk, hidden ' ..
       "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
   if rows == nil then return nil, why end
-  local shape: {string} = {}
+  local shape: mut {string} = {}
   for _, row in ipairs(rows) do shape[#shape + 1] = table.concat(row:texts(), "\0") end
   return shape, ""
 end
@@ -119,7 +119,7 @@ local function shapes(): {string:Shape}
     for _, sql in ipairs(schema) do assert(memory:exec(sql)) end
   end
   assert(memory:exec(formats.legacy_verdicts))
-  local out: {string:Shape} = {}
+  local out: mut {string:Shape} = {}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
     local sql = assert(Sqlite.text_rows(memory,
@@ -129,7 +129,7 @@ local function shapes(): {string:Shape}
   return out
 end
 
-local function matches(name: string, sql: string, found: {string}, expected: Shape | nil): boolean
+local function matches(name: string, sql: string, found: {string}, expected: Shape?): boolean
   if expected == nil then return false end
   -- The declared format predates parts; its writer adds that final column.
   local old_declared = name == formats.declared and #found == #expected.columns - 1
@@ -162,7 +162,7 @@ end
 --- A DELETE must not invoke schema code or cascade into an unknown table.
 --- Conservatively retain all family rows when any such effect is present.
 local function inspect(db: Sqlite.Handle, family: maintenance.Family,
-                       expected: {string:Shape}): {Table} | nil, string
+                       expected: {string:Shape}): {Table}?, string
   local schema, why = Sqlite.text_rows(db,
     "SELECT name, type, coalesce(sql, '') FROM sqlite_schema ORDER BY name")
   if schema == nil then return nil, why end
@@ -178,7 +178,7 @@ local function inspect(db: Sqlite.Handle, family: maintenance.Family,
       if foreign ~= 0 then unsafe = true end
     end
   end
-  local out: {Table} = {}
+  local out: mut {Table} = {}
   for _, row in ipairs(schema) do
     local name = row:text(1)
     if row:text(2) == "table" and belongs(name, family) then
@@ -351,8 +351,8 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
       "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
       { { text = name } })
     if fields == nil then return false, fields_why end
-    local selected: {string} = {}
-    local order: {string} = {}
+    local selected: mut {string} = {}
+    local order: mut {string} = {}
     for i, field in ipairs(fields) do
       selected[i], order[i] = quoted(field:text(1)), tostring(i)
       hasher:update("column\0" .. #field:text(1) .. ":" .. field:text(1))
@@ -392,7 +392,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
   return close(database)
 end
 
-local function digest(paths: {string}, guard: Signal.Guard): string | nil, string
+local function digest(paths: {string}, guard: Signal.Guard): string?, string
   if #paths == 0 then return nil, "" end
   local hasher = assert(Hash.hasher("sha256"))
   for _, path in ipairs(paths) do
@@ -405,8 +405,8 @@ local function digest(paths: {string}, guard: Signal.Guard): string | nil, strin
 end
 
 --- Merge two ordered key cursors; memory holds at most one key from each.
-local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle | nil,
-                        name: string, guard: Signal.Guard): integer | nil, string
+local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle?,
+                        name: string, guard: Signal.Guard): integer?, string
   if restored == nil then return count(db, "SELECT count(*) FROM " .. quoted(name)) end
   local there, there_why = count(restored,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1", { { text = name } })
@@ -439,7 +439,7 @@ local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle | nil,
 end
 
 local function fresh_keys(path: string, restored: string, expected: {string:Shape},
-                          guard: Signal.Guard): integer | nil, string
+                          guard: Signal.Guard): integer?, string
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
   local live <close> = owned(opened)
@@ -455,7 +455,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
     return nil, stat_why
   end
   local old_db = old.db
-  for _, db in ipairs(old_db ~= nil and { opened, old_db } or { opened }) do
+  for _, db in ipairs(if old_db ~= nil then { opened, old_db } else { opened } end) do
     local tables, table_why = inspect(db, "compiles", expected)
     if tables == nil then return nil, table_why end
     for _, entry in ipairs(tables) do
@@ -497,7 +497,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   end
   local held <close> = guard
   local expected = shapes()
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   local complete = true
   for _, path in ipairs(options.paths) do
     if held:cancelled() ~= 0 then

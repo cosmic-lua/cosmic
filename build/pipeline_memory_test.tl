@@ -36,7 +36,7 @@ local SHAPE <const>: {string: string} = {
 local function options(): Pipeline.Options
   return {
     globals = {
-      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+      sources = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
     ceilings = assert(Ceilings.parse("")), types = true, standard = Driver.stubs(SHAPE), project = nil,
@@ -46,7 +46,7 @@ end
 --- The text of the module `i`: a record, its functions, and a value of the record that calls each and reads the module before.
 --- With `shaped` it asks for the record's spec of [`cosmic.shape`], whose call the build resolves in a text of its own.
 local function text_of(i: integer, shaped: boolean): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if shaped then
     lines[#lines + 1] = "local Shape = require(\"cosmic.shape\")"
   end
@@ -54,9 +54,9 @@ local function text_of(i: integer, shaped: boolean): string
     lines[#lines + 1] = ("local Prev = require(\"m_%d\")"):format(i - 1)
   end
   lines[#lines + 1] = "local record Box"
-  lines[#lines + 1] = "  n: integer"
+  lines[#lines + 1] = "  mut n: integer"
   lines[#lines + 1] = "end"
-  local calls: {string} = {}
+  local calls: mut {string} = {}
   for f = 1, FUNCTIONS do
     lines[#lines + 1] = ("local function f%d(a: integer): integer"):format(f)
     lines[#lines + 1] = ("  local b: integer = a + %d"):format(f)
@@ -94,8 +94,8 @@ end
 --- the garbage of the module being compiled. With `keep` every syntax tree is held by the case, as a build that never let go
 --- would.
 local function held_while_compiling(keep: boolean, shaped: boolean): number
-  local entries: {{string}} = {}
-  local kinds: {string: string} = {}
+  local entries: mut {{string}} = {}
+  local kinds: mut {string: string} = {}
   for i = 0, MODULES do
     local file = ("m_%d.tl"):format(i)
     entries[#entries + 1] = { file, text_of(i, shaped) }
@@ -105,7 +105,7 @@ local function held_while_compiling(keep: boolean, shaped: boolean): number
   -- The first module pays for the library's declarations, which every build holds.
   local first, why = Pipeline.generate(module_of(0), pipeline)
   assert(first ~= nil, tostring(why))
-  local held: {Driver.Outcome} = {}
+  local held: mut {Driver.Outcome} = {}
   collectgarbage("collect")
   collectgarbage("collect")
   local base = collectgarbage("count")

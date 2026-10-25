@@ -185,7 +185,7 @@ local function test_parse_keeps_bytes_past_ascii_as_written()
 end
 
 local function names_values(q: Url.Query): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, p in ipairs(q.pairs) do
     out[#out + 1] = p.name .. "=" .. p.value
   end
@@ -261,7 +261,7 @@ local function test_decode_query_lenient_without_utf8_keeps_stray_percent_and_ra
 end
 
 local function test_decode_query_caps_pairs_and_bytes()
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 1001 do many[i] = "a=" .. i end
   local q, why = Url.decode_query(table.concat(many, "&"))
   assert(q == nil and why == "url: the query holds more pairs than max_pairs (1000)", why)

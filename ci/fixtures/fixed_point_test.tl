@@ -146,7 +146,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
         tostring(stale_lines) .. " stale-rebuild lines, want 1")
     local settled_lines = count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
-    local want = settles and 1 or 0
+    local want = if settles then 1 else 0 end
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
         "database again " .. tostring(settled_lines) .. " times, want " ..
         tostring(want))
@@ -169,7 +169,7 @@ end
 -- and the other sharing cases after them: on three or four workers each
 -- of those starts once `outside` has ended.
 
--- `build.contracts` is in the compiler's identity (`build.identity`'s
+-- `build.plans` is in the compiler's identity (`build.identity`'s
 -- `compiler_roots`) and not the writer's: each rebuilt tool compiles
 -- the whole tree again with its own compiler.
 --
@@ -184,7 +184,7 @@ end
 -- that redefine the identity alike compile under the redefined identity
 -- what the first already had.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/contracts.tl", commented, true, false)
+  run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
 end
 
 -- `build.positions` is in neither identity, though build.writer
@@ -205,8 +205,8 @@ end
 -- and refuse (exit 3).
 local function test_a_redefined_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "identity", "build/identity.tl", function(source: string): string
-    return (source:gsub('"build%.teal", "build%.tree",\n',
-      '"build.teal", "build.tree", "build.clock",\n', 1))
+    return (source:gsub('"build%.tree", "build%.withheld",\n',
+      '"build.tree", "build.withheld", "build.clock",\n', 1))
   end, true, false)
 end
 
@@ -224,8 +224,8 @@ local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool
     local covered, files = source:gsub('(%["build%.zig%.zon"%] = true,\n)',
       '%1  ["README.md"] = true,\n', 1)
     assert(files == 1, "fingerprint-identity: tool_files' build.zig.zon line was not found")
-    local redefined, roots = covered:gsub('"build%.teal", "build%.tree",\n',
-      '"build.teal", "build.tree", "build.clock",\n', 1)
+    local redefined, roots = covered:gsub('"build%.tree", "build%.withheld",\n',
+      '"build.tree", "build.withheld", "build.clock",\n', 1)
     assert(roots == 1, "fingerprint-identity: compiler_roots' last line was not found")
     return redefined
   end, true, false)

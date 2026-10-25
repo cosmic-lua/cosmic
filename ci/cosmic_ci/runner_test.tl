@@ -15,7 +15,7 @@ local hang_guard = Clock.seconds(20)
 
 --- A number a stand-in or a callback sets.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
@@ -141,7 +141,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   local context: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   local detail = string.rep("full phase failure; ", 100)
-  local messages: {string} = {}
+  local messages: mut {string} = {}
   local seams = Seams.calls()
   local put = seams.fs_put
   seams.fs_put = function(fd: integer, bytes: string): boolean, string
@@ -215,7 +215,7 @@ end
 
 --- A flag a callback sets.
 local record Flag
-  value: boolean
+  mut value: boolean
 end
 
 local function test_phase_rejects_a_candidate_database_before_its_action(tmp: string)

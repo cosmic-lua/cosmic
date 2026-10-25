@@ -27,8 +27,8 @@ local function reply(status: string, head: string, body: string): string
 end
 
 --- Reads `response` to its end: the body, or nil and why not.
-local function read_all(response: Http.Response): string | nil, string
-  local parts: {string} = {}
+local function read_all(response: Http.Response): string?, string
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then

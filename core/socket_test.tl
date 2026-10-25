@@ -39,7 +39,7 @@ end
 --- Each sample includes the same temporary directory descriptor used
 --- to list it. Compare counts in this worker, never a host-wide baseline.
 local function descriptor_count(): integer
-  local path = assert(sys.uname()).sysname == "Darwin" and "/dev/fd" or "/proc/self/fd"
+  local path = if assert(sys.uname()).sysname == "Darwin" then "/dev/fd" else "/proc/self/fd" end
   local count = 0
   for name in pairs((assert(sys.readdir(path)))) do
     if name:match("^%d+$") ~= nil then count = count + 1 end
@@ -273,7 +273,7 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
   if unix_socket.skipped(tmp) then return end
   local path = tmp .. "/s.sock"
   local _listener <close> = assert(raw.listen(unix(path), 1))
-  local held: {raw_socket.Socket} = {}
+  local held: mut {raw_socket.Socket} = {}
   for _ = 1, 16 do
     local client = raw.connect(unix(path), 0)
     if client == nil then break end
@@ -335,7 +335,7 @@ local function test_descriptor_passing_closes_extras_truncation_and_bad_frames(t
   collectgarbage("collect")
   local before = descriptor_count()
   for _, count in ipairs({ 2, 16 }) do
-    local descriptors: {integer} = {}
+    local descriptors: mut {integer} = {}
     for _ = 1, count do descriptors[#descriptors + 1] = original:fd() end
     assert(raw.sendfds(sender:fd(), descriptors))
     assert(raw.wait(receiver:fd(), false, 5000))

@@ -22,7 +22,7 @@ local record Dialect
   record Table
     --- The rule for the attribute `attr` (lower case), or nil when the
     --- dialects say nothing of it.
-    classify: function(self: Table, attr: string): Rule | nil
+    classify: function(self: Table, attr: string): Rule?
     --- The rule of each attribute that has one, by exact name.
     exact: {string: Rule}
     --- The prefix rules, longest prefix first.
@@ -41,10 +41,10 @@ local record Dialect
   --- The table for the always-on dialect and the dialects `names` in
   --- `registry`, or nil and why when a name is unknown or two of the named
   --- dialects give one attribute different rules.
-  resolve: function(names: {string}, registry: {string: types.Def}): Table | nil, string
+  resolve: function(names: {string}, registry: {string: types.Def}): Table?, string
 end
 
-local function classify(self: Dialect.Table, attr: string): Rule | nil
+local function classify(self: Dialect.Table, attr: string): Rule?
   local known = self.known[attr]
   if known ~= nil then
     return known
@@ -145,8 +145,8 @@ end
 --- @param registry {string: types.Def} Where their data is found by name
 --- @return Dialect.Table|nil The merged rules
 --- @return string The reason, on failure
-function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialect.Table | nil, string
-  local defs: {types.Def} = { base }
+function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialect.Table?, string
+  local defs: mut {types.Def} = { base }
   for _, name in ipairs(names) do
     local def = registry[name]
     if def == nil then
@@ -158,12 +158,12 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
     end
     defs[#defs + 1] = def
   end
-  local exact: {string: Rule} = {}
-  local owner: {string: string} = {}
-  local order: {types.Prefix: integer} = {}
-  local prefixes: {types.Prefix} = {}
-  local seen: {string: boolean} = {}
-  local families: {string} = {}
+  local exact: mut {string: Rule} = {}
+  local owner: mut {string: string} = {}
+  local order: mut {types.Prefix: integer} = {}
+  local prefixes: mut {types.Prefix} = {}
+  local seen: mut {string: boolean} = {}
+  local families: mut {string} = {}
   for at, def in ipairs(defs) do
     for attr, rule in pairs(def.exact) do
       -- The always-on dialect is the one a named dialect may override, so

@@ -53,7 +53,7 @@ local record Module
   -- literal (cosmic.archive's ExtractOptions.strip, replaced by
   -- strip_prefix and strip_components) has no entry: the checker says only `unknown
   -- field strip`, without the record it was checked against, so
-  -- [`build.teal`]'s `replacement` cannot look one up. Key entries by
+  -- the pipeline's hint cannot look one up. Key entries by
   -- record (`cosmic.archive.ExtractOptions.strip`) once that message
   -- names its record. The same holds for the fields `cosmic.json`'s
   -- EncodeOptions lost: `sorted` (keys are always in byte order),
@@ -98,7 +98,7 @@ local record Module
   -- can say: an integer is an integer.
   -- TODO: key cosmic.log's Logger `verdict` (a program's outcome is its
   -- exit status; `say` writes what it found and `complain` what went
-  -- wrong) once build/teal.tl's `replacement` reads a nested record's
+  -- wrong) once the hint of build/removed_fix.tl reads a nested record's
   -- subject: the checker names [`Log.Logger`], a dotted subject it skips.
   -- Likewise for the calls whose parameters changed shape: `Proc.exec(path,
   -- argv, environment)` is `Proc.exec(argv, { env = environment })`, argv[1]
@@ -513,7 +513,7 @@ local module: Module = {
   -- string, expected Flags.Command`, with no hint: `arguments` answers a
   -- boolean given for a record. Say `Flags.help({ spec = spec, about =
   -- about, usage = <what follows the program's name> }, program)` once
-  -- [`build.teal`]'s `replacement` also reads a string given for a record.
+  -- the pipeline's hint also reads a string given for a record.
   -- TODO: a program that still reads a row as a list (`row[1]`, `row[1].text`)
   -- gets only `cannot index object of type Row with integer`, with no hint:
   -- say `row:text(1)`, `row:integer(1)` and [`cosmic.sqlite`]'s other
@@ -536,7 +536,7 @@ local module: Module = {
 --- and a run-time failure both show. For a name with no entry, it says
 --- only that the name is not available, or where to look.
 function module.message(name: string, field?: string): string
-  local dotted = field ~= nil and name .. "." .. field or name
+  local dotted = if field ~= nil then name .. "." .. field else name end
   local instead = field ~= nil and module.replacements[dotted] or nil
   if instead ~= nil then
     return dotted .. " is not available: " .. instead

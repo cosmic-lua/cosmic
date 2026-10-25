@@ -14,7 +14,7 @@ local record SnippetFixture
 end
 
 local record Held
-  options: Pipeline.Options | nil
+  mut options: Pipeline.Options?
 end
 
 local held: Held = { options = nil }
@@ -29,7 +29,7 @@ local function options(): Pipeline.Options
   return made
 end
 
-local function lua(text: string): string | nil, string
+local function lua(text: string): string?, string
   local made = Pipeline.checked_alone("snippet.tl", text, options())
   if made.code == nil then
     return nil, table.concat(made.lines, "\n")

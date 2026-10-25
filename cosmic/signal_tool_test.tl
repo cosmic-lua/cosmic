@@ -27,16 +27,19 @@ local Fs = require("cosmic.fs")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   do
-    local guard <close> = assert(Signal.guard())
+    local guard = assert(Signal.guard())
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     answers[#answers + 1] = tostring(guard:cancelled())
-    answers[#answers + 1] = tostring((guard:release()))
-    answers[#answers + 1] = tostring((guard:release()))
-    answers[#answers + 1] = tostring((guard:close()))
+    local got_release, _ = guard:release()
+    answers[#answers + 1] = tostring(got_release)
+    local again, _ = guard:release()
+    answers[#answers + 1] = tostring(again)
+    local got_close, _ = guard:close()
+    answers[#answers + 1] = tostring(got_close)
   end
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
   return 0
 end
 ]]))
@@ -62,7 +65,7 @@ local Fs = require("cosmic.fs")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   answers[#answers + 1] = tostring(guard:cancelled())
@@ -70,8 +73,9 @@ return function(argv: {string}): integer
   answers[#answers + 1] = tostring(guard:cancelled())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  local got_release, _ = guard:release()
+  answers[#answers + 1] = tostring(got_release)
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
   return 0
 end
 ]]))
@@ -96,7 +100,7 @@ local Fs = require("cosmic.fs")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   answers[#answers + 1] = tostring(guard:take())
@@ -105,8 +109,9 @@ return function(argv: {string}): integer
   answers[#answers + 1] = tostring(guard:take())
   answers[#answers + 1] = tostring(guard:take())
   answers[#answers + 1] = tostring(guard:cancelled())
-  answers[#answers + 1] = tostring((guard:release()))
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  local got_release, _ = guard:release()
+  answers[#answers + 1] = tostring(got_release)
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
   return 0
 end
 ]]))
@@ -131,16 +136,18 @@ local Fs = require("cosmic.fs")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local answers: {string} = {}
-  local outer <close> = assert(Signal.guard())
+  local answers: mut {string} = {}
+  local outer = assert(Signal.guard())
   do
-    local inner <close> = assert(Signal.guard())
+    local inner = assert(Signal.guard())
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     answers[#answers + 1] = tostring(inner:cancelled())
+    assert(inner:close())
   end
   answers[#answers + 1] = "alive"
   answers[#answers + 1] = tostring(outer:cancelled())
-  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  assert(Fs.write((argv[1] or ""), table.concat(answers, "|")))
+  assert(outer:close())
   return 0
 end
 ]]))
@@ -168,7 +175,7 @@ return function(argv: {string}): integer
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local second = assert(Signal.guard())
   assert(first:close())
-  assert(Fs.write(argv[1], tostring(first:cancelled()) .. "|" .. tostring(second:cancelled())))
+  assert(Fs.write((argv[1] or ""), tostring(first:cancelled()) .. "|" .. tostring(second:cancelled())))
   assert(second:close())
   return 0
 end

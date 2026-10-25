@@ -19,7 +19,7 @@ end
 
 --- The codes of the errors of `parsed`, space apart.
 local function codes(parsed: Parser.Parsed): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, e in ipairs(parsed.errors) do
     out[i] = e.code
   end
@@ -28,7 +28,7 @@ end
 
 --- The statements of `parsed` as text.
 local function tree(parsed: Parser.Parsed): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, stat in ipairs(parsed.chunk.body.stats) do
     out[i] = Dump.dump(stat)
   end
@@ -139,7 +139,7 @@ local function test_a_bar_inside_brackets_or_before_anything_but_a_paren_continu
   for _, body in ipairs(arms) do
     local source = "match f() do\n  | (true, v) then\n    " .. body .. "\n  | (false, e) then error(e)\nend"
     local stat = parse(source).chunk.body.stats[1]
-    assert(stat is Ast.Match and #stat.arms == 2, "two arms: " .. body)
+    assert((stat.kind == "Match") and #stat.arms == 2, "two arms: " .. body)
     assert(codes(parse(source)) == "", "no error: " .. body)
   end
 end
@@ -158,7 +158,7 @@ local function test_a_function_literal_in_an_arm_has_the_union_of_lists_of_its_o
   assert(codes(parsed) == "", codes(parsed))
   has(tree(parsed), "(Rets [[(TypeBool true) (TypeName [\"A\"])] [(TypeBool false) (TypeName [\"B\"])]])", "two lists")
   local stat = parsed.chunk.body.stats[1]
-  assert(stat is Ast.Match and #stat.arms == 2)
+  assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
 local function test_two_arms_on_a_line_are_refused_and_read_as_two()
@@ -166,7 +166,7 @@ local function test_two_arms_on_a_line_are_refused_and_read_as_two()
   assert(codes(parsed) == "arm_on_same_line", codes(parsed))
   has(parsed.errors[1].fix, "start each arm on its own line", "fix")
   local stat = parsed.chunk.body.stats[1]
-  assert(stat is Ast.Match and #stat.arms == 2, "two arms")
+  assert((stat.kind == "Match") and #stat.arms == 2, "two arms")
 end
 
 local function test_an_if_in_an_arm_that_is_not_closed_is_blamed_not_the_bar()
@@ -174,7 +174,7 @@ local function test_an_if_in_an_arm_that_is_not_closed_is_blamed_not_the_bar()
   assert(codes(parsed) == "unclosed", codes(parsed))
   has(parsed.errors[1].msg, "to close the `if` on line 3", "blames the if")
   local stat = parsed.chunk.body.stats[1]
-  assert(stat is Ast.Match and #stat.arms == 2)
+  assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
 -- repeat and continue
@@ -255,11 +255,11 @@ end
 
 local function test_a_function_statement_has_its_doc_comment()
   local stat = parse("-- one\n--- two\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[1]
-  assert(stat is Ast.Function)
+  assert((stat.kind == "Function"))
   local doc = stat.doc
   assert(doc ~= nil and #doc == 2 and doc[1].text == "-- one" and doc[2].text == "--- two", "the run before the statement")
   local second = parse("-- one\nfunction R.m() end\nfunction R.n() end").chunk.body.stats[2]
-  assert(second is Ast.Function and second.doc == nil, "none for the next")
+  assert((second.kind == "Function") and second.doc == nil, "none for the next")
 end
 
 -- what takes a suffix
@@ -438,7 +438,7 @@ local function test_a_second_arm_on_the_line_of_a_call_statement_is_refused()
   local parsed = parse("match f() do\n  | (true, x) then a() | (false, y) then b()\nend")
   assert(codes(parsed) == "arm_on_same_line", codes(parsed))
   local stat = parsed.chunk.body.stats[1]
-  assert(stat is Ast.Match and #stat.arms == 2)
+  assert((stat.kind == "Match") and #stat.arms == 2)
 end
 
 -- reserved words at the start of a statement

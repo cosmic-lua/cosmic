@@ -254,7 +254,7 @@ end
 
 local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: string)
   local seen = assert(Zig.snapshot(sources(tmp)))
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(seen) do
     paths[#paths + 1] = path
   end
@@ -309,7 +309,7 @@ end
 local function test_race_report_names_five_paths_then_counts_the_rest()
   assert(Zig.race_report({ "core/a.c" }) ==
       "sources changed during the build: core/a.c; run it again")
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 8 do
     many[i] = "core/" .. tostring(i) .. ".c"
   end
@@ -321,15 +321,15 @@ end
 local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often(tmp: string)
   local root = sources(tmp)
   local record Held
-    runs: integer
-    edits: integer
+    mut runs: integer
+    mut edits: integer
   end
   local held: Held = { runs = 0, edits = 0 }
   -- Each of the first `racing` runs is made to race an edit, as the
   -- command of one does in passing.
   local function build(racing: integer, status: integer): integer, integer
     held.runs, held.edits = 0, 0
-    local result = Zig.watched_build(root, function(): {string} | nil
+    local result = Zig.watched_build(root, function(): {string}?
       held.edits = held.edits + 1
       if held.edits <= racing then
         assert(Fs.write(root .. "/core/a.c", "edit " .. tostring(held.edits)))
@@ -387,7 +387,7 @@ end
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
   assert(build_dir(root))
-  local contents: {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
+  local contents: mut {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
   for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
@@ -429,7 +429,7 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
     calls.value = calls.value + 1
     return reply
   end
-  Env.get = function(name: string): string | nil
+  Env.get = function(name: string): string?
     if name == "COSMIC_ZIG" then return "tool" end
     return nil
   end
@@ -442,7 +442,7 @@ end
 
 local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)
   local real_open, real_kind = Sqlite.open, sys.flock_kind
-  sys.flock_kind = function(_fd: integer): string | nil, string, integer
+  sys.flock_kind = function(_fd: integer): string?, string, integer
     return "apart", "", 0
   end
   local outcomes: {Sqlite.ExecResult} = {
@@ -451,7 +451,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     { code = 1, extended_code = 1, reason = "busy appears in this unrelated failure" },
     { code = Sqlite.BUSY, extended_code = Sqlite.BUSY, reason = "interrupted", cancelled = true },
   }
-  local statuses, attempts, closures: {integer}, {integer}, {integer} = {}, {}, {}
+  local statuses, attempts, closures: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
   -- A handle is a userdata whose methods live in its metatable's `__index`,
   -- the one table every handle shares: the lock gets a real handle, and the
   -- three methods it calls answer what the outcome says for this test alone.
@@ -460,7 +460,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
   local calls = { value = 0 }
   local closes = { value = 0 }
-  local outcome: Sqlite.ExecResult | nil
+  local outcome: Sqlite.ExecResult?
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
   methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
     assert(sql == "BEGIN IMMEDIATE")
@@ -472,7 +472,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     closes.value = closes.value + 1
     return (real_close as function(any): boolean, string)(self)
   end
-  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
     return Sqlite.memory()
   end
   for i, each in ipairs(outcomes) do
@@ -498,7 +498,7 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   assert(Fs.set_mtime(path, 0, 0))
   local stat = sys.stat
   local tick = { value = 1 }
-  sys.stat = function(name: string): sys.Stat | nil, string, integer
+  sys.stat = function(name: string): sys.Stat?, string, integer
     local st, trouble, errno = stat(name)
     if st ~= nil and name == path then
       st.ctime = 100
@@ -549,7 +549,7 @@ end
 
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
   if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
@@ -577,8 +577,8 @@ local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
 end
 
 local record Tally
-  closed: integer
-  released: integer
+  mut closed: integer
+  mut released: integer
 end
 
 --- An error that leaves the supervision of [`Zig.run`] must close the signal guard, which restores the signals the
@@ -586,10 +586,10 @@ end
 local function test_run_closes_the_signal_guard_when_supervising_raises()
   local real_start, real_guard = Child.start, Signal.guard
   local tally: Tally = { closed = 0, released = 0 }
-  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle | nil, string
+  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string
     error("the start raised")
   end
-  Signal.guard = function(): Signal.Guard | nil, string
+  Signal.guard = function(): Signal.Guard?, string
     local guard, trouble = real_guard()
     if guard ~= nil then
       local watched: Signal.Guard = guard
@@ -598,7 +598,7 @@ local function test_run_closes_the_signal_guard_when_supervising_raises()
         tally.closed = tally.closed + 1
         return real_close(self)
       end
-      watched.release = function(self: Signal.Guard): integer | nil, string
+      watched.release = function(self: Signal.Guard): integer?, string
         tally.released = tally.released + 1
         return real_release(self)
       end

@@ -23,7 +23,7 @@ local SHA <const> = "0123456789abcdef0123456789abcdef01234567"
 
 --- How many staged and key-reading runs have been made, for their directories.
 local record Runs
-  value: integer
+  mut value: integer
 end
 local runs: Runs = { value = 0 }
 
@@ -36,8 +36,8 @@ local record Fake
 end
 
 local function fake(archive?: function(parent: string, name: string, to: string): boolean, string): Fake
-  local printed: {string} = {}
-  local warned: {string} = {}
+  local printed: mut {string} = {}
+  local warned: mut {string} = {}
   return {
     host = {
       print = function(text: string) printed[#printed + 1] = text end,
@@ -68,7 +68,7 @@ local function stage(tmp: string, env: {string: string}, marker: boolean, marker
     assert(Fs.mkdirs(temp .. "/driver-checked"))
     assert(Fs.write(temp .. "/driver-checked/key", (marker_key or "driver-checked-v2-leg-x") .. "\n"))
   end
-  local full: {string: string} = { RUNNER_TEMP = temp }
+  local full: mut {string: string} = { RUNNER_TEMP = temp }
   for name, value in pairs(env) do full[name] = value end
   local f = fake(archive)
   local code = QueueStage.stage(full, f.host)
@@ -147,14 +147,14 @@ end
 --- The tree of `root`, a line for each path below it: what it is, its
 --- permission bits, and its bytes, link target or modification time.
 local function tree(root: string): {string: string}
-  local lines: {string: string} = {}
+  local lines: mut {string: string} = {}
   local function visit(path: string, rel: string)
     local st = assert(sys.lstat(path))
     -- A directory's mode is read from the archive instead: the extractor
     -- makes every directory 0755.
     -- TODO: compare a directory's mode here once cosmic.archive's
     -- `extract` applies the mode a directory entry names.
-    local what = st.kind .. (st.kind == "dir" and "" or string.format(" %o", st.mode & 0xfff))
+    local what = st.kind .. (if st.kind == "dir" then "" else string.format(" %o", st.mode & 0xfff) end)
     if st.kind == "file" then
       what = what .. " " .. assert(Fs.read(path)) .. string.format(" %d", st.mtime)
     elseif st.kind == "link" then
@@ -258,7 +258,7 @@ local function test_the_zig_tar_lays_out_the_tree_it_archived(tmp: string)
     assert(now[path] == what, path .. ": " .. what .. " / " .. tostring(now[path]))
   end
   for path in pairs(now) do assert(was[path] ~= nil, "extra " .. path) end
-  local modes: {string: integer} = {}
+  local modes: mut {string: integer} = {}
   for _, member in ipairs((assert(Archive.list(parent .. "/zig-build.tar")))) do
     modes[member.path] = member.mode
   end
@@ -304,11 +304,11 @@ local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663f
 --- none (alpine-x86_64's, which adds to every leg).
 local function in_container(leg: string): boolean
   local platform = assert(workflow()["platform"])
-  local image: string | nil
+  local image: string?
   for _, entry in ipairs(assert(assert(assert(platform.strategy).matrix).include)) do
-    if entry.name == leg then return entry.image ~= "" end
-    local named = entry.image
-    if entry.name == nil and named is string then image = named end
+    if entry["name"] == leg then return entry["image"] ~= "" end
+    local named = entry["image"]
+    if entry["name"] == nil and named is string then image = named end
   end
   assert(image ~= nil, "no platform leg " .. leg)
   return image ~= ""
@@ -339,7 +339,7 @@ end
 --- fails, so a key built of something new is read here first.
 local function expand(template: string, leg: string, steps: {CiWorkflow.Step}): string
   local host = "verdicts-" .. leg .. "-3a9f8d7b94f5492e-"
-  local values: {string: string} = {
+  local values: mut {string: string} = {
     ["matrix.name"] = leg,
     ["github.sha"] = SHA,
     ["github.run_id"] = "36730873187",
@@ -405,18 +405,18 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
   local platform_steps = assert(platform.steps)
   local checked_steps = assert(checked.steps)
   local legs = assert(assert(assert(assert(ci["seed"]).strategy).matrix).include)
-  local staged: {string: string} = {}
+  local staged: mut {string: string} = {}
   for _, leg in ipairs(legs) do
-    local name = leg.name
+    local name = leg["name"]
     assert(name is string, "a seed leg has no name")
-    local is_checked = leg.checked == true
+    local is_checked = leg["checked"] == true
     local steps = platform_steps
     if is_checked then steps = checked_steps end
-    local env: {string: string} = {}
+    local env: mut {string: string} = {}
     for key, template in pairs(assert(step_of(steps, nil, "queue-stage").env)) do
       env[key] = expand(template, name, steps)
     end
-    local marker: string | nil
+    local marker: string?
     if not is_checked then
       marker = expand(with_of(step_of(steps, "driver-check-restore"), "key"), name, steps)
       -- A container leg's marker names its container (in the host's

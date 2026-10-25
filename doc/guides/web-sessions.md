@@ -76,7 +76,7 @@ function Greet.app(options: Session.Options): Web.App
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
         local session = Session.of(req)
-        local lines: {string} = {}
+        local lines: mut {string} = {}
         for _, note in ipairs(session:take_flashes()) do lines[#lines + 1] = note.text end
         lines[#lines + 1] = "name: " .. (session:get_string("name") or "")
         return Web.text(table.concat(lines, "\n"))
@@ -138,7 +138,7 @@ local Web = require("cosmic.web")
 local log = Log.new("visits")
 
 --- The session store the environment asks for.
-local function store(): Session.Store | nil, string
+local function store(): (Session.Store?, string)
   local path = Env.get("VISITS_DB")
   if path ~= nil then
     local db, why = Sqlite.open(path)
@@ -147,7 +147,7 @@ local function store(): Session.Store | nil, string
   end
   local keys, why = Secret.keys_from_env("VISITS_KEYS")
   if keys == nil then return nil, why end
-  return SessionCookie.store{ keys = keys }
+  return SessionCookie.store{ keys = keys }, ""
 end
 
 return function(): integer
@@ -190,7 +190,7 @@ end
 
 local function test_a_weak_key_is_refused()
   local ok, why = Secret.check("changeme")
-  assert(not ok and why:find("at least 32 bytes", 1, true))
+  assert(not ok and why:find("at least 32 bytes", 1, true) ~= nil)
   assert(#assert(Secret.parse_keys(Secret.generate() .. "," .. Secret.generate())) == 2)
 end
 
@@ -199,7 +199,7 @@ local function test_a_greeting_is_flashed_once()
   local sent = client:post("/hello", { form = { name = "Ada" }, follow_redirects = true })
   assert(sent.body:find("hello, Ada", 1, true) and sent.body:find("name: Ada", 1, true))
   local again = client:get("/").body
-  assert(not again:find("hello, Ada", 1, true) and again:find("name: Ada", 1, true), "a flash is shown once")
+  assert(again:find("hello, Ada", 1, true) == nil and again:find("name: Ada", 1, true) ~= nil, "a flash is shown once")
 end
 
 local function test_a_name_that_would_not_fit_is_refused_not_a_500()
@@ -210,15 +210,15 @@ local function test_a_name_that_would_not_fit_is_refused_not_a_500()
 end
 
 local function test_a_signed_cookie_is_not_readable_to_script()
-  local cookie = signed():post("/login").headers["set-cookie"]
-  assert(cookie:find("HttpOnly", 1, true) and cookie:find("SameSite=Lax", 1, true))
+  local cookie = signed():post("/login").headers["set-cookie"] or ""
+  assert(cookie:find("HttpOnly", 1, true) ~= nil and cookie:find("SameSite=Lax", 1, true) ~= nil)
 end
 
 local function test_secure_renames_the_cookie()
   local store = SessionCookie.store{ keys = { Secret.generate() } }
-  local cookie = Web.test_client(Greet.app{ store = store, secure = true }):post("/login").headers["set-cookie"]
-  assert(cookie:find("^__Host%-session="), cookie)
-  assert(cookie:find("Secure", 1, true) and cookie:find("Path=/", 1, true))
+  local cookie = Web.test_client(Greet.app{ store = store, secure = true }):post("/login").headers["set-cookie"] or ""
+  assert(cookie:find("^__Host%-session=") ~= nil, cookie)
+  assert(cookie:find("Secure", 1, true) ~= nil and cookie:find("Path=/", 1, true) ~= nil)
 end
 
 local function test_a_stored_session_can_be_revoked()

@@ -17,14 +17,14 @@ local relative = Fs.relative
 
 local record key_parts
   hex: function(data: string): string
-  unhex: function(text: string): string | nil, string
+  unhex: function(text: string): string?, string
   compiler_readers: {string}
 end
 
 --- Every byte to its two lowercase hex digits, and every pair of hex
 --- digits, either case, to the byte it spells.
-local hex_of: {string:string} = {}
-local byte_of_hex: {string:string} = {}
+local hex_of: mut {string:string} = {}
+local byte_of_hex: mut {string:string} = {}
 do
   local digits, upper = "0123456789abcdef", "0123456789ABCDEF"
   for byte = 0, 255 do
@@ -48,7 +48,7 @@ key_parts.hex = hex
 
 --- The bytes hexadecimal text spells, in either case, or nil and why
 --- for an odd number of digits or a character that is none.
-local function unhex(text: string): string | nil, string
+local function unhex(text: string): string?, string
   if #text % 2 ~= 0 then
     return nil, ("hex text of odd length %d"):format(#text)
   end
@@ -105,7 +105,7 @@ function key_parts.tree_name(path: string, tree: string, output?: string): strin
   if output ~= nil then
     local built, _ = relative(path, output)
     if built ~= nil then
-      return tree_marker .. "/o" .. (built == "." and "" or "/" .. built)
+      return tree_marker .. "/o" .. (if built == "." then "" else "/" .. built end)
     end
   end
   local rest, _ = relative(path, tree)
@@ -122,8 +122,8 @@ end
 --- [`build.tree_checks`] refuses the tree when a module of it reads it and
 --- is not named here.
 local compiler_readers <const>: {string} = {
-  "build.dispatch", "build.embed", "build.fix.spill", "build.importer", "build.reboot",
-  "build.rebuild", "build.test_key", "build.tree_checks", "core.allocation_test",
+  "build.dispatch", "build.embed", "build.importer", "build.reboot",
+  "build.rebuild", "build.rebuild_test", "build.test_key", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }
 
@@ -132,7 +132,7 @@ key_parts.compiler_readers = compiler_readers
 --- Whether an import closure, the names of its modules, holds a module
 --- that reads the compiler's identity (`compiler_readers`).
 function key_parts.reads_compiler(closure: {string}): boolean
-  local readers: {string:boolean} = {}
+  local readers: mut {string:boolean} = {}
   for _, name in ipairs(compiler_readers) do readers[name] = true end
   for _, name in ipairs(closure) do
     if readers[name] then return true end

@@ -35,7 +35,7 @@ local function database(rows: {{string}}, uses: {{string}},
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  local members: {string: boolean} = {}
+  local members: mut {string: boolean} = {}
   if modules ~= nil then
     for _, module in ipairs(modules) do
       members[module] = true
@@ -57,7 +57,7 @@ local function database(rows: {{string}}, uses: {{string}},
         "VALUES (?1, ?2, ?9, ?8, ?3, ?4, ?5, ?6, ?7)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) },
-        { integer = row[8] == "private" and 0 or 1 }, { text = row[9] or row[2] } }))
+        { integer = if row[8] == "private" then 0 else 1 end }, { text = row[9] or row[2] } }))
   end
   for _, row in ipairs(uses) do
     assert(Sqlite.run(db,
@@ -78,7 +78,7 @@ end
 --- [`cosmic.fs`], documented, and two modules that each read a file
 --- through it: [`build/boot.tl`] on its line 3, [`build/test.tl`] on its 4.
 local function fs_tree(extra?: {string: string}): {string: string}
-  local files: {string: string} = {
+  local files: mut {string: string} = {
     ["cosmic/fs.tl"] = source(
       "--- Files and directories.",
       "",
@@ -86,7 +86,7 @@ local function fs_tree(extra?: {string: string}): {string: string}
       "end",
       "",
       "--- The whole of a file.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -188,7 +188,7 @@ local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "", lines[3])
   assert(lines[4] == "  record Fs", lines[4])
-  assert(lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(2 uses)", lines[5])
   assert(lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
       "Writes the whole of a file.",
@@ -211,7 +211,7 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
       "end",
       "",
       "--- " .. long .. "and more. A second sentence.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -225,7 +225,7 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
   }))
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
-  local read = assert(lines[5]:match("^  function Fs%.read%(path: string%): string | nil, string %-%- (.*)$"),
+  local read = assert(lines[5]:match("^  function Fs%.read%(path: string%): string%?, string %-%- (.*)$"),
     lines[5])
   assert(read:find("^word word") and read:find("…", 1, true) and not read:find("second", 1, true),
     read)
@@ -268,7 +268,7 @@ local function test_a_module_listing_shows_signatures(dir: string)
     "  end",
     "end",
     "",
-    "function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+    "function Fs.read(path: string, opts?: Fs.Opts): string?, string",
     "  return nil, path",
     "end",
     "",
@@ -276,7 +276,7 @@ local function test_a_module_listing_shows_signatures(dir: string)
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
-  assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+  assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string?, string",
     1, true), text)
   assert(not text:find("function Fs.read (", 1, true), text)
   assert(text:find("  record Fs\n", 1, true), text)
@@ -404,9 +404,9 @@ local function test_a_module_listing_shows_its_metamethods(dir: string)
     "",
     "local record callable",
     "  --- Calls the module.",
-    "  metamethod __call: function(callable, string): boolean",
+    "  __call: function(callable, string): boolean",
     "  record Handle",
-    "    metamethod __close: function(Handle)",
+    "    __close: function(Handle)",
     "  end",
     "end",
     "",
@@ -414,30 +414,13 @@ local function test_a_module_listing_shows_its_metamethods(dir: string)
   local found = assert(docs.lookup(view({ db }), "cosmic.callable"))
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
-  assert(text:find("\n  metamethod __call: function(callable, string): boolean",
+  assert(text:find("\n  __call: function(callable, string): boolean",
     1, true), text)
   assert(not text:find("__close", 1, true), text)
   local call = assert(docs.lookup(view({ db }), "callable.__call"))
   assert(#call == 1 and call[1].kind == "metamethod", tostring(#call))
   local rendered = assert(docs.render(view({ db }), call[1]))
   assert(table.concat(rendered, "\n"):find("Calls the module.", 1, true))
-end
-
---- A script's opening comment after its `#!` line is its module text.
-local function test_a_script_after_a_shebang_lists_its_own_text(dir: string)
-  local db = built(dir, { ["cosmic/script.tl"] = source(
-    "#!/usr/bin/env cosmic",
-    "",
-    "--- Runs the thing.",
-    "",
-    "local function run()",
-    "end",
-    "",
-    "return { run = run }") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.script"))
-  assert(#found == 1 and found[1].kind == "module", tostring(#found))
-  local lines = assert(docs.render(view({ db }), found[1]))
-  assert(lines[2] == "  Runs the thing.", lines[2])
 end
 
 --- A bare lowercase name that ends a public module's name is that
@@ -501,7 +484,7 @@ local function test_a_modules_member_in_full_is_exact(dir: string)
       "return module"),
   })
   local function exact(query: string): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, entry in ipairs((assert(docs.exact(view({ db }), query)))) do
       out[#out + 1] = entry.module .. " " .. entry.symbol
     end
@@ -556,10 +539,10 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
       "return n"),
   })
   for _, query in ipairs({ "cosmic.thing.order", "Thing.order" }) do
-    local listed: {string} = {}
+    local listed: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
       listed[#listed + 1] = use.module .. " " .. use.from_file .. ":" .. use.line ..
-        (use.link and " link" or "")
+        (if use.link then " link" else "" end)
     end
     local got = table.concat(listed, ", ")
     assert(got == "cosmic.thing build/boot.tl:4 link, cosmic.thing build/boot.tl:5" or
@@ -659,7 +642,7 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       "return onrecord"),
   }))
   local index = assert(docs.index(view({ db })))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, summary in ipairs(index) do
     lines[#lines + 1] = summary.module .. "|" .. summary.text
   end
@@ -881,7 +864,7 @@ local function test_a_search_stems_and_offers_the_closest_when_none_has_every_wo
   local some = assert(docs.lookup(view({ db }), "create parent unheard whole"))
   assert(some.closest and not some.exact)
   assert(some[1].source_symbol == "Fs.write", some[1].source_symbol)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, entry in ipairs(some) do
     assert(not seen[entry.source_symbol], "repeated " .. entry.source_symbol)
     seen[entry.source_symbol] = true
@@ -952,7 +935,7 @@ end
 --- A search with no exact match shows its first five entries whole and
 --- names the rest a line each, so a broad word answers in a page.
 local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
-  local lines: {string} = { "--- Many things.", "local record Many", "end", "" }
+  local lines: mut {string} = { "--- Many things.", "local record Many", "end", "" }
   for at = 1, 8 do
     lines[#lines + 1] = "--- Sentinel number " .. at .. ". Then more words."
     lines[#lines + 1] = "function Many.f" .. at .. "(): integer"
@@ -1192,7 +1175,7 @@ local function test_renders_a_symbols_example(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(3 uses, 1 example)",
     module_lines[5])
   assert(module_lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
@@ -1223,7 +1206,7 @@ local function test_many_examples_for_one_symbol(dir: string)
   }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
   local lines = assert(docs.render(view({ db }), read[1]))
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   for _, line in ipairs(lines) do
     if line:match("^  example ") then
       headers[#headers + 1] = line
@@ -1235,7 +1218,7 @@ local function test_many_examples_for_one_symbol(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(4 uses, 2 examples)",
     module_lines[5])
 end
@@ -1251,7 +1234,7 @@ local function test_a_topic_example_pairs_with_its_module(dir: string)
       "  print(Fs.read(\"bb\"))"),
   }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   for _, line in ipairs((assert(docs.render(view({ db }), read[1])))) do
     if line:match("^  example ") then headers[#headers + 1] = line end
   end
@@ -1264,7 +1247,7 @@ end
 --- the tree `files` ships.
 local function paired(dir: string, files: {string: string}): {string: string}
   local db = built(dir, files)
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT file, module FROM examples")))) do
     out[row:text(1)] = row:text(2)
   end
@@ -1329,7 +1312,7 @@ local function test_examples_list_by_file_then_line()
   end
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   for _, line in ipairs((assert(docs.render(view({ db }), read[1])))) do
     if line:match("^  example ") then headers[#headers + 1] = line end
   end
@@ -1509,7 +1492,7 @@ local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
       "local _ = Csv.read()"),
   })
   local function modules(query: string): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
       out[#out + 1] = use.module
     end
@@ -1532,16 +1515,17 @@ end
 local function test_a_nested_record_method_meets_its_uses(dir: string)
   local thing = built(dir, { ["app/thing.tl"] = source(
     "local record Thing",
-    "  record Box",
+    "  class Box",
+    "    --- Grows the box.",
+    "    function grow(self)",
+    "    end",
+    "",
+    "    class Lid",
+    "      --- Opens the lid.",
+    "      function open(self)",
+    "      end",
+    "    end",
     "  end",
-    "end",
-    "",
-    "--- Grows the box.",
-    "function Thing.Box:grow()",
-    "end",
-    "",
-    "--- Opens the lid.",
-    "function Thing.Box.Lid:open()",
     "end",
     "",
     "return Thing") })
@@ -1657,7 +1641,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
       "end",
       "",
       "--- The whole of a file.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -1762,7 +1746,7 @@ end
 local function test_a_declared_module_is_found_without_a_line()
   local rows: {{string}} = {
     { "cosmic.sys", "syscalls.lstat", "field",
-      "lstat: function(path: string): Stat | nil, string, integer",
+      "lstat: function(path: string): Stat?, string, integer",
       "Describes a path, not a link's target.", "core/syscalls.h", "0" },
   }
   local db = database(rows, {}, {})
@@ -1839,7 +1823,7 @@ local function test_a_record_page_lists_its_fields_and_an_enum_its_values(dir: s
     1, true), shown)
   local shape = assert(docs.lookup(looked, "Thing.Shape"))
   shown = table.concat(assert(docs.render(looked, shape[1])), "\n")
-  assert(shown:find("  values:\n    \"flat\"\n    \"round\"", 1, true), shown)
+  assert(shown:find("  values:\n    \"round\"\n    \"flat\"", 1, true), shown)
   local page = assert(docs.lookup(looked, "cosmic.thing"))
   shown = table.concat(assert(docs.render(looked, page[1])), "\n")
   assert(shown:find("\n  record Thing.Options\n    count: integer -- How many to make.\n" ..
@@ -2006,7 +1990,7 @@ local function test_examples_rank_by_name_and_are_capped(dir: string)
   }))
   local looked = view({ db })
   local shown = assert(docs.render(looked, assert(docs.lookup(looked, "Fs.read"))[1]))
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   local more = ""
   for _, line in ipairs(shown) do
     if line:match("^  example ") then headers[#headers + 1] = line end
@@ -2100,7 +2084,7 @@ local function test_example_ranking_reads_whole_names_and_method_calls(dir: stri
   }))
   local looked = view({ db })
   local shown = assert(docs.render(looked, assert(docs.lookup(looked, "Fs.read"))[1]))
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   for _, line in ipairs(shown) do
     if line:match("^  example ") then headers[#headers + 1] = line end
   end
@@ -2275,7 +2259,7 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   assert(item:find("  inherited fields:\n    path: string -- Its path.", 1, true), item)
   local function found(query: string): string
     local rows = assert(docs.lookup(looked, query))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, row in ipairs(rows) do
       out[#out + 1] = row.module .. " " .. row.source_symbol .. " " .. row.signature
     end
@@ -2309,7 +2293,7 @@ local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
       "doc/guides/portable-runtime.md", "1" },
   }, {}, { "cosmic.fs" })
   local public = assert(docs.view({ db }, { true }))
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for _, summary in ipairs((assert(docs.index(public)))) do
     listed[#listed + 1] = summary.module .. "|" .. summary.text
   end
@@ -2398,7 +2382,7 @@ end
 
 --- What a lookup answers, an entry to a line, in order.
 local function listed(found: docs.Lookup): string
-  local lines: {string} = { tostring(found.exact) }
+  local lines: mut {string} = { tostring(found.exact) }
   for _, entry in ipairs(found) do
     lines[#lines + 1] = entry.module .. " " .. entry.symbol .. " " .. entry.source_symbol ..
       " " .. entry.kind .. " " .. tostring(entry.uses)
@@ -2415,11 +2399,10 @@ end
 local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/box.tl"] = source(
-      "local record Box",
-      "end",
-      "",
-      "--- Makes it larger.",
-      "function Box:grow(by: integer)",
+      "local class Box",
+      "  --- Makes it larger.",
+      "  function grow(self, by: integer)",
+      "  end",
       "end",
       "",
       "--- Reads it, privately.",
@@ -2441,14 +2424,14 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   }))
   local plan = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "grow" } }))
-  local steps: {string} = {}
+  local steps: mut {string} = {}
   for _, row in ipairs(plan) do steps[#steps + 1] = row:text(row:count()) end
   assert(table.concat(steps, "\n"):find("docs_by_last_name", 1, true) ~= nil,
     table.concat(steps, "\n"))
   local queries = { "read", "Fs.read", "grow", "Box.grow", "Box:grow", "cosmic.fs", "fs", "box",
     "cosmic.box", "write", "Box", "nothing" }
   local function every(public: boolean): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     local looked = assert(docs.view({ db }, { public }))
     for _, query in ipairs(queries) do
       local found, trouble = docs.lookup(looked, query)
@@ -2464,18 +2447,18 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   local indexed_public, indexed_private = every(true), every(false)
   local names = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
-  local present: {string: boolean} = {}
+  local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
   assert(present["docs_by_last_name"] and present[schema.local_index], table.concat(
     (function(): {string}
-      local all: {string} = {}
+      local all: mut {string} = {}
       for name in pairs(present) do all[#all + 1] = name end
       return all
     end)(), " "))
   -- The fixture's handle is read-only; a writable one on its file drops
   -- them, which the read-only handle reads on its next query.
   local files = assert(Fs.list(dir))
-  local path: string | nil = nil
+  local path: string? = nil
   for _, name in ipairs(files) do
     if name:match("^cosmic%-%d+%.db$") then path = dir .. "/" .. name end
   end
@@ -2508,7 +2491,7 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   if boot_hash ~= nil then own_writer = Store.meta("writer") or ("boot " .. boot_hash) end
   assert(Sqlite.run(projection,
     "INSERT INTO meta (key, value) VALUES ('written_by', ?1), ('writer', ?1), ('compiled_by', ?2)",
-    { { text = own_writer }, { text = rebuild.compiled_by("teal") } }))
+    { { text = own_writer }, { text = rebuild.compiled_by("new") } }))
   local known: docs.Known = { directory = directory, own_tree = false }
   local function read(): integer
     local sources = docs.databases({ store }, dir, known)

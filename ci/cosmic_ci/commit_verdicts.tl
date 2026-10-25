@@ -90,6 +90,10 @@ local record Comparison
 end
 local COMPARISON <const> = Shape.record_of("Comparison")
 
+-- TODO: go back to [`Shape.record_of`] below, once ci/cosmic-driver.pin names a release whose Shape.record_of reads
+-- optional fields: the pinned release's reads `f?: any` as a required field. It is spelled out with [`Shape.record`] and
+-- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
+
 --- One entry of the cache's listing, whose fields the API's schema types
 --- and the lookups below test for what they need.
 local record CacheEntry
@@ -101,11 +105,14 @@ end
 local record CachePage
   actions_caches: {CacheEntry}
 end
-local CACHE_PAGE <const> = Shape.record_of("CachePage")
+local CACHE_PAGE <const> = Shape.record_of("CachePage", Shape.record({
+  ["actions_caches"] = Shape.list(Shape.record({
+    ["created_at"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any), ["key"] = Shape.optional(Shape.any) })) }),
+  function(): CachePage error("witness") end)
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
 --- and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer): integer | nil, string
+local function whole(env: {string:string}, name: string, default: integer): integer?, string
   local text = env[name]
   if text == nil or text == "" then return default, "" end
   local value = math.tointeger(tonumber(text))
@@ -147,9 +154,9 @@ end
 --- `wanted` answers whether an entry of the listing is to go, nil where
 --- it cannot tell.
 local function prune(host: Github.Host, repository: string, call: integer, age: string,
-                     prefix: string, entry: string, entries: string, wanted: function(entry: CacheEntry): boolean | nil)
+                     prefix: string, entry: string, entries: string, wanted: function(entry: CacheEntry): boolean?)
   local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?key=" .. prefix .. "&per_page=100", true, call)
-  local ids: {string} = {}
+  local ids: mut {string} = {}
   local listed = pages ~= nil
   for _, text in ipairs(pages or {}) do
     local page, _ = CACHE_PAGE:decode_into(text)
@@ -165,7 +172,7 @@ local function prune(host: Github.Host, repository: string, call: integer, age: 
       end
       if go then
         local raw = item.id
-        local id: integer | nil = nil
+        local id: integer? = nil
         if raw is number then id = math.tointeger(raw) end
         if id == nil then
           listed = false
@@ -196,7 +203,7 @@ end
 --- Whether `entry`'s `created_at`, an RFC 3339 time (with the
 --- milliseconds the API writes, or none), is before `cutoff` seconds
 --- since the epoch; nil where it holds none.
-local function older(entry: CacheEntry, cutoff: integer): boolean | nil
+local function older(entry: CacheEntry, cutoff: integer): boolean?
   local created = entry.created_at
   if not (created is string) then return nil end
   local ns, _ = Time.parse_rfc3339(created)
@@ -209,7 +216,7 @@ end
 --- and the commit alone; nil for any other key.
 --- TODO: drop the form without a digest once prune has deleted the last
 --- whole copy, a day after main last saved one.
-local function commit_of(key: string): string | nil
+local function commit_of(key: string): string?
   local commit = key:match("%-sha%-([0-9a-f]+)%-[0-9a-f]+$") or key:match("%-sha%-([0-9a-f]+)$")
   if commit ~= nil and Github.is_commit(commit) then return commit end
   return nil
@@ -217,7 +224,7 @@ end
 
 function CommitVerdicts.prune(env: {string:string}, host: Github.Host): integer
   local hours, why = whole(env, "HOURS", 24)
-  local call: integer | nil
+  local call: integer?
   if hours ~= nil then call, why = whole(env, "CALL_SECONDS", 15) end
   if hours == nil or call == nil then
     local _, _ = Fs.put(Fs.stderr, "prune-commit-verdicts: " .. why .. "\n")
@@ -225,13 +232,13 @@ function CommitVerdicts.prune(env: {string:string}, host: Github.Host): integer
   end
   local repository = env["REPOSITORY"] or ""
   local cutoff = host.now() - hours * 3600
-  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean?
     local key = entry.key
     if not (key is string) then return nil end
     if commit_of(key) == nil then return false end
     return older(entry, cutoff)
   end)
-  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: CacheEntry): boolean | nil
+  prune(host, repository, call, "older than " .. tostring(hours) .. " h", "compiles-branch-", "branch compiles entry", "branch compiles entries", function(entry: CacheEntry): boolean?
     local key = entry.key
     if not (key is string) then return nil end
     if key:sub(1, 16) ~= "compiles-branch-" then return false end
@@ -250,7 +257,7 @@ function CommitVerdicts.invalidate(env: {string:string}, host: Github.Host): int
     local _, _ = Fs.put(Fs.stderr, "invalidate-commit-verdicts: " .. why .. "\n")
     return 2
   end
-  prune(host, env["REPOSITORY"] or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean | nil
+  prune(host, env["REPOSITORY"] or "", call, "under commit " .. commit, "verdicts-", "commit-keyed verdict entry", "commit-keyed verdict entries", function(entry: CacheEntry): boolean?
     local key = entry.key
     if not (key is string) then return nil end
     return commit_of(key) == commit

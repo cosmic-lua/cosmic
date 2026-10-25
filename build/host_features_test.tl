@@ -25,7 +25,7 @@ Test.policy{
 --- "Features" on arm), split at spaces and tabs alone as CI's
 --- cosmic_ci/host_id.tl does, so a trailing carriage return is seen alike.
 local function listed(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")
     for flag in (flags or ""):gmatch("[^ \t]+") do found[#found + 1] = flag end
@@ -132,7 +132,7 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   assert(darwin[2] == "/System/Library/CoreServices/SystemVersion.plist", darwin[2])
   assert(darwin[3] == "", "a version beside the system's")
   local plist = tmp .. "/SystemVersion.plist"
-  local system: {string} = {}
+  local system: mut {string} = {}
   for i, path in ipairs(darwin) do system[i] = path == darwin[2] and plist or path end
   local sources: declared_key.HostSources = {
     packages = {}, system = system, cpu_features = {}, machine = "arm64", sysname = "Darwin",
@@ -156,10 +156,10 @@ local record Vector
   name: string
   sysname: string
   machine: string
-  cpuinfo: string | nil
-  osrelease: string | nil
-  version: string | nil
-  sysctl: {string:string} | nil
+  cpuinfo: string?
+  osrelease: string?
+  version: string?
+  sysctl: {string:string}?
   digest: string
 end
 
@@ -186,7 +186,7 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
     if osrelease ~= nil then assert(Fs.write(release, osrelease)) end
     local vector_version = vector.version
     if vector_version ~= nil then assert(Fs.write(version, vector_version)) end
-    local features: {string} = {}
+    local features: mut {string} = {}
     if vector.sysname == "Darwin" then
       for name, answer in pairs(vector.sysctl or {}) do
         if answer == "1" then features[#features + 1] = darwin_features[name] end
@@ -195,7 +195,7 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
       features = listed(vector.cpuinfo or "")
     end
     local sources: declared_key.HostSources = {
-      system = { "", release, vector.sysname == "Darwin" and "" or version },
+      system = { "", release, if vector.sysname == "Darwin" then "" else version end },
       cpu_features = features, machine = vector.machine, sysname = vector.sysname,
     }
     local named = declared_key.host_features(sources)

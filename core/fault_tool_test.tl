@@ -25,14 +25,18 @@ local testing = require("cosmic.internal.testing")
 local reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"
 return function(): integer
   testing.fail_at("curl_multi_init")
-  local first, trouble = Http.open("http://cosmic.test/", { script = { reply } })
-  if first ~= nil or not trouble:find("curl_multi_init", 1, true) then return 11 end
+  -- Http.open gives no shape for which step failed, only a message, which is not parsed: the fault
+  -- being spent (`fail_at()` answers false below) is what says the failure was curl_multi_init's.
+  local first, _ = Http.open("http://cosmic.test/", { script = { reply } })
+  if first ~= nil then return 11 end
   if testing.fail_at() then return 12 end
   local _, heap_blocks = testing.c_heap()
-  local second = Http.open("http://cosmic.test/", { script = { reply } })
+  local second, _ = Http.open("http://cosmic.test/", { script = { reply } })
   if second == nil then return 13 end
-  if second:read() ~= "hello" then return 14 end
-  second:close()
+  local body, _ = second:read()
+  if body ~= "hello" then return 14 end
+  local closed, _ = second:close()
+  if not closed then return 17 end
   collectgarbage("collect")
   if testing.live_transfers() ~= 0 then return 15 end
   -- The multi handle's own state is curl's; the core's C holds only

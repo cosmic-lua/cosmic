@@ -18,7 +18,7 @@ end
 
 --- The move a command line gets, or nil.
 local function moved_by(argv: {string}, options: {string:boolean | Flags.Option},
-                        home: string | nil, named?: string): tree_root.Move | nil
+                        home: string?, named?: string): tree_root.Move?
   return tree_root.move(argv, options, home, named).move
 end
 
@@ -37,15 +37,15 @@ local function project(dir: string): string
   -- And one file of the tool's own, which no module is.
   assert(Sqlite.run(db, "CREATE TABLE tool (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ctime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO tool (path) VALUES ('checker/tl.tl')"))
-  assert(Fs.mkdirs(tmp .. "/proj/checker"))
+  assert(Sqlite.run(db, "INSERT INTO tool (path) VALUES ('lang/check.tl')"))
+  assert(Fs.mkdirs(tmp .. "/proj/lang"))
   assert(db:close())
   return tmp .. "/proj"
 end
 
 --- The root `cosmic todos` would run at from `dir`, or nil where it runs
 --- in `dir` itself.
-local function rooted(dir: string, home: string | nil, named?: string): string | nil
+local function rooted(dir: string, home: string?, named?: string): string?
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
   local moved = moved_by({ "todos" }, {}, home, named)
@@ -64,10 +64,10 @@ local function test_an_ancestor_with_a_built_database_is_the_tree(tmp: string)
 end
 
 --- A directory the build walked for the tool's own files and staged no
---- module under is part of the tree too: `checker/` holds the checker.
+--- module under is part of the tree too: `lang/` holds the checker.
 local function test_a_directory_of_the_tools_own_files_is_in_the_tree(tmp: string)
   local root = project(tmp)
-  assert(rooted(root .. "/checker", nil) == root)
+  assert(rooted(root .. "/lang", nil) == root)
 end
 
 --- `o/build.db` alone is what a failed run leaves anywhere, so it makes

@@ -469,7 +469,7 @@ local fixture = require("test.portable")
 local path = assert(Proc.executable())
 local artifact = assert(fixture.read(path))
 local running = assert(Store.meta("host_image"))
-local selected: fixture.Entry | nil = nil
+local selected: fixture.Entry? = nil
 for _, entry in ipairs(artifact.entries) do
   if Codec.hex(entry.digest) == running then
     assert(selected == nil, "two manifest entries carry the running digest")

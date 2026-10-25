@@ -69,12 +69,12 @@ end
 --- up. `wait_ns` is ten seconds when nil. Answers the handle, or nil and why, prefixed with `path`, having
 --- closed what it opened.
 function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boolean, string),
-                            wait_ns?: integer): Sqlite.Handle | nil, string
+                            wait_ns?: integer): Sqlite.Handle?, string
   wait_ns = wait_ns or busy_ns
   local opened, trouble = Sqlite.open(path, { writable = true })
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
-  local function fail(why: string): Sqlite.Handle | nil, string
+  local function fail(why: string): Sqlite.Handle?, string
     local _, _ = db:close()
     return nil, path .. ": " .. why
   end

@@ -50,7 +50,7 @@ local record Flow
   start: function(): State
 
   --- The fact of the place `key`, or nil.
-  get: function(f: State, key: string): Fact | nil
+  get: function(f: State, key: string): Fact?
 
   --- `f` with the place `key` narrowed to `narrowed`, which was declared `declared`. Answers `f` itself when that is
   --- what it holds, and a state with no fact of the place when `narrowed` is `declared`.
@@ -61,7 +61,7 @@ local record Flow
 
   --- `f` after an assignment to the local `id` ([`Scopes.Var.id`]): its fact and the facts of the paths from it are
   --- gone, `why` says where, and it is assigned.
-  assign: function(f: State, id: integer, why: Scopes.Place | nil): State
+  assign: function(f: State, id: integer, why: Scopes.Place?): State
 
   --- `f` after the local `id` is declared: it is a place of its own, with no fact and no memory of an assignment, and
   --- it is unset where `unset`.
@@ -72,7 +72,7 @@ local record Flow
 
   --- The state a function's body starts from, made where `f` is: live, with the facts of `f` except the places rooted
   --- in a local of `unfixed` (assigned after the function is made), and nothing unset.
-  enter: function(f: State, unfixed: {integer: boolean} | nil): State
+  enter: function(f: State, unfixed: {integer: boolean}?): State
 
   --- `f` without any fact, for a loop that does not settle.
   forget: function(f: State): State
@@ -112,12 +112,12 @@ function Flow.start(): Flow.State
   return made(true, NONE, 0, NO_UNSET, 0, NO_GONE)
 end
 
-function Flow.get(f: Flow.State, key: string): Flow.Fact | nil
+function Flow.get(f: Flow.State, key: string): Flow.Fact?
   return f.facts[key]
 end
 
 local function copy_facts(facts: {string: Flow.Fact}): {string: Flow.Fact}
-  local out: {string: Flow.Fact} = {}
+  local out: mut {string: Flow.Fact} = {}
   for k, v in pairs(facts) do
     out[k] = v
   end
@@ -125,7 +125,7 @@ local function copy_facts(facts: {string: Flow.Fact}): {string: Flow.Fact}
 end
 
 local function copy_gone(gone: {string: Scopes.Place}): {string: Scopes.Place}
-  local out: {string: Scopes.Place} = {}
+  local out: mut {string: Scopes.Place} = {}
   for k, v in pairs(gone) do
     out[k] = v
   end
@@ -133,7 +133,7 @@ local function copy_gone(gone: {string: Scopes.Place}): {string: Scopes.Place}
 end
 
 local function copy_unset(unset: {integer: boolean}): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for k, v in pairs(unset) do
     out[k] = v
   end
@@ -148,7 +148,7 @@ function Flow.narrow(f: Flow.State, key: string, narrowed: Type, declared: Type)
     end
     local facts = copy_facts(f.facts)
     facts[key] = nil
-    return made(f.live, facts, f.paths - (is_path(key) and 1 or 0), f.unset, f.unsets, f.gone)
+    return made(f.live, facts, f.paths - (if is_path(key) then 1 else 0 end), f.unset, f.unsets, f.gone)
   end
   if held ~= nil and held.type == narrowed and held.declared == declared then
     return f
@@ -182,17 +182,17 @@ end
 
 --- `f` without the facts rooted in `id`, and without the tombstones of its places. Where `why` is given the places
 --- that held a fact keep a tombstone of it.
-local function without(f: Flow.State, id: integer, why: Scopes.Place | nil): Flow.State
+local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
   if next(f.facts) == nil and next(f.gone) == nil then
     return f
   end
-  local doomed: {string} = {}
+  local doomed: mut {string} = {}
   for k in pairs(f.facts) do
     if is_rooted(k, id) then
       doomed[#doomed + 1] = k
     end
   end
-  local old: {string} = {}
+  local old: mut {string} = {}
   for k in pairs(f.gone) do
     if is_rooted(k, id) then
       old[#old + 1] = k
@@ -227,7 +227,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place | nil): Flo
   return made(f.live, facts, paths, f.unset, f.unsets, gone)
 end
 
-function Flow.assign(f: Flow.State, id: integer, why: Scopes.Place | nil): Flow.State
+function Flow.assign(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
   local g = without(f, id, why)
   if g.unset[id] then
     local unset = copy_unset(g.unset)
@@ -245,7 +245,7 @@ function Flow.declare(f: Flow.State, id: integer, unset: boolean): Flow.State
   end
   local out = copy_unset(g.unset)
   out[id] = unset or nil
-  return made(g.live, g.facts, g.paths, out, g.unsets + (unset and 1 or -1), g.gone)
+  return made(g.live, g.facts, g.paths, out, g.unsets + (if unset then 1 else -1 end), g.gone)
 end
 
 function Flow.assigned(f: Flow.State, id: integer): Flow.State
@@ -257,11 +257,11 @@ function Flow.assigned(f: Flow.State, id: integer): Flow.State
   return made(f.live, f.facts, f.paths, unset, f.unsets - 1, f.gone)
 end
 
-function Flow.enter(f: Flow.State, unfixed: {integer: boolean} | nil): Flow.State
+function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
   local facts = f.facts
   local paths = f.paths
   if unfixed ~= nil and next(facts) ~= nil then
-    local doomed: {string} = {}
+    local doomed: mut {string} = {}
     for k in pairs(facts) do
       if unfixed[Flow.root(k)] then
         doomed[#doomed + 1] = k
@@ -301,7 +301,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   elseif a.live and not b.live then
     return a
   end
-  local facts: {string: Flow.Fact} = {}
+  local facts: mut {string: Flow.Fact} = {}
   local paths = 0
   local kept = 0
   for key, fa in pairs(a.facts) do

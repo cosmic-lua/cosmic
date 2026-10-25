@@ -11,7 +11,7 @@ local function make_app(opts?: Headers.Options, more?: {Web.Route}, spec?: Web.A
   local made: Web.AppSpec = spec or {}
   made.sink = { line = function(_self: Web.Sink, _text: string) end }
   made.middleware = { Headers.middleware(opts) }
-  local routes: {Web.Route} = {
+  local routes: mut {Web.Route} = {
     Web.get("/", function(_req: Web.Request): Web.Response
       return Web.text("plain")
     end),
@@ -165,7 +165,7 @@ local function test_each_request_draws_its_own_nonce_for_the_policy_and_the_page
 end
 
 local function test_without_nonce_the_key_is_empty_and_the_policy_may_not_ask_for_one()
-  local seen = { value = nil as string | nil }
+  local seen = { value = nil as string? }
   local app = make_app({ csp = Csp.htmx_default() }, { Web.get("/n", function(req: Web.Request): Web.Response
     seen.value = req:get(Headers.NONCE)
     return Web.html(Html.trust("<p>x</p>"))

@@ -14,15 +14,15 @@ local codec = require("build.codec")
 local String = require("cosmic.string")
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 --- One run: `words` after `cosmic codec`, and `stdin` standing in for
 --- standard input.
 local function run(words: {string}, stdin?: string): Ran
-  local argv: {string} = { "codec" }
+  local argv: mut {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
@@ -31,7 +31,7 @@ local function run(words: {string}, stdin?: string): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
+    stdin = function(): string?, string
       if stdin == nil then return nil, "no standard input in this test" end
       return stdin, ""
     end,
@@ -170,12 +170,12 @@ end
 local function test_a_failed_write_exits_2_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do
     local complaints = { value = "" }
-    local argv: {string} = { "codec" }
+    local argv: mut {string} = { "codec" }
     for index, word in ipairs(words) do argv[index + 1] = word end
     local code = codec.run(argv, {
       out = function(_: string): boolean, string return false, "No space left on device" end,
       err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
-      stdin = function(): string | nil, string return "Zm9v", "" end,
+      stdin = function(): string?, string return "Zm9v", "" end,
     })
     assert(code == 2, code)
     assert(complaints.value == "cosmic: codec: standard output: No space left on device\n", complaints.value)
@@ -192,7 +192,7 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
     integer, boolean, number, number
   local sent = { value = 0 }
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if sent.value == rounds then return nil, "" end
     sent.value = sent.value + 1
     return chunk, ""
@@ -209,10 +209,10 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
   local late = { value = 0.0 }
   local same = { value = true }
   local repeated = expect:rep(2)
-  local argv: {string} = { "codec" }
+  local argv: mut {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local code = codec.run(argv, {
-    input = function(): Stream.Reader | nil, string return input, "" end,
+    input = function(): Stream.Reader?, string return input, "" end,
     out = function(text: string): boolean, string
       local body = text
       if newline and body:sub(-1) == "\n" then body = body:sub(1, -2) end
@@ -274,7 +274,7 @@ local function trickle(text: string): Stream.Reader
   local at = { value = 1 }
   local turn = { value = 0 }
   local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     if at.value > #text then return nil, "" end
     turn.value = turn.value % 4 + 1
     local piece = text:sub(at.value, at.value + math.min(turn.value, max_bytes or turn.value) - 1)
@@ -288,11 +288,11 @@ local function trickle(text: string): Stream.Reader
 end
 
 local function run_trickled(words: {string}, text: string): Ran
-  local argv: {string} = { "codec" }
+  local argv: mut {string} = { "codec" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = codec.run(argv, {
-    input = function(): Stream.Reader | nil, string return trickle(text), "" end,
+    input = function(): Stream.Reader?, string return trickle(text), "" end,
     out = function(text_out: string): boolean, string
       ran.out = ran.out .. text_out
       return true, ""
@@ -318,7 +318,7 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   local writes = { value = 0 }
   local sent = { value = 0 }
   local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, max_bytes?: integer): string | nil, string
+  input.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
     if sent.value == 3 then return nil, "" end
     sent.value = sent.value + 1
     return ("a"):rep(max_bytes or 1), ""
@@ -328,7 +328,7 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   end
   local seen: {integer} = {}
   local code = codec.run({ "codec", "hex" }, {
-    input = function(): Stream.Reader | nil, string return input, "" end,
+    input = function(): Stream.Reader?, string return input, "" end,
     out = function(_text: string): boolean, string
       writes.value = writes.value + 1
       seen[#seen + 1] = sent.value
@@ -353,7 +353,7 @@ end
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
 
 --- The whole-string decoder for each encoding.
-local function whole_decode(name: codec.Name, text: string): string | nil, string
+local function whole_decode(name: codec.Name, text: string): string?, string
   if name == "hex" then return Codec.unhex(text) end
   if name == "base64" then return Codec.unbase64(text) end
   return Codec.unbase64url(text)
@@ -367,8 +367,8 @@ end
 
 --- What `coder` answers to `pieces` in turn and then `finish`: the
 --- output joined, or nil and the reason.
-local function through(coder: codec.Coder, pieces: {string}): string | nil, string
-  local out: {string} = {}
+local function through(coder: codec.Coder, pieces: {string}): string?, string
+  local out: mut {string} = {}
   for _, piece in ipairs(pieces) do
     local part, why = coder:update(piece)
     assert(part ~= nil, "update refused: " .. why)
@@ -382,7 +382,7 @@ end
 
 --- `s` cut into pieces of `size` bytes, the last one shorter.
 local function pieces_of(s: string, size: integer): {string}
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #s, size do pieces[#pieces + 1] = s:sub(first, first + size - 1) end
   return pieces
 end
@@ -390,7 +390,7 @@ end
 --- Every way of cutting `s` in two (empty halves included), and into
 --- pieces of each size up to three, as lists of pieces.
 local function cuts(s: string): {{string}}
-  local all: {{string}} = {}
+  local all: mut {{string}} = {}
   for at = 0, #s do all[#all + 1] = { s:sub(1, at), s:sub(at + 1) } end
   for size = 1, 3 do all[#all + 1] = pieces_of(s, size) end
   return all
@@ -486,7 +486,7 @@ end
 local function test_a_long_stream_takes_bounded_memory()
   local block = {} as {integer}
   for i = 1, 65536 do block[i] = (i * 131 + (i >> 8)) & 255 end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #block, 4096 do
     pieces[#pieces + 1] = string.char(table.unpack(block, first, first + 4095))
   end

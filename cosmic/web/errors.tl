@@ -21,9 +21,9 @@ local function title_of(status: integer): string
 end
 
 --- A small page for `status`, holding `detail` and `trace` escaped.
-local function page(status: integer, detail: string | nil, trace: string | nil): Types.Response
+local function page(status: integer, detail: string?, trace: string?): Types.Response
   local title = title_of(status)
-  local parts: {Html.SafeHtml} = {
+  local parts: mut {Html.SafeHtml} = {
     Html.trust('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>'),
     Html.escape(title), Html.trust("</title></head><body><h1>"), Html.escape(title),
     Html.trust("</h1>"),
@@ -50,8 +50,8 @@ end
 
 --- The default answer: a problem body for a client that prefers JSON, else
 --- a page.
-local function default_answer(req: Types.Request, status: integer, detail: string | nil,
-                              extra: {string:any} | nil): Types.Response
+local function default_answer(req: Types.Request, status: integer, detail: string?,
+                              extra: {string:any}?): Types.Response
   if wants_json(req) then return Response.problem(status, detail, extra) end
   return page(status, detail, nil)
 end

@@ -3,6 +3,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local Grammar = require("cosmic_ci.grammar")
 local Maps = require("cosmic_ci.maps")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
@@ -17,22 +18,22 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 --- A number a closure shares with the test that made it.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A yes or no a closure shares with the test that made it.
 local record Flag
-  value: boolean
+  mut value: boolean
 end
 
 --- The result of a wait run under `pcall`.
 local record Waited
-  result?: Child.Result
+  mut result?: Child.Result
 end
 
 --- A descriptor, once one is opened, that a closure shares with the test that made it.
 local record Slot
-  value?: integer
+  mut value?: integer
 end
 
 local function write(path: string, data: string, mode?: integer)
@@ -89,10 +90,10 @@ end
 
 --- Outputs where a line's length, its end, or a chunk's edge counts.
 local function outputs(): {string}
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 40 do many[#many + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do many[#many + 1] = "report " .. tostring(i) .. "\n" end
-  local wide: {string} = {}
+  local wide: mut {string} = {}
   for i = 1, 45 do wide[#wide + 1] = tostring(i) .. string.rep("w", 70000) end
   return {
     "", "\n", "\n\n", "a", "a\n", "a\n\nb", "\nb",
@@ -122,7 +123,7 @@ local function test_failure_matches_the_shell_it_replaced()
 end
 
 local function test_failure_bounds_what_it_lists()
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 40 do parts[#parts + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do parts[#parts + 1] = "report " .. tostring(i) .. "\n" end
   local text = Fuzz.failure(pieces(table.concat(parts), 5), "1")
@@ -157,7 +158,7 @@ local function test_tail_matches_the_shell_it_replaced(tmp: string)
   for n, output in ipairs(outputs()) do
     write(tmp .. "/fuzz.out", output)
     local tail = assert(Fuzz.tail(tmp .. "/fuzz.out"))
-    local got = table.concat(tail, "\n") .. (#tail > 0 and "\n" or "")
+    local got = table.concat(tail, "\n") .. (if #tail > 0 then "\n" else "" end)
     local want = expected("tail", n)
     assert(got == want, "output " .. tostring(n) .. "'s tail differs:\n" ..
         got .. "\nfrom:\n" .. want)
@@ -175,7 +176,7 @@ end
 --- A checkout whose checked core is a script standing in for it: it
 --- says what it was given and ran with, and fails as told.
 local function fake_checkout(root: string, exit: string, body?: {string})
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   write(root .. "/build/a_fuzz_test.tl", "")
   write(root .. "/build/fuzz/b_fuzz_test.tl", "")
@@ -197,7 +198,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   fake_checkout(root, "3")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp,
     env = { FUZZ_SEED = "9", FUZZ_ITERS = "5", PATH = "/usr/bin:/bin" },
     log = log_fd,
@@ -223,7 +224,7 @@ local function test_execute_passes_and_says_so_briefly(tmp: string)
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp, env = {},
     log = log_fd,
     summarize = function(text: string) summary[#summary + 1] = text end })
@@ -234,7 +235,7 @@ end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
@@ -275,8 +276,8 @@ local function test_driver_commands_read_the_environment(tmp: string)
   assert(Fs.mkdirs(temp))
   local summary = tmp .. "/summary.md"
   -- The job's own GITHUB_* and RUNNER_TEMP, under CI, are replaced.
-  local env = Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
-    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" })
+  local env = Grammar.driver(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" }))
   local fuzz = assert(Child.run({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
@@ -314,8 +315,8 @@ local function start_fuzz(tmp: string, body: {string},
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
-  local env = Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
-    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {})
+  local env = Grammar.driver(Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {}))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
   local handle, trouble = Child.start({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })
@@ -443,7 +444,7 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   local seams = Seams.calls()
   local original_open, original_tee = seams.fs_open_write, seams.stream_tee
   local opened: Slot = {}
-  seams.fs_open_write = function(path: string, mode?: integer): integer | nil, string
+  seams.fs_open_write = function(path: string, mode?: integer): integer?, string
     local fd, why = original_open(path, mode)
     if path == temp .. "/fuzz.out" then opened.value = fd end
     return fd, why
@@ -471,9 +472,9 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   local original = seams.child_start
   local ended: Flag = { value = false }
   local closed: Flag = { value = false }
-  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started | nil, string
+  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started?, string
     local fake: Seams.Started = {
-      try_wait = function(): Child.TryWait | nil, string
+      try_wait = function(): Child.TryWait?, string
         if ended.value then
           return { finished = true, result = { ok = false, code = 17, signal = nil, timed_out = false,
             stdout = nil, stderr = nil, captured = {}, truncated = false } }, ""

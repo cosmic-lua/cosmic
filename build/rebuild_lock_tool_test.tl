@@ -13,7 +13,6 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local TypeWatch = require("build.type_watch")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local sys = require("cosmic.sys")
@@ -28,7 +27,8 @@ local todos = require("build.todos")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" },
+  { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -179,7 +179,7 @@ local function build_verdicts(path: string): string
   if rows == nil then return "unreadable: " .. trouble end
   local verdicts = ""
   for i, row in ipairs(rows) do
-    verdicts = verdicts .. (i > 1 and " " or "") .. row:text(1)
+    verdicts = verdicts .. (if i > 1 then " " else "" end) .. row:text(1)
   end
   return verdicts
 end
@@ -230,9 +230,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   if TypeWatch.checked() then
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end
-  local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
-    local root = tmp .. (succeeds and "/valid" or "/failed")
+    local root = tmp .. (if succeeds then "/valid" else "/failed" end)
     assert(build_dir(root))
     local original = 'print("original")\n'
     assert(Fs.write(root .. "/main.tl", original))
@@ -252,8 +251,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local staged = assert(work.open(root))
       local first: importer.Result = {
         main = nil, tool = "", modules = {}, refused = {}, left_out = {},
-        compiled = 0, cached = 0, shared = 0, worked = 0,
-        parses = { parsed = 0, shared = 0, worked = 0 },
+        compiled = 0, cached = 0, shared = 0,
+        parses = { parsed = 0, shared = 0 },
       }
       local first_signature = assert(writer.signature(staged, first, Store.meta("writer") or ""))
       assert(work.close(staged))
@@ -261,7 +260,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(Fs.write(root .. "/main.tl", 'print("replacement")\n'))
         local b = assert(work.open(root))
         assert(work.stage(b, false))
-        local result = assert(importer.compile(b, built, "snapshot-test"))
+        local result = assert(importer.compile(b, "snapshot-test"))
         local alternate = root .. "/b.db"
         assert(writer.write_result(b, alternate, result))
         assert(work.close(b))
@@ -315,7 +314,7 @@ end
 local function thing(word: string): string
   return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
     "-- TODO: say more, once there is more to say.\n" ..
-    "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+    "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return why end return text\nend\n\nreturn thing\n"
 end
 
 --- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while
@@ -413,7 +412,7 @@ local function test_a_reading_verbs_check_goes_on_with_a_stale_tool_while_the_lo
     local built, trouble = rebuild.here("docs", false, root)
     assert(built, trouble)
     assert(builds_of(root) == before, "a lookup built with a stale tool")
-    local staged = assert(rebuild.stage(root, (assert(teal.load()))))
+    local staged = assert(rebuild.stage(root))
     assert(staged.unchecked, "lsp's stage staged with a stale tool")
   end)
   assert(sys.close(lock))
@@ -425,11 +424,18 @@ end
 local function own_tree(root: string): identity.Fingerprint
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nlocal i: importer = {}\nreturn i\n"))
+  -- The declarations a tree of cosmic's own is checked against ([`build.checker_declarations`]).
+  assert(Fs.mkdirs(root .. "/lang"))
+  local prelude = assert(Fs.read("lang/prelude.d.tl"))
+  local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
+  assert(Fs.write(root .. "/build/ceilings.txt", ""))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", prelude))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", stdlib))
   assert(Fs.mkdirs(build_paths.resolve(root).bin))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(work.close(handle))
   return fingerprint
 end
@@ -527,7 +533,7 @@ end
 --- What a run wrote to its standard error, kept apart from what it wrote
 --- to its standard output.
 local record Said
-  err: string
+  mut err: string
 end
 
 --- How many rows of blame the working database of `root` keeps.

@@ -159,7 +159,7 @@ end
 --- The core to start bare, or nil where this process has none to relaunch
 --- (a host program, which a bare core is not).
 --- @return the core's path, or nil where this process has none to relaunch
-function child_policy_database_fixture.core_path(): string | nil
+function child_policy_database_fixture.core_path(): string?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   return relaunch.argv[1]
@@ -169,7 +169,7 @@ end
 --- @param output what the program printed
 --- @return its fields by name
 function child_policy_database_fixture.fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end

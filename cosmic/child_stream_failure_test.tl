@@ -55,7 +55,7 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
     local refused = { value = false }
     patched(function()
       local read = sys.read
-      sys.read = function(which: integer, count: integer): string | nil, string, integer
+      sys.read = function(which: integer, count: integer): string?, string, integer
         if which == fd and bytes.value == 6 then
           refused.value = true
           return nil, reason, sys.EBADF
@@ -85,7 +85,7 @@ local function test_a_raw_poll_failure_follows_queued_bytes()
   local refused = { value = false }
   patched(function()
     local poll = sys.poll
-    sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+    sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
       if pipe.size == 6 and not refused.value then
         for _, which in ipairs(fds) do
           if which == fd then
@@ -111,7 +111,7 @@ local function test_a_raw_poll_failure_before_any_output_is_sticky()
   local h <close> = output(1)
   local reason = "poll: no output could be read"
   patched(function()
-    sys.poll = function(_fds: {integer}, _events: {integer}, _ms: integer): {integer} | nil, string, integer
+    sys.poll = function(_fds: {integer}, _events: {integer}, _ms: integer): {integer}?, string, integer
       return nil, reason, sys.EBADF
     end
     assert(h:try_wait())
@@ -138,7 +138,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local refused = { value = false }
   patched(function()
     local read = sys.read
-    sys.read = function(which: integer, count: integer): string | nil, string, integer
+    sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd then
         refused.value = true
         return nil, reason, sys.EBADF
@@ -159,7 +159,7 @@ local function test_transient_read_errors_leave_the_stream_readable()
   local transient = { value = 0 }
   patched(function()
     local read = sys.read
-    sys.read = function(which: integer, count: integer): string | nil, string, integer
+    sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd and transient.value < 2 then
         transient.value = transient.value + 1
         return nil, "transient read", transient.value == 1 and sys.EAGAIN or sys.EINTR
@@ -181,11 +181,11 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
   local fd = assert(h._streams)[1].fd
-  local replacement = { value = nil as integer | nil }
+  local replacement = { value = nil as integer? }
   local ok, why: boolean, any = pcall(function()
     patched(function()
       local poll = sys.poll
-      sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+      sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
         if replacement.value ~= nil then return poll(fds, events, ms) end
         assert(reader:close())
         replacement.value = assert(Fs.open_read("/dev/null"))

@@ -85,7 +85,7 @@ local credentials: {string} = { "/home/claude/.claude/remote/.oauth_token" }
 
 local USAGE <const> = "usage: eval/solve <arena> --model <id> [--max-turns N] [--timeout S]"
 
-local function positive(text: string): integer | nil
+local function positive(text: string): integer?
   if not text:match("^[1-9]%d*$") then return nil end
   return math.tointeger(tonumber(text))
 end
@@ -93,9 +93,9 @@ end
 --- Reads the command line: the arena, then `--model` (required),
 --- `--max-turns` (150 by default) and `--timeout` (600 seconds by
 --- default), as eval/README.md's manual launch has them.
-function Solve.parse(argv: {string}): Solve.Options | nil, string
-  local arena: string | nil = nil
-  local model: string | nil = nil
+function Solve.parse(argv: {string}): Solve.Options?, string
+  local arena: string? = nil
+  local model: string? = nil
   local max_turns, timeout = 150, 600
   local i = 1
   while argv[i] ~= nil do
@@ -144,7 +144,7 @@ end
 --- putting the arena's bin/ first, then `extra` (an interpreter's
 --- directories), then the system's, and COSMIC_TEST_SANDBOX=0.
 function Solve.environment(host: {string:string}, arena: string, extra: {string}): {string:string}
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for _, name in ipairs(passed) do
     env[name] = host[name]
   end
@@ -173,13 +173,13 @@ end
 --- executable alone; a script, its directory (an npm package's) and its
 --- interpreter, whose directory goes on PATH for an `env` line.
 function Solve.program(resolved: string, head: string,
-                       find: function(string): string | nil): Solve.Program | nil, string
+                       find: function(string): string?): Solve.Program?, string
   if head:sub(1, 4) == "\127ELF" then
     return { reads = { resolved }, path = {} }, ""
   end
   local line = head:match("^#!%s*([^\n]*)")
   if line == nil then return nil, resolved .. " is neither an executable nor a script" end
-  local words: {string} = {}
+  local words: mut {string} = {}
   for word in line:gmatch("%S+") do words[#words + 1] = word end
   local name = words[1]
   if name ~= nil and name:match("/env$") then name = words[2] end
@@ -206,7 +206,7 @@ function Solve.unveil(arena: string, program: Solve.Program, host_reads: {string
   for _, path in ipairs(host_reads) do add(path) end
   for _, path in ipairs(program.reads) do add(path) end
   add(arena .. "/bin")
-  local writes: {string} = {}
+  local writes: mut {string} = {}
   for _, sub in ipairs(writable) do writes[#writes + 1] = arena .. "/" .. sub end
   return { reads = reads, writes = writes }
 end
@@ -215,7 +215,7 @@ end
 --- `files_named` names in `env` where each is absolute, and the
 --- credential files.
 function Solve.host_reads(env: {string:string}): {string}
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for _, path in ipairs(system) do reads[#reads + 1] = path end
   for _, name in ipairs(files_named) do
     local path = env[name]
@@ -313,7 +313,7 @@ function Solve.main(argv: {string}): integer
     complain(htrouble)
     return 2
   end
-  local program, gtrouble = Solve.program(resolved, head, function(name: string): string | nil
+  local program, gtrouble = Solve.program(resolved, head, function(name: string): string?
     local found: string = name
     if name:sub(1, 1) ~= "/" then
       local on_path, _ = Proc.find(name)
@@ -360,7 +360,7 @@ function Solve.main(argv: {string}): integer
         "(eval/README.md has the manual launch)")
     return 2
   end
-  local outputs: {integer} = {}
+  local outputs: mut {integer} = {}
   for _, name in ipairs({ "transcript.jsonl", "stderr" }) do
     local out, wtrouble = Fs.open_write(arena .. "/" .. name, 0x1a4)
     if out == nil then
@@ -369,7 +369,7 @@ function Solve.main(argv: {string}): integer
     end
     outputs[#outputs + 1] = out
   end
-  local command: {string} = { resolved }
+  local command: mut {string} = { resolved }
   for _, word in ipairs(Solve.arguments(prompt, options)) do command[#command + 1] = word end
   local wrote, wtrouble = Fs.write(arena .. "/started_at", now())
   if not wrote then
@@ -403,8 +403,8 @@ function Solve.main(argv: {string}): integer
   local _, _ = Fs.write(arena .. "/exit_code", tostring(status) .. "\n")
   local seconds = (Time.monotonic_ns() - started) // 1000000000
   complain(arena .. ": exit " .. tostring(status) .. " after " .. tostring(seconds) .. "s" ..
-      (result ~= nil and result.timed_out and " (past the " .. tostring(options.timeout) ..
-        "s deadline)" or ""))
+      (if result ~= nil and result.timed_out then " (past the " .. tostring(options.timeout) ..
+        "s deadline)" else "" end))
   return status
 end
 

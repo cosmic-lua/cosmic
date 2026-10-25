@@ -36,10 +36,10 @@ local record Rand
 end
 
 local record State
-  s0: integer
-  s1: integer
-  s2: integer
-  s3: integer
+  mut s0: integer
+  mut s1: integer
+  mut s2: integer
+  mut s3: integer
 end
 
 local function rotl(x: integer, k: integer): integer
@@ -135,7 +135,7 @@ function Rand.new(seed: integer): Rand.Source
     if count < 0 then
       error(("rand: bytes(%d): count is negative"):format(count), 2)
     end
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local words = (count + 7) // 8
     for i = 1, words do
       parts[i] = string.pack("<i8", next64(st))
@@ -153,7 +153,7 @@ end
 --- @param count integer How many bytes
 --- @return string | nil The bytes
 --- @return string Why none were drawn, or "" when they were
-function Rand.entropy(count: integer): string | nil, string
+function Rand.entropy(count: integer): string?, string
   local bytes, trouble = sys.entropy(count)
   if bytes == nil then
     return nil, "rand: entropy: " .. trouble

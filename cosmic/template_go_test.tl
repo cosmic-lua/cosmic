@@ -566,17 +566,17 @@ local KINDS <const>: {string} = { "attr", "rtext", "text", "url", "part" }
 
 --- The kinds of slot `out`, a compiled template, writes: "attr,url", "none".
 local function kinds_of(out: string): string
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, kind in ipairs(KINDS) do
     if out:find("parts[#parts + 1] = _" .. kind .. "(", 1, true) then
       found[#found + 1] = kind
     end
   end
-  return #found == 0 and "none" or table.concat(found, ",")
+  return if #found == 0 then "none" else table.concat(found, ",") end
 end
 
 local function test_a_ported_case_that_cosmic_takes_has_the_slots_its_place_gives()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(ACCEPTED) do
     local out, why = Template.compile(HEAD .. case[2] .. case[3], "t.tmpl")
     if out == nil then
@@ -589,7 +589,7 @@ local function test_a_ported_case_that_cosmic_takes_has_the_slots_its_place_give
 end
 
 local function test_a_ported_case_that_cosmic_refuses_is_refused_where_and_why_it_should()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(REFUSED) do
     local out, why = Template.compile(HEAD .. case[2], "t.tmpl")
     local want = "t.tmpl:" .. case[3] .. ":" .. case[4] .. ": "
@@ -604,7 +604,7 @@ end
 
 --- `body` with `{{if .f}}{{end}}`, which emits nothing, put after its `cut`th
 --- byte; nil when that byte is inside an action.
-local function split_at(body: string, cut: integer): string | nil
+local function split_at(body: string, cut: integer): string?
   local at = 1
   while true do
     local open, close = body:find("{{.-}}", at)
@@ -623,7 +623,7 @@ end
 --- and answers what differs from the case compiled whole, and how many
 --- splits it compiled.
 local function split_wrong(cases: {string}): {string}, integer
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   local checked = 0
   for _, body in ipairs(cases) do
     local plain = Template.compile(HEAD .. body, "t.tmpl")
@@ -649,7 +649,7 @@ end
 -- with the same kinds. Three tests, so that each stays well inside the
 -- time one test may take.
 local function test_an_empty_action_at_any_byte_boundary_leaves_accepted_slots_as_they_were()
-  local cases: {string} = {}
+  local cases: mut {string} = {}
   for _, case in ipairs(ACCEPTED) do
     cases[#cases + 1] = case[2] .. case[3]
   end
@@ -659,7 +659,7 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_accepted_slots_a
 end
 
 local function test_an_empty_action_at_any_byte_boundary_leaves_refused_slots_as_they_were()
-  local cases: {string} = {}
+  local cases: mut {string} = {}
   for _, case in ipairs(REFUSED) do
     cases[#cases + 1] = case[2]
   end
@@ -686,7 +686,7 @@ end
 --- in the new grammar, written as Lua by [`build.compile_grammar`] (which writes it
 --- whether or not the checker likes what it reads), run against the real [`cosmic.html`].
 local function render(body: string, page: {string: any}): string
-  local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil, new_grammar = true })
+  local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil })
   assert(out ~= nil, why)
   local compiled = assert(CompileGrammar.compile({ { path = "t.tl", relative = "t.tl", text = out, declaration = false } })[1])
   local code = compiled.code
@@ -697,7 +697,7 @@ local function render(body: string, page: {string: any}): string
   end
   local chunk = assert(load(assert(code), "=template", "t", env))
   local loaded = chunk()
-  assert(loaded is {string: function(any...): any...}, "no render")
+  assert(loaded is {string: function(...: any): any...}, "no render")
   local made = loaded.render(page)
   assert(made is Html.SafeHtml, "render answered a " .. type(made))
   return (Html.raw(made):gsub("^\n", ""))
@@ -753,7 +753,7 @@ local function test_a_range_else_renders_as_go_renders_it()
 end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(RENDERED) do
     local got = render(case[1], { x = case[2] })
     if got ~= case[3] then

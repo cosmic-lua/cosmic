@@ -15,8 +15,6 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
-local Store = require("cosmic.store")
-local closure_store = require("build.closure_store")
 local test_inputs = require("build.test_inputs")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
@@ -48,8 +46,7 @@ local function run(words: {string}): boolean, string, string
   return result.ok, result.stdout or "", result.stderr or ""
 end
 
---- A Teal file runs standalone, checked by the compiler, which build.teal
---- loads beside it (`loaded_beside`): typed against a module of the
+--- A Teal file runs standalone, checked by the new checker: typed against a module of the
 --- standard library the test module requires, and running it. One that
 --- requires a module outside the closure is refused, where the worker is
 --- sandboxed: the checker, which types it from the rows the artifact carries,
@@ -66,7 +63,7 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
   if not sandboxed() then return end
   ok, out, err = run({ "--standalone", bad })
-  assert(not ok and err:find("module not found: 'cosmic.zip'", 1, true), out .. err)
+  assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true), out .. err)
 end
 
 --- A file runs standalone having loaded nothing of the tree beyond
@@ -75,12 +72,12 @@ end
 --- way fails here first.
 local function test_a_standalone_file_runs_on_what_standalone_loads(tmp: string)
   local file = tmp .. "/loaded.tl"
-  assert(Fs.write(file, "local t: {string} = {}\n" ..
+  assert(Fs.write(file, "local t: mut {string} = {}\n" ..
       "for name in pairs(package.loaded) do t[#t + 1] = tostring(name) end\n" ..
-      "table.sort(t)\nprint(table.concat(t, ' '))\n"))
+      "table.sort(t, function(a: string, b: string): boolean return a < b end)\nprint(table.concat(t, ' '))\n"))
   local ok, out, err = run({ "--standalone", file })
   assert(ok, err)
-  local allowed: {string:boolean} = { ["cosmic.sys"] = true }
+  local allowed: mut {string:boolean} = { ["cosmic.sys"] = true }
   for _, name in ipairs(test_inputs.lua_loads) do allowed[name] = true end
   for _, name in ipairs(test_inputs.standalone_loads) do allowed[name] = true end
   for name in pairs(package.loaded) do
@@ -107,16 +104,5 @@ local function test_standalone_loads_are_loaded_in_this_worker()
   for _, name in ipairs(test_inputs.standalone_loads) do
     assert(package.loaded[name] ~= nil, name .. " is in standalone_loads but " ..
         "build.standalone's closure does not hold it")
-  end
-end
-
---- What a closure store carries beside a module is what a child's
---- artifact carries of it: the compiler build.teal loads as bytecode.
-local function test_what_a_store_carries_beside_a_module_is_found_by_this_worker()
-  for name, besides in pairs(closure_store.loaded_beside) do
-    assert(package.loaded[name] ~= nil, name .. " is in no closure of this module")
-    for _, beside in ipairs(besides) do
-      assert(Store.bytecode(beside) ~= nil, beside .. " is not carried beside " .. name)
-    end
   end
 end

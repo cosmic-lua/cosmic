@@ -12,7 +12,7 @@ local Shape = require("cosmic.shape")
 --- Reads a recipe a byte at a time; past its end every byte is 0.
 local record Recipe
   bytes: string
-  at: integer
+  mut at: integer
 end
 
 local function byte(r: Recipe, n: integer): integer
@@ -28,7 +28,7 @@ local function key(r: Recipe): string
 end
 
 local function gen_spec(r: Recipe, depth: integer): Shape.Spec
-  local pick = byte(r, depth > 0 and 9 or 6)
+  local pick = byte(r, if depth > 0 then 9 else 6 end)
   local spec: Shape.Spec
   if pick == 0 then
     spec = Shape.string
@@ -47,7 +47,7 @@ local function gen_spec(r: Recipe, depth: integer): Shape.Spec
   elseif pick == 7 then
     spec = Shape.map(gen_spec(r, depth - 1))
   else
-    local fields: {string: Shape.Spec} = {}
+    local fields: mut {string: Shape.Spec} = {}
     for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, depth - 1) end
     spec = byte(r, 2) == 0 and Shape.strict_record(fields) or Shape.record(fields)
   end
@@ -68,7 +68,7 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
     local pick = byte(r, #STRAYS + 3)
     if pick < #STRAYS then return STRAYS[pick + 1] end
     if pick == #STRAYS then return nil end
-    local t: {any: any} = {}
+    local t: mut {any: any} = {}
     for _ = 1, byte(r, 3) do
       local k: any = byte(r, 2) == 0 and key(r) or byte(r, 4)
       t[k] = gen_value(r, Shape.any, depth - 1, false)
@@ -89,16 +89,16 @@ local function gen_value(r: Recipe, spec: Shape.Spec, depth: integer, strict: bo
     local values = spec.values
     return assert(values)[byte(r, #assert(values)) + 1]
   elseif kind == "list" then
-    local t: {any} = {}
+    local t: mut {any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, assert(spec.of), depth - 1, strict) end
     if byte(r, 4) ~= 0 then Json.array(t) end
     return t
   elseif kind == "map" then
-    local t: {string: any} = {}
+    local t: mut {string: any} = {}
     for _ = 1, byte(r, 4) do t[key(r)] = gen_value(r, assert(spec.of), depth - 1, strict) end
     return t
   elseif kind == "record" then
-    local t: {string: any} = {}
+    local t: mut {string: any} = {}
     for _, name in ipairs(assert(spec.names)) do
       local field = assert(spec.fields)[name]
       local pick = byte(r, 6)
@@ -225,7 +225,7 @@ local function filled(value: any): any
   for k in pairs(value) do
     if k is integer and k > top then top = k elseif not (k is integer) then listed = false end
   end
-  local out: {any: any}
+  local out: mut {any: any}
   if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end
   if listed then
     for i = 1, top do
@@ -270,13 +270,13 @@ end
 --- included -- refuses it, and names that key.
 local function check_strict(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
-  local fields: {string: Shape.Spec} = {}
+  local fields: mut {string: Shape.Spec} = {}
   for _ = 1, byte(r, 4) do fields[key(r)] = gen_spec(r, 2) end
   local spec = Shape.strict_record(fields)
   if byte(r, 2) == 0 then spec = Shape.optional(spec) end
   local value = gen_value(r, spec, 4, true) as {any: any}
   local extra: any
-  local want: string | nil
+  local want: string?
   if byte(r, 2) == 0 then
     extra = byte(r, 4) - 1
     want = ("pointer \"\": expected record, got the integer key %d"):format(extra as integer)

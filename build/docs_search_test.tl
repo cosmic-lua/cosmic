@@ -37,7 +37,7 @@ end
 
 local function names(view: docs.View, query: string): {string}
   local found = assert(docs.lookup(view, query))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index = 1, math.min(3, #found) do
     out[#out + 1] = shown(found[index])
   end
@@ -50,7 +50,7 @@ end
 --- a member named for a word comes before prose that only says it.
 local function test_a_search_in_words_finds_the_symbol_meant()
   local databases: {Sqlite.Handle} = Store.databases()
-  local public: {boolean} = {}
+  local public: mut {boolean} = {}
   for index = 1, #databases do public[index] = true end
   local view = assert(docs.view(databases, public))
   for _, row in ipairs(QUERIES) do

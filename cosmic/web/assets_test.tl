@@ -113,7 +113,7 @@ end
 --- module ("" for the tool, which records none).
 local function as_program(main: string, fn: function())
   local real = Store.meta
-  Store.meta = function(key: string): string | nil
+  Store.meta = function(key: string): string?
     if key == "main" then return main end
     return real(key)
   end

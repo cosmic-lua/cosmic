@@ -1,5 +1,5 @@
---- Tests of [`build.syntax_contracts`] against [`build.contracts`]: each program is read by the fork's compiler and by the
---- new checker, and the port says what the fork says of it, problem for problem, in order -- the breaches of each rule and
+--- Tests of [`build.syntax_contracts`] against the fork's contracts: each program is read by the new checker, and
+--- the port says what the fork said of it (kept as text, [`lang.forked`]), problem for problem, in order -- the breaches of each rule and
 --- the programs that keep it -- with the places where the new checker's types make the answer differ named in a test of
 --- their own.
 local Rules = require("build.contract_rules")
@@ -10,6 +10,7 @@ local Test = require("cosmic.test")
 Test.policy{
   grants = {
     { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+    { path = "testdata/forked/typed_fixture.txt", letters = "r" },
     { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" }, { path = "core/socket.h", letters = "r" },
   },
 }
@@ -19,7 +20,7 @@ local LOG_MODULES <const>: {string: string} = { ["cosmic.log"] = Fixture.LOG }
 --- What the fork and the port say of `body` after the prelude; the two must say the same. The fork's problems.
 local function same(body: string, given?: Rules.Exemptions, modules?: {string: string}): {string}
   local source = Fixture.PRELUDE .. body
-  local fork = Fixture.fork(source, modules or LOG_MODULES, given)
+  local fork = Fixture.forked(source, modules or LOG_MODULES, given)
   local port = Fixture.port(source, modules or LOG_MODULES, given)
   assert(table.concat(fork.problems, "\n") == table.concat(port.problems, "\n"), "in:\n" .. body .. "\nthe fork says:\n" ..
       table.concat(fork.problems, "\n") .. "\nthe port says:\n" .. table.concat(port.problems, "\n"))
@@ -46,7 +47,7 @@ end
 
 local function exempting(which: string, keys: {string}): Rules.Exemptions
   local out: Rules.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
-  local named: {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or
+  local named: mut {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or
     which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do
     named[key] = "a test's own exemption"

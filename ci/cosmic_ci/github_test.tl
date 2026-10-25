@@ -31,7 +31,7 @@ end
 --- The live host over a plain-HTTP API whose calls `script` answers in
 --- order, and what each request wrote.
 local function host_with(script: {{string}}): Github.Host, {string}
-  local sent: {string} = {}
+  local sent: mut {string} = {}
   local host = Github.live({ GH_TOKEN = "secret", GITHUB_API_URL = "http://api.test" },
     { script = script, sent = function(text: string) sent[#sent + 1] = text end })
   return host, sent
@@ -136,11 +136,11 @@ end
 
 --- A request is cut off after the seconds the lookup gives.
 local function test_a_lookup_carries_its_time_limit()
-  local limits: {integer} = {}
+  local limits: mut {integer} = {}
   local over = Github.over({ base = "http://api.test",
     now_ns = function(): integer return 0 end,
     fetch = function(_a: string, _b: string): boolean, string return false, "" end,
-    send = function(request: GithubApi.Request): GithubApi.Reply | nil, string
+    send = function(request: GithubApi.Request): GithubApi.Reply?, string
       limits[#limits + 1] = request.timeout_ns or -1
       return { status = 200, headers = {}, body = "{}" }, ""
     end })
@@ -168,9 +168,9 @@ end
 --- no sign that it moved. (A recorded git stands in: no test runs the host's.)
 local function test_the_harness_moved_is_gits_answer()
   local base = string.rep("a", 40)
-  local function moved(known: integer | nil, diff: integer | nil): boolean, {string}
-    local lines: {string} = {}
-    local answer = Github.harness_moved(function(argv: {string}): integer | nil
+  local function moved(known: integer?, diff: integer?): boolean, {string}
+    local lines: mut {string} = {}
+    local answer = Github.harness_moved(function(argv: {string}): integer?
       lines[#lines + 1] = table.concat(argv, " ")
       if argv[1] == "cat-file" and known ~= nil then return known end
       return diff

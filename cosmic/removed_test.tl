@@ -40,7 +40,7 @@ local modules <const>: {string:any} = {
 --- `message` can reach it: an entry under a misspelt library would never
 --- be said.
 local function test_every_replacement_is_for_a_removed_name()
-  local package_fields: {string:boolean} = {}
+  local package_fields: mut {string:boolean} = {}
   for _, field in ipairs(Removed.package_fields) do
     package_fields[field] = true
   end
@@ -110,14 +110,14 @@ local unreachable <const>: {string:boolean} = { ["cosmic.http.server"] = true }
 --- it (a type counts, though it is not looked up), so a pattern that stopped matching would fail rather than check
 --- nothing.
 local function test_every_quoted_function_exists_in_the_module_it_names()
-  local entries: {string:string} = {}
+  local entries: mut {string:string} = {}
   for _, group in ipairs({ Removed.replacements, Removed.names, Removed.members }) do
     for key, text in pairs(group) do
       entries[key] = text
     end
   end
   for key, text in pairs(entries) do
-    local aliases: {string:string} = {}
+    local aliases: mut {string:string} = {}
     local required = 0
     for alias, module in text:gmatch("local ([%a_][%w_]*) = require%(\"([%w_.]+)\"%)") do
       aliases[alias] = module

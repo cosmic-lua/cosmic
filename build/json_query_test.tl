@@ -75,7 +75,7 @@ local function flat_lines(value: any, opts?: json_query.FlattenOptions): {string
   local leaves, err = json_query.flatten(value, opts)
   assert(leaves ~= nil, err)
   assert(err == "")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i, leaf in ipairs(leaves) do
     local line, why = json_query.flat_line(leaf.steps, leaf.value)
     assert(line ~= nil, why)
@@ -190,9 +190,9 @@ end
 --- and counts in `counter[1]` each time it is walked by `pairs`: one for
 --- every container a walk lays out, so a test can bound the work a walk
 --- does by what it counted, not by how long it took.
-local function counted(value: any, counter: {integer}): any
+local function counted(value: any, counter: mut {integer}): any
   if not (value is {any:any}) then return value end
-  local copy: {any:any} = {}
+  local copy: mut {any:any} = {}
   for key, member in pairs(value) do copy[key] = counted(member, counter) end
   local walk_copy = function(): function(): (any, any)
     counter[1] = counter[1] + 1
@@ -207,7 +207,7 @@ local function counted(value: any, counter: {integer}): any
 end
 
 local function test_flatten_of_a_large_document_lays_out_each_container_once()
-  local rows: {any} = {}
+  local rows: mut {any} = {}
   for i = 1, 25000 do rows[i] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
   local counter = { 0 }
   local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter)))

@@ -140,7 +140,7 @@ local CASES <const>: {Case} = {
 }
 
 local function first_error(case: Case): Parser.Error
-  local parsed = parse(case.source, case.decl and "decl" or "tl")
+  local parsed = parse(case.source, if case.decl then "decl" else "tl" end)
   local e = parsed.errors[1]
   assert(e ~= nil, "no error for " .. case.source)
   assert(#parsed.errors == (case.count or 1), #parsed.errors .. " errors for " .. case.source .. ", the first " .. e.code .. ": " .. e.msg)
@@ -160,11 +160,11 @@ local function test_each_refusal_has_its_code_its_place_and_its_fix()
 end
 
 local function test_every_code_of_the_parser_has_a_case()
-  local covered: {string: boolean} = {}
+  local covered: mut {string: boolean} = {}
   for _, case in ipairs(CASES) do
     covered[case.code] = true
   end
-  local lexer: {string: boolean} = {}
+  local lexer: mut {string: boolean} = {}
   for _, code in ipairs(Lexer.codes) do
     lexer[code] = true
   end
@@ -175,12 +175,12 @@ end
 
 local function test_the_parser_goes_on_past_an_error_to_the_next_statement()
   local parsed = parse("local x = = 1\nlocal y = 2\nlocal z: T | nil\nlocal w = 3", "tl")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for i, e in ipairs(parsed.errors) do
     codes[i] = e.code
   end
   assert(table.concat(codes, " ") == "expected_expression nil_union", table.concat(codes, " "))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, stat in ipairs(parsed.chunk.body.stats) do
     parts[i] = Dump.dump(stat)
   end
@@ -193,11 +193,11 @@ end
 --- The codes of the errors of `source`, space apart, and its statements as text.
 local function outcome(source: string): string, string
   local parsed = parse(source, "tl")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for i, e in ipairs(parsed.errors) do
     codes[i] = e.code
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, stat in ipairs(parsed.chunk.body.stats) do
     parts[i] = Dump.dump(stat)
   end
@@ -234,13 +234,13 @@ end
 local function test_the_errors_of_the_lexer_and_the_parser_come_in_source_order_and_a_lexical_error_is_reported_once()
   local source = "local a = @\nlocal b = 'c\nlocal c = 3 +\nlocal d = 4"
   local parsed = parse(source, "tl")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for i, e in ipairs(parsed.errors) do
     codes[i] = e.code
   end
   assert(table.concat(codes, " ") == "stray_byte unterminated_string expected_expression", table.concat(codes, " "))
   local expected = parsed.chunk.body.stats[4]
-  assert(expected is Ast.Local, "the statement after the errors is intact")
+  assert((expected.kind == "Local"), "the statement after the errors is intact")
 end
 
 local function test_input_nested_past_the_limit_is_refused_not_overflowed()

@@ -89,7 +89,7 @@ end
 --- with the standard `streams` on it, under `policy` where given, and how it
 --- ended.
 local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Policy): string, Child.Result
-  local on: {integer:boolean} = {}
+  local on: mut {integer:boolean} = {}
   for _, number in ipairs(streams) do on[number] = true end
   local opts: Child.Options = { policy = policy, timeout_ns = Clock.seconds(5) }
   if not on[0] then opts.stdin = "null" end
@@ -108,7 +108,7 @@ local function on_pty(binary: string, streams: {integer}, policy?: Sandbox.Polic
     said.value = said.value .. data
     return true
   end
-  local result: Child.Result | nil
+  local result: Child.Result?
   while result == nil do
     local done, _ = Child.wait_any({ started.child }, Clock.ms(1))
     if done ~= nil then

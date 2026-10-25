@@ -103,8 +103,8 @@ end
 --- are read. It never raises.
 --- @param header string | nil The header's value
 --- @return {string:string} The cookies
-function Cookies.parse(header: string | nil): {string:string}
-  local out: {string:string} = {}
+function Cookies.parse(header: string?): {string:string}
+  local out: mut {string:string} = {}
   if header == nil or header == "" then return out end
   local text: string = header or ""
   if #text > MAX_HEADER then
@@ -166,7 +166,7 @@ end
 --- @param attrs Cookies.Attributes | nil The attributes
 --- @return string | nil The line
 --- @return string Why none, or ""
-function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes): string | nil, string
+function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes): string?, string
   local a: Cookies.Attributes = attrs or {}
   if not is_token(name) then
     return nil, "cookies: the name is not a token"
@@ -204,7 +204,7 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   elseif prefix:sub(1, 9) == "__secure-" and not secure then
     return nil, "cookies: " .. name .. " needs Secure (a __Secure- cookie)"
   end
-  local parts: {string} = { name .. "=" .. value, "Path=" .. path }
+  local parts: mut {string} = { name .. "=" .. value, "Path=" .. path }
   local max_age = a.max_age
   if max_age ~= nil then
     if math.type(max_age) ~= "integer" then error("cookies: max_age must be an integer", 2) end
@@ -236,7 +236,7 @@ end
 --- @param attrs Cookies.Attributes | nil The attributes it was set with
 --- @return string | nil The line
 --- @return string Why none, or ""
-function Cookies.expire(name: string, attrs?: Cookies.Attributes): string | nil, string
+function Cookies.expire(name: string, attrs?: Cookies.Attributes): string?, string
   local given: Cookies.Attributes = attrs or {}
   local a: Cookies.Attributes = { path = given.path, domain = given.domain, http_only = given.http_only,
     secure = given.secure, same_site = given.same_site, partitioned = given.partitioned,
@@ -269,7 +269,7 @@ end
 --- @param line string The header's value
 --- @return Cookies.Parsed | nil The parts
 --- @return string Why none, or ""
-function Cookies.parse_set_cookie(line: string): Cookies.Parsed | nil, string
+function Cookies.parse_set_cookie(line: string): Cookies.Parsed?, string
   local first, rest = line:match("^([^;]*)(.*)$")
   local name, value = first:match("^([^=]*)=(.*)$")
   if name == nil then return nil, "cookies: a Set-Cookie line needs name=value" end

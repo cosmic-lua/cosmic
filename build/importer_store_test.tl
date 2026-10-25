@@ -8,16 +8,19 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
-local ast = require("build.ast")
-local type Compiler = require("build.compiler")
+local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local SyntaxNode = require("build.syntax_node")
 local docs = require("build.docs")
 local importer = require("build.importer")
-local teal = require("build.teal")
+local plans = require("build.plans")
+local standard_text = require("build.standard_text")
 local work = require("build.work")
 local writer = require("build.writer")
 local schema = require("build.schema")
 -- What a refusal says to write instead is [`cosmic.removed`]'s, which
--- build.teal loads by no `require` a parse records: required here, it
+-- build.error_render loads by no `require` a parse records: required here, it
 -- is in this test's closure, which the worker lets it load.
 local _ = require("cosmic.removed")
 local build_paths = require("build.paths")
@@ -34,11 +37,9 @@ local function build_dir(root: string): string
   return (assert(build_paths.prepare(root)))
 end
 
-local built = assert(teal.load())
-
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
-local function write_fixture(case: string, files: {string:string}): string | nil, string
+local function write_fixture(case: string, files: {string:string}): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
     return nil, trouble
@@ -59,7 +60,7 @@ end
 
 --- Stages and compiles one fixture run. Reopening the same root keeps its
 --- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -69,9 +70,13 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local result, compile_trouble = importer.compile(handle, built,
+  local result, compile_trouble = importer.compile(handle,
     "declaration-cache-test")
   work.close(handle)
+  -- The new checker goes on past a module it refuses and says so in `refused`: that is no compile, as the tests ask.
+  if result ~= nil and #result.refused > 0 then
+    return nil, table.concat(result.refused, "\n")
+  end
   return result, compile_trouble
 end
 
@@ -82,10 +87,12 @@ local function test_project_keeps_uses_of_bundled_symbols()
     ["main.tl"] = table.concat({
       'local disk = require("cosmic.fs")',
       "local record Main",
+      "  check: function(string): boolean, string",
       "end",
       "--- Checks whether a path exists.",
       "function Main.check(path: string): boolean, string",
-      "  if not disk.exists(path) then",
+      "  local found, _ = disk.exists(path)",
+      "  if found ~= true then",
       "    return false, \"the project path does not exist\"",
       "  end",
       "  return true, \"\"",
@@ -96,37 +103,38 @@ local function test_project_keeps_uses_of_bundled_symbols()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local result = assert(importer.compile(handle, built, "importer-test"))
+  local result = assert(importer.compile(handle, "importer-test"))
+  assert(#result.refused == 0, table.concat(result.refused, "\n"))
   assert(writer.write_result(handle, build_dir(root) .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
-  assert(rows[1]:text(1) == "cosmic.fs" and rows[1]:text(2) == "exists")
-  assert(rows[1]:text(3) == "main" and rows[1]:text(4) == "6")
+  assert(assert(rows[1]):text(1) == "cosmic.fs" and assert(rows[1]):text(2) == "exists")
+  assert(assert(rows[1]):text(3) == "main" and assert(rows[1]):text(4) == "7")
   local guidance = assert(Sqlite.text_rows(shipped,
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
       "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
       "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
-  assert(#guidance == 1 and guidance[1]:text(1) == "Checks whether a path exists.")
-  local databases: {Sqlite.Handle} = { shipped }
+  assert(#guidance == 1 and assert(guidance[1]):text(1) == "Checks whether a path exists.")
+  local databases: mut {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
     databases[#databases + 1] = database
   end
   local effective = assert(docs.view(databases))
   local definition = assert(docs.lookup(effective, "Fs.exists"))
-  assert(#definition == 1 and definition[1].module == "cosmic.fs")
+  assert(#definition == 1 and assert(definition[1]).module == "cosmic.fs")
   local uses = assert(docs.uses(effective, "Fs.exists"))
   local found_main = false
   for _, use in ipairs(uses) do
-    if use.from_module == "main" and use.line == 6 then found_main = true end
+    if use.from_module == "main" and use.line == 7 then found_main = true end
   end
   assert(found_main, "effective uses dropped the project's bundled reference")
   assert(shipped:close())
   work.close(handle)
 end
 
---- [`build.teal`] strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
+--- The checker strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
 --- from the checker's own globals, so a bare reference is tl's own
 --- "unknown variable" -- not left to fail only once a built program
 --- actually runs and reaches [`core/surface.c`]'s replacement text. The
@@ -139,7 +147,8 @@ local function test_unresolved_removed_global_names_its_own_replacement()
   }))
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the bare `os` reference to refuse the compile")
-  assert(compile_trouble:find("unknown variable: os", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("thing.tl:2:10: `os` is not declared (unknown_variable): os.time is not available: use Clock.now_ns()",
+    1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs: Removed.os", 1, true) ~= nil,
     compile_trouble)
 end
@@ -153,14 +162,13 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
   }))
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected `os.getenv` to refuse the compile")
-  assert(compile_trouble:find("thing.tl:2:10: unknown variable: os -- os.getenv is not " ..
+  assert(compile_trouble:find("thing.tl:2:10: `os` is not declared (unknown_variable): os.getenv is not " ..
       'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
       " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
 end
 
---- The same hint, for a literal `require` of a removed name: tl
---- resolves `require("io")` against `env.modules`, which [`build.teal`]
---- strips `io` from too, so this fails as an ordinary unresolvable
+--- The same hint, for a literal `require` of a removed name: the checker
+--- resolves `require("io")` against its modules, which strip `io` too, so this fails as an ordinary unresolvable
 --- module rather than a bare global.
 local function test_unresolved_removed_require_names_its_own_replacement()
   local root = assert(write_fixture("removed-require-hint", {
@@ -168,7 +176,8 @@ local function test_unresolved_removed_require_names_its_own_replacement()
   }))
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected `require(\"io\")` to refuse the compile")
-  assert(compile_trouble:find("module not found: 'io'", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("thing.tl:1:13: the project has no module `io` (require_unknown): io is not available",
+    1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs: Removed.io", 1, true) ~= nil,
     compile_trouble)
 end
@@ -190,8 +199,8 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
   assert(projection:close())
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")
-  assert(compile_trouble:find("unknown variable: greeter -- see also in docs: greeter",
-    1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("`greeter` is not declared (unknown_variable)", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("-- see also in docs: greeter", 1, true) ~= nil, compile_trouble)
 end
 
 --- An ordinary undeclared-name typo, unrelated to anything the
@@ -205,13 +214,12 @@ local function test_an_unrelated_unknown_name_earns_no_hint()
   }))
   local result, compile_trouble = compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")
-  assert(compile_trouble:find("unknown variable: pritn", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("`pritn` is not declared (unknown_variable)", 1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs", 1, true) == nil, compile_trouble)
   assert(compile_trouble:find("cosmic docs", 1, true) == nil, compile_trouble)
 end
 
---- Concrete checker families that [`teal.replacement`] leaves unanswered
---- point at checked language examples. These are
+--- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
 --- the output beside the hint. That every query advertised is answered by
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
@@ -219,16 +227,16 @@ local function test_language_errors_name_relevant_checked_docs()
   local cases: {string:{string}} = {
     wrong_arguments = {
       "return function(): integer\n  return string.find(\"abc\")\nend\n",
-      "wrong number of arguments", "generics_functions_returns",
+      "`string.find` takes 2 to 4 arguments, but 1 is given (arity)", "generics_functions_returns",
     },
     record_field = {
       "local record R\nend\nreturn function(): integer\n" ..
         "  local r: R = {}\n  return r.y\nend\n",
-      "invalid key 'y' in record", "records_interfaces_methods",
+      "`R` has no field `y` (field_unknown)", "records_interfaces_methods",
     },
     builtin_argument_type = {
-      "return function(): string\n  return table.concat(123)\nend\n",
-      "argument 1: got integer", "generics_functions_returns",
+      "return function(n: number): integer?\n  return string.byte(\"a\", n)\nend\n",
+      "no overload of `string.byte` takes the arguments (string, number) (overload_none)", "generics_functions_returns",
     },
   }
   for name, case in pairs(cases) do
@@ -238,7 +246,7 @@ local function test_language_errors_name_relevant_checked_docs()
     assert(result == nil, "expected " .. name .. " to refuse the compile")
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
-    assert(trouble:find("cosmic docs " .. case[3], 1, true) ~= nil, trouble)
+    assert(trouble:find("cosmic docs " .. assert(case[3]), 1, true) ~= nil, trouble)
   end
 end
 
@@ -250,7 +258,7 @@ local function test_malformed_type_keeps_its_error()
   }))
   local result, trouble = compile_fixture(root)
   assert(result == nil)
-  assert(trouble:find("expected a type list", 1, true) ~= nil, trouble)
+  assert(trouble:find("expected `}` to close the collection type on line 1, found `=` (unclosed)", 1, true) ~= nil, trouble)
 end
 
 --- An incidental API name elsewhere on the line cannot make an argument
@@ -262,27 +270,10 @@ local function test_argument_hint_does_not_sniff_the_whole_source_line()
   }))
   local result, trouble = compile_fixture(root)
   assert(result == nil)
-  assert(trouble:find("wrong number of arguments", 1, true) ~= nil, trouble)
+  assert(trouble:find("`string.find` takes 2 to 4 arguments, but 1 is given (arity)", 1, true) ~= nil, trouble)
   assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
     trouble)
   assert(trouble:find("cosmic docs table.concat", 1, true) == nil, trouble)
-end
-
---- A message [`teal.replacement`] answers in place carries no pointer at
---- the docs besides: a key a record lacks, told the record's fields, and
---- a number where an integer was expected, told the conversions.
-local function test_an_answered_error_names_no_docs()
-  local root = assert(write_fixture("answered-no-docs", {
-    ["thing.tl"] = "local record R\n  x: integer\nend\nreturn function(n: number): integer\n" ..
-      "  local r: R = { x = 1 }\n  return r.y + math.abs(n) + string.byte(\"a\", n)\nend\n",
-  }))
-  local result, trouble = compile_fixture(root)
-  assert(result == nil)
-  assert(trouble:find("invalid key 'y' in record 'r' of type R -- R's fields: x\n", 1, true) ~= nil,
-    trouble)
-  assert(trouble:find("argument 2: got number, expected integer -- 'as integer' converts", 1, true) ~= nil,
-    trouble)
-  assert(trouble:find("cosmic docs", 1, true) == nil, trouble)
 end
 
 --- A closure over what the program loads leaves out the names only a
@@ -290,13 +281,13 @@ end
 --- closure reads it.
 local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
   local databases = Store.databases()
-  local binary = databases[#databases]
+  local binary = assert(databases[#databases])
   local only = assert(Sqlite.text_rows(binary,
     "SELECT DISTINCT d.requires FROM decl_imports d WHERE d.requires <> '' " ..
       "AND NOT EXISTS (SELECT 1 FROM imports i WHERE i.requires = d.requires) " ..
       "AND NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = d.requires)"))
   assert(#only > 0, "every name a declaration requires is a module the program holds")
-  local reached: {string:boolean} = {}
+  local reached: mut {string:boolean} = {}
   for _, name in ipairs(Store.closure({ "cosmic.json", "cosmic.archive" }, { types = true })) do
     reached[name] = true
   end
@@ -309,64 +300,70 @@ end
 --- standard-library module for its requires finds is what its rows say.
 local function test_stored_edges_equal_the_parsed_ones()
   local databases = Store.databases()
-  local binary = databases[#databases]
+  local binary = assert(databases[#databases])
   local paths = assert(Sqlite.text_rows(binary,
-    "SELECT path FROM modules WHERE path LIKE 'cosmic.%' " ..
-      "UNION SELECT path FROM decls WHERE path LIKE 'cosmic.%' ORDER BY path"))
+    "SELECT path, 'decl' FROM decls WHERE path LIKE 'cosmic.%' " ..
+      "UNION SELECT path, 'tl' FROM modules WHERE path LIKE 'cosmic.%' AND path NOT IN (SELECT path FROM decls) " ..
+      "ORDER BY path"))
   assert(#paths > 0)
   for _, row in ipairs(paths) do
     local name = row:text(1)
     local source = assert(Store.source(name))
-    local parsed = assert(ast.parse(built, source, name))
-    local found = assert(ast.all_requires(built, parsed))
-    local set: {string:boolean} = {}
+    local dialect: Ast.Dialect = if row:text(2) == "decl" then "decl" else "tl" end
+    local parsed = Parser.parse(Lexer.lex(source, name .. ".tl"), name .. ".tl", dialect)
+    assert(#parsed.errors == 0, name .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+    local found = SyntaxNode.requires(parsed.chunk)
+    local set: mut {string:boolean} = {}
     for _, required in ipairs(found) do set[required] = true end
-    local wanted: {string} = {}
+    local wanted: mut {string} = {}
     for required in pairs(set) do wanted[#wanted + 1] = required end
     table.sort(wanted)
     local stored = assert(Sqlite.text_rows(binary,
       "SELECT requires FROM decl_imports WHERE path = ?1 AND requires <> '' " ..
         "ORDER BY requires",
       { { text = name } }))
-    local got: {string} = {}
+    local got: mut {string} = {}
     for index, edge in ipairs(stored) do got[index] = edge:text(1) end
     assert(table.concat(got, ",") == table.concat(wanted, ","),
       name .. ": stored " .. table.concat(got, ",") .. ", parsed " .. table.concat(wanted, ","))
   end
 end
 
---- A compile that reaches a standard-library module parses none of
---- them to learn what they require, cold or warm.
-local function test_a_compile_does_not_parse_the_standard_library()
+--- The keys of a tree that reaches a standard-library module parse none of them to learn what they require, cold or warm:
+--- the edges are stored.
+local function test_the_keys_of_a_tree_do_not_parse_the_standard_library()
   local root = assert(write_fixture("no-embedded-parse", {
-    ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
+    ["main.tl"] = 'local Json = require("cosmic.json")\nlocal record Main\nend\nlocal main: Main = {}\nlocal _ = Json\nreturn main\n',
   }))
-  local parse = ast.parse
-  local parsed: {string} = {}
-  ast.parse = function(compiler: Compiler, source: string, name: string)
-    if name:sub(1, 7) == "cosmic." then parsed[#parsed + 1] = name end
-    return parse(compiler, source, name)
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  assert(importer.derive(handle, false))
+  local modules = assert(plans.collect(handle.db))
+  local parse = Parser.parse
+  local parsed: mut {string} = {}
+  Parser.parse = function(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): Parser.Parsed
+    parsed[#parsed + 1] = name
+    return parse(lexed, name, dialect)
   end
-  local first, first_trouble = compile_fixture(root)
-  local second, second_trouble = compile_fixture(root)
-  ast.parse = parse
-  assert(first ~= nil, tostring(first_trouble))
-  assert(second ~= nil, tostring(second_trouble))
+  local keys, trouble = plans.dependency_keys(handle.db, modules, "no-parse-test")
+  Parser.parse = parse
+  work.close(handle)
+  assert(keys ~= nil, tostring(trouble))
   assert(#parsed == 0, "parsed " .. table.concat(parsed, ", "))
 end
 
 --- An edit to what the checker reads of a standard-library module, its
---- stub or its source ([`teal.standard_text`]), moves the key of a module
+--- stub or its source ([`standard_text.of`]), moves the key of a module
 --- that reaches it, whether it requires that module or a module that
 --- does, by the stored edges; so does the same text served as the other.
 local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_it()
-  local function key_with(edited: string | nil, flipped?: boolean): string
+  local function key_with(edited: string?, flipped?: boolean): string
     local root = assert(write_fixture("embedded-edit" .. tostring(edited), {
-      ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
+      ["main.tl"] = 'local Json = require("cosmic.json")\nlocal record Main\nend\nlocal main: Main = {}\nlocal _ = Json\nreturn main\n',
     }))
-    local standard_text = teal.standard_text
-    teal.standard_text = function(name: string): teal.Standard | nil
-      local found = standard_text(name)
+    local of = standard_text.of
+    standard_text.of = function(name: string): standard_text.Standard?
+      local found = of(name)
       if found ~= nil and name == edited then
         return { text = flipped and found.text or found.text .. "\n-- edited\n",
           stubbed = (flipped == true) ~= found.stubbed }
@@ -374,7 +371,7 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
       return found
     end
     local result, trouble = compile_fixture(root)
-    teal.standard_text = standard_text
+    standard_text.of = of
     assert(result ~= nil, tostring(trouble))
     for _, m in ipairs(result.modules) do
       if m.path == "main" then return m.key end

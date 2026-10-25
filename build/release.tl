@@ -132,7 +132,7 @@ local record verb
     url: string
   end
   --- The digest SHA256SUMS names for `cosmic`, or nil and why.
-  sums_digest: function(text: string): string | nil, string
+  sums_digest: function(text: string): string?, string
   --- The three lines of ci/cosmic-driver.pin for a release.
   pin_text: function(commit: string, digest: string): string
 end
@@ -166,7 +166,7 @@ local record ApiRelease
   tag_name: string
   draft: boolean
   prerelease: boolean
-  published_at: string | nil
+  published_at: string?
   assets: {Asset}
 end
 local RELEASE_SPEC <const> = Shape.record({
@@ -203,8 +203,8 @@ local function binary_url(commit: string): string
   return downloads .. "next-" .. commit .. "/cosmic"
 end
 
-function verb.sums_digest(text: string): string | nil, string
-  local found: string | nil = nil
+function verb.sums_digest(text: string): string?, string
+  local found: string? = nil
   for line in text:gmatch("[^\n]+") do
     -- `*` marks a digest of a file read in binary mode, as sha256sum -b writes it.
     local digest, name = line:match("^(%x+) [ *](.+)$")
@@ -225,14 +225,14 @@ end
 --- The release `r` names, or nil when it is not a published prerelease
 --- holding the three assets and no others, as ci/cosmic_ci/prerelease.tl
 --- publishes one.
-local function usable(r: ApiRelease): verb.Release | nil
+local function usable(r: ApiRelease): verb.Release?
   local published = r.published_at
   if r.draft or not r.prerelease or published == nil or #r.assets ~= #required_assets then
     return nil
   end
   local commit = r.tag_name:match("^next%-(%x+)$")
   if commit == nil or #commit ~= 40 or commit:find("[A-F]") ~= nil then return nil end
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   for _, asset in ipairs(r.assets) do names[asset.name] = true end
   for _, name in ipairs(required_assets) do
     if names[name] ~= true then return nil end
@@ -242,7 +242,7 @@ end
 
 --- How many requests a run has made, which picks each one's script.
 local record Requests
-  made: integer
+  mut made: integer
 end
 
 local standard: verb.Io = { out = bare.out, err = bare.err }
@@ -281,7 +281,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     prefix = prefix:lower()
   end
   -- The last moment a release may have been published at.
-  local until_ns: integer | nil = nil
+  local until_ns: integer? = nil
   local until_text = parsed.values["--until"]
   if until_text ~= nil then
     local ns, _ = Time.parse_rfc3339(until_text)
@@ -334,7 +334,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function never(): boolean return false end
   local function options(headers?: {string:string}, sha256?: string, cancelled?: function(): boolean): Http.Options
     requests.made = requests.made + 1
-    local script: {string} | nil = nil
+    local script: {string}? = nil
     local scripts = to.script
     if scripts ~= nil then
       script = scripts[requests.made]
@@ -348,8 +348,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   --- One request to the API: the body, or nil and why. A 404 is nil and "".
-  local function call(url: string): string | nil, string
-    local headers: {string:string} = {
+  local function call(url: string): string?, string
+    local headers: mut {string:string} = {
       ["Accept"] = "application/vnd.github+json",
       ["X-GitHub-Api-Version"] = "2022-11-28",
       ["User-Agent"] = "cosmic-release",
@@ -383,7 +383,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   -- The matches, newest first: up to `need` of them from main's history,
   -- or every one a `--commit` names.
-  local function matches(need: integer): {verb.Release} | nil, string
+  local function matches(need: integer): {verb.Release}?, string
     local found: {verb.Release} = {}
     local seen: {string:boolean} = {}
     local function take(r: ApiRelease)
@@ -402,7 +402,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return found
     end
     if prefix ~= nil then
-      local tags: {string} = {}
+      local tags: mut {string} = {}
       if #prefix == 40 then
         tags[1] = "next-" .. prefix
       else
@@ -413,7 +413,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           if why == "" then why = url .. ": HTTP 404" end
           return nil, why
         end
-        local refs, shape_trouble: {Ref} | nil, string = Shape.decode_into(text, REFS_SPEC)
+        local refs, shape_trouble: {Ref}?, string = Shape.decode_into(text, REFS_SPEC)
         if refs == nil then return nil, url .. ": no list of refs: " .. shape_trouble end
         if #refs > max_tags then
           return nil, plural.count(#refs, "tag") .. " start with next-" .. prefix .. "; give more of it"
@@ -429,7 +429,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         -- A tag with no release, or only a draft's, answers 404.
         if text == nil and why ~= "" then return nil, why end
         if text ~= nil then
-          local r, shape_trouble: ApiRelease | nil, string =
+          local r, shape_trouble: ApiRelease?, string =
             Shape.decode_into(text, RELEASE_SPEC, { null_value = Json.null })
           if r == nil then return nil, url .. ": no release: " .. shape_trouble end
           take(r)
@@ -439,7 +439,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     -- Each commit that has a `next-` tag, and how many of them the
     -- history read has yet to pass.
-    local tagged: {string:boolean} = {}
+    local tagged: mut {string:boolean} = {}
     local unpassed = 0
     local refs_url = repo_url .. "/git/matching-refs/tags/next-"
     local refs_text, refs_why = call(refs_url)
@@ -447,7 +447,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if refs_why == "" then refs_why = refs_url .. ": HTTP 404" end
       return nil, refs_why
     end
-    local refs, refs_trouble: {Ref} | nil, string = Shape.decode_into(refs_text, REFS_SPEC)
+    local refs, refs_trouble: {Ref}?, string = Shape.decode_into(refs_text, REFS_SPEC)
     if refs == nil then return nil, refs_url .. ": no list of refs: " .. refs_trouble end
     for _, ref in ipairs(refs) do
       local commit = ref.ref:match("^refs/tags/next%-(%x+)$")
@@ -457,7 +457,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
     if unpassed == 0 then return found, "" end
-    local asked: {string:boolean} = {}
+    local asked: mut {string:boolean} = {}
     local query = "?sha=main&per_page=" .. tostring(per_page)
     if until_ns ~= nil then
       query = query .. "&until=" .. Time.format_rfc3339(until_ns, nil, { digits = 0 })
@@ -469,7 +469,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         if why == "" then why = url .. ": HTTP 404" end
         return nil, why
       end
-      local commits, shape_trouble: {Commit} | nil, string = Shape.decode_into(text, HISTORY_SPEC)
+      local commits, shape_trouble: {Commit}?, string = Shape.decode_into(text, HISTORY_SPEC)
       if commits == nil then return nil, url .. ": no list of commits: " .. shape_trouble end
       for _, commit in ipairs(commits) do
         -- History that grew between two pages' requests repeats a commit.
@@ -480,7 +480,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           local release_text, release_why = call(release_url)
           if release_text == nil and release_why ~= "" then return nil, release_why end
           if release_text ~= nil then
-            local r, release_trouble: ApiRelease | nil, string =
+            local r, release_trouble: ApiRelease?, string =
               Shape.decode_into(release_text, RELEASE_SPEC, { null_value = Json.null })
             if r == nil then return nil, release_url .. ": no release: " .. release_trouble end
             take(r)
@@ -502,7 +502,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if listing then
     local found, why = matches(count)
     if found == nil then return fail(why) end
-    local shown: {verb.Release} = {}
+    local shown: mut {verb.Release} = {}
     for _, r in ipairs(found) do
       if #shown == count then break end
       shown[#shown + 1] = r
@@ -512,7 +512,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local encoded = assert(Json.encode_any(shown, { pretty = true }))
       return written(to.out(encoded .. "\n"))
     end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, r in ipairs(shown) do lines[#lines + 1] = r.published_at .. "  " .. r.commit .. "\n" end
     return written(to.out(table.concat(lines)))
   end
@@ -536,11 +536,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         " and " .. second.commit .. "; give more of it")
   end
 
-  local function small(name: string): string | nil, string
+  local function small(name: string): string?, string
     local url = assets_url .. release.tag .. "/" .. name
     local response, open_trouble = Http.open(url, options())
     if response == nil then return nil, url .. ": " .. open_trouble end
-    local body, read_trouble: string | nil, string = nil, ""
+    local body, read_trouble: string?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
       -- One byte past the cap tells a body at it from one over it.
       body, read_trouble = Stream.read_all(Stream.limit(response, max_small + 1))
@@ -562,7 +562,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local digest: string = summed
   local source_text, source_trouble = small("source.json")
   if source_text == nil then return fail(source_trouble) end
-  local source, decode_trouble: Source | nil, string = Shape.decode_into(source_text, SOURCE_SPEC)
+  local source, decode_trouble: Source?, string = Shape.decode_into(source_text, SOURCE_SPEC)
   if source == nil then
     return fail(release.tag .. ": source.json is no source record: " .. decode_trouble)
   end
@@ -606,7 +606,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return download_until(path, function(): boolean return guard:cancelled() ~= 0 end)
   end
 
-  local kept: string | nil = nil
+  local kept: string? = nil
   if target ~= nil then
     local ok, download_trouble = download(target)
     if not ok then return fail(download_trouble) end
@@ -628,7 +628,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local response, open_trouble = Http.open(binary, options())
     if response == nil then return fail(binary .. ": " .. open_trouble) end
     local hashing = assert(Stream.hashing("sha256"))
-    local copied, copy_trouble: integer | nil, string = nil, ""
+    local copied, copy_trouble: integer?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
       copied, copy_trouble = Stream.copy(response, hashing)
     end

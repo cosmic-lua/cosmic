@@ -89,18 +89,18 @@ end
 
 --- A copy of `grants` with `more` after them.
 local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: {Sandbox.Grant} = {}
+  local out: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(grants) do out[#out + 1] = grant end
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
 end
 
 --- The mount at `point` in a /proc/self/mountinfo `text`: its per-mount options.
-local function options_at(text: string, point: string): string | nil
+local function options_at(text: string, point: string): string?
   for line in text:gmatch("[^\n]+") do
     local left = line:match("^(.-) %- ")
     if left ~= nil then
-      local fields: {string} = {}
+      local fields: mut {string} = {}
       for word in left:gmatch("%S+") do fields[#fields + 1] = word end
       if fields[5] == point then return fields[6] end
     end

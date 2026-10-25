@@ -116,7 +116,7 @@ local function build_with_stand_in(tmp: string, script: string, group: boolean):
   })
   local h = assert(Child.start(started.argv, started.options))
   -- Written whole under another name, so the stand-in never reads half.
-  assert(Fs.write(tmp .. "/zig-pid.writing", (group and "-" or "") .. tostring(h.pid)))
+  assert(Fs.write(tmp .. "/zig-pid.writing", (if group then "-" else "" end) .. tostring(h.pid)))
   assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
   return (assert(h:wait(Clock.seconds(30))))
 end
@@ -169,7 +169,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   })
   local h = assert(Child.start(started.argv, started.options))
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  local handed: string | nil = nil
+  local handed: string? = nil
   while handed == nil and Clock.monotonic_ns() < deadline do
     handed = Fs.read(tmp .. "/handed")
     if handed == nil then assert(sys.nanosleep(Clock.ms(20))) end

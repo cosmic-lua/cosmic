@@ -42,14 +42,14 @@ end
 
 --- A grant of the program itself, which a child needs to run at all.
 local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = { { path = program, letters = "rx" } }
+  local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
 end
 
 --- A copy of `grants` with `more` after them.
 local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: {Sandbox.Grant} = {}
+  local out: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(grants) do out[#out + 1] = grant end
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
@@ -69,7 +69,7 @@ end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
 local function sandbox_directories(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-sandbox%-") then found[#found + 1] = name end
   end
@@ -147,7 +147,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
   local base = itself(probe)
   local function grants(): {Sandbox.Grant}
-    local copy: {Sandbox.Grant} = {}
+    local copy: mut {Sandbox.Grant} = {}
     for i, grant in ipairs(base) do copy[i] = grant end
     return copy
   end
