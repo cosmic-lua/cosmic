@@ -209,8 +209,8 @@ local function test_a_path_names_its_letters_and_the_decoder_judges_them()
 end
 
 local function test_the_other_values_are_the_decoders_too()
-  assert(refused({ "--isolate", "net", "prog" }).err:find("/isolate/0", 1, true))
-  assert(refused({ "--promise", "all", "prog" }).err:find("/promises/0", 1, true))
+  assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
+  assert(refused({ "--promise", "all", "prog" }).err:find("$.promises[0]", 1, true))
   assert(refused({ "--connect", "nohost", "prog" }).err:find("/connect/0", 1, true))
   assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("/loopback/0", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))

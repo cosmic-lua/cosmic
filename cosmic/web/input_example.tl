@@ -92,7 +92,7 @@ function Example.json_body()
   assert(problem ~= nil, why)
   local first = assert(problem.errors[1])
   assert(first["pointer"] == "/tags/1" and first["field"] == "tags.1", tostring(first["pointer"]))
-  print(problem.detail) -- tags.1: expected string, got integer
+  print(problem.detail) -- tags.1: want string, got integer
   local wrong = client:post("/notes", { body = '{"title":"t"}', content_type = "text/plain" })
   assert(wrong.status == 415, "a cross-site form cannot send application/json")
 end

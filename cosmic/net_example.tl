@@ -29,11 +29,16 @@ function Example.listen()
   end
 end
 
+-- TODO: hold these in `<close>` locals once a Conn is a class the checker
+-- finds `__close` on (the `close_not_closable` pins of cosmic/net_example.tl
+-- in build/ceilings.txt).
+
 --- A request and its answer: `shutdown("write")` tells the server the
---- request is whole while the client still reads what comes back.
+--- request is whole while the client still reads what comes back. Each end
+--- is closed by hand: the checker refuses `<close>` on a [`Net.Conn`].
 function Example.connect()
-  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+  local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+  local client = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   assert(client:write("status"))
   assert(client:shutdown("write"))
   local conn = assert(server:accept())
@@ -43,6 +48,7 @@ function Example.connect()
   local answer = assert(Stream.read_all(client))
   print(answer)
   assert(answer == "ok", answer)
+  assert(client:close())
   assert(server:close())
 end
 

@@ -15,7 +15,8 @@
 ---
 --- A connection is one object for both directions; `shutdown("write")`
 --- tells the peer the end of what was sent while its answer is still
---- read.
+--- read. The direction is a [`Net.Shutdown`]: "read", "write" or "both",
+--- and any other string does not compile.
 ---
 --- Every wait -- to connect, to accept, to read, to write -- lasts at
 --- most the object's timeout (no limit by default; [`set_timeout`]
@@ -67,6 +68,9 @@ local record Net
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
   type Conn = Connection.Conn
+
+  --- The direction [`Conn.shutdown`] ends: "read", "write" or "both".
+  type Shutdown = Connection.Shutdown
 
   --- What [`Net.connect`] and [`Connector.connect`] take.
   type ConnectOptions = Connection.ConnectOptions
@@ -372,7 +376,9 @@ local class SocketConn is Net.Conn
     return address, ""
   end
 
-  function shutdown(self, how: string): boolean, string
+  function shutdown(self, how: Net.Shutdown): boolean, string
+    -- The type refuses a wrong `how` in checked code; this is for a caller
+    -- the checker does not read.
     if how ~= "read" and how ~= "write" and how ~= "both" then
       error("net: how must be \"read\", \"write\" or \"both\"", 2)
     end
