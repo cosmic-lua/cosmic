@@ -13,6 +13,9 @@ local record plan
     line: integer
     column: integer
     message: string
+    --- The code the checker words after the message, `unused_variable` in
+    --- "unused variable b (unused_variable): name it ...", where it does.
+    code?: string
   end
 
   --- What [`build.lsp.syntax_read`]'s `plan_of` makes of a document: the plan a build makes of it,
@@ -89,13 +92,14 @@ end
 function plan.refusal_of(said: string): Refusal
   local y, x, why = said:match("^[^:\n]*:(%d+):(%d+): (.*)$")
   if y ~= nil and x ~= nil and why ~= nil then
-    return { line = number_of(y), column = number_of(x), message = why }
+    return { line = number_of(y), column = number_of(x), message = why, code = why:match(" %((%l[%l%d_]*)%): ") }
   end
   local line, rest = said:match("^[^:\n]*:(%d+): (.*)$")
   if line ~= nil and rest ~= nil then
-    return { line = number_of(line), column = 1, message = rest }
+    return { line = number_of(line), column = 1, message = rest, code = rest:match(" %((%l[%l%d_]*)%): ") }
   end
-  return { line = 1, column = 1, message = said:match("^[^:\n]*: (.*)$") or said }
+  local plain = said:match("^[^:\n]*: (.*)$") or said
+  return { line = 1, column = 1, message = plain, code = plain:match(" %((%l[%l%d_]*)%): ") }
 end
 
 return plan

@@ -10,8 +10,9 @@
 --- and its whitespace but where they move a token: an edit that moves
 --- none, such as one to a comment's words or to the spaces ending a
 --- line, checks no dependent, and any change of a type changes a token.
---- A dependent's message that names a place in the module (a type
---- "inferred at" it) is checked again once the place moves.
+--- A dependent is checked again once a token moves, though no message of
+--- the checker names a place in another module today: the key stays exact
+--- so that one which does is never stale.
 ---
 --- What the dependents were last checked against is what was keyed of
 --- the module, by its file: closing a document compares that with what

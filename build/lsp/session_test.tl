@@ -86,7 +86,8 @@ local function test_a_type_error_is_published_where_it_is()
   local diagnostics = nth(ran, 1)
   assert(#diagnostics == 1, table.concat(ran.sent, "\n"))
   local diagnostic = only(diagnostics)
-  assert(diagnostic.message:find("got string, expected integer", 1, true), diagnostic.message)
+  assert(diagnostic.message == "`s` is `string`, where `integer` is wanted as the value of `n` (not_assignable): " ..
+      "pass a value of type `integer`, or change the declaration to `string`", diagnostic.message)
   local start, finish = edge(diagnostic, "start"), edge(diagnostic, "end")
   assert(start.line == 1 and start.character == 19)
   -- The range covers the word, `s`, not the place alone.
@@ -180,18 +181,18 @@ local function test_hover_counts_utf16_units_before_the_cursor()
   assert(after_two:find("cosmic.fs.read", 1, true) ~= nil, after_two)
 end
 
-local function test_formatting_answers_the_fixed_text()
+--- `cosmic fix` checks Teal and does not lay it out, so the session offers
+--- no formatting and answers a request for it with no edits.
+local function test_formatting_answers_no_edits()
   local root = session_fixture.project()
   local ran = served(root, { initialize(root), open(root, "main.tl", "local   n =  1\nreturn n\n"),
-    format(2, root, "main.tl"), open(root, "bad.tl", "local = \n"), format(3, root, "bad.tl") })
+    format(2, root, "main.tl"), format(3, root, "absent.tl") })
   local body = answer(ran, 2)
   local formatted = assert(FORMAT_SENT:decode_into(body))
-  assert(#formatted.result == 1)
-  local edit = assert(formatted.result[1])
-  assert(edit.newText == "local n = 1\nreturn n\n", edit.newText)
-  assert(body:find('"end":{"character":0,"line":2}', 1, true), body)
+  assert(#formatted.result == 0, body)
+  assert(body:find('"result":[]', 1, true), body)
   assert(failed(answer(ran, 3)) == -32803)
-  assert(initialized(answer(ran, 1)).capabilities.documentFormattingProvider == true)
+  assert(initialized(answer(ran, 1)).capabilities.documentFormattingProvider == nil)
 end
 
 local function test_the_lifecycle_is_held_to()
@@ -264,7 +265,7 @@ end
 local function test_a_lone_carriage_return_ends_a_line()
   local root = session_fixture.project()
   for _, ending in ipairs({ "\r", "\r\n", "\n" }) do
-    local text = "local x = 1" .. ending .. 'local n: integer = "s"' .. ending .. "return n + x" .. ending
+    local text = "local x = 1" .. ending .. 'local n: integer = "s"' .. ending .. "local m: integer = n + x" .. ending .. "return m" .. ending
     local start = edge(only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)), "start")
     assert(start.line == 1 and start.character == 19, tostring(ending:byte()) .. ": " ..
         tostring(start.line) .. ":" .. tostring(start.character))
@@ -289,21 +290,20 @@ local function test_a_record_shape_is_resolved_as_a_build_does()
   local root = session_fixture.project()
   local text = 'local Shape = require("cosmic.shape")\n' ..
     "local record R\n  n: integer\nend\n" ..
-    'local R_SHAPE <const> = Shape.record_of("R"); local bad: integer = "x"\n' ..
-    "local r = assert(R_SHAPE:into({ n = 1 }))\nlocal n: integer = r.n\nreturn n + bad\n"
+    'local R_SHAPE <const> = Shape.record_of("R") local bad: integer = "x"\n' ..
+    "local r: R = assert(R_SHAPE:into({ n = 1 }))\nlocal n: integer = r.n\nlocal sum: integer = n + bad\nreturn sum\n"
   -- At `"x"` in the text as written, not as the build's rewrite moved it.
   local start = edge(only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)), "start")
-  assert(start.line == 4 and start.character == 67, tostring(start.line) .. ":" .. tostring(start.character))
+  assert(start.line == 4 and start.character == 66, tostring(start.line) .. ":" .. tostring(start.character))
   -- A module required is rewritten too.
-  local module = text:gsub('; local bad: integer = "x"', "")
-  assert(Fs.write(root .. "/shaped.tl", (module:gsub("n %+ bad", "r"))))
+  local module = text:gsub(' local bad: integer = "x"', "")
+  assert(Fs.write(root .. "/shaped.tl", (module:gsub("local sum: integer = n %+ bad\nreturn sum", "return r"))))
   local user = 'local shaped = require("shaped")\nlocal n: integer = shaped.n\nreturn n\n'
   local through = nth(served(root, { initialize(root), open(root, "user.tl", user) }), 1)
   assert(#through == 0, messages_of(through))
-  -- Every call is at the top: the copy with no function bodies finds them.
+  -- The whole text is read for the calls.
   local tally = served(root, { initialize(root), open(root, "main.tl", text) }).tally
-  assert(tally.bodiless_splices == 1 and tally.whole_splices == 0,
-    tostring(tally.bodiless_splices) .. "," .. tostring(tally.whole_splices))
+  assert(tally.whole_splices == 1, tostring(tally.whole_splices))
 end
 
 local function test_a_test_file_is_not_warned_of_its_tests()
@@ -320,7 +320,8 @@ local function test_a_global_is_published_as_refused()
   local root = session_fixture.project()
   local refused = only(nth(served(root, { initialize(root),
     open(root, "main.tl", "local n = 1\nglobal shared_count: integer = n\nreturn shared_count\n") }), 1))
-  assert(refused.message:find("a global is not allowed in a cosmic build", 1, true), refused.message)
+  assert(refused.message == "`global` declares a global, which only a declaration file does (global_in_program): " ..
+      "write `local`; a program's globals are exactly the ones a declaration file (`.d.tl`) declares", refused.message)
   local start = edge(refused, "start")
   assert(start.line == 1 and start.character == 0, tostring(start.line) .. ":" .. tostring(start.character))
 end
@@ -398,7 +399,7 @@ end
 
 local function test_an_example_that_returns_nothing_is_refused()
   local root = session_fixture.project()
-  local text = "local Example = {}\n--- One.\nfunction Example.one()\n  assert(true)\nend\n"
+  local text = "local record Example\nend\n--- One.\nfunction Example.one()\n  assert(true)\nend\n"
   local refused = only(nth(served(root, { initialize(root), open(root, "it_example.tl", text) }), 1))
   assert(refused.message:find("an example file must return the table", 1, true), refused.message)
   local fine = served(root, { initialize(root), open(root, "it_example.tl", text .. "return Example\n") })
@@ -428,9 +429,9 @@ local function test_a_message_is_worded_as_a_build_words_it()
   local root = session_fixture.project()
   local text = "local function f(a: integer): integer\n  local b = 1\n  return a\nend\nreturn f\n"
   local unused = only(nth(served(root, { initialize(root), open(root, "it.tl", text) }), 1))
-  assert(unused.message:find("-- name it _ or _<name> to mark it intentionally unused", 1, true),
-    unused.message)
-  assert(unused.code == "unused", tostring(unused.code))
+  assert(unused.message == "unused variable b (unused_variable): name it `_` or `_b` to say it is meant to be " ..
+      "unused, or remove it", unused.message)
+  assert(unused.code == "unused_variable", tostring(unused.code))
 end
 
 local function test_a_record_shape_in_a_function_body_is_resolved_too()
@@ -440,16 +441,17 @@ local function test_a_record_shape_in_a_function_body_is_resolved_too()
     "local record R\n  n: integer\nend\n" ..
     'local TOP <const> = Shape.record_of("R")\n' ..
     "local function f(): integer\n" ..
-    '\tlocal _ = "é"; local S = Shape.record_of("R"); local bad: integer = "x"\n' ..
+    '\tlocal _ = "é" local S = Shape.record_of("R") local bad: integer = "x"\n' ..
     "  return assert(S:into({ n = 1 })).n + bad\nend\n" ..
-    "return { f = f, n = assert(TOP:into({ n = 2 })).n }\n"
+    "local record Out\n  f: function(): integer\n  n: integer\nend\n" ..
+    "local out: Out = { f = f, n = assert(TOP:into({ n = 2 })).n }\nreturn out\n"
   local ran = served(root, { initialize(root), open(root, "main.tl", text) })
   local found = only(nth(ran, 1))
-  assert(found.message:find("got string", 1, true), found.message)
+  assert(found.message == "`\"x\"` is `string`, where `integer` is wanted as the value of `bad` (not_assignable): " ..
+      "pass a value of type `integer`, or change the declaration to `string`", found.message)
   -- One call is in a body: the whole text is read for them.
-  assert(ran.tally.bodiless_splices == 0 and ran.tally.whole_splices == 1,
-    tostring(ran.tally.bodiless_splices) .. "," .. tostring(ran.tally.whole_splices))
+  assert(ran.tally.whole_splices == 1, tostring(ran.tally.whole_splices))
   -- At `"x"`, counted in UTF-16 units: the tab and "é" are one each.
   local start = edge(found, "start")
-  assert(start.line == 6 and start.character == 69, tostring(start.line) .. ":" .. tostring(start.character))
+  assert(start.line == 6 and start.character == 67, tostring(start.line) .. ":" .. tostring(start.character))
 end

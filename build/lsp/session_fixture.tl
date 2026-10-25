@@ -125,7 +125,7 @@ end
 --- A copy of `tally`, as it stands now.
 local function copied(tally: source.Tally): source.Tally
   return { database_stubs = tally.database_stubs, made_stubs = tally.made_stubs,
-    sources = tally.sources, templates = tally.templates, bodiless_splices = tally.bodiless_splices,
+    sources = tally.sources, templates = tally.templates,
     whole_splices = tally.whole_splices, stages = tally.stages, reopened = tally.reopened }
 end
 

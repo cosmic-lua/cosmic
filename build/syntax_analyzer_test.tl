@@ -203,6 +203,17 @@ local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
   end
 end
 
+--- A line ends at `\r`, `\r\n` and `\n\r` as at `\n`: a text of three lines with no `\n` in it is analyzed, and what
+--- it exports is documented from the comment on the line above it.
+local function test_a_line_ends_at_each_of_the_lexers_line_breaks()
+  for _, ending in ipairs({ "\r", "\r\n", "\n\r", "\n" }) do
+    local source = table.concat({ "local x = 1", "--- Counts.", "local record counter", "end", "return counter", "" }, ending)
+    local found, why = Analyzer.analyze(source, "counter.tl")
+    assert(found ~= nil, ("%q: %s"):format(ending, tostring(why)))
+    assert(#found.docs > 0, ("%q: no docs"):format(ending))
+  end
+end
+
 local function test_a_policy_the_build_cannot_read_is_refused()
   local cases: {{string}} = {
     { "a policy twice", lines('local Test = require("cosmic.test")', "Test.policy{}", "Test.policy{}") },

@@ -253,9 +253,24 @@ local function module_doc(chunk: Ast.Chunk): string, integer
   return table.concat(doc_bodies(run), "\n"), nth(comments, 1).y
 end
 
---- `source` split into its lines, once per analysis.
+--- `source` split into its lines, once per analysis: a line ends at `\n`, `\r`, `\r\n` or `\n\r`, as the lexer reads it, so
+--- that a token's line numbers a line of the list.
 local function lines_of(source: string): {string}
-  return String.split(source, "\n")
+  local lines: mut {string} = {}
+  local pos = 1
+  while true do
+    local at = source:find("[\r\n]", pos)
+    if at == nil then
+      lines[#lines + 1] = source:sub(pos)
+      return lines
+    end
+    lines[#lines + 1] = source:sub(pos, at - 1)
+    local after = source:sub(at + 1, at + 1)
+    if (after == "\r" or after == "\n") and after ~= source:sub(at, at) then
+      at = at + 1
+    end
+    pos = at + 1
+  end
 end
 
 --- One line of `source`, trimmed, or `""` past its end.

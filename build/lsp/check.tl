@@ -498,7 +498,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     out[#out + 1] = assert(Json.encode_any(diagnostic))
   end
   for _, refusal in ipairs(checked.refusals) do
-    add(refusal.line, refusal.column, refusal.message, nil)
+    add(refusal.line, refusal.column, refusal.message, refusal.code)
   end
   document.published = out
   document.published_text = document.text

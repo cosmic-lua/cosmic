@@ -2,8 +2,8 @@
 --- protocol's positions in it ([`build.lsp.protocol`]): a line ends at
 --- "\r\n", "\n" or a lone "\r", and a character is a UTF-16 unit, the
 --- protocol's default, or a byte where the client offers UTF-8
---- (`general.positionEncodings`). The checker counts lines apart, at "\n"
---- alone ([`lines.checker_starts`]).
+--- (`general.positionEncodings`). The checker counts lines apart, as its
+--- lexer does ([`lines.checker_starts`]).
 
 local protocol = require("build.lsp.protocol")
 
@@ -77,16 +77,19 @@ function lines.position(of: Split, offset: integer, encoding: string): Position
   return { line = low - 1, character = character_of(line, x, encoding) }
 end
 
---- Where each line of `text` starts as the checker counts lines, which is
---- at "\n" alone: its columns are bytes.
+--- Where each line of `text` starts as the checker counts lines, which is as its lexer does: a line ends at "\n", "\r",
+--- "\r\n" or "\n\r", each one break. Its columns are bytes.
 function lines.checker_starts(text: string): {integer}
   local out: mut {integer} = { 1 }
-  local at = text:find("\n", 1, true)
-  while at ~= nil do
+  local pos = 1
+  while true do
+    local at = text:find("[\r\n]", pos)
+    if at == nil then return out end
+    local after = text:sub(at + 1, at + 1)
+    if (after == "\r" or after == "\n") and after ~= text:sub(at, at) then at = at + 1 end
     out[#out + 1] = at + 1
-    at = text:find("\n", at + 1, true)
+    pos = at + 1
   end
-  return out
 end
 
 return lines

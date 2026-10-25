@@ -106,9 +106,8 @@ local record source
     sources: integer
     --- Served as a template's Teal.
     templates: integer
-    --- Documents whose [`Shape.record_of`] calls were found in the copy
-    --- with every function body left out, and in the whole text.
-    bodiless_splices: integer
+    --- Documents whose [`Shape.record_of`] calls were found in the whole
+    --- text.
     whole_splices: integer
     --- Stages made, and times the database was found made again and
     --- opened anew.
@@ -189,7 +188,7 @@ end
 --- A source for the tree at `root`, staged at its first [`source.refresh`].
 function source.new(root: string, err: function(line: string)): source.View
   local tally: Tally = { database_stubs = 0, made_stubs = 0, sources = 0, templates = 0,
-    bodiless_splices = 0, whole_splices = 0, stages = 0, reopened = 0 }
+    whole_splices = 0, stages = 0, reopened = 0 }
   return {
     root = root,
     db = nil,
@@ -551,10 +550,9 @@ function source.served(src: source.View, name: string, open: source.Open, uncoun
   if found == nil then return nil end
   local template = found.file:match("%.tmpl$") ~= nil
   -- Read under the name the module would have on disk below the root, as
-  -- a build reads it, so a message that names
-  -- it (a type "inferred at" it) names it as a build's does: a
-  -- declaration by its `.d.tl`, and a name that ends in `tl` alone, which
-  -- a template's or a generated declaration's file does not.
+  -- a build reads it, so a message that names it names it as a build's
+  -- does: a declaration by its `.d.tl`, and a name that ends in `tl`
+  -- alone, which a template's or a generated declaration's file does not.
   local stem = src.root .. "/" .. found.path:gsub("%.", "/")
   local file = stem .. ".tl"
   if found.kind == "decl" then file = stem .. ".d.tl" end

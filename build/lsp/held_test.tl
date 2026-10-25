@@ -203,12 +203,13 @@ local function test_a_template_that_stops_compiling_is_not_answered_from_its_las
   local main = document_of(root, "main.tl", PAGE_MAIN)
   check.opened(checker, page)
   check.opened(checker, main)
-  assert(#check.diagnose(checker, main, "utf-16") > 0)
-  assert(#check.diagnose(checker, page, "utf-16") > 0)
+  -- A field it does not have is the template's own error: the module it makes still types its dependents.
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  assert(#check.diagnose(checker, page, "utf-16") == 1)
   check.set_text(page, "{{type Page from data}}\n{{mode text}}one {{.title")
   local told = table.concat(check.diagnose(checker, main, "utf-16"), "\n")
   assert(told:find("nope", 1, true) == nil, "answered from the template's last text: " .. told)
-  assert(told:find("page", 1, true) ~= nil, told)
+  assert(told:find("the project has no module `page` (require_unknown)", 1, true) ~= nil, told)
   assert(told == table.concat(check.diagnose(checker, main, "utf-16"), "\n"), "the answer moved")
 end
 

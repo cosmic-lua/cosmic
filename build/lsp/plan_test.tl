@@ -163,3 +163,13 @@ local function test_a_require_with_no_parentheses_is_a_syntax_error_of_the_new_p
   assert(said(planned):find("string_call", 1, true) ~= nil, said(planned))
   assert(#planned.requires == 0)
 end
+
+--- A refusal worded `message (code): fix` carries its code, at the place it names; one with no code carries none.
+local function test_a_refusal_carries_the_code_the_checker_words_after_its_message()
+  local coded = plan.refusal_of("it.tl:2:9: unused variable b (unused_variable): name it `_` or `_b`")
+  assert(coded.line == 2 and coded.column == 9 and coded.code == "unused_variable", tostring(coded.code))
+  local by_line = plan.refusal_of("it.tl:3: a thing (some_code): fix it")
+  assert(by_line.line == 3 and by_line.code == "some_code", tostring(by_line.code))
+  local bare = plan.refusal_of("it.tl: nothing to say of a code")
+  assert(bare.message == "nothing to say of a code" and bare.code == nil, tostring(bare.code))
+end
