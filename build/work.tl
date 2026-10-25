@@ -88,7 +88,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "29"
+local version <const> = "30"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -164,7 +164,7 @@ local version <const> = "29"
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
 ---
---- `executable` is [`build.coverage.lines.executable`]'s answer for one
+--- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
 --- could ever be hit is a function of the bytes and of that module's rule
 --- for what counts as executable. A change to the rule bumps `version`,

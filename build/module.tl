@@ -2,8 +2,8 @@
 --- from the compiler so position checks and test-input readers depend on
 --- the shape without depending on code generation or contract checking.
 
-local type analyzer = require("build.analyzer")
-local type build_stub = require("build.stub")
+local type PolicyRules = require("build.policy_rules")
+local type SyntaxStub = require("build.syntax_stub")
 
 local record module
   record Plan
@@ -20,7 +20,7 @@ local record module
     tests: {string}
     --- A test or example module's `policy` declaration ([`cosmic.test`]),
     --- or nil for none (see [`build.test_inputs`]).
-    inputs: analyzer.Declared?
+    inputs: PolicyRules.Declared?
     has_top_level_return?: boolean
     --- True only for a module [`build.doctest`] produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`
@@ -40,10 +40,10 @@ local record module
     --- under another key for the same interfaces; none for a compile
     --- that stood in the cache, whose Lua it does not read back.
     lua?: string
-    --- Its source's stub ([`build.stub`]), which cosmic's own build holds
+    --- Its source's stub ([`build.syntax_stub`]), which cosmic's own build holds
     --- to the source's type, and whether it is declaration-only; none for
     --- a source with no top-level `return`, which has none.
-    stub?: build_stub.Made
+    stub?: SyntaxStub.Made
   end
 end
 

@@ -20,6 +20,8 @@
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local ast = require("build.ast")
+local standard_text = require("build.standard_text")
+local withheld = require("build.withheld")
 local type compiler = require("build.compiler")
 
 local record teal
@@ -42,19 +44,14 @@ local record teal
   --- list, so the checker refuses each of them.
   strip: function(env: compiler.Env)
 
-  --- What the checker reads for a standard-library module:
-  --- [`teal.standard_text`].
-  record Standard
-    text: string
-    --- Whether `text` is the module's stub rather than its source.
-    stubbed: boolean
-  end
+  --- What the checker reads for a standard-library module ([`teal.standard_text`]).
+  type Standard = standard_text.Standard
 end
 
 --- The environment the compiler runs in. It is stated rather than
 --- inherited: the pure libraries by name and nothing else. `load` is in
 --- it, for the wrapper that loads the checker's parts
---- ([`build/checker_wrapper.tl`]); `io`, `os` and `package` are not,
+--- (`build/checker_wrapper.tl`); `io`, `os` and `package` are not,
 --- because the compiler names them only inside the declaration text it
 --- carries for Lua's own standard library and never calls them. This is the compiler's private
 --- bootstrap environment, not a program's runtime surface: [`environment_for`] removes io, os and debug from the
@@ -98,7 +95,7 @@ end
 --- but whose errors and tracebacks name no line of it. Under Lua's line
 --- hook -- a test's coverage -- the VM finds the line of each
 --- instruction a function with line information runs, which is most of
---- what the hook costs ([`build/compiler_test.tl`]).
+--- what the hook costs (`build/compiler_test.tl`).
 function teal.load(strip?: boolean): compiler?, string
   local bytes, trouble = Store.bytecode("vendor.tl")
   if bytes == nil then
@@ -184,33 +181,9 @@ function teal.defaults(checks?: boolean): compiler.Defaults
   return { feat_lax = "off", gen_compat = "off", gen_target = "5.4", runtime_checks = checks }
 end
 
---- What the checker reads for the standard-library module `name`: what
---- [`Store.source`] answers, a declaration's source or the module's, but
---- for a module with no declaration whose stub ([`build.stub`]) the
---- binary's own database carries; nil for a name the binary holds
---- neither of. A declaration wins, as it does in [`serve`]: a stub is
---- held to its module's source, never to a declaration beside it.
---- It says which it is, so a compile keyed on one is never taken for one
---- keyed on the other ([`build.compilation`]'s `dependency_keys`). A stub
---- keeps every position of its source, so either is served under the
---- module's own file name. A database without the table (a sealed
---- worker's, or a tool's from before it) answers sources.
+--- What the checker reads for the standard-library module `name` ([`standard_text.of`]).
 function teal.standard_text(name: string): teal.Standard?
-  if name:sub(1, 7) ~= "cosmic." then
-    return nil
-  end
-  local databases = Store.databases()
-  local rows, _ = Sqlite.text_rows(databases[#databases],
-    "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
-      "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
-  if rows ~= nil and #rows > 0 then
-    return { text = rows[1]:text(1), stubbed = true }
-  end
-  local source, _ = Store.source(name)
-  if source == nil then
-    return nil
-  end
-  return { text = source, stubbed = false }
+  return standard_text.of(name)
 end
 
 --- A `cosmic.*` module from this binary's own database
@@ -265,8 +238,8 @@ local function serve(built: compiler, db: Sqlite.Handle, root: string, stubbed?:
   end
 end
 
-teal.withheld = { "io", "os", "debug", "dofile", "loadfile" }
-teal.withheld_package = { "path", "cpath", "loadlib", "searchpath" }
+teal.withheld = withheld.globals
+teal.withheld_package = withheld.package_fields
 
 function teal.strip(env: compiler.Env)
   for _, name in ipairs(teal.withheld) do
@@ -736,7 +709,7 @@ local function present(names: {string}): {string:boolean}
 end
 
 --- The functions and libraries tl's standard library declares as
---- globals (its prelude in [`checker/tl.tl`]), which a local of the same
+--- globals (its prelude in `checker/tl.tl`), which a local of the same
 --- name hides. `arg`, the program's arguments, is no library's.
 local standard_globals <const> = present({
   "assert", "collectgarbage", "coroutine", "debug", "dofile", "error",

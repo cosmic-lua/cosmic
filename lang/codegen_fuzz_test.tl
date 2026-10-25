@@ -12,19 +12,16 @@ local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
-local compile = require("build.compile")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
 
 Test.policy{}
 
-local held: {compiler} = {}
-
-local function fork(): compiler
-  if held[1] == nil then
-    held[1] = assert(teal.load(true))
-  end
-  return held[1]
+--- The Lua the fork wrote of `source`, compiled alone. The fork's compiler is gone from the tree, so this fails the case that
+--- asks.
+---
+--- TODO: hold each case to the Lua the fork wrote, kept as text beside the case, once part B2 of the switch has ported the
+--- tests that took the fork's compiler as their oracle (doc/plans/strict-teal.md, "the switch").
+local function fork_wrote(_source: string): string
+  error("the fork's compiler is not in this binary: the case waits for a text of the Lua it wrote", 0)
 end
 
 local NAMES <const>: {string} = { "a", "b", "c", "d", "t", "u", "f", "g" }
@@ -379,11 +376,7 @@ local function agrees(input: string): boolean, string
     Fuzz.label("unparsed")
     return true, ""
   end
-  local lua, _ = compile.lua(fork(), "p.tl", input)
-  if lua == nil then
-    Fuzz.label("refused by the fork")
-    return true, ""
-  end
+  local lua = fork_wrote(input)
   local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "p.tl", {}), Truthy.never_false)
   if #ours.errors > 0 then
     return false, "the generator refused: " .. ours.errors[1].msg

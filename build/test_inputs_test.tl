@@ -285,7 +285,7 @@ local function test_only_a_standalone_closure_holds_what_standalone_loads()
     assert(not chunk[name], name .. " is held by a module that declares lua alone")
     assert(both[name], name)
   end
-  assert(not chunk_effective.files["build/teal.tl"] and both_effective.files["build/teal.tl"])
+  assert(not chunk_effective.files["build/standalone.tl"] and both_effective.files["build/standalone.tl"])
   -- No module is on both ways' lists: each is held by the narrowest.
   local on_e: mut {string:boolean} = {}
   for _, name in ipairs(test_inputs.lua_loads) do on_e[name] = true end

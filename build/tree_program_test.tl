@@ -6,7 +6,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local TreeProgram = require("build.tree_program")
 local importer = require("build.importer")
-local teal = require("build.teal")
+local withheld = require("build.withheld")
 local work = require("build.work")
 
 Test.policy{ grants = {
@@ -34,7 +34,6 @@ local function test_the_programs_of_testdata_are_left_out_of_the_program()
   }, {})
   local kept = files_of(index)
   assert(kept == "mytestdata/a.tl lang/a.tl doc/guides/g.md gen/s.d.tl", kept)
-  assert(not assert(index.by_module["lang.a"]).translate)
   assert(assert(index.by_module["doc.guides.g"]).filename == "doc/guides/g.md")
   assert(assert(index.by_module["cosmic.s"]).pinned == "core/s.h")
 end
@@ -45,15 +44,13 @@ local function test_the_globals_are_the_prelude_and_the_library_less_what_the_ru
   local prelude, stdlib = assert(made.sources[1]), assert(made.sources[2])
   assert(prelude.module == "lang.prelude" and stdlib.module == "lang.stdlib")
   assert(prelude.filename == "lang/prelude.d.tl" and stdlib.filename == "lang/stdlib.d.tl")
-  -- both are in the new grammar already
-  assert(not prelude.translate and not stdlib.translate)
   assert(prelude.text == assert(Fs.read("lang/prelude.d.tl")) and stdlib.text == assert(Fs.read("lang/stdlib.d.tl")))
   local globals = Driver.globals(made.sources, made.adjust)
   for _, kept in ipairs({ "string", "table", "math", "metatable", "Coroutine", "_G", "print" }) do
     assert(globals[kept] ~= nil, kept .. " is no global")
   end
-  for _, withheld in ipairs(teal.withheld) do
-    assert(globals[withheld] == nil, withheld .. " is a global")
+  for _, name in ipairs(withheld.globals) do
+    assert(globals[name] == nil, name .. " is a global")
   end
   -- `userdata` marks a record in the new grammar and is no type, and the prelude declares no `interface`
   assert(globals["userdata"] == nil and globals["interface"] == nil)
@@ -92,7 +89,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   end
   -- a provider that answers one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
-    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", false, {}) or nil
+    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) or nil
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
   -- the declarations the headers give have no error of their own: no ceiling holds them

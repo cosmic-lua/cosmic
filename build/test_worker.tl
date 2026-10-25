@@ -889,9 +889,7 @@ end
 -- but today a release that changes only the standard library's Teal leaves
 -- standing a verdict of one of the others that read one of them outside its
 -- closure. In this tree every module the program carries is a module of
--- the tree, and `vendor.tl`, which is not, is carried by its bytecode in
--- the store of a closure that holds build.teal, the one module that loads it
--- ([`build.closure_store`]'s `loaded_beside`).
+-- the tree.
 local function refusal(name: string, module_path: string, closure: {string:boolean},
                        tree: {string:boolean}): string?
   if closure[name] or not tree[name] then return nil end

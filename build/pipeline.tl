@@ -1,8 +1,6 @@
---- The build's compile with the new checker (`COSMIC_GRAMMAR=new`, [`build.grammar_mode`]): a module of the staged tree is
---- read, checked against its ceilings and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`], in place of
---- the fork's compiler. [`Pipeline.generate`] answers what [`build.compilation`]'s `generate` answers, and [`Pipeline.derive`]
---- what [`build.derivation`]'s `parse_fresh` writes, so that [`build.importer`] calls either: the one in the mode
---- `COSMIC_GRAMMAR=new` chooses.
+--- The build's compile with the new checker ([`build.grammar_mode`]): a module of the staged tree is read, checked against
+--- its ceilings and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] answers what
+--- [`build.importer`] asks of a compile, and [`Pipeline.derive`] writes the rows of a parse.
 ---
 --- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the new grammar, set up as the
 --- pins are measured ([`build.tree_program`]); the `cosmic.*` modules the tree does
@@ -12,21 +10,21 @@
 --- cosmic's tree the files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`], in a project the ones the tool carries
 --- ([`build.checker_declarations`]).
 ---
---- THERE IS NO FALLBACK TO THE FORK. A project written in a form only the fork reads is refused with the new checker's
---- words and fix ([`build.error_catalog`], [`build.error_render`]).
+--- A project written in a form only the fork read is refused with the new checker's words and fix
+--- ([`build.error_catalog`], [`build.error_render`]).
 ---
---- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a translation
---- that does not parse (a pin lets it be counted, not compiled) and for a construct the generator does not write. The
+--- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a text that does
+--- not parse and for a construct the generator does not write. The
 --- ceilings are held by the tree's checks as they are here; the other refusals are listed in [`build.pipeline.residue`].
 ---
 --- A MODULE IS KEYED by the ceilings that hold it too ([`Pipeline.pinned`]), and the whole compile by the code that reads
 --- ([`Pipeline.coded`]), so that a pin or an edit to the checker judges a module another run compiled again. The standard
---- library the module was checked against is in the compiler's identity ([`build.identity`]) as the fork's is.
+--- library the module was checked against is in the compiler's identity ([`build.identity`]).
 --
 -- TODO: point to what `cosmic docs` answers for a name and to the worked example of a form in the lines of a warning, as
 -- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] answers the problems over their
 -- ceilings and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
--- which the lines of a warning and of a translation that does not parse do not.
+-- which the lines of a warning and of a text that does not parse do not.
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
 local CompileGrammar = require("build.compile_grammar")
@@ -51,7 +49,7 @@ local SyntaxContracts = require("build.syntax_contracts")
 local SyntaxDerivation = require("build.syntax_derivation")
 local Typed = require("build.syntax_typed")
 local TreeProgram = require("build.tree_program")
-local teal = require("build.teal")
+local standard_text = require("build.standard_text")
 local tree = require("build.tree")
 local type Compilation = require("build.compilation")
 local type Derivation = require("build.derivation")
@@ -124,8 +122,8 @@ local record Pipeline
   lone: function(file: string, text: string, options: Options, tests?: boolean): string?, string
 
   --- The modules the source `text`, the file `file`, requires by a literal name, in the order they stand (a type-only require
-  --- among them): the syntax tree of the new checker's parse of the text, translated as the build reads it. nil and the
-  --- refusal, in the checker's words, where the text does not parse.
+  --- among them): the syntax tree of the new checker's parse of the text. nil and the refusal, in the checker's words,
+  --- where the text does not parse.
   requires: function(file: string, text: string): {string}?, string
 
   --- What [`Pipeline.checked_alone`] made of a source: its Lua, or the lines that refuse it, one problem each.
@@ -137,8 +135,8 @@ local record Pipeline
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
   checked_alone: function(file: string, text: string, options: Options, tests?: boolean): Alone
 
-  --- The `cosmic.*` modules of the running binary, each its stub or its source, as the fork reads them
-  --- ([`teal.standard_text`]), a declaration ([`cosmic.sys`]) as one.
+  --- The `cosmic.*` modules of the running binary, each its stub or its source ([`build.standard_text`]), a declaration
+  --- ([`cosmic.sys`]) as one.
   carried: function(): Driver.Provider
 
   --- A build over the modules of `entries`: pairs of a file and its text, with the module and the name the ceilings are kept
@@ -152,15 +150,11 @@ local record Pipeline
   build: function(db: Sqlite.Handle, options: Options): Built?, string
 
   --- The modules the pipeline refuses though no ceiling is over: the file and the code of the first line of the refusal.
-  --- A ceiling counts the errors of the checker; these are other refusals of `generate`. Each module fails to compile with the
-  --- new checker until its entry is gone:
+  --- A ceiling counts the errors of the checker; these are other refusals of `generate`. None is: the language tour and the
+  --- guide, which spelled forms the new grammar cuts, are written in it.
   ---
-  --- - `method_in_record` and `function_path`, forms the new grammar spells otherwise (a method declared outside its class, a
-  ---   function assigned to a path of more than one dot): [`cosmic/removed_example.tl`], the language tour, and the guide
-  ---   [`doc/guides/project.md`] are the examples of the forms.
-  ---
-  --- [`build.pipeline_check`] holds this list to the tree in both directions, so a module fixed leaves it and a module
-  --- newly refused is named here with its reason, as the ceilings name a count.
+  --- [`build.pipeline_check`] holds this list to the tree in both directions, so a module newly refused is named here with
+  --- its reason, as the ceilings name a count.
   residue: function(): {string: string}
 
   --- The refusals `refused` (a compile's, [`build.importer`]'s `Result.refused`) that [`Pipeline.residue`] does not name, in
@@ -211,10 +205,9 @@ local record Pipeline
   --- from another file (a guide, a template) is the file it is written from, which its ceilings are kept under.
   pinned: function(ceilings: Ceilings.Table): {string: string}
 
-  --- Reads the sources `fresh` as [`build.derivation`]'s `parse_fresh` does, and writes the rows of each ([`build.syntax_derivation`])
-  --- into `db` beside the others: through the translation of the fork's Teal ([`lang.translate`]) and the steps that read
-  --- the three files that need them ([`build.tree_program`]). A source that does not parse is listed in `broken` when given
-  --- and stops the derive otherwise, told in the words of the new checker ([`build.error_render`]).
+  --- Reads the sources `fresh` ([`build.derivation`]'s `fresh`) as written, and writes the rows of each ([`build.syntax_derivation`])
+  --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
+  --- otherwise, told in the words of the new checker ([`build.error_render`]).
   derive: function(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
                    made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
 
@@ -226,13 +219,9 @@ end
 Pipeline.mode = GrammarMode.mode
 Pipeline.tool = GrammarMode.tool
 
--- TODO: compile each of these modules in the new mode, and the entry leaves the list: the switch rewrites the language tour
--- and the guide, which spell a method of a local record and a function of a nested record as the fork does
--- (`method_in_record`, `function_path`), in the new grammar (doc/plans/strict-teal.md, "the switch").
-local RESIDUE <const>: {string: string} = {
-  ["cosmic/removed_example.tl"] = "method_in_record",
-  ["doc/guides/project.md"] = "function_path",
-}
+-- TODO: delete the residue, [`Pipeline.residue`] and [`Pipeline.unexpected`] with the readers that call them, once the part of
+-- the switch that deletes the fork's modules lands (doc/plans/strict-teal.md, "the switch"): the list is empty.
+local RESIDUE <const>: {string: string} = {}
 
 function Pipeline.residue(): {string: string}
   return RESIDUE
@@ -300,12 +289,12 @@ end
 
 function Pipeline.carried(): Driver.Provider
   return Driver.standard(function(module: string): string?
-    local found = teal.standard_text(module)
+    local found = standard_text.of(module)
     if found == nil then
       return nil
     end
     return found.text
-  end, false, declared)
+  end, declared)
 end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
@@ -500,7 +489,7 @@ function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: De
   -- doubled. The collector goes back to the mode it was in.
   local previous = collectgarbage("generational")
   for _, one in ipairs(fresh) do
-    -- A file the program leaves out (the fork's own checker, a fixture of a test) is read as a source of the fork's Teal.
+    -- A file the program leaves out (a fixture of a test) is read as written, as a module of its own.
     local source = by_file[one.file]
     if source == nil then
       local dialect: Ast.Dialect = "tl"
@@ -508,7 +497,6 @@ function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: De
         dialect = "decl"
       end
       source = Driver.source(Declarations.module_of(one.file), one.file, one.source, dialect)
-      source.translate = true
     end
     local read = Driver.parse(source)
     local first = read.syntax[1]
@@ -520,10 +508,6 @@ function Pipeline.derive(db: Sqlite.Handle, fresh: {Derivation.Fresh}, tally: De
       end
       broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message }
     else
-      -- TODO: number the rows of a Teal source by its own lines, once the switch writes the tree in the new grammar
-      -- (doc/plans/strict-teal.md, "the switch"): they are numbered in the translation's text, which moves the lines after a
-      -- class (`function R:m` moves into its record), so `cosmic docs` and `cosmic uses` of cosmic's own tree in this mode name
-      -- lines a few off in a file the translation made a class of. A source written in the new grammar is unaffected.
       local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped)
       if not put then
         restore_collector(previous)
@@ -750,7 +734,7 @@ function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.H
 end
 
 function Pipeline.requires(file: string, text: string): {string}?, string
-  local index = Driver.index({ { file, text, "lone" } }, false, function(_: string): boolean
+  local index = Driver.index({ { file, text, "lone" } }, function(_: string): boolean
     return false
   end)
   local source = index.sources[1]

@@ -38,12 +38,12 @@ local record data
   end
   record Mid
     c: string
-    e: Leaf | nil
+    e: Leaf?
   end
   record Outer
-    b: Mid | nil
+    b: Mid?
     c: string
-    s: string | nil
+    s: string?
   end
   record Page
     title: string
@@ -57,9 +57,9 @@ local record data
     j: html.SafeJson
     items: {Item}
     user: User
-    owner: User | nil
-    nest: Outer | nil
-    error: string | nil
+    owner: User?
+    nest: Outer?
+    error: string?
     flag: boolean
     list: {string}
     ["end"]: string
@@ -122,9 +122,9 @@ return fmt
 --- an exported function may have (the discipline of the new checker refuses any other).
 local MULTI <const> = [[
 local record multi
-  pair: function(s: string): string | nil, string
+  pair: function(s: string): string?, string
 end
-function multi.pair(s: string): string | nil, string
+function multi.pair(s: string): string?, string
   if s == "" then
     return nil, "empty"
   end
@@ -717,14 +717,14 @@ local record counter
   calls: integer
   each: function(l: {string}): {string}
   count: function(s: string): string
-  some: function(l: {string}): {string} | nil
+  some: function(l: {string}): {string}?
 end
 counter.calls = 0
 function counter.each(l: {string}): {string}
   counter.calls = counter.calls + 1
   return l
 end
-function counter.some(l: {string}): {string} | nil
+function counter.some(l: {string}): {string}?
   counter.calls = counter.calls + 1
   return l
 end

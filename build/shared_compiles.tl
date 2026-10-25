@@ -28,7 +28,7 @@
 --- it wrote in every table [`build.derivation`] fills from a parse, keyed
 --- by the analyzer that parsed it ([`importer.analyzer_identity`]), the
 --- source's hash, and whether its docs' lines are mapped to a file it
---- was generated from ([`build.derivation`]'s `origin_lines`), with a digest of
+--- was generated from ([`build.syntax_derivation`]'s `origin_lines`), with a digest of
 --- the lot. [`build.importer`]'s `derive` says when a row stands in for a
 --- parse.
 ---

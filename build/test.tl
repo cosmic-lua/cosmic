@@ -133,7 +133,6 @@ local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
 local reboot = require("build.reboot")
 local rebuild_lock = require("build.rebuild_lock")
-local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -148,7 +147,6 @@ local hashing = require("build.digest")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
 local worker = require("build.test_worker")
-local type compiler = require("build.compiler")
 local test_key = require("build.test_key")
 local type State = require("build.test_state")
 
@@ -465,17 +463,14 @@ end
 --- Writes `coverage`'s rows of every module `each` visits (by path and source
 --- hash) for `run_at_ns` with one statement, as [`coverage_report.lines_of`]
 --- answers them one module at a time: each executable line, 1 where `hits` has
---- it and else 0. The lines are those the fork's reader found of each source
---- ([`build.coverage.lines`]), kept by its hash in the working database's
+--- it and else 0. The lines are those the syntax tree gives of each source
+--- ([`build.coverage.syntax_lines`]), kept by its hash in the working database's
 --- `executable`, which SQLite spreads into rows (`json_each`) rather than Lua
 --- making and sorting a table for each of a thousand modules: some 0.45 s of
 --- a run that ran one test. A module whose source the cache does not hold
 --- yet is read first by `ensure`, which keeps it and answers why it could
 --- not, or "". Returns the hit and executable-line counts of what it wrote,
 --- and a trouble message.
----
---- Only for the fork's reader: the new checker's lines are kept under
---- other keys ([`build.coverage.syntax_lines`]).
 local function write_module_coverage(handle: Sqlite.Handle,
                                      each: function(function(string, string): boolean, string): boolean, string,
                                      ensure: function(string): string,
@@ -555,15 +550,13 @@ end
 --- `by_test`, since its row from the run that produced the verdict
 --- still stands for it.
 ---
---- `grammar` is the checker that compiled the modules: the lines each has to
---- hit are those of the text it read ([`coverage.lines_of`]).
+--- The lines each module has to hit are those of the text the checker read ([`coverage.lines_of`]).
 ---
 --- `native_lines` are the core's own C lines ([`Coverage.native_lines`]),
 --- or none when the tree is not the one that C belongs to. Returns the
 --- overall hit and executable-line counts, over every module written
 --- for this run, for the run's own summary, and a trouble message.
-local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: GrammarMode.Mode,
-                              modules: {Module},
+local function write_coverage(handle: Sqlite.Handle, modules: {Module},
                               native_lines: Coverage.Hits,
                               hits: Coverage.Hits,
                               by_test: {string: string},
@@ -596,14 +589,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: mut {string: Module} = {}
   local sorted_paths: mut {string} = {}
-  -- TODO: write the new checker's modules with the statement of [`write_module_coverage`] too, once
-  -- [`build.coverage.syntax_lines`] keeps their lines in `executable` under the source hash, as the fork's reader does
-  -- (it keeps them under a key that names the reader), so that the statement can join on it: until then they go one
-  -- at a time, as every module did.
-  local one_by_one = grammar == "new"
   for _, m in ipairs(modules) do
     by_source[m.path] = m
-    if one_by_one then sorted_paths[#sorted_paths + 1] = m.path end
   end
   for path in pairs(native_lines) do
     if by_source[path] == nil then
@@ -621,44 +608,31 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler, grammar: G
   end
   table.sort(test_names)
   local write_rows = function(): boolean, string
-    -- The fork's reader's modules in one statement; the rest, and every
-    -- module of the new checker, one at a time below.
-    if not one_by_one then
-      local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
-        function(visit: function(string, string): boolean, string): boolean, string
-          for _, m in ipairs(modules) do
-            local visited, visit_trouble = visit(m.path, m.source_hash)
-            if not visited then return false, visit_trouble end
-          end
-          return true, ""
-        end,
-        function(path: string): string
-          local m = by_source[path]
-          if m == nil then return path .. ": not a module of this run" end
-          local found, trouble = coverage_report.lines_of(handle, built, m, hits)
-          if found == nil then return m.file .. ": " .. trouble end
-          return ""
-        end,
-        hits, run_at_ns)
-      if module_trouble ~= "" then return false, module_trouble end
-      totals["hit"] = (totals["hit"] or 0) + hit_lines
-      totals["lines"] = (totals["lines"] or 0) + executable_lines
-    end
+    -- The modules in one statement; the core's C one at a time below.
+    local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
+      function(visit: function(string, string): boolean, string): boolean, string
+        for _, m in ipairs(modules) do
+          local visited, visit_trouble = visit(m.path, m.source_hash)
+          if not visited then return false, visit_trouble end
+        end
+        return true, ""
+      end,
+      function(path: string): string
+        local m = by_source[path]
+        if m == nil then return path .. ": not a module of this run" end
+        local found, trouble = coverage_report.lines_of(handle, m, hits)
+        if found == nil then return m.file .. ": " .. trouble end
+        return ""
+      end,
+      hits, run_at_ns)
+    if module_trouble ~= "" then return false, module_trouble end
+    totals["hit"] = (totals["hit"] or 0) + hit_lines
+    totals["lines"] = (totals["lines"] or 0) + executable_lines
     for _, path in ipairs(sorted_paths) do
-      local m = by_source[path]
-      local per_line: coverage_report.LineHits
-      if m ~= nil then
-        local lines_trouble: string
-        per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits, grammar)
-        if per_line == nil then
-          return false, m.file .. ": " .. lines_trouble
-        end
-      else
-        local hit_here = hits[path] or {}
-        per_line = {}
-        for line in pairs(native_lines[path]) do
-          per_line[line] = hit_here[line] == true
-        end
+      local hit_here = hits[path] or {}
+      local per_line: coverage_report.LineHits = {}
+      for line in pairs(native_lines[path]) do
+        per_line[line] = hit_here[line] == true
       end
       local lines = sorted_lines(per_line)
       if #lines > 0 then
@@ -1270,7 +1244,6 @@ local record Run
   mut own_tree?: boolean
   mut handle?: work.Handle
   mut staged?: work.Staged
-  mut built?: compiler
 
   -- The binary's identities ([`read_identities`]).
   mut tool?: string
@@ -1465,8 +1438,6 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.staged = staged
-
-  ctx.built = teal.lazy()
 
   -- A stale tool refuses, or rebuilds itself or has zig boot the core
   -- and re-enters this command line ([`reboot.guard`]).
@@ -2305,7 +2276,7 @@ local function settle(ctx: Run)
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, assert(ctx.built), assert(ctx.grammar), result.modules, assert(ctx.native_lines), hits,
+    write_coverage(records, result.modules, assert(ctx.native_lines), hits,
       assert(ctx.by_test), ctx.run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble

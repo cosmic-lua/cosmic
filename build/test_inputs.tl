@@ -121,8 +121,7 @@ test_inputs.lua_loads = {
 
 --- What `cosmic --standalone` loads beyond `lua_loads` before the file
 --- it checks and runs does ([`build.standalone`]): the checker it types
---- the file with ([`build.teal`], which loads the compiler beside it:
---- [`build.closure_store`]'s `loaded_beside`), with what each requires at its top level. A module
+--- the file with ([`build.pipeline`]), with what each requires at its top level. A module
 --- that declares `lua` ([`cosmic.test`]) and requires [`build.standalone`]
 --- at its top level holds them in its closure, which that module's
 --- requires reach; one that declares `lua` alone does not, so an edit to
@@ -134,9 +133,7 @@ test_inputs.lua_loads = {
 --- standard library is typed from its declaration too, which the test
 --- module holds by requiring that module at its top level.
 test_inputs.standalone_loads = {
-  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
-  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.standalone",
-  "build.teal", "cosmic.sqlite", "cosmic.store",
+  "build.standalone", "cosmic.sqlite", "cosmic.store",
 }
 
 --- The names of `closure`, the import closure of a module that declares
@@ -191,13 +188,9 @@ local corpora <const> = "testdata/fuzz/"
 --- ([`build.test_worker`]), so the miss fails the test rather than
 --- leaving its key short.
 ---
---- The compiler -- `vendor.tl`, derived from checker/tl.tl -- is no file
---- of it, though build.teal loads it as bytecode
---- (`Store.bytecode("vendor.tl")`) rather than by `require`, so no
---- parse follows it: a key over the closure holds it apart, by its
---- bytecode, in the bytes of the closure store that carries it beside
---- build.teal ([`build.closure_store`]'s `loaded_beside`), as it holds every
---- module of the closure by what the compiler made of it.
+--- The declarations of the globals and of the standard library -- `lang.prelude` and `lang.stdlib` -- are no module
+--- of it, though [`build.checker_declarations`] reads them by name rather than by `require`: a key over the closure holds
+--- them in the bytes of the closure store that carries them beside it ([`build.closure_store`]'s `declared_beside`).
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string},
                        type_only?: {string:{string:boolean}}): {string}, boolean, {string}

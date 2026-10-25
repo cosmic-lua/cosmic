@@ -16,24 +16,6 @@ local function refused_key(key: string, variable: string, subject: string, y: in
     filename = "", y = y, x = x }
 end
 
---- build.teal spells the globals it strips (`withheld`) rather than
---- reading them from the catalog, so that the compiler's identity holds
---- them without the rest of it: they must be the very names the runtime
---- removes, in the same order.
-local function test_the_withheld_globals_are_the_catalog_s_order()
-  assert(#teal.withheld == #Removed.order,
-    table.concat(teal.withheld, " ") .. " against " .. table.concat(Removed.order, " "))
-  for i, name in ipairs(Removed.order) do
-    assert(teal.withheld[i] == name, i .. ": " .. tostring(teal.withheld[i]) ..
-        " against the catalog's " .. name)
-  end
-end
-
---- The same for the fields of `package`, which the runtime removes.
-local function test_the_withheld_package_fields_are_the_catalog_s_order()
-  assert(table.concat(teal.withheld_package, " ") == table.concat(Removed.package_fields, " "))
-end
-
 --- The checker's environment lacks each of them, as a global and as a
 --- module.
 local function test_the_checker_is_stripped_of_each_withheld_global()

@@ -39,7 +39,7 @@
 --- differently fails the build that would carry it. `cosmic lsp` compares
 --- none of its stubs so: neither those it serves of a project's modules
 --- ([`build.lsp.source`]) nor the one it reads a document's
---- [`Shape.record_of`] calls from ([`build.lsp.splice`]).
+--- [`Shape.record_of`] calls from (`build.lsp.splice`).
 
 -- TODO: keep each body that can declare past itself, or derive stubs with
 -- the new checker. tl lets a body change what the module declares, so a

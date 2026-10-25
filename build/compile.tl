@@ -1,77 +1,43 @@
---- `cosmic compile`: Lua source for `.tl` files, one text per file, written
---- by this binary's own carried compiler ([`build.teal`]'s `load`) for the
---- tree's Lua, with Teal's compat targets off (`gen_compat = "off"`,
---- `gen_target = "5.4"`: [`teal.defaults`], which every compile of the
---- tree uses). It reads only the files it is given and the `cosmic.*`
---- modules the binary carries, never the tree around them, so a released
---- binary runs it in any directory: a release can compile the checker's
---- source with it, to seed a boot.
+--- `cosmic compile`: Lua source for `.tl` files, one text per file, written by this binary's own carried compiler
+--- ([`build.compile_grammar`]). It reads only the files it is given and the `cosmic.*` modules the binary carries, never the
+--- tree around them, so a released binary runs it in any directory: a release can compile the tool's own source with it,
+--- to seed a boot.
 ---
---- IT EMITS DESPITE TYPE ERRORS. The checker's own source does not obey
---- the rules the checker holds a program to (build/compiler_test.tl pins
---- its type errors), so a type error is reported and the Lua is written
---- all the same: a count per file on standard error, and with `--errors`
---- each error as `file:line:column: message`. Only a file the parser
---- refuses -- a syntax error -- stops the run: nothing is written for any
---- file, each error is named as `file:line:column: message`, and the exit
---- is 2. Every file is parsed before the first is written, so a refusal
---- never leaves some files written and others not.
+--- IT EMITS DESPITE TYPE ERRORS. A type error is reported and the Lua is written all the same: a count per file on standard
+--- error, and with `--errors` each error as `file:line:column: message`. Only a file the parser refuses -- a syntax error --
+--- stops the run: nothing is written for any file, each error is named as `file:line:column: message`, and the exit is 2.
+--- Every file is parsed before the first is written, so a refusal never leaves some files written and others not.
 ---
---- THE LUA IS RAW: one file's text exactly as the compiler's generator
---- writes it, no wrapper and nothing joining one file to another. A file
---- is checked as the module its path below the root names (`--root`, the
---- working directory by default: [`checker/flow.tl`] as `checker.flow`; the
---- path may be absolute, and one outside the root is refused), and a
---- `require` of another named file is answered with that file's text, so a
---- checker's parts see each other's types as the boot's compile gives
---- them. A `.d.tl` file named is skipped, with one note, but still types
---- a `require` of it. Any `cosmic.*` name is the binary's own, and any
---- other is a type error (module not found), emitted despite.
+--- THE LUA IS RAW: one file's text exactly as the generator writes it, no wrapper and nothing joining one file to another.
+--- A file is checked as the module its path below the root names (`--root`, the working directory by default: [`lang/flow.tl`]
+--- as [`lang.flow`]; the path may be absolute, and one outside the root is refused), and a `require` of another named file is
+--- answered with that file's text, so the parts of a program see each other's types as the boot's compile gives them.
 ---
---- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s
---- resolution, check contracts or hold a file to the tree's other rules:
---- it is the checker and the generator and nothing else.
+--- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s resolution, check contracts or hold a file to the
+--- tree's other rules: it is the checker and the generator and nothing else.
 ---
---- THE GRAMMAR is Teal's unless `--grammar new` says otherwise, never
---- guessed from a file's text: files in the new checker's grammar
---- ([`doc/plans/new-checker-grammar.md`]) keep the `.tl` extension, and a
---- run reads all its files in one grammar. The new grammar's pipeline is
---- [`build/compile_grammar.tl`]'s: the files named are the whole program,
---- a `.d.tl` among them declares the globals every file may use (the
---- standard library's), and a `cosmic.*` module no file named is the
---- module of is typed `invalid` and reported, since the new checker
---- cannot declare the binary's own modules. The rest is as above: a
---- syntax error refuses and writes nothing, any other error is reported
---- and the Lua written anyway.
+--- THE GRAMMAR is the new checker's ([`doc/plans/new-checker-grammar.md`]), which `--grammar new` names and the verb takes by
+--- default; `--grammar teal` is refused, naming `cosmic migrate`, which rewrites a project to it. The files named are the
+--- whole program, a `.d.tl` among them declares the globals every file may use (the standard library's), and a `cosmic.*`
+--- module no file named is the module of is typed `invalid` and reported, since the checker cannot declare the binary's own
+--- modules. A syntax error refuses and writes nothing, any other error is reported and the Lua written anyway.
 ---
---- Like `cosmic json` it prints no summary: its standard output is the Lua
---- of a single file written without `-o`, and its exit status says how it
---- went, 0 for Lua written (type errors or none) and 2 for a command line
---- or a file it refuses; after a refusal, or a write that failed, the
---- directory of `-o` must not be used, for an earlier run's files may be
---- in it. Complaints go to standard error as
---- `cosmic: compile: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
+--- Like `cosmic json` it prints no summary: its standard output is the Lua of a single file written without `-o`, and its
+--- exit status says how it went, 0 for Lua written (type errors or none) and 2 for a command line or a file it refuses;
+--- after a refusal, or a write that failed, the directory of `-o` must not be used, for an earlier run's files may be in it.
+--- Complaints go to standard error as `cosmic: compile: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
 local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local bare = require("build.bare")
-local teal = require("build.teal")
 local verb_spec = require("build.verb_spec")
-local type compiler = require("build.compiler")
 local type Grammar = require("build.compile_grammar")
 
 --- The `cosmic compile` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
-  --- The Lua the compiler `built` writes for `text`, the source of the file `name`, as a compile of that file alone
-  --- writes it but with no module served: a `require` finds nothing, not even a `cosmic.*` module. The Lua is then
-  --- a function of the text and the compiler, which a check that keeps it relies on. Nil and why where the parser
-  --- refuses the text or the generator writes none. `built` is the caller's own compiler (from [`build.teal`]'s
-  --- `load`), since this sets how it searches for modules.
-  lua: function(built: compiler, name: string, text: string): string?, string
-
   --- Where `run` writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -155,87 +121,10 @@ local function below(path: string, root: string): string?
   return path:sub(#prefix + 1)
 end
 
---- The module name a checker finds the file `relative` under when another
---- file requires it: the path without `.tl` or `.d.tl`, its slashes as dots.
-local function module_of(relative: string): string
-  local stem = relative:gsub("%.d%.tl$", ""):gsub("%.tl$", "")
-  return (stem:gsub("/+", "."))
-end
-
 --- `why`, a system complaint, with `path` in front unless it already names it.
 local function said(path: string, why: string): string
   if why:sub(1, #path) == path then return why end
   return path .. ": " .. why
-end
-
---- Makes `built` answer a `require` of a named file with that file's
---- text, and any other name from the binary's own `cosmic.*` modules.
-local function serving(built: compiler, texts: {string:string}, paths: {string:string})
-  teal.serve_standard(built)
-  local standard = built.search_module
-  built.search_module = function(name: string, search_all: boolean): string?, compiler.Handle?
-    local text = texts[name]
-    if text == nil then
-      return standard(name, search_all)
-    end
-    return paths[name], teal.served(text)
-  end
-end
-
---- The error of the fork `e`, as this verb reports it.
-local function problem(e: compiler.Error): Grammar.Problem
-  return { code = e.code, msg = e.msg, fix = "", y = e.y, x = e.x, offset = 0 }
-end
-
---- The errors `list` of the fork, as this verb reports them.
-local function problems(list: {compiler.Error}): {Grammar.Problem}
-  local out: mut {Grammar.Problem} = {}
-  for index, e in ipairs(list) do
-    out[index] = problem(e)
-  end
-  return out
-end
-
---- Checks and generates `text`, the file `path`, in an environment of its
---- own so no file sees another's declarations but through a `require`.
-local function compile_one(built: compiler, path: string, filename: string, text: string): Grammar.Compiled
-  local env, trouble = built.new_env({ defaults = teal.defaults() })
-  if env == nil then
-    return {
-      path = path, declaration = false, code = nil, syntax_errors = {}, type_errors = {},
-      trouble = "the checker made no environment: " .. tostring(trouble),
-    }
-  end
-  local result = built.check_string(text, env, filename, "tl")
-  local code: string? = nil
-  local why_not = ""
-  local ast = result.ast
-  if #result.syntax_errors == 0 and ast ~= nil then
-    local generated, why = built.generate(ast, env.defaults.gen_target, nil)
-    code = generated
-    if generated == nil then
-      why_not = tostring(why)
-    end
-  end
-  return {
-    path = path, declaration = false, code = code, syntax_errors = problems(result.syntax_errors),
-    type_errors = problems(result.type_errors), trouble = why_not,
-  }
-end
-
-function verb.lua(built: compiler, name: string, text: string): string?, string
-  built.search_module = function(_name: string, _search_all: boolean): string?, compiler.Handle?
-    return nil
-  end
-  local compiled = compile_one(built, name, name, text)
-  if #compiled.syntax_errors > 0 then
-    return nil, name .. ":" .. compiled.syntax_errors[1].y .. ": " .. compiled.syntax_errors[1].msg
-  end
-  local code = compiled.code
-  if code == nil then
-    return nil, compiled.trouble
-  end
-  return code, ""
 end
 
 --- The line that names one error of `path`.
@@ -257,9 +146,8 @@ local function counted(n: integer): string
 end
 
 --- Runs the command line `argv`, `compile` at slot 1, and answers the
---- exit code. `built` is the compiler to use, or this binary's own when
---- nil: what a test stands in for.
-function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
+--- exit code. `streams` is where it writes: what a test stands in for.
+function verb.run(argv: {string}, streams?: verb.Io): integer
   local to = streams or { out = bare.out, err = bare.err }
   local complain = bare.complainer("compile", to.err)
   local request, trouble = arguments(argv)
@@ -278,8 +166,6 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
     complain(root .. ": --root must name a directory, not a file")
     return bare.refused
   end
-  local texts: mut {string:string} = {}
-  local paths: mut {string:string} = {}
   --- The files in the order given, each with the name the checker knows
   --- it by.
   local todo: mut {Grammar.Source} = {}
@@ -310,26 +196,16 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
           ": pass --root <dir> naming a directory above it, or a path below the current directory")
       return bare.refused
     end
-    local new_grammar = request.grammar == "new"
-    local name = module_of(relative)
-    if new_grammar then
-      name = require("build.compile_grammar").module_of(relative)
-    end
+    local name = require("build.compile_grammar").module_of(relative)
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
-    -- The new grammar's program has one file for a module.
-    local kind = name .. (if (declaration and not new_grammar) then "\0d" else "\0t" end)
+    -- The program has one file for a module.
+    local kind = name .. "\0t"
     if holders[kind] ~= nil then
       complain(path .. " and " .. holders[kind] .. " are both the module " .. name ..
           ": a require could mean only one; name one of them, or compile them in two runs")
       return bare.refused
     end
     holders[kind] = path
-    -- As the build does, a declaration beside its source is what a
-    -- `require` sees, whichever was named first.
-    if texts[name] == nil or declaration then
-      texts[name] = text
-      paths[name] = relative
-    end
     if declaration then
       skipped[#skipped + 1] = path
     else
@@ -344,31 +220,11 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
     todo[#todo + 1] = { path = path, relative = relative, text = text, declaration = declaration }
   end
   if #skipped > 0 then
-    complain(table.concat(skipped, ", ") .. ": declares " ..
-        (if request.grammar == "new" then "globals and types" else "types" end) .. " and has no Lua, so none is written; " ..
+    complain(table.concat(skipped, ", ") .. ": declares globals and types and has no Lua, so none is written; " ..
         "it still types a require of it")
   end
 
-  local made: mut {Grammar.Compiled} = {}
-  if request.grammar == "new" then
-    made = require("build.compile_grammar").compile(todo)
-  else
-    local compiler_in_use = built
-    if compiler_in_use == nil then
-      local loaded, why = teal.load()
-      if loaded == nil then
-        complain(why)
-        return bare.refused
-      end
-      compiler_in_use = loaded
-    end
-    serving(compiler_in_use, texts, paths)
-    for _, entry in ipairs(todo) do
-      if not entry.declaration then
-        made[#made + 1] = compile_one(compiler_in_use, entry.path, entry.relative, entry.text)
-      end
-    end
-  end
+  local made = require("build.compile_grammar").compile(todo)
   local refused = false
   for _, compiled in ipairs(made) do
     for _, e in ipairs(compiled.syntax_errors) do
@@ -431,7 +287,7 @@ end
 verb.spec = {
   name = "compile",
   guide = "the Lua of a Teal file",
-  tests = { "build.compile_test", "build.compile_grammar_test", "build.compile_lang_test", "build.compile_tool_test" },
+  tests = { "build.compile_test", "build.compile_grammar_test", "build.compile_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the .tl files to compile",

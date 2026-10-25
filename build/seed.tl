@@ -12,7 +12,7 @@
 ---   `require` for the build's code up to [`build.boot`].
 ---
 --- THE FILES ARE READ AS WRITTEN. The tree holds the text the new checker reads, so a source is never translated here
---- ([`Driver.Source.translate`] is off), and the module a path names is the one [`lang.declarations`]'s `module_of` says.
+--- (`Driver.Source.translate` is off), and the module a path names is the one [`lang.declarations`]'s `module_of` says.
 ---
 --- THE LUA IS THE BUILD'S. A module is written as the build's own compile writes it ([`build.pipeline`]): a test of a record or
 --- an interface is written as the test for a table (`counted`), as the fork writes it and as the pins of `[checked]` count,
@@ -56,7 +56,7 @@ local STDLIB <const> = "lang/stdlib.d.tl"
 --- The declaration file `file` of the tree at `root`, a source of globals.
 local function declaration(root: string, file: string): Driver.Source
   local text = assert(Fs.read(root .. "/" .. file))
-  return Driver.declarations(CompileGrammar.module_of(file), file, text, false, {})
+  return Driver.declarations(CompileGrammar.module_of(file), file, text, {})
 end
 
 --- The files a `require` of `name` may name, in the order they are tried: a declaration before the source it stands for.

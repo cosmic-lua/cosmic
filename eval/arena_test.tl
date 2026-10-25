@@ -5,9 +5,7 @@ local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local Arena = require("eval.arena")
 local link_resolve = require("build.link_resolve")
-local links = require("build.links")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
+local SyntaxLinks = require("build.syntax_links")
 
 --- The tasks and the journal every arena's TASK.md is made of.
 Test.policy{ grants = { { path = "eval/task/", letters = "r" }, { path = "eval/journal.md", letters = "r" } } }
@@ -129,9 +127,9 @@ local function implementing_everything(task: string): link_resolve.Context
 end
 
 --- What `cosmic fix` would link in `text`, a project's TASK.md.
-local function would_link(built: compiler, task: string, text: string): {string}
-  local out = links.rewrite(link_resolve.resolver(implementing_everything(task)), "/p/TASK.md",
-    "/p/TASK.md", "markdown", text, built)
+local function would_link(task: string, text: string): {string}
+  local out = SyntaxLinks.rewrite(link_resolve.resolver(implementing_everything(task)), "/p/TASK.md",
+    "/p/TASK.md", "markdown", text)
   local said = out.linked
   if out.source ~= text and #said == 0 then
     said = { "/p/TASK.md: link: its definitions would be rewritten" }
@@ -145,10 +143,9 @@ end
 --- solver never wrote. A task names its API as each list item's head,
 --- before a `:`, where a link would read as a definition.
 local function test_fix_links_nothing_in_any_task()
-  local built = assert(teal.load())
   -- Such a project links an API named mid-sentence, or heading a list item with no `:` after it.
-  assert(#would_link(built, "jobs", "- `jobs.Status`, an enum.\n") == 1)
-  assert(#would_link(built, "jobs", "Each `Plan.order` is sorted.\n") == 1)
+  assert(#would_link("jobs", "- `jobs.Status`, an enum.\n") == 1)
+  assert(#would_link("jobs", "Each `Plan.order` is sorted.\n") == 1)
   local tasks = assert(Fs.list("eval/task"))
   table.sort(tasks)
   assert(#tasks > 0)
@@ -157,7 +154,7 @@ local function test_fix_links_nothing_in_any_task()
     local task = name:match("^(.+)%.md$")
     if task ~= nil then
       local text = assert(Arena.task_text("eval", task))
-      for _, line in ipairs(would_link(built, task, text)) do
+      for _, line in ipairs(would_link(task, text)) do
         troubles[#troubles + 1] = task .. ": " .. line
       end
     end

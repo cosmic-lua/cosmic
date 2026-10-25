@@ -1,12 +1,9 @@
 --- The tests of [`build.migrate`]: each rewrite is held by a program the new checker refuses once translated and accepts once
 --- migrated, whose Lua gives what the fork's Lua of the original gives; the rewrites go on to a fixed point; a file it has
 --- nothing to do for is returned as it was; and what the rewrites do not cover is left and reported.
-local GrammarMode = require("build.grammar_mode")
 local Migrate = require("build.migrate")
 local Test = require("cosmic.test")
 local standalone = require("build.standalone")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
 
 -- The new checker types a file against the declarations the tool carries, which only a worker that holds the tool's database
 -- ("cosmic") has.
@@ -18,19 +15,9 @@ local function migrated(files: {string: string}, rounds?: integer): Migrate.Resu
   return (assert(result, why))
 end
 
---- The fork's compiler, loaded once for the module.
-local forks: {compiler} = {}
-
---- The Lua `grammar` ("teal" for the fork, "new") writes of `source`, or nil and the refusal.
-local function lua_of(tmp: string, source: string, grammar: GrammarMode.Mode): string?, string
-  local fork: compiler? = nil
-  if grammar == "teal" then
-    if forks[1] == nil then
-      forks[1] = assert(teal.load(true))
-    end
-    fork = forks[1]
-  end
-  return standalone.code("m.tl", source, { XDG_CACHE_HOME = tmp .. "/cache" }, fork, grammar)
+--- The Lua the new checker writes of `source`, or nil and the refusal.
+local function lua_of(tmp: string, source: string): string?, string
+  return standalone.code("m.tl", source, { XDG_CACHE_HOME = tmp .. "/cache" })
 end
 
 local type Entry = function(): any
@@ -54,11 +41,9 @@ local function holds(tmp: string, source: string, code: string, expected: any): 
   assert((result.before[code] or 0) >= 1 and (result.rewrites[code] or 0) >= 1, code .. " was not found and rewritten")
   assert((result.after[code] or 0) == 0 and #result.left == 0, table.concat(result.untranslated, "\n"))
   local migrated_text = assert(result.texts["m.tl"])
-  local accepted, why = lua_of(tmp, migrated_text, "new")
+  local accepted, why = lua_of(tmp, migrated_text)
   assert(accepted ~= nil, tostring(why) .. "\n" .. migrated_text)
   assert(value_of(accepted) == expected, tostring(value_of(accepted)))
-  local original = assert(lua_of(tmp, source, "teal"))
-  assert(value_of(original) == expected, tostring(value_of(original)))
   return result
 end
 
@@ -99,8 +84,7 @@ local function test_a_parameter_that_is_written_is_declared_mut_once_its_field_w
     table.concat(result.untranslated, "\n"))
   local text = assert(result.texts["m.tl"])
   assert(text:find("name(env: mut {string: string}): string\n  env[\"NAME\"] = \"n\"\n  env[\"OTHER\"] = \"o\"\n", 1, true) ~= nil, text)
-  assert(value_of((assert(lua_of(tmp, text, "new")))) == "n")
-  assert(value_of((assert(lua_of(tmp, source, "teal")))) == "n")
+  assert(value_of((assert(lua_of(tmp, text)))) == "n")
 end
 
 local function test_an_optional_collection_is_declared_mut_inside_the_question_mark(tmp: string)
@@ -121,7 +105,7 @@ local function test_an_optional_collection_is_declared_mut_inside_the_question_m
   assert(#result.left == 0, table.concat(result.untranslated, "\n"))
   local text = assert(result.texts["m.tl"])
   assert(text:find("name(env: mut {string: string}?): string", 1, true) ~= nil, text)
-  assert(value_of((assert(lua_of(tmp, text, "new")))) == "n")
+  assert(value_of((assert(lua_of(tmp, text)))) == "n")
 end
 
 local function test_the_collection_a_field_holds_is_declared_mut(tmp: string)
@@ -238,7 +222,7 @@ local function test_a_ternary_whose_value_is_never_false_is_an_if_expression(tmp
   assert(assert(result.texts["m.tl"]):find("return if flag then name else \"none\" end", 1, true) ~= nil)
 end
 
-local function test_a_ternary_whose_value_can_be_nil_is_left_as_it_answers_differently(tmp: string)
+local function test_a_ternary_whose_value_can_be_nil_is_left_as_it_answers_differently(_tmp: string)
   local source = table.concat({
     "local function pick(flag: boolean, name: string | nil): string",
     "  return flag and name or \"none\"",
@@ -254,7 +238,6 @@ local function test_a_ternary_whose_value_can_be_nil_is_left_as_it_answers_diffe
   local finding = assert(result.left[1])
   assert(finding.code == "and_ternary" and finding.note:find("false or nil", 1, true) ~= nil, finding.note)
   -- the two answer differently where `name` is nil, so the program is left to a person
-  assert(value_of((assert(lua_of(tmp, source, "teal")))) == "none")
 end
 
 local function test_the_type_of_an_empty_local_is_a_map_when_its_first_write_keys_a_string(tmp: string)
@@ -538,7 +521,7 @@ local function test_a_record_nested_in_another_is_found_by_its_path(tmp: string)
   assert(result.before.interface_disagrees == 1 and result.after.interface_disagrees == nil and #result.left == 0)
   local text = assert(result.texts["m.tl"])
   assert(text:find("  record Guard is A.Held\n    mut flag: boolean\n", 1, true) ~= nil, text)
-  assert(value_of((assert(lua_of(tmp, text, "new")))) == true)
+  assert(value_of((assert(lua_of(tmp, text)))) == true)
 end
 
 local function test_a_disagreement_of_a_type_is_left_for_a_person()
@@ -956,7 +939,7 @@ local function test_the_rewrites_go_on_until_nothing_changes(tmp: string)
   local text = assert(result.texts["m.tl"])
   assert(text:find("local names: mut {string} = {}", 1, true) ~= nil and text:find("local copy: mut {string} = names", 1, true) ~= nil,
     text)
-  assert(value_of((assert(lua_of(tmp, text, "new")))) == "a,b")
+  assert(value_of((assert(lua_of(tmp, text)))) == "a,b")
   -- a project that is migrated is migrated to itself
   local again = migrated({ ["m.tl"] = text })
   assert(again.texts["m.tl"] == text and #again.changed == 0 and again.rounds == 0 and next(again.rewrites) == nil)

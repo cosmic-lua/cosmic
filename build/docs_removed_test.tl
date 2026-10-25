@@ -8,8 +8,11 @@
 
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
+local Pipeline = require("build.pipeline")
+-- The modules the test compiles a use of: required at the top level, so its closure carries them.
+local _net = require("cosmic.net")
+local _http = require("cosmic.http")
+local _sandbox = require("cosmic.sandbox")
 
 local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -43,7 +46,7 @@ local function tree(extra?: {string: string}): {string: string}
     ["cosmic/codec.tl"] = module("codec", "Codec"),
     ["cosmic/env.tl"] = module("env", "Env", source(
       "--- One variable; this is the os.getenv operation.",
-      "function Env.get(name: string): string | nil",
+      "function Env.get(name: string): string?",
       "  return name",
       "end",
       "")),
@@ -161,41 +164,40 @@ local function test_a_live_name_keeps_its_page(dir: string)
   end
 end
 
---- The page says a member's replacement in the words the compiler's
---- hint does (build.teal's `replacement`, which reads the same catalog:
---- this test requires it through build.docs), so the sentence that is
---- spelled twice cannot drift.
+--- The page says a member's replacement in the words the new checker's refusal does (it reads the same catalog), so the
+--- sentence that is spelled twice cannot drift: the page's text is the refusal's own sentence, from the name to the
+--- `(local Module = require(...))` it ends with.
 local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  local options = assert(Pipeline.alone())
   local record Case
     member: string
-    refusal: compiler.Error
     required: string
+    use: string
   end
-  local function key_case(owner: string, key: string, required: string): Case
-    return { member = owner .. "." .. key, required = required, refusal = {
-      code = "invalid_key", key = key, variable = owner, subject = owner,
-      subject_kind = "nominal", resolved_kind = "record", msg = "", filename = "", y = 2, x = 8 } }
+  local function value_case(owner: string, name: string, required: string): Case
+    return { member = owner .. "." .. name, required = required, use = "local _x = " .. owner .. "." .. name }
   end
   local function type_case(owner: string, name: string, required: string): Case
-    return { member = owner .. "." .. name, required = required, refusal = {
-      code = "unknown_type", names = { owner, name }, subject = owner .. "." .. name, msg = "", filename = "", y = 2, x = 8 } }
+    return { member = owner .. "." .. name, required = required, use = "local _x: " .. owner .. "." .. name }
   end
   for _, case in ipairs({
-      key_case("Net", "pair", "cosmic.net"),
-      key_case("Http", "upload", "cosmic.http"),
-      key_case("Http", "serve", "cosmic.http"),
-      key_case("Sandbox", "decode", "cosmic.sandbox"),
+      value_case("Net", "pair", "cosmic.net"),
+      value_case("Http", "upload", "cosmic.http"),
+      value_case("Http", "serve", "cosmic.http"),
+      value_case("Sandbox", "decode", "cosmic.sandbox"),
       type_case("Net", "Pair", "cosmic.net"),
       type_case("Http", "Request", "cosmic.http"),
   }) do
-    local owner = case.member:match("^(%a+)%.")
-    local bound = "local " .. owner .. " = require(\"" .. case.required .. "\")\nreturn " ..
-      case.member .. "\n"
-    local hint = teal.replacement(case.refusal, bound)
+    local owner = assert(case.member:match("^(%a+)%."))
+    local text = "local " .. owner .. " = require(\"" .. case.required .. "\")\nlocal function main(): integer\n  " ..
+      case.use .. "\n  return 0\nend\nreturn main\n"
+    local refused = table.concat(Pipeline.checked_alone("hint.tl", text, options).lines, "\n")
+    local hint = refused:match(case.member:gsub("%.", "%%.") .. " was removed: [^\n]*")
     local found = assert(docs.lookup(view, case.member))
-    assert(hint ~= nil and found[1].text == hint,
-      case.member .. ": " .. tostring(hint) .. " ~= " .. tostring(found[1].text))
+    assert(hint ~= nil, case.member .. ": the refusal says no hint: " .. refused)
+    local first = assert(found[1])
+    assert(first.text == hint, case.member .. ": " .. hint .. " ~= " .. first.text)
   end
 end
 

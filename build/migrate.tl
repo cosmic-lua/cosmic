@@ -798,7 +798,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
   for _, path in ipairs(paths) do
     entries[#entries + 1] = { path, assert(texts[path]) }
   end
-  local index = Driver.index(entries, false, function(_: string): boolean
+  local index = Driver.index(entries, function(_: string): boolean
     return false
   end)
   local build = TreeProgram.build(index, options.globals, true, nil, Pipeline.carried())

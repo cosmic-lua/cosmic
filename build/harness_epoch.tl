@@ -80,86 +80,86 @@ local record harness_epoch
   library: {string:string}
 end
 
-harness_epoch.epoch = "51-fddb0e02" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "52-f29a420b" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.acknowledged = {
 
-  ["build.artifact"] = "e3f8acd5718271deae9f9454a9c49e27bf33777c7124756c766c72090d57b1bf",
+  ["build.artifact"] = "6bcacc0e4e216df503ef7866f63bfe517e804ab88cfed06e76c2bea9bd67946c",
 
   ["build.assertions"] = "536da1af6ed52bf04f8f8803d77f83f44a9c43cb65f2572eca09c995fa87fe4d",
 
   ["build.bind"] = "e6e670add858a2a3b3fe668d61a1447b7ade175ca3c8de64ab040e091c3038a6",
 
-  ["build.cache_formats"] = "c8ff0b082d587dde5b954b9966119e935ea1d2b052f9d9cdb3784a3fddc94ac5",
+  ["build.cache_formats"] = "0f32a7868d0e9b00d1170380e8ca7ba93d449b66cebf9b3a182c8218a993b122",
 
   ["build.cache_names"] = "4b4f3b1df38b24007ea926f54a8abf937f1358b96a868356504c3580e650052c",
 
-  ["build.caches"] = "b39b55b004ea7b8584d1ffbe6dc64fc0f2f4f1c7906bd10bc22510278204d980",
+  ["build.caches"] = "969bfed82c44d6623119afcedbecd265a1bbbd43805e43dc1c96462dfeee98d8",
 
-  ["build.confine"] = "9f53e093dd7fcc0941c131561d343fa47da3dede1c843fc0578838197be52e80",
+  ["build.confine"] = "2b711ac00186f5caed7ae1920eed0ce9a14ac17b50a53707c84b4f083f686799",
 
-  ["build.core_image"] = "438521f7414f628e48873643defe04e22cf920033b1aea7bbf2e0f34b3338201",
+  ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "9a4507583a4fdb4b7ac8c35fc1ddd3752b8a558b7062257df3a1879bf0a6f3dc",
+  ["build.declared_key"] = "43c55f7eb8663f29ed749f4be23a4e97da89e27aab39d9d75def0fdf0305487e",
 
-  ["build.digest"] = "22c6cbf8301394d1b91f4ff36c3caebed275d94b1e0f9eb5e451bc7a8b8e2fd1",
+  ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
-  ["build.host_names"] = "dc2719fe1bd9e50a757d374b56bd540def3f704191e14a220911a9e7eb581854",
+  ["build.host_names"] = "2312dc872d652e92fad4dcd73cffa31ed1ad179d5e5cb960a06df33ba562eb73",
 
-  ["build.host_requires"] = "2e4aba92aedb90b23b7e3ad57dda24083044fa1e93da6337b431cc9ce0c635f1",
+  ["build.host_requires"] = "3feee5ee2450c6bad2bdd380cb14c169173ee8076e9b4ac7afd3fac8cf2e0e3e",
 
-  ["build.key_parts"] = "41313ce0ff348328bb5c52f1f3f981250c9a5e14ebf261c0e6ef5f877cd5aaf6",
+  ["build.key_parts"] = "ec597f813d1bc7c595f21e587900c90c6be0f9d9402566beb076719069996e8b",
 
-  ["build.launcher"] = "bc52c3884cb494ea6a2e0bb2812bef61e0c273a87485be51e15e0f38e9c0bf97",
+  ["build.launcher"] = "ea8495db991837f0b3411e99305d62b319c96071089897b555516062f6c05579",
 
-  ["build.paths"] = "d545c7857089c73a735be508232494cb22346d39ec0c36944a58b86d34799bb6",
+  ["build.paths"] = "911ce247a4e165f0e0be03486c0b4c74fc02676d2d18363eeebbdb01af6286b4",
 
   ["build.plural"] = "08dc094acbdc34d3bc0ed7d04238e33810e3ff573574b2e612e1202bde7f24c4",
 
-  ["build.shared_sqlite"] = "5745750ce96c9251747ef491ce4270ea65a4ba12095fbf45538d394e5e8e8553",
+  ["build.shared_sqlite"] = "3af88d37269e2836b4cd960373cc187a8cf919101f0534328aa8341eb25c69e6",
 
-  ["build.shared_verdicts"] = "b5bff42619819da164ca805891f632571017a2f72eefeed01a8e03e49a1ffa96",
+  ["build.shared_verdicts"] = "8d1755865073aabf737be7f5c9aafe036b97a38a06139447118a44a2ddeb1fd9",
 
-  ["build.test_inputs"] = "e2e8fcf6be7a20d3767eb8334ec1f332ab86b542d30d56ec3d7e948e6196451c",
+  ["build.test_inputs"] = "13f27d986b012d31553cc11efd8e5ea3981b1be1512f7ecfcc0ea3929534b9bd",
 
-  ["build.test_key"] = "ad8a0851f07bacdb5d1e0478d700732419851d32eb747f5cdc9ca5ae2883e867",
+  ["build.test_key"] = "72d860d1ce265c5145faba0bde245e1aad6d94fab03ed1e990a162bdf6277983",
 
-  ["build.test_policy"] = "597348dbe514ef0cee04cbfdcee0f3b3198d9a15a2bd4f51961b3fc1894de607",
+  ["build.test_policy"] = "6f9e3fabca11585b186a5cad1b41a9eaf068b43c28f5ad56bee77a680dc6ad01",
 
-  ["build.test_sandbox"] = "f93f700ed812010d7b58d10d76d4fe912fbf50c059a1a2bfac53be197e979a52",
+  ["build.test_sandbox"] = "e1339de6c480185265165dcf809188758b4d96012c15d75731adff2aaabed4f7",
 
-  ["build.test_worker"] = "511ad839c75406719101584a03855fdff7b5f3bb326e56557b02fd0ba081c294",
+  ["build.test_worker"] = "a1803f0923f7f57da2cd9a0ea87d24ce86d001b8af661f573ad122b04fa75d80",
 
-  ["build.this_program"] = "a8fd0caa3b712ad0b9e6b31f8db858f20273a3a0d1e83784bb507e24bb7feead",
+  ["build.this_program"] = "fda119e6dda378526fc10aa2d080860ac1a4a85a84bead050144b07e6ba07d5e",
 
-  ["build.zig_caches"] = "608bc930efd6923b4609af94b1fba0bc02bca396340953d76d5da1b676b233f9",
+  ["build.zig_caches"] = "3dd89e9f3b612891419f3178cfb211d59ff80da1e42515f77e33b4a9366f2853",
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.child"] = "774c85d3160983264c191e3c0a58b62287a29c40fc568f1242d52eae9c748691",
+  ["cosmic.child"] = "e0afdaabe784f261e1e79a2a11e84a591a32ea0a7308971a42b8e42a779f8f7c",
 
-  ["cosmic.codec"] = "6541259b7dbf3789b1b57242d4af4c2e9eb0efa7c872305c328ae8e67e7e4883",
+  ["cosmic.codec"] = "52572ec5f66817018bb20d585ebc0e5ea2ed14b2d15af6eaeb61a8dc13e5624b",
 
-  ["cosmic.coverage"] = "3030dd441f3319242cc72e83bb909a5f560d222109555be02b15e518f3986be2",
+  ["cosmic.coverage"] = "1fd90d399ac245486c914ca72e37ff638957ca46403aba64acbbd1af77017942",
 
-  ["cosmic.env"] = "f46e76a3997fea1668f7abe80648275de12b77285c9a4aaaf428552c985b65d1",
+  ["cosmic.env"] = "da17af9df52b6b2e827c8893426beddaf42725f778a47675abbd074ad482bf55",
 
-  ["cosmic.fs"] = "fee40d6615b03d989a8c708625a21c76c0b81ff6daaf73014b4f6ea1a938755a",
+  ["cosmic.fs"] = "155cd26d7bb31b6cc3431f49cf816b0bb78dd87e9fe61fc65cfdbd14938de70f",
 
-  ["cosmic.hash"] = "c6b73b0d1b1aafdf5a122b5a8cffa74fd1ff0b39f7129ff48d1ef91b2769f83a",
+  ["cosmic.hash"] = "965927db84637153d43cb09283970fd875a1164afde8ec862fd48965991f8d79",
 
-  ["cosmic.proc"] = "a5e3f73f45f2df5f6104313300f479ec0b16a5325c3b05a95ca2393ae6397574",
+  ["cosmic.proc"] = "c6b7da95cc5de8810585859b6751498cb0e5403857395b4e6836937e2564acf4",
 
-  ["cosmic.project"] = "ff7ae4d2958b9a7d24d13c990b8e3e3f41f0574fa169a645298c21b246924843",
+  ["cosmic.project"] = "7109f1a1bfb3400ba57174beca48225a345b8388ea0766a1eab33929545fb8ec",
 
-  ["cosmic.sandbox"] = "99875f930d8adcb5d31402f6b13a54d091b2a85a2df57cddd5fd0a5b0268d4b4",
+  ["cosmic.sandbox"] = "ca7d9623132d92b6dbaeee5dfc83e72b30226e5906e2fd474092b81fba68d361",
 
-  ["cosmic.sandbox.policy"] = "6eeb3335c145a924f3dace87fd9bbe2fb584b8c831aaa91aff54c03ea6ab08b1",
+  ["cosmic.sandbox.policy"] = "c2a3a0de39d0bde94b20b3113aa7a1cc7d22b23c8e212fe1e073ab619af514a1",
 
-  ["cosmic.sqlite"] = "70e62606a82d6381773966682bf48837b73a0ea26de44ad604636ad5c2ccc3a9",
+  ["cosmic.sqlite"] = "d8d6976eb63748b8d1379491f5e5ba60bd2347215cc056921552accfb4981d6c",
 
-  ["cosmic.string"] = "e1ca89bb3a9446c9d398d8be50425177b32981a9b1b40bdf8504661e7f388691",
+  ["cosmic.string"] = "2ec8d1742171f64be2083383cd876c1c93a0e4eab3f05ec10855998911e257e1",
 
-  ["cosmic.test"] = "51ed8f4ac4390f3ac6b2accd9eeda2430f87f7404b0bbae06338b348afedc012",
+  ["cosmic.test"] = "cfc0d8ed2c8a9c3adcb0c281f764a6900ff978328557b218bc606fd8b4ff319b",
 
 }
 
@@ -255,6 +255,7 @@ harness_epoch.retired = {
   "7517cd3f",
   "e102e8aa",
   "a6665ec1",
+  "fddb0e02",
 }
 
 return harness_epoch

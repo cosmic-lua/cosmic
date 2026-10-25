@@ -82,7 +82,7 @@ local record importer
     shared: integer
     --- Always 0: a compile was once shared out to worker processes.
     ---
-    --- TODO: drop this field and `Parses.worked`, with the tests that read them, once the second part of the switch has
+    --- TODO: drop this field and [`Parses.worked`], with the tests that read them, once the second part of the switch has
     --- ported the fork's tests.
     worked: integer
     --- What the derive the compile began with parsed.
@@ -128,7 +128,7 @@ local record importer
     --- those it parsed: a guess, read without its row's digest.
     requires: function(analyzer: string, hashes: {string}): {string:{string}}
     --- The parse `analyzer` made of the source `hash`, its docs' lines
-    --- `mapped` or not ([`build.derivation`]'s `origin_lines`), or nil.
+    --- `mapped` or not ([`build.syntax_derivation`]'s `origin_lines`), or nil.
     parse: function(analyzer: string, hash: string, mapped: boolean): derivation.Parse?
     --- Offers a parse `analyzer` made here to every other checkout.
     offer: function(analyzer: string, hash: string, mapped: boolean, made: derivation.Parse)
@@ -147,7 +147,7 @@ local record importer
   --- each module.
   ---
   --- TODO: delete this with [`importer.Workers`], once the second part of the switch has ported the whole-tree checks
-  --- ([`build.tree_shard`]) off the processes of [`build.workers`]: no compile asks for them any more.
+  --- (`build.tree_shard`) off the processes of `build.workers`: no compile asks for them any more.
   record Ahead
     --- What compiling the module at `path` made, or nil where no worker
     --- reached it, and the build compiles it.
@@ -157,7 +157,7 @@ local record importer
   end
 
   --- The processes the whole-tree checks parse and compile in beside their own
-  --- ([`build.workers`]). A build asks `ready` of how much source it
+  --- (`build.workers`). A build asks `ready` of how much source it
   --- has, and the processes serve it only where that is worth them.
   --- What they make is what this process would, and what they leave
   --- undone this process does.
@@ -165,7 +165,7 @@ local record importer
     --- Whether processes serve `bytes` of source, starting them first
     --- where that many are worth it.
     ready: function(bytes: integer): boolean
-    --- Parses `fresh`, as [`derivation.parse_fresh`] does into `db`,
+    --- Parses `fresh`, as `derivation.parse_fresh` does into `db`,
     --- counting each source a process parsed in `tally.worked`.
     parse: function(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
                     tally: derivation.Parses, made: {derivation.Source},
@@ -680,7 +680,7 @@ local function derive_new(handle: work.Handle, tally: importer.Parses,
   if not swept then
     return nil, sweep_trouble
   end
-  local derived, derived_trouble = derivation.inputs(db, true)
+  local derived, derived_trouble = derivation.inputs(db)
   if not derived then return nil, derived_trouble end
   local taken = ""
   if shared ~= nil then

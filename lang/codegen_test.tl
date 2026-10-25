@@ -14,20 +14,16 @@ local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
-local compile = require("build.compile")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
 
 Test.policy{}
 
-local held: {compiler} = {}
-
---- The compiler this binary carries, without its line information, loaded once.
-local function fork(): compiler
-  if held[1] == nil then
-    held[1] = assert(teal.load(true))
-  end
-  return held[1]
+--- The Lua the fork wrote of `source`, compiled alone. The fork's compiler is gone from the tree, so this fails the case that
+--- asks.
+---
+--- TODO: hold each case to the Lua the fork wrote, kept as text beside the case, once part B2 of the switch has ported the
+--- tests that took the fork's compiler as their oracle (doc/plans/strict-teal.md, "the switch").
+local function fork_wrote(_source: string): string
+  error("the fork's compiler is not in this binary: the case waits for a text of the Lua it wrote", 0)
 end
 
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
@@ -45,7 +41,7 @@ local function same(...: string)
   -- The translator writes an `if` expression only where the value is never false, which is what it tells the generator.
   local ours = generated(made.text, Truthy.never_false)
   assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
-  local theirs = assert(compile.lua(fork(), "t.tl", source))
+  local theirs = fork_wrote(source)
   assert(Codegen.compared(ours.text) == Codegen.compared(theirs),
     "the generator wrote\n" .. ours.text .. "\nthe fork wrote\n" .. theirs)
 end
@@ -951,7 +947,7 @@ local function apart_from_classes(source: string): string, string, Translate.Res
   assert(#parsed.errors == 0)
   local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Truthy.never_false)
   assert(#ours.errors == 0)
-  local theirs = assert(compile.lua(fork(), "t.tl", source))
+  local theirs = fork_wrote(source)
   return Codegen.without_classes(ours.text, parsed.chunk), Codegen.fork_without_classes(theirs, parsed.chunk, made.metatables), made
 end
 

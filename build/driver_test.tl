@@ -11,7 +11,6 @@ local Types = require("lang.types")
 local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
-local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 
 Test.policy{}
@@ -23,9 +22,9 @@ end
 --- A build over `files` (pairs of a path and its text, in the new grammar) with the small library of the checker's tests as
 --- its globals.
 local function build_of(files: {{string}}): Driver.Build, Driver.Index
-  local index = Driver.index(files, false, nothing)
+  local index = Driver.index(files, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
     adjust = nil, external = { "cosmic.sys" },
     types = true,
   })
@@ -52,12 +51,12 @@ local function test_a_file_is_the_module_its_path_names_and_answers_to_the_tail_
   local index = Driver.index({
     { "build/a.tl", "return 1\n" }, { "cosmic/http/init.tl", "return 2\n" }, { "ci/cosmic_ci/x.tl", "return 3\n" },
     { "ci/cosmic_ci/y.d.tl", "global record Y\nend\n" }, { "testdata/t.tl", "return 4\n" },
-  }, false, function(file: string): boolean
+  }, function(file: string): boolean
     return file:find("^testdata/") ~= nil
   end)
   assert(#index.sources == 4 and index.by_module["testdata.t"] == nil)
   local x = assert(index.by_module["ci.cosmic_ci.x"])
-  assert(x.filename == "ci/cosmic_ci/x.tl" and x.dialect == "tl" and x.checked and not x.translate)
+  assert(x.filename == "ci/cosmic_ci/x.tl" and x.dialect == "tl" and x.checked)
   assert(index.by_module["cosmic_ci.x"] == x and index.by_module["x"] == x)
   assert(x.aliases[1] == "cosmic_ci.x" and x.aliases[2] == "x", table.concat(x.aliases, " "))
   assert(index.by_module["cosmic.http"] ~= nil and index.by_module["http"] == index.by_module["cosmic.http"])
@@ -66,11 +65,11 @@ local function test_a_file_is_the_module_its_path_names_and_answers_to_the_tail_
   assert(Driver.files(index)("build.a") == index.by_module["build.a"] and Driver.files(index)("nope") == nil)
 end
 
-local function test_a_declaration_is_read_ahead_of_a_source_of_the_same_module_and_the_tree_is_translated_on_request()
-  local index = Driver.index({ { "m.tl", "return 1\n" }, { "m.d.tl", "global record M\nend\n" } }, true, nothing)
+local function test_a_declaration_is_read_ahead_of_a_source_of_the_same_module()
+  local index = Driver.index({ { "m.tl", "return 1\n" }, { "m.d.tl", "global record M\nend\n" } }, nothing)
   assert(#index.sources == 2)
-  assert(assert(index.by_module["m"]).dialect == "decl" and assert(index.by_module["m"]).translate)
-  local backwards = Driver.index({ { "m.d.tl", "global record M\nend\n" }, { "m.tl", "return 1\n" } }, false, nothing)
+  assert(assert(index.by_module["m"]).dialect == "decl")
+  local backwards = Driver.index({ { "m.d.tl", "global record M\nend\n" }, { "m.tl", "return 1\n" } }, nothing)
   assert(assert(backwards.by_module["m"]).dialect == "decl")
 end
 
@@ -153,7 +152,7 @@ end
 
 local function test_the_globals_are_what_the_declaration_files_declare_less_what_the_host_withholds()
   local text = "global record Seen\n  n: integer\nend\nglobal record Withheld\n  n: integer\nend\n"
-  local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, false, {}) },
+  local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, {}) },
     function(names: mut {string: Scopes.Global})
       names["Withheld"] = nil
       names["Added"] = { space = "type", const = false }
@@ -227,8 +226,8 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   assert(#took(6).tparams == 1)
   local literal = took(7).params[1].type
   assert((literal.tag == "fn") and #literal.params == 1)
-  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
-  lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, false, nothing)))
+  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) }, adjust = nil, external = {}, types = false })
+  lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, nothing)))
   assert(next(assert(lean:result("m", true)).callees) == nil)
 end
 
@@ -246,14 +245,14 @@ local function test_the_type_report_is_by_the_id_of_each_node_when_asked_for_and
     end
   end
   assert(counted >= 8 and named >= 2, "typed " .. tostring(counted))
-  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
-  lean:provide(Driver.files(Driver.index(files, false, nothing)))
+  local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) }, adjust = nil, external = {}, types = false })
+  lean:provide(Driver.files(Driver.index(files, nothing)))
   assert(next(assert(lean:result("m", true)).types) == nil)
   -- the hint that reads the type of what a method is called on does not wait for the report
   local method = "local record R\n  get: function(self: R): integer\nend\nlocal r: R = { get = function(self: R): integer return 1 end }\n" ..
     "return r.get(r)\n"
-  local hinted = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
-  hinted:provide(Driver.files(Driver.index({ { "h.tl", method } }, false, nothing)))
+  local hinted = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) }, adjust = nil, external = {}, types = false })
+  hinted:provide(Driver.files(Driver.index({ { "h.tl", method } }, nothing)))
   local warned = assert(hinted:result("h", true))
   assert(#warned.warnings == 1 and warned.warnings[1].code == "method_dot", codes_of(warned.warnings))
   assert(next(warned.types) == nil)
@@ -262,10 +261,10 @@ end
 local function test_the_test_functions_of_a_test_module_are_called_from_outside_and_are_not_unused()
   local text = "local function test_works()\nend\nlocal function helper()\nend\n"
   local build = build_of({ { "w_test.tl", text }, { "w.tl", text } })
-  local index = Driver.index({ { "w_test.tl", text }, { "w.tl", text } }, false, nothing)
+  local index = Driver.index({ { "w_test.tl", text }, { "w.tl", text } }, nothing)
   local test_source = assert(index.by_module["w_test"])
   test_source.tests = true
-  local tested = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
+  local tested = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) }, adjust = nil, external = {}, types = false })
   tested:provide(Driver.files(index))
   local discounted = assert(tested:result("w_test", true))
   assert(#discounted.warnings == 1, codes_of(discounted.warnings))
@@ -338,7 +337,7 @@ local function test_a_declaration_is_read_ahead_of_its_source_under_every_name_w
   local user = { "q/use.tl", "local Box = require(\"foo\")\nlocal b: Box = { s = \"x\" }\nreturn b\n" }
   local orders = { { source, decl, user }, { decl, source, user } }
   for _, files in ipairs(orders) do
-    local index = Driver.index(files, false, nothing)
+    local index = Driver.index(files, nothing)
     local winner = assert(index.by_module["p.foo"])
     assert(winner.dialect == "decl" and index.by_module["foo"] == winner)
     assert(#winner.aliases == 1 and winner.aliases[1] == "foo")
@@ -346,7 +345,7 @@ local function test_a_declaration_is_read_ahead_of_its_source_under_every_name_w
     for _, asked in ipairs(pairs_asked) do
       local one, other = asked[1], asked[2]
       assert(one ~= nil and other ~= nil)
-      local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+      local build = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
         adjust = nil, external = {}, types = false })
       build:provide(Driver.files(index))
       local first = assert(build:parsed(one))
@@ -360,7 +359,7 @@ end
 
 local function test_a_test_module_is_a_file_that_ends_in_test_and_its_functions_are_not_unused()
   local text = "local function test_x()\nend\n"
-  local index = Driver.index({ { "a_test.tl", text }, { "a.tl", text }, { "a_tested.tl", text } }, false, nothing)
+  local index = Driver.index({ { "a_test.tl", text }, { "a.tl", text }, { "a_tested.tl", text } }, nothing)
   assert(assert(index.by_module["a_test"]).tests and not assert(index.by_module["a"]).tests and
       not assert(index.by_module["a_tested"]).tests)
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
@@ -379,47 +378,12 @@ local function test_a_module_whose_bodies_were_not_checked_is_told_so_by_held_an
   assert(#checked > 2 and not checked[#checked]:find("not checked", 1, true))
 end
 
-local function ceilings(text: string): Ceilings.Table
-  return (assert(Ceilings.parse(text)))
-end
-
-local HAZARD <const> = "local function one(): integer\n  return 1\nend\nlocal record R\n  n: integer\nend\nlocal helper = one()\nfunction R:f(): integer\n  return self.n + helper\nend\nreturn R\n"
-
-local function test_a_module_of_the_forks_teal_is_held_to_what_the_tree_counts_of_its_text_not_of_its_translation()
-  local files = { { "hazard.tl", HAZARD }, { "broken.tl", "local t: {{string, integer}}\nreturn t\n" } }
-  local index = Driver.index(files, true, nothing)
-  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  build:provide(Driver.files(index))
-  -- the translation moves the method above `helper`, a scope error of the translated text that `[hazards]` counts: it is held
-  -- as the tree counts a scope error of the text the fork reads, which this module has none of, so the module is refused (its
-  -- Lua would read a global)
-  local hazard = assert(build:result("hazard", true))
-  assert(#hazard.scope_errors >= 1, "the translated method no longer sees `helper`")
-  local told = build:held(hazard, ceilings(""))
-  assert(#told >= 2 and told[1]:find("(unknown_variable)", 1, true) ~= nil and
-      told[#told]:find("hazard.tl: 1 error of unknown_variable in its scopes, pinned 0;", 1, true) ~= nil, table.concat(told, "\n"))
-  assert(#build:held(hazard, ceilings("[scoped]\nhazard.tl unknown_variable 1\n")) == 0)
-  -- a translation that does not parse is held to `[translated]`
-  local broken = assert(build:result("broken", true))
-  assert(broken.broken)
-  local refused = build:held(broken, ceilings(""))
-  assert(#refused >= 2, "the error and the count")
-  assert(refused[#refused]:find("broken.tl: 1 error of tuple_type in its translation, pinned 0;", 1, true) ~= nil,
-    table.concat(refused, "\n"))
-  assert(#build:held(broken, ceilings("[translated]\nbroken.tl tuple_type 1\n")) == 0)
-  -- the same text in the new grammar has no such allowance: a syntax error is refused whatever is pinned
-  local new = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  new:provide(Driver.files(Driver.index({ { "broken.tl", "local t: {{string, integer}}\nreturn t\n" } }, false, nothing)))
-  local still = assert(new:result("broken", true))
-  assert(still.broken and #new:held(still, ceilings("[translated]\nbroken.tl tuple_type 1\n")) >= 1)
-end
-
 local function test_a_source_written_from_another_file_is_the_module_it_says_and_is_pinned_under_the_name_it_gives()
   local text = "local record Box\n  n: integer\nend\nlocal bad: integer = 3.5\nreturn Box\n"
   local index = Driver.index({
     { "doc/guides/x.md", text, "doc.guides.x" },
     { "gen/sys.d.tl", "local record Sys\n  n: {number: integer}\nend\nreturn Sys\n", "cosmic.sys", "core/sys.h" },
-  }, false, nothing)
+  }, nothing)
   local guide = assert(index.by_module["doc.guides.x"])
   assert(guide.filename == "doc/guides/x.md" and guide.pinned == "" and guide.dialect == "tl" and guide.checked)
   assert(index.by_module["x"] == guide and index.by_module["doc.guides.x.md"] == nil)
@@ -442,21 +406,17 @@ end
 
 local function test_every_source_tells_the_generator_what_is_never_false_and_the_text_the_checker_read()
   local text = "local n = 3\nlocal s = n > 2 and 1 or 2\nreturn s\n"
-  local translated = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  translated:provide(Driver.files(Driver.index({ { "m.tl", text } }, true, nothing)))
-  local one = assert(translated:parsed("m"))
-  assert(one.never_false == Truthy.never_false and one.text == Translate.translate(text, "m.tl").text)
-  -- the new grammar is read as it is written, and the generator is told the same
+  -- a source is read as it is written, and the generator is told what the rule knows
   local written = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  written:provide(Driver.files(Driver.index({ { "m.tl", text } }, false, nothing)))
+  written:provide(Driver.files(Driver.index({ { "m.tl", text } }, nothing)))
   local two = assert(written:parsed("m"))
   assert(two.never_false == Truthy.never_false and two.text == text)
 end
 
---- The Lua the generator writes of the module `m` of `text`, read as `translated` says.
-local function lua_of(text: string, translated: boolean): string
+--- The Lua the generator writes of the module `m` of `text`.
+local function lua_of(text: string): string
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  build:provide(Driver.files(Driver.index({ { "m.tl", text } }, translated, nothing)))
+  build:provide(Driver.files(Driver.index({ { "m.tl", text } }, nothing)))
   local read = assert(build:parsed("m"))
   return Codegen.generate(read.chunk, read.scoped, read.never_false).text
 end
@@ -470,7 +430,7 @@ local function cast_if(value: string, cast: string): any
     "return r",
     "",
   }, "\n")
-  local lua = lua_of(text, false)
+  local lua = lua_of(text)
   return assert(load(lua, "=m", "t"))()
 end
 
@@ -485,49 +445,6 @@ local function test_a_cast_does_not_make_the_middle_of_an_if_expression_never_fa
   -- and one that is a value gives itself
   assert(cast_if("\"s\"", "string") == "s")
   assert(cast_if("7", "integer") == 7)
-end
-
-local function test_an_if_expression_written_in_the_new_grammar_is_the_lua_of_its_translation()
-  -- the middles are a cast to a map, a number, a string, a table and a concatenation (forms the tree holds, as
-  -- `Json.array() as {any: any}` does), and a chain; a name stays a call whichever way the file came
-  local fork = table.concat({
-    "local raw: any = {}",
-    "local flag: boolean = raw ~= nil",
-    "local name: string = \"k\"",
-    "local a = flag and (raw as {any: any}) or {}",
-    "local b = flag and 1 or 2",
-    "local c = flag and name .. \"x\" or \"y\"",
-    "local d = flag and { 1 } or flag and \"s\" or nil",
-    "local e = flag and name or \"z\"",
-    "local f = flag and \"!matrix\" or nil",
-    "local g = flag and name .. \" && \" .. name or name",
-    "return { a, b, c, d, e, f, g }",
-    "",
-  }, "\n")
-  local text = Translate.translate(fork, "m.tl").text
-  assert(text:find("if flag then", 1, true) ~= nil, text)
-  local theirs, ours = lua_of(fork, true), lua_of(text, false)
-  assert(theirs == ours, theirs .. "\n--\n" .. ours)
-  -- a cast middle is `and`/`or`, not a function called on the spot
-  local cast = Translate.translate("local raw: any = {}\nlocal t = raw ~= nil and (raw as {any: any}) or {}\nreturn t\n", "m.tl").text
-  assert(lua_of(cast, false):find("function", 1, true) == nil, lua_of(cast, false))
-end
-
-local function test_the_steps_a_source_needs_are_made_to_its_text_after_the_translation_and_before_the_parse()
-  local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  local function mend(text: string): string
-    return (text:gsub("WORD", "integer"))
-  end
-  build:provide(Driver.files(Driver.index({ { "m.tl", "local b: WORD = 1\nreturn b\n" } }, false, nothing,
-    function(_file: string, _text: string): Driver.Extra
-      return { tests = false, mend = mend }
-    end)))
-  local result = assert(build:result("m", true))
-  assert(result.text == "local b: integer = 1\nreturn b\n" and #result.errors == 0, codes_of(result.errors))
-  -- without them the same text is an error
-  local bare = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  bare:provide(Driver.files(Driver.index({ { "m.tl", "local b: WORD = 1\nreturn b\n" } }, false, nothing)))
-  assert(#assert(bare:result("m", true)).errors >= 1)
 end
 
 local function test_replacing_a_module_begins_a_new_program_in_which_everything_is_lowered_again()
@@ -674,12 +591,12 @@ end
 local function test_a_replacement_is_read_as_written_and_keeps_what_the_module_was()
   local files = { { "m_test.tl", "local function test_x()\nend\n" }, { "d.tl", "return 1\n" } }
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
-  build:provide(Driver.files(Driver.index(files, true, nothing)))
+  build:provide(Driver.files(Driver.index(files, nothing)))
   local old = assert(build:parsed("m_test"))
-  assert(old.source.translate and old.source.tests)
-  -- the replacement is in the new grammar: a `where` clause is a syntax error, not a thing the translator reads
+  assert(old.source.tests)
+  -- the replacement is read as written: a `where` clause is a syntax error
   local replaced = assert(build:replace("m_test", "local record R\n  where self.a == 1\nend\nreturn R\n"))
-  assert(replaced.source.translate and replaced.source.tests and replaced.source.filename == "m_test.tl")
+  assert(replaced.source.tests and replaced.source.filename == "m_test.tl")
   assert(replaced.broken)
   local looked = assert(build:result("m_test", true))
   local first = looked.errors[1]
@@ -687,7 +604,7 @@ local function test_a_replacement_is_read_as_written_and_keeps_what_the_module_w
   assert(not assert(build:parsed("d")).broken)
 end
 
-local function test_a_standard_library_module_is_translated_when_asked_and_a_declaration_is_read_as_one()
+local function test_a_standard_library_module_is_read_as_written_and_a_declaration_is_read_as_one()
   local texts: {string: string} = {
     ["cosmic.box"] = "local record Box\n  n: integer | nil\nend\nreturn Box\n",
     ["cosmic.sys"] = "local record Sys\n  n: integer\nend\nreturn Sys\n",
@@ -695,13 +612,11 @@ local function test_a_standard_library_module_is_translated_when_asked_and_a_dec
   local function read(module: string): string?
     return texts[module]
   end
-  local fork = Driver.standard(read, true)("cosmic.box")
-  assert(fork ~= nil and fork.translate and not fork.checked and fork.dialect == "tl" and fork.filename == "cosmic/box.tl")
   local plain = Driver.standard(read)("cosmic.box")
-  assert(plain ~= nil and not plain.translate)
-  assert(Driver.standard(read, true)("cosmic.none") == nil)
+  assert(plain ~= nil and not plain.checked and plain.dialect == "tl" and plain.filename == "cosmic/box.tl")
+  assert(Driver.standard(read)("cosmic.none") == nil)
   -- one it is told is a declaration is a declaration file
-  local declared = Driver.standard(read, true, function(module: string): boolean
+  local declared = Driver.standard(read, function(module: string): boolean
     return module == "cosmic.sys"
   end)
   local sys, box = declared("cosmic.sys"), declared("cosmic.box")

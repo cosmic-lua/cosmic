@@ -18,9 +18,9 @@ local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 local compilation = require("build.compilation")
-local compile = require("build.compile")
 local importer = require("build.importer")
 local schema = require("build.schema")
+local standard_text = require("build.standard_text")
 local teal = require("build.teal")
 local work = require("build.work")
 
@@ -57,7 +57,7 @@ end
 local function options(pins: string): Pipeline.Options
   return {
     globals = {
-      sources = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+      sources = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
     ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD), project = nil,
@@ -265,13 +265,9 @@ local function test_the_steps_of_the_proof_are_made_to_the_three_files_and_to_th
   -- their `where` clauses are blanked, and they read in the new grammar
   assert(not ast.broken and not types.broken, tostring(ast.syntax[1] and ast.syntax[1].msg))
   assert(not ast.text:find("\n  where ", 1, true) and not types.text:find("\n    where ", 1, true))
-  -- the example keeps the forms no step makes (a method outside its class, a tuple type): it is counted, not compiled
+  -- the language tour reads in the new grammar too
   local example = assert(pipeline.build:parsed("cosmic.removed_example"))
-  local codes: mut {string} = {}
-  for _, p in ipairs(example.syntax) do
-    codes[#codes + 1] = p.code
-  end
-  assert(example.broken and table.concat(codes, " ") == "method_in_record tuple_type", table.concat(codes, " "))
+  assert(not example.broken, "the language tour is refused")
   -- a test of a record they told apart is the test of the tag the clause was, wherever the test is written
   local tagged = assert(pipeline.build:parsed("t"))
   assert(tagged.text:find("n.kind == \"Name\"", 1, true) ~= nil, tagged.text)
@@ -300,7 +296,7 @@ local function alone(file: string, source: string): string
   return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, file, {}), Truthy.never_false).text
 end
 
-local function test_the_lua_over_the_files_of_the_tree_is_the_generators_and_the_forks()
+local function test_the_lua_over_the_files_of_the_tree_is_the_generators()
   local compared = 0
   local lines = 0
   for _, file in ipairs(CORPUS) do
@@ -312,9 +308,7 @@ local function test_the_lua_over_the_files_of_the_tree_is_the_generators_and_the
     local emitted = CompileGrammar.emit(pipeline.build, result)
     local ours = assert(emitted.code, file .. ": " .. emitted.trouble)
     local oracle = alone(file, source)
-    local fork = assert(compile.lua(built, file, source))
     assert(Codegen.compared(ours) == Codegen.compared(oracle), file .. " differs from the generator alone")
-    assert(Codegen.compared(ours) == Codegen.compared(fork), file .. " differs from the fork's")
     compared = compared + 1
     for _ in ours:gmatch("\n") do
       lines = lines + 1
@@ -491,31 +485,27 @@ local function test_a_build_over_a_project_keeps_the_file_of_the_forks_name_and_
   assert(own.build:parsed("checker.tl") == nil, "cosmic's tree holds the fork's checker as a module")
 end
 
---- A tool is written from a tree the new checker refused in the files of the residue alone: any other refusal stops it.
-local function test_a_tool_is_not_written_from_a_tree_refused_beyond_the_residue()
+--- A tool is written from a tree the new checker refused in the files of the residue alone, and the residue is empty: any
+--- refusal stops it.
+local function test_a_tool_is_not_written_from_a_tree_the_new_checker_refused()
   local refused: {string} = {
-    "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it inside its class",
     "build/a.tl: the compiler refused it\nbuild/a.tl:1:1: nil is given (nil_not_allowed): fix",
-    "doc/guides/project.md:713:3: `function Kv.Lru.get` has more than one dot (function_path): assign the function to the field",
     "build/b.tl: not compiled: it requires a, which the new checker refused",
   }
   local rest = Pipeline.unexpected(refused)
   assert(#rest == 2 and (rest[1] or ""):find("^build/a.tl: the compiler refused it") ~= nil and
       (rest[2] or ""):find("^build/b.tl: not compiled") ~= nil, table.concat(rest, "|"))
   assert(#Pipeline.unexpected({}) == 0)
-  -- the residue is the files [`Pipeline.residue`] names: a refusal of one of them is nothing else
-  local residue = Pipeline.residue()
-  assert(residue["cosmic/removed_example.tl"] ~= nil and residue["doc/guides/project.md"] ~= nil)
-  assert(#Pipeline.unexpected({ "cosmic/removed_example.tl:1:1: refused (some_code): fix",
-    "doc/guides/project.md:1:1: refused (some_code): fix" }) == 0)
+  assert(next(Pipeline.residue()) == nil, "a module is refused beyond the ceilings")
+  assert(#Pipeline.unexpected({ "cosmic/removed_example.tl:1:1: refused (some_code): fix" }) == 1)
 end
 
 local function test_the_standard_library_the_tree_does_not_hold_is_the_binarys_own()
   local carried = Pipeline.carried()
   local source = assert(carried("cosmic.string"))
-  assert(source.translate and not source.checked and source.dialect == "tl" and source.filename == "cosmic/string.tl")
+  assert(not source.checked and source.dialect == "tl" and source.filename == "cosmic/string.tl")
   -- the stub, which a project's checker reads in place of the source
-  assert(source.text == assert(teal.standard_text("cosmic.string")).text)
+  assert(source.text == assert(standard_text.of("cosmic.string")).text)
   assert(carried("not.a.module") == nil)
 end
 
@@ -550,7 +540,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
   assert(seen["m"] and seen["m_test"] and seen["doc.guides.g"], "the guide is a module of the project")
   -- the guide is the test module its stage derived, named for its file
   local guide = assert(pipeline.build:parsed("doc.guides.g"))
-  assert(guide.source.filename == "doc/guides/g.md" and guide.source.tests and guide.source.translate)
+  assert(guide.source.filename == "doc/guides/g.md" and guide.source.tests)
   assert(work.close(handle))
 end
 

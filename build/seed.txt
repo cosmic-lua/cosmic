@@ -23,7 +23,6 @@ lang/load_order.tl
 lang/parser.tl
 lang/relation.tl
 lang/scopes.tl
-lang/translate.tl
 lang/truthy.tl
 lang/types.tl
 lang/warnings.tl

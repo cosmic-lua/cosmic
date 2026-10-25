@@ -164,7 +164,7 @@ end
 
 --- A module that declares `lua` alone is keyed without what `cosmic
 --- --standalone` loads beyond `-e` (build.test_inputs' `standalone_loads`):
---- an edit to the checker, build/teal.tl, leaves its key, while it moves
+--- an edit to the module that runs a standalone file, build/standalone.tl, leaves its key, while it moves
 --- the key of one that requires build.standalone, whose closure holds
 --- them, and an edit to what `-e` loads moves both.
 local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
@@ -202,10 +202,10 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
   end
   local chunk, both = key_declaring(false), key_declaring(true)
   assert(chunk ~= both)
-  assert(Fs.write(tmp .. "/build/teal.tl", "return {} -- the checker, edited\n"))
-  assert(key_declaring(false) == chunk, "a checker edit moved a chunk module's key")
+  assert(Fs.write(tmp .. "/build/standalone.tl", "return {} -- the standalone runner, edited\n"))
+  assert(key_declaring(false) == chunk, "a standalone runner edit moved a chunk module's key")
   local both_after = key_declaring(true)
-  assert(both_after ~= both, "a checker edit left a standalone module's key")
+  assert(both_after ~= both, "a standalone runner edit left a standalone module's key")
   assert(Fs.write(tmp .. "/build/dispatch.tl", "return {} -- dispatch, edited\n"))
   assert(key_declaring(false) ~= chunk and key_declaring(true) ~= both_after)
 end

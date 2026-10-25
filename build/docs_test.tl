@@ -86,7 +86,7 @@ local function fs_tree(extra?: {string: string}): {string: string}
       "end",
       "",
       "--- The whole of a file.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -188,7 +188,7 @@ local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "", lines[3])
   assert(lines[4] == "  record Fs", lines[4])
-  assert(lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(2 uses)", lines[5])
   assert(lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
       "Writes the whole of a file.",
@@ -211,7 +211,7 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
       "end",
       "",
       "--- " .. long .. "and more. A second sentence.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -225,7 +225,7 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
   }))
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
-  local read = assert(lines[5]:match("^  function Fs%.read%(path: string%): string | nil, string %-%- (.*)$"),
+  local read = assert(lines[5]:match("^  function Fs%.read%(path: string%): string%?, string %-%- (.*)$"),
     lines[5])
   assert(read:find("^word word") and read:find("…", 1, true) and not read:find("second", 1, true),
     read)
@@ -268,7 +268,7 @@ local function test_a_module_listing_shows_signatures(dir: string)
     "  end",
     "end",
     "",
-    "function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+    "function Fs.read(path: string, opts?: Fs.Opts): string?, string",
     "  return nil, path",
     "end",
     "",
@@ -276,7 +276,7 @@ local function test_a_module_listing_shows_signatures(dir: string)
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
-  assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string | nil, string",
+  assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string?, string",
     1, true), text)
   assert(not text:find("function Fs.read (", 1, true), text)
   assert(text:find("  record Fs\n", 1, true), text)
@@ -404,9 +404,9 @@ local function test_a_module_listing_shows_its_metamethods(dir: string)
     "",
     "local record callable",
     "  --- Calls the module.",
-    "  metamethod __call: function(callable, string): boolean",
+    "  __call: function(callable, string): boolean",
     "  record Handle",
-    "    metamethod __close: function(Handle)",
+    "    __close: function(Handle)",
     "  end",
     "end",
     "",
@@ -414,30 +414,13 @@ local function test_a_module_listing_shows_its_metamethods(dir: string)
   local found = assert(docs.lookup(view({ db }), "cosmic.callable"))
   local lines = assert(docs.render(view({ db }), found[1]))
   local text = table.concat(lines, "\n")
-  assert(text:find("\n  metamethod __call: function(callable, string): boolean",
+  assert(text:find("\n  __call: function(callable, string): boolean",
     1, true), text)
   assert(not text:find("__close", 1, true), text)
   local call = assert(docs.lookup(view({ db }), "callable.__call"))
   assert(#call == 1 and call[1].kind == "metamethod", tostring(#call))
   local rendered = assert(docs.render(view({ db }), call[1]))
   assert(table.concat(rendered, "\n"):find("Calls the module.", 1, true))
-end
-
---- A script's opening comment after its `#!` line is its module text.
-local function test_a_script_after_a_shebang_lists_its_own_text(dir: string)
-  local db = built(dir, { ["cosmic/script.tl"] = source(
-    "#!/usr/bin/env cosmic",
-    "",
-    "--- Runs the thing.",
-    "",
-    "local function run()",
-    "end",
-    "",
-    "return { run = run }") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.script"))
-  assert(#found == 1 and found[1].kind == "module", tostring(#found))
-  local lines = assert(docs.render(view({ db }), found[1]))
-  assert(lines[2] == "  Runs the thing.", lines[2])
 end
 
 --- A bare lowercase name that ends a public module's name is that
@@ -1192,7 +1175,7 @@ local function test_renders_a_symbols_example(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(3 uses, 1 example)",
     module_lines[5])
   assert(module_lines[6] == "  function Fs.write(path: string, data: string): boolean, string -- " ..
@@ -1235,7 +1218,7 @@ local function test_many_examples_for_one_symbol(dir: string)
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[5] == "  function Fs.read(path: string): string | nil, string -- The whole of a file.  " ..
+  assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(4 uses, 2 examples)",
     module_lines[5])
 end
@@ -1532,16 +1515,17 @@ end
 local function test_a_nested_record_method_meets_its_uses(dir: string)
   local thing = built(dir, { ["app/thing.tl"] = source(
     "local record Thing",
-    "  record Box",
+    "  class Box",
+    "    --- Grows the box.",
+    "    function grow(self)",
+    "    end",
+    "",
+    "    class Lid",
+    "      --- Opens the lid.",
+    "      function open(self)",
+    "      end",
+    "    end",
     "  end",
-    "end",
-    "",
-    "--- Grows the box.",
-    "function Thing.Box:grow()",
-    "end",
-    "",
-    "--- Opens the lid.",
-    "function Thing.Box.Lid:open()",
     "end",
     "",
     "return Thing") })
@@ -1657,7 +1641,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
       "end",
       "",
       "--- The whole of a file.",
-      "function Fs.read(path: string): string | nil, string",
+      "function Fs.read(path: string): string?, string",
       "  return nil, path",
       "end",
       "",
@@ -1762,7 +1746,7 @@ end
 local function test_a_declared_module_is_found_without_a_line()
   local rows: {{string}} = {
     { "cosmic.sys", "syscalls.lstat", "field",
-      "lstat: function(path: string): Stat | nil, string, integer",
+      "lstat: function(path: string): Stat?, string, integer",
       "Describes a path, not a link's target.", "core/syscalls.h", "0" },
   }
   local db = database(rows, {}, {})
@@ -2415,11 +2399,10 @@ end
 local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/box.tl"] = source(
-      "local record Box",
-      "end",
-      "",
-      "--- Makes it larger.",
-      "function Box:grow(by: integer)",
+      "local class Box",
+      "  --- Makes it larger.",
+      "  function grow(self, by: integer)",
+      "  end",
       "end",
       "",
       "--- Reads it, privately.",
@@ -2508,7 +2491,7 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   if boot_hash ~= nil then own_writer = Store.meta("writer") or ("boot " .. boot_hash) end
   assert(Sqlite.run(projection,
     "INSERT INTO meta (key, value) VALUES ('written_by', ?1), ('writer', ?1), ('compiled_by', ?2)",
-    { { text = own_writer }, { text = rebuild.compiled_by("teal") } }))
+    { { text = own_writer }, { text = rebuild.compiled_by("new") } }))
   local known: docs.Known = { directory = directory, own_tree = false }
   local function read(): integer
     local sources = docs.databases({ store }, dir, known)

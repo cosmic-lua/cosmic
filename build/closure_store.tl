@@ -68,10 +68,6 @@ local record closure_store
     --- ([`required_by`]).
     decl_requires: {string:{string}}
   end
-
-  --- Modules a module loads by other means than `require`, by that
-  --- module (`loaded_beside`).
-  loaded_beside: {string:{string}}
 end
 
 --- `value`, bound as TEXT: [`build.bind`]'s `text`, restated rather than
@@ -359,16 +355,16 @@ function closure_store.basis(whole: string): closure_store.Basis?, string
   return made, ""
 end
 
---- Modules a module loads by other means than `require`, which a
---- closure store carries beside it: build.teal loads the compiler as
---- bytecode (`Store.bytecode("vendor.tl")`), which no parse follows.
-local loaded_beside: {string:{string}} = { ["build.teal"] = { "vendor.tl" } }
-closure_store.loaded_beside = loaded_beside
+--- Declarations a module reads by other means than `require`, which a closure store carries beside it: the new
+--- checker's declarations of the globals and of the standard library, which [`build.checker_declarations`]'s `carried`
+--- reads by name ([`Store.source`]) for any compile of a project, such as a test's.
+local declared_beside: {string:{string}} = {
+  ["build.checker_declarations"] = { "lang.prelude", "lang.stdlib" },
+}
 
 --- The modules of `basis` a closure store for `names` -- an import
 --- closure's module names ([`test_inputs.modules`]) -- holds, sorted: each
---- that the projection holds, and what each loads beside
---- (`loaded_beside`). A name only a declaration answers for is none:
+--- that the projection holds. A name only a declaration answers for is none:
 --- `declared` answers those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: {string:boolean} = {}
@@ -380,7 +376,6 @@ local function stored(basis: closure_store.Basis, names: {string}): {string}
   end
   for _, name in ipairs(names) do
     add(name)
-    for _, beside in ipairs(loaded_beside[name] or {}) do add(beside) end
   end
   table.sort(out)
   return out
@@ -411,7 +406,10 @@ local function declared(basis: closure_store.Basis, names: {string}): {string}
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   local stack: mut {string} = {}
-  for _, name in ipairs(names) do stack[#stack + 1] = name end
+  for _, name in ipairs(names) do
+    stack[#stack + 1] = name
+    for _, beside in ipairs(declared_beside[name] or {}) do stack[#stack + 1] = beside end
+  end
   while #stack > 0 do
     local name = table.remove(stack)
     if not seen[name] and basis.decls[name] ~= nil then

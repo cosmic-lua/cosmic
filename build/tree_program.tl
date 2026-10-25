@@ -9,7 +9,7 @@
 --- ([`build.pipeline_check`], [`build.pipeline.residue`]).
 ---
 --- The globals are the declarations of the Lua standard library ([`lang/stdlib.d.tl`]) and the prelude ([`lang/prelude.d.tl`]),
---- both in the new grammar, less the names cosmic's runtime withholds ([`teal.withheld`]). A source is read as written.
+--- both in the new grammar, less the names cosmic's runtime withholds ([`build.withheld`]). A source is read as written.
 local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
@@ -20,7 +20,7 @@ local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
-local teal = require("build.teal")
+local withheld = require("build.withheld")
 
 local record TreeProgram
   --- The global sources of a build and what is done to the globals they declare ([`Driver.Options`]).
@@ -83,8 +83,8 @@ local function skipped(file: string): boolean
 end
 
 function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
-  return Driver.index(entries, false, skipped, function(file: string, _text: string): Driver.Extra
-    return { tests = kinds[file] == "test", mend = nil }
+  return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
+    return { tests = kinds[file] == "test" }
   end)
 end
 
@@ -197,14 +197,14 @@ local function globals_of(prelude: string?, stdlib: string?): TreeProgram.Global
   local sources: mut {Driver.Source} = {}
   if prelude ~= nil then
     sources[#sources + 1] = Driver.declarations(CheckerDeclarations.prelude_module(), CheckerDeclarations.prelude_file(), prelude,
-      false, {})
+      {})
   end
   if stdlib ~= nil then
     sources[#sources + 1] = Driver.declarations(CheckerDeclarations.stdlib_module(), CheckerDeclarations.stdlib_file(), stdlib,
-      false, {})
+      {})
   end
   return { sources = sources, adjust = function(globals: mut {string: Scopes.Global})
-    for _, name in ipairs(teal.withheld) do
+    for _, name in ipairs(withheld.globals) do
       globals[name] = nil
     end
     globals["_G"] = { space = "value", const = false }

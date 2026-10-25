@@ -1,16 +1,12 @@
---- `cosmic compile` (build/compile.tl), run in this process with the
---- carried compiler: a type error is reported and its Lua written anyway,
---- a syntax error is refused naming file and line and writes nothing, a
---- well-typed file's Lua is what the compiler's own `gen` writes, and each
---- file of several gets its own output. build/compile_tool_test.tl starts
---- the program for what a process alone shows, and
---- build/compile_checker_test.tl compiles the checker's own source.
+--- `cosmic compile` (build/compile.tl), run in this process: a type error is reported and its Lua written anyway, a syntax
+--- error is refused naming file and line and writes nothing, a well-typed file's Lua is what the generator writes, and each
+--- file of several gets its own output. build/compile_tool_test.tl starts the program for what a process alone shows, and
+--- build/compile_grammar_test.tl holds the pipeline it runs.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compile = require("build.compile")
-local teal = require("build.teal")
-local type compiler = require("build.compiler")
+local Grammar = require("build.compile_grammar")
 
 Test.policy{}
 
@@ -18,17 +14,6 @@ local record Ran
   mut code: integer
   mut out: string
   mut err: string
-end
-
-local held: {compiler} = {}
-
---- The compiler this binary carries, without its line information (the
---- same Lua, and faster under the coverage hook), loaded once.
-local function compiler_in_use(): compiler
-  if held[1] == nil then
-    held[1] = assert(teal.load(true))
-  end
-  return held[1]
 end
 
 --- The directory of the test's files, which a run takes as `--root`
@@ -53,7 +38,7 @@ local function run(words: {string}): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-  }, compiler_in_use())
+  })
   return ran
 end
 
@@ -64,13 +49,11 @@ local function file(tmp: string, name: string, text: string): string
   return path
 end
 
---- What the compiler's own `gen` writes for `text` under the defaults every
---- compile of the tree uses.
+--- What the generator writes for `text`, compiled alone as `compile` compiles a file named on its command line.
 local function generated(text: string): string
-  local built = compiler_in_use()
-  local env = assert(built.new_env({ defaults = teal.defaults() }))
-  local code, result = built.gen(text, env, nil, "tl")
-  assert(code ~= nil and #result.syntax_errors == 0)
+  local made = Grammar.compile({ { path = "x.tl", relative = "x.tl", text = text, declaration = false } })
+  local code = assert(made[1]).code
+  assert(code ~= nil and #assert(made[1]).syntax_errors == 0)
   return code
 end
 

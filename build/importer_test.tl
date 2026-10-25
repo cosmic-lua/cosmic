@@ -691,7 +691,7 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   assert(after_checker[2] ~= original[2], "an edit to the checker did not move the runtime basis")
 end
 
---- The Lua standard library's declarations, [`checker/stdlib.d.tl`], are
+--- The Lua standard library's declarations, `checker/stdlib.d.tl`, are
 --- compiled into the checker at boot, so an edit to one moves what every
 --- compile is a function of (the compiler's identity, so each compile's
 --- key, and the runtime basis) and the hashes that make a boot (the
@@ -1378,7 +1378,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
 end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
---- unused ([`checker/tl.tl`]'s own `var_name:sub(1, 1) == "_"` check),
+--- unused (`checker/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
 --- but its warning for every other name does not mention that escape,
 --- and cosmic refuses the whole compile over any warning (see
 --- `complain`). `with_unused_hint` names the escape in the message.
@@ -2118,7 +2118,7 @@ end
 --- The checker's source decides what every module is accepted as and
 --- compiled to, and every module's compile key holds the compiler's
 --- identity ([`build.importer`]'s `Result`), so a tree whose
---- [`checker/tl.tl`] differs must name another identity, and so another key
+--- `checker/tl.tl` differs must name another identity, and so another key
 --- for every module and parse, or a cache made by the old checker would
 --- serve the new tree. The identity is a function of the checker's bytes:
 --- the same bytes name it again, and a tree with no checker names a third.

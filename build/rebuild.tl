@@ -263,7 +263,7 @@ end
 --- says: a lookup's, which waits for no other run. With `start`, it
 --- builds one no build has been made of yet too, and waits for another
 --- run as a build does: `cosmic fix`, which stages and compiles the
---- directory to check it whatever it holds ([`build.fix.spill`]), so
+--- directory to check it whatever it holds (`build.fix.spill`), so
 --- that what its links name is the tree as it stands rather than
 --- whatever an earlier `cosmic test` left.
 function rebuild.here(verb: string, start?: boolean, root?: string): boolean, string
