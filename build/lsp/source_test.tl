@@ -26,17 +26,37 @@ local served_between = session_fixture.served_between
 local made_project, project = session_fixture.made_project, session_fixture.project
 local serving = session_fixture.serving
 
+--- The module `lib.shapes` written as the checker takes a module: a record, whose `sides` is of `kind` and `value`.
+local function shapes_of(kind: string, value: string): string
+  return "local record shapes\n  sides: " .. kind .. "\nend\nlocal s: shapes = { sides = " .. value .. " }\nreturn s\n"
+end
+
+local THREE <const> = shapes_of("integer", "3")
+local FOUR <const> = shapes_of("integer", "4")
+local STRINGS <const> = shapes_of("string", '"three"')
+
+--- What a main is told of a module `lib.shapes` the database lists none of.
+local NO_SHAPES <const> = "the project has no module `lib.shapes` (require_unknown): require a module of the " ..
+  "project: `bin/cosmic docs` lists them"
+
+--- A module with nothing in it, as the checker takes one.
+local EMPTY <const> = "local record empty\nend\nlocal e: empty = {}\nreturn e\n"
+
+--- What a main that reads `shapes.sides` into an `integer` is told of a module whose `sides` is a string.
+local WRONG <const> = "`shapes.sides` is `string`, where `integer` is wanted as the value of `n` (not_assignable): " ..
+  "pass a value of type `integer`, or change the declaration to `string`"
+
 local function test_a_require_reads_an_open_document_before_the_disk()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local ran = served(root, {
     initialize(root),
     open(root, "main.tl", main),
-    open(root, "lib/shapes.tl", 'return { sides = "three" }\n'),
+    open(root, "lib/shapes.tl", STRINGS),
     change(root, "main.tl", main),
-    change(root, "lib/shapes.tl", "return { sides = 4 }\n"),
+    change(root, "lib/shapes.tl", FOUR),
     change(root, "main.tl", main),
   })
   assert(#published(ran) == 5)
@@ -48,9 +68,9 @@ end
 local function test_a_package_module_is_its_init()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib/shapes"))
-  assert(Fs.write(root .. "/lib/shapes/init.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes/init.tl", THREE))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
-  assert(Fs.write(root .. "/lib/decl.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/decl.tl", STRINGS))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
     "local n: integer = shapes.sides + decl.sides\nreturn n\n"
   local diagnostics = nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1)
@@ -60,11 +80,11 @@ end
 local function test_a_closed_document_no_longer_shadows_the_file()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local ran = served(root, {
     initialize(root),
-    open(root, "lib/shapes.tl", 'return { sides = "three" }\n'),
+    open(root, "lib/shapes.tl", STRINGS),
     open(root, "main.tl", main),
     close(root, "lib/shapes.tl"),
     change(root, "main.tl", main),
@@ -81,11 +101,11 @@ end
 local function test_a_save_stages_again_and_publishes_what_changed()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local send = serving(root)
   send({ initialize(root), open(root, "main.tl", main), open(root, "other.tl", "return 2\n") })
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   local sent = publications(send({ save(root, "lib/shapes.tl") }))
   assert(#sent == 3, "only main changed: " .. tostring(#sent))
   local third = assert(sent[3])
@@ -94,9 +114,9 @@ end
 
 local function test_the_same_text_checks_the_same_each_time()
   local root = project()
-  -- A module that declares a global, which the document reads.
-  assert(Fs.write(root .. "/g.tl", "global G_VAL: integer = 1\nreturn {}\n"))
-  local reader = 'local _ = require("g")\nlocal n: integer = G_VAL\nreturn n\n'
+  -- A module the document reads, and a global no declaration file declares.
+  assert(Fs.write(root .. "/g.tl", EMPTY))
+  local reader = 'local g = require("g")\nprint(g)\nlocal n: integer = G_VAL\nreturn n\n'
   local declares = "global G_OWN: integer = 1\nlocal s: string = G_OWN\nreturn s\n"
   -- A request between two changes keeps the second from standing for
   -- both ([`build.lsp.session`] checks only the last of changes read together).
@@ -105,9 +125,10 @@ local function test_the_same_text_checks_the_same_each_time()
     open(root, "m2.tl", reader), change(root, "m2.tl", reader), between, change(root, "m2.tl", reader),
     open(root, "own.tl", declares), change(root, "own.tl", declares),
   })
-  assert(counts(ran) == "0,0,0,2,2", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
+  assert(counts(ran) == "1,1,1,1,1", counts(ran) .. "\n" .. messages_of(nth(ran, 2)))
+  assert(messages_of(nth(ran, 1)) == messages_of(nth(ran, 3)), messages_of(nth(ran, 1)) .. "\n--\n" .. messages_of(nth(ran, 3)))
   local own, again = messages_of(nth(ran, 4)), messages_of(nth(ran, 5))
-  assert(own == again, own .. "\n--\n" .. again)
+  assert(own == again and own:find("(global_in_program)", 1, true) ~= nil, own .. "\n--\n" .. again)
 end
 
 --- A `file:` URI of `path`, a space and a `%` escaped.
@@ -120,7 +141,7 @@ local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
   local root = base .. "/a b%c"
   assert(Fs.mkdirs(root .. "/lib"))
   made_project(root)
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local opened = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":' ..
     Json.quote(escaped(root .. "/main.tl")) .. ',"languageId":"teal","version":1,"text":' ..
@@ -135,7 +156,7 @@ local function test_a_root_is_read_from_its_escaped_uri_or_its_path_or_folder()
     -- The session starts at another directory: only the root it is
     -- given finds lib/shapes.tl.
     local found = only(nth(served(base, { init, opened }), 1))
-    assert(found.message:find("expected integer", 1, true), params .. ": " .. found.message)
+    assert(found.message == WRONG, params .. ": " .. found.message)
   end
 end
 
@@ -144,13 +165,14 @@ local function test_a_template_is_a_module_and_testdata_is_none()
   assert(Fs.mkdirs(root .. "/testdata"))
   assert(Fs.write(root .. "/data.tl", "local record data\n  record Page\n    title: string\n  end\nend\nreturn data\n"))
   assert(Fs.write(root .. "/page.tmpl", "{{type Page from data}}{{mode text}}one {{.title}}"))
-  assert(Fs.write(root .. "/testdata/m.tl", "return { n = 1 }\n"))
+  assert(Fs.write(root .. "/testdata/m.tl", EMPTY))
   local main = 'local page = require("page")\nlocal data = require("data")\n' ..
     'local p: data.Page = { title = "t" }\nlocal n: integer = page.render(p)\nreturn n\n'
   local rendered = only(nth(served(root, { initialize(root), open(root, "main.tl", main) }), 1))
-  assert(rendered.message:find("expected integer", 1, true), "the template renders a string: " ..
-      rendered.message)
-  local fixture = 'local m = require("testdata.m")\nreturn m\n'
+  assert(rendered.message == "`page.render(p)` is `string`, where `integer` is wanted as the value of `n` " ..
+      "(not_assignable): pass a value of type `integer`, or change the declaration to `string`",
+    "the template renders a string: " .. rendered.message)
+  local fixture = 'local m = require("testdata.m")\nlocal n: integer = m.n\nreturn n\n'
   local unfound = only(nth(served(root, { initialize(root), open(root, "main.tl", fixture) }), 1))
   assert(unfound.message:find("testdata.m", 1, true), unfound.message)
 end
@@ -158,7 +180,7 @@ end
 local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local watching = '{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":true}}}'
   local initialized = '{"jsonrpc":"2.0","method":"initialized","params":{}}'
@@ -177,16 +199,16 @@ local function test_the_disk_is_read_only_when_the_editor_says_it_changed()
   -- disk, then main changes, then the editor says the file did.
   local send = serving(root)
   send({ initialize(root, watching), initialized, open(root, "main.tl", main) })
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   send({ change(root, "main.tl", main .. "\n") })
   -- A module the stage has not seen is not found, though the file is there.
-  assert(Fs.write(root .. "/lib/more.tl", "return { n = 1 }\n"))
+  assert(Fs.write(root .. "/lib/more.tl", EMPTY))
   send({ change(root, "main.tl", 'local _ = require("lib.more")\n' .. main) })
   local ran = send({ changed_on_disk(root, "lib/shapes.tl") })
   assert(counts(ran) == "0,0,1,1", "as staged, until the editor says it changed: " .. counts(ran) ..
       "\n" .. messages_of(nth(ran, 3)) .. "\n" .. messages_of(nth(ran, 4)))
   assert(messages_of(nth(ran, 3)):find("lib.more", 1, true), messages_of(nth(ran, 3)))
-  assert(messages_of(nth(ran, 4)):find("got string", 1, true), messages_of(nth(ran, 4)))
+  assert(messages_of(nth(ran, 4)) == WRONG, messages_of(nth(ran, 4)))
 end
 
 --- While another run holds the database's write transaction open, with
@@ -196,11 +218,11 @@ end
 local function test_a_busy_database_is_read_at_once_as_last_committed()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local send = serving(root)
   send({ initialize(root), open(root, "main.tl", main) })
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   -- Another run holds the database's write lock, as a build's does, and
   -- has written more than its cache of a few pages holds.
   local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
@@ -231,7 +253,7 @@ end
 local function test_a_database_of_another_schema_is_neither_staged_nor_read()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local send = serving(root)
   send({ initialize(root), open(root, "main.tl", main) })
@@ -240,18 +262,17 @@ local function test_a_database_of_another_schema_is_neither_staged_nor_read()
   assert(stale:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(stale:close())
   local before = assert(Fs.stat(working)).ino
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   local other = send({ save(root, "lib/shapes.tl") })
   assert(other.err:find("is of schema another", 1, true), other.err)
   assert(assert(Fs.stat(working)).ino == before, "the file was removed")
   -- None of its modules is read.
   assert(counts(other) == "0,1", counts(other))
-  assert(messages_of(nth(other, 2)):find("module not found: 'lib.shapes'", 1, true),
-    messages_of(nth(other, 2)))
+  assert(messages_of(nth(other, 2)) == NO_SHAPES, messages_of(nth(other, 2)))
   assert(work.close((assert(work.open(root)))))
   local ran = send({ change(root, "main.tl", main .. "\n") })
   assert(counts(ran) == "0,1,1", "staged once made again: " .. counts(ran))
-  assert(messages_of(nth(ran, 3)):find("got string", 1, true), messages_of(nth(ran, 3)))
+  assert(messages_of(nth(ran, 3)) == WRONG, messages_of(nth(ran, 3)))
 end
 
 --- Stamps the working database at `path` with another schema, through
@@ -289,7 +310,7 @@ end
 local function test_a_database_made_again_of_another_schema_under_the_session_is_not_read()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local working = build_paths.under((assert(build_paths.directory(root)))).working
   local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
@@ -308,8 +329,7 @@ local function test_a_database_made_again_of_another_schema_under_the_session_is
   assert(ran.err:find("is of schema another", 1, true), "not said: " .. ran.err)
   assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
   assert(counts(ran) == "0,1", "a module of another schema's file is read: " .. counts(ran))
-  assert(messages_of(nth(ran, 2)):find("module not found: 'lib.shapes'", 1, true),
-    messages_of(nth(ran, 2)))
+  assert(messages_of(nth(ran, 2)) == NO_SHAPES, messages_of(nth(ran, 2)))
 end
 
 --- A session that has said the database is busy still says when it then
@@ -338,22 +358,22 @@ end
 
 --- A module is served as the stub the stage derived, as a stub made here
 --- of an open document, or as its source where it has no stub: a
---- declaration, or a source that returns nothing.
+--- declaration. (A module that returns nothing is none to require: the
+--- checker reports the binding of it, `unchecked_binding`.)
 local function test_each_module_is_served_as_its_stub_where_it_has_one()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   assert(Fs.write(root .. "/lib/decl.d.tl", "local record decl\n  sides: integer\nend\nreturn decl\n"))
-  assert(Fs.write(root .. "/lib/none.tl", "local _ = 1\n"))
   local main = 'local shapes = require("lib.shapes")\nlocal decl = require("lib.decl")\n' ..
-    'local _ = require("lib.none")\nlocal n: integer = shapes.sides + decl.sides\nreturn n\n'
+    'local n: integer = shapes.sides + decl.sides\nreturn n\n'
   local send = serving(root)
   local first = send({ initialize(root), open(root, "main.tl", main) })
   assert(counts(first) == "0", messages_of(nth(first, 1)))
   local tally = first.tally
-  assert(tally.database_stubs == 1 and tally.made_stubs == 0 and tally.sources == 2,
+  assert(tally.database_stubs == 1 and tally.made_stubs == 0 and tally.sources == 1,
     tostring(tally.database_stubs) .. "," .. tostring(tally.made_stubs) .. "," .. tostring(tally.sources))
-  local after = send({ open(root, "lib/shapes.tl", "return { sides = 4 }\n"), change(root, "main.tl", main) }).tally
+  local after = send({ open(root, "lib/shapes.tl", FOUR), change(root, "main.tl", main) }).tally
   assert(after.made_stubs == 1 and after.database_stubs == 1, tostring(after.made_stubs))
 end
 
@@ -362,7 +382,7 @@ end
 local function test_a_stub_of_another_analyzer_is_made_here()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   assert(counts(served(root, { initialize(root), open(root, "main.tl", main) })) == "0")
   local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
@@ -382,11 +402,11 @@ end
 local function test_a_stage_that_fails_answers_from_the_last()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local send = serving(root)
   assert(counts(send({ initialize(root), open(root, "main.tl", main) })) == "0")
-  assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+  assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
   assert(Fs.write(root .. "/lib/broken.tl", "local = \n"))
   local ran = send({ save(root, "lib/broken.tl") })
   assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true),
@@ -412,7 +432,7 @@ end
 local function test_a_root_no_build_was_started_in_publishes_nothing_until_one_is()
   local root = assert(Fs.mkdtemp("cosmic-lsp-"))
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal s: string = shapes.sides\nreturn s\n'
   local send = serving(root)
   local before = send({ initialize(root), open(root, "main.tl", main), change(root, "main.tl", main .. "\n"),
@@ -427,7 +447,8 @@ local function test_a_root_no_build_was_started_in_publishes_nothing_until_one_i
   assert(work.close((assert(work.open(root)))))
   local after = send({ change(root, "main.tl", main) })
   assert(counts(after) == "0,0,1", counts(after))
-  assert(only(nth(after, 3)).message:find("got integer, expected string", 1, true), messages_of(nth(after, 3)))
+  assert(only(nth(after, 3)).message == "`shapes.sides` is `integer`, where `string` is wanted as the value of `s` " ..
+      "(not_assignable): pass a value of type `string`, or change the declaration to `integer`", messages_of(nth(after, 3)))
   assert(shown(after) == 1, table.concat(after.sent, "\n"))
   assert(after.tally.stages == 1, tostring(after.tally.stages))
 end
@@ -438,12 +459,12 @@ end
 local function test_a_database_made_again_is_opened_again()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local working = build_paths.under((assert(build_paths.directory(root)))).working
   local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
     { change(root, "main.tl", main .. "\n") } }, function(_after: integer)
-      assert(Fs.write(root .. "/lib/shapes.tl", 'return { sides = "three" }\n'))
+      assert(Fs.write(root .. "/lib/shapes.tl", STRINGS))
       local stale = assert(Sqlite.open(working, { writable = true }))
       assert(stale:exec("UPDATE meta SET value = 'stale' WHERE key = 'schema'"))
       assert(stale:close())
@@ -481,7 +502,7 @@ local function test_a_file_a_build_reads_no_module_from_publishes_nothing()
   local ran = served(root, { initialize(root), open(root, "testdata/bad.tl", bad),
     open(root, "lib/testdata/bad.tl", bad), open(root, "testdata/page.tmpl", "{{.nope"),
     open(root, "static/page.tmpl", "{{.nope"),
-    open(root, "main.tl", 'local m = require("testdata.bad")\nreturn m\n') })
+    open(root, "main.tl", 'local m = require("testdata.bad")\nlocal n: integer = m.n\nreturn n\n') })
   assert(counts(ran) == "0,0,0,0,1", counts(ran) .. "\n" .. messages_of(nth(ran, 5)))
   assert(only(nth(ran, 5)).message:find("testdata.bad", 1, true), messages_of(nth(ran, 5)))
 end
@@ -492,7 +513,7 @@ end
 local function test_stubs_another_run_derived_are_trusted_no_more()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local main = 'local shapes = require("lib.shapes")\nlocal n: integer = shapes.sides\nreturn n\n'
   local working = build_paths.under((assert(build_paths.directory(root)))).working
   local ran = served_between(root, { { initialize(root), open(root, "main.tl", main) },
@@ -580,7 +601,7 @@ end
 local function test_a_database_another_code_staged_is_read_none_of_until_staged_again()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local held: Said = { said = "" }
   local src = source.new(root, function(line: string) held.said = held.said .. line .. "\n" end)
   source.refresh(src)
@@ -611,7 +632,7 @@ end
 local function test_a_database_another_code_staged_is_staged_again_at_the_next_refresh()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
-  assert(Fs.write(root .. "/lib/shapes.tl", "return { sides = 3 }\n"))
+  assert(Fs.write(root .. "/lib/shapes.tl", THREE))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
   assert(src.tally.stages == 1, tostring(src.tally.stages))

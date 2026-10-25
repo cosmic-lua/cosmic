@@ -93,7 +93,7 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
 end
 
 --- A `COSMIC_GRAMMAR` that names no checker stops the verb, naming the ones there are: it is not read as the fork's.
-local function test_a_grammar_that_is_none_stops_the_server_and_names_the_ones_there_are(tmp: string)
+local function test_a_grammar_that_is_none_stops_the_server_and_names_the_one_there_is(tmp: string)
   local env = this_program.environment()
   env["COSMIC_GRAMMAR"] = "bogus"
   local started = this_program.program({ "lsp" }, { cwd = tmp, env = env, stdout = "capture", stderr = "capture",
@@ -101,8 +101,7 @@ local function test_a_grammar_that_is_none_stops_the_server_and_names_the_ones_t
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 1 and (result.stdout or "") == "", tostring(result.code) .. " " .. (result.stderr or ""))
   local said = result.stderr or ""
-  assert(said:find("COSMIC_GRAMMAR=bogus", 1, true) ~= nil and said:find("`teal`", 1, true) ~= nil and
-      said:find("`new`", 1, true) ~= nil, said)
+  assert(said:find("COSMIC_GRAMMAR=bogus: the only grammar is `new` (the default)", 1, true) ~= nil, said)
 end
 
 local function test_one_editor_over_standard_input_and_output(tmp: string)
@@ -263,8 +262,8 @@ local USES <const> = 300
 --- and the messages that open them all, framed.
 local function helped(): string, string
   local root = session_fixture.project()
-  local integer = "local function twice(n: integer): integer return n * 2 end\nreturn { twice = twice }\n"
-  local main = 'local helper = require("helper")\nlocal n = 0\n' ..
+  local integer = "local record helper\nend\n\nfunction helper.twice(n: integer): integer\n  return n * 2\nend\n\nreturn helper\n"
+  local main = 'local helper = require("helper")\nlocal n: integer = 0\n' ..
     ("n = n + helper.twice(2)\n"):rep(USES) .. "return n\n"
   assert(Fs.write(root .. "/helper.tl", integer))
   local opening = protocol.frame(session_fixture.initialize(root)) ..
@@ -290,8 +289,8 @@ end
 --- of them is published. Then shuts the session down.
 local function asked_while_checking(root: string, opening: string, write: function(text: string),
                                     frames: protocol.Frames)
-  local text = "local function twice(n: integer): string return tostring(n * 2) end\n" ..
-    "return { twice = twice }\n"
+  local text = "local record helper\nend\n\nfunction helper.twice(n: integer): string\n  return tostring(n * 2)\nend\n\n" ..
+    "return helper\n"
   write(opening)
   -- The initialize's answer, the helper's publication and each dependent's.
   for _ = 1, DEPENDENTS + 2 do assert(frames:next()) end
