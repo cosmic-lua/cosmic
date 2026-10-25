@@ -350,7 +350,6 @@ cosmic/web/request.tl 1
 
 cosmic/web/router.tl 1
 
-cosmic/web/session/init.tl 1
 
 cosmic/web/session/sqlite.tl 1
 
@@ -642,7 +641,6 @@ build/codec_tool_test.tl nil_not_allowed 1
 
 build/codec_verb_fuzz_test.tl nil_not_allowed 4
 
-build/compilation_globals_test.tl nil_not_allowed 8
 
 build/compile.tl nil_not_allowed 4
 
@@ -854,7 +852,7 @@ build/relay_wire_fixture.tl nil_not_allowed 2
 
 build/roots_test.tl nil_not_allowed 5
 
-build/runtime_checks_tool_test.tl nil_not_allowed 7
+build/runtime_checks_tool_test.tl nil_not_allowed 2
 
 build/sandbox.tl nil_not_allowed 21
 
@@ -1789,7 +1787,6 @@ build/codec_verb_fuzz_test.tl index_may_be_nil 5
 
 build/plans.tl index_may_be_nil 1
 
-build/compilation_globals_test.tl index_may_be_nil 3
 
 build/compile_test.tl index_may_be_nil 1
 
@@ -5085,7 +5082,6 @@ build/stand_in_test.tl cast_refused 2
 
 build/standalone.tl cast_refused 1
 
-build/standalone_tool_test.tl cast_refused 1
 
 build/test_sandbox_system_confined_test.tl cast_refused 1
 
@@ -6224,7 +6220,7 @@ cosmic/web/secret.tl condition_type 1
 
 cosmic/web/session/cookie_test.tl condition_type 3
 
-cosmic/web/session/init.tl condition_type 2
+cosmic/web/session/init.tl condition_type 1
 
 cosmic/web/session/sqlite.tl condition_type 3
 
@@ -6360,7 +6356,7 @@ build/plans.tl or_mix 2
 
 build/compile_test.tl or_mix 2
 
-build/compile_tool_test.tl or_mix 3
+build/compile_tool_test.tl or_mix 2
 
 build/confine.tl or_mix 3
 
@@ -7603,7 +7599,7 @@ build/run_file_tool_test.tl concat_type 1
 
 build/runtime_checks_keys_test.tl concat_type 6
 
-build/runtime_checks_tool_test.tl concat_type 3
+build/runtime_checks_tool_test.tl concat_type 1
 
 build/sandbox.tl concat_type 1
 
@@ -8140,7 +8136,6 @@ build/c/tree.tl compare_disjoint 2
 
 build/codec.tl compare_disjoint 2
 
-build/compilation_globals_test.tl compare_disjoint 1
 
 build/confine.tl compare_disjoint 1
 
@@ -8270,7 +8265,6 @@ cosmic/json.tl compare_disjoint 5
 
 cosmic/json_test.tl compare_disjoint 3
 
-cosmic/net.tl compare_disjoint 1
 
 cosmic/net_resolve_tool_test.tl compare_disjoint 1
 
@@ -8312,7 +8306,7 @@ cosmic/time.tl compare_disjoint 2
 
 cosmic/url.tl compare_disjoint 1
 
-cosmic/web/app.tl compare_disjoint 2
+cosmic/web/app.tl compare_disjoint 1
 
 cosmic/web/request.tl compare_disjoint 1
 
@@ -8593,9 +8587,7 @@ cosmic/web/app.tl literal_missing 3
 
 cosmic/web/assets.tl literal_missing 4
 
-cosmic/web/csrf_test.tl literal_missing 1
 
-cosmic/web/dev_test.tl literal_missing 3
 
 cosmic/web/htmx_test.tl literal_missing 7
 
@@ -8607,21 +8599,16 @@ cosmic/web/route.tl literal_missing 2
 
 cosmic/web/router.tl literal_missing 5
 
-cosmic/web/serve_test.tl literal_missing 6
 
 cosmic/web/session/cookie.tl literal_missing 1
 
-cosmic/web/session/csrf_example.tl literal_missing 4
 
-cosmic/web/session/session_example.tl literal_missing 4
 
-cosmic/web/session/session_test.tl literal_missing 1
 
 cosmic/web/sse.tl literal_missing 3
 
-cosmic/web/sse_test.tl literal_missing 3
 
-cosmic/web/testing.tl literal_missing 5
+cosmic/web/testing.tl literal_missing 4
 
 cosmic/zip.tl literal_missing 5
 
