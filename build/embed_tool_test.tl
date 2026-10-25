@@ -503,11 +503,6 @@ local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_
   local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Time.seconds(30) }))
   assert(r.code == 3 and r.stdout == "b,a,c\n", tostring(r.code) .. ": " .. tostring(r.stdout) .. tostring(r.stderr))
-  -- the fork cannot read it
-  local forked = tmp .. "/forked"
-  assert(NewGrammarProject.write(forked))
-  local none, none_trouble = embed.tree(forked, true, nil, "teal")
-  assert(none == nil and none_trouble:find("syntax error", 1, true) ~= nil, tostring(none_trouble))
 end
 
 --- A project written in forms only the fork reads is refused in the new checker's words, and the words speak of no pin: a
@@ -522,8 +517,6 @@ local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   assert(trouble:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
       "or declare what takes it `Entry?`", 1, true) ~= nil, tostring(trouble))
   assert(trouble:find("pinned", 1, true) == nil and trouble:find("ceilings.txt", 1, true) == nil, trouble)
-  local forked, forked_trouble = embed.tree(root, true, nil, "teal")
-  assert(forked ~= nil and forked[1] == "x", tostring(forked_trouble))
 end
 
 --- A program that says which roots its requests trust by default

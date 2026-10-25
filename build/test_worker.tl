@@ -238,7 +238,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 ---
 --- Not [`cosmic.removed`], though the core requires it to say what to
 --- write instead of a removed global a test reached for (core/surface.c's
---- `removed_message`), and [`build.teal`] to say the same of a refusal:
+--- `removed_message`), and the pipeline to say the same of a refusal:
 --- a test whose closure does not hold it is refused it like any other
 --- module (`refusal`), and is told only that the name is not available.
 --- A test that reads what the catalog says requires it, so that its key

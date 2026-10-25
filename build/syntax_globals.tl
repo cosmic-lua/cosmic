@@ -1,5 +1,5 @@
 --- The `global` declarations a source holds, read off its syntax tree where it is parsed ([`build.derivation`]), so a
---- build refuses them ([`build.compilation`]'s `refuse_globals`) from rows kept by the source's hash and not by reading
+--- build refuses them (build.compilation's `refuse_globals`) from rows kept by the source's hash and not by reading
 --- every source again.
 ---
 --- Only a declaration file (`.d.tl`) may declare a global: the parser refuses a `global` in a program, and refuses a

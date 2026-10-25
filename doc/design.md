@@ -360,7 +360,7 @@ input to the build, never to the runtime. one database holds:
   reads it back in a query.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
-  keeps where it was ([`build.stub`]), raw-deflated. a module that
+  keeps where it was (build.stub), raw-deflated. a module that
   returns a record it declares keeps only the statements that record's
   type names, so code and requires only bodies read are left out too.
   a project's checker reads a module's stub in place of its source,
@@ -603,7 +603,7 @@ developer runs `bin/cosmic build` the other hundred times a day.
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
 [`build.derivation`] writes generated inputs and analysis rows;
-[`build.compilation`] defines compilation and acceptance. [`build.importer`]
+build.compilation defines compilation and acceptance. [`build.importer`]
 coordinates parses, compiles and cache lookups. its `compile_tree` owns the
 shared caches through derivation, identity selection and compilation; the caller
 controls the transaction and publication. [`build.writer`] publishes deterministic
@@ -749,7 +749,7 @@ that does run runs in a worker process of its own:
   edit that reaches most of the tree, does it in worker processes: one
   fewer than the processors, `COSMIC_BUILD_JOBS` naming another count
   and `1` none (`build/workers.tl`). sources are dealt to them by
-  size. modules are dealt by what they import ([`build/shards.tl`]),
+  size. modules are dealt by what they import (build/shards.tl),
   since the checker's types cannot leave a process and a worker checks
   every import of what it compiles. the build process alone writes the
   rows, in the order a build without workers writes them, and compiles
@@ -1185,7 +1185,7 @@ is about: a drawn program of branches, loops, `break`, `return`, `goto` as a
 continue, calls that never return and functions that name the variable is run
 down every way its choices can fall, with every call able to call every
 function made so far, and the checker refuses it exactly when some way reads
-the variable before it is assigned ([`build/checker_assigned_fuzz_test.tl`]).
+the variable before it is assigned (build/checker_assigned_fuzz_test.tl).
 
 a `goto` is a continue and nothing else. it may only jump forward to the label
 that is the last statement of the body of the innermost loop around it, in the
@@ -1270,7 +1270,7 @@ functions it handles in code (`assert`, `type`, `setmetatable`, `pcall`,
 stays in the checker: its names are the language's, and the checker's
 logic reads them. `cosmic docs` does not show these declarations: it
 indexes the tree's modules and their declarations, and this file is
-neither. [`build/stdlib_declarations_test.tl`] pins how the checker
+neither. build/stdlib_declarations_test.tl pins how the checker
 prints representative names. the new checker reads its own copy, written
 in the new grammar: [`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]. the
 fork cannot read them, so they are tool files and no inputs of the build
@@ -1280,7 +1280,7 @@ types.
 an error the checker reports carries a `code` and the places and values it
 is about (an argument's position, the types shown, the key and the record's
 fields, the counts of a call), declared as `Error` in
-[`build/compiler.d.tl`]. the hints [`build/teal.tl`] adds to a refusal read
+build/compiler.d.tl. the hints build/teal.tl adds to a refusal read
 those, never its message, which only a person reads; an error no hint reads
 has the code `other`. a rule that refuses more lands with its code and its
 hint together.
@@ -1309,8 +1309,8 @@ never taken for one (at the root of a comparison or nested in any type:
 a container, a generic's argument, a callback's parameter), and a function
 declared `: never` neither returns nor reaches its end. the `as` and `is`
 casts (`as` leaves the grammar with [no casts]) and the holes every type has (`coroutine.wrap`, `rawset`,
-`setmetatable`) are on the roadmap, and [`test/narrowing_test.tl`] and
-[`build/teal_test.tl`] pin today's behavior of each.
+`setmetatable`) are on the roadmap, and test/narrowing_test.tl and
+build/teal_test.tl pin today's behavior of each.
 
 a checked test run (`cosmic test --check-types`) finds where the types
 lie. it compiles the tree with a run-time check at each declared boundary:
@@ -1618,7 +1618,6 @@ in [roadmap.md](roadmap.md).
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
-[`build.compilation`]: ../build/compilation.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl
 [`build.identity`]: ../build/identity.tl
@@ -1626,16 +1625,13 @@ in [roadmap.md](roadmap.md).
 [`build.importer`]: ../build/importer.tl
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
-[`build.stub`]: ../build/stub.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.work`]: ../build/work.tl
 [`build.writer`]: ../build/writer.tl
 [`build/bom.tl`]: ../build/bom.tl
 [`build/bom/tl.pin`]: ../build/bom/tl.pin
-[`build/checker_assigned_fuzz_test.tl`]: ../build/checker_assigned_fuzz_test.tl
 [`build/checker_declarations.tl`]: ../build/checker_declarations.tl
 [`build/closure_store.tl`]: ../build/closure_store.tl
-[`build/compiler.d.tl`]: ../build/compiler.d.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/identity.tl`]: ../build/identity.tl
@@ -1645,11 +1641,7 @@ in [roadmap.md](roadmap.md).
 [`build/patch.tl`]: ../build/patch.tl
 [`build/rebuild_lock.tl`]: ../build/rebuild_lock.tl
 [`build/refresh.tl`]: ../build/refresh.tl
-[`build/shards.tl`]: ../build/shards.tl
 [`build/shared_compiles.tl`]: ../build/shared_compiles.tl
-[`build/stdlib_declarations_test.tl`]: ../build/stdlib_declarations_test.tl
-[`build/teal.tl`]: ../build/teal.tl
-[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_worker.tl`]: ../build/test_worker.tl
@@ -1709,4 +1701,3 @@ in [roadmap.md](roadmap.md).
 [`Store.source`]: ../cosmic/store.tl
 [`Store.web_asset`]: ../cosmic/store.tl
 [`Test.policy`]: ../cosmic/test.tl
-[`test/narrowing_test.tl`]: ../test/narrowing_test.tl

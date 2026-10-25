@@ -432,7 +432,7 @@ seeded source. A check must hold for all of them. The module doc of
 ## a change to the checker's verdicts
 
 A change to the type checker that must not move a verdict, or must move
-only the ones it says, is held to [`build.checker_verdicts`]: a tool that
+only the ones it says, is held to build.checker_verdicts: a tool that
 writes every error and warning of a list of sources as one sorted line
 (`file`, `code`, `y`, `x`, `message`). Run it with the tree's tool and with
 main's over the tree, the fuzz corpora (`testdata/fuzz/checker-*`) and the
@@ -527,7 +527,6 @@ Other rules:
 
 [`bin/cosmic`]: ../bin/cosmic
 [`build.checker_declarations`]: ../build/checker_declarations.tl
-[`build.checker_verdicts`]: ../build/checker_verdicts.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl

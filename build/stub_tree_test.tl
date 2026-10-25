@@ -1,20 +1,22 @@
---- What cosmic's own build does with the stubs ([`build.stub`]) of its
+--- What cosmic's own build does with the stubs ([`build.syntax_stub`]) of its
 --- standard library: the tool it writes carries each, a stub that types
 --- its module otherwise than the source fails the build, and a projection
 --- missing one is refused. The fixture is a tree [`build.tree`] takes for
 --- cosmic's own.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local ast = require("build.ast")
+local Test = require("cosmic.test")
+local Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local build_paths = require("build.paths")
 local identity = require("build.identity")
 local importer = require("build.importer")
-local stub = require("build.stub")
-local teal = require("build.teal")
+local stub = require("build.syntax_stub")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local built = assert(teal.load())
+Test.policy{ grants = { { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 local thing <const> = table.concat({
   "--- A thing.",
@@ -33,15 +35,22 @@ local thing <const> = table.concat({
 --- A tree [`build.tree`] takes for cosmic's own, at a new directory, with
 --- one standard-library module, staged and parsed: its working handle
 --- and the compiler identity a build of it keys on.
-local function own_tree(tmp: string, source?: string): work.Handle, string
+local function own_tree(tmp: string, source?: string, underived?: boolean): work.Handle, string
   local root = tmp .. "/tree"
   for _, dir in ipairs({ "core", "build", "cosmic" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nreturn importer\n"))
   assert(Fs.write(root .. "/cosmic/thing.tl", source or thing))
+  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\n"))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
+  if underived == true then
+    return handle, "stub-tree-test"
+  end
   assert(importer.derive(handle, true))
   local identities = assert(identity.record_identities(handle.db))
   return handle, identities.compiler
@@ -52,8 +61,8 @@ end
 --- parses carries that stub.
 local function with_a_wrong_stub(run: function())
   local made = stub.made
-  stub.made = function(parsed: ast.Parsed, every?: boolean): stub.Made
-    local right = made(parsed, every)
+  stub.made = function(chunk: Ast.Chunk, every?: boolean): stub.Made
+    local right = made(chunk, every)
     return { text = (right.text:gsub("n: integer", "n: string")), pruned = right.pruned }
   end
   local ok, raised = pcall(function(): string
@@ -77,22 +86,25 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   assert(db:close())
   assert(#rows == 1 and rows[1]:text(1) == "cosmic.thing",
     "the stubs carried are those of the standard library's modules alone")
-  assert(rows[1]:text(2) == stub.made((assert(ast.parse(built, thing, "cosmic/thing.tl")))).text,
-    rows[1]:text(2))
+  local parsed = Parser.parse(Lexer.lex(thing, "cosmic/thing.tl"), "cosmic/thing.tl", "tl")
+  assert(#parsed.errors == 0)
+  assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2))
 end
 
 local function test_a_stub_that_types_its_module_otherwise_fails_the_build(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)
     local result, trouble = importer.compile(handle, tool)
-    assert(result == nil and trouble:find("cosmic/thing.tl: the stub", 1, true) ~= nil and
-        trouble:find("types it differently", 1, true) ~= nil, trouble)
+    assert(result ~= nil, trouble)
+    local refused = table.concat(result.refused, "\n")
+    assert(refused:find("cosmic/thing.tl: the stub", 1, true) ~= nil and
+        refused:find("types it differently", 1, true) ~= nil, refused)
     assert(work.close(handle))
   end)
 end
 
 --- A stale tool rebuilding itself compiles unjudged: it keeps a module
---- its own build.stub refuses, for the tool it builds to judge.
+--- its own build.syntax_stub refuses, for the tool it builds to judge.
 local function test_an_unjudged_build_keeps_a_module_whose_stub_it_refuses(tmp: string)
   with_a_wrong_stub(function()
     local handle, tool = own_tree(tmp)
@@ -119,20 +131,22 @@ end
 --- which the check of that stub, run where the global is declared already,
 --- could not see, so the build refuses it as it does in any module.
 local function test_a_standard_module_declaring_a_global_fails_the_build(tmp: string)
-  local handle, tool = own_tree(tmp, "global record G\n  n: integer\nend\n" .. thing)
+  local handle, tool = own_tree(tmp, "global record G\n  n: integer\nend\n" .. thing, true)
   local result, trouble = importer.compile(handle, tool)
-  assert(result == nil and trouble:find("cosmic/thing.tl:1:1: a global is not allowed in a cosmic build",
-    1, true) ~= nil, trouble)
+  assert(result ~= nil, trouble)
+  local refused = table.concat(result.refused, "\n")
+  assert(refused:find("cosmic/thing.tl:1:1: `global` declares a global", 1, true) ~= nil, refused)
   assert(work.close(handle))
 end
 
---- A standard-library module whose stub would keep every statement -- the
---- name it returns is a local whose type is inferred -- fails the build: a
---- project's checker would read all of it.
+--- A standard-library module that returns a name whose type is inferred fails the build: a project's checker would read
+--- all of its statements for the type, as its stub would have to keep them. The checker refuses the return before the stub
+--- is made ([`build.syntax_stub`]'s `pruned` is true of every module it passes).
 local function test_a_standard_module_with_no_declaration_only_stub_fails_the_build(tmp: string)
   local handle, tool = own_tree(tmp, "local thing = { n = 1 }\nreturn thing\n")
   local result, trouble = importer.compile(handle, tool)
-  assert(result == nil and trouble:find("cosmic/thing.tl: its stub keeps every statement", 1, true) ~= nil,
-    trouble)
+  assert(result ~= nil, trouble)
+  local refused = table.concat(result.refused, "\n")
+  assert(refused:find("cosmic/thing.tl", 1, true) ~= nil and refused:find("export_not_declared", 1, true) ~= nil, refused)
   assert(work.close(handle))
 end

@@ -29,18 +29,15 @@ local identities = require("build.identity")
 local type Pipeline = require("build.pipeline")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
-local type receivers = require("build.receivers")
-local symbols = require("build.symbols")
-local teal = require("build.teal")
+local type SyntaxReceivers = require("build.syntax_receivers")
 local tree = require("build.tree")
 local work = require("build.work")
-local type compiler = require("build.compiler")
 local bind = require("build.bind")
 
-local compilation = require("build.compilation")
+local plans = require("build.plans")
 local derivation = require("build.derivation")
 
-local type Module = compilation.Module
+local type Module = plans.Module
 local type Source = derivation.Source
 
 local record importer
@@ -80,11 +77,6 @@ local record importer
     --- How many of those `cached` came from the compiles every
     --- checkout shares ([`Shared`]) rather than this one's own.
     shared: integer
-    --- Always 0: a compile was once shared out to worker processes.
-    ---
-    --- TODO: drop this field and [`Parses.worked`], with the tests that read them, once the second part of the switch has
-    --- ported the fork's tests.
-    worked: integer
     --- What the derive the compile began with parsed.
     parses: derivation.Parses
     --- Writes the rows the checker that compiled adds to the shipped catalog (`catalog` of the attached schema `schema`,
@@ -102,7 +94,7 @@ local record importer
   Parses: derivation.Parses
 
   --- The databases a hint looks a name up in, and whether each is read
-  --- as the public standard library's ([`importer.said`]).
+  --- as the public standard library's (importer.said).
   type Hints = function(): {Sqlite.Handle}, {boolean}
 
   --- The compiles and parses every checkout shares
@@ -116,7 +108,7 @@ local record importer
       lua: string
       bytecode: string
       --- The record-field uses its checker found (`typed_refs`).
-      references: {receivers.Reference}
+      references: {SyntaxReceivers.Reference}
     end
     --- One parse: what a parse writes of a source in every table
     --- `analysis_tables` names.
@@ -143,43 +135,6 @@ local record importer
     finish: function()
   end
 
-  --- What the workers made of a compile, read back as the build reaches
-  --- each module.
-  ---
-  --- TODO: delete this with [`importer.Workers`], once the second part of the switch has ported the whole-tree checks
-  --- (`build.tree_shard`) off the processes of `build.workers`: no compile asks for them any more.
-  record Ahead
-    --- What compiling the module at `path` made, or nil where no worker
-    --- reached it, and the build compiles it.
-    take: function(path: string): compilation.Generated?
-    --- Releases the workers' results.
-    close: function()
-  end
-
-  --- The processes the whole-tree checks parse and compile in beside their own
-  --- (`build.workers`). A build asks `ready` of how much source it
-  --- has, and the processes serve it only where that is worth them.
-  --- What they make is what this process would, and what they leave
-  --- undone this process does.
-  record Workers
-    --- Whether processes serve `bytes` of source, starting them first
-    --- where that many are worth it.
-    ready: function(bytes: integer): boolean
-    --- Parses `fresh`, as `derivation.parse_fresh` does into `db`,
-    --- counting each source a process parsed in `tally.worked`.
-    parse: function(db: Sqlite.Handle, built: compiler, fresh: {derivation.Fresh},
-                    tally: derivation.Parses, made: {derivation.Source},
-                    broken?: {derivation.Broken}): boolean, string
-    --- Compiles `wanted`, each module a process does as
-    --- [`compilation.generate`] would, for `compile` to take: nil and why
-    --- where it could not, and nil and "" where one process does as well.
-    compile: function(db: Sqlite.Handle, root: string, order: {Module},
-                      wanted: {string:boolean}, own_tree: boolean,
-                      judged: boolean): importer.Ahead?, string
-    --- Ends the processes.
-    close: function()
-  end
-
   --- The statement that drops the record-field uses of every compile
   --- `compiled` no longer holds, run at the end of each compile.
   prune_references: string
@@ -189,6 +144,8 @@ local record importer
   --- [`build.tree_checks`] holds the tree to answering each.
   diagnostic_queries: {string: string}
 end
+
+local type Hints = importer.Hints
 
 importer.diagnostic_queries = {
   arguments = "generics_functions_returns",
@@ -214,14 +171,14 @@ importer.prune_references =
 --- The derivation and the extractors, generators and parser it calls:
 --- the roots of
 --- [`importer.analyzer_modules`]. "The analyzer" in these names is that
---- whole set, of which the source analyzer [`build.analyzer`] is one.
+--- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
 --- Each is a root of the compiler's identity too ([`build.identity`]'s
 --- `compiler_roots`), which the analyzer's starts from. The schema of the
 --- rows a parse stores ([`build.analysis_schema`]) is among them: what a
 --- source parses to is recorded in its columns.
 local analyzer_roots: {string} = {
-  "build.derivation", "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
-  "build.compiler", "build.doctest", "build.gen_syscalls", "build.link_text",
+  "build.derivation", "build.analysis_schema", "build.bind",
+  "build.doctest", "build.gen_syscalls", "build.link_text",
 }
 
 --- The modules whose code decides what the analysis tables record: the
@@ -327,8 +284,8 @@ end
 --- can only be named whole.
 -- TODO: name the analyzer by what a parse runs alone -- the pins
 -- (`runtime_basis`), build.derivation and these modules -- rather than
--- the whole compiler's identity, which build.teal, build.contracts,
--- build.receivers and build.tree move though no parse runs them, so an
+-- the whole compiler's identity, which build.syntax_contracts, build.syntax_receivers and build.tree move though no
+-- parse runs them, so an
 -- edit to one parses every source again. Waits on a change that moves
 -- every parse key at once, one of its own.
 function importer.analyzer_identity(code?: importer.Code): string
@@ -443,34 +400,6 @@ local function forget_stale_analysis(handle: work.Handle): boolean?, string
     return nil, record_trouble
   end
   return true, ""
-end
-
---- Forgets every compile, and the record-field uses found with it,
---- when the code that finds those uses has changed since: a compile
---- whose key stands is never checked again, so a `typed_refs` row is
---- only as right as the [`build.receivers`] that ran beside the checker.
-local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
-  local identity, identity_trouble = compilation.receivers_identity(db)
-  if identity == nil then
-    return false, identity_trouble
-  end
-  local last, last_trouble = Sqlite.text_rows(db,
-    "SELECT value FROM meta WHERE key = 'receivers'")
-  if last == nil then
-    return false, last_trouble
-  end
-  if #last > 0 and last[1]:text(1) == identity then
-    return true, ""
-  end
-  for _, statement in ipairs({ "DELETE FROM compiled", "DELETE FROM typed_refs" }) do
-    local ok, trouble = db:exec(statement)
-    if not ok then
-      return false, trouble
-    end
-  end
-  return Sqlite.run(db,
-    "INSERT OR REPLACE INTO meta (key, value) VALUES ('receivers', ?1)",
-    { text(identity) })
 end
 
 --- What a boot names its analyzer ([`running_analyzer`]) with `guessed`,
@@ -751,7 +680,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
     end
   end
 
-  local tally: importer.Parses = { parsed = 0, shared = 0, worked = 0 }
+  local tally: importer.Parses = { parsed = 0, shared = 0 }
   local made: {Source} = {}
   local forgotten, forget_trouble = forget_stale_analysis(handle)
   if forgotten == nil then
@@ -800,7 +729,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
     -- What this pass parses is all the derive parsed, and none of it
     -- another checkout's.
     made = {}
-    tally.parsed, tally.shared, tally.worked = 0, 0, 0
+    tally.parsed, tally.shared = 0, 0
     if broken ~= nil then
       while #broken > 0 do table.remove(broken) end
     end
@@ -822,125 +751,6 @@ function importer.derive(handle: work.Handle, self_tree: boolean, shared?: impor
     return nil, offer_trouble
   end
   return tally, ""
-end
-
---- Adds to an unused-variable or unused-argument warning the way to
---- silence it. tl's checker treats a name starting with `_` as
---- intentionally unused (the checker's `var_name:sub(1, 1) == "_"` check),
---- but the warning for any other name does not say so, and every
---- warning is a refused compile on cosmic's paths (see `generate`).
---- Added here, where every message is rendered, rather than in
---- the checker's own text.
-local function with_unused_hint(e: compiler.Error): string
-  local declares = e.declares
-  if e.code == "unused" and (declares == "variable" or declares == "argument") then
-    return e.msg .. " -- name it _ or _<name> to mark it intentionally unused"
-  end
-  return e.msg
-end
-
---- The bare name the checker names in an error reporting that nothing by
---- that name exists: an unknown variable (a global reference --
---- `os.time()`, once [`build.teal`] strips `os` from the checker's own
---- environment for exactly this) or a module not found (a `require` of a
---- literal string nothing provides). `nil` for any other error, since only
---- these two name a single missing word worth looking up.
-local function unresolved_name(e: compiler.Error): string?
-  local code = e.code
-  if code == "unknown_variable" then
-    return e.variable
-  elseif code == "module_not_found" then
-    return e.key
-  end
-  return nil
-end
-
---- The databases a hint looks a name up in, and whether each is read as
---- the public standard library's, asked for only when a message earns a
---- hint: a handle on the store's databases is one a test worker's hold
---- on the store refuses ([`Store.databases`]), which a build that
---- compiles clean never asks for.
-local type Hints = importer.Hints
-
---- Appends a pointer at whatever `cosmic docs` already answers for the
---- name a resolution failure names, when [`symbols.named`] finds it
---- exactly -- the same rule `cosmic docs <word>` itself matches by, so
---- this can never point somewhere that command would disagree with.
---- Only the symbol's name, never its documentation: the error already
---- says where to read that in full (`cosmic docs <name>`), and a
---- compile failure is not the place to reprint it.
-local function with_docs_hint(msg: string, e: compiler.Error, hints: Hints): string
-  local name = unresolved_name(e)
-  if name == nil then
-    return msg
-  end
-  local databases, public = hints()
-  local found = symbols.named(databases, public, name)
-  if #found == 0 then
-    return msg
-  end
-  return msg .. " -- see also in docs: " .. table.concat(found, ", ")
-end
-
---- Checker forms that reliably identify a language topic. Argument failures
---- point to the general checked function-contract guide; a diagnostic does
---- not carry enough AST binding information here to claim a particular call.
---- Only a message [`teal.replacement`] leaves unanswered is pointed here
---- ([`with_hint`]).
-local function diagnostic_docs(e: compiler.Error): string?
-  local code = e.code
-  if code == "arity" or (code == "mismatch" and e.context == "argument" and not e.nested) then
-    return importer.diagnostic_queries.arguments
-  elseif code == "invalid_key" and e.variable ~= nil and e.resolved_kind ~= "interface" then
-    return importer.diagnostic_queries.record_key
-  end
-  return nil
-end
-
-local function with_diagnostic_docs(msg: string, e: compiler.Error, hints: Hints): string
-  local query = diagnostic_docs(e)
-  if query == nil then
-    return msg
-  end
-  local databases, public = hints()
-  if not symbols.has_example_query(databases, public, query) then
-    return msg
-  end
-  return msg .. " -- see also: cosmic docs " .. query
-end
-
---- Every hint a checker message earns, appended once, at the one place
---- every message is rendered, rather than patched into the vendored
---- checker's own text or duplicated at each call site. A message
---- [`teal.replacement`] answers says what to write instead, which a
---- reader acts on where a pointer at the docs goes unread, so it is
---- given no such pointer.
-local function with_hint(e: compiler.Error, hints: Hints, answered: boolean): string
-  local said = with_docs_hint(with_unused_hint(e), e, hints)
-  if answered then
-    return said
-  end
-  return with_diagnostic_docs(said, e, hints)
-end
-
---- What a build says of the checker's error `e` met checking `file`,
---- whose source is `source`: the checker's words, then what to write
---- instead where [`teal.replacement`] answers (`refused` is what
---- [`teal.refused_type_requires`] found of the check), then every hint it
---- earns ([`with_hint`]), whole, as the first line of a build's
---- complaint to earn it reads.
-function importer.said(e: compiler.Error, file: string, source: string,
-                       refused: {string:boolean}, hints: Hints): string
-  local instead: string? = nil
-  local named = e.filename
-  if named == "" or named == file then
-    instead = teal.replacement(e, source, file, refused)
-  end
-  local said = with_hint(e, hints, instead ~= nil)
-  if instead ~= nil then
-    said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
-  end
-  return said
 end
 
 --- The statements one compile pass runs, prepared once each.
@@ -1178,7 +988,7 @@ local function compile_derived(handle: work.Handle, tool: string,
                                unjudged: boolean?, shared: importer.Shared?,
                                checks: boolean, target: string?,
                                broken: {derivation.Broken}?): importer.Result?, string
-  local modules, trouble = compilation.collect(handle.db)
+  local modules, trouble = plans.collect(handle.db)
   if modules == nil then
     return nil, trouble
   end
@@ -1239,18 +1049,18 @@ local function compile_derived(handle: work.Handle, tool: string,
   if not positioned then
     return nil, position_trouble
   end
-  local order, why = compilation.ordered(modules)
+  local order, why = plans.ordered(modules)
   if order == nil then
     return nil, why
   end
-  local refused_globals, globals_trouble = compilation.refuse_globals(handle.db)
+  local refused_globals, globals_trouble = plans.refuse_globals(handle.db)
   if globals_trouble ~= "" then
     return nil, globals_trouble
   end
   if refused_globals ~= nil then
     return nil, refused_globals
   end
-  local keys, keys_trouble = compilation.dependency_keys(handle.db, modules, tool)
+  local keys, keys_trouble = plans.dependency_keys(handle.db, modules, tool)
   if keys == nil then
     return nil, keys_trouble
   end
@@ -1273,13 +1083,13 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, left_out = left,
-    compiled = 0, cached = 0, shared = 0, worked = 0, parses = parses,
+    compiled = 0, cached = 0, shared = 0, parses = parses,
     catalog = pipeline.catalog,
   }
   local db = handle.db
   local progress: Progress = { failure = "" }
 
-  -- Where a hint ([`with_docs_hint`]) looks up the name a refused module
+  -- Where a hint (with_docs_hint) looks up the name a refused module
   -- could not resolve, as [`docs.databases`] builds the same list for
   -- `cosmic docs`:
   -- * This tree's last projection, `cosmic.db`, unrestricted. It is
@@ -1317,10 +1127,6 @@ local function compile_derived(handle: work.Handle, tool: string,
     if not cleared then
       return false, clear_trouble
     end
-    local forgotten, forget_trouble = forget_stale_receivers(db)
-    if not forgotten then
-      return false, forget_trouble
-    end
     local judged = not unjudged
     local cache, prepare_trouble = prepare_cache(handle, tool)
     if cache == nil then
@@ -1332,7 +1138,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       m.key = key
       m.graph_key = keys[m.path].graph
 
-      local refusal = compilation.refusal(m)
+      local refusal = plans.refusal(m)
       if needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
         -- Left out quietly: the module it requires was told of.
         failed[m.path] = true
@@ -1372,13 +1178,13 @@ local function compile_derived(handle: work.Handle, tool: string,
           bytecode = elsewhere.bytecode
           result.cached = result.cached + 1
           result.shared = result.shared + 1
-          local kept_refs, refs_trouble = compilation.keep_references(db, key, elsewhere.references)
+          local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
           end
         else
-          local generated: compilation.Generated? = nil
+          local generated: plans.Generated? = nil
           -- Read the tree once, when the first module that is not cached asks.
           if reading.built == nil then
             local made_built, built_trouble = pipeline.build(handle.db, assert(reading.options))
@@ -1406,7 +1212,7 @@ local function compile_derived(handle: work.Handle, tool: string,
             bytecode = generated.bytecode
             refused = generated.refused
             result.compiled = result.compiled + 1
-            local kept_refs, refs_trouble = compilation.keep_references(db, key,
+            local kept_refs, refs_trouble = plans.keep_references(db, key,
               generated.references)
             if not kept_refs then
               finish_cache(cache)
@@ -1447,7 +1253,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       return false, prune_trouble
     end
     -- Run whether or not the prune above dropped anything: a run that
-    -- failed between a compile's [`compilation.keep_references`] and its `remember`
+    -- failed between a compile's [`plans.keep_references`] and its `remember`
     -- commits the uses without the compile (build.dispatch closes the
     -- handle, keeping what the run did), and only this sweeps them.
     return db:exec(importer.prune_references)
@@ -1578,14 +1384,14 @@ end
 --- @param handle the working database the tree is staged in
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
---- @param unjudged whether a module [`build.contracts`] refuses is kept
+--- @param unjudged whether a module build.contracts refuses is kept
 ---   rather than refused: a stale tool rebuilding itself ([`build.reboot`])
 ---   judges the tree by its own, older rules and exemptions, so it
 ---   leaves the last word to the tool it builds, which re-enters the
 ---   command. A compile the old rules refuse is kept only for this run's
 ---   database, never reused, so the next run compiles and judges the
 ---   module again; one they pass is cached as any other, since a change
----   to the rules themselves forgets every compile ([`forget_stale_receivers`]).
+---   to the rules themselves moves the tool's identity, and with it every key.
 --- @param shared the compiles and parses every checkout shares, or nil
 ---   for none: a module whose key misses here is taken from them rather
 ---   than compiled, and every compile made here but a refused one is
@@ -1615,7 +1421,7 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
     local was = before.result
     local again_result: importer.Result = {
       modules = was.modules, tool = was.tool, main = was.main, refused = was.refused, left_out = was.left_out,
-      compiled = 0, cached = #was.modules, shared = 0, worked = 0, parses = was.parses, catalog = was.catalog,
+      compiled = 0, cached = #was.modules, shared = 0, parses = was.parses, catalog = was.catalog,
     }
     return again_result, ""
   end

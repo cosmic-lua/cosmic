@@ -4,10 +4,9 @@
 --- is read from the tokens ([`Ast.span`]) and a node holds no parent: [`Node.parents`] makes the map for a reader that
 --- asks. Walks keep their own stack, so a chain of any length ([`Ast.number`]) is walked.
 ---
---- The readers named `build.syntax_*` work on the tree beside the fork's, which [`build.ast`] reads: a reader takes the
---- tree and its tokens, never the compiler, and a source in the fork's Teal reaches it through
---- [`lang.translate`] until the fork goes. Each is the port of the fork's reader of the same name
---- ([`build/syntax_scopes.tl`] for [`build/scopes.tl`], [`build/syntax_node.tl`] for [`build/ast/walk.tl`] and [`build/ast/requires.tl`]), and the switch
+--- The readers named `build.syntax_*` work on the tree: a reader takes the
+--- tree and its tokens, never the compiler. Each was the port of a reader of the same name
+--- ([`build/syntax_scopes.tl`] for build/scopes.tl, [`build/syntax_node.tl`] for build/ast/walk.tl and build/ast/requires.tl), and the switch
 --- moves it there.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")

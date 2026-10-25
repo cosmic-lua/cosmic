@@ -1,5 +1,5 @@
 --- The checker never raises, whatever it is given. Programs are drawn by the fork's generator of its totality property
---- ([`build.checker_programs`]: a well-formed program over the narrowing work's shapes, one in three cut and flipped at
+--- ([`build.check_draws`]: a well-formed program over the narrowing work's shapes, one in three cut and flipped at
 --- random bytes) and checked three ways: adapted to the new grammar ([`lang.check_drawn`]), which most of the well-formed
 --- ones are taken for, translated ([`lang.translate`]), and as they are, which for most is text the new grammar's
 --- parser has never seen. Each is read, scoped, lowered and checked, and none of them raises; each
@@ -9,14 +9,14 @@
 --- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is
 --- [`bin/gate-sweep`] (its result is testdata/gate/sweep.txt), and the nightly fuzz workflow draws from a seed of its own.
 ---
---- This is the property of [`build/checker_fuzz_test.tl`] against the new checker, which keeps it when the fork goes.
+--- This is the property of build/checker_fuzz_test.tl against the new checker, which keeps it when the fork goes.
 local Drawn = require("lang.check_drawn")
 local Env = require("cosmic.env")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
-local drawn = require("build.checker_programs")
+local drawn = require("build.check_draws")
 
 Test.policy{}
 

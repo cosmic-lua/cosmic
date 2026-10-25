@@ -4,8 +4,7 @@
 --- have, and the records that replaced a boolean argument. The checker's error for each is the ordinary one (a name that
 --- nothing declares, a field the record lacks, a type the module does not declare, a boolean where a record is wanted), whose
 --- fix is generic and would send the program to declare what cosmic removed on purpose. [`RemovedFix.fix`] reads the
---- program around the error and answers the catalog's words in its place, the same words [`build.teal`]'s `replacement`
---- says of the fork's error and [`core/surface.c`] raises with when a running program reaches the name:
+--- program around the error and answers the catalog's words in its place, the same words [`core/surface.c`] raises with when a running program reaches the name:
 ---
 --- - an undeclared `os` (or `io`, `debug`, `dofile`, `loadfile`), with the field read through it when there is one:
 ---   `os.getenv is not available: use Env.get(name) (...)`;
@@ -48,7 +47,7 @@ local record Catalog
 end
 
 --- The module this quotes, named by a constant rather than a literal so that no parse records a `require` of it: the
---- catalog decides only what an error says, so it is no part of the compiler's identity ([`build.teal`] does the same).
+--- catalog decides only what an error says, so it is no part of the compiler's identity.
 local catalog_module <const> = "cosmic.removed"
 
 --- [`cosmic.removed`], or nil where it cannot be loaded (a test that does not require it).

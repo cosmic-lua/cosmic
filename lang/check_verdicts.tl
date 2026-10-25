@@ -3,7 +3,7 @@
 --- lowered and checked against the standard library ([`lang.check_programs`]), and what refused it, if anything.
 ---
 --- The verdict table is data: [`testdata/gate/verdicts.json`] holds one row for each program the fork's tests pin
---- ([`build/teal_test.tl`]) and each input of the checker corpora (`testdata/fuzz/checker-total`, `checker-sound`),
+--- (build/teal_test.tl) and each input of the checker corpora (`testdata/fuzz/checker-total`, `checker-sound`),
 --- with what the fork said of it (frozen, since the fork goes at the switch) and what the new checker says. The rule
 --- behind each difference is in [`testdata/gate/retired.json`] (the fork refuses and the new checker takes) and
 --- [`testdata/gate/rules.json`] (a code of the lexer, the parser or the scope builder, which no catalog holds yet). The

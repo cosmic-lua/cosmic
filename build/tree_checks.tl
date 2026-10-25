@@ -116,7 +116,7 @@ allow({
     "tested directly until they do")
 
 -- TODO: drop these allowances as the build prints every error through the new checker's reporting and the fork's
--- `complain`, `with_hint` and [`teal.replacement`] go (doc/plans/strict-teal.md, "the switch").
+-- `complain`, `with_hint` and teal.replacement go (doc/plans/strict-teal.md, "the switch").
 allow({
   "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
   "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.queries", "build.error_render.lines",
@@ -127,8 +127,15 @@ allow({
 allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge.lua, which is " ..
     "Lua and loads the seed's Lua by name), which no Teal calls")
 
-allow({ "build.compilation.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
+allow({ "build.plans.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
     "the keys `dependency_keys` keeps to, edit by edit")
+allow({
+  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks", "build.grammar_mode.of",
+  "build.plural_sites.lines", "build.coverage.syntax_lines.executable", "build.withheld.package_fields",
+  "build.syntax_contracts.rules", "build.syntax_receivers.known",
+}, "tested directly: a reader whose callers outside its module take it through a composed reader (`references`, `rewrite`, " ..
+    "`generate`, `mode`, `sites`, `lines`, `globals`), each tested over sources or tables of its own")
+
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 allowed["build.ceilings.parse"] = "the text of a ceilings file, which `read` composes with the file it reads; a database filled " ..
@@ -148,31 +155,6 @@ allow({ "build.pipeline_check.keyed", "build.pipeline_check.whole" }, "tested di
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"
 
--- TODO: drop these allowances once the fork's modules are deleted (build.analyzer, build.compilation, build.teal, build.stub,
--- build.shape_specs, build.globals, and the workers' side of build.shards and build.importer): the callers they had in the
--- fork's compile and the tools that read it went with the switch, and the tests of those modules alone call them now.
-allow({
-  "build.analyzer.docs", "build.analyzer.analysis_of",
-  "build.compilation.stub_lookup", "build.compilation.note_held", "build.compilation.hold_stubs", "build.compilation.stub_held",
-  "build.compilation.interface_keys", "build.compilation.generate", "build.compilation.vendor_key",
-  "build.compilation.vendor_bytecode",
-  "build.teal.withheld", "build.teal.environment_for", "build.teal.refused_type_requires",
-  "build.stub.made", "build.shape_specs.splices", "build.shape_specs.spliced", "build.globals.found",
-  "build.shards.best", "build.importer.said",
-}, "a reader or a step of the fork's compile, which the new checker's compile does not call; tested directly until the " ..
-    "module goes")
-
--- TODO: drop these allowances as the tests that hold the new readers to the fork's go (the 77 or so tests of the fork's
--- loader, which the bulk deletion that follows the switch ports or deletes): each was called by a stage or a tool that
--- compared the new reader with the fork's, and its own test is the caller now.
-allow({
-  "build.syntax_typed.dimensions", "build.syntax_typed.row", "build.syntax_typed.judged", "build.syntax_typed.encode",
-  "build.syntax_typed.decode", "build.syntax_typed.from_database", "build.syntax_typed.compare", "build.syntax_typed.used",
-  "build.scopes.position", "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks",
-  "build.grammar_mode.of", "build.plural_sites.lines", "build.coverage.syntax_lines.executable",
-}, "a reader of the new syntax tree whose callers were the comparisons with the fork's; tested directly over sources of " ..
-    "its own")
-
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
@@ -190,8 +172,6 @@ for _, name in ipairs({ "install_checks", "dropped_violations", "most_kept", "fa
 end
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
-allowed["build.teal.withheld_package"] = "the fields of `package` `strip` takes from the checker, " ..
-  "spelled here as `withheld` is; build/teal_catalog_test.tl holds them to the catalog's"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
@@ -202,7 +182,7 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
   "a child of this program, and the harness holds its workers with it once the " ..
   "design's test phase lands (the TODO at build.confine's forbid_running)"
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
-  "which the build's own reading of one (build.analyzer, which cannot require this " ..
+  "which the build's own reading of one (build.syntax_analyzer, which cannot require this " ..
   "module) is held to by cosmic/test_policy_test.tl"
 allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, kept " ..
   "for build/assertions_test.tl to hold the counting one to, case by case, so a Lua " ..
@@ -223,24 +203,18 @@ allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
 allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
   "the workflows to, which the layout is also held to"
 allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
-allowed["build.shards.plan"] = "tested directly: the plan for exactly `count` shards, which " ..
-  "`best`, the only call outside the module, takes the best of"
-allowed["build.analyzer.analyze"] = "a convenience the tests call, a parse and " ..
-  "analysis_of; every caller outside them calls analysis_of on a parse it has"
 for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
   allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
     "through, which no program in the tree does yet; its test and the workflows' own do"
 end
-for _, name in ipairs({ "well_formed", "any", "captures_mark", "bare_shapes" }) do
-  allowed["build.checker_programs." .. name] = "the checker's fuzz generators and the line " ..
+for _, name in ipairs({ "captures_mark", "bare_shapes" }) do
+  allowed["build.check_draws." .. name] = "the checker's fuzz generators and the line " ..
     "that marks a program the checker must refuse, and the bare prologue of the shapes, which " ..
-    "build/checker_fuzz_test.tl draws " ..
-    "its inputs from; the dump of the same programs to files (`drawn`) is the tool's"
+    "lang/check_flow_fuzz_test.tl and lang/check_total_fuzz_test.tl draw their inputs from"
 end
 for _, name in ipairs({ "pack", "unpack" }) do
   allowed["build.fuzz." .. name] = "the fuzz tests' inputs of several fields; only tests " ..
-    "pack them, and build.checker_programs, which the verdict tool requires for the " ..
-    "generators' draws, makes this module one a non-test module requires"
+    "pack them"
 end
 allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
@@ -330,8 +304,8 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- runnable example shows it. An export only its own tests call is made
 --- local -- the test goes through the public entry -- or is named in
 --- `allowed` with the reason it is tested directly. A use is one the
---- build found, through a `require` alias ([`build.analyzer`]) or a
---- value's checked type ([`build.receivers`]).
+--- build found, through a `require` alias ([`build.syntax_analyzer`]) or a
+--- value's checked type ([`build.syntax_receivers`]).
 ---
 --- What counts as an export: a function or a value field of a module's
 --- returned record, in a module whose file is in `build/`, `cmd/` or
@@ -925,7 +899,7 @@ function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   return out
 end
 
---- Each of `names` (by default [`build.contracts`]' `quieted`), as
+--- Each of `names` (by default [`build.contract_rules`]' `quiet_entries`), as
 --- `<module> <symbol>`, that no module of `db` declares.
 function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   local out: mut {string} = {}
@@ -938,7 +912,7 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
       return { "reading the docs: " .. trouble }
     end
     if #rows == 0 then
-      out[#out + 1] = name .. " is quieted in build/contracts.tl, but no module " ..
+      out[#out + 1] = name .. " is quieted in build/contract_rules.tl, but no module " ..
         "declares it -- remove it"
     end
   end
@@ -1227,9 +1201,7 @@ end
 --- opens it. `cosmic fix` rebuilds the tool it runs as when that is
 --- stale, but not the projection, which holds what the tool does not
 --- carry (its tests and examples among it). A module the build refuses
---- is a failure: the checks would read a projection without it, other
---- than the modules the new checker is known to refuse
---- ([`build.pipeline`]'s `residue`).
+--- is a failure: the checks would read a projection without it.
 ---
 --- The tree is compiled with the new checker, as `cosmic test` compiles it.
 function tree_checks.projection(root: string): Sqlite.Handle?, string
@@ -1248,7 +1220,7 @@ function tree_checks.projection(root: string): Sqlite.Handle?, string
     local _, _ = work.close(handle)
     return nil, compile_trouble
   end
-  local refused = Pipeline.unexpected(result.refused)
+  local refused = result.refused
   if #refused > 0 then
     local _, _ = work.close(handle)
     return nil, "the tree does not build:\n" .. table.concat(refused, "\n")

@@ -1,6 +1,6 @@
---- The error-slot discipline of doc/design.md's third principle ([`build.contracts`] states the eleven rules), checked
+--- The error-slot discipline of doc/design.md's third principle (build.contracts states the eleven rules), checked
 --- against the new checker's syntax tree and the type it gave each node ([`build.syntax_report`]). The port of the
---- fork's [`build.contracts`]: the rules are the same, the exemptions are the same table
+--- fork's build.contracts: the rules are the same, the exemptions are the same table
 --- (that module's `own_exemptions`, keyed by `"file:function"`) and the words of a problem are the same, so a module
 --- the fork holds is held here and a breach is told alike. What reads the tree and the types differently is below.
 ---
@@ -13,7 +13,7 @@
 --- fallible functions. A trailing `T...` is the last result with the list marked variadic.
 ---
 --- **A name** is the fork's by position: the reason a statement binds is followed by the name's text from where its
---- statement ends to the end of its block ([`build.contracts`]'s rule 6 says what it does not follow), where the scope
+--- statement ends to the end of its block (build.contracts's rule 6 says what it does not follow), where the scope
 --- builder could say exactly which binding a name reads; the port does not, so that the two read alike.
 ---
 --- **Bindings of C.** [`cosmic.sys`] and the raw process and socket tables are typed from the declarations the build derives
@@ -663,7 +663,7 @@ local function standing(run: Run): {integer: boolean}
   return out
 end
 
---- Whether a call is of a method of a record some module names quiet ([`build.contracts`]'s `quieted`).
+--- Whether a call is of a method of a record some module names quiet (build.contracts's `quieted`).
 local function is_quiet(run: Run, call: Ast.Node): boolean
   local object: Ast.Exp?
   local name: string?
@@ -1045,7 +1045,7 @@ local function check_casts(run: Run)
         run.used.casts[key] = true
       else
         report(run, line_of(run.subject, n), string.format("%s: a cast tells the checker what it could not prove; tighten the " ..
-            "declaration, narrow with `is`, or name the function in build/contracts.tl's casts with the reason",
+            "declaration, narrow with `is`, or name the function in build/contract_rules.tl's casts with the reason",
           if scope == "" then "the top level" else scope end))
       end
     end
@@ -1667,7 +1667,7 @@ local function check_modes(run: Run)
         run.used.modes[key] = true
       else
         report(run, field.y, string.format("%s: a string compared with %s is a closed set of modes; declare an enum, or " ..
-            "name it in build/contracts.tl's modes with why", field.path, table.concat(spelled_set, ", ")))
+            "name it in build/contract_rules.tl's modes with why", field.path, table.concat(spelled_set, ", ")))
       end
     end
   end

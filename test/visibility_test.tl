@@ -14,7 +14,6 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 
 local entry_source = "local record entry\nend\nreturn entry\n"
@@ -56,10 +55,6 @@ end
 
 --- Builds the fixture at `root` and reports whether the tree compiled.
 local function try_build(root: string): boolean, string
-  local built, load_trouble = teal.load()
-  if built == nil then
-    return false, load_trouble
-  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return false, open_trouble

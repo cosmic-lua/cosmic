@@ -13,20 +13,17 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Fuzz = require("build.fuzz")
 local alias_members = require("build.alias_members")
-local analyzer = require("build.analyzer")
+local Analyzer = require("build.syntax_analyzer")
 local fetch = require("build.fetch")
 local flow = require("build.flow")
 local formats = require("build.cache_formats")
 local invoke = require("build.invoke")
 local maintenance = require("build.cache_maintenance")
-local teal = require("build.teal")
 local test = require("build.test")
 local todo_scan = require("build.todo_scan")
 local TypeWatch = require("build.type_watch")
 
 Test.policy{ loopback = { "127.0.0.1" } }
-
-local built = assert(teal.load())
 
 --- Fails, listing what `during` met under build/, unless it met nothing.
 local function honest(what: string, fn: function())
@@ -117,8 +114,8 @@ end
 
 --- `local a, b = require("cosmic.test")` binds the second name to nothing.
 local function test_a_policy_read_from_a_source_with_fewer_values_is_as_declared()
-  honest("build.analyzer", function()
-    local found = analyzer.analyze(built, table.concat({
+  honest("build.syntax_analyzer", function()
+    local found = Analyzer.analyze(table.concat({
       'local Test, other = require("cosmic.test")',
       "local function test_a() end",
     }, "\n"), "fixture.tl")

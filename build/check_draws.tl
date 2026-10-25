@@ -1,15 +1,7 @@
---- The programs build/checker_fuzz_test.tl draws, and the draws that reach
---- them: the generator of the checker's fuzz properties, which
---- [`build.checker_verdicts`] also uses to write the same programs to files
---- for two checkers to read. The properties hold what the checker does with
---- them.
----
---- [`programs.drawn`] repeats [`Fuzz.run`]'s seeding (`FUZZ_SEED` makes
---- one source of cases, each case its own source of draws), which
---- build/checker_verdicts_test.tl holds it to: seed `s` and iteration `i`
---- here are the input `FUZZ_SEED=s FUZZ_ITERS=i` checks there.
+--- The programs the checker's fuzz properties draw ([`lang.check_flow_fuzz_test`], [`lang.check_total_fuzz_test`]; adapted to
+--- the grammar by [`lang.check_drawn`]). They are programs of the fork's Teal, which the
+--- fork's checker drew first; the properties hold what the new checker does with them.
 local Fuzz = require("build.fuzz")
-local Rand = require("cosmic.rand")
 
 --- What the program at a point of the draw can name: the locals of type
 --- `integer | nil` (`ints`), of type `R | nil` (`recs`), the functions
@@ -1353,37 +1345,11 @@ local record programs
   --- A well-formed program, one in three edited at random bytes: the
   --- generator of the totality property.
   any: function(Fuzz.Source): string
-  --- The programs of one property for `FUZZ_SEED=seed` and iterations 1
-  --- through `iters`: `kind` is `"total"` or `"sound"`, named for the
-  --- property whose generator draws them. Raises on another kind.
-  drawn: function(kind: string, seed: integer, iters: integer): {string}
 end
 
 programs.captures_mark = CAPTURES_MARK
 programs.bare_shapes = bare_shapes
 programs.well_formed = gen_program
 programs.any = gen_any
-
-function programs.drawn(kind: string, seed: integer, iters: integer): {string}
-  local gen: function(Fuzz.Source): string
-  if kind == "total" then
-    gen = gen_any
-  elseif kind == "sound" then
-    gen = gen_program
-  else
-    error("checker programs: " .. kind .. " is neither total nor sound", 2)
-  end
-  local out: mut {string} = {}
-  local seeds = Rand.new(seed)
-  for i = 1, iters do
-    local rng = Rand.new(seeds:int(math.mininteger, math.maxinteger))
-    local src: Fuzz.Source = {}
-    src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
-      return rng:int(min, max)
-    end
-    out[i] = gen(src)
-  end
-  return out
-end
 
 return programs

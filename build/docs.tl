@@ -1882,13 +1882,9 @@ end
 --- full (`cosmic.net.pair`), by its `members`; else a field of a removed
 --- global (`os.getenv`) or a removed field of `package` (`package.path`),
 --- by what `message` answers, with module `""`.
---- The sentence is the compiler's hint ([`build.teal`]'s `replacement`),
---- or `message` for a global, which is the same words a refusal at run
+--- The sentence is `message` for a global, which is the same words a refusal at run
 --- time raises with.
 ---
---- TODO: once cosmic.removed words a member's hint itself, as `message`
---- does a global's, say it through that: build.teal's `replacement`
---- spells the same sentence, and the two can drift.
 local function removed_as(query: string): {string}?
   local instead = Removed.members[query]
   local whole = query:match("^(.+)%.[%w_]+$")

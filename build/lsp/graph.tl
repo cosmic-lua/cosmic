@@ -3,7 +3,7 @@
 --- working database lists ([`source.View`]): a `require` of a module
 --- private to a directory the document is not in, or, in cosmic's own
 --- tree, of `build/` or a test ([`positions.check`]); and a cycle of
---- imports through the document ([`compilation.ordered`]). Each is the
+--- imports through the document ([`plans.ordered`]). Each is the
 --- build's own check, worded as a build words it, put at the document's
 --- `require`.
 ---
@@ -12,7 +12,7 @@
 --- the stage's (the `requires` rows).
 
 local Store = require("cosmic.store")
-local compilation = require("build.compilation")
+local plans = require("build.plans")
 local plan = require("build.lsp.plan")
 local positions = require("build.positions")
 local source = require("build.lsp.source")
@@ -112,8 +112,8 @@ end
 --- The cycle of imports through `subject`, at the first of `requires`
 --- that closes it; nil where there is none. It is worded as the build
 --- words it, whichever document is checked: the build's own
---- [`compilation.ordered`] over every module, in the build's order, by
---- import path ([`compilation.collect`]).
+--- [`plans.ordered`] over every module, in the build's order, by
+--- import path ([`plans.collect`]).
 local function cycle(src: source.View, subject: Module, requires: {Require},
                      opened: {string:{string}}): Refusal?
   local edges = edges_of(src, subject, opened)
@@ -128,7 +128,7 @@ local function cycle(src: source.View, subject: Module, requires: {Require},
         local named = edges[name]
         if named ~= nil then members[#members + 1] = module_of(name, name, "module", named) end
       end
-      local _, why = compilation.ordered(members)
+      local _, why = plans.ordered(members)
       return placed(why, at)
     end
   end

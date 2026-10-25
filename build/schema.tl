@@ -48,7 +48,7 @@ local tables: {{string}} = {
   -- literal name, its declaration's where it has one, whether or not
   -- the projection holds the name as a module. The type checker
   -- follows these (a declaration is checked, never loaded), so
-  -- [`build.compilation`]'s `dependency_keys` reads them instead of
+  -- build.compilation's `dependency_keys` reads them instead of
   -- parsing an embedded source again. Nothing that decides what loads
   -- reads this table: a closure over it would make a declaration-only
   -- module loadable. Each module has a row with the empty name beside
@@ -59,7 +59,7 @@ local tables: {{string}} = {
                        PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
   -- Each name a module's own block binds to another module, once and to
-  -- nothing else ([`build.analyzer.Bound`]): what a type the module
+  -- nothing else (build.analyzer.Bound): what a type the module
   -- declares means by `name.Member` (`record Entry is
   -- Stream.ArchiveEntry`), which [`build.alias_members`] follows. Unlike
   -- `imports`, `requires` need not be a module the projection holds.
@@ -71,9 +71,9 @@ local tables: {{string}} = {
   { "decls", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
-  -- The stub of each of the standard library's modules ([`build.stub`]),
-  -- raw-deflated like a source: what [`build.teal`] gives a project's
-  -- checker in place of the module's source. Only cosmic's own projection
+  -- The stub of each of the standard library's modules (build.stub),
+  -- raw-deflated like a source: what a project's checker is given in
+  -- place of the module's source. Only cosmic's own projection
   -- and the tool fill it; a program has no checker to read it.
   { "stubs", [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },

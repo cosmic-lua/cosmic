@@ -403,7 +403,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   local subject = planned.plan
   if planned.halted and subject == nil then return checked(refusals, text, none) end
   -- A build checks where every module's requires reach before it checks
-  -- any, a declaration's aside ([`compilation.collect`]), and stops there.
+  -- any, a declaration's aside ([`plans.collect`]), and stops there.
   if subject ~= nil and kind ~= "decl" then
     local placed = graph.refusals(checker.source, document.name, path, kind, planned.requires,
       opened_requires(checker, document))

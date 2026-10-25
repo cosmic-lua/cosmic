@@ -1,12 +1,12 @@
---- [`compilation.dependency_keys`] after an edit makes the keys of only the
+--- [`plans.dependency_keys`] after an edit makes the keys of only the
 --- modules that reach what it changed, and they are the keys a build that
---- kept nothing makes ([`compilation.full_keys`]), whatever the edit:
+--- kept nothing makes ([`plans.full_keys`]), whatever the edit:
 --- a body or a comment, what a module requires (in a cycle too), a
 --- declaration that joins or leaves a module, the file a module is in, a
 --- module added, removed or renamed, the compiler.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local compilation = require("build.compilation")
+local plans = require("build.plans")
 local importer = require("build.importer")
 local work = require("build.work")
 
@@ -55,9 +55,9 @@ local function differing(root: string, tool: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   assert(importer.derive(handle, false))
-  local modules = assert(compilation.collect(handle.db))
-  local kept = assert(compilation.dependency_keys(handle.db, modules, tool))
-  local full = assert(compilation.full_keys(handle.db, modules, tool))
+  local modules = assert(plans.collect(handle.db))
+  local kept = assert(plans.dependency_keys(handle.db, modules, tool))
+  local full = assert(plans.full_keys(handle.db, modules, tool))
   work.close(handle)
   local trouble = ""
   if #modules == 0 then trouble = "no module " end
@@ -244,8 +244,8 @@ local function test_the_keys_kept_for_one_compiler_are_not_served_for_another()
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
     assert(importer.derive(handle, false))
-    local modules = assert(compilation.collect(handle.db))
-    local keys = assert(compilation.dependency_keys(handle.db, modules, tool))
+    local modules = assert(plans.collect(handle.db))
+    local keys = assert(plans.dependency_keys(handle.db, modules, tool))
     work.close(handle)
     return assert(keys["m2"]).key
   end

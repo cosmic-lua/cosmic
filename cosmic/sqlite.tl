@@ -454,7 +454,7 @@ end
 -- [`Sqlite.Row`] but is not declared to implement it: a record that has an
 -- array part takes no interface, so the rows are cast where they are made.
 -- TODO: once the grammar lets a record carry an array part and an interface, or a stored row is a class, delete
--- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contracts.tl's casts) and list
+-- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contract_rules.tl's casts) and list
 -- [`Sqlite.Row`] on [`Stored`] and [`TextStored`].
 local record Stored is {any}
   count: function(Stored): integer

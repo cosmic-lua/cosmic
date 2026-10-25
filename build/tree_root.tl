@@ -7,7 +7,7 @@
 --- holds the projection, `cosmic.db`, and a working directory is in one
 --- when that tree's last build also staged a source at or under it
 --- (`build.db`'s `files`), or walked a file of the tool's own there (its
---- `tool`, which holds `checker/tl.tl`). Nothing in the tree marks it: the climb asks
+--- `tool`, which holds lang/check.tl). Nothing in the tree marks it: the climb asks
 --- the resolver of each ancestor in turn. `build.db` alone is left by a
 --- run that failed, in the wrong directory too, so it names no tree; and
 --- a new project made below a built tree has staged nothing there, so it

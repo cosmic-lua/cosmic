@@ -2,7 +2,7 @@
 --- the reads a test narrowed ([`lang.fact_wraps`]) answer their value where the conclusion holds, and where it is false
 --- of the value they fail the read and keep a violation of kind "fact", the row `cosmic test --check-types` lists
 --- (`type_violations`). The programs are compiled with the wraps and run in this process, beside the fork's checks
---- ([`build.checked_narrowing_test`]).
+--- (build.checked_narrowing_test).
 local Test = require("cosmic.test")
 local programs = require("build.fact_programs")
 local worker = require("build.test_worker")

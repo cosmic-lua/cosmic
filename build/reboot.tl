@@ -405,10 +405,10 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
       reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
-  local unexpected = require("build.pipeline").unexpected(result.refused)
-  if #unexpected > 0 then
-    return closing(handle, table.concat(unexpected, "\n") .. "\nthe new checker refused " ..
-        tostring(#unexpected) .. " of the tree's modules, so no tool is written from it"), false
+  local breaches = result.refused
+  if #breaches > 0 then
+    return closing(handle, table.concat(breaches, "\n") .. "\nthe new checker refused " ..
+        tostring(#breaches) .. " of the tree's modules, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection

@@ -12,7 +12,7 @@
 --- A row is keyed by more than the local key (`key`): also by what else
 --- decides whether a compile is accepted, which a checkout's own cache
 --- leaves out. That is whether the tree is cosmic's own
---- ([`build.contracts`] runs only there) and whether the module was
+--- (build.contracts runs only there) and whether the module was
 --- extracted from a doc, so a row never stands where a compile of the
 --- module here would refuse it. The file the module is read from is in
 --- the local key already. A compile refused and kept only for the run
@@ -56,7 +56,7 @@ local Sqlite = require("cosmic.sqlite")
 local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local type importer = require("build.importer")
-local type receivers = require("build.receivers")
+local type SyntaxReceivers = require("build.syntax_receivers")
 local shared_sqlite = require("build.shared_sqlite")
 local cache_formats = require("build.cache_formats")
 
@@ -72,7 +72,7 @@ local record shared_compiles
     key: string
     lua: string
     bytecode: string
-    references: {receivers.Reference}
+    references: {SyntaxReceivers.Reference}
   end
 
   --- What a parse is shared under: the analyzer that made it, the
@@ -161,7 +161,7 @@ end
 --- accepted (`own_tree`, `generated`), and the format's table (`format`,
 --- this one's by default).
 --- The file the module is read from is no salt here: the module's own
---- key holds it already (build.compilation's `dependency_keys`), so a
+--- key holds it already (build.plans' `dependency_keys`), so a
 --- compile is never taken across a moved file.
 function shared_compiles.key(key: string, own_tree: boolean, generated?: boolean,
                              format?: string): string
@@ -173,7 +173,7 @@ end
 local schema <const> = cache_formats.compiles
 
 --- The record-field uses, a line each: module, member and line, by tabs.
-local function packed(references: {receivers.Reference}): string
+local function packed(references: {SyntaxReceivers.Reference}): string
   local out: mut {string} = {}
   for _, r in ipairs(references) do
     out[#out + 1] = r.module .. "\t" .. r.member .. "\t" .. tostring(r.line) .. "\n"
@@ -182,8 +182,8 @@ local function packed(references: {receivers.Reference}): string
 end
 
 --- `packed` undone: nil for what `packed` never writes.
-local function unpacked(refs: string): {receivers.Reference}?
-  local out: {receivers.Reference} = {}
+local function unpacked(refs: string): {SyntaxReceivers.Reference}?
+  local out: {SyntaxReceivers.Reference} = {}
   local rest = refs:gsub("([^\t\n]*)\t([^\t\n]*)\t(%d+)\n", function(module: string,
                                                                      member: string,
                                                                      line: string): string

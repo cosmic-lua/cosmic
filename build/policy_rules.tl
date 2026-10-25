@@ -4,7 +4,7 @@
 --- written twice, and the worker holds the one to the other: a module whose `policy` call was handed anything but what
 --- this reads fails to load, and cosmic/test_policy_test.tl holds both to the same cases.
 ---
---- Reading the call off a syntax tree is [`build.analyzer`]'s and [`build.syntax_analyzer`]'s, each its own tree's: both end
+--- Reading the call off a syntax tree is build.analyzer's and [`build.syntax_analyzer`]'s, each its own tree's: both end
 --- in a [`policy_rules.PolicyData`] and the rules here.
 
 local cache_names = require("build.cache_names")

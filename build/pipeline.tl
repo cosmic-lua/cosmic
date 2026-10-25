@@ -15,7 +15,7 @@
 ---
 --- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a text that does
 --- not parse and for a construct the generator does not write. The
---- ceilings are held by the tree's checks as they are here; the other refusals are listed in [`build.pipeline.residue`].
+--- ceilings are held by the tree's checks as they are here; the other refusals are listed in build.pipeline.residue.
 ---
 --- A MODULE IS KEYED by the ceilings that hold it too ([`Pipeline.pinned`]), and the whole compile by the code that reads
 --- ([`Pipeline.coded`]), so that a pin or an edit to the checker judges a module another run compiled again. The standard
@@ -47,14 +47,12 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local SyntaxContracts = require("build.syntax_contracts")
 local SyntaxDerivation = require("build.syntax_derivation")
-local Typed = require("build.syntax_typed")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
 local tree = require("build.tree")
-local type Compilation = require("build.compilation")
+local type Plans = require("build.plans")
 local type Derivation = require("build.derivation")
-local type receivers = require("build.receivers")
-local type Module = Compilation.Module
+local type Module = Plans.Module
 
 local record Pipeline
   type Mode = GrammarMode.Mode
@@ -149,39 +147,25 @@ local record Pipeline
   --- templates, the bindings of C).
   build: function(db: Sqlite.Handle, options: Options): Built?, string
 
-  --- The modules the pipeline refuses though no ceiling is over: the file and the code of the first line of the refusal.
-  --- A ceiling counts the errors of the checker; these are other refusals of `generate`. None is: the language tour and the
-  --- guide, which spelled forms the new grammar cuts, are written in it.
-  ---
-  --- [`build.pipeline_check`] holds this list to the tree in both directions, so a module newly refused is named here with
-  --- its reason, as the ceilings name a count.
-  residue: function(): {string: string}
-
-  --- The refusals `refused` (a compile's, [`build.importer`]'s `Result.refused`) that [`Pipeline.residue`] does not name, in
-  --- order: those of a file it lists are expected, and a tool is written from a tree that has no others.
-  unexpected: function(refused: {string}): {string}
-
-  --- The Lua and the bytecode of the module `m`, checked and written by the new checker, as [`build.compilation`]'s
-  --- `generate` answers them: nil and why where the module is refused. A module is refused for a count over its ceiling
+  --- The Lua and the bytecode of the module `m`, checked and written by the new checker: nil and why where the module is refused. A module is refused for a count over its ceiling
   --- ([`Driver.Build.held`]), a warning, a call no rule of the discipline judged beyond its `[untyped]` ceiling, and the
-  --- generator's own refusals; and the compile holds what the fork's holds besides ([`build.compilation`]'s `generate`):
+  --- generator's own refusals; and the compile holds besides:
   --- a module of the error-slot discipline to it ([`build.syntax_contracts`]), a standard-library module to its stub
   --- ([`build.syntax_stub`]), and it finds the record-field uses `cosmic uses` lists ([`build.syntax_receivers`]). With
   --- `facts` each read of a place a test narrowed is wrapped in a check ([`lang.fact_wraps`]). Where `judged` is false (a
-  --- stale tool rebuilding itself) a breach of the discipline or of the stub is kept and the compile marked `refused`, as
-  --- the fork's does. `built` must have kept the types ([`Pipeline.Options.types`]). The line of an error the docs answer for
+  --- stale tool rebuilding itself) a breach of the discipline or of the stub is kept and the compile marked `refused`. `built` must have kept the types ([`Pipeline.Options.types`]). The line of an error the docs answer for
   --- carries a pointer to them when `hints` is given (the databases to look in, as [`ErrorRender.Hints`]). The module is
   --- retired from the build when it is written ([`Driver.Build.retire`]), so a build writes a module once, and the caller
   --- asks for the modules in the order they require one another: the build then holds the declarations of the modules it has
   --- written and the syntax of the one it is writing. The collector is generational from the first module.
   generate: function(m: Module, built: Built, facts?: boolean, judged?: boolean, hints?: function(): {Sqlite.Handle}, {boolean}):
-      Compilation.Generated?, string
+      Plans.Generated?, string
 
   --- [`Pipeline.generate`] for a build the caller keeps across edits of a module (`cosmic lsp`'s session): the module is
   --- checked and judged as it is there, and it is neither retired nor written as bytecode (nor are its record-field uses read), so the caller may put
   --- another text in its place ([`Driver.Build.replace`]) and ask again. The calls of [`Shape.record_of`] are resolved by the caller. The
   --- types the checker kept of the module are let go once read.
-  review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Compilation.Generated?, string
+  review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Plans.Generated?, string
 
   --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
@@ -219,12 +203,44 @@ end
 Pipeline.mode = GrammarMode.mode
 Pipeline.tool = GrammarMode.tool
 
--- TODO: delete the residue, [`Pipeline.residue`] and [`Pipeline.unexpected`] with the readers that call them, once the part of
--- the switch that deletes the fork's modules lands (doc/plans/strict-teal.md, "the switch"): the list is empty.
-local RESIDUE <const>: {string: string} = {}
+--- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
+--- the error-slot discipline covers.
+local function judges_stub(file: string, module: string): boolean
+  return SyntaxContracts.kind_of(file) == "module" and module:sub(1, 7) == "cosmic."
+end
 
-function Pipeline.residue(): {string: string}
-  return RESIDUE
+
+--- Why the stub `made` of a module does not stand for its source `source` (the module read by `built`), or "" where it does.
+local function stub_verdict(made: Stub.Made, built: Driver.Build, source: Driver.Outcome, stubbed: Driver.Build): string
+  if not made.pruned then
+    return "its stub keeps every statement, so a project's checker would read and load all of it: a standard-library " ..
+      "module must end by returning a name whose last top-level declaration spells its type"
+  end
+  local module = source.module
+  local result = stubbed:result(module, true)
+  if result == nil then
+    return "its stub is not a module"
+  end
+  -- The stub may not add a refusal to the source's: a code it is refused for more often than the source is.
+  local had: mut {string: integer} = {}
+  for _, e in ipairs(source.errors) do
+    had[e.code] = (had[e.code] or 0) + 1
+  end
+  local has: mut {string: integer} = {}
+  for _, e in ipairs(result.errors) do
+    local count = (has[e.code] or 0) + 1
+    has[e.code] = count
+    -- A body the stub leaves out is a function that returns nothing, and code after the `error()` that stands for a body
+    -- that never returns is unreachable: the stub is the declarations, and not the bodies the fork read none of either.
+    if count > (had[e.code] or 0) and e.code ~= "missing_return" and e.code ~= "unreachable" then
+      return tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. ")"
+    end
+  end
+  local different = Stub.difference(built.program, stubbed.program, module)
+  if different ~= nil then
+    return "the stub a project's checker reads in its place types it differently from its source: " .. different
+  end
+  return ""
 end
 
 function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
@@ -241,17 +257,6 @@ function Pipeline.alone(): Pipeline.Options?, string
       "): boot the tree it was built from again (bin/zig build boot)"
   end
   return Pipeline.project(carried), ""
-end
-
-function Pipeline.unexpected(refused: {string}): {string}
-  local out: mut {string} = {}
-  for _, line in ipairs(refused) do
-    local file = line:match("^([^:\n]+):")
-    if file == nil or RESIDUE[file] == nil then
-      out[#out + 1] = line
-    end
-  end
-  return out
 end
 
 function Pipeline.options(root: string): Pipeline.Options?, string
@@ -534,7 +539,7 @@ local function stubs_of(built: Pipeline.Built): {string: Driver.Source}
   end
   if next(built.given) == nil then
     for _, source in ipairs(built.index.sources) do
-      if built.index.by_module[source.module] == source and Typed.judges_stub(source.filename, source.module) then
+      if built.index.by_module[source.module] == source and judges_stub(source.filename, source.module) then
         -- Read apart from the build, so that the tokens of the whole library are not held while a stub is made of each.
         local read = Driver.parse(source)
         if #read.syntax == 0 then
@@ -581,7 +586,7 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   local stubbed = built.stubbed or TreeProgram.build(built.index, built.globals, false, stubs_of(built), built.standard)
   built.stubbed = stubbed
   stubbed:lower({ m.path })
-  local why = Typed.stub_verdict(made, built.build, result, stubbed)
+  local why = stub_verdict(made, built.build, result, stubbed)
   stubbed:retire(m.path)
   if why ~= "" then
     return m.file .. ": the stub a project's checker reads in its place (build/stub.tl) cannot stand for its source: " .. why
@@ -592,7 +597,7 @@ end
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
 --- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
 local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
-                            kept?: boolean): Compilation.Generated?, string
+                            kept?: boolean): Plans.Generated?, string
   local build = built.build
   if kept ~= true then
     if build:retired(m.path) then
@@ -642,11 +647,14 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   end
   local emitted = CompileGrammar.emit(build, result, facts, true, true)
   local code = emitted.code
+  -- TODO: a module paired with a declaration (`foo.tl` beside `foo.d.tl`, as doc/design.md describes) writes no Lua here, since
+  -- the declaration stands in for the module; once the pipeline builds the implementation of a paired module, the two tests in
+  -- build/importer_test.tl that edit a declaration beside its implementation pass.
   if code == nil then
     return nil, m.file .. ": the generator wrote no Lua: " .. emitted.trouble
   end
   local refused = false
-  local references: mut {receivers.Reference} = {}
+  local references: mut {Receivers.Reference} = {}
   -- What the fork holds a compile to besides the checker, over the type report of the module.
   local subject = Report.of(build.program, result)
   if subject == nil or not built.types then
@@ -707,7 +715,7 @@ end
 local written: Written = { modules = 0 }
 
 function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
-                           hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated?, string
+                           hints?: function(): {Sqlite.Handle}, {boolean}): Plans.Generated?, string
   -- Between two modules there is the garbage of one and the live data of the build. The generational collector frees the
   -- garbage of a module as it is made, where the default waits until the heap has doubled, and the memory it frees is not given
   -- back: the resident set of the run stays near the live data and not near the garbage. The caller writes modules until it is
@@ -727,7 +735,7 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   return made, ""
 end
 
-function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Compilation.Generated?, string
+function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Plans.Generated?, string
   -- The collector is generational for the life of a session, as it is for a compile: see [`Pipeline.generate`].
   collectgarbage("generational")
   return generated_of(m, built, false, true, hints, true)

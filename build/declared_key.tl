@@ -84,8 +84,7 @@
 --- its store holds, keyed by its bytes ([`store_digest`]; the store
 --- carries each module's bytecode and the rows it has of it) as the
 --- projection is by its contents; the compiler Teal itself compiles
---- to (`vendor.tl`) is carried beside build.teal, the one module that
---- loads it, by its bytecode too. Whether a module compiles at all is
+--- to (`vendor.tl`) is carried by its bytecode too. Whether a module compiles at all is
 --- no verdict of a test: a build that refuses one runs none. So what a
 --- worker runs of the tree is keyed exactly when it is of its closure,
 --- and else stands under the epoch as the rest of the harness does;

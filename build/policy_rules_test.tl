@@ -1,15 +1,12 @@
---- Tests of [`build.policy_rules`]: the rules a `policy` is held to, through both analyzers that apply them: the fork's
---- ([`build.analyzer`]) and the one on the new tree ([`build.syntax_analyzer`]). They answer alike for each case, so the
---- rules stay tested when the switch deletes the fork's.
+--- Tests of [`build.policy_rules`]: the rules a `policy` is held to, through the analyzer on the new tree
+--- ([`build.syntax_analyzer`]). It answers for each case as the fork's analyzer did, whose answers are kept as text
+--- ([`testdata/forked/policy.txt`], [`lang.forked`]).
 local Analyzer = require("build.syntax_analyzer")
+local Forked = require("lang.forked")
 local PolicyRules = require("build.policy_rules")
 local Test = require("cosmic.test")
-local analyzer = require("build.analyzer")
-local teal = require("build.teal")
 
-Test.policy{}
-
-local built = assert(teal.load(true))
+Test.policy{ grants = { { path = "testdata/forked/policy.txt", letters = "r" } } }
 
 --- A declaration as one line.
 local function described(found: PolicyRules.Declared?): string
@@ -94,27 +91,33 @@ local CASES: {Case} = {
   { body = "Test.policy{}\nTest.policy{}", refused = "declares its policy once" },
 }
 
-local function test_both_analyzers_apply_the_rules_alike_to_each_policy()
+local function test_the_analyzer_applies_the_rules_to_each_policy_as_the_forks_did()
+  local kept = Forked.load("testdata/forked/policy.txt")
   local accepted, refused = 0, 0
   local wrong: mut {string} = {}
   for _, case in ipairs(CASES) do
     local source = 'local Test = require("cosmic.test")\n' .. case.body .. "\nlocal function test_a() end\n"
-    local old, old_why = analyzer.analyze(built, source, "p_test.tl")
+    local said = Forked.said(kept, source)
+    assert(said.known and said.text ~= nil, "the fork's answer is not kept for:\n" .. source)
+    local old = assert(said.text)
     local new, new_why = Analyzer.analyze(source, "p_test.tl")
-    if (old == nil) ~= (new == nil) then
-      wrong[#wrong + 1] = case.body .. ": " .. tostring(old_why) .. " against " .. tostring(new_why)
-    elseif old == nil or new == nil then
-      if old_why ~= new_why then
+    if old:sub(1, 9) == "refused: " then
+      local old_why = old:sub(10)
+      if new ~= nil then
+        wrong[#wrong + 1] = case.body .. ": accepted, where the fork said " .. old_why
+      elseif old_why ~= new_why then
         wrong[#wrong + 1] = case.body .. ": " .. old_why .. " against " .. new_why
       elseif case.refused == "" or old_why:find(case.refused, 1, true) == nil then
         wrong[#wrong + 1] = case.body .. ": refused as " .. old_why
       end
       refused = refused + 1
     else
-      if case.refused ~= "" then
+      if new == nil then
+        wrong[#wrong + 1] = case.body .. ": refused as " .. tostring(new_why) .. ", where the fork accepted"
+      elseif case.refused ~= "" then
         wrong[#wrong + 1] = case.body .. " is accepted"
-      elseif described(old.inputs) ~= described(new.inputs) then
-        wrong[#wrong + 1] = case.body .. ": " .. described(old.inputs) .. " against " .. described(new.inputs)
+      elseif "accepted: " .. described(new.inputs) ~= old then
+        wrong[#wrong + 1] = case.body .. ": " .. old .. " against " .. described(new.inputs)
       end
       accepted = accepted + 1
     end
@@ -134,11 +137,10 @@ local function test_a_policy_is_read_into_the_declaration_it_stands_for()
       table.concat(declared.env, ",") == "HOME")
 end
 
---- A deliberate difference: a source cannot jump, so a policy is never refused for a jump past its call.
+--- A deliberate difference from the fork, which refused the policy for a jump past its call (it said "jumps nowhere"): a
+--- source cannot jump, so it does not parse.
 local function test_a_goto_past_a_policy_is_a_parse_error()
   local source = 'local Test = require("cosmic.test")\ngoto done\nTest.policy{}\n::done::\n'
   local _, why = Analyzer.analyze(source, "p_test.tl")
   assert(why:find("goto", 1, true) ~= nil, why)
-  local old, old_why = analyzer.analyze(built, source, "p_test.tl")
-  assert(old == nil and old_why:find("jumps nowhere", 1, true) ~= nil, old_why)
 end

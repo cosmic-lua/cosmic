@@ -164,7 +164,7 @@ local text = bind.text
 --- -- preferring a paired declaration, as the documented interface does
 --- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
 --- line order. The compiler a boot puts in, which [`build.derivation`] names
---- `checker/tl.tl`, is the tree's by no link: it is that file's Lua.
+--- `lang/`, is the tree's by no link: it is that tree's Lua.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..

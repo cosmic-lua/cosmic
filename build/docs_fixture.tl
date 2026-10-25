@@ -7,7 +7,7 @@
 --- as ([`Proc.find`]), a use recorded without the module's record. Rows
 --- written by hand drift from that shape silently. Here each source is
 --- staged into a working database as [`build.work`] stages a tree, parsed
---- by [`build.importer.derive`] -- the same [`build.analyzer`] analysis a
+--- by [`build.importer.derive`] -- the same build.analyzer analysis a
 --- build runs -- and projected by [`build.writer.write_result`], the
 --- function that writes `cosmic.db`.
 
@@ -54,7 +54,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- its compile; this stands in for both, planning every module with
   -- nothing compiled, which no table the fixture is for reads.
   -- TODO: a use through a typed value (`w:add_file(...)`, which
-  -- [`build.receivers`] finds) is recorded only while a module compiles,
+  -- build.receivers finds) is recorded only while a module compiles,
   -- so no fixture has one; plan through [`importer.compile`] once it can
   -- compile a tree staged without a root on disk.
   assert(db:exec(
@@ -73,7 +73,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
     modules = {}, tool = rebuild.compiled_by("new"), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0,
-    worked = 0, parses = { parsed = 0, shared = 0, worked = 0 },
+    parses = { parsed = 0, shared = 0 },
   }, nil, link_index.none))
   assert(db:close())
   return (assert(Sqlite.open(path)))

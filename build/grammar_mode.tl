@@ -7,9 +7,6 @@
 --- verdict of a test never stand for another compile. It is not part of the compiler's identity ([`build.identity`]), which
 --- decides when the tool is stale.
 ---
---- TODO: drop `teal` from [`Mode`], and the readers that compare with it, once the fork's readers are deleted (the second
---- part of the switch): no function here answers it any more.
----
 --- A module of its own, because [`build.test_key`] reads it and a harness module reaches no more of the tree than it must.
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
@@ -17,7 +14,6 @@ local Hash = require("cosmic.hash")
 local record GrammarMode
   --- The checkers a run may compile with.
   enum Mode
-    "teal"
     "new"
   end
 
@@ -47,10 +43,7 @@ function GrammarMode.mode(): GrammarMode.Mode?, string
   return GrammarMode.of(Env.get("COSMIC_GRAMMAR"))
 end
 
-function GrammarMode.tool(tool: string, mode: GrammarMode.Mode, wraps?: boolean): string
-  if mode == "teal" then
-    return tool
-  end
+function GrammarMode.tool(tool: string, _mode: GrammarMode.Mode, wraps?: boolean): string
   return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0fact-wraps" else "\0grammar-new" end))
 end
 

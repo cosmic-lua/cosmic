@@ -1,6 +1,6 @@
 --- Uses of a record's own fields, found through the type the new checker gave the value they are read from:
 --- `w:add_file(...)` or `w.add_file` where `w` is a [`Zip.Writer`] is a use of `Writer.add_file` in [`cosmic.zip`],
---- whatever `w` is called and however it was made. The port of [`build.receivers`]'s `references`, which asked the fork's
+--- whatever `w` is called and however it was made. The port of build.receivers's `references`, which asked the fork's
 --- reporter for the types; this reads the type report of the driver ([`build.driver`]) by the id of the node.
 ---
 --- A receiver resolves to a symbol only when its record is one some module's own record declares, nested under it
@@ -16,7 +16,7 @@ local Report = require("build.syntax_report")
 
 local record Receivers
   --- One use of a record's field: `member` is the field's canonical path within `module` (`"Writer.add_file"`), the same
-  --- shape [`build.receivers`] and [`build.analyzer.Reference`] give a module member.
+  --- shape build.receivers and build.analyzer.Reference give a module member.
   record Reference
     module: string
     member: string

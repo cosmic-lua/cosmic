@@ -490,7 +490,7 @@ end
 --- files among them; the declarations `temp.declared` names
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
---- [`build.compilation`] reads of a standard-library module on a sealed
+--- build.compilation reads of a standard-library module on a sealed
 --- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
@@ -517,8 +517,8 @@ local function closed(uses_from: string): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
-    -- The stubs ([`build.stub`]) of its standard-library modules, which a
-    -- checker run in the worker ([`teal.standard_text`]) reads as a
+    -- The stubs (build.stub) of its standard-library modules, which a
+    -- checker run in the worker (teal.standard_text) reads as a
     -- project's does.
     "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.wanted ORDER BY path",
     "INSERT INTO main.docs (module, symbol, source_symbol, exported, kind, signature, " ..

@@ -34,7 +34,7 @@ defines the target; once something ships, it leaves this file.
   bar): a function `__index` given to `setmetatable` is declared to return
   `any`, so what it serves is not checked against the record (a table
   `__index` is checked, and `test_a_function_index_serves_any` in
-  [`build/teal_test.tl`] pins the rest). a call through `any` carries no flag
+  build/teal_test.tl pins the rest). a call through `any` carries no flag
   either.
 - make every guard read every place alike, in the new checker: the fork
   narrows only a local ([narrowing by construction](plans/strict-teal.md#narrowing-by-construction)),
@@ -53,7 +53,7 @@ defines the target; once something ships, it leaves this file.
   one the rule that a local is assigned before it is read counts.
   `may_dispatch` and `runs_no_code` in `checker/tl.tl` carry a TODO that
   names this item, and `test_unnarrowed_field_metatable_attached_at_run_time`
-  in [`build/checker_narrowing_test.tl`] pins four programs.
+  in build/checker_narrowing_test.tl pins four programs.
   `__gc` finalizers stay outside the claim.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
@@ -202,7 +202,7 @@ promises lean on come first:
   needs it yet.
 - convert the sites that still read a decoded JSON value without a
   [`cosmic.shape`] check. None casts it in a function that
-  [`build/contracts.tl`]'s `casts` names; what is left:
+  build/contracts.tl's `casts` names; what is left:
   - [`ci/cosmic_ci/prerelease.tl`] narrows the `gh` answers with `is` and an
     `assert` per field (`draft_ids`, `target`, `workflows_moved`,
     `asset_names`, `flag`). `prerelease_test.tl` pins `draft_ids`'
@@ -232,13 +232,13 @@ promises lean on come first:
   with the record their `into` flows into.
 - `shape`'s `record_of`, past what landed in the first form (a string literal
   naming a record, resolved where the module is built, in
-  [`build/shape_specs.tl`]):
+  build/shape_specs.tl):
   - `Shape.of<T>()` is not Teal: a call takes no type arguments, so `T` cannot
     be handed to a function. The name is a string, and the build splices in a
     `function(): R return nil end` that gives the result its type; a nil cast
     to the record (`Shape.of(nil as R)`) would drop the string and the
     module's `require` of the record's module, at the cost of a cast in the
-    caller, which [`build/contracts.tl`]'s rule 7 refuses outside a `casts`
+    caller, which build/contracts.tl's rule 7 refuses outside a `casts`
     entry.
   - a program with no build gets none: `--standalone` has no declarations to
     read, and parsing one at run time needs the Teal compiler (about 300 KB of
@@ -257,9 +257,9 @@ promises lean on come first:
     the checker keeps an enum as a set. A message that lists them reads
     differently from a hand-written `one_of` in another order.
   - a `module.Record` is found only inside the module's returned record
-    ([`receivers.record_named`]): a record another module declares and does
+    (receivers.record_named): a record another module declares and does
     not hand out is refused. Reading it needs the checker's types of that
-    module's own scope, which [`build.receivers`] does not keep.
+    module's own scope, which build.receivers does not keep.
   - a spec of a record and a spec in a hand-written [`Shape.list`] or
     [`Shape.record`] meet through [`Typed.spec`]: a `Typed` is not a `Spec`, so
     `Shape.list(RECORD)` is `Shape.list(RECORD.spec)`. Teal has no
@@ -386,7 +386,7 @@ promises lean on come first:
 
 - go to definition and completion in `cosmic lsp` ([`build/lsp/session.tl`]), which
   answers diagnostics, hover and formatting today. tl's type report answers
-  both: with `env.report_types` on, which [`build/compiler.d.tl`] declares,
+  both: with `env.report_types` on, which build/compiler.d.tl declares,
   its `get_types`, `symbols_in_scope` and `undeclared`, which it does not
   declare yet.
 
@@ -461,22 +461,16 @@ four-producer provenance join.
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
-[`build.receivers`]: ../build/receivers.tl
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/c_functions.tl`]: ../build/c_functions.tl
-[`build/checker_narrowing_test.tl`]: ../build/checker_narrowing_test.tl
-[`build/compiler.d.tl`]: ../build/compiler.d.tl
-[`build/contracts.tl`]: ../build/contracts.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
 [`build/locator_fuzz_test.tl`]: ../build/locator_fuzz_test.tl
 [`build/lsp/session.tl`]: ../build/lsp/session.tl
-[`build/shape_specs.tl`]: ../build/shape_specs.tl
-[`build/teal_test.tl`]: ../build/teal_test.tl
 [`build/workflows_test.tl`]: ../build/workflows_test.tl
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
@@ -512,7 +506,6 @@ four-producer provenance join.
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`Net.serve`]: ../cosmic/net.tl
-[`receivers.record_named`]: ../build/receivers.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl

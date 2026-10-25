@@ -15,8 +15,6 @@ local record derivation
   record Parses
     parsed: integer
     shared: integer
-    --- How many of `parsed` a worker parsed (`build.worker`).
-    worked: integer
   end
   record Source
     source_hash: string

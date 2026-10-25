@@ -2,7 +2,7 @@
 --- into one Teal source string: the compiled file doc/writing.md promises,
 --- shaped like a hand-written `_test.tl`. Every example is a top-level
 --- function. Running them and discovering them stay [`build.test`]'s and
---- [`build.analyzer`]'s jobs.
+--- build.analyzer's jobs.
 local markdown = require("build.doctest.markdown")
 local String = require("cosmic.string")
 
@@ -229,7 +229,7 @@ local function emit_example(out: mut {string}, file: string, example: Example)
   end
   out[#out + 1] = "end"
   if not example.has_output then
-    -- Nothing calls an `example_` function: [`build.analyzer.analyze`]
+    -- Nothing calls an `example_` function: build.analyzer.analyze
     -- discovers only `^test_`. Reading it here keeps tl from warning
     -- that it is unused, as `local _ = tmp` does for an argument no
     -- statement reads.
@@ -242,7 +242,7 @@ end
 --- of a table literal as it is, or "" when it can: a brace closing one
 --- it did not open, one left open, or a comment or long bracket that
 --- would swallow the close. Strings are skipped; the build reads what
---- is left field by field ([`build.analyzer`]), so this holds only that
+--- is left field by field (build.analyzer), so this holds only that
 --- the line stays one literal.
 local function unspliceable(fields: string): string
   local depth = 0
@@ -373,7 +373,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     -- Not `Fs`, which a doc's entry would choose for its own
     -- `require("cosmic.fs")`: declaring it again there would shadow this
     -- local. tl's warning for shadowing a local carries a source
-    -- position, so [`build.compilation`]'s discount (which matches only the
+    -- position, so build.compilation's discount (which matches only the
     -- message for the global `print`, see `__doctest_capture` below)
     -- would not drop it.
     out[#out + 1] = 'local __doctest_fs = require("cosmic.fs")'

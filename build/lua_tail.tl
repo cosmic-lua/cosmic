@@ -1,6 +1,6 @@
 --- What is done to the Lua of a module after a compiler has written it, whichever compiler it was: the tail of a test module
 --- that hands its tests to the runner, and the bytecode of the chunk, which every target must read alike. Shared by
---- [`build.compilation`]'s `generate`, which the fork's compiler feeds, and by [`build.pipeline`], which the new checker's code
+--- build.compilation's `generate`, which the fork's compiler feeds, and by [`build.pipeline`], which the new checker's code
 --- generator feeds.
 local String = require("cosmic.string")
 

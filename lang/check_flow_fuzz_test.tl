@@ -1,4 +1,4 @@
---- The soundness property of the flow of [`lang.check`], over the programs of [`build.checker_programs`] that the fork's
+--- The soundness property of the flow of [`lang.check`], over the programs of [`build.check_draws`] that the fork's
 --- narrowing fuzz test draws (locals and record fields of `integer | nil`, `if`/`elseif`/`else` on nil tests, `and`/`or`,
 --- the four loops with `break` and `continue`, function literals, early exits): the fork's text is put in the new
 --- grammar ([`lang.translate`]) and checked; a program the checker takes is written as Lua and run with every read of a
@@ -23,7 +23,7 @@ local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local adapt = require("lang.check_drawn")
-local drawn = require("build.checker_programs")
+local drawn = require("build.check_draws")
 local worker = require("build.test_worker")
 
 Test.policy{}

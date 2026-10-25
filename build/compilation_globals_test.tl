@@ -1,5 +1,5 @@
 --- A build refuses a `global` in any module it compiles
---- ([`build.compilation`]): each kind of declaration at its own
+--- (build.compilation): each kind of declaration at its own
 --- position, a global another module would have read, and a project
 --- without one.
 local Fs = require("cosmic.fs")

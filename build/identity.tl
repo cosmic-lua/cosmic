@@ -23,10 +23,10 @@ local record identity
   ---
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
-  --- ([`identity.compiler_identity`]), among them [`build.teal`] and [`build.withheld`], which name
+  --- ([`identity.compiler_identity`]), among them [`build.withheld`], which names
   --- the globals the checker is stripped of, the checker's own source
-  --- (`checker/tl.tl`) with the Lua standard library's declarations it is
-  --- compiled with (`checker/stdlib.d.tl`), and the pins and patches the
+  --- (`lang/`) with the Lua standard library's declarations it is
+  --- checked with (lang/stdlib.d.tl), and the pins and patches the
   --- compiler and Lua are built from.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
@@ -439,19 +439,13 @@ end
 --- they run to decide what they store. See
 --- [`identity.compiler_identity`].
 local compiler_roots: {string} = {
-  "build.compilation", "build.derivation",
+  "build.plans", "build.derivation",
   -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
-  "build.analysis_schema", "build.analyzer", "build.ast", "build.bind",
-  "build.compiler", "build.doctest", "build.gen_syscalls", "build.link_text",
-  -- The compile's own: the checker's environment, the rules a module is
-  -- refused by and the tree they hold in, and the record-field uses
-  -- the checker finds.
-  "build.contracts", "build.receivers", "build.teal", "build.tree", "build.withheld",
-  -- Splices the specs [`Shape.record_of`] names into the source a compile
-  -- checks ([`build.shape_specs`]): its output is part of the bytecode.
-  "build.shape_specs",
+  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "build.link_text",
+  -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
+  "build.tree", "build.withheld",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`
@@ -502,16 +496,15 @@ end
 --- a source's rows in the analysis tables), and nothing else:
 ---
 --- - the pinned compiler and Lua, and the checker's source
----   (`checker/tl.tl`), which decides what every compile accepts and
+---   (`lang/`), which decides what every compile accepts and
 ---   emits;
---- - [`build.compilation`] and [`build.derivation`];
---- - the checker's environment ([`build.teal`]), and the names it is
----   stripped of, which build.withheld spells itself rather
+--- - build.plans and [`build.derivation`];
+--- - the names the globals are stripped of, which build.withheld spells itself rather
 ---   than reading [`cosmic.removed`]: the rest of that catalog is only
 ---   what a refusal says, which no compile keeps;
 --- - the rules a module is refused by and the tree they hold in
----   ([`build.contracts`], [`build.tree`]);
---- - the uses the checker finds ([`build.receivers`]);
+---   (build.contracts, [`build.tree`]);
+--- - the uses the checker finds (build.receivers);
 --- - the analyzer, whose `tests` rows a test module's compile is
 ---   appended from;
 --- - the schema of the rows a parse stores and of the `inputs` view a

@@ -47,7 +47,7 @@ local record Stub
   --- listings and type arguments): a declaration the module keeps to itself and nothing reaches is not part of its type. Two
   --- declarations are the same when their canonical text ([`Types.encode_declaration`]) is, which names every other module's
   --- declaration by its path, so a module whose stub differs is told of in its own comparison and not in each that names it.
-  --- The port of [`build.stub`]'s `difference`, which walked the fork's type objects.
+  --- The port of build.stub's `difference`, which walked the fork's type objects.
   difference: function(source: Declarations.Program, stubbed: Declarations.Program, module: string): string?
 end
 

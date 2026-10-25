@@ -1,32 +1,26 @@
---- The semantic compile: module plans, dependency keys, acceptance,
---- generated Lua, bytecode and typed references. The importer owns cache
---- lookup, persistence and diagnostic presentation around these operations.
+--- The plans of a derived tree: every module it holds ([`plans.collect`]), in an order where nothing is compiled before what
+--- it imports ([`plans.ordered`]), with the key each is compiled and cached under ([`plans.dependency_keys`]), and the
+--- refusals that hold before any module is compiled. The importer owns cache lookup, persistence and diagnostic
+--- presentation around these operations; [`build.pipeline`] makes the Lua.
 
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local analyzer = require("build.analyzer")
-local ast = require("build.ast")
-local contracts = require("build.contracts")
-local ContractRules = require("build.contract_rules")
-local LuaTail = require("build.lua_tail")
-local receivers = require("build.receivers")
-local shape_specs = require("build.shape_specs")
-local stub = require("build.stub")
-local teal = require("build.teal")
+local type PolicyRules = require("build.policy_rules")
+local type SyntaxReceivers = require("build.syntax_receivers")
 local bind = require("build.bind")
-local type compiler = require("build.compiler")
+local standard_text = require("build.standard_text")
 local type module = require("build.module")
 local type Module = module.Plan
 
-local record compilation
+local record plans
   Module: Module
   --- What compiling one module makes.
   record Generated
     lua: string
     bytecode: string
     --- The record-field uses the checker's types resolved.
-    references: {receivers.Reference}
+    references: {SyntaxReceivers.Reference}
     --- A refusal, its contracts' or its stub's, kept for this unjudged run alone.
     refused: boolean
   end
@@ -36,24 +30,24 @@ local record compilation
     graph: string
   end
 
-  --- The keys of `modules` made from nothing kept ([`compilation.dependency_keys`]
+  --- The keys of `modules` made from nothing kept ([`plans.dependency_keys`]
   --- without its memos): what each is a function of, which a test holds the
   --- memos to.
   full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
 end
 
-local type Keys = compilation.Keys
+local type Keys = plans.Keys
 local text = bind.text
 
 --- What `test_inputs` holds, by source hash: each [`Test.policy`]
 --- declaration, as the [`Test.Needs`] it stands for.
-local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared}?, string
+local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Declared}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
-  local declared: mut {string:analyzer.Declared} = {}
+  local declared: mut {string:PolicyRules.Declared} = {}
   for _, row in ipairs(rows) do
     local hash, field, value = row:text(1), row:text(2), row:text(3)
     local one = declared[hash]
@@ -124,10 +118,6 @@ local record Dependency
   source_hash: string
   requires: {string}
 end
-
---- The interface key of a module ([`compilation.interface_keys`]), or nil
---- and why.
-local type Interfaced = function(Module): string?, string
 
 --- The names the standard-library module `name` requires, from the
 --- `decl_imports` rows of the binary's own database, where
@@ -207,7 +197,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
       if name:sub(1, 7) ~= "cosmic." then
         return nil, ""
       end
-      local served = teal.standard_text(name)
+      local served = standard_text.of(name)
       if served == nil then
         local _, source_trouble = Store.source(name)
         return nil, source_trouble
@@ -294,9 +284,9 @@ end
 
 --- The identity of every source the checker can load from this tree.
 --- A declaration wins over a source of the same name, just as
---- [`build.teal`]'s module search does. An embedded standard-library
+--- the checker's module search does. An embedded standard-library
 --- module is content-addressed by what the checker reads of it when a
---- project imports it ([`teal.standard_text`]). Each module's
+--- project imports it ([`standard_text`]). Each module's
 --- [`Keys`], by path.
 local function compute_keys(db: Sqlite.Handle, modules: {Module},
                             tool: string): {string:Keys}?, string
@@ -626,7 +616,7 @@ end
 --- of a thousand modules, and a run where nothing changed asks it again.
 --- The memo is `keys_memo` of the working database, keyed by
 --- [`keys_fingerprint`], which holds everything the computation reads.
-function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
+function plans.dependency_keys(db: Sqlite.Handle, modules: {Module},
                                      tool: string): {string:Keys}?, string
   local fingerprint = keys_fingerprint(db, modules, tool)
   if fingerprint ~= nil then
@@ -646,15 +636,15 @@ function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
   return keys, ""
 end
 
-compilation.full_keys = compute_keys
+plans.full_keys = compute_keys
 
 --- Why a build refuses the module `file` of `kind` that declares what
 --- its tests read (`inputs`, [`Test.policy`]), or nil when it does not:
 --- a declaration holds for the tests of its own module, and a module
 --- that is no test's has none. What a module it requires reads, the
 --- test declares.
-function compilation.policy_refusal(file: string, kind: string,
-                                    inputs: analyzer.Declared?): string?
+function plans.policy_refusal(file: string, kind: string,
+                                    inputs: PolicyRules.Declared?): string?
   if inputs == nil or kind == "test" or kind == "example" then
     return nil
   end
@@ -665,7 +655,7 @@ end
 
 --- Every module the derived tree holds ([`build.importer.derive`]), with what
 --- its parse found.
-function compilation.collect(db: Sqlite.Handle): {Module}?, string
+function plans.collect(db: Sqlite.Handle): {Module}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
       "p.has_return, s.source_hash IS NOT NULL, " ..
@@ -698,7 +688,7 @@ function compilation.collect(db: Sqlite.Handle): {Module}?, string
     local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
     local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
     local inputs = declared[source_hash]
-    local misplaced = compilation.policy_refusal(file, kind, inputs)
+    local misplaced = plans.policy_refusal(file, kind, inputs)
     if misplaced ~= nil then
       return nil, misplaced
     end
@@ -726,7 +716,7 @@ end
 
 --- The modules in an order where nothing is compiled before what it
 --- imports. A cycle is reported rather than looped on.
-function compilation.ordered(modules: {Module}): {Module}?, string
+function plans.ordered(modules: {Module}): {Module}?, string
   local by_path: mut {string:Module} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
@@ -766,51 +756,8 @@ function compilation.ordered(modules: {Module}): {Module}?, string
   return out
 end
 
---- A `local function test_*` at a test module's top level is only ever
---- called by the runner, from outside the file, so the checker's
---- "unused function" warning about it is a false positive: it is
---- narrow enough to name the exact function discovery already found,
---- rather than turning the warning off for the whole file.
-local function discount_test_warnings(result: compiler.Result,
-                                      tests: {string}): compiler.Result
-  local names: mut {string:boolean} = {}
-  for _, name in ipairs(tests) do
-    names[name] = true
-  end
-  local kept: mut {compiler.Error} = {}
-  for _, w in ipairs(result.warnings) do
-    local unused = w.code == "unused" and w.declares == "function" and w.variable or nil
-    if unused == nil or not names[unused] then
-      kept[#kept + 1] = w
-    end
-  end
-  result.warnings = kept
-  return result
-end
-
---- Drops the one warning tl's checker always raises over a
---- [`build.doctest`] generated module: an example that declares an
---- `output` block shadows the global `print` with a local of the same
---- name, so a doc's own `print(...)` calls run against the capturing
---- one. The shadow is on purpose: `print` is `<const>` in tl's prelude,
---- so reassigning the global is a type error, and a local is the only
---- way to intercept a bare `print`. It drops less than
---- [`discount_test_warnings`] but applies more widely: to any module
---- `m.generated` marks, not only to functions a scan of `m` found.
-local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
-  local kept: mut {compiler.Error} = {}
-  for _, w in ipairs(result.warnings) do
-    if not (w.code == "shadows" and w.declares == "variable" and w.variable == "print" and
-        not w.declared_before) then
-      kept[#kept + 1] = w
-    end
-  end
-  result.warnings = kept
-  return result
-end
-
 --- Whether `m`'s own source both defines tests of its own and returns
---- its own value at the top level. [`LuaTail.with_test_tail`] appends a generated
+--- its own value at the top level. LuaTail.with_test_tail appends a generated
 --- `return` after the module's compiled Lua, and Lua allows only one
 --- `return` as a block's last statement, so the two together are always
 --- a parse error. Both facts come from `collect`'s one parse of
@@ -823,331 +770,15 @@ end
 --- no top-level `return` to hand any of them back: unlike a test
 --- module, an example module gets no generated tail, since its own
 --- `return Example` is what the runner and `cosmic docs` both need
---- reachable from outside the file -- see [`analyzer.ExampleEntry`].
+--- reachable from outside the file.
 --- Caught here, at compile time, rather than left to fail the moment
 --- the runner indexes a table that `require` handed back as `true`.
 local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- Whether the stub ([`build.stub`]) of the module `m`, which `result`
---- is the checker's reading of, types it the same, and if not why: a stub
---- that is not declaration-only (or none, for a module that returns
---- nothing), a type error in the stub, or where its type and
---- `result.type` part ([`stub.difference`]). The stub is the one the
---- projection carries ([`build.writer`]). It is checked in `env`, where
---- `m`'s source was, so each module it requires is the one the source's
---- check read, under a file name of its own; its warnings are of the bodies
---- it leaves out, and no reader of the module sees them.
-local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
-                            result: compiler.Result): boolean, string
-  local made = m.stub
-  if made == nil or not made.pruned then
-    return false, m.file .. ": its stub keeps every statement, so a project's checker " ..
-      "would read and load all of it: a standard-library module must end by returning a " ..
-      "name whose last top-level declaration spells its type (`local record M ... end`, " ..
-      "a local function, or `local m: M = ...`) (build/stub.tl)"
-  end
-  local stubbed = built.check_string(made.text, env, m.file .. " (stub)", "tl")
-  local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
-  local trouble: string? = nil
-  if refusal ~= nil then
-    trouble = refusal.y .. ":" .. refusal.x .. ": " .. refusal.msg
-  else
-    trouble = stub.difference(result.type, stubbed.type)
-  end
-  if trouble ~= nil then
-    return false, m.file .. ": the stub a project's checker reads in its place " ..
-      "(build/stub.tl) types it differently from its source: " .. trouble
-  end
-  return true, ""
-end
-
---- The two digests of a stub: of its exact text, which a verdict on it is kept
---- under, and of its tokens less where they stand ([`stub.canonical`]), which
---- a dependent's interface key holds.
-local record StubHashes
-  exact: string
-  shape: string
-end
-
---- What a verdict on a stub is kept under beside the module's compile key:
---- the hash of the stub's own text, so that a stub derived again differently
---- is judged again whatever the key says.
-local function stub_hash(stub_text: string): string
-  return Hash.hex_sha256(stub_text)
-end
-
---- The stub ([`build.stub`]) of the module of the tree at `path` if a
---- compile has held it to the source's type ([`compilation.hold_stubs`])
---- under the module's key now, else nil: what a compile of a module that
---- requires it reads in place of its source ([`teal.environment_for`]). A
---- module whose stub was never compared, or differs, is read from its
---- source, as is one a declaration stands in front of, and one the
---- database cannot be asked about. Typing a module's whole source is most
---- of what a compile costs when a module it requires changed, and a stub
---- leaves every body out and, of a module that returns a named type, every
---- statement that type needs none of, with the modules those statements
---- require.
---- @param keys each module's [`compilation.Keys`], by path
-local function verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string?
-  local named = keys[path]
-  if named == nil then
-    return nil
-  end
-  local rows, _ = Sqlite.text_rows(db,
-    "SELECT s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind = 'module' AND i.path = ?1 " ..
-      "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
-    { text(path) })
-  if rows == nil then
-    return nil
-  end
-  local first = rows[1]
-  if first == nil then
-    return nil
-  end
-  local stub_text = first:text(1)
-  local held, _ = Sqlite.text_rows(db,
-    "SELECT key FROM stub_holds WHERE key = ?1 AND stub = ?2 AND held = 1",
-    { text(named.key), text(stub_hash(stub_text)) })
-  if held == nil or held[1] == nil then
-    return nil
-  end
-  return stub_text
-end
-
---- What [`build.teal`]'s `environment_for` reads of a module in place of its
---- source, as a function of its path: its stub if a compile has held that
---- to the source's type under the module's key now ([`verified_stub`]), else
---- nil, and nil for every path unless `serving`.
---- @param keys each module's [`compilation.Keys`], by path
-function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
-                                 serving: boolean): function(string): string?
-  return function(path: string): string?
-    if not serving then
-      return nil
-    end
-    return verified_stub(db, keys, path)
-  end
-end
-
---- Gives the verdict on the stub ([`build.stub`]) of the module `path` under
---- its key now, unless one is kept: whether it types the module as
---- `env` holds the source's type of it ([`stub.difference`]), kept in
---- `stub_holds`. True where it does. A module `env` does not hold the type
---- of has no verdict given.
-local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
-                        keys: {string:Keys}, path: string, file: string,
-                        stub_text: string): boolean, string
-  local named = keys[path]
-  local source_type = env.modules[path]
-  if named == nil or source_type == nil then
-    return false, ""
-  end
-  local known, known_trouble = Sqlite.text_rows(db,
-    "SELECT held FROM stub_holds WHERE key = ?1 AND stub = ?2",
-    { text(named.key), text(stub_hash(stub_text)) })
-  if known == nil then
-    return false, known_trouble
-  end
-  local verdict = known[1]
-  if verdict ~= nil then
-    return verdict:text(1) == "1", ""
-  end
-  local stubbed = built.check_string(stub_text, env, file .. " (stub)", "tl")
-  local held = #stubbed.syntax_errors == 0 and #stubbed.type_errors == 0 and
-    stub.difference(source_type, stubbed.type) == nil
-  local ok, why = Sqlite.run(db,
-    "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
-    { text(named.key), text(stub_hash(stub_text)), { integer = if held then 1 else 0 end } })
-  if not ok then
-    return false, why
-  end
-  return held, ""
-end
-
---- Keeps the verdict that the stub of `m` is held to its source's type under
---- its key, for a compile of it made in another process, which has no checker
---- environment here to judge it by ([`compilation.hold_stubs`]). A compile
---- of a standard-library module holds its stub to the type its source has
---- in the process that makes it, and refuses it where it does not
---- ([`held_to_stub`], in [`compilation.generate`]): so a compile that was
---- not refused is a verdict, on the stub the module carries. A module with
---- no stub, or one that is not a standard-library module, has none to keep.
---- @param keys each module's [`compilation.Keys`], by path
-function compilation.note_held(db: Sqlite.Handle, keys: {string:Keys}, m: Module): boolean, string
-  local made, named = m.stub, keys[m.path]
-  if made == nil or named == nil or m.kind ~= "module" or m.path:sub(1, 7) ~= "cosmic." then
-    return true, ""
-  end
-  return Sqlite.run(db,
-    "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, 1)",
-    { text(named.key), text(stub_hash(made.text)) })
-end
-
---- Compares, for each module of the tree that `env` holds the type of
---- and that has no verdict under its key yet, the stub
---- ([`build.stub`]) with the source's type ([`stub.difference`]), and
---- keeps the answer in `stub_holds` under the module's key and the stub's text. The key names
---- the module's source and its whole import graph and the compiler: the
---- stub types the module as its source does, or it does not, for as long as
---- the key stands. The type `env` holds is the source's, whether the
---- module was compiled in this run or read from its source by the checker
---- for one that requires it: a module read from its stub has a verdict
---- already, and is not compared with itself. A module a declaration
---- stands in front of is not compared. A stub that is a type error, or
---- not the same type, only goes unheld, never refuses the module:
---- [`compilation.generate`] refuses a standard-library module for that.
---- @param keys each module's [`compilation.Keys`], by path
-function compilation.hold_stubs(db: Sqlite.Handle, built: compiler, env: compiler.Env,
-                                keys: {string:Keys}): boolean, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.file, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind = 'module' AND i.path NOT IN (SELECT path FROM inputs WHERE kind = 'decl') " ..
-      "ORDER BY i.path")
-  if rows == nil then
-    return false, trouble
-  end
-  for _, row in ipairs(rows) do
-    local _, hold_trouble = hold_one(db, built, env, keys, row:text(1), row:text(2), row:text(3))
-    if hold_trouble ~= "" then
-      return false, hold_trouble
-    end
-  end
-  return true, ""
-end
-
---- Whether the stub of the module `path` is held to its source's type
---- under the module's key now: [`verified_stub`]'s test, with the verdict
---- given on the spot where none is kept and `env` holds the source's type
---- of the module (it was compiled in this run). A module with no stub,
---- or one a declaration stands in front of, is not.
---- @param env what the run has compiled so far, or nil before any module was
---- @param keys each module's [`compilation.Keys`], by path
-function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler.Env?,
-                               keys: {string:Keys}, path: string): boolean
-  local named = keys[path]
-  if named == nil then
-    return false
-  end
-  local rows, _ = Sqlite.text_rows(db,
-    "SELECT i.file, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind = 'module' AND i.path = ?1 " ..
-      "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
-    { text(path) })
-  local first: Sqlite.Row? = nil
-  if rows ~= nil then first = rows[1] end
-  if first == nil then
-    return false
-  end
-  local file, stub_text = first:text(1), first:text(2)
-  local known, _ = Sqlite.text_rows(db,
-    "SELECT held FROM stub_holds WHERE key = ?1 AND stub = ?2",
-    { text(named.key), text(stub_hash(stub_text)) })
-  if known == nil then
-    return false
-  end
-  local verdict = known[1]
-  if verdict ~= nil then
-    return verdict:text(1) == "1"
-  end
-  if env == nil then
-    return false
-  end
-  local held, _ = hold_one(db, built, env, keys, path, file, stub_text)
-  return held
-end
-
---- The key of a module over what a dependent's check can see of it: the
---- module's own source, and of each module it reaches, the stub where that
---- is held to the source's type in place of the source. A module whose
---- key moved but whose interface did not -- a body, a comment -- has the same
---- one, and what was compiled under the one stands for the other: a check
---- reads of a held stub what it reads of the source, which is what the
---- hold judges. A stub is keyed by its tokens, not where they stand
---- ([`stub.canonical`]): no output of a compile holds a position in a
---- module it reaches, so an edit that only moves lines in a dependency (a
---- comment, a blank line, a body of another length) leaves the key. The
---- verdicts kept are read once; a module the stub of which
---- has none under its key is asked of `judge`, which can give one only for a
---- module compiled in this run and so by the time a module that reaches it
---- is asked about.
---- @param tool the compiler's identity, as in [`compilation.dependency_keys`]
---- @param keys each module's [`compilation.Keys`], by path
---- @param judge whether the stub of the module at a path is held to its source's type
---- ([`compilation.stub_held`]), where no verdict is kept
---- @return the interface key of a module, by it: nil and why where the tree cannot be read
-function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: string,
-                                    keys: {string:Keys}, judge: function(string): boolean):
-    Interfaced?, string
-  local made_graph, trouble = dependency_graph(db, modules)
-  if made_graph == nil then
-    return nil, trouble
-  end
-  local graph: Graph = made_graph
-  local rows, rows_trouble = Sqlite.text_rows(db,
-    "SELECT i.path, s.text FROM inputs i JOIN stubs s ON s.source_hash = i.source_hash " ..
-      "WHERE i.kind = 'module' AND NOT EXISTS " ..
-      "(SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')")
-  if rows == nil then
-    return nil, rows_trouble
-  end
-  -- What a dependent keys on of a stub is its tokens, not where they stand
-  -- ([`stub.canonical`]); the verdict on the stub stays under its exact text.
-  local stubs: mut {string:StubHashes} = {}
-  for _, row in ipairs(rows) do
-    local body = row:text(2)
-    stubs[row:text(1)] = { exact = stub_hash(body), shape = stub_hash(stub.canonical(body)) }
-  end
-  local verdicts, verdicts_trouble = Sqlite.text_rows(db, "SELECT key, stub, held FROM stub_holds")
-  if verdicts == nil then
-    return nil, verdicts_trouble
-  end
-  local kept: mut {string:boolean} = {}
-  for _, row in ipairs(verdicts) do
-    kept[row:text(1) .. "\0" .. row:text(2)] = row:text(3) == "1"
-  end
-  local judged: {string:boolean} = {}
-  local function held(path: string): boolean
-    local hashes, named = stubs[path], keys[path]
-    if hashes == nil or named == nil then
-      return false
-    end
-    local verdict = kept[named.key .. "\0" .. hashes.exact]
-    if verdict ~= nil then
-      return verdict
-    end
-    local made = judged[path]
-    if made == nil then
-      made = judge(path)
-      judged[path] = made
-    end
-    return made
-  end
-  local function line_of(slot: string, dependency: Dependency): string
-    if slot:sub(1, 1) ~= "\0" and dependency.kind == "module" and held(slot) then
-      local hashes = stubs[slot]
-      if hashes == nil then
-        return slot .. "\nstub\n"
-      end
-      return slot .. "\nstub\n" .. hashes.shape
-    end
-    return source_line(slot, dependency)
-  end
-  local interfaced: Interfaced = function(m: Module): string?, string
-    local made, identify_trouble = identify_in(graph, m.path, m.file,
-      "interface-2 " .. tool, line_of)
-    if made == nil then
-      return nil, identify_trouble
-    end
-    return made.key, ""
-  end
-  return interfaced, ""
-end
-
 --- Why a cosmic build refuses a global declared at `at` (`file:line:column`).
-function compilation.global_refusal(at: string): string
+function plans.global_refusal(at: string): string
   return at .. ": a global is not allowed in a cosmic build: it reaches other modules by no " ..
     "`require`, which is all a build's cache and its order see -- put the value " ..
     "in a module and `require` it"
@@ -1160,10 +791,10 @@ end
 --- global reaches other modules by none of those: a cached compile could
 --- stand after the global's type changed, and what a build accepts would
 --- depend on the order modules are checked in. The declarations are the
---- rows a parse kept ([`build.globals`]) for every source, a `.d.tl`
+--- rows a parse kept (build.globals) for every source, a `.d.tl`
 --- and a compile that stands in a cache included, so the refusal is made
 --- before any module is compiled, and does not depend on that order.
-function compilation.refuse_globals(db: Sqlite.Handle): string?, string
+function plans.refuse_globals(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
@@ -1176,128 +807,17 @@ function compilation.refuse_globals(db: Sqlite.Handle): string?, string
   end
   local lines: mut {string} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = compilation.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
+    lines[#lines + 1] = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
         row:text(3))
   end
   return table.concat(lines, "\n"), ""
 end
 
---- Compiles one module: the checker over its source (with each
---- [`Shape.record_of`] call resolved first, [`build.shape_specs`]), the test
---- tail when it is a test, and the bytecode.
---- @param resolved the source with its calls resolved already, as
----   [`shape_specs.resolve`] answers it, when the caller has it: it is
----   not resolved again
---- @param unreferenced whether to leave out the record-field uses
----   (`references`, none), which only a build keeps
-function compilation.generate(m: Module, built: compiler, env: compiler.Env,
-                              typed: receivers.State, own_tree: boolean, judged: boolean,
-                              render: function(string, string, compiler.Result): string,
-                              resolved?: string, unreferenced?: boolean): compilation.Generated?, string
-  local source = ""
-  if resolved ~= nil then
-    source = resolved
-  else
-    local found, spec_trouble = shape_specs.resolve(built, env, m.file, m.path, m.source)
-    if found == nil then
-      return nil, spec_trouble
-    end
-    source = found
-  end
-  -- Checked under the module's own file name, not `gen`'s empty
-  -- one: a mismatch between a value's type and the type a slot
-  -- expects is reported at the value's declaration when the checker
-  -- takes both for one file's and the declaration lies after the use,
-  -- which on a cold build put a template's error at the field in its
-  -- data module, under the template's name.
-  typed.checking = m.file
-  -- The module that holds the hook the checks call is compiled without
-  -- them: a check of the hook's own parameters would call the hook.
-  local checks = env.defaults.runtime_checks
-  if m.path == "build.test_worker" then
-    env.defaults.runtime_checks = false
-  end
-  local checked_ok, outcome = pcall(built.check_string, source, env, m.file, "tl")
-  env.defaults.runtime_checks = checks
-  -- Put back before a raise goes on, so the run's state names no file
-  -- the checker has left.
-  typed.checking = ""
-  if not checked_ok then
-    error(outcome, 0)
-  end
-  local result = assert(outcome, "the checker answered no result")
-  local code: string? = nil
-  local result_ast = result.ast
-  if result_ast ~= nil and #result.syntax_errors == 0 then
-    local written, write_trouble = built.generate(result_ast, env.defaults.gen_target, nil)
-    if written == nil then
-      return nil, m.file .. ": " .. write_trouble
-    end
-    code = written
-  end
-  if m.kind == "test" and result ~= nil then
-    result = discount_test_warnings(result, m.tests)
-  end
-  if m.generated and result ~= nil then
-    result = discount_doctest_shadow_warnings(result)
-  end
-  -- Presentation cannot decide acceptance: even an empty rendering of
-  -- a checker error must refuse the compile, and successful compiles
-  -- never call the renderer.
-  local rejected = result ~= nil and (#(result.syntax_errors or {}) > 0 or
-    #(result.type_errors or {}) > 0 or #(result.warnings or {}) > 0)
-  if code == nil or rejected then
-    local complaint = result ~= nil and render(m.file, m.source, result) or ""
-    return nil, m.file .. ": the compiler refused it\n" .. complaint
-  end
-  -- A standard-library module is what a project's checker reads its
-  -- stub for, in the tool this tree builds ([`build.writer`]). An
-  -- unjudged run keeps a module whose stub its own, older build.stub
-  -- refuses, as it keeps one its contracts refuse (below), for the tool
-  -- it builds to judge.
-  local checked = result.ast
-  if not (checked is ast.Node) then
-    return nil, m.file .. ": the compiler answered no syntax tree"
-  end
-  local refused = false
-  if own_tree and m.kind == "module" and m.path:sub(1, 7) == "cosmic." then
-    local held, hold_trouble = held_to_stub(m, built, env, result)
-    if not held and judged then
-      return nil, hold_trouble
-    end
-    refused = not held
-  end
-  -- The checker has just seen this module whole; a module compiled
-  -- after it that requires it is checked against that, rather than
-  -- against a second read and check of the same source.
-  env.modules[m.path] = result.type
-  if own_tree and ContractRules.applies(m.kind, m.generated) then
-    local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
-      contracts.binding_tables(env), nil, result.type)
-    if #problems > 0 and judged then
-      return nil, table.concat(problems, "\n")
-    end
-    refused = refused or #problems > 0
-  end
-  local references: {receivers.Reference} = {}
-  if unreferenced ~= true then
-    references = receivers.references(typed, env, checked)
-  end
-  if m.kind == "test" then
-    code = LuaTail.with_test_tail(code, m.tests)
-  end
-  local bytecode, dump_trouble = LuaTail.bytecode_of(code, m.path, m.file)
-  if bytecode == nil then
-    return nil, dump_trouble
-  end
-  return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
-end
-
 --- The record-field uses one compile found, kept under its key beside
 --- the compile itself, replacing whatever an earlier compile under the
 --- same key left.
-function compilation.keep_references(db: Sqlite.Handle, key: string,
-                                     references: {receivers.Reference}): boolean, string
+function plans.keep_references(db: Sqlite.Handle, key: string,
+                                     references: {SyntaxReceivers.Reference}): boolean, string
   local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
     return false, why
@@ -1317,7 +837,7 @@ end
 
 --- A discovered test or example that cannot hand its functions back.
 --- Checked before cache lookup, so a former cached compile cannot hide it.
-function compilation.refusal(m: Module): string?
+function plans.refusal(m: Module): string?
   if m.kind == "test" and collides_with_test_tail(m) then
     return m.file .. ": a test file may not both " ..
       "define test_* functions and return its own value; remove the " ..
@@ -1331,53 +851,4 @@ function compilation.refusal(m: Module): string?
   return nil
 end
 
---- The vendored compiler's compile key. Its source is already Lua.
-function compilation.vendor_key(source: string, tool: string): string
-  return Hash.hex_sha256(source .. "\n" .. tool)
-end
-
---- Dumped only when the vendor key missed the local compile cache.
-function compilation.vendor_bytecode(source: string): string?, string
-  local chunk, trouble = load(source, "@vendor.tl", "t")
-  if chunk == nil then
-    return nil, "the vendored compiler would not load: " .. tostring(trouble)
-  end
-  return string.dump(chunk, false), ""
-end
-
---- The identity of the code that finds `typed_refs` and checks the
---- error-slot discipline beside the compiler: [`build.receivers`] and
---- [`build.contracts`] as the running binary carries them, or the binary
---- whole when it carries none. A boot carries no database and runs the
---- tree's own code, so it names them by the tree's source, as the tool
---- it writes will: the identity is signed into the projection
---- ([`build.writer`]), which a self-rebuild must write the same as a boot
---- does. Named apart from [`build.importer.analyzer_identity`] because its rows ride on
---- compiles, which only a change to this code must redo.
-function compilation.receivers_identity(db: Sqlite.Handle): string?, string
-  local booting = Store.meta("boot_hash") == nil
-  local parts: mut {string} = {}
-  for _, name in ipairs({ "build.receivers", "build.contracts" }) do
-    local source: string?
-    if booting then
-      local rows, trouble = Sqlite.text_rows(db,
-        "SELECT source FROM inputs WHERE path = ?1", { text(name) })
-      if rows == nil then
-        return nil, trouble
-      end
-      if #rows > 0 then
-        source = rows[1]:text(1)
-      end
-    else
-      local carried, _ = Store.source(name)
-      source = carried
-    end
-    if source == nil then
-      return "binary " .. (Store.meta("boot_hash") or "")
-    end
-    parts[#parts + 1] = source
-  end
-  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
-end
-
-return compilation
+return plans

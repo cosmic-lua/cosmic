@@ -6,13 +6,13 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
-local analyzer = require("build.analyzer")
+local Analyzer = require("build.syntax_analyzer")
+local type PolicyRules = require("build.policy_rules")
 local artifact = require("build.artifact")
 local core_image = require("build.core_image")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 local fixture = require("build.core_image_fixture")
-local teal = require("build.teal")
 local test_inputs = require("build.test_inputs")
 local Test = require("cosmic.test")
 local type positions = require("build.positions")
@@ -185,7 +185,7 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
   end
   by_path["build.standalone"].requires = needed
   local function key_declaring(standalone: boolean): string
-    local declared: analyzer.Declared = { line = 1, reads = {}, host = {}, env = {},
+    local declared: PolicyRules.Declared = { line = 1, reads = {}, host = {}, env = {},
       network = {}, tool = false, lua = true, nests = false, noexec = false,
       store = false, system = false, caches = {}, requires = {} }
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
@@ -332,16 +332,15 @@ end
 
 --- The fields of `record`, a record `module` declares (`Spec`,
 --- `Effective`), as the build's catalog of its docs lists them
---- ([`build.analyzer`], which fills o/cosmic.db's `docs`), in the order
+--- ([`build.syntax_analyzer`], which fills o/cosmic.db's `docs`), in the order
 --- the source declares them: read off the module's source, so a field
 --- added to the record is listed here with no edit to this test. A
 --- field whose type is a record (or a map of them) the walk does not
 --- enter gets one coarse change, not one per field of its own: walk
 --- such a record here as `Effective` is.
 local function fields_of(module: string, record: string): {string}
-  local built = assert(teal.load())
   local source = assert(Store.source(module))
-  local analysis = assert(analyzer.analyze(built, source, module))
+  local analysis = assert(Analyzer.analyze(source, module))
   local out: mut {string} = {}
   for _, entry in ipairs(analysis.docs) do
     local name = entry.symbol:match("^" .. record:gsub("%.", "%%.") .. "%.([%w_]+)$")

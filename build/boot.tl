@@ -175,7 +175,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     return nil
   end
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
-  local refused = require("build.pipeline").unexpected(result.refused)
+  local refused = result.refused
   if #refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

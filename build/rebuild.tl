@@ -188,11 +188,8 @@ local function project(root: string, verb: string, start: boolean): boolean, str
     return false, compile_trouble
   end
   -- The new checker goes on past a module it refuses, to name them all; the answer is the last build's, with the words of
-  -- the refusal, rather than a projection without the modules that were refused. The modules the tree is known to have
-  -- refused ([`build.pipeline`]'s `residue`) are no failure of a build.
-  -- Only cosmic's own tree has the residue: a project's file of the same name is its own.
+  -- the refusal, rather than a projection without the modules that were refused.
   local unexpected = result.refused
-  if own_tree then unexpected = require("build.pipeline").unexpected(result.refused) end
   if #unexpected > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)

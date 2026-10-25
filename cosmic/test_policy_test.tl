@@ -5,19 +5,17 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local teal = require("build.teal")
-local analyzer = require("build.analyzer")
+local Analyzer = require("build.syntax_analyzer")
+local type PolicyRules = require("build.policy_rules")
 local test_inputs = require("build.test_inputs")
 
 -- The source of cosmic.sandbox.policy, whose `Policy` fields [`Test.Policy`] repeats.
 Test.policy{ grants = { { path = "cosmic/sandbox/policy.tl", letters = "r" } } }
 
-local built = assert(teal.load())
-
 --- A module that declares `call` on `Test`, as the build reads it.
-local function declared(call: string): analyzer.Declared?, string
+local function declared(call: string): PolicyRules.Declared?, string
   local source = 'local Test = require("cosmic.test")\n' .. call .. "\n"
-  local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
+  local found, trouble = Analyzer.analyze(source, "fixture_test.tl")
   if found == nil then return nil, trouble end
   return found.inputs, ""
 end
@@ -273,7 +271,7 @@ end
 --- reads and the worker is handed alike, and the key holds. Nothing is
 --- inferred from its other fields.
 local function test_a_policy_declares_requirements()
-  local function read(call: string): analyzer.Declared
+  local function read(call: string): PolicyRules.Declared
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))
     return found

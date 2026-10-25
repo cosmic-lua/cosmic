@@ -271,7 +271,7 @@ end
 ---
 ---     local names = Store.closure({ "cosmic.json" })
 ---     print(#names, names[1])
--- TODO: follow `pcall(require, ...)` too, once build.ast.requires sees
+-- TODO: follow `pcall(require, ...)` too, once the requires reader sees
 -- it (the TODO in build/embed.tl): until then such a require is no edge.
 function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   if type(roots) ~= "table" then

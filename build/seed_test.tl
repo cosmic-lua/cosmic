@@ -108,12 +108,12 @@ local function test_no_two_files_of_the_seed_share_a_basename()
   end
 end
 
---- The seed is what replaces the fork's checker, so it holds no part of it.
+--- The seed holds no part of the fork's checker, which the tree no longer has.
 local function test_the_seed_holds_nothing_of_the_fork()
   for _, file in ipairs(listed()) do
     assert(file:find("^checker/") == nil, file .. " is the fork's")
     for _, module in ipairs(requires_of(file)) do
-      assert(module ~= "build.teal" and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
+      assert(module:find("^build%.teal") == nil and module:find("^checker%.") == nil, file .. " requires the fork's " .. module)
     end
   end
 end

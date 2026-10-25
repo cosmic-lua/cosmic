@@ -16,9 +16,10 @@
 -- a declared value such as json.null.
 
 local Fs = require("cosmic.fs")
-local ast = require("build.ast")
+local Ast = require("lang.ast")
 local gen_syscalls = require("build.gen_syscalls")
-local teal = require("build.teal")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
 
@@ -61,8 +62,6 @@ Test.policy{
   loopback = { "127.0.0.1" },
 }
 
-local built = assert(teal.load())
-
 --- A value of the core's, read by name.
 local function members(value: any): {string: any}
   local t = type(value)
@@ -89,45 +88,50 @@ local record Surface
   nested: mut {string: Surface}
 end
 
-local function surface_of(def: ast.TypeNode): Surface
-  local s: Surface = { fields = {}, metamethods = {}, userdata = def.is_userdata == true,
-    nested = {} }
-  for _, name in ipairs(def.field_order or {}) do
-    local field = (def.fields or {})[name]
-    if field.typename == "typedecl" then
-      local inner = field.def
-      if inner ~= nil and inner.typename == "record" then
-        s.nested[name] = surface_of(inner)
-      end
-    else
-      s.fields[name] = field.typename == "function"
+--- Whether `members` hold the `userdata` marker of a record.
+local function marks_userdata(items: {Ast.Member}): boolean
+  for _, inner in ipairs(items) do
+    if inner.kind == "Userdata" then
+      return true
     end
   end
-  for _, name in ipairs(def.meta_field_order or {}) do
-    s.metamethods[name] = (def.meta_fields or {})[name].typename == "function"
+  return false
+end
+
+local function surface_of(items: {Ast.Member}, is_userdata: boolean): Surface
+  local s: Surface = { fields = {}, metamethods = {}, userdata = is_userdata, nested = {} }
+  for _, member in ipairs(items) do
+    if member.kind == "FieldDecl" then
+      local name = member.name.name
+      local is_function = member.type.kind == "TypeFunction"
+      if name:sub(1, 2) == "__" then
+        s.metamethods[name] = is_function
+      else
+        s.fields[name] = is_function
+      end
+    elseif member.kind == "Record" then
+      s.nested[member.name.name] = surface_of(member.members, marks_userdata(member.members))
+    end
   end
   return s
 end
 
 --- The record a declaration's source returns.
 local function declared(source: string, file: string): Surface
-  local parsed = assert(ast.parse(built, source, file))
-  local chunk = parsed.node
-  local last = chunk[#chunk]
-  local exps = last.exps
-  assert(last.kind == "return" and exps ~= nil, file .. " returns no record")
-  local returned = exps[1].tk
-  for _, stmt in ipairs(chunk) do
-    local value = stmt.value
-    local typedecl = value ~= nil and value.kind == "newtype" and value.newtype or nil
-    local var = stmt.var
-    local def = typedecl and typedecl.def
-    if stmt.kind == "local_type" and var ~= nil and var.tk == returned and
-        typedecl ~= nil and def ~= nil then
-      return surface_of(def)
+  local parsed = Parser.parse(Lexer.lex(source, file), file, "decl")
+  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then parsed.errors[1].msg else "" end))
+  local body = parsed.chunk.body.stats
+  local last = body[#body]
+  assert(last ~= nil and last.kind == "Return", file .. " returns no record")
+  local first = last.values[1]
+  assert(first ~= nil and first.kind == "Name", file .. " returns no record")
+  local returned = first.text
+  for _, stmt in ipairs(body) do
+    if stmt.kind == "Record" and stmt.name.name == returned then
+      return surface_of(stmt.members, marks_userdata(stmt.members))
     end
   end
-  error(file .. " returns " .. tostring(returned) .. ", which is no record it declares")
+  error(file .. " returns " .. returned .. ", which is no record it declares")
 end
 
 --- Where each of `actual`'s members disagrees with `fields`, as lines
@@ -520,7 +524,7 @@ local record m
   record Thing
     userdata
     poke: function(Thing): integer
-    metamethod __close: function(Thing)
+    __close: function(Thing)
   end
   type Alias = {string: integer}
   open: function(): Thing

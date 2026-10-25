@@ -181,7 +181,7 @@ zip's a subset of tar's), `mode`, `size`, `mtime`, `linkpath` and `open`;
 `Tar.Entry is ArchiveEntry` adds `uid`, `gid`, `typeflag`; `Zip.Entry is
 ArchiveEntry` adds `compressed_size`, `method`, `crc32`, `offset`.
 [`Archive.Reader`] becomes the interface `{ next, close }` both satisfy, so
-`wrap_zip` (archive.tl:175) and the two casts [`build/contracts.tl`] exempts go;
+`wrap_zip` (archive.tl:175) and the two casts build/contracts.tl exempts go;
 `wrap_tar` keeps only its drain. [`Stream.ArchiveWriter`] (`add_file`,
 `add_dir`, `add_symlink`, `close`, `abort`) over [`Tar.Writer`] and
 [`Zip.Writer`] (zip gains `add_symlink`, refusing with a reason where the
@@ -237,7 +237,7 @@ wait still raises (`poll_test.tl` holds it); [`Poll.delay`] and
 and net's three (`waited`, `connection`, `locked`, whose waits outside a task
 end at a caught [`Signal.guard`] signal, which only the core's socket waits and
 [`sys.flock`] see) remain, each with a `TODO:` naming what it waits on.
-the [`Child.wait_any`] exemption in [`build/contracts.tl`] stays too: it is for
+the [`Child.wait_any`] exemption in build/contracts.tl stays too: it is for
 the handle answered beside a group's lingering-member trouble, not for the
 timeout.
 
@@ -370,7 +370,7 @@ becomes the raw type as [`Hash.Hasher`] is. a new C function gets its
 
 **PR 17 `test: the build's validators live in the build`.** [`Test.fields`],
 [`Test.any_host_refusal`], [`Test.network_trouble`], [`Test.lua_trouble`] move to
-[`build/analyzer.tl`], their one caller; `trouble_of` (test.tl:282) is a
+build/analyzer.tl, their one caller; `trouble_of` (test.tl:282) is a
 [`cosmic.shape`] spec over `Needs`. [`cosmic.test`] exports `needs` and `skip`.
 [`Coverage.native_entries`] and [`Coverage.snapshot`] (no caller outside
 `test/`) go with hints.
@@ -431,9 +431,7 @@ description.
 [`Archive.list`]: ../../cosmic/archive.tl
 [`Archive.open`]: ../../cosmic/archive.tl
 [`Archive.Reader`]: ../../cosmic/archive.tl
-[`build/analyzer.tl`]: ../../build/analyzer.tl
 [`build/codec.tl`]: ../../build/codec.tl
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/dataset.tl`]: ../../build/dataset.tl
 [`build/dataset_test.tl`]: ../../build/dataset_test.tl
 [`build/dispatch.tl`]: ../../build/dispatch.tl

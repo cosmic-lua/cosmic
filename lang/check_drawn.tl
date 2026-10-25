@@ -1,4 +1,4 @@
---- The programs the fork's narrowing fuzz test draws ([`build.checker_programs`]), put where the new checker can take
+--- The programs the fork's narrowing fuzz test draws ([`build.check_draws`]), put where the new checker can take
 --- them: its header and shapes are Teal, and the new grammar has no `goto` label, no `T | nil` and no record literal
 --- that leaves a field out. The properties that draw them ([`lang.check_flow_fuzz_test`],
 --- [`lang.check_total_fuzz_test`]) share this.

@@ -32,7 +32,7 @@ local record CheckerDeclarations
 
   --- The texts the tree at `root` holds, for a tool being written from it: the files themselves, held to the hashes the
   --- working database `db` staged them with, so that a file edited during the build is no part of the tool. nil and "" where
-  --- the database stages neither file (a project's tree, whose `checker/` is its own); nil and why where it stages them and
+  --- the database stages neither file (a project's tree, which has no checker of its own); nil and why where it stages them and
   --- they are not what it staged.
   staged: function(db: Sqlite.Handle, root: string): Texts?, string
 

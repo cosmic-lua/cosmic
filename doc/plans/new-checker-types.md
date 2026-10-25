@@ -552,7 +552,7 @@ the fork, and rows and incremental checking come after it.
   tests: interning is idempotent, a union does not depend on member order, an
   encoded type decodes to the same type in a second store.
 - **the relation.** every rule above, with the refused programs of the plan
-  (the pinned holes of [`build/teal_test.tl`], translated). property tests:
+  (the pinned holes of build/teal_test.tl, translated). property tests:
   reflexive, transitive, `never` below everything, only `nil` and optionals
   admit nil, a `mut` collection is invariant.
 - **declarations.** lowering of every declaration and annotation with its
@@ -599,7 +599,7 @@ the fork, and rows and incremental checking come after it.
 - **the bindings of C.** the driver reads the `.d.tl` declarations the build
   derives for [`cosmic.sys`] and the raw C modules, so a call into C has a
   callee, a result type and a contract. the fork enforces the contract
-  rules ([`build/contracts.tl`]) on about 740 such call sites, and a
+  rules (build/contracts.tl) on about 740 such call sites, and a
   checker that leaves them untyped does not see them. the piece lands
   before the switch, with a `[typed]` ceiling for the calls that still have
   no callee ([the switch]), and the `unchecked_binding` ceilings fall with
@@ -616,7 +616,7 @@ the fork, and rows and incremental checking come after it.
   it, after declarations. rows are encoding, Merkle hashes, interface hashes
   and decoding, with a test that checks a module in a second process from
   rows alone and compares every verdict. incremental is the trace, the worker
-  split that replaces [`build/shards.tl`], and the speed workloads.
+  split that replaces build/shards.tl, and the speed workloads.
 
 ## decisions
 
@@ -1081,13 +1081,10 @@ silent. *not adopted:* each reading's looser form, named here.
 [`build/alias_members.tl`]: ../../build/alias_members.tl
 [`build/cache.tl`]: ../../build/cache.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`build/driver.tl`]: ../../build/driver.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
 [`build/error_render.tl`]: ../../build/error_render.tl
 [`build/removed_fix.tl`]: ../../build/removed_fix.tl
-[`build/shards.tl`]: ../../build/shards.tl
-[`build/teal_test.tl`]: ../../build/teal_test.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Capture.after`]: ../../lang/scopes.tl
 [`cosmic.internal.process`]: ../../core/process.h

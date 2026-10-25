@@ -1175,8 +1175,8 @@ end
 --- which writes the same from the store's search order, restated here
 --- since a closure's modules are rows of its store, which the runner's own
 --- search order does not carry (the tree's tests are in none of the
---- program's databases). Beside those, `stubs`, which [`build.teal`] reads
---- for a checker the worker runs and a sealed program has no use for.
+--- program's databases). Beside those, `stubs`, which a checker the worker runs reads
+--- and a sealed program has no use for.
 local sealed_schema <const>: {string} = {
   "PRAGMA page_size = 4096",
   "PRAGMA auto_vacuum = 0",
@@ -1207,11 +1207,11 @@ local sealed_schema <const>: {string} = {
 --- tree), which a worker's key holds by their digest ([`extras_digest`]).
 --- The key and the tests of a module are left empty (the compile's, and the
 --- tree's own). Each module's and declaration's `decl_imports` rows, which
---- [`build.compilation`] reads of a standard-library module a project's
+--- build.compilation reads of a standard-library module a project's
 --- compile resolves, come from where its own row does: the closure's,
 --- which its store's digest holds, else the program's, which the key holds
 --- as it holds the module ([`extras_digest`], or `epoch` for what every
---- worker loads). A standard-library module's stub ([`build.stub`]), which
+--- worker loads). A standard-library module's stub (build.stub), which
 --- a checker the worker runs reads in place of its source, comes from
 --- where its row does too. The time zones, CA roots and web assets go only
 --- where the set holds the module that reads them, as [`Store.seal`] does:

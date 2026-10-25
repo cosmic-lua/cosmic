@@ -42,7 +42,7 @@ local function problems(options: Pipeline.Options, name: string, source: string)
   return made.lines
 end
 
---- A stored example source ([`build.analyzer.ExampleEntry.source`]: the
+--- A stored example source (build.analyzer.ExampleEntry.source: the
 --- `require` lines it needs, the function) as a chunk that runs alone:
 --- `local Example = {}` where the function begins, and a call of it.
 --- Lines are kept, so a complaint's line is a line of the text shown,

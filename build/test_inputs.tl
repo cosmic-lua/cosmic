@@ -32,7 +32,7 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
-local type analyzer = require("build.analyzer")
+local type PolicyRules = require("build.policy_rules")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
 
@@ -181,7 +181,7 @@ local corpora <const> = "testdata/fuzz/"
 --- its closure.
 ---
 --- `requires` holds only the literal names handed to `require` itself,
---- so a `require` of a computed name -- or, until [`build.ast.requires`]
+--- so a `require` of a computed name -- or, until the requires reader
 --- follows it (the TODO in build/embed.tl), of a literal one through
 --- `pcall(require, ...)` -- is not followed: the worker refuses one
 --- that names a module of the tree outside this closure
@@ -224,7 +224,7 @@ local function closure(m: Module, by_path: {string:Module},
   -- Each of `lua_loads`, for a module that declares `lua`, as a module it
   -- requires whose own requires it does not follow: each one's top-level
   -- requires are among them.
-  local declared: analyzer.Declared = m.inputs
+  local declared: PolicyRules.Declared = m.inputs
   local function hold(loads: {string})
     for _, name in ipairs(loads) do
       local other = by_path[name]
@@ -275,7 +275,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   -- name may be computed, and corpora are small.
   if fuzzes then out.reads[1] = corpora end
   for _, name in ipairs(pinned_env) do out.env[name] = true end
-  local declared: analyzer.Declared = m.inputs
+  local declared: PolicyRules.Declared = m.inputs
   if declared ~= nil then
     for _, path in ipairs(declared.reads) do out.reads[#out.reads + 1] = path end
     for _, path in ipairs(declared.host) do out.host[#out.host + 1] = path end
@@ -407,9 +407,9 @@ end
 --- literal's order, duplicates kept, quoted (`%q`, which marks where it
 --- ends), and for each flag set, as `true`; "" for none. `line` plays no
 --- part.
-function test_inputs.canonical(maybe: analyzer.Declared?): string
+function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if maybe == nil then return "" end
-  local declared: analyzer.Declared = maybe
+  local declared: PolicyRules.Declared = maybe
   local lines: mut {string} = {}
   local function list(field: string, values: {string})
     for _, value in ipairs(values) do
@@ -433,8 +433,8 @@ function test_inputs.canonical(maybe: analyzer.Declared?): string
 end
 
 --- What a `policy` stands for, as the build reads a declaration
---- ([`build.analyzer`]), for `canonical`: nil for none.
-function test_inputs.as_declared(needs: inputs.Needs?): analyzer.Declared?
+--- ([`build.policy_rules`]), for `canonical`: nil for none.
+function test_inputs.as_declared(needs: inputs.Needs?): PolicyRules.Declared?
   if needs == nil then return nil end
   return { line = 0, reads = needs.reads or {}, host = needs.host or {},
     env = needs.env or {}, network = needs.network or {},

@@ -1,5 +1,5 @@
 --- Tests of [`lang.check`]: a case for each code it reports, with the place, message and fix; programs that stand;
---- the types of names; and the programs the fork accepts that [`build/teal_test.tl`] pins and the plan refuses, as
+--- the types of names; and the programs the fork accepts that build/teal_test.tl pins and the plan refuses, as
 --- the questions of expressions they are.
 local Check = require("lang.check")
 local Codes = require("lang.check_codes")

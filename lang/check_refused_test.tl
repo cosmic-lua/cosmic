@@ -1,5 +1,5 @@
 --- The programs the fork accepts and the plan refuses, as questions of expressions: the pinned holes of
---- [`build/teal_test.tl`], translated into the grammar. The comment of each test names the test of that file that
+--- build/teal_test.tl, translated into the grammar. The comment of each test names the test of that file that
 --- pins the hole, and each program is refused with the code of the rule that closes it. A hole that is a relation
 --- question is [`lang.relation_refused_test`]'s, one of flow (a narrowing the fork loses at a join, a function that
 --- reaches its end) waits for the flow piece, and the metatables are the class piece's.

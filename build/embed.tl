@@ -315,7 +315,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- only its file name. An import edge and a catalog row go with the
     -- module they are about.
     -- TODO: an edge exists only for a `require` of a literal name
-    -- ([`build.ast.requires`]), so a test or example file loaded by a
+    -- (build.syntax_node's requires), so a test or example file loaded by a
     -- computed name or through `pcall(require, "<name>")` is left out
     -- and the program fails to load it at run time; teach
     -- `all_requires` the `pcall(require, ...)` form, and refuse a

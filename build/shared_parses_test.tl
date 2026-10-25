@@ -20,7 +20,7 @@ local dump = parses_fixture.dump
 local parse_rows = parses_fixture.rows
 
 --- The tree a boot case derives: [`build.importer`] and the analyzer
---- modules it names ([`build.analyzer`], [`build.ast`]), what they reach
+--- modules it names (build.analyzer, build.ast), what they reach
 --- (`build.thing`, `build.helper`, the declaration `build.raw`), and a
 --- module no analyzer module reaches.
 local analyzer_tree: {string:string} = {

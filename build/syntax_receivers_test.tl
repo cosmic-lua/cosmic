@@ -1,5 +1,6 @@
---- Tests of [`build.syntax_receivers`] against [`build.receivers`]: a program is read by the fork's compiler and by the new
---- checker, and the uses of a record's fields found through the type of the value are the same, use for use, in order.
+--- Tests of [`build.syntax_receivers`] against the fork's receivers: a program is read by the new checker, and the uses of a
+--- record's fields found through the type of the value are the same as the fork found (kept as text, [`lang.forked`]), use
+--- for use, in order.
 local Fixture = require("build.syntax_typed_fixture")
 local Receivers = require("build.syntax_receivers")
 local Test = require("cosmic.test")
@@ -7,6 +8,7 @@ local Test = require("cosmic.test")
 Test.policy{
   grants = {
     { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" },
+    { path = "testdata/forked/typed_fixture.txt", letters = "r" },
     { path = "core/syscalls.h", letters = "r" }, { path = "core/process.h", letters = "r" }, { path = "core/socket.h", letters = "r" },
   },
 }
@@ -123,7 +125,7 @@ end
 --- The uses the fork and the port find in `source` after the prelude: the same; the fork's, as lines.
 local function same(source: string): string
   local text = Fixture.PRELUDE .. source
-  local fork, port = uses_of(Fixture.fork(text, MODULES)), uses_of(Fixture.port(text, MODULES))
+  local fork, port = uses_of(Fixture.forked(text, MODULES)), uses_of(Fixture.port(text, MODULES))
   assert(fork == port, "in:\n" .. source .. "\nthe fork finds:\n" .. fork .. "\nthe port finds:\n" .. port)
   return fork
 end
@@ -185,7 +187,7 @@ end
 local function test_a_value_reached_through_a_table_constructor_with_no_type_is_a_use_for_the_fork_and_none_for_the_port()
   local text = Fixture.PRELUDE .. "local Z = require('zipx')\nlocal w = Z.open()\nlocal box = { w = w }\n" ..
     "local ok, _ = box.w:close()\nuse(ok)\n"
-  assert(uses_of(Fixture.fork(text, MODULES)) == "zipx Writer.close " .. line(4))
+  assert(uses_of(Fixture.forked(text, MODULES)) == "zipx Writer.close " .. line(4))
   assert(uses_of(Fixture.port(text, MODULES)) == "")
 end
 
@@ -389,7 +391,7 @@ local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_anoth
   }
   local text = Fixture.PRELUDE .. "local a, b, c = require('g_def'), require('h_def'), require('i_def')\n" ..
     "local d, e, f = require('j_def'), require('k_def'), require('l_def')\nuse(a.name, b.name, c.name, d.name, e.name, f.name)\n"
-  local found = uses_of(Fixture.fork(text, modules))
+  local found = uses_of(Fixture.forked(text, modules))
   local want = ""
   for _, types in ipairs({ "a", "b", "c", "d", "e", "f" }) do
     want = want .. (if want == "" then "" else "\n" end) .. types .. "_types Def.name " .. tostring(line(3))

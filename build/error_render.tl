@@ -23,7 +23,7 @@
 -- fork's hint says and the checker's fix does not), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
 --
--- TODO: print every module's problems through this, and delete `complain`, `with_hint` and [`teal.replacement`] of the fork,
+-- TODO: print every module's problems through this, and delete `complain`, `with_hint` and teal.replacement of the fork,
 -- once the build compiles with the new checker alone (doc/plans/strict-teal.md, "the switch"); [`build.tree_checks`] then
 -- reads the queries of [`ErrorRender.queries`] in place of [`importer.diagnostic_queries`].
 local Driver = require("build.driver")

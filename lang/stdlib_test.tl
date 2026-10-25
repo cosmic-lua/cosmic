@@ -1,6 +1,6 @@
 --- The standard library's declarations as the new checker reads them ([`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]): a
 --- function that answers nil where Lua does is declared so, a use of its result is held to that, and a callback of
---- `string.gsub` is typed by its arity. The fork's own reading is pinned by [`build/stdlib_declarations_test.tl`].
+--- `string.gsub` is typed by its arity. The fork's own reading is pinned by build/stdlib_declarations_test.tl.
 local Fs = require("cosmic.fs")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")

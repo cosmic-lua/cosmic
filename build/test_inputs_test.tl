@@ -2,7 +2,7 @@ local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local test_inputs = require("build.test_inputs")
 local key_parts = require("build.key_parts")
-local type analyzer = require("build.analyzer")
+local type PolicyRules = require("build.policy_rules")
 local type declared_inputs = require("build.inputs")
 local type positions = require("build.positions")
 
@@ -11,7 +11,7 @@ local type Module = positions.Module
 --- A module of a small tree: its path, file, what it requires, and what
 --- it declares.
 local function module(path: string, file: string, requires: {string},
-                      inputs?: analyzer.Declared): Module
+                      inputs?: PolicyRules.Declared): Module
   return { path = path, file = file, kind = "test", source = "", source_hash = "",
     requires = requires, tests = { "test_one", "test_two" }, inputs = inputs }
 end
@@ -29,7 +29,7 @@ local record Fields
 end
 
 --- A declaration of what `fields` names, the rest left out.
-local function declaring(fields: Fields): analyzer.Declared
+local function declaring(fields: Fields): PolicyRules.Declared
   return { line = 1, reads = fields.reads or {}, host = fields.host or {},
     env = fields.env or {}, network = fields.network or {},
     tool = fields.tool == true, lua = fields.lua == true, nests = false,
@@ -41,7 +41,7 @@ end
 --- module of its own and one only a declaration file answers for, and a
 --- module nothing requires. The helper runs fuzz properties when
 --- `fuzzes` says so.
-local function tree(inputs?: analyzer.Declared, fuzzes?: boolean): Module, {string:Module}
+local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
   if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
   local helper = module("lib.helper", "lib/helper.tl", helper_requires)
@@ -261,7 +261,7 @@ end
 --- One that requires build.standalone holds each of them too, through
 --- what that requires.
 local function test_only_a_standalone_closure_holds_what_standalone_loads()
-  local function names_of(declared: analyzer.Declared, standalone: boolean): {string:boolean}, test_inputs.Effective
+  local function names_of(declared: PolicyRules.Declared, standalone: boolean): {string:boolean}, test_inputs.Effective
     local m, by_path = tree(declared)
     for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
       for _, name in ipairs(list) do

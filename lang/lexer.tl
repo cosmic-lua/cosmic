@@ -30,10 +30,10 @@
 ---
 --- Every error has a `code`, a `msg` that says what is wrong and a `fix`
 --- that says how to put it right in the program's own terms. [`Code`]
---- catalogues the codes. They are not yet in [`build/compiler.d.tl`]'s
+--- catalogues the codes. They are not yet in build/compiler.d.tl's
 --- `ErrorCode`: that enum belongs to the fork. Once the new checker
 --- replaces the fork, the enum is [`Code`] with the parser's and
---- the checker's codes beside it, and a hint in [`build/teal.tl`] reads
+--- the checker's codes beside it, and a hint in build/teal.tl reads
 --- `fix` as it reads the fork's `msg` today.
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
@@ -202,7 +202,7 @@ local record Lexer
   end
 
   --- What `lex` answers. A record, not two results: an exported function
-  --- answers one ([`build.contracts`]).
+  --- answers one (build.contracts).
   record Lexed
     --- Every token in source order, the last an `$EOF$`.
     tokens: Tokens

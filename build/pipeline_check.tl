@@ -5,9 +5,8 @@
 --- difference in it, listing a module with the side that refuses it.
 ---
 --- The pipeline refuses a module for more than a count: a translation that does not parse, a warning, a construct the
---- generator cannot write. No ceiling counts these, so [`build.pipeline.residue`] names each such module with the code of the
---- first line of its refusal, and a module refused so and not named, named and not refused so, or named with another
---- code, is listed.
+--- generator cannot write. No ceiling counts these, so a module refused so is listed with the code of the first line of its
+--- refusal.
 
 local CompileGrammar = require("build.compile_grammar")
 local Pipeline = require("build.pipeline")
@@ -44,7 +43,7 @@ local record PipelineCheck
   --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` answers by position.
   --- `declared` and `checked` are the lines the checks of the tree answer ([`tree_checks.declared`], [`tree_checks.checked`]).
   --- `memo` keeps the answer for a module under its key.
-  --- A tree whose compared modules are not exactly the tree's own (every file but those of `ci/` and `checker/`, the declarations of the standard library apart) fails, since
+  --- A tree whose compared modules are not exactly the tree's own (every file but those of `ci/`, the declarations of the standard library apart) fails, since
   --- a comparison of a few agrees with everything. It says how many it compared.
   compare: function(
     root: string,
@@ -104,7 +103,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   end
   local build = pipeline.build
   local index, ceilings = pipeline.index, pipeline.ceilings
-  -- What the working database stages: the tree of `ci/` and the fork's `checker/` are none of its modules.
+  -- What the working database stages: the tree of `ci/` is none of its modules.
   local rows_of: mut {string: {PipelineCheck.Row}} = {}
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -256,7 +255,6 @@ function PipelineCheck.compare(
   local compared = 0
   for _, row in ipairs(rows) do
     local by_pipeline = over[row.file]
-    local named = Pipeline.residue()[row.file]
     local code = other[row.file]
     -- Nothing is answered of a module the working database does not stage.
     if by_pipeline ~= nil then
@@ -269,28 +267,21 @@ function PipelineCheck.compare(
         out[#out + 1] = row.file .. ": the tree checks refuse it for a count over its ceiling, and the pipeline accepts it: " ..
           "the two read different programs"
       end
-      if code ~= nil and named == nil then
-        out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. ", which no ceiling counts: name it in " ..
-          "`Pipeline.residue` with that code"
-      elseif code == nil and named ~= nil then
-        out[#out + 1] = row.file .. ": `Pipeline.residue` names it for " .. named ..
-          " and the pipeline no longer refuses it so: remove it from the list"
-      elseif code ~= nil and code ~= named then
-        out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. " and `Pipeline.residue` names " ..
-          tostring(named)
+      if code ~= nil then
+        out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. ", which no ceiling counts"
       end
     end
   end
-  -- The working database stages every module of the tree but the trees of `ci/` and the fork's `checker/`.
+  -- The working database stages every module of the tree but the tree of `ci/`.
   local expected = 0
   for _, row in ipairs(rows) do
-    if row.file:find("^ci/") == nil and row.file:find("^checker/") == nil then
+    if row.file:find("^ci/") == nil then
       expected = expected + 1
     end
   end
   if compared ~= expected then
     out[#out + 1] = "the pipeline was compared on " .. String.counted(compared, "module") .. " where the tree has " ..
-      tostring(expected) .. " outside ci/ and the fork's checker/: the staging and the tree differ"
+      tostring(expected) .. " outside ci/: the staging and the tree differ"
   end
   logger.log:say("fix: pipeline: compared " .. String.counted(compared, "module") .. " of the tree's " ..
       tostring(expected) .. " the working database stages")

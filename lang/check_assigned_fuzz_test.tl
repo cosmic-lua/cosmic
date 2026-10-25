@@ -8,7 +8,7 @@
 --- Loops and blocks that declare a local of their own, unassigned on each pass, are drawn under names of their own, since
 --- the new grammar refuses a declaration that hides another: the statements that follow read the innermost.
 ---
---- This is the oracle of [`build/checker_assigned_fuzz_test.tl`] against the new checker, which keeps it when the fork
+--- This is the oracle of build/checker_assigned_fuzz_test.tl against the new checker, which keeps it when the fork
 --- goes; the fork's reads a function where it is called, and so its oracle ran the functions it had made at each call.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 --- A few draws run by default so that the test fits a few seconds; the full sweep, many draws from several seeds, is

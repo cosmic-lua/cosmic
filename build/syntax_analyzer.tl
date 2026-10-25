@@ -1,7 +1,7 @@
 --- The source analyzer on the new syntax tree: what one parse of a module's source tells the importer about it -- its
 --- own test names, whether it returns its own value at the top level and under what name, the failure messages it
 --- catalogs, the symbols it documents, its worked examples, the members of other modules it refers to, and the
---- `policy` a test module declares. It is the port of [`build.analyzer`], and answers the rows of an analysis
+--- `policy` a test module declares. It is the port of build.analyzer, and answers the rows of an analysis
 --- ([`Analyzer.Analysis`]) the fork's analyzer does, read off a tree of [`lang.parser`] ([`lang.ast`]) and the names
 --- [`lang.scopes`] resolved.
 ---
@@ -160,7 +160,7 @@ local function next_place(chunk: Ast.Chunk, stats: {Ast.Stat}, index: integer, c
 end
 
 -- TODO: read a catalog message as the source means it, an escape decoded, once the switch deletes the fork's analyzer
--- ([`build.analyzer`] keeps the text between the quotes as written, so that `\"` is two bytes of the message and no error
+-- (build.analyzer keeps the text between the quotes as written, so that `\"` is two bytes of the message and no error
 -- a person sees holds it, and the comparison holds this reader to it) (doc/plans/strict-teal.md, "the switch").
 
 --- A `return nil, $MSG`-shaped statement's message expression, reduced to whatever of it is a literal: a plain string

@@ -20,7 +20,7 @@ local _ = require("cosmic.child")
 --- [`cosmic.child`]'s loader (core/syscalls_test.tl finds it the same
 --- way): no module requires it by name but under boot.
 -- TODO: start each child with cosmic.child's sandbox option and drop
--- this function and its cast (build/contracts.tl's `casts`), once
+-- this function and its cast (build/contract_rules.tl's `casts`), once
 -- cosmic.child offers spawn's sandbox as a Child option (the TODO in
 -- cosmic/child.tl's start).
 local function raw_process_table(): raw_process

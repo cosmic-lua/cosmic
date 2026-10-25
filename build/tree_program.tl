@@ -6,7 +6,7 @@
 --- with the same calls of [`Shape.record_of`] resolved ([`TreeProgram.splice`]), the same globals and bindings. A check of
 --- the whole tree holds them to it: for every module the working database stages, the tree's checks refuse it for a count
 --- over a ceiling exactly when the pipeline does, and the modules the pipeline refuses for more than a count are named
---- ([`build.pipeline_check`], [`build.pipeline.residue`]).
+--- ([`build.pipeline_check`]).
 ---
 --- The globals are the declarations of the Lua standard library ([`lang/stdlib.d.tl`]) and the prelude ([`lang/prelude.d.tl`]),
 --- both in the new grammar, less the names cosmic's runtime withholds ([`build.withheld`]). A source is read as written.

@@ -159,7 +159,7 @@ stack can carry.
   narrow a field". where two places are involved it names both, as a
   refusal of a narrowing names the assignment that dropped it, and a nil
   error names the call that answered nil and where it is declared. the fix
-  is pinned with the error in [`build/teal_test.tl`], as
+  is pinned with the error in build/teal_test.tl, as
   `test_a_value_that_may_be_nil_is_told_the_check` pins today's, and an
   error whose fix the checker cannot state is a bug in the error.
 - **strict is the only mode.** a rule holds for every module from the PR
@@ -255,7 +255,7 @@ stack can carry.
   mutable]), so what a binding may write is the declaration's word and
   no hand audit of the bindings is needed.
 - **the rules are tested against programs that must be refused.** every
-  hole found becomes a refused program in [`build/teal_test.tl`], which
+  hole found becomes a refused program in build/teal_test.tl, which
   already pins today's known holes (`test_as_and_is_forge_a_never_function`,
   `test_a_function_index_serves_any`,
   `test_a_callback_field_with_a_record_parameter_is_the_known_limit`). a
@@ -342,7 +342,7 @@ stack can carry.
   check.
 - **the new checker has its own grammar from its first PR.** it is not a
   drop-in for the fork: its grammar, its syntax tree and its interface to
-  the tree ([`build/compiler.d.tl`]) are designed for the language, and
+  the tree (build/compiler.d.tl) are designed for the language, and
   the `build/` modules that read the syntax tree are rewritten beside it.
   the fork takes only type-level syntax that is erased in the emitted
   Lua, as its `readonly` marker is, and no new statement or expression form.
@@ -408,7 +408,7 @@ keeps every part of it working and builds on it where it helps.
   writes each module's exported types, canonicalised, as a row beside its
   stub, and a module is checked against its requirements' rows rather
   than by checking their sources again. a worker can then check any
-  module, so the sharding by import closure in [`build/shards.tl`], which
+  module, so the sharding by import closure in build/shards.tl, which
   exists because "the checker's types cannot leave a process", goes, and
   the hash of that row is what a requiring module's compile key reads: an
   edit that leaves a module's exported types alone recompiles nothing
@@ -435,7 +435,7 @@ keeps every part of it working and builds on it where it helps.
   join: each difference a row with the name of the rule that explains it,
   and the gate is the query that finds a row with none. the tables are
   data under [`testdata/gate/`], so that they outlive the fork: `verdicts.json`
-  holds a row for each program [`build/teal_test.tl`] pins and each input
+  holds a row for each program build/teal_test.tl pins and each input
   of the checker corpora, with what the fork said (frozen) and what the
   new checker says and with which codes; `retired.json` holds a row for
   each program the fork refuses and the new checker takes, with the code
@@ -447,7 +447,7 @@ keeps every part of it working and builds on it where it helps.
   longer what the checker says; `bin/cosmic build/gate_record.tl` writes the
   table again, and `cosmic sql --from` asks it anything else.
 - **a pin the new rules retire is a row, not a refusal.** a program of
-  [`build/teal_test.tl`] that the fork refuses because of what the fork
+  build/teal_test.tl that the fork refuses because of what the fork
   lacks (`never` as a flag, joins that keep the declared type, fields that
   are never places, a receiver that is not the interface's) and that the
   new checker takes by a rule of this plan is not refused again to keep the
@@ -457,7 +457,7 @@ keeps every part of it working and builds on it where it helps.
   form is seen; and the program is run. a refusal at the lexer, the parser
   or the scope builder (a form the grammar cut) shows the verdict only, not
   that the rule a pin is about is held. the table leaves out the programs of
-  the four parser-timing tests of [`build/teal_test.tl`]: 15 distinct
+  the four parser-timing tests of build/teal_test.tl: 15 distinct
   programs of one line repeated 2000 times, which say nothing of a rule
   and whose lines name a variable `record` or `enum`, which the new grammar reserves (`unknown_variable`).
 - **an optional field is a plain value, never a metamethod and never a
@@ -552,7 +552,7 @@ flow analysis decides narrowing and reachability.
   ([fields are fixed unless declared mutable]), so no second reference to
   it can write the field.
 - a module's fixed fields are never seen before they are set: the build
-  refuses a cycle of imports ([`compilation.ordered`] reports "a cycle of
+  refuses a cycle of imports (compilation.ordered reports "a cycle of
   imports"), and only declarations, which run no code, may form one, so a
   module's body has run before any module that requires it.
 - a `.d.tl` declaration promises that its C writes only a table parameter
@@ -1115,7 +1115,7 @@ what landed in the fork:
   around it only if nothing assigns it after the function is made.
 - `specialize_var`, the scope markers and the shadow comparison are gone.
   the verdicts the switch moved are pinned in
-  [`build/checker_facts_reads_test.tl`].
+  build/checker_facts_reads_test.tl.
 
 what was dropped: the refinements that accept more (one flow pass,
 function declarations keeping local facts, joins that unite types, the
@@ -1242,7 +1242,7 @@ fork, not once every ceiling is zero. the aim is lower cost, accepting
 harder transitions while keeping a high bar for soundness and
 correctness. the gate:
 
-- every program pinned in [`build/teal_test.tl`] (translated) is refused by
+- every program pinned in build/teal_test.tl (translated) is refused by
   a rule of this plan, or is accepted because a sound rule of this plan
   admits it: such a program is a row of [`testdata/gate/retired.json`] with
   the code of that rule, a near-twin that the same rule refuses, and a run
@@ -1252,7 +1252,7 @@ correctness. the gate:
   row in the verdict tables tied to a named rule;
 - the fuzz soundness property and checked narrowing run against it;
 - the C bindings are typed. the fork enforces the contract rules
-  ([`build/contracts.tl`]) on calls into [`cosmic.sys`] and the raw C
+  (build/contracts.tl) on calls into [`cosmic.sys`] and the raw C
   modules, about 740 call sites in the tree: an ignored [`sys.unlink`]
   result, a [`sys.stat`] result used unchecked, `:find` on a sys error
   reason, a bare-boolean wrapper. the new checker leaves a C binding
@@ -1303,7 +1303,7 @@ the new checker's declarations of the standard library
 fork's. a project written in a form only the fork reads breaks, and the error
 it meets carries the new checker's fix ([`build/error_catalog.tl`],
 [`build/removed_fix.tl`]) that says how to write it. a project gets the
-full checker, the error-slot rules of [`build/contracts.tl`] included: the
+full checker, the error-slot rules of build/contracts.tl included: the
 fork holds only cosmic's own tree to them, and the new pipeline holds every
 project to them, so a project that passes the fork can meet them at the
 switch. a project has no ceilings, so every error refuses, and a project
@@ -1523,7 +1523,6 @@ since the seed's Lua runs on the tree's VM.
 [`bin/vendor`]: ../../bin/vendor
 [`bin/zig`]: ../../bin/zig
 [`build.fuzz`]: ../../build/fuzz/init.tl
-[`build/compiler.d.tl`]: ../../build/compiler.d.tl
 [`ci/islands.txt`]: ../../ci/islands.txt
 [`build/pipeline.tl`]: ../../build/pipeline.tl
 [`build/error_catalog.tl`]: ../../build/error_catalog.tl
@@ -1536,14 +1535,10 @@ since the seed's Lua runs on the tree's VM.
 [`build/verify_codesign.tl`]: ../../build/verify_codesign.tl
 [`build/zig.tl`]: ../../build/zig.tl
 [`build/ceilings.txt`]: ../../build/ceilings.txt
-[`build/contracts.tl`]: ../../build/contracts.tl
 [`lang/check.tl`]: ../../lang/check.tl
 [`lang/fact_wraps.tl`]: ../../lang/fact_wraps.tl
 [`build/driver.tl`]: ../../build/driver.tl
-[`build/checker_facts_reads_test.tl`]: ../../build/checker_facts_reads_test.tl
 [`build/confine.tl`]: ../../build/confine.tl
-[`build/teal.tl`]: ../../build/teal.tl
-[`build/teal_test.tl`]: ../../build/teal_test.tl
 [`bin/gate-sweep`]: ../../bin/gate-sweep
 [`testdata/gate/`]: ../../testdata/gate
 [`testdata/gate/sweep.txt`]: ../../testdata/gate/sweep.txt
@@ -1565,10 +1560,8 @@ since the seed's Lua runs on the tree's VM.
 [`Json.array`]: ../../cosmic/json.tl
 [`Sqlite.rows`]: ../../cosmic/sqlite.tl
 
-[`build/shards.tl`]: ../../build/shards.tl
 [`build/tree_checks.tl`]: ../../build/tree_checks.tl
 [`Child.Handle`]: ../../cosmic/child.tl
-[`compilation.ordered`]: ../../build/compilation.tl
 [`cosmic.json.array`]: ../../cosmic/json.tl
 [`sys.stat`]: ../../core/syscalls.h
 [`sys.unlink`]: ../../core/syscalls.h

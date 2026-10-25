@@ -153,14 +153,14 @@ local version <const> = "30"
 --- `links` is each link its comments hold ([`build.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).
---- `stubs` is the stub of a source ([`build.stub`]): the text a
+--- `stubs` is the stub of a source (build.stub): the text a
 --- project's checker reads in place of a module's, which cosmic's own
 --- projection carries for its standard library, and whether it is
 --- declaration-only. Every source with a top-level `return` has one,
 --- though only those modules' are read: a test has none.
 --- `globals` is where each `global` declaration of a source starts
---- ([`build.globals`]), a row each by line and column: the rows a build
---- refuses from ([`build.compilation`]'s `refuse_globals`) without
+--- (build.globals), a row each by line and column: the rows a build
+--- refuses from (build.compilation's `refuse_globals`) without
 --- reading a source again. A guide's example is at the line of the
 --- module extracted from the guide.
 ---
@@ -239,22 +239,22 @@ local version <const> = "30"
 --- projection whose symbols and links did not move copies them.
 ---
 --- `compiled_interface` names, by a module's interface key
---- ([`build.compilation`]'s `interface_keys`), the compile that stood
+--- (build.compilation's `interface_keys`), the compile that stood
 --- for it last: what a module's key that moved without its source or the
 --- interface of anything it reaches moving takes its compile from.
 ---
---- `keys_memo` is the keys [`build.compilation`]'s `dependency_keys` made
+--- `keys_memo` is the keys build.compilation's `dependency_keys` made
 --- of the last few sets of inputs, by a digest of everything they are a
 --- function of, so a run where no source moved does not make them again.
 ---
 --- `key_memo` and `key_frags` are the keys of the last build's modules and
 --- the digest of each node of their import graphs, written together
 --- under the compiler they were made for, so that a build keys again only
---- the modules that reach a node that changed ([`build.compilation`]'s
+--- the modules that reach a node that changed (build.compilation's
 --- `fast_keys`).
 ---
 --- `typed_refs` is what one compile's checker found a record's field
---- used through ([`build.receivers`]): keyed by the compile's own key,
+--- used through (build.receivers): keyed by the compile's own key,
 --- since a value's type depends on everything its module imports, and
 --- dropped with the compile it rode on.
 ---
