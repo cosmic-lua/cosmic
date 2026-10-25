@@ -30,9 +30,8 @@ local function user(name: string, indent: string): string
     "return " .. name .. "\n"
 end
 
---- A file only linked says so; one also laid out does not, and a check
---- fails the link rather than say a fix.
-local function test_a_link_rewrite_says_why_only_when_it_is_the_only_change(tmp: string)
+--- A file the run only links says so, each one (`cosmic fix` lays out none), and a check fails the link rather than say a fix.
+local function test_a_link_rewrite_says_why(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/other.tl", OTHER))
@@ -44,7 +43,7 @@ local function test_a_link_rewrite_says_why_only_when_it_is_the_only_change(tmp:
   assert(not checked:find("(links)", 1, true), checked)
   local out = fix(root, false)
   assert(out:find("fixed  linked.tl (links)\n", 1, true), out)
-  assert(out:find("fixed  both.tl\n", 1, true), out)
+  assert(out:find("fixed  both.tl (links)\n", 1, true), out)
   assert(out:find("fix: 3 Teal + 1 Markdown files, ", 1, true), out)
 end
 
@@ -54,9 +53,9 @@ local function test_a_method_named_like_a_command_earns_no_note(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   local doc = "--- Drops one entry of the cache, in the way `unlink` drops a name.\n"
-  assert(Fs.write(root .. "/lru.tl", "local record Lru\nend\n\n" ..
-      doc .. "function Lru:unlink(): boolean\n  return true\nend\n\n" ..
-      doc .. "function Lru.drop(self: Lru): boolean\n  return self ~= nil\nend\n\n" ..
+  assert(Fs.write(root .. "/lru.tl", "local class Lru\n" ..
+      "  " .. doc .. "  function unlink(self): boolean\n    return true\n  end\n" ..
+      "  " .. doc .. "  function drop(self): boolean\n    return true\n  end\nend\n\n" ..
       "return Lru\n"))
   local out = fix(root, false)
   assert(not out:find("stands in for", 1, true), out)
@@ -74,7 +73,7 @@ local function test_a_path_under_static_is_refused(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/static"))
   assert(Fs.write(root .. "/static/notes.tl", "not   teal {{\n"))
-  assert(Fs.write(root .. "/main.tl", "return 1\n"))
+  assert(Fs.write(root .. "/main.tl", "local n: integer = 1\nreturn n\n"))
   local named = fix(root, false, { "static/notes.tl" })
   assert(named:find("carried verbatim", 1, true), named)
   assert(named:find("fix: 1 of 1 file refused, ", 1, true), named)
