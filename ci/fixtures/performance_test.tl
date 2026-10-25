@@ -46,8 +46,10 @@ Test.policy{
 -- `Perf.benchmark` refuses fewer than 30.
 local function controller(): string
   local source = assert(Fs.read(Fixture.placed("performance") .. "/perf.tl"))
-  local seam = "\nPerf.main = function(argv: {string}): integer\n" ..
-    "  return Perf.rehearse(argv, (assert(arg[0])))\nend\nreturn Perf\n"
+  -- The script answers its own entry rather than writing `Perf.main`, which is not `mut`: a run calls the function a
+  -- script returns as it calls a module's `main`.
+  local seam = "\nreturn function(argv: {string}): integer\n" ..
+    "  return Perf.rehearse(argv, (assert(arg[0])))\nend\n"
   local changed, count = source:gsub("\nreturn Perf\n$", seam)
   assert(count == 1)
   return changed
