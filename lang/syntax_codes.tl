@@ -63,11 +63,6 @@ SyntaxCodes.catalog = {
     fix = "close the comment with the bracket that opened it, or write it as line comments",
   },
   {
-    code = "hashbang", stage = "lexer", rule = LEFT_OUT,
-    why = "a `#!` first line is the shell's and not the language's: a file is run by naming it",
-    fix = "delete the line; run the file with `cosmic <file>`",
-  },
-  {
     code = "digit_separator", stage = "lexer", rule = LEFT_OUT,
     why = "a `_` between digits is another spelling of the same number, which Lua does not read",
     fix = "write the number without `_`: `<digits>`",

@@ -178,3 +178,21 @@ local function test_a_file_run_with_the_new_checker_is_told_a_refusal_in_its_wor
       (stopped.stderr or ""):find("(not_assignable)", 1, true) ~= nil, stopped_said)
 end
 
+
+--- A script's `#!/usr/bin/env cosmic` first line is skipped, as Lua skips it, and the lines after it keep their numbers: the
+--- run's output, a runtime error's line and a refusal's line are the file's.
+local function test_a_script_with_a_hashbang_line_runs_and_keeps_its_line_numbers(tmp: string)
+  local hashbang = "#!/usr/bin/env cosmic\n"
+  local root = tree_of(tmp, "hashbang", {
+    ["ok.tl"] = hashbang .. 'print("ran")\n',
+    ["fails.tl"] = hashbang .. 'local n: integer = 1\nerror("boom " .. tostring(n))\n',
+    ["refused.tl"] = hashbang .. '\nlocal n: integer = "s"\nreturn n\n',
+  })
+  local ran = run_in(root, "ok.tl")
+  assert(ran.code == 0 and ran.stdout == "ran\n", tostring(ran.stdout) .. tostring(ran.stderr))
+  local failed = run_in(root, "fails.tl")
+  assert(failed.code ~= 0 and (failed.stderr or ""):find("fails:3: boom 1", 1, true) ~= nil, tostring(failed.stderr))
+  local refused = run_in(root, "refused.tl")
+  assert(refused.code ~= 0 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
+    (refused.stderr or ""):find("(not_assignable)", 1, true) ~= nil, tostring(refused.stderr))
+end

@@ -42,7 +42,7 @@ local record Parser
   --- What an error is, so that a reader does not parse its `msg`. The lexer's
   --- codes ([`Lexer.Code`]) come first, then the parser's.
   enum Code
-    "label_or_goto" "semicolon" "long_comment" "unterminated_long_comment" "hashbang"
+    "label_or_goto" "semicolon" "long_comment" "unterminated_long_comment"
     "digit_separator" "hex_float" "malformed_number" "unterminated_string"
     "unterminated_long_string" "bad_escape" "stray_byte"
     -- a reserved word where a name stands
@@ -152,7 +152,6 @@ local LEXER_CODES <const>: {string: Parser.Code} = {
   semicolon = "semicolon",
   long_comment = "long_comment",
   unterminated_long_comment = "unterminated_long_comment",
-  hashbang = "hashbang",
   digit_separator = "digit_separator",
   hex_float = "hex_float",
   malformed_number = "malformed_number",
@@ -2607,7 +2606,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
 end
 
 Parser.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "hashbang", "digit_separator",
+  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
   "stray_byte", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
   "break_outside_loop", "continue_skips_local", "unclosed", "expected_token", "expected_name",

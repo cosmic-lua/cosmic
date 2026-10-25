@@ -123,18 +123,9 @@ return function(argv: {string}): integer
   return 0
 end
 ]], 0x1ed))
-  -- The kernel started the core as the script's interpreter, the core took
-  -- the joined artifact and ran it on the script, and the language refused
-  -- the script's `#!` line: a program's text has none.
-  --
-  -- TODO: have the script print its executable and arguments, which this case asked before the language
-  -- refused a `#!` first line, once the grammar takes that line (the owner's decision: lexer.tl refuses it
-  -- today, with a fix that names `cosmic script.tl`).
   local r = run_relaunched(relaunch, { script, "a", "b c" })
-  assert(not r.ok and r.code == 1, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  assert(r.stdout == "", tostring(r.stdout))
-  assert(tostring(r.stderr):find("script.tl:1:1: a `#!` first line is not in the grammar (hashbang): " ..
-    "delete the line; run the file with `cosmic script.tl`", 1, true) ~= nil, tostring(r.stderr))
+  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+  assert(r.stdout == tmp .. "/a\ta|b c\n", tostring(r.stdout))
 end
 
 --- Runs `argv` with `relaunch`'s contract but for the two descriptors, which

@@ -78,8 +78,6 @@ local record Lexer
     "long_comment"
     -- a long comment with no closing bracket: the token runs to the end
     "unterminated_long_comment"
-    -- a `#!` first line
-    "hashbang"
     -- a `_` between digits: the token is the number without it
     "digit_separator"
     -- a hexadecimal float: the token is the number
@@ -637,13 +635,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   local line_start = 1
   local pending: {Lexer.Comment}? = nil
 
+  -- A `#!` first line is the shell's, for a script run by its own name (`#!/usr/bin/env cosmic`), as Lua skips it: it is no
+  -- token and no comment, and its line break is read as any other, so every later token keeps its line.
   if sub(source, 1, 2) == "#!" then
-    local e = (find(source, "[\r\n]", 3) or len + 1) - 1
-    n = 1
-    kinds[#kinds + 1], texts[#texts + 1], offsets[#offsets + 1], ys[#ys + 1] = "$ERR$", sub(source, 1, e), 1, 1
-    add_error(errors, name, "hashbang", "a `#!` first line is not in the grammar",
-      "delete the line; run the file with `cosmic " .. name .. "`", 1, e, 1, 1)
-    pos = e + 1
+    pos = (find(source, "[\r\n]", 3) or len + 1)
   end
 
   -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
@@ -1032,7 +1027,7 @@ end
 
 Lexer.reserved = reserved_set
 Lexer.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "hashbang",
+  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }

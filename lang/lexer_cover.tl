@@ -9,7 +9,8 @@
 --- first and last byte, each a place on a line that exists and within it
 --- (the last byte of a token may be one of a line break). The line table
 --- holds the offset of each line of the source.
---- Between two of them lies whitespace and nothing else. The `$EOF$` token
+--- Between two of them lies whitespace and nothing else; before the first lies
+--- whitespace, or a `#!` first line, which is no token and no comment. The `$EOF$` token
 --- is empty and at the end. An error lies within the source and carries its
 --- code, its message and its fix.
 local Lexer = require("lang.lexer")
@@ -86,6 +87,7 @@ end
 function Cover.check(source: string, lexed: Lexer.Lexed): boolean, string
   local lines = lines_of(source)
   local cursor = 1
+  if source:sub(1, 2) == "#!" then cursor = find(source, "[\r\n]", 3) or #source + 1 end
   local tokens = lexed.tokens
   local count = #tokens.kind
   if #tokens.line ~= #lines.starts then

@@ -299,14 +299,28 @@ local function test_an_unfinished_long_comment_is_an_error_token_to_the_end()
   assert(lexed.errors[1].fix:find("`]=]`", 1, true))
 end
 
-local function test_a_hashbang_line_is_refused()
+local function test_a_hashbang_first_line_is_skipped_and_the_lines_after_it_keep_their_numbers()
   local lexed = lex("#!/usr/bin/env cosmic\nlocal x")
+  assert(#lexed.errors == 0)
+  local first = Lexer.token(lexed.tokens, 1)
+  assert(first.text == "local" and first.y == 2 and first.x == 1 and first.offset == 23, first.text)
+  assert(Lexer.token(lexed.tokens, 2).text == "x" and Lexer.token(lexed.tokens, 2).y == 2)
+  -- no token and no comment is left of the line
+  assert(first.comments == nil)
+  -- each line break Lua reads ends it, and a file of nothing else is empty
+  for _, source in ipairs({ "#!x\r\nlocal y", "#!x\rlocal y", "#!x\n\rlocal y" }) do
+    local found = Lexer.token(lex(source).tokens, 1)
+    assert(found.text == "local" and found.y == 2, source)
+  end
+  assert(#lex("#!x").errors == 0 and Lexer.token(lex("#!x").tokens, 1).kind == "$EOF$")
+  assert(Lexer.token(lex("#!").tokens, 1).kind == "$EOF$")
+end
+
+local function test_a_hashbang_first_line_does_not_hide_an_error_on_the_next()
+  local lexed = lex("#!/usr/bin/env cosmic\nlocal x = 1_000")
   assert(#lexed.errors == 1)
-  local e = lexed.errors[1]
-  assert(e.code == "hashbang" and e.msg == "a `#!` first line is not in the grammar")
-  assert(e.fix == "delete the line; run the file with `cosmic t.tl`")
-  assert(e.y == 1 and e.x == 1 and e.length == 21)
-  assert(Lexer.token(lexed.tokens, 1).kind == "$ERR$" and Lexer.token(lexed.tokens, 2).text == "local" and Lexer.token(lexed.tokens, 2).y == 2)
+  local refused = assert(lexed.errors[1])
+  assert(refused.code == "digit_separator" and refused.y == 2)
 end
 
 local function test_a_pragma_comment_is_an_ordinary_comment()
@@ -325,6 +339,11 @@ end
 local function test_a_hashbang_only_begins_the_file()
   local lexed = lex("x\n#!y")
   assert(#lexed.errors == 1 and lexed.errors[1].code == "stray_byte")
+  -- not after a blank line or a space either: byte 0 and the first line alone
+  for _, source in ipairs({ "\n#!y", " #!y" }) do
+    local refused = lex(source).errors
+    assert(#refused >= 1 and assert(refused[1]).code == "stray_byte", string.format("%q", source))
+  end
 end
 
 local function test_a_digit_separator_is_refused_and_the_number_kept()
@@ -476,7 +495,6 @@ local REFUSALS <const>: {Lexer.Code: string} = {
   semicolon = ";",
   long_comment = "--[[ x ]]",
   unterminated_long_comment = "--[[ x",
-  hashbang = "#!/bin/cosmic",
   digit_separator = "1_000",
   hex_float = "0x1p4",
   malformed_number = "3x",
@@ -487,7 +505,7 @@ local REFUSALS <const>: {Lexer.Code: string} = {
 }
 
 local function test_every_code_has_a_refusal_with_a_message_and_a_fix()
-  assert(#Lexer.codes == 12)
+  assert(#Lexer.codes == 11)
   for _, code in ipairs(Lexer.codes) do
     local source = REFUSALS[code]
     assert(source ~= nil, code .. " has no refusal here")
@@ -638,7 +656,9 @@ local function test_a_comment_ends_before_its_line_break_whatever_the_style()
     local comments = assert(token("-- a" .. brk .. "x", 1).comments)
     assert(comments[1].text == "-- a" and comments[1].length == 4, string.format("%q", brk))
   end
-  assert(lex("#!/bin/cosmic\r\nx").errors[1].length == 13, "a #! line ends before its break")
+  -- a `#!` first line is skipped, and ends before its break as a comment does
+  local after = lex("#!/bin/cosmic\r\nx")
+  assert(#after.errors == 0 and Lexer.token(after.tokens, 1).text == "x" and Lexer.token(after.tokens, 1).y == 2)
 end
 
 local function test_a_hexadecimal_float_out_of_range_is_not_told_to_write_inf()
