@@ -24,6 +24,18 @@ return end_it
   end
 end
 
+local function test_a_string_that_is_not_a_literal_does_not_compile()
+  local ok, trouble = Snippet.compiles([[
+local Net = require("cosmic.net")
+local function end_it(conn: Net.Conn, how: string)
+  local _, _ = conn:shutdown(how)
+end
+return end_it
+]])
+  assert(not ok, "a string variable compiled as a Net.Shutdown")
+  assert(trouble:find("Shutdown", 1, true), trouble)
+end
+
 local function test_the_three_directions_written_as_strings_compile()
   local ok, trouble = Snippet.compiles([[
 local Net = require("cosmic.net")
