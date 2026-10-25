@@ -92,6 +92,9 @@ local record Driver
     offset: integer
     --- Whether the fix is what to write instead of a name cosmic removed ([`build.removed_fix`]), in place of the checker's own.
     removed: boolean
+    --- The call whose argument the checker refused, for a `not_assignable` of a value given to a parameter ([`Check.Argument`]); nil
+    --- for any other problem.
+    argument?: Check.Argument
   end
 
   --- What a module came to.
@@ -458,7 +461,7 @@ local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that ca
   "drop the `{{if}}`"
 
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
-                        offset: integer, length: integer, types: {string}): Driver.Problem
+                        offset: integer, length: integer, types: {string}, argument?: Check.Argument): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length, types)
   -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
   -- author to write a test of that local. What a template can say is whether a value is there.
@@ -473,7 +476,7 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
   end
   return {
     kind = "error", stage = stage, code = code, msg = msg, fix = told, y = y, x = x, offset = offset,
-    removed = instead ~= nil,
+    removed = instead ~= nil, argument = argument,
   }
 end
 
@@ -869,7 +872,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         result.checked = checked
         for _, e in ipairs(checked.errors) do
           result.bodies[#result.bodies + 1] = error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
-            e.length, e.types)
+            e.length, e.types, e.argument)
         end
         local exempt: {integer: boolean} = {}
         if source.tests then
