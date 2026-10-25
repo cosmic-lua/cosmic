@@ -355,9 +355,16 @@ end
 --- stood in for one. Each of several sequences runs from the previous step's
 --- file, so a difference would be carried forward; and each of them takes
 --- modules from the base at least once, or this is no test of that.
+---
+--- The sequences are short because a step compiles and writes twice, and the test runs under a limit on loaded legs.
+--- The seeds draw every kind of edit `edit` makes within the steps taken (a body, a comment, a doc, errors, an example,
+--- a declaration, an added, removed and renamed module), and the test fails if a change to `edit` or the seeds leaves one
+--- out.
 local function test_a_write_from_a_base_is_a_write_of_the_whole(tmp: string)
   local taken = 0
-  for sequence = 1, 3 do
+  local lengths = { 9, 5, 5 }
+  local drawn: mut {string: boolean} = {}
+  for sequence = 1, #lengths do
     local root = tmp .. "/tree" .. tostring(sequence)
     local out = tmp .. "/out" .. tostring(sequence) .. ".db"
     local whole = tmp .. "/whole" .. tostring(sequence) .. ".db"
@@ -367,15 +374,19 @@ local function test_a_write_from_a_base_is_a_write_of_the_whole(tmp: string)
     local handle = assert(work.open(root))
     write_both(handle, out, whole, "writer-test")
     same_bytes(out, whole, "sequence " .. tostring(sequence) .. " start")
-    for step = 1, 14 do
+    for step = 1, assert(lengths[sequence]) do
       local made = edit(tree, seed, step)
       tree, seed = made.tree, made.seed
       write_tree(root, tree, made.gone)
       local label = "sequence " .. tostring(sequence) .. " step " .. tostring(step) .. " (" .. made.label .. ")"
+      drawn[assert(made.label:match("^%a+"))] = true
       taken = taken + write_both(handle, out, whole, "writer-test")
       same_bytes(out, whole, label)
     end
     assert(work.close(handle))
+  end
+  for _, kind in ipairs({ "body", "comment", "doc", "errors", "example", "declared", "added", "removed", "renamed" }) do
+    assert(drawn[kind], "no step made the edit \"" .. kind .. "\"")
   end
   assert(taken > 0, "no write took a module from the base")
 end

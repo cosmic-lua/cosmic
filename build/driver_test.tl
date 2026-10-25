@@ -160,6 +160,30 @@ local function test_the_globals_are_what_the_declaration_files_declare_less_what
   assert(globals["Seen"] ~= nil and globals["Withheld"] == nil and globals["Added"] ~= nil)
 end
 
+--- The lines of the problems `module` has against globals declared by the file `std.d.tl` with `text`.
+local function problems_against(text: string, module: string): integer
+  local build = Driver.new({
+    globals = { Driver.declarations("std", "std.d.tl", text, {}) }, adjust = nil, external = {}, types = true,
+  })
+  build:provide(Driver.files(Driver.index({ { "m.tl", module } }, nothing)))
+  local result = assert(build:result("m", true))
+  return #result.errors + #result.scope_errors
+end
+
+local function test_the_globals_read_again_only_when_their_file_changes_and_a_changed_file_is_never_served_stale()
+  local alpha = "global record Alpha\n  n: integer\nend\n"
+  local beta = "global record Beta\n  n: integer\nend\n"
+  local uses_alpha = "local a: Alpha = { n = 1 }\nreturn a\n"
+  local uses_beta = "local b: Beta = { n = 1 }\nreturn b\n"
+  assert(problems_against(alpha, uses_alpha) == 0, "Alpha is declared")
+  assert(problems_against(alpha, uses_alpha) == 0, "Alpha is declared when the same text is met again")
+  -- The same file name with other text: what it declared is gone, and what it declares now is there.
+  assert(problems_against(beta, uses_alpha) > 0, "Alpha is no longer declared")
+  assert(problems_against(beta, uses_beta) == 0, "Beta is declared")
+  assert(problems_against(alpha, uses_beta) > 0, "Beta is no longer declared")
+  assert(problems_against(alpha, uses_alpha) == 0, "Alpha is declared again")
+end
+
 local function test_a_module_has_its_errors_of_every_stage_in_source_order_and_its_warnings_apart()
   local build = build_of({
     { "m.tl", "local a: {number: integer} = {}\nlocal unused = 1\nlocal b: integer = 3.5\nreturn a\n" },

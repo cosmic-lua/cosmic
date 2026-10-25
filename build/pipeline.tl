@@ -426,8 +426,21 @@ function Pipeline.discounted(result: Driver.Outcome)
   result.scope_errors = kept
 end
 
+--- The identity of the code the running binary carries, which nothing in this process changes: read once, rather than
+--- hashing the sources of the checker's closure again for each compile of a process that compiles many trees.
+local record Remembered
+  mut code: string?
+end
+
+local carried_identity: Remembered = { code = nil }
+
 function Pipeline.coded(tool: string): string
-  return Hash.hex_sha256(tool .. "\0" .. identity(carried_code))
+  local code = carried_identity.code
+  if code == nil then
+    code = identity(carried_code)
+    carried_identity.code = code
+  end
+  return Hash.hex_sha256(tool .. "\0" .. code)
 end
 
 function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string

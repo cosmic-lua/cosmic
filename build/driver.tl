@@ -291,6 +291,29 @@ local function read_source(source: Driver.Source, written?: string): Read
   return { source = source, text = text, never_false = Truthiness.never_false, chunk = parsed.chunk, errors = parsed.errors }
 end
 
+--- The last read of each declaration file that declares the globals, by the file's name. A process that builds many trees
+--- (a compile of each step of an edit) lowers the same prelude and standard library into each build's own program, and
+--- would parse them again for each: the syntax of a source is read-only to a program, and a build already lowers the same
+--- one into a new program ([`Driver.Build`]'s restart), so a read is kept while the text, the dialect and the name of the
+--- file are those it was made from. A file with other text is read again, and replaces the one kept: a changed declaration
+--- is never served stale.
+local record Remembered
+  mut reads: mut {string: Read}
+end
+
+local remembered: Remembered = { reads = {} }
+
+local function global_read(source: Driver.Source): Read
+  local held = remembered.reads[source.filename]
+  if held ~= nil and held.text == source.text and held.source.dialect == source.dialect and
+      held.source.module == source.module then
+    return { source = source, text = held.text, never_false = held.never_false, chunk = held.chunk, errors = held.errors }
+  end
+  local read = read_source(source)
+  remembered.reads[source.filename] = read
+  return read
+end
+
 function Driver.parse(source: Driver.Source): Driver.Parsed
   local read = read_source(source)
   local syntax: mut {Driver.Problem} = {}
@@ -599,7 +622,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     local started = Clock.monotonic_ns()
     local reads: mut {Read} = {}
     for _, source in ipairs(options.globals) do
-      local read = read_source(source)
+      local read = global_read(source)
       reads[#reads + 1] = read
       for name, g in pairs(Scopes.declared(read.chunk)) do
         globals[name] = g
