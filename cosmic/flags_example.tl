@@ -46,7 +46,7 @@ end
 --- 1, spec)` reads no command: in such a program it would take "report"
 --- for the file.
 function Example.subcommands()
-  local asked: {string} = {}
+  local asked: mut {string} = {}
   local commands: {string:Flags.Command} = {
     report = {
       about = "Totals a ledger file.",

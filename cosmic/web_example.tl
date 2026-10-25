@@ -180,7 +180,7 @@ end
 --- exception layer sits inside all of them, so a 500 travels out through
 --- every one. [`Web.access_log`] writes a line to the app's sink.
 function Example.middleware()
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local sink: Web.Sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end }

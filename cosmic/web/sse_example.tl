@@ -56,10 +56,10 @@ end
 --- A stream fed by the program's own tasks: a queue of events is the
 --- source, and closing it ends the stream.
 function Example.queue()
-  local queues: {Channel.Queue<Sse.Event>} = {}
+  local queues: mut {Channel.Queue<Sse.Event>} = {}
   local app = Web.app{ routes = { Web.get("/progress", function(req: Web.Request): Web.Response
     local queue: Channel.Queue<Sse.Event> = Channel.new()
-    queues[1] = queue
+    queues[#queues + 1] = queue
     return Sse.EventStream(req, Sse.from_queue(queue), { retry_ms = 0 })
   end) } }
   Web.with_client(app, function(client: Web.TestClient)

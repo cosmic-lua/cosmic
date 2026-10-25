@@ -12,7 +12,7 @@ local Example = {}
 --- order they were queued until the producer closes the queue, which
 --- ends with the word [`Channel.CLOSED`] once the queue is drained.
 function Example.new()
-  local taken: {string} = {}
+  local taken: mut {string} = {}
   Poll.run(function()
     local queue: Channel.Queue<string> = Channel.new({ capacity = 2 })
     Poll.spawn(function()

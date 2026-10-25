@@ -23,7 +23,7 @@ local Example = {}
 --- [`Net.connect`], two requests pipelined, since [`Http.get`] holds the
 --- thread the server runs on until it returns.
 function Example.serve()
-  local store: {string:string} = {}
+  local store: mut {string:string} = {}
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     limits = { body_bytes = 64 * 1024 },
