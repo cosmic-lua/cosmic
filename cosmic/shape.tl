@@ -567,9 +567,12 @@ end
 --- [`one_of`] with its values in byte order; records of those; and a
 --- field typed `T | nil`, as `optional`. A function, a union of more
 --- than one type, a generic, an interface and a record that holds itself
---- are refused when the module is built, naming the field. The record
---- keeps its fields only: a key the payload grew is dropped, as `record`
---- does, and `spec` is a [`Spec`] to put inside any other.
+--- are refused when the module is built, naming the field. A field of type
+--- `any` is read as `optional(any)`, since `any` holds nil: a payload that
+--- lacks its key is accepted and the field is nil, where a field of any other
+--- type must be there. To refuse a missing key, test the field after `into`.
+--- The record keeps its fields only: a key the payload grew is dropped, as
+--- `record` does, and `spec` is a [`Spec`] to put inside any other.
 ---
 --- The build, not the program, reads the declaration: it splices the
 --- spec and the record's type in after `name`, which are `built` and

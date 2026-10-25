@@ -399,17 +399,25 @@ seeded source. A check must hold for all of them. The module doc of
 ## a change to the checker's verdicts
 
 A change to the type checker that must not move a verdict, or must move
-only the ones it says, is held to build.checker_verdicts: a tool that
-writes every error and warning of a list of sources as one sorted line
-(`file`, `code`, `y`, `x`, `message`). Run it with the tree's tool and with
-main's over the tree, the fuzz corpora (`testdata/fuzz/checker-*`) and the
-programs the checker's fuzz generator draws for a seed (`dump`), and
-`diff` the outputs. The module's doc comment has the commands.
+only the ones it says, is held to the gate's verdict table,
+[`testdata/gate/verdicts.json`] ([`lang.check_verdicts`]): one row for each
+program the fork's tests pinned and each input of the checker's fuzz
+corpora (`testdata/fuzz/checker-*`), with what the fork said of it (frozen
+data: the fork went with the switch) and what the new checker says.
+[`lang/check_verdicts_test.tl`] holds the checker to the table, so a verdict
+that moves fails it by program, saying what the table has and what the
+checker now says. A change that moves verdicts on purpose runs
+`bin/cosmic build/gate_record.tl`, which writes the new checker's side of
+the table again, and reads the diff: each row that moved is a program
+whose verdict the change moves, and a difference from the fork's side
+needs its rule in [`testdata/gate/rules.json`], `retired.json` or
+`open.json`, which the same test checks.
 
 The tree alone is weak evidence for a change to narrowing: the tree's own
 code is written to pass, and a checker that narrowed less or more leaves
-most of its lines as they are. The corpora and the dumped programs carry
-that sensitivity, so a narrowing change runs all three sets.
+most of its lines as they are. The corpora carry that sensitivity, so a
+narrowing change reads the diff of the whole table, not of the tree's
+ceilings alone.
 
 ## other hazards
 
@@ -529,9 +537,13 @@ Other rules:
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`importer.checked_tool`]: ../build/importer.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
+[`lang.check_verdicts`]: ../lang/check_verdicts.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
+[`lang/check_verdicts_test.tl`]: ../lang/check_verdicts_test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
+[`testdata/gate/rules.json`]: ../testdata/gate/rules.json
+[`testdata/gate/verdicts.json`]: ../testdata/gate/verdicts.json

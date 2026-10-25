@@ -13,7 +13,11 @@
 ---     cosmic sql --from testdata/gate/verdicts.json --from retired=testdata/gate/retired.json \
 ---       "select id from verdicts where fork = 'refused' and new = 'accepted' and id not in (select id from retired)"
 ---
---- `bin/cosmic build/gate_record.tl` writes the table again.
+--- `bin/cosmic build/gate_record.tl` writes the new checker's side of the table again, keeping the fork's.
+---
+--- TODO: let build/gate_record.tl add the row of a program the fork never saw, with the fork's columns empty, once the gate
+--- drops the fork's columns or decides they may be empty: the fork went with the switch, so an input added to a checker corpus
+--- or a program of testdata/gate/refusal_programs.txt can get no row today, and the tests that ask for one fail.
 ---
 --- The table holds the programs the fork refuses with every message it can ([`testdata/gate/fork_refusals.json`] lists the messages,
 --- as templates read from its source), so that a refusal of the fork no program of the table has is seen: [`Verdicts.refusal_problems`]
@@ -537,7 +541,7 @@ function Verdicts.program_problems(programs: {Verdicts.Program}, rows: {Verdicts
     if program.expected == "" then
       out[#out + 1] = named .. ": the program says no code, `open` or `retired` for the new checker"
     elseif row == nil then
-      out[#out + 1] = named .. ": the program has no row: run bin/cosmic build/gate_record.tl --fork"
+      out[#out + 1] = named .. ": the program has no row, and the fork that gave a row its first columns is gone (see the TODO of lang/check_verdicts.tl)"
     else
       if row.fork ~= "refused" then
         out[#out + 1] = named .. ": the fork takes the program"

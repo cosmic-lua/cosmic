@@ -298,7 +298,7 @@ local function test_every_input_of_the_corpora_is_in_the_table_once()
         local path = dir .. "/" .. name
         local input = read(path)
         local row = by_id[Verdicts.id(input)]
-        assert(row ~= nil, path .. " has no row: run bin/cosmic build/gate_record.tl --fork")
+        assert(row ~= nil, path .. " has no row: the fork that gave a row its first columns is gone (see the TODO of lang/check_verdicts.tl)")
         assert(row.source == input and row.origins:find(path, 1, true) ~= nil, path .. " is not the source of its row")
         seen = seen + 1
       end

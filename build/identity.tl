@@ -24,10 +24,13 @@ local record identity
   --- `compiler` is what turns source into bytecode: the build's own
   --- modules a compile or a parse runs to decide what it stores
   --- ([`identity.compiler_identity`]), among them [`build.withheld`], which names
-  --- the globals the checker is stripped of, the checker's own source
-  --- (`lang/`) with the Lua standard library's declarations it is
-  --- checked with (lang/stdlib.d.tl), and the pins and patches the
-  --- compiler and Lua are built from.
+  --- the globals the checker is stripped of, the declarations of the
+  --- Lua standard library the new checker types a program with
+  --- (lang/prelude.d.tl, lang/stdlib.d.tl), and the pins and patches
+  --- Lua is built from. The checker's own source (`lang/`) is not in it:
+  --- a compile is keyed by the code that reads ([`build.pipeline`]'s
+  --- `coded`) and a parse by the analyzer's modules ([`build.importer`]'s
+  --- `analyzer_identity`), each of which holds the modules of `lang/` it runs.
   --- The rest of the standard library the importer runs on is plumbing,
   --- not transformation (a bug there breaks the build loudly rather than
   --- changing bytecode quietly), and is left out, as is the rest of the
@@ -481,8 +484,8 @@ end
 
 --- The compiler's identity ([`Identities.compiler`]) over what the
 --- working database holds now, recorded nowhere: the source hash of each
---- of [`identity.compiler_modules`] the tree holds, the checker's source and
---- the compiler's and Lua's pins and patches. A boot names its analyzer by it before it
+--- of [`identity.compiler_modules`] the tree holds, the declarations the new checker
+--- types a program with and Lua's pins and patches. A boot names its analyzer by it before it
 --- parses ([`build.importer.tree_code`]).
 ---
 --- What a module requires is what `requires` holds of its source, which
@@ -495,9 +498,13 @@ end
 --- own key (a module's Lua, bytecode, record-field uses and refusal, and
 --- a source's rows in the analysis tables), and nothing else:
 ---
---- - the pinned compiler and Lua, and the checker's source
----   (`lang/`), which decides what every compile accepts and
----   emits;
+--- - the pinned Lua and its patches, and the declarations the new
+---   checker types a program with (lang/prelude.d.tl, lang/stdlib.d.tl),
+---   which decide what every compile accepts. The checker's source
+---   (`lang/`) is not here: a compile is keyed by [`build.pipeline`]'s
+---   `coded` over what reads and writes in the new mode, and a parse by
+---   [`build.importer`]'s `analyzer_identity`, which hold the modules of
+---   `lang/` they reach;
 --- - build.plans and [`build.derivation`];
 --- - the names the globals are stripped of, which build.withheld spells itself rather
 ---   than reading [`cosmic.removed`]: the rest of that catalog is only

@@ -1,9 +1,9 @@
 # The programs that give the fork's refusals a gate row, mostly one for each refusal template that no other program of the gate
 # reaches (testdata/gate/fork_refusals.json). A line `=== <template> => <expected>` opens a program, in the fork's grammar, that the
 # fork refuses with that message; `<expected>` is the code the new checker refuses it with, or `open` or `retired` where it takes
-# it (testdata/gate/open.json, retired.json). build/teal_refusals_test.tl holds each to its template while the fork lives,
-# `bin/cosmic build/gate_record.tl --fork` puts them in the verdict table, and lang/check_verdicts_test.tl holds the table to
-# the expectation, so that a program the new checker refuses for a reason that is not the rule cannot stand for it.
+# it (testdata/gate/open.json, retired.json). The fork's side of each is frozen in the verdict table, `bin/cosmic
+# build/gate_record.tl` keeps the new checker's side of it up to date, and lang/check_verdicts_test.tl holds the table to the
+# expectation, so that a program the new checker refuses for a reason that is not the rule cannot stand for it.
 === malformed number '%s': a '_' in a number goes between two digits => digit_separator
 local x = 1__0
 === invalid token '%s' => stray_byte
