@@ -56,10 +56,29 @@ local reader: Links.Reader = {
 
 function SyntaxLinks.facts(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): Links.Facts
   local found = SyntaxLinkText.declarations(chunk, scoped)
+  local blocks = LinkText.blocks_of(SyntaxLinkText.comments_of(chunk.tokens))
+  -- What each line of a comment sees is settled now, for every line a link or a code span of a block can stand on. `found.at`
+  -- would keep the tree and its scopes until the first comment asked, and `cosmic fix` keeps the facts of every file of
+  -- the tree: build/links_memory_test.tl holds a file's facts to a budget the tree is far over.
+  local settled: mut {integer: LinkText.Declared} = {}
+  for _, block in ipairs(blocks) do
+    local _, breaks = block.text:gsub("\n", "")
+    for line = block.line, block.line + breaks do
+      if settled[line] == nil then
+        settled[line] = found.at(line)
+      end
+    end
+  end
   return {
     source = source,
-    blocks = LinkText.blocks_of(SyntaxLinkText.comments_of(chunk.tokens)),
-    known = { at = found.at, module_level = found.module_level, parsed = true },
+    blocks = blocks,
+    known = {
+      at = function(line: integer): LinkText.Declared
+        return settled[line] or nothing
+      end,
+      module_level = found.module_level,
+      parsed = true,
+    },
   }
 end
 
