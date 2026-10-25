@@ -234,6 +234,7 @@ local function execute(argv: {string}, program: string): integer
   -- Grant one nonwritable copy for this run without changing that cache.
   -- Its retained descriptor must name the executing copy: startup checks
   -- both its digest against the artifact and its physical inode.
+  -- Declared before any [`Opened`] of `execute`, so that it closes after them: the directory goes last.
   local runtime <close>: Runtime = { path = "", fd = -1 }
   local core_slot: integer? = nil
   if credentials then
