@@ -176,9 +176,10 @@ function Prerelease.known_asset(name: string): boolean
   return false
 end
 
--- TODO: spell the optional `any` fields of this file's records so that the pinned release's [`Shape.record_of`] reads them as
--- optional, once ci/cosmic-driver.pin names a release whose [`Shape.record_of`] does (in the new grammar it reads `f?: any` as a
--- required field, and a payload without it is refused: prerelease_test and queue_seed_test fail on that).
+-- TODO: go back to [`Shape.record_of`] for the records below that have an optional field, once ci/cosmic-driver.pin
+-- names a release whose Shape.record_of reads optional fields: the pinned release's reads `f?: any` as a required field (it
+-- does not know that `any` holds nil), and a payload without one is refused. Each is spelled out with [`Shape.record`] and
+-- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
 
 --- One release of the releases list. The flags and ids are `any` so that a
 --- release without them is refused by name ([`Prerelease.draft_ids`]).
@@ -187,7 +188,9 @@ local record ReleaseRow
   draft?: any
   tag_name?: any
 end
-local RELEASE_ROW <const> = Shape.record_of("ReleaseRow")
+local RELEASE_ROW <const> = Shape.record_of("ReleaseRow", Shape.record({
+  ["draft"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any), ["tag_name"] = Shape.optional(Shape.any) }),
+  function(): ReleaseRow error("witness") end)
 
 --- The ids of the drafts tagged `tag` on `page`, one page of 100 of the
 --- releases list as the API's JSON, and whether the list's drafts end
@@ -327,7 +330,8 @@ local list_pages <const> = 10
 local record ReleaseId
   id?: any
 end
-local RELEASE_ID <const> = Shape.record_of("ReleaseId")
+local RELEASE_ID <const> = Shape.record_of("ReleaseId", Shape.record({ ["id"] = Shape.optional(Shape.any) }),
+  function(): ReleaseId error("witness") end)
 
 --- The ids of the releases tagged with `p`'s tag, a draft's among them.
 --- The list of releases serves only its first 1000, so it is not read
@@ -384,7 +388,9 @@ local record GitRef
   ref?: any
   object?: GitObject
 end
-local GIT_REF <const> = Shape.record_of("GitRef")
+local GIT_REF <const> = Shape.record_of("GitRef", Shape.record({
+  ["object"] = Shape.optional(Shape.record({ ["sha"] = Shape.optional(Shape.any), ["type"] = Shape.optional(Shape.any) })),
+  ["ref"] = Shape.optional(Shape.any) }), function(): GitRef error("witness") end)
 
 --- The git object `object` (a ref's or a tag's `object` field) names.
 local function target(object: GitObject?, what: string): string, string
@@ -424,7 +430,8 @@ end
 local record Repository
   default_branch?: any
 end
-local REPOSITORY <const> = Shape.record_of("Repository")
+local REPOSITORY <const> = Shape.record_of("Repository", Shape.record({ ["default_branch"] = Shape.optional(Shape.any) }),
+  function(): Repository error("witness") end)
 
 --- A file of a compare.
 local record ChangedFile
@@ -434,7 +441,9 @@ end
 local record Comparison
   files?: {ChangedFile}
 end
-local COMPARISON <const> = Shape.record_of("Comparison")
+local COMPARISON <const> = Shape.record_of("Comparison", Shape.record({
+  ["files"] = Shape.optional(Shape.list(Shape.record({ ["filename"] = Shape.optional(Shape.any) }))) }),
+  function(): Comparison error("witness") end)
 
 --- Whether the repository's default branch holds workflows other than
 --- `p.commit`'s: the files the compare from the commit to the branch
@@ -503,7 +512,11 @@ local record ReleaseView
   upload_url?: any
   assets?: {AssetRow}
 end
-local RELEASE_VIEW <const> = Shape.record_of("ReleaseView")
+local RELEASE_VIEW <const> = Shape.record_of("ReleaseView", Shape.record({
+  ["assets"] = Shape.optional(Shape.list(Shape.record({
+    ["id"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any) }))),
+  ["draft"] = Shape.optional(Shape.any), ["prerelease"] = Shape.optional(Shape.any),
+  ["upload_url"] = Shape.optional(Shape.any) }), function(): ReleaseView error("witness") end)
 
 --- The release `id`, as GET releases/ID answers: by id, not by tag, as
 --- the by-tag endpoint finds no draft.

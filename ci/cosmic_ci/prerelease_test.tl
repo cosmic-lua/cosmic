@@ -293,6 +293,10 @@ local record GitObjectJson
   type: string
 end
 
+-- TODO: go back to [`Shape.record_of`] below, once ci/cosmic-driver.pin names a release whose Shape.record_of reads
+-- optional fields: the pinned release's reads `f?: any` as a required field. It is spelled out with [`Shape.record`] and
+-- [`Shape.optional`] until then, the call [`Shape.record_of`] would be given.
+
 --- What a request of the publish may send as its JSON body: a field of any.
 local record RequestBody
   ref?: any
@@ -303,7 +307,10 @@ local record RequestBody
   draft?: any
   prerelease?: any
 end
-local REQUEST_BODY <const> = Shape.record_of("RequestBody")
+local REQUEST_BODY <const> = Shape.record_of("RequestBody", Shape.record({
+  ["body"] = Shape.optional(Shape.any), ["draft"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any),
+  ["prerelease"] = Shape.optional(Shape.any), ["ref"] = Shape.optional(Shape.any), ["sha"] = Shape.optional(Shape.any),
+  ["tag_name"] = Shape.optional(Shape.any) }), function(): RequestBody error("witness") end)
 
 local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
   return { status = status, headers = headers or {}, body = body }
@@ -869,6 +876,7 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
     SOURCE_RUN_PREFIX = run_prefix,
     REPOSITORY = repository,
     RUNNER_TEMP = tmp .. "/driver-runner",
+    COSMIC_GRAMMAR = "new",
   })
   local function driver(command: string): Child.Result
     return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,

@@ -117,9 +117,10 @@ local record Run
   event: string
 end
 
--- TODO: spell the optional `any` fields of this file's records so that the pinned release's [`Shape.record_of`] reads them as
--- optional, once ci/cosmic-driver.pin names a release whose [`Shape.record_of`] does (in the new grammar it reads `f?: any` as a
--- required field, and a payload without it is refused: prerelease_test and queue_seed_test fail on that).
+-- TODO: go back to [`Shape.record_of`] for the records below, once ci/cosmic-driver.pin names a release whose
+-- Shape.record_of reads optional fields: the pinned release's reads `f?: any` as a required field (it does not know that `any`
+-- holds nil), and a payload without one is refused. Each is spelled out with [`Shape.record`] and [`Shape.optional`] until then,
+-- the call [`Shape.record_of`] would be given.
 
 --- One run of the API's listing, each field as `jq -r` would print it.
 local record RunRow
@@ -134,7 +135,12 @@ end
 local record RunsPage
   workflow_runs: {RunRow}
 end
-local RUNS_PAGE <const> = Shape.record_of("RunsPage")
+local RUNS_PAGE <const> = Shape.record_of("RunsPage", Shape.record({
+  ["workflow_runs"] = Shape.list(Shape.record({
+    ["conclusion"] = Shape.optional(Shape.any), ["event"] = Shape.optional(Shape.any),
+    ["head_branch"] = Shape.optional(Shape.any), ["head_sha"] = Shape.optional(Shape.any),
+    ["html_url"] = Shape.optional(Shape.any), ["id"] = Shape.optional(Shape.any),
+    ["status"] = Shape.optional(Shape.any) })) }), function(): RunsPage error("witness") end)
 
 --- The workflow runs `pages` list, as `.workflow_runs[]` reads them in
 --- the API's order (newest first), or nil where an answer holds no
@@ -164,7 +170,10 @@ end
 local record ArtifactsPage
   artifacts: {ArtifactRow}
 end
-local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage")
+local ARTIFACTS_PAGE <const> = Shape.record_of("ArtifactsPage", Shape.record({
+  ["artifacts"] = Shape.list(Shape.record({
+    ["expired"] = Shape.optional(Shape.any), ["name"] = Shape.optional(Shape.any) })) }),
+  function(): ArtifactsPage error("witness") end)
 
 --- The names of a run's artifacts that have not expired, as a set, or
 --- nil where the answer holds no list of artifacts.
@@ -206,7 +215,13 @@ end
 local record JobsPage
   jobs: {JobRow}
 end
-local JOBS_PAGE <const> = Shape.record_of("JobsPage")
+local JOBS_PAGE <const> = Shape.record_of("JobsPage", Shape.record({
+  ["jobs"] = Shape.list(Shape.record({
+    ["name"] = Shape.optional(Shape.any), ["started_at"] = Shape.optional(Shape.any),
+    ["status"] = Shape.optional(Shape.any),
+    ["steps"] = Shape.optional(Shape.list(Shape.record({
+      ["name"] = Shape.optional(Shape.any), ["status"] = Shape.optional(Shape.any) }))) })) }),
+  function(): JobsPage error("witness") end)
 
 --- The jobs `pages` list, in the API's order, each with whether it has
 --- begun the step `suite` (in progress or completed; always false where

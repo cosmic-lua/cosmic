@@ -116,20 +116,27 @@ local function record_spec(decl: Types.Decl, path: string, shape: string, holdin
     return nil, path .. ": a record that holds itself has no finite shape"
   end
   holding[decl] = true
-  local by_name: mut {string: Types.Field} = {}
-  local names: mut {string} = {}
+  local fields: mut {Types.Field} = {}
   for _, field in ipairs(body.fields) do
-    by_name[field.name] = field
-    names[#names + 1] = field.name
+    fields[#fields + 1] = field
   end
+  table.sort(fields, function(x: Types.Field, y: Types.Field): boolean
+    return x.name < y.name
+  end)
   local parts: mut {string} = {}
-  for _, name in ipairs(sorted(names)) do
-    local inner, why = spec_of(by_name[name].type, path .. "." .. name, shape, holding, store)
+  for _, field in ipairs(fields) do
+    local inner, why = spec_of(field.type, path .. "." .. field.name, shape, holding, store)
     if inner == nil then
       holding[decl] = nil
       return nil, why
     end
-    parts[#parts + 1] = ("[%q] = %s"):format(name, inner)
+    -- A field written `f?: T` is omittable whatever `T` is, and a field of `any` may be nil, as `any` holds nil: the store
+    -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
+    local nilable = field.omittable == true or field.type == store.any
+    if nilable and inner:sub(1, #shape + 10) ~= shape .. ".optional(" then
+      inner = shape .. ".optional(" .. inner .. ")"
+    end
+    parts[#parts + 1] = ("[%q] = %s"):format(field.name, inner)
   end
   holding[decl] = nil
   return shape .. ".record({ " .. table.concat(parts, ", ") .. " })", ""

@@ -1680,7 +1680,7 @@ end
 --- `compiled_by` it carries is not the compiler's identity, `reboot.settled_by` of build/reboot.tl), and it carries the declarations of the
 --- standard library that a project is typed against (`build/checker_declarations.tl`).
 local BUILT_BY <const> = "local S = require('cosmic.store'); print(S.meta('compiled_by') ~= S.meta('compiler')); " ..
-  "print(S.source('checker.stdlib') ~= nil and S.source('checker.prelude') ~= nil)"
+  "print(S.source('lang.stdlib') ~= nil and S.source('lang.prelude') ~= nil)"
 
 --- The tool of the rehearsal, booted again with the new checker (`COSMIC_GRAMMAR=new bin/zig build boot -Dboot-cores=all`) over the one `boot`
 --- made in the same build directory: the tree is compiled in one process by the new pipeline, and the tool carries the Lua
