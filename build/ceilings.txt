@@ -276,8 +276,6 @@ build/syntax_contracts.tl 1
 
 build/syntax_link_text.tl 2
 
-build/syntax_match.tl 1
-
 build/syntax_rewrite.tl 4
 
 build/term_filter.tl 1
@@ -2239,7 +2237,7 @@ lang/ast.tl index_may_be_nil 4
 
 lang/ast_dump.tl index_may_be_nil 3
 
-lang/check.tl index_may_be_nil 43
+lang/check.tl index_may_be_nil 39
 
 lang/check_flow_fuzz_test.tl index_may_be_nil 4
 
@@ -3539,7 +3537,7 @@ build/syntax_globals.tl field_unknown 2
 
 build/syntax_link_text.tl field_unknown 35
 
-build/syntax_match.tl field_unknown 6
+build/syntax_match.tl field_unknown 5
 
 build/syntax_match_test.tl field_unknown 2
 

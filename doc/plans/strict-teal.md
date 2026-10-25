@@ -728,6 +728,11 @@ the fork refused the declaration, since it can tell the members of a union
 apart only by `type()`, which answers "string" for all of them; `is` on an
 enum tests the membership of the string, which does.
 
+a method call on a value of an enum, of a union of enums, or of enums and
+`string` resolves in `string` (`k:upper()` is a `string`, never the enum),
+while the read of a member as a value (`k.upper`), a field (`k.x`), an index
+and a write to a member stay refused.
+
 ### literals of the string library are read
 
 a restriction. the pattern of `find`, `match`, `gmatch` and `gsub`, the
