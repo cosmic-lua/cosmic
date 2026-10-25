@@ -53,7 +53,7 @@ local function checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite/data"))
   assert(Fs.write(root .. "/suite/data/f", "one\n"))
   assert(Fs.write(root .. "/suite/unrelated.txt", "u\n"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/data_test.tl", [[
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -78,7 +78,7 @@ end
 local lib = require("suite.lib")
 
 local function test_plain()
-  assert(lib.value ~= nil)
+  assert(lib.value > 0)
 end
 ]]))
 end
@@ -174,7 +174,7 @@ local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: st
   if root == nil then return end
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
   said("1 ran, 2 stood")
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   said("1 ran, 2 stood")
 end
 
@@ -296,7 +296,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 
-local function started(args: {string}): Child.Result | nil, string
+local function started(args: {string}): Child.Result?, string
   local relaunch = Proc.relaunch()
   local argv: {string} = {}
   for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
@@ -614,7 +614,7 @@ local function test_a_compiler_that_makes_the_same_bytecode_runs_only_its_reader
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/core"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", [[
 local lib = require("suite.lib")
 
@@ -654,7 +654,7 @@ local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/core"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/plain_test.tl", [[
 local lib = require("suite.lib")
 
@@ -707,8 +707,8 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
     return out
   end
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.write(root .. "/suite/lib.tl", "return { value = 1 }\n"))
-  assert(Fs.write(root .. "/suite/other.tl", "return { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   assert(Fs.write(root .. "/suite/closed_test.tl", [[
 local Env = require("cosmic.env")
 local Store = require("cosmic.store")
@@ -742,7 +742,7 @@ end
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
   -- Outside the closure: the projection moves, the verdict stands.
-  assert(Fs.write(root .. "/suite/other.tl", "return { value = 2 }\n"))
+  assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   local outside = run(root, tmp .. "/outside.out", env)
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
   assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
@@ -758,7 +758,7 @@ end
   env.ADDED = nil
   -- Inside it: it runs again, given a store of its own, and the one
   -- before is taken out.
-  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local inside = run(root, tmp .. "/inside.out", env)
   assert(inside:find("1 ran, 0 stood", 1, true), inside)
   local now = closure_stores()
@@ -792,11 +792,11 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local recored = run(root, tmp .. "/recored.out", env)
   assert(recored:find("0 ran, 3 stood", 1, true) and
       recored:find("3 closure stores written", 1, true), recored)
-  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local edited = run(root, tmp .. "/edited.out", env)
   assert(edited:find("1 ran, 2 stood", 1, true), edited)
   checkout(tmp .. "/second")
-  assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nreturn { value = 1 }\n"))
+  assert(Fs.write(tmp .. "/second/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
       not second:find("closure store", 1, true), second)
