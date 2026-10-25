@@ -3,7 +3,7 @@
 --- `<name>_example.tl`, and modules are named by their path from the
 --- project root. Each field below is one
 --- convention. A field is named for the file it shapes (`tests`), not
---- for a verb: `cosmic docs test` is [`cosmic.cli`]'s, the verb.
+--- for a verb: `cosmic help test` is [`cosmic.cli`]'s, the verb.
 local record Layout
   --- a worked example: a `<name>_example.tl` file must return a
   --- record literally named `Example`, one field per example --

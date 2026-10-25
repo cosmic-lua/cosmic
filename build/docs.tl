@@ -125,6 +125,13 @@ local record docs
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
     closest: boolean
+    --- The verb `cosmic <query>` of the same name as the module the query
+    --- names, which [`page`] points to after the module instead of showing
+    --- it; nil for any other query.
+    mut verb?: Entry
+    --- How many entries, from the first, are the module's: the see-also
+    --- line for `verb` follows them. Set with `verb`.
+    mut modules: integer
   end
 
   --- What `cosmic docs` prints for its words, short of its summary:
@@ -1342,7 +1349,7 @@ end
 --- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
 local function lookup(entries: {docs.Entry}, exact: boolean, count: integer,
                       partial?: boolean, ahead?: {docs.Entry}): docs.Lookup
-  local out: docs.Lookup = { exact = exact, named = count, closest = partial == true }
+  local out: docs.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0 }
   local at = 0
   local first: {docs.Entry} = {}
   if ahead ~= nil then
@@ -1439,7 +1446,7 @@ local removed_by: function(view: docs.View, query: string): {docs.Entry}?, strin
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
 --- - the public module a bare lowercase name ends (`json`, `fs`), with
----   its verb first if it is one (`test`);
+---   its verb, if it is one (`test`), as a see-also line after it;
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
 ---   ([`cosmic.fs.read`]) or from its last name ([`Cli.order`]);
@@ -1480,27 +1487,33 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     for _, entry in ipairs(modules) do
       seen[entry.module .. "\n" .. entry.symbol] = true
     end
-    -- The verb `cosmic <query>` names answers first, as `cosmic docs
-    -- test` says it does, then the modules, then the other symbols.
+    -- The modules answer first, then the other symbols; the verb
+    -- `cosmic <query>` names is a see-also line after them, since a
+    -- person at the library reference asked for the module.
     local answers: mut {docs.Entry} = {}
     local rest: mut {docs.Entry} = {}
+    local verb: docs.Entry? = nil
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
         entry.symbol == query
       if entry.module == "cosmic.cli" and entry.symbol == "Cli." .. query then
-        answers[#answers + 1] = entry
+        verb = entry
         seen[entry.module .. "\n" .. entry.symbol] = true
       elseif not internal and not seen[entry.module .. "\n" .. entry.symbol] then
         rest[#rest + 1] = entry
       end
     end
     for _, entry in ipairs(modules) do answers[#answers + 1] = entry end
+    local module_count = #answers
     for _, entry in ipairs(rest) do answers[#answers + 1] = entry end
     local counted, count_trouble = effective_counts(view, answers)
     if not counted then
       return nil, count_trouble
     end
-    return lookup(answers, true, #answers), ""
+    local found = lookup(answers, true, #answers)
+    found.verb = verb
+    found.modules = module_count
+    return found, ""
   end
   if #exact > 0 then
     local named_count = #exact
@@ -2601,6 +2614,12 @@ local function page(view: docs.View, found: docs.Lookup,
       return nil, trouble
     end
     for _, line in ipairs(rendered) do lines[#lines + 1] = line end
+    local verb = found.verb
+    if verb ~= nil and index == found.modules then
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = "See also: the command `cosmic " .. query .. "` (`cosmic docs " ..
+        verb.source_symbol .. "`, `cosmic help " .. query .. "`)."
+    end
   end
   if #found > whole then
     lines[#lines + 1] = ""

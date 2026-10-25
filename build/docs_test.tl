@@ -555,9 +555,10 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
   assert(db:close())
 end
 
---- A verb the bare name names answers first, then the module: `docs
---- test` shows [`Cli.test`], then [`cosmic.test`].
-local function test_a_short_module_name_keeps_its_verb(dir: string)
+--- A bare name that is a module and a verb answers the module, and the
+--- verb is a see-also line after it: `docs test` shows [`cosmic.test`], then
+--- points to [`Cli.test`].
+local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: string)
   local db = built(dir, {
     ["cosmic/test.tl"] = source(
       "--- Test support.",
@@ -579,9 +580,32 @@ local function test_a_short_module_name_keeps_its_verb(dir: string)
       "return module"),
   })
   local found = assert(docs.lookup(view({ db }), "test"))
-  assert(found.exact and #found == 2, tostring(#found))
-  assert(found[1].source_symbol == "Cli.test", found[1].source_symbol)
-  assert(found[2].module == "cosmic.test" and found[2].kind == "module", found[2].module)
+  assert(found.exact and #found == 1, tostring(#found))
+  assert(found[1].module == "cosmic.test" and found[1].kind == "module", found[1].module)
+  assert(found.verb ~= nil and found.verb.source_symbol == "Cli.test")
+  local answer = assert(docs.answer(view({ db }), { "test" }))
+  local text = table.concat(answer.lines, "\n")
+  local module_at = assert(text:find("cosmic.test (", 1, true))
+  local also_at = assert(text:find("See also: the command `cosmic test`", 1, true), text)
+  assert(module_at < also_at and not text:find("Runs tests.", 1, true), text)
+  assert(text:find("`cosmic docs Cli.test`", 1, true) and text:find("`cosmic help test`", 1, true), text)
+  assert(answer.said == "1 named", answer.said)
+end
+
+--- Every name a verb and a module share, `docs <name>` answers the module
+--- first.
+local function test_every_shared_verb_and_module_name_leads_with_the_module(dir: string)
+  for _, name in ipairs({ "archive", "codec", "hash", "json", "rand", "sandbox", "test", "time" }) do
+    local verb = "  " .. name .. ": string"
+    local db = built(dir, {
+      ["cosmic/" .. name .. ".tl"] = source("--- The module.", "", "local record M", "end", "", "return M"),
+      ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- The verb.", verb, "end", "",
+        "local module: Cli = { " .. name .. " = \"x\" }", "", "return module"),
+    })
+    local found = assert(docs.lookup(view({ db }), name))
+    assert(found[1].module == "cosmic." .. name and found.verb ~= nil, name)
+    assert(db:close())
+  end
 end
 
 --- Asked nothing, docs lists every module with the first sentence of
