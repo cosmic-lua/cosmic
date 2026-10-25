@@ -25,7 +25,7 @@ local record Seams
   record Calls
     mut child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
     mut child_start: function(argv: {string}, options?: Child.Options): Seams.Started?, string
-    env_all: function(): {string:string}
+    mut env_all: function(): {string:string}
     mut env_get: function(name: string): string?
     mut fs_absolute: function(path: string): string?, string
     mut fs_append: function(path: string, data: string, mode?: integer): boolean, string

@@ -33,7 +33,7 @@ local Fs = require("cosmic.fs")
 local greet = require("greet")
 
 return function(argv: {string}): integer
-  Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n")
+  assert(Fs.put(Fs.stdout, greet.hello(argv[1] or "world") .. "\n"))
   return #argv
 end
 ]]

@@ -21,7 +21,7 @@ end
 
 local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
-  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
@@ -30,7 +30,7 @@ end
 
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
   assert(Fs.mkdirs(tmp .. "/root/build"))
-  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(tmp .. "/root/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
   fails(function()
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")

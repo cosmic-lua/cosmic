@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Grammar = require("cosmic_ci.grammar")
 local Images = require("cosmic_ci.images")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
@@ -230,7 +231,7 @@ local function driver(tmp: string, command: string,
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
     project })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
-    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
+    project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = Grammar.driver(env),
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })))
 end
 

@@ -3,6 +3,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
+local Grammar = require("cosmic_ci.grammar")
 local Maps = require("cosmic_ci.maps")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
@@ -175,7 +176,7 @@ end
 --- A checkout whose checked core is a script standing in for it: it
 --- says what it was given and ran with, and fails as told.
 local function fake_checkout(root: string, exit: string, body?: {string})
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   write(root .. "/build/a_fuzz_test.tl", "")
   write(root .. "/build/fuzz/b_fuzz_test.tl", "")
@@ -234,7 +235,7 @@ end
 
 local function test_execute_reports_a_core_that_cannot_start(tmp: string)
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
-  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
+  write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n")
   write(root .. "/AGENTS.md", "fixture\n")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
@@ -275,8 +276,8 @@ local function test_driver_commands_read_the_environment(tmp: string)
   assert(Fs.mkdirs(temp))
   local summary = tmp .. "/summary.md"
   -- The job's own GITHUB_* and RUNNER_TEMP, under CI, are replaced.
-  local env = Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
-    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" })
+  local env = Grammar.driver(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" }))
   local fuzz = assert(Child.run({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
@@ -314,8 +315,8 @@ local function start_fuzz(tmp: string, body: {string},
   local root, temp = tmp .. "/checkout", tmp .. "/runner-temp"
   fake_checkout(root, "0", body)
   assert(Fs.mkdirs(temp))
-  local env = Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
-    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {})
+  local env = Grammar.driver(Maps.with(Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
+    GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {}))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
   local handle, trouble = Child.start({ executable, script, "fuzz" },
     { cwd = project, env = env, stdout = log_fd, stderr = "null" })
