@@ -8,12 +8,13 @@
 --- several problems. An unterminated short string ends at the end of its
 --- line; an unterminated long string or long comment runs to the end of the
 --- file, as in Lua, so it is the last problem the run finds. A form the
---- grammar cuts (a label, a `;`, a long comment, a `#!` line, a `_` in a
+--- grammar cuts (a label, a `;`, a long comment, a `_` in a
 --- number, a hexadecimal float) is refused the same way. A cut form that has
 --- a token of its own meaning (a long comment, a number) keeps that token and
---- gains an error. A cut form that has none (a label, a `;`, a `#!` line) is
---- an `$ERR$` token. A `goto` is a `keyword` token like any reserved word,
---- and [`lang.parser`] refuses the statement.
+--- gains an error. A cut form that has none (a label, a `;`) is
+--- an `$ERR$` token. A `#!` first line is skipped, as Lua skips it: it is
+--- no token and no error. A `goto` is a `keyword` token like any reserved
+--- word, and [`lang.parser`] refuses the statement.
 ---
 --- The tokens and the comments between them hold every byte of the source
 --- but whitespace: a token's `offset` and length and a comment's say where

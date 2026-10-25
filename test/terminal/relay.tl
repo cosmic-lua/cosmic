@@ -106,13 +106,15 @@ local function shown_of(caller: Caller): string
 end
 
 --- `cosmic sandbox` running `script` under sh, with the caller's streams
---- as `opts` says (a terminal where it names the slave).
+--- as `opts` says (a terminal where it names the slave). Every
+--- other option of `opts` is passed on to `cosmic sandbox`'s own start, `timeout_ns` and `cwd` apart.
 local function start(script: string, opts: Child.Options): Child.Handle
   -- The root, which the system profile lets a program read: a shell
   -- started in a directory the profile does not grant prints a getcwd
   -- error of its own on macOS, into what these tests compare byte for byte.
-  local started: Child.Options = { stdin = opts.stdin, stdout = opts.stdout, stderr = opts.stderr,
-    timeout_ns = Clock.seconds(60), cwd = "/" }
+  local started: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
+    stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
+    sandbox = opts.sandbox, policy = opts.policy, timeout_ns = Clock.seconds(60), cwd = "/" }
   local child, why = Child.start({ exe, "sandbox", "--system", "--env", "PATH", "--promise", "fork",
     "--", "/bin/sh", "-c", script }, started)
   assert(child, why)

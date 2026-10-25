@@ -161,7 +161,7 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
     elseif k == 3 then
       return "tostring(" .. gen_expr(g, "integer", d) .. ")"
     elseif k == 4 then
-      return "(" .. gen_expr(g, "string", d) .. "):upper()"
+      return if g.src:int(1, 3) == 1 then "(" .. gen_expr(g, "Color", d) .. "):upper()" else "(" .. gen_expr(g, "string", d) .. "):upper()" end
     elseif k == 5 then
       return "(" .. maybe(g, "string?") .. " or " .. gen_expr(g, "string", d) .. ")"
     end
@@ -322,6 +322,8 @@ local MISTAKES <const>: {string} = {
   "local bad: integer = 3.5",
   "local bad = i0 + s0",
   "local bad = m0.k",
+  "local bad: Color = c0:upper()",
+  "local bad = c0.upper",
 }
 
 local function gen_mistaken(src: Fuzz.Source): string

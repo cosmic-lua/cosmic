@@ -1884,13 +1884,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
   if is_enum(t) then
-    -- TODO: let a value of an enum call the functions of `string` (`k:upper()`), as the fork did, once it is decided whether
-    -- an enum is a string for its methods and not only where a string is wanted: the member `upper` is on `string`, not in
-    -- the enum, so a value of it has no methods today.
-    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields or methods: " .. quoted(name) ..
-        " is not one",
-      "make it a string first, `tostring(v):" .. name .. "(...)` or `string." .. name .. "(tostring(v), ...)`, or compare it " ..
-        "with `==` to a member", { show(ctx, t) })
+    -- A method call on an enum is served by `string` and never gets here: this reads a field, or a function as a value.
+    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields: " .. quoted(name) .. " is not one",
+      "call a function of `string` on it, `v:" .. name .. "(...)`, or compare it with `==` to a member", { show(ctx, t) })
     return
   end
   local names: {string} = {}
@@ -1909,7 +1905,9 @@ end
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
   ctx.member_module, ctx.member_node = "", node
-  if (t.tag == "named") then
+  -- A method call on an enum value is a call in `string`, which each enum is below; the read of a member as a value is not.
+  local called = (node.kind == "MethodCall")
+  if (t.tag == "named") and not (is_enum(t) and called) then
     local decl = t.decl
     ctx.member_module = decl.module
     local waiting = ctx.pending[decl]
@@ -1934,7 +1932,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       return ctx.invalid
     end
     local first = assert(list[1])
-    if t.decl.kind == "interface" and not ((node.kind == "MethodCall")) and not first.method and ctx.probes[node.id] ~= true and
+    if t.decl.kind == "interface" and not called and not first.method and ctx.probes[node.id] ~= true and
         takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
@@ -1970,6 +1968,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     for _, m in ipairs(t.members) do
       if (m.tag == "named") and member_types(ctx, m, name) ~= nil then
         types[#types + 1] = member_read(ctx, node, m, name)
+      elseif is_enum(m) then
+        report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
+            ", an enum and a member of " .. tq(ctx, t),
+          "call a function of `string` on it, `v:" .. name .. "(...)`, or narrow the value to the member that has it " ..
+            "(`x is T`)", { show(ctx, t) })
+        return ctx.invalid
       else
         report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
             ", a member of " .. tq(ctx, t),
@@ -1993,7 +1997,8 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local index = decl ~= nil and members_index(ctx, decl, false) or nil
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
-      report(ctx, "field_unknown", node, "a string has no field " .. quoted(name),
+      report(ctx, "field_unknown", node, (if is_enum(t) then tq(ctx, t) .. " is an enum, a string with no method " else
+          "a string has no field " end) .. quoted(name),
         "call a function of `string` on it: `s:upper()`, `s:sub(i, j)`", { show(ctx, t) })
       return ctx.invalid
     end
@@ -2032,8 +2037,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
   local store = ctx.store
   local common: {Type}? = nil
   local first: Type? = nil
+  local first_declared: Type = ctx.invalid
   for _, m in ipairs(u.members) do
-    if not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil then
+    -- A member that is text (an enum or `string`) has the functions of `string`, which only a call reaches.
+    if not is_text(m) and (not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil) then
       report(ctx, "field_unknown", node, quoted(node.name) .. " is not a field of " .. tq(ctx, m) .. ", a member of " ..
           tq(ctx, u),
         "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
@@ -2053,7 +2060,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
       local f = each
-      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m then
+      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m and not is_text(m) then
         local params: mut {Types.Param} = {}
         for j, p in ipairs(f.params) do
           params[j] = p
@@ -2067,6 +2074,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     if held == nil then
       common = replaced
       first = m
+      first_declared = declared[1] or read
     else
       local agree = #held == #replaced
       for i = 1, if agree then #held else 0 end do
@@ -2076,9 +2084,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
         local other = first
         report(ctx, "not_callable", node, subject(ctx, node) .. " calls the method " .. quoted(node.name) .. " of each member " ..
             "of " .. tq(ctx, u) .. ", and " .. tq(ctx, other ~= nil and other or m) .. " and " .. tq(ctx, m) ..
-            " declare it differently: " .. quoted(show(ctx, held[1])) .. " and " .. quoted(show(ctx, replaced[1])),
+            " declare it differently: " .. quoted(show(ctx, first_declared)) .. " and " ..
+            quoted(show(ctx, declared[1] or read)),
           "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
-            " the same in every member", { show(ctx, held[1]), show(ctx, replaced[1]) })
+            " the same in every member", { show(ctx, first_declared), show(ctx, declared[1] or read) })
         return nil
       end
     end
