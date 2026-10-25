@@ -298,14 +298,19 @@ local Proc = require("cosmic.proc")
 
 local function started(args: {string}): Child.Result?, string
   local relaunch = Proc.relaunch()
-  local argv: {string} = {}
-  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
-    argv[#argv + 1] = word
+  local argv: mut {string} = {}
+  local env: mut {string: string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
+  local fds: mut {integer: integer} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for target, source in pairs(relaunch.fds) do fds[target] = source end
+  else
+    argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local env = Env.all()
-  for name, value in pairs(relaunch ~= nil and relaunch.env or {}) do env[name] = value end
-  return Child.run(argv, { env = env, fds = relaunch ~= nil and relaunch.fds or {} })
+  return Child.run(argv, { env = env, fds = fds })
 end
 ]]
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
@@ -328,20 +333,20 @@ local function test_is_refused_the_tool()
   assert(result == nil, "the program ran undeclared")
   -- Not there at all, or, for a worker on a sealed database, whose
   -- program's name is its core's, not run.
-  local wanted = relaunch.argv[2] == "--database" and "ermission denied" or "o such file"
+  local wanted = if relaunch.argv[2] == "--database" then "ermission denied" else "o such file" end
   assert(trouble:find(wanted, 1, true), trouble)
   if relaunch.argv[2] == "--database" then
     -- A worker on a sealed database has no descriptor of the program to
     -- be refused, and its core, which it is not granted to run, is.
     local sealed, sealed_trouble = started({ "-e", "" })
-    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true),
+    assert(sealed == nil and tostring(sealed_trouble):find("ermission denied", 1, true) ~= nil,
       tostring(sealed_trouble))
   else
     local ok, why = pcall(started, { "-e", "" })
     assert(not ok, "the program's core ran undeclared")
     assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
   end
-  local core, core_trouble = Child.run({ relaunch.argv[1], "-e", "" })
+  local core, core_trouble = Child.run({ assert(relaunch.argv[1]), "-e", "" })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })
@@ -511,11 +516,12 @@ Test.policy {
 }
 
 local function test_moving(tmp: string)
-  local was = Fs.read("suite/moving.txt")
+  local was, _ = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
   local deadline = Clock.monotonic_ns() + 20000000000
-  while not Fs.exists(tmp .. "/stop") and Clock.monotonic_ns() < deadline do
-    assert(Fs.read("suite/moving.txt") == was, "it moved")
+  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+    local now, _ = Fs.read("suite/moving.txt")
+    assert(now == was, "it moved")
     assert(Clock.sleep_ns(20000000))
   end
 end
@@ -723,10 +729,10 @@ local function test_closed()
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
   local ok, why = pcall(require, ("suite." .. "other"))
-  assert(not ok and tostring(why):find("outside the import closure", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("outside the import closure", 1, true) ~= nil, tostring(why))
   if Env.get("ADDED") == "1" then
     local added, added_why = pcall(require, ("suite." .. "added"))
-    assert(not added and tostring(added_why):find("outside the import closure", 1, true),
+    assert(not added and tostring(added_why):find("outside the import closure", 1, true) ~= nil,
       tostring(added_why))
   end
 end
@@ -748,7 +754,7 @@ end
   assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
   -- A module added: it stands, on the same store; told to look, it
   -- finds a `require` of the new module refused.
-  assert(Fs.write(root .. "/suite/added.tl", "return {}\n"))
+  assert(Fs.write(root .. "/suite/added.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 3 }\nreturn lib\n"))
   local added = run(root, tmp .. "/added.out", env)
   assert(added:find("0 ran, 1 stood", 1, true), added)
   assert(#closure_stores() == 1)
