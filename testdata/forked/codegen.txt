@@ -1,0 +1,873 @@
+@@ source
+local a, b = 1, "two"
+local c <const> = 3
+local d <close> = nil
+a, b = b, a
+return a, b, c
+@@ answer
+local a, b = 1, "two"
+local c <const> = 3
+local d <close> = nil
+a, b = b, a
+return a, b, c
+@@ end
+@@ source
+local function add(a: integer, b?: integer): integer
+  return a + (b or 0)
+end
+local rest = function(first: string, ...: any): string
+  return first
+end
+return add, rest
+@@ answer
+local function add(a, b)
+   return a + (b or 0)
+end
+local rest = function(first, ...)
+   return first
+end
+return add, rest
+@@ end
+@@ source
+local record Counter
+  n: integer
+end
+function Counter.make(): Counter
+  return { n = 0 }
+end
+local c = Counter.make()
+c.n = c.n + 1
+return c
+@@ answer
+local Counter = {}
+
+
+function Counter.make()
+   return { n = 0 }
+end
+local c = Counter.make()
+c.n = c.n + 1
+return c
+@@ end
+@@ source
+local function find(items: {string}, wanted: string): integer
+  for i = 1, #items do
+    if items[i] == wanted then
+      return i
+    end
+    if i > 100 then break end
+  end
+  return 0
+end
+return find
+@@ answer
+local function find(items, wanted)
+   for i = 1, #items do
+      if items[i] == wanted then
+         return i
+      end
+      if i > 100 then break end
+   end
+   return 0
+end
+return find
+@@ end
+@@ source
+local n = 0
+if n == 0 then
+  n = 1
+elseif n == 1 then
+  n = 2
+else
+  n = 3
+end
+while n < 10 do n = n + 1 end
+repeat
+  n = n - 1
+until n < 5
+for i = 1, 10, 2 do
+  n = n + i
+end
+for k, v in pairs({ a = 1 }) do
+  n = n + v
+end
+do
+  local inner = n
+  n = inner
+end
+return n
+@@ answer
+local n = 0
+if n == 0 then
+   n = 1
+elseif n == 1 then
+   n = 2
+else
+   n = 3
+end
+while n < 10 do n = n + 1 end
+repeat
+   n = n - 1
+until n < 5
+for i = 1, 10, 2 do
+   n = n + i
+end
+for k, v in pairs({ a = 1 }) do
+   n = n + v
+end
+do
+   local inner = n
+   n = inner
+end
+return n
+@@ end
+@@ source
+local f = print
+local g = f
+(g or f)(1)
+@@ answer
+local f = print
+local g = f;
+(g or f)(1)
+@@ end
+@@ source
+-- a comment
+
+
+local a = 1 -- another
+--[[ a long
+comment ]]
+
+local b = 2
+return a + b
+@@ answer
+
+
+
+local a = 1
+
+
+
+local b = 2
+return a + b
+@@ end
+@@ source
+for i = 1, 3 do
+  if i == 2 then goto continue end
+  print(i)
+  ::continue::
+end
+@@ answer
+for i = 1, 3 do
+   if i == 2 then goto continue end
+   print(i)
+   ::continue::
+end
+@@ end
+@@ source
+local n = 0
+while n < 5 do
+  n = n + 1
+  for j = 1, 3 do
+    if j == 1 then goto continue end
+    print(j)
+    ::continue::
+  end
+  if n == 2 then goto continue end
+  print(n)
+  ::continue::
+end
+repeat
+  n = n - 1
+  if n == 3 then goto continue end
+  print(n)
+  ::continue::
+until n < 1
+@@ answer
+local n = 0
+while n < 5 do
+   n = n + 1
+   for j = 1, 3 do
+      if j == 1 then goto continue end
+      print(j)
+      ::continue::
+   end
+   if n == 2 then goto continue end
+   print(n)
+   ::continue::
+end
+repeat
+   n = n - 1
+   if n == 3 then goto continue end
+   print(n)
+   ::continue::
+until n < 1
+@@ end
+@@ source
+for i = 1, 3 do
+  local f = function()
+    for j = 1, 2 do
+      if j == 1 then goto continue end
+      print(j)
+      ::continue::
+    end
+  end
+  f()
+end
+@@ answer
+for i = 1, 3 do
+   local f = function()
+      for j = 1, 2 do
+         if j == 1 then goto continue end
+         print(j)
+         ::continue::
+      end
+   end
+   f()
+end
+@@ end
+@@ source
+local a, b = 7, 2
+local t = {
+  a + b, a - b, a * b, a / b, a // b, a % b, a ^ b, a .. b,
+  a == b, a ~= b, a < b, a > b, a <= b, a >= b,
+  a & b, a | b, a ~ b, a << b, a >> b,
+  a and b, a or b, not a, -a, #"s", ~a,
+}
+return t
+@@ answer
+local a, b = 7, 2
+local t = {
+   a + b, a - b, a * b, a / b, a // b, a % b, a ^ b, a .. b,
+   a == b, a ~= b, a < b, a > b, a <= b, a >= b,
+   a & b, a | b, a ~ b, a << b, a >> b,
+   a and b, a or b, not a, -a, #"s", ~a,
+}
+return t
+@@ end
+@@ source
+local a, b, c = 1, 2, 3
+local t = { (a + b) * c, a + (b * c), (a or b) and c, a or (b and c), -(a + b), not (a == b), (a .. b) .. c, a .. (b .. c) }
+return t
+@@ answer
+local a, b, c = 1, 2, 3
+local t = { (a + b) * c, a + (b * c), (a or b) and c, a or (b and c), -(a + b), not (a == b), (a .. b) .. c, a .. (b .. c) }
+return t
+@@ end
+@@ source
+local s = "abc"
+local t = { items = { 1, 2 }, name = "n" }
+local n = #t.items + t.items[1] + t["items"][2]
+local u = (s):upper():lower()
+local v = s:sub(1, 2):rep(3)
+print(n, u, v, t.name:len(), select("#", 1, 2))
+t.items[#t.items + 1] = 3
+return t
+@@ answer
+local s = "abc"
+local t = { items = { 1, 2 }, name = "n" }
+local n = #t.items + t.items[1] + t["items"][2]
+local u = (s):upper():lower()
+local v = s:sub(1, 2):rep(3)
+print(n, u, v, t.name:len(), select("#", 1, 2))
+t.items[#t.items + 1] = 3
+return t
+@@ end
+@@ source
+local function f(t: {string: integer}): function(): integer
+  return function(): integer return t.x end
+end
+local v = f{ x = 1 }()
+return v
+@@ answer
+local function f(t)
+   return function() return t.x end
+end
+local v = f({ x = 1 })()
+return v
+@@ end
+@@ source
+local a = "double \"q\" \n"
+local b = 'single \'q\' \x41 \u{48} \065'
+local c = [[long
+string]]
+local d = [==[with ]] inside]==]
+local t = { [ [[k]] ] = 1 }
+return a, b, c, d, t[ [[k]] ]
+@@ answer
+local a = "double \"q\" \n"
+local b = 'single \'q\' \x41 \u{48} \065'
+local c = [[long
+string]]
+local d = [==[with ]] inside]==]
+local t = { [ [[k]] ] = 1 }
+return a, b, c, d, t[ [[k]] ]
+@@ end
+@@ source
+local t = { 0, 12, 0x10, 0xFF, 1.5, .5, 3., 1e3, 1E-2, 2.5e+1, 1_000, 0x1_0 }
+return t
+@@ answer
+local t = { 0, 12, 0x10, 0xFF, 1.5, .5, 3., 1e3, 1E-2, 2.5e+1, 1000, 0x10 }
+return t
+@@ end
+@@ source
+local function pack(...: any): {any}
+  return { ... }
+end
+local function two(): integer, string
+  return 1, "a"
+end
+local a, b = two()
+return pack(a, b, ...)
+@@ answer
+local function pack(...)
+   return { ... }
+end
+local function two()
+   return 1, "a"
+end
+local a, b = two()
+return pack(a, b, ...)
+@@ end
+@@ source
+local t = { 1, 2, x = 3, ["y z"] = 4, [1 + 1] = 5, nested = { a = { 1 }, b = {} }, f = function() end }
+return t
+@@ answer
+local t = { 1, 2, x = 3, ["y z"] = 4, [1 + 1] = 5, nested = { a = { 1 }, b = {} }, f = function() end }
+return t
+@@ end
+@@ source
+local t = {
+  a = 1,
+  b = {
+    c = 2,
+  },
+  d = { 1, 2,
+    3 },
+}
+return t
+@@ answer
+local t = {
+   a = 1,
+   b = {
+      c = 2,
+   },
+   d = { 1, 2,
+3, },
+}
+return t
+@@ end
+@@ source
+local t = { 1; 2; x = 3; }
+return t
+@@ answer
+local t = { 1, 2, x = 3 }
+return t
+@@ end
+@@ source
+local function f(a: any, b: any) end
+f({
+  x = 1,
+}, {
+  y = 2,
+})
+@@ answer
+local function f(a, b) end
+f({
+   x = 1,
+}, {
+   y = 2,
+})
+@@ end
+@@ source
+local function f(a: integer, b: integer): integer
+  local total = a +
+    b *
+    2
+  local s = "x"
+    .. "y"
+  return total,
+    #s
+end
+return f
+@@ answer
+local function f(a, b)
+   local total = a +
+   b *
+   2
+   local s = "x" ..
+   "y"
+   return total,
+   #s
+end
+return f
+@@ end
+@@ source
+local function f(...: any): any return ... end
+local r = f(1,
+  2,
+  f(3,
+    4),
+  function()
+    return 5
+  end)
+return r
+@@ answer
+local function f(...) return ... end
+local r = f(1,
+2,
+f(3,
+4),
+function()
+   return 5
+end)
+return r
+@@ end
+@@ source
+local function outer()
+  local function inner()
+    if true then return function() return 1 end end
+    while false do end
+    return nil
+  end
+  return inner
+end
+return outer
+@@ answer
+local function outer()
+   local function inner()
+      if true then return function() return 1 end end
+      while false do end
+      return nil
+   end
+   return inner
+end
+return outer
+@@ end
+@@ source
+local f = function() end
+local g = function()
+end
+if f then end
+while false do
+end
+do end
+return g
+@@ answer
+local f = function() end
+local g = function()
+end
+if f then end
+while false do
+end
+do end
+return g
+@@ end
+@@ source
+local a: string | nil = nil
+local b: nil | integer = 1
+local c: string | integer | nil = "s"
+local d: function(? integer, string...): string | nil
+local e: {string: {integer}} = {}
+return a, b, c, d, e
+@@ answer
+local a = nil
+local b = 1
+local c = "s"
+local d
+local e = {}
+return a, b, c, d, e
+@@ end
+@@ source
+local x: any = 1
+local n = x as integer
+local m = (x as any) as number
+return n, m, x as string
+@@ answer
+local x = 1
+local n = x
+local m = (x)
+return n, m, x
+@@ end
+@@ source
+local record Box
+  readonly size: integer
+  metamethod __close: function(Box)
+end
+local function open(): Box return { size = 1 } end
+return open
+@@ answer
+
+
+
+
+local function open() return { size = 1 } end
+return open
+@@ end
+@@ source
+local enum Color
+  "red"
+end
+local interface Shape
+  area: function(Shape): number
+end
+local type Alias = string
+local type Colors = {Color}
+local c: Color = "red"
+return c
+@@ answer
+
+
+
+
+
+
+
+
+local c = "red"
+return c
+@@ end
+@@ source
+local record Outer
+  record Inner
+    record Deep
+    end
+    x: integer
+  end
+  enum Kind
+    "a"
+  end
+  interface Face
+    y: integer
+  end
+  record Other
+  end
+end
+function Outer.f() end
+return Outer
+@@ answer
+local Outer = { Inner = { Deep = {} }, Other = {} }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function Outer.f() end
+return Outer
+@@ end
+@@ source
+local record Stack<T>
+  items: {T}
+  record Entry
+  end
+end
+return Stack
+@@ answer
+local Stack = {}
+
+
+
+
+return Stack
+@@ end
+@@ source
+local type Fs = require("cosmic.fs")
+local type Json = require("cosmic.json")
+local type Unused = require("cosmic.hash")
+local a: Json.Value = nil
+return Fs.read, a
+@@ answer
+local Fs = require("cosmic.fs")
+
+local Unused = require("cosmic.hash")
+local a = nil
+return Fs.read, a
+@@ end
+@@ source
+local x: any = 1
+local t = {
+  x is string, x is integer, x is number, x is boolean, x is nil, x is thread,
+  x is {string}, x is {string: integer},
+}
+local f = x is function(): integer
+return t, f
+@@ answer
+local x = 1
+local t = {
+   type(x) == "string", math.type(x) == "integer", type(x) == "number", type(x) == "boolean", x == nil, type(x) == "thread",
+   type(x) == "table", type(x) == "table",
+}
+local f = type(x) == "function"
+return t, f
+@@ end
+@@ source
+local enum Color
+  "red"
+end
+local record Point
+  x: integer
+end
+local type Shade = Color
+local type Maybe = {Point}
+local type Fn = function(): integer
+local record Holder
+  type Inner = Color
+  type Callback = function()
+  record Rec
+  end
+end
+local x: any = nil
+return { x is Color, x is Point, x is Shade, x is Maybe, x is Fn, x is Holder.Inner,
+  x is Holder.Callback, x is Holder.Rec, x is Stream.Reader }
+@@ answer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local x = nil
+return { type(x) == "string", type(x) == "table", type(x) == "string", type(x) == "table", type(x) == "function", type(x) == "string",
+type(x) == "function", type(x) == "table", type(x) == "table", }
+@@ end
+@@ source
+local record Point
+  x: integer
+end
+local function origin(): Point return { x = 0 } end
+local p: Point = origin()
+return p
+@@ answer
+
+
+
+local function origin() return { x = 0 } end
+local p = origin()
+return p
+@@ end
+@@ source
+local x: any = 1
+return not x is string, (x is string) == true, x is integer and x is number
+@@ answer
+local x = 1
+return not (type(x) == "string"), (type(x) == "string") == true, math.type(x) == "integer" and type(x) == "number"
+@@ end
+@@ source
+local record Point
+  x: integer
+end
+local enum Color
+  "red"
+end
+local type Scalar = string | integer
+local type Maybe = Point | nil
+local x: any = nil
+local y = { x }
+return x is Scalar, x is Maybe, not x is Scalar, x is Scalar and x is Maybe, y[1] == x,
+  x is
+  Scalar
+@@ answer
+
+
+
+
+
+
+
+
+local x = nil
+local y = { x }
+return type(x) == "string" or math.type(x) == "integer", type(x) == "table" or x == nil, not (type(x) == "string" or math.type(x) == "integer"), (type(x) == "string" or math.type(x) == "integer") and (type(x) == "table" or x == nil), y[1] == x,
+type(x) == "string" or math.type(x) == "integer"
+@@ end
+@@ source
+local function f(x: any): string
+  if x is string then
+    return x
+  elseif x is integer
+    or x is number then
+    return "n"
+  end
+  return ""
+end
+return f
+@@ answer
+local function f(x)
+   if type(x) == "string" then
+      return x
+   elseif math.type(x) == "integer" or
+      type(x) == "number" then
+      return "n"
+   end
+   return ""
+end
+return f
+@@ end
+@@ source
+local n = 3
+local a = n > 1
+  and "many"
+  or "few"
+return a
+@@ answer
+local n = 3
+local a = n > 1 and
+"many" or
+"few"
+return a
+@@ end
+@@ source
+local n = 3
+local a = n > 1 and "many" or "few"
+local b = n == 1 and 1 or n == 2 and 2 or 3
+local c = (n > 1 and { n } or {}) .. ""
+return a, b, c
+@@ answer
+local n = 3
+local a = n > 1 and "many" or "few"
+local b = n == 1 and 1 or n == 2 and 2 or 3
+local c = (n > 1 and { n } or {}) .. ""
+return a, b, c
+@@ end
+@@ source
+local f = print
+local n = f and f(1) or 2
+return n
+@@ answer
+local f = print
+local n = f and f(1) or 2
+return n
+@@ end
+@@ source
+local record Counter
+  n: integer
+  bump: function(Counter, integer): integer
+end
+
+local counter_mt: metatable<Counter> = { __index = Counter }
+
+function Counter:bump(by: integer): integer
+  self.n = self.n + by
+  return self.n
+end
+
+function Counter.make(start: integer): Counter
+  return setmetatable({ n = start, tag = "(a, b)" }, counter_mt)
+end
+
+local function twice(): integer
+  local c: Counter = setmetatable({
+    n = 1,
+  }, counter_mt)
+  return c:bump(1) + c:bump(1)
+end
+return twice
+@@ answer
+local Counter = {}
+
+
+
+
+local counter_mt = { __index = Counter }
+
+function Counter:bump(by)
+   self.n = self.n + by
+   return self.n
+end
+
+function Counter.make(start)
+   return setmetatable({ n = start, tag = "(a, b)" }, counter_mt)
+end
+
+local function twice()
+   local c = setmetatable({
+      n = 1,
+   }, counter_mt)
+   return c:bump(1) + c:bump(1)
+end
+return twice
+@@ end
+@@ source
+local record Box
+  n: integer
+  get: function(Box): integer
+end
+local box_mt: metatable<Box> = { __index = Box }
+function Box:get(): integer
+  return self.n
+end
+local function adopt(t: {string: any}): Box
+  return setmetatable(t, box_mt)
+end
+return adopt
+@@ answer
+local Box = {}
+
+
+
+local box_mt = { __index = Box }
+function Box:get()
+   return self.n
+end
+local function adopt(t)
+   return setmetatable(t, box_mt)
+end
+return adopt
+@@ end
+@@ source
+local a = 2
+local t = { -a ^ 2, #"abc" ^ 2, a ^ -a ^ 2, -(a ^ 2), (-a) ^ 2 }
+return t
+@@ answer
+local a = 2
+local t = { (-a) ^ 2, (#"abc") ^ 2, a ^ (-a) ^ 2, -(a ^ 2), (-a) ^ 2 }
+return t
+@@ end
+@@ source
+local s = { rep = print }
+local r = s:rep
+{ 2 }
+local function f(t: {integer}): integer return #t end
+local p = f
+{ 1,
+  2 }
+local o = f
+{
+  1 }
+return r, p, o
+@@ answer
+local s = { rep = print }
+local r = s:rep(
+{ 2 })
+local function f(t) return #t end
+local p = f(
+{ 1,
+2, })
+local o = f(
+{
+   1, })
+return r, p, o
+@@ end
+@@ source
+local a = 1 local b = 2 a = b print(a)
+@@ answer
+local a = 1; local b = 2; a = b; print(a)
+@@ end

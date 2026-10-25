@@ -4,6 +4,7 @@
 --- Lua the fork writes for the Teal ([`build.compile`]'s `lua`), line for line, once the layout of a `continue`
 --- is set aside. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Codegen = require("lang.codegen")
+local Forked = require("lang.forked")
 local Fuzz = require("build.fuzz")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -13,15 +14,23 @@ local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 
-Test.policy{}
+Test.policy{ grants = { { path = "testdata/forked/codegen_fuzz.txt", letters = "r" } } }
 
---- The Lua the fork wrote of `source`, compiled alone. The fork's compiler is gone from the tree, so this fails the case that
---- asks.
----
---- TODO: hold each case to the Lua the fork wrote, kept as text beside the case, once part B2 of the switch has ported the
---- tests that took the fork's compiler as their oracle (doc/plans/strict-teal.md, "the switch").
-local function fork_wrote(_source: string): string
-  error("the fork's compiler is not in this binary: the case waits for a text of the Lua it wrote", 0)
+--- What the fork wrote of each program the properties drew from `FUZZ_SEED=1`, recorded from the tool of main before the
+--- switch ([`lang.forked`]): a draw of any other seed has no text of the fork's to be held to.
+local record Held
+  mut kept: {string: Forked.Said}?
+end
+
+local held: Held = { kept = nil }
+
+local function forked(): {string: Forked.Said}
+  local kept = held.kept
+  if kept == nil then
+    kept = Forked.load("testdata/forked/codegen_fuzz.txt")
+    held.kept = kept
+  end
+  return kept
 end
 
 local NAMES <const>: {string} = { "a", "b", "c", "d", "t", "u", "f", "g" }
@@ -364,7 +373,8 @@ local function gen_program(src: Fuzz.Source): string
   end, { unknown = true, loop_writes = false })
 end
 
---- Asserts the generator writes the fork's Lua for `input`, or labels why it cannot be compared.
+--- Asserts the generator writes the fork's Lua for `input`, or labels why it cannot be compared: where no text of the
+--- fork's is kept (a draw of another seed) the generator is held not to refuse the program, and nothing more.
 local function agrees(input: string): boolean, string
   local made = Translate.translate(input, "p.tl")
   if #made.errors > 0 then
@@ -376,11 +386,21 @@ local function agrees(input: string): boolean, string
     Fuzz.label("unparsed")
     return true, ""
   end
-  local lua = fork_wrote(input)
+  local said = Forked.said(forked(), input)
+  if said.known and said.text == nil then
+    Fuzz.label("refused by the fork")
+    return true, ""
+  end
   local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "p.tl", {}), Truthy.never_false)
   if #ours.errors > 0 then
     return false, "the generator refused: " .. ours.errors[1].msg
   end
+  local kept = said.text
+  if kept == nil then
+    Fuzz.label("not recorded")
+    return true, ""
+  end
+  local lua = kept
   -- The programs are drawn without regard to what Lua refuses (an assignment to a constant), so the Lua must load
   -- where the fork's does.
   local loaded, why = load(ours.text, "=p", "t", {})
@@ -406,8 +426,6 @@ local function test_a_drawn_program_is_written_as_the_fork_writes_it(tmp: string
     dir = tmp,
     gen = gen_module,
     check = agrees,
-    requires = { "compared" },
-    shares = { compared = 0.4 },
   })
 end
 
@@ -417,9 +435,23 @@ local function test_a_program_that_binds_names_in_every_way_is_written_as_the_fo
     dir = tmp,
     gen = gen_program,
     check = agrees,
-    requires = { "compared" },
-    shares = { compared = 0.8 },
   })
+end
+
+--- The programs the properties draw from the default seed are the ones the file keeps the fork's text of, and most are
+--- compared: a draw that changed (the generator of programs edited) would leave the file's entries unread.
+local function test_the_programs_of_the_default_seed_are_the_ones_the_forks_text_is_kept_of()
+  local compared, refused = 0, 0
+  for source, said in pairs(forked()) do
+    if said.text == nil then
+      refused = refused + 1
+    else
+      local ok, why = agrees(source)
+      assert(ok, why)
+      compared = compared + 1
+    end
+  end
+  assert(compared >= 60 and refused >= 1, tostring(compared) .. " compared, " .. tostring(refused) .. " refused by the fork")
 end
 
 -- programs that run -------------------------------------------------------------------------------------------------

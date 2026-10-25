@@ -1,5 +1,5 @@
---- The code generator ([`lang.codegen`]) against the fork's. Each case is a piece of Teal: the fork compiles
---- it ([`build.compile`]'s `lua`, with no module served), and the generator writes the Lua of what
+--- The code generator ([`lang.codegen`]) against the fork's. Each case is a piece of Teal: the Lua the fork wrote of
+--- it is kept as text ([`lang.forked`], [`testdata/forked/codegen.txt`]), and the generator writes the Lua of what
 --- [`lang.translate`] makes of it. The two texts are equal, line for line, once the layout of a `continue` is set
 --- aside ([`lang.codegen`]'s `compared`). The cases are the constructs the plan classes as respellings and
 --- layout, the statements and expressions of Lua, and the places the fork puts a line break or an indent. A
@@ -7,6 +7,7 @@
 
 local Ast = require("lang.ast")
 local Codegen = require("lang.codegen")
+local Forked = require("lang.forked")
 local Programs = require("lang.check_programs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -15,15 +16,29 @@ local Test = require("cosmic.test")
 local Translate = require("lang.translate")
 local Truthy = require("lang.truthy")
 
-Test.policy{}
+Test.policy{ grants = { { path = "testdata/forked/codegen.txt", letters = "r" } } }
 
---- The Lua the fork wrote of `source`, compiled alone. The fork's compiler is gone from the tree, so this fails the case that
---- asks.
----
---- TODO: hold each case to the Lua the fork wrote, kept as text beside the case, once part B2 of the switch has ported the
---- tests that took the fork's compiler as their oracle (doc/plans/strict-teal.md, "the switch").
-local function fork_wrote(_source: string): string
-  error("the fork's compiler is not in this binary: the case waits for a text of the Lua it wrote", 0)
+--- What the fork wrote of each program, recorded from the tool of main before the switch ([`lang.forked`]).
+local record Held
+  mut kept: {string: Forked.Said}?
+end
+
+local held: Held = { kept = nil }
+
+local function forked(): {string: Forked.Said}
+  local kept = held.kept
+  if kept == nil then
+    kept = Forked.load("testdata/forked/codegen.txt")
+    held.kept = kept
+  end
+  return kept
+end
+
+--- The Lua the fork wrote of `source`, compiled alone, as the file records it.
+local function fork_wrote(source: string): string
+  local said = Forked.said(forked(), source)
+  assert(said.known, "no text of the fork's Lua is kept for:\n" .. source)
+  return (assert(said.text, "the fork refused:\n" .. source))
 end
 
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
