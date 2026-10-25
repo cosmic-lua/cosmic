@@ -27,7 +27,8 @@ local todos = require("build.todos")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" },
+  { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
 --- first where it is not there yet.
@@ -313,7 +314,7 @@ end
 local function thing(word: string): string
   return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
     "-- TODO: say more, once there is more to say.\n" ..
-    "--- Reads.\nfunction thing.read(): string\n  return (Fs.read(\"x\")) or \"\"\nend\n\nreturn thing\n"
+    "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return why end return text\nend\n\nreturn thing\n"
 end
 
 --- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while
@@ -423,7 +424,14 @@ end
 local function own_tree(root: string): identity.Fingerprint
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\nlocal i: importer = {}\nreturn i\n"))
+  -- The declarations a tree of cosmic's own is checked against ([`build.checker_declarations`]).
+  assert(Fs.mkdirs(root .. "/lang"))
+  local prelude = assert(Fs.read("lang/prelude.d.tl"))
+  local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
+  assert(Fs.write(root .. "/build/ceilings.txt", ""))
+  assert(Fs.write(root .. "/lang/prelude.d.tl", prelude))
+  assert(Fs.write(root .. "/lang/stdlib.d.tl", stdlib))
   assert(Fs.mkdirs(build_paths.resolve(root).bin))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
