@@ -392,3 +392,13 @@ local function test_the_lowered_declarations_are_the_golden_ones()
   end
   assert(more == 0, "the golden has " .. tostring(more) .. " more lines than the declarations: refresh it with `bin/cosmic lang/stdlib_golden.tl`")
 end
+
+local function test_an_enum_or_a_union_of_enums_calls_the_functions_of_string()
+  local head = "local enum Kind\n  \"a\"\nend\nlocal enum Other\n  \"b\"\nend\nlocal k: Kind = \"a\"\n"
+  local r = run(head .. "local function f(u: Kind | Other, v: Kind | string)\n" ..
+    "  assert(u:len() + v:len() > 0)\nend\nlocal x = k:rep(2)\nlocal n = k:len()\n")
+  assert(#r.errors == 0, Programs.codes(r))
+  assert(Types.display(Programs.var(r, "x")) == "string")
+  assert(Types.display(Programs.var(r, "n")) == "integer")
+  assert(Programs.codes(run(head .. "local x: Kind = k:rep(2)\n")) == "not_assignable")
+end

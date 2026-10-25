@@ -276,8 +276,6 @@ build/syntax_contracts.tl 1
 
 build/syntax_link_text.tl 2
 
-build/syntax_match.tl 1
-
 build/syntax_rewrite.tl 4
 
 build/term_filter.tl 1
@@ -3543,7 +3541,7 @@ build/syntax_globals.tl field_unknown 2
 
 build/syntax_link_text.tl field_unknown 35
 
-build/syntax_match.tl field_unknown 6
+build/syntax_match.tl field_unknown 5
 
 build/syntax_match_test.tl field_unknown 2
 

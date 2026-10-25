@@ -1875,13 +1875,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t)
   if is_enum(t) then
-    -- TODO: let a value of an enum call the functions of `string` (`k:upper()`), as the fork did, once it is decided whether
-    -- an enum is a string for its methods and not only where a string is wanted: the member `upper` is on `string`, not in
-    -- the enum, so a value of it has no methods today.
-    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields or methods: " .. quoted(name) ..
-        " is not one",
-      "make it a string first, `tostring(v):" .. name .. "(...)` or `string." .. name .. "(tostring(v), ...)`, or compare it " ..
-        "with `==` to a member", { show(ctx, t) })
+    -- A method call on an enum is served by `string` and never gets here: this reads a field, or a function as a value.
+    report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields: " .. quoted(name) .. " is not one",
+      "call a function of `string` on it, `v:" .. name .. "(...)`, or compare it with `==` to a member", { show(ctx, t) })
     return
   end
   local names: {string} = {}
@@ -1899,7 +1895,9 @@ end
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
   local store = ctx.store
-  if (t.tag == "named") then
+  -- A method call on an enum value is a call in `string`, which each enum is below; the read of a member as a value is not.
+  local called = (node.kind == "MethodCall")
+  if (t.tag == "named") and not (is_enum(t) and called) then
     local decl = t.decl
     local waiting = ctx.pending[decl]
     local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
@@ -1923,7 +1921,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       return ctx.invalid
     end
     local first = assert(list[1])
-    if t.decl.kind == "interface" and not ((node.kind == "MethodCall")) and not first.method and ctx.probes[node.id] ~= true and
+    if t.decl.kind == "interface" and not called and not first.method and ctx.probes[node.id] ~= true and
         takes_receiver(ctx, t.decl, first.type) then
       -- The implementation depends on the receiver, which agreement fixes to the implementing type: read as a value, it
       -- would be called with another implementer.
@@ -1982,7 +1980,8 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local index = decl ~= nil and members_index(ctx, decl, false) or nil
     local list = index ~= nil and index.by_name[name] or nil
     if list == nil then
-      report(ctx, "field_unknown", node, "a string has no field " .. quoted(name),
+      report(ctx, "field_unknown", node, (if is_enum(t) then tq(ctx, t) .. " is an enum, a string with no method " else
+          "a string has no field " end) .. quoted(name),
         "call a function of `string` on it: `s:upper()`, `s:sub(i, j)`", { show(ctx, t) })
       return ctx.invalid
     end
@@ -2022,7 +2021,8 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
   local common: {Type}? = nil
   local first: Type? = nil
   for _, m in ipairs(u.members) do
-    if not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil then
+    -- A member that is text (an enum or `string`) has the functions of `string`, which only a call reaches.
+    if not is_text(m) and (not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil) then
       report(ctx, "field_unknown", node, quoted(node.name) .. " is not a field of " .. tq(ctx, m) .. ", a member of " ..
           tq(ctx, u),
         "narrow the value to the member that has it (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
@@ -2042,7 +2042,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     local replaced: mut {Type} = {}
     for i, each in ipairs(declared) do
       local f = each
-      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m then
+      if (f.tag == "fn") and f.params[1] ~= nil and f.params[1].type == m and not is_text(m) then
         local params: mut {Types.Param} = {}
         for j, p in ipairs(f.params) do
           params[j] = p

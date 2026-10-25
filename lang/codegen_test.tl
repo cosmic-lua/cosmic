@@ -275,6 +275,24 @@ local function test_calls_method_calls_fields_and_indexes()
     "return t")
 end
 
+local function test_a_method_call_on_an_enum_is_written_as_it_is_in_the_source()
+  local source = program(
+    "local enum Kind",
+    "  \"a\"",
+    "end",
+    "local k: Kind = \"a\"",
+    "local u = k:upper()",
+    "return u .. k:rep(2) .. (k):lower()")
+  local made = Translate.translate(source, "t.tl")
+  assert(#made.errors == 0, "the translator refused the program")
+  local ours = generated(made.text, Truthy.never_false)
+  assert(#ours.errors == 0, "the generator refused the program")
+  for _, call in ipairs({ "k:upper()", "k:rep(2)", "(k):lower()" }) do
+    assert(ours.text:find(call, 1, true) ~= nil, call .. " is not in\n" .. ours.text)
+  end
+  assert(run_teal(source) == "Aaaa")
+end
+
 local function test_a_call_with_a_table_argument_and_a_chain_of_calls()
   same(
     "local function f(t: {string: integer}): function(): integer",

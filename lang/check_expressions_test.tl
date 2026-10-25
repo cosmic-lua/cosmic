@@ -265,3 +265,41 @@ local function test_a_function_literal_fits_the_overload_that_takes_its_argument
   refused("Fewer.run(function(x: string, y: string, z: string): string return x end)\n", "overload_none",
     "no overload of `Fewer.run`")
 end
+
+-- a method called on an enum --------------------------------------------------------------------------------
+
+local KIND <const> = "local enum Kind\n  \"a\"\n  \"b\"\nend\nlocal enum Other\n  \"c\"\nend\nlocal k: Kind = \"a\"\n"
+
+local function test_a_method_called_on_an_enum_is_a_function_of_string()
+  local r = Programs.run(KIND .. "local x = k:upper()\nlocal y = k:sub(1, 1)\n")
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
+  assert(Types.display(Programs.var(r, "x")) == "string")
+  assert(Types.display(Programs.var(r, "y")) == "string")
+  -- the result is a string, never the enum, so it is not a place for the enum
+  assert(codes_of(KIND .. "local x: Kind = k:upper()\n") == "not_assignable")
+  assert(codes_of(KIND .. "local x = k:sub(\"a\")\n") == "not_assignable")
+  refused(KIND .. "local x = k:nosuch()\n", "field_unknown", "`Kind` is an enum, a string with no method `nosuch`")
+end
+
+local function test_a_method_called_on_a_union_of_enums_or_of_an_enum_and_a_string()
+  local r = Programs.run(KIND .. "local function f(u: Kind | Other, v: Kind | string): string\n" ..
+    "  local s = u:upper()\n  return s .. v:sub(1, 1)\nend\n")
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
+  assert(codes_of(KIND .. "local function f(u: Kind | Other)\n  local x: Kind = u:upper()\nend\n") == "not_assignable")
+  -- a member that is not text has no function of string, and one with a function of its own differs from it
+  local mixed = KIND .. "local record R\n  n: integer\nend\nlocal function f(u: Kind | R)\n  local x = u:upper()\nend\n"
+  assert(codes_of(mixed) == "field_unknown")
+  local own = KIND .. "local class C\n  function upper(self): string\n    return \"\"\n  end\nend\n" ..
+    "local function f(u: Kind | C)\n  local x = u:upper()\nend\n"
+  assert(codes_of(own) == "not_callable")
+end
+
+local function test_a_member_of_an_enum_is_not_read_indexed_or_written()
+  refused(KIND .. "local x = k.upper\n", "field_unknown", "whose values have no fields", "v:upper(...)")
+  refused(KIND .. "local x = k.x\n", "field_unknown", "`x` is not one")
+  refused(KIND .. "local x = k.upper(k)\n", "field_unknown")
+  refused(KIND .. "local function f(u: Kind | Other)\n  local x = u.upper\nend\n", "field_unknown")
+  assert(codes_of(KIND .. "local m: Kind = \"a\"\nm.x = \"b\"\n") ~= "")
+  assert(codes_of(KIND .. "local x = k[1]\n") ~= "")
+  assert(codes_of(KIND .. "local x = k[\"upper\"]\n") ~= "")
+end
