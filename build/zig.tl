@@ -980,21 +980,17 @@ end
 --- Both halves of the lock, the flock descriptor and the SQL handle
 --- that follows it. No second descriptor is closed while the SQL half
 --- is held: closing any descriptor of that inode releases this process's
---- fcntl locks.
-local record Lock
+--- fcntl locks. A `<close>` local of it lets go of both, the SQL one
+--- first, however its block ends.
+local class Lock
   fd: integer
   mut db: Sqlite.Handle?
-end
 
--- TODO: make [`Lock`] a class with `function __close(self)`, hold it in a `<close>` local and drop the `pcall` of
--- [`Zig.with_lock`], once ci/cosmic-driver.pin names a release that reads a class with `function __close(self)` in the
--- islands: the new grammar has no `setmetatable`, and a `<close>` local of a record is refused (`close_not_closable`).
-
---- Lets go of both halves of `lock`, the SQL one first.
-local function release(lock: Lock)
-  local db = lock.db
-  if db ~= nil then local _, _ = db:close() end
-  local _, _ = sys.close(lock.fd)
+  function __close(self)
+    local db = self.db
+    if db ~= nil then local _, _ = db:close() end
+    local _, _ = sys.close(self.fd)
+  end
 end
 
 local function take(lock: Lock, path: string, wait_ns: integer): string?, string
@@ -1021,11 +1017,6 @@ local function take(lock: Lock, path: string, wait_ns: integer): string?, string
     return begin(db, path, left)
   end
   return "held", ""
-end
-
---- What [`Zig.with_lock`]'s callback answered, kept where the function that runs it under `pcall` can read it.
-local record Outcome
-  mut status: integer
 end
 
 --- Takes the boot's lock, or accepts a parent's handoff only when it
@@ -1087,14 +1078,8 @@ function Zig.with_lock(output: string, environment: {string:string},
     env[handed_variable] = path
     return run(env)
   end
-  local lock: Lock = { fd = fd, db = nil }
-  local outcome: Outcome = { status = 0 }
-  local ran, raised = pcall(function()
-    outcome.status = hold(lock)
-  end)
-  release(lock)
-  if not ran then error(raised, 0) end
-  return outcome.status
+  local lock <close>: Lock = { fd = fd, db = nil }
+  return hold(lock)
 end
 
 --- The whole entry point over `argv`, the words after this script's own
