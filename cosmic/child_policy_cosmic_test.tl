@@ -115,8 +115,8 @@ end
 --- grant to read alone refuses, saying where.
 local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   local work = scripted(tmp, 'local helper = require("helper")\n' ..
-      'return function(argv: {string}): integer\n  print(helper .. argv[1])\n  return 0\nend\n')
-  assert(Fs.write(work .. "/helper.tl", 'return "from "\n'))
+      'return function(argv: {string}): integer\n  print(helper .. (argv[1] or ""))\n  return 0\nend\n')
+  assert(Fs.write(work .. "/helper.tl", 'local greeting: string = "from "\nreturn greeting\n'))
   searchable.share(work .. "/helper.tl")
   local home = assert(Fs.absolute(tmp)) .. "/builds"
   assert(Fs.mkdirs(home))
