@@ -1,14 +1,14 @@
 --- What a checked test run ([`doc/testing.md`]'s "run-time type checks")
 --- met while a function ran: a test of a declaration asks it whether a
 --- value crossed a typed boundary as a kind its type does not admit.
---- Only a checked run (`cosmic test --check-types`) compiles the checks
---- in, so a test using this skips in any other.
+--- No run compiles the boundary checks in yet, so a test using this skips
+--- in every run, checked or not.
 
--- TODO: read what the hook `__fact` of a checked run collects (build/test_worker.tl, [`lang.fact_wraps`]) in place of
--- `__cosmic_tc`, which no compile writes since the fork's boundary checks went: a checked run meets no violation here, so the
--- tests that ask `during` cannot fail until they read the facts; the declarations they hold are the ones the new checker
--- reads, which they hold no longer. Wants the facts to carry the declared kind of a value crossing a boundary, not only a
--- narrowed read.
+-- TODO: once the checker lists each declared parameter, return and field write and lang/codegen.tl writes a check for it in
+-- a checked compile (doc/plans/strict-teal.md), make [`skip_reason`] answer nothing for a checked run: until then no compile
+-- writes `__cosmic_tc`'s calls (the fork's boundary checks went with it), a checked run meets no violation, and the tests
+-- that ask `during` would pass having checked nothing. `__fact` ([`lang.fact_wraps`]) carries narrowed reads only, not the
+-- declared kind of a value crossing a boundary.
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")
 
@@ -23,14 +23,24 @@ function TypeWatch.checked(): boolean
   return (read()) ~= nil
 end
 
+--- Why `during` skips the test, for a run that `checked` says is checked or
+--- not: a plain run carries no checks at all, and a checked run carries only
+--- those of narrowed reads, not of declared boundaries.
+function TypeWatch.skip_reason(checked: boolean): string
+  if not checked then
+    return "run with --check-types: only a checked run carries the type checks"
+  end
+  return "boundary checks are not compiled in: a checked run writes no check at a declared parameter, return or field " ..
+    "write, so this test would pass having checked nothing (see the TODO in build/type_watch.tl)"
+end
+
 --- The violations of a boundary declared under `under` (the standard
 --- library, "cosmic/", by default) met while `fn` ran, bar a value left out
 --- of a failure pair's later slot, each as `kind target: declared, got
---- actual (at place)`; skips the test in a run that carries no checks.
+--- actual (at place)`; skips the test in every run for now, since none
+--- compiles the boundary checks in ([`skip_reason`]).
 function TypeWatch.during(fn: function(), under?: string): {string}
-  if not TypeWatch.checked() then
-    Test.skip("run with --check-types: only a checked run carries the type checks")
-  end
+  Test.skip(TypeWatch.skip_reason(TypeWatch.checked()))
   local prefix = under or "cosmic/"
   local before: mut {string:integer} = {}
   -- A parameter is declared where its target names, in parentheses; a

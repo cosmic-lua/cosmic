@@ -4,6 +4,7 @@
 --- checked run (`cosmic test --check-types`) says whether a value crossed
 --- a typed boundary under build/ as a kind its type does not admit; in
 --- any other run the test skips.
+--- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
