@@ -625,7 +625,7 @@ build/docs.tl 1
 
 build/docs_checks.tl 1
 
-build/fix/init.tl 2
+build/fix/init.tl 1
 
 build/fix/read_memo.tl 1
 
@@ -691,7 +691,7 @@ build/test.tl 1
 
 build/test_key.tl 1
 
-build/test_worker.tl 16
+build/test_worker.tl 7
 
 build/todo_scan.tl 2
 
@@ -700,8 +700,6 @@ build/todos.tl 2
 build/tree_checks.tl 7
 
 build/udp_fixture.tl 1
-
-build/unix_socket.tl 1
 
 build/verbs_fixture.tl 3
 
@@ -741,7 +739,7 @@ cosmic/tar.tl 1
 
 cosmic/test.tl 4
 
-cosmic/time.tl 8
+cosmic/time.tl 7
 
 cosmic/web/app.tl 2
 
@@ -1557,7 +1555,7 @@ build/test_skip_tool_test.tl nil_not_allowed 1
 
 build/test_test.tl nil_not_allowed 9
 
-build/test_worker.tl nil_not_allowed 32
+build/test_worker.tl nil_not_allowed 28
 
 build/test_worker_test.tl nil_not_allowed 12
 
