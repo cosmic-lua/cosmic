@@ -435,7 +435,7 @@ local function own_tree(root: string): identity.Fingerprint
   assert(Fs.mkdirs(build_paths.resolve(root).bin))
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(work.close(handle))
   return fingerprint
 end

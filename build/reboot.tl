@@ -197,7 +197,7 @@ end
 
 --- Compares the tree's fingerprints with the running binary's.
 local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?, string
-  local fingerprint, trouble = identity.record_fingerprint(handle.db)
+  local fingerprint, trouble = identity.record_fingerprint(handle.db, handle.root)
   if fingerprint == nil then
     return nil, trouble
   end

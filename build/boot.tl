@@ -126,7 +126,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. stage_trouble)
     return nil
   end
-  local fingerprint, print_trouble = identity.record_fingerprint(handle.db)
+  local fingerprint, print_trouble = identity.record_fingerprint(handle.db, handle.root)
   if fingerprint == nil then
     local _, _ = work.close(handle)
     log:complain("boot: " .. print_trouble)

@@ -661,7 +661,7 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.boot
 end
@@ -670,7 +670,7 @@ end
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(identity.record_fingerprint(handle.db))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
   work.close(handle)
   return fingerprint.image
 end
@@ -783,7 +783,7 @@ local function test_compiler_identity_follows_the_new_checkers_declarations()
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true))
     local found = assert(identity.record_identities(handle.db))
-    local fingerprint = assert(identity.record_fingerprint(handle.db))
+    local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
     local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
     work.close(handle)
     return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }, assert(rows[1]):text(1) == "0"

@@ -1,6 +1,7 @@
 --- The tool's input policy, fingerprints and semantic identities.
 --- These read the staged rows; [`build.work`] owns how they are staged.
 
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local bind = require("build.bind")
@@ -320,22 +321,33 @@ end
 --- [`build/artifact.tl`], which lays the artifact out: a rebuild lays it
 --- out with the running tool's own copy, so an edit to it boots too.
 ---
+--- The seed ([`build/seed.txt`] and each file it lists) is in it too: a boot compiles the compiler the tool carries from
+--- those files alone (core/bridge.lua's `bootstrap`), and a rebuild by the running tool carries its own compiler on, so
+--- an edit to one of them ([`lang/check.tl`], say) is a tool that only a boot makes.
+---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
 --- so a project reads them rather than computing any. Returns the
 --- fingerprint written; [`identity.recorded_boot_hash`] reads it back.
-function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint?, string
+function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
     return nil, boot_trouble
   end
+  local seed, seed_trouble = identity.seed_paths(root)
+  if seed == nil then
+    return nil, seed_trouble
+  end
+  local quoted: mut {string} = { "'build/seed.txt'" }
+  for _, path in ipairs(seed) do quoted[#quoted + 1] = "'" .. path:gsub("'", "''") .. "'" end
   local image, image_trouble = identity.hash_over(db,
     "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
       "path IN ('build.zig', 'build.zig.zon', " ..
       "'bin/zig', 'bin/zig.pin', 'build/artifact.tl', 'build/launcher.tl', " ..
       "'build/patch.tl') OR " ..
       "path GLOB 'vendor/*/PIN' OR " ..
-      "path GLOB 'patch/*'")
+      "path GLOB 'patch/*' OR " ..
+      "path IN (" .. table.concat(quoted, ", ") .. ")")
   if image == nil then
     return nil, image_trouble
   end
@@ -348,6 +360,20 @@ function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint?, 
     end
   end
   return { boot = boot, image = image }
+end
+
+--- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
+--- seed list (a project's), whose tool's compiler is the one it was given.
+function identity.seed_paths(root: string): {string}?, string
+  local path = root .. "/build/seed.txt"
+  local present, missing = Fs.exists(path)
+  if present == nil then return nil, "seed list: " .. missing end
+  if not present then return {}, "" end
+  local listed, trouble = Fs.read(path)
+  if listed == nil then return nil, "seed list: " .. trouble end
+  local paths: mut {string} = {}
+  for line in listed:gmatch("[^\n]+") do paths[#paths + 1] = line end
+  return paths, ""
 end
 
 --- The `boot` fingerprint [`identity.record_fingerprint`] wrote into `meta` at
