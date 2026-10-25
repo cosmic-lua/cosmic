@@ -236,13 +236,20 @@ local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
   assert(Fs.exists(tmp .. "/out/user.lua") == false)
 end
 
---- A declaration beside its source would be two files for one module: the new grammar's program has one.
-local function test_a_declaration_and_a_source_of_one_module_are_refused(tmp: string)
+--- A declaration beside its source is one module, as in a build: a require reads the declaration, and the source is
+--- compiled as the implementation. Two sources of one module are two files for it, which the program has one of.
+local function test_a_declaration_beside_its_source_is_one_module_and_two_sources_are_refused(tmp: string)
   local decl = file(tmp, "foo.d.tl", "local record Foo\n  n: integer\nend\nreturn Foo\n")
-  local source = file(tmp, "foo.tl", "return 1\n")
+  local source = file(tmp, "foo.tl", "local record Foo\n  n: integer\nend\nlocal f: Foo = { n = 1 }\nreturn f\n")
   local ran = run({ "-o", tmp .. "/out", decl, source })
-  assert(ran.code == 2, ran.err)
-  assert(ran.err:find("both the module foo", 1, true), ran.err)
+  assert(ran.code == 0, ran.err)
+  assert(Fs.exists(tmp .. "/out/foo.lua") == true)
+  assert(Fs.exists(tmp .. "/out/foo.d.lua") == false)
+  assert(Fs.mkdirs(tmp .. "/foo"))
+  local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")
+  local twice = run({ "-o", tmp .. "/out2", source, nested })
+  assert(twice.code == 2, twice.err)
+  assert(twice.err:find("both the module foo", 1, true), twice.err)
 end
 
 --- Two files that name each other's types: the one lowered first finds the other declared, not lowered.
