@@ -91,7 +91,7 @@ harness_epoch.acknowledged = {
 
   ["build.cache_formats"] = "0f32a7868d0e9b00d1170380e8ca7ba93d449b66cebf9b3a182c8218a993b122",
 
-  ["build.cache_names"] = "a416d209911afb76606b770c9076dd2d61aa8f2625b733ad46b24c177774b946",
+  ["build.cache_names"] = "1bdd81c33602e85362226a8bb0b529720d89c747376961f8d0aab99158c9e772",
 
   ["build.caches"] = "969bfed82c44d6623119afcedbecd265a1bbbd43805e43dc1c96462dfeee98d8",
 
@@ -99,7 +99,7 @@ harness_epoch.acknowledged = {
 
   ["build.core_image"] = "18daf88c3c58f62a222472eaa52b99218cd1e5b7ccafde6a0beded46c8f3382b",
 
-  ["build.declared_key"] = "ca2e87fa086110c7b7d7ab9da2e970c48aca6f2dc7ce5611a75361f9b8402419",
+  ["build.declared_key"] = "96292625c08a260df641f76860b362eaa7a77fef1d595b1ba2fcf7961dc31a53",
 
   ["build.digest"] = "63588bce17aabb935b044ae8a4af8cea78d1dca19822a36e72efe62d4a877355",
 
@@ -121,7 +121,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_inputs"] = "a1c8aa5a8905d712f576c843749adf8a4ce16702c7e377c56c77864ec36c1c37",
 
-  ["build.test_key"] = "c9e60f0c3fd39bfc3e074ee5b1d6810eb6554d7c7d5eb171707305b459387605",
+  ["build.test_key"] = "9ac6c2c0722b98b0ff3cac1b60df030d79fb0cca53a7d3b9e1f5223e9beb8fff",
 
   ["build.test_policy"] = "6f9e3fabca11585b186a5cad1b41a9eaf068b43c28f5ad56bee77a680dc6ad01",
 
@@ -135,13 +135,13 @@ harness_epoch.acknowledged = {
 
   ["cmd.cosmic.main"] = "4199a34c391ac393c2cff8404cced9e3e593309f7ec58fb1af37f26e3fead347",
 
-  ["cosmic.child"] = "e0afdaabe784f261e1e79a2a11e84a591a32ea0a7308971a42b8e42a779f8f7c",
+  ["cosmic.child"] = "e2484d090c4f93893eb412881a79bc3e9c5e7480be4353a8ce4b717fa5942aae",
 
   ["cosmic.codec"] = "52572ec5f66817018bb20d585ebc0e5ea2ed14b2d15af6eaeb61a8dc13e5624b",
 
   ["cosmic.coverage"] = "1fd90d399ac245486c914ca72e37ff638957ca46403aba64acbbd1af77017942",
 
-  ["cosmic.env"] = "da17af9df52b6b2e827c8893426beddaf42725f778a47675abbd074ad482bf55",
+  ["cosmic.env"] = "4fab933c9a5f8103144f6b2283e368c140878ce80bcb8162866aa9ca2004927d",
 
   ["cosmic.fs"] = "155cd26d7bb31b6cc3431f49cf816b0bb78dd87e9fe61fc65cfdbd14938de70f",
 
