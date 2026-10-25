@@ -186,6 +186,8 @@ local function execute(argv: {string}, program: string, held: Held): integer
   for _, word in ipairs(relaunch.argv) do resolver_argv[#resolver_argv + 1] = word end
   for name, value in pairs(relaunch.env) do resolver_env[name] = value end
   for number, fd in pairs(relaunch.fds) do resolver_fds[number] = fd end
+  -- The resolver is the tree's Teal, which the pinned release reads in the new grammar only where this says so.
+  resolver_env["COSMIC_GRAMMAR"] = "new"
   resolver_argv[#resolver_argv + 1] = "--standalone"
   resolver_argv[#resolver_argv + 1] = root .. "/build/paths.tl"
   resolver_argv[#resolver_argv + 1] = root
