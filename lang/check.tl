@@ -2825,7 +2825,7 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
     return f, f
   end
   local store = ctx.store
-  -- The key of the fact that a test showed the tag of the place is not `value` while it is the member `m` (told by its place among the members of the declared type). The fact is a
+  -- The key of the fact that a test showed the tag of the place is not `value` in the field being tested while it is the member `m` (told by its place among the members of the declared type). The fact is a
   -- path from the place, so an assignment to the place or to what it is read from takes it away, and a join keeps it
   -- only where both paths have it.
   local whole = members_of(store, store:non_nil(p.declared))
@@ -2836,7 +2836,7 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
         at = i
       end
     end
-    return p.key .. ".#" .. tostring(at) .. "." .. value
+    return p.key .. ".#" .. tostring(at) .. "." .. field.name .. "=" .. value
   end
   local members = members_of(store, store:non_nil(current(f, p)))
   local yes: mut {Type} = {}

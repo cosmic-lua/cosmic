@@ -336,3 +336,33 @@ local function test_a_member_stays_while_a_value_of_it_is_not_ruled_out_on_every
   -- Values ruled out in one test are not the values of another member.
   refused("local function h(u: A | B): integer\n  if u.kind == \"c\" then\n    return 0\n  end\n  return u.y\nend\n", "field_unknown", PAIR)
 end
+
+local function test_a_value_ruled_out_in_one_field_is_not_ruled_out_in_another_field_of_the_same_place()
+  -- `kind` and `mode` share the values "x" and "y"; ruling "x" out of `kind` says nothing of `mode`.
+  local head = [[
+local enum K1 "x" "y" end
+local enum K2 "z" end
+local enum M1 "x" "y" end
+local enum M2 "w" end
+local record A
+  kind: K1
+  mode: M1
+  a: integer
+end
+local record B
+  kind: K2
+  mode: M2
+  b: integer
+end
+local function one(): A | B
+  local a: A = { kind = "y", mode = "x", a = 1 }
+  return a
+end
+]]
+  refused("local function f(u: A | B): integer\n  if u.kind == \"x\" then\n    return 0\n  end\n  if u.mode == \"y\" then\n    return 0\n  end\n" ..
+      "  return u.b + 1\nend\n", "field_unknown", head)
+  -- every value ruled out of one field removes the member, and the other field's rulings count only for that field
+  stands("local function f(u: A | B): integer\n  if u.kind == \"x\" or u.kind == \"y\" then\n    return 0\n  end\n  return u.b + 1\nend\nprint(f(one()))\n", "0", head)
+  stands("local function f(u: A | B): integer\n  if u.kind == \"x\" then\n    return 0\n  end\n  if u.mode == \"y\" then\n    return 0\n  end\n" ..
+      "  if u.mode == \"x\" then\n    return 0\n  end\n  return u.b + 1\nend\nprint(f(one()))\n", "0", head)
+end
