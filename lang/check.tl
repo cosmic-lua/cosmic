@@ -1957,6 +1957,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     for _, m in ipairs(t.members) do
       if (m.tag == "named") and member_types(ctx, m, name) ~= nil then
         types[#types + 1] = member_read(ctx, node, m, name)
+      elseif is_enum(m) then
+        report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
+            ", an enum and a member of " .. tq(ctx, t),
+          "call a function of `string` on it, `v:" .. name .. "(...)`, or narrow the value to the member that has it " ..
+            "(`x is T`)", { show(ctx, t) })
+        return ctx.invalid
       else
         report(ctx, "field_unknown", node, quoted(name) .. " is not a field of " .. tq(ctx, m) ..
             ", a member of " .. tq(ctx, t),
@@ -2020,6 +2026,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
   local store = ctx.store
   local common: {Type}? = nil
   local first: Type? = nil
+  local first_declared: Type = ctx.invalid
   for _, m in ipairs(u.members) do
     -- A member that is text (an enum or `string`) has the functions of `string`, which only a call reaches.
     if not is_text(m) and (not ((m.tag == "named")) or member_types(ctx, m, node.name) == nil) then
@@ -2056,6 +2063,7 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
     if held == nil then
       common = replaced
       first = m
+      first_declared = declared[1] or read
     else
       local agree = #held == #replaced
       for i = 1, if agree then #held else 0 end do
@@ -2065,9 +2073,10 @@ local function union_method(ctx: Ctx, node: Ast.MethodCall, u: Union): Type?, {T
         local other = first
         report(ctx, "not_callable", node, subject(ctx, node) .. " calls the method " .. quoted(node.name) .. " of each member " ..
             "of " .. tq(ctx, u) .. ", and " .. tq(ctx, other ~= nil and other or m) .. " and " .. tq(ctx, m) ..
-            " declare it differently: " .. quoted(show(ctx, held[1])) .. " and " .. quoted(show(ctx, replaced[1])),
+            " declare it differently: " .. quoted(show(ctx, first_declared)) .. " and " ..
+            quoted(show(ctx, declared[1] or read)),
           "narrow the value to one member first (`x.kind == \"...\"` or `x is T`), or declare " .. quoted(node.name) ..
-            " the same in every member", { show(ctx, held[1]), show(ctx, replaced[1]) })
+            " the same in every member", { show(ctx, first_declared), show(ctx, declared[1] or read) })
         return nil
       end
     end

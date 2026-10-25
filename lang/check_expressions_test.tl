@@ -82,7 +82,7 @@ local function test_a_method_the_members_declare_differently_is_reported_and_say
   refused(head .. "  local a = s:area()\nend\n", "not_callable",
     "calls the method `area` of each member of `Circle | Tri`, and ",
     "narrow the value to one member first")
-  refused(head .. "  local a = s:scale(1)\nend\n", "not_callable", " declare it differently: `function(Circle | Tri, ")
+  refused(head .. "  local a = s:scale(1)\nend\n", "not_callable", " declare it differently: `function(Tri, integer): number` and `function(Circle, number): number`")
   -- the arguments are still checked, so that what is in them is reported once
   assert(codes_of(head .. "  local a = s:scale(1 + \"x\")\nend\n") == "not_callable operand_type")
 end
@@ -291,14 +291,19 @@ local function test_a_method_called_on_a_union_of_enums_or_of_an_enum_and_a_stri
   assert(codes_of(mixed) == "field_unknown")
   local own = KIND .. "local class C\n  function upper(self): string\n    return \"\"\n  end\nend\n" ..
     "local function f(u: Kind | C)\n  local x = u:upper()\nend\n"
-  assert(codes_of(own) == "not_callable")
+  refused(own, "not_callable", "declare it differently: `function(C): string` and `function(string): string`")
+  local mine = KIND .. "local record M\n  upper: function(self: M): string\nend\n" ..
+    "local function f(u: Kind | M)\n  print(u:upper())\nend\n"
+  refused(mine, "not_callable", "declare it differently: `function(M): string` and `function(string): string`")
 end
 
 local function test_a_member_of_an_enum_is_not_read_indexed_or_written()
   refused(KIND .. "local x = k.upper\n", "field_unknown", "whose values have no fields", "v:upper(...)")
   refused(KIND .. "local x = k.x\n", "field_unknown", "`x` is not one")
   refused(KIND .. "local x = k.upper(k)\n", "field_unknown")
-  refused(KIND .. "local function f(u: Kind | Other)\n  local x = u.upper\nend\n", "field_unknown")
+  refused(KIND .. "local function f(u: Kind | Other)\n  local x = u.upper\nend\n", "field_unknown",
+    "`upper` is not a field of `Other`, an enum and a member of `Kind | Other`",
+    "call a function of `string` on it, `v:upper(...)`, or narrow the value to the member that has it (`x is T`)")
   assert(codes_of(KIND .. "local m: Kind = \"a\"\nm.x = \"b\"\n") ~= "")
   assert(codes_of(KIND .. "local x = k[1]\n") ~= "")
   assert(codes_of(KIND .. "local x = k[\"upper\"]\n") ~= "")
