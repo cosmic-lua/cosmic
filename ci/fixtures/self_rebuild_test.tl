@@ -588,7 +588,7 @@ local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local since = Clock.now_ns()
   local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
     COSMIC_BUILD_CACHE = seed.path })
-  local said: {string} = {}
+  local said: mut {string} = {}
   supervised(function(active: Process.Fleet)
     for n = 1, 3 do
       Process.adopt(active, start("concurrent-" .. tostring(n),

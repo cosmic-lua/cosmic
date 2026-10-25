@@ -36,8 +36,8 @@ local record Fake
 end
 
 local function fake(archive?: function(parent: string, name: string, to: string): boolean, string): Fake
-  local printed: {string} = {}
-  local warned: {string} = {}
+  local printed: mut {string} = {}
+  local warned: mut {string} = {}
   return {
     host = {
       print = function(text: string) printed[#printed + 1] = text end,
@@ -147,7 +147,7 @@ end
 --- The tree of `root`, a line for each path below it: what it is, its
 --- permission bits, and its bytes, link target or modification time.
 local function tree(root: string): {string: string}
-  local lines: {string: string} = {}
+  local lines: mut {string: string} = {}
   local function visit(path: string, rel: string)
     local st = assert(sys.lstat(path))
     -- A directory's mode is read from the archive instead: the extractor
@@ -306,9 +306,9 @@ local function in_container(leg: string): boolean
   local platform = assert(workflow()["platform"])
   local image: string?
   for _, entry in ipairs(assert(assert(assert(platform.strategy).matrix).include)) do
-    if entry.name == leg then return entry.image ~= "" end
-    local named = entry.image
-    if entry.name == nil and named is string then image = named end
+    if entry["name"] == leg then return entry["image"] ~= "" end
+    local named = entry["image"]
+    if entry["name"] == nil and named is string then image = named end
   end
   assert(image ~= nil, "no platform leg " .. leg)
   return image ~= ""
@@ -407,9 +407,9 @@ local function test_seed_reads_every_key_each_leg_stages(tmp: string)
   local legs = assert(assert(assert(assert(ci["seed"]).strategy).matrix).include)
   local staged: mut {string: string} = {}
   for _, leg in ipairs(legs) do
-    local name = leg.name
+    local name = leg["name"]
     assert(name is string, "a seed leg has no name")
-    local is_checked = leg.checked == true
+    local is_checked = leg["checked"] == true
     local steps = platform_steps
     if is_checked then steps = checked_steps end
     local env: mut {string: string} = {}

@@ -41,7 +41,6 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local GrammarMode = require("build.grammar_mode")
-local Islands = require("build.islands")
 local ast = require("build.ast")
 local exit_status = require("build.exit_status")
 local teal = require("build.teal")
@@ -132,9 +131,8 @@ local function generate(file: string, source: string, built?: compiler): string?
   return code, ""
 end
 
---- The checker that reads `file`: `grammar` where given, else the one COSMIC_GRAMMAR names, and the fork's for an island, a
---- file the pinned release reads and so must stay in the Teal that release reads.
-local function checker_of(file: string, grammar?: GrammarMode.Mode): GrammarMode.Mode?, string
+--- The checker that reads `file`: `grammar` where given, else the one COSMIC_GRAMMAR names.
+local function checker_of(_file: string, grammar?: GrammarMode.Mode): GrammarMode.Mode?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -142,9 +140,6 @@ local function checker_of(file: string, grammar?: GrammarMode.Mode): GrammarMode
       return nil, chosen_trouble
     end
     mode = chosen
-  end
-  if mode == "new" and Islands.holds(file) then
-    mode = "teal"
   end
   return mode, ""
 end
@@ -159,9 +154,7 @@ end
 --- check creates its own environment; previous declarations are not shared.
 --- `grammar` is the checker to compile with: the one `COSMIC_GRAMMAR` names
 --- where not given ([`build.grammar_mode`]). The new checker ([`build.pipeline`])
---- holds the file to no ceiling, takes `cosmic.*` from this binary, and is not
---- used for a file of [`ci/islands.txt`]: those stay on the fork, as the
---- release that runs them reads Teal alone.
+--- holds the file to no ceiling and takes `cosmic.*` from this binary.
 function standalone.code(file: string, source: string,
                          variables?: {string:string}, built?: compiler, grammar?: GrammarMode.Mode): string?, string
   local mode, mode_trouble = checker_of(file, grammar)

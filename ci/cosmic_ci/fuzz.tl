@@ -84,7 +84,7 @@ end
 --- when `next_chunk` answers "" or `each` answers true.
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean)
-  local line: {string} = {}
+  local line: mut {string} = {}
   local taken: Taken = { length = 0 }
   local function add(piece: string)
     if taken.length < cut and #piece > 0 then
@@ -124,8 +124,8 @@ end
 --- time from `next_chunk` until it answers "": every failing test's
 --- line first, then the reports beneath them, bounded.
 function Fuzz.failure(next_chunk: function(): string, seed: string): string
-  local failing: {string} = {}
-  local reports: {string} = {}
+  local failing: mut {string} = {}
+  local reports: mut {string} = {}
   each_line(next_chunk, function(line: string): boolean
     if (line:sub(1, 10) == "test: FAIL" or line:match("^test: %d+ of %d+ tests? failed, ") ~= nil) and
         #failing < failing_lines then

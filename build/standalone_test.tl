@@ -327,21 +327,6 @@ local function test_the_compile_of_each_checker_is_kept_apart(tmp: string)
   assert(#assert(Fs.list(tmp .. "/cache/cosmic/standalone")) == 2)
 end
 
---- The files of ci/islands.txt stay on the fork: the pinned release reads them in Teal alone, and the new checker refuses a
---- write to a view that the fork lets by.
-local function test_a_file_of_the_islands_stays_on_the_fork(tmp: string)
-  local source = "local lines: {string} = {}\nlocal function add() lines[#lines + 1] = \"x\" end\nadd()\nreturn function(): integer\n  return #lines\nend\n"
-  assert(Fs.mkdirs(tmp .. "/checkout/ci") and Fs.mkdirs(tmp .. "/checkout/build"))
-  assert(Fs.write(tmp .. "/checkout/ci/islands.txt", "# the islands\nbuild/zig.tl\nci/\n"))
-  assert(Fs.write(tmp .. "/checkout/build/zig.tl", source) and Fs.write(tmp .. "/checkout/build/other.tl", source))
-  local variables = { XDG_CACHE_HOME = tmp .. "/cache" }
-  -- the island is the fork's, and compiles
-  assert(standalone.code(tmp .. "/checkout/build/zig.tl", source, variables, nil, "new"))
-  -- another file of the checkout is the new checker's, and is refused
-  local code, trouble = standalone.code(tmp .. "/checkout/build/other.tl", source, variables, nil, "new")
-  assert(code == nil and trouble:find("(view_written)", 1, true) ~= nil, tostring(trouble))
-end
-
 --- A file run alone has no ceilings to raise, so its refusal never speaks of a pin.
 local function test_a_refusal_of_a_file_alone_speaks_of_no_pin(tmp: string)
   local variables = { XDG_CACHE_HOME = tmp .. "/cache" }

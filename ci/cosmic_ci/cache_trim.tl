@@ -14,11 +14,11 @@ local record CacheTrim
     "verdicts"
   end
   record Request
-    family: Family
+    mut family: Family
     paths: {string}
     since_ns?: integer
     whole: boolean
-    restored?: string
+    mut restored?: string
   end
   --- What a trim said: standard output and the diagnostics.
   record Said
@@ -27,9 +27,9 @@ local record CacheTrim
   end
   --- What a command of the driver came to: its exit status and what it said.
   record Command
-    code: integer
-    out: string
-    err: string
+    mut code: integer
+    mut out: string
+    mut err: string
   end
   --- Whether cleaning a snapshot is safe.
   enum Ownership

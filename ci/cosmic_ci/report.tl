@@ -53,12 +53,12 @@ local record Report
     sha: string
     conclusion: string
     attempt: string
-    jobs: {Job}
-    suites: {State.SuiteRun}
+    mut jobs: mut {Job}
+    suites: mut {State.SuiteRun}
     --- Each `ci-driver-` artifact that could not be had, and why.
-    missing: {string}
-    qualifies: boolean
-    why: string
+    missing: mut {string}
+    mut qualifies: boolean
+    mut why: string
   end
   record Artifact
     name: string
@@ -96,7 +96,7 @@ end
 
 --- What one leg's jobs took in the runs a report compares, a value a run.
 local record Times
-  seconds: {number}
+  seconds: mut {number}
 end
 
 --- `count` as text, "" where there is none.

@@ -45,7 +45,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 
 --- A list of names, kept where it can be added to as the plan is made.
 local record Names
-  names: {string}
+  names: mut {string}
 end
 
 local record ZigPrune
@@ -64,15 +64,15 @@ local record ZigPrune
   --- for libc and the like, built in the global cache, is that one.
   record Cache
     path: string
-    prefix: integer
+    mut prefix: integer
   end
 
   --- What `plan` found: the manifests and output directories to remove,
   --- by path, and how many of each it saw.
   record Plan
-    manifests: {string}
-    outputs: {string}
-    manifests_seen: integer
+    manifests: mut {string}
+    outputs: mut {string}
+    mut manifests_seen: integer
     outputs_seen: integer
     --- How many outputs no manifest vouches for, and how many of them
     --- it keeps (no newer copy of theirs found).
@@ -128,7 +128,7 @@ end
 --- outputs, of either cache, it lists a file of, each as
 --- "<prefix>/<digest>".
 local record Manifest
-  output: string
+  mut output: string
   inputs: {string}
 end
 

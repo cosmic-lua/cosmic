@@ -7,9 +7,10 @@
 #
 # bin/cosmic-bootstrap fetches and verifies the pinned release into
 # $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it again, and
-# checks a restored cache against the pin first. The driver is linked in
-# as cosmic-driver on the job's PATH. `zig-cache` also points the job's
-# later steps at the caches the platform job restores.
+# checks a restored cache against the pin first. The driver is put
+# on the job's PATH as cosmic-driver, through a two-line wrapper that sets
+# COSMIC_GRAMMAR=new. `zig-cache` also points the job's later steps at the
+# caches the platform job restores.
 set -eu
 
 case "${1-}" in
@@ -23,7 +24,11 @@ mkdir -p "$RUNNER_TEMP/bin"
 if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
   echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
 fi
-ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
+# A wrapper, not a link: the pinned release reads the tree's files, ci/
+# among them, in the new checker's grammar only where COSMIC_GRAMMAR=new, as
+# bin/cosmic-bootstrap sets it for the scripts it runs.
+printf '#!/bin/sh\nexec env COSMIC_GRAMMAR=new "%s" "$@"\n' "$driver" > "$RUNNER_TEMP/bin/cosmic-driver"
+chmod 755 "$RUNNER_TEMP/bin/cosmic-driver"
 echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
 if [ "${1-}" = zig-cache ]; then

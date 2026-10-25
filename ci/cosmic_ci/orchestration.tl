@@ -253,7 +253,7 @@ end
 
 --- What [`harness_moved`] answered of each checkout and base, asked once
 --- a driver run: every operation's environment asks it.
-local moved_by_base: {string:boolean} = {}
+local moved_by_base: mut {string:boolean} = {}
 
 --- COSMIC_CI_HARNESS_MOVED for `env`, a merge-queue run's, where it
 --- does not say already: "1" where its change moves
@@ -2197,9 +2197,9 @@ function Orchestration.run_groups(high: Orchestration.Group,
     end
     return 0
   end
-  local active: {Runner.Running} = {}
-  local owner: {Runner.Running:Orchestration.Group} = {}
-  local in_low: {Runner.Running:boolean} = {}
+  local active: mut {Runner.Running} = {}
+  local owner: mut {Runner.Running:Orchestration.Group} = {}
+  local in_low: mut {Runner.Running:boolean} = {}
   local function begin(group: Orchestration.Group, is_low: boolean)
     local running = group.start()
     active[#active + 1] = running
@@ -2321,7 +2321,7 @@ local function phase_fixtures(p: PlatformContext): integer
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
     } }, high_jobs)
-  local low: {Orchestration.Group} = {}
+  local low: mut {Orchestration.Group} = {}
   local function add(spec: FixtureSpec)
     low[#low + 1] = fixture_group(c, work, spec, low_jobs)
   end

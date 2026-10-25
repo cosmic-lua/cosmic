@@ -23,19 +23,19 @@ local record Seams
   end
   --- Each call, named for the library function it starts as.
   record Calls
-    child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
-    child_start: function(argv: {string}, options?: Child.Options): Seams.Started?, string
+    mut child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
+    mut child_start: function(argv: {string}, options?: Child.Options): Seams.Started?, string
     env_all: function(): {string:string}
-    env_get: function(name: string): string?
-    fs_absolute: function(path: string): string?, string
-    fs_append: function(path: string, data: string, mode?: integer): boolean, string
-    fs_exists: function(path: string): boolean?, string
-    fs_open_write: function(path: string, mode?: integer): integer?, string
-    fs_put: function(fd: integer, bytes: string): boolean, string
+    mut env_get: function(name: string): string?
+    mut fs_absolute: function(path: string): string?, string
+    mut fs_append: function(path: string, data: string, mode?: integer): boolean, string
+    mut fs_exists: function(path: string): boolean?, string
+    mut fs_open_write: function(path: string, mode?: integer): integer?, string
+    mut fs_put: function(fd: integer, bytes: string): boolean, string
     fs_read: function(path: string): string?, string
     proc_user: function(name: string): Proc.User?, string
-    signal_guard: function(): Signal.Guard?, string
-    stream_tee: function(first: Stream.Writer, second: Stream.Writer): Stream.Writer
+    mut signal_guard: function(): Signal.Guard?, string
+    mut stream_tee: function(first: Stream.Writer, second: Stream.Writer): Stream.Writer
     sys_getuid: function(): integer
     sys_mkdtemp: function(template: string): string?, string, integer
     sys_pread: function(fd: integer, count: integer, offset: integer): string?, string, integer

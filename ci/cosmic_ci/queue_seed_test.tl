@@ -85,7 +85,7 @@ end
 
 local function serve(spec: Spec): GithubFake.Fake
   local runs_asked: Asked = { value = 0 }
-  local kept: {string: integer} = {}
+  local kept: mut {string: integer} = {}
   local failing: mut {string: boolean} = {}
   for _, id in ipairs(spec.fail_once or {}) do failing[id] = true end
   return GithubFake.new(function(path: string, _nth: integer): string?

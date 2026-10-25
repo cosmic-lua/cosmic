@@ -178,13 +178,3 @@ local function test_a_file_run_with_the_new_checker_is_told_a_refusal_in_its_wor
       (stopped.stderr or ""):find("(not_assignable)", 1, true) ~= nil, stopped_said)
 end
 
---- A file of ci/islands.txt stays on the fork in a file run as in `--standalone`: the write to a view that the new checker
---- refuses is let by, and another file of the same checkout is refused.
-local function test_a_file_run_with_the_new_checker_keeps_an_island_on_the_fork(tmp: string)
-  local source = 'local lines: {string} = {}\nlocal function add() lines[#lines + 1] = "x" end\nadd()\nprint(#lines)\n'
-  local root = tree_of(tmp, "island", { ["ci/islands.txt"] = "island.tl\n", ["island.tl"] = source, ["other.tl"] = source })
-  local island = run_new_in(root, "island.tl")
-  assert(island.code == 0 and island.stdout == "1\n", tostring(island.stdout) .. tostring(island.stderr))
-  local other = run_new_in(root, "other.tl")
-  assert(other.code ~= 0 and (other.stderr or ""):find("(view_written)", 1, true) ~= nil, tostring(other.stdout) .. tostring(other.stderr))
-end

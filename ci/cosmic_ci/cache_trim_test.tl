@@ -17,11 +17,11 @@ end
 --- members a test spoils are written as the spoilt text), `digest` and
 --- `fresh` left out where nil.
 local record Parts
-  version: string
-  digest?: string
-  fresh?: string
-  warnings: string
-  files: {string}
+  mut version: string
+  mut digest?: string
+  mut fresh?: string
+  mut warnings: string
+  mut files: {string}
 end
 
 --- One file of a report: trimmed, with `kept` rows, or in `state`.

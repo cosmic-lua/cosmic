@@ -230,8 +230,8 @@ end
 --- the variables of [`inherited`] it has, and nothing else. A copy,
 --- which `base` keeps nothing of. The child
 --- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
---- says otherwise. The fixture's own run shares one file with the leg's
---- other fixtures (`Orchestration.fixture`), but a tree a child builds (a
+--- says otherwise, and reads in the new grammar (COSMIC_GRAMMAR=new). The
+--- fixture's own run shares one file with the leg's other fixtures (`Orchestration.fixture`), but a tree a child builds (a
 --- fresh checkout's boot, the product rebuilding itself) is what a
 --- fixture checks compiles, and work another child or fixture left in
 --- that file would stand in for it (fixed_point_test's compiler cases,
@@ -256,6 +256,9 @@ function Fixture.environment_of(base: {string:string},
   if home ~= nil then environment["COSMIC_BUILD_HOME"] = home end
   environment["COSMIC_BUILD_CACHE"] = "0"
   environment["COSMIC_TEST_SANDBOX"] = "0"
+  -- The pinned release reads ci/ in the new grammar only where it is told to, as the CI driver's wrapper and
+  -- bin/cosmic-bootstrap tell it; a child that is that release, a driver a test starts, is told here.
+  environment["COSMIC_GRAMMAR"] = "new"
   if extra then
     for name, value in pairs(extra) do environment[name] = value end
   end
@@ -318,7 +321,7 @@ end
 function Fixture.call_with_descriptors(label: string, argv: {string},
                                        directory: string, diagnostics: string, environment: {string:string},
                                        paths: {integer:string}): Fixture.Outcome
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   local done: Done = {}
   local called, raised = pcall(function()
     for number, path in pairs(paths) do

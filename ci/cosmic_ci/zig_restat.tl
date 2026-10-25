@@ -44,11 +44,11 @@ local record ZigRestat
   --- by digest and took a changed mtime for,
   --- how many it left, and how many manifests it rewrote.
   record Result
-    records: integer
-    adopted: integer
-    rehashed: integer
-    left: integer
-    manifests: integer
+    mut records: integer
+    mut adopted: integer
+    mut rehashed: integer
+    mut left: integer
+    mut manifests: integer
   end
 
   --- The stat of a file the restat has looked at, none where the file has none or is no regular file.

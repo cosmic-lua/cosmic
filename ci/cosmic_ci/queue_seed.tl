@@ -117,6 +117,10 @@ local record Run
   event: string
 end
 
+-- TODO: spell the optional `any` fields of this file's records so that the pinned release's [`Shape.record_of`] reads them as
+-- optional, once ci/cosmic-driver.pin names a release whose [`Shape.record_of`] does (in the new grammar it reads `f?: any` as a
+-- required field, and a payload without it is refused: prerelease_test and queue_seed_test fail on that).
+
 --- One run of the API's listing, each field as `jq -r` would print it.
 local record RunRow
   id?: any

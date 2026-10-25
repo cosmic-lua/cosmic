@@ -144,7 +144,7 @@ local record Fake
   zips: mut {string:string}
   calls: mut {string}
   mut client: GithubApi.Client
-  env: {string:string}
+  mut env: {string:string}
   dir: string
 end
 

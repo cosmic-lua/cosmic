@@ -116,13 +116,11 @@ local function command(tmp: string): {string}, string
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
---- Synthetic candidates keep their selected physical output layout. The resolver is an island (ci/islands.txt), as it is in
---- the tree: a tool that reads COSMIC_GRAMMAR (the rehearsal's boot sets it) runs it on the fork, not on the new checker.
+--- Synthetic candidates keep their selected physical output layout. The resolver is a script the pinned release runs
+--- in the new grammar, as it is in the tree.
 local function build_resolver(root: string)
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.mkdirs(root .. "/ci"))
-  assert(Fs.write(root .. "/ci/islands.txt", "build/paths.tl\n"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, argv[1] .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths\n  main: function(argv: {string}): integer\nend\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
 end
 
 --- The driver reads its context (GITHUB_WORKSPACE, GITHUB_RUN_ID,
@@ -479,8 +477,8 @@ local function test_a_merge_queue_run_that_moves_the_epoch_runs_every_test(tmp: 
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local platform = assert(CiWorkflow.parse(text).jobs["platform"])
   local env = assert(platform.env)
-  assert(env.COSMIC_CI_BASE_SHA == "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
-    "ci.yml's platform job names no merge queue base: " .. tostring(env.COSMIC_CI_BASE_SHA))
+  assert(env["COSMIC_CI_BASE_SHA"] == "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
+    "ci.yml's platform job names no merge queue base: " .. tostring(env["COSMIC_CI_BASE_SHA"]))
 end
 
 --- A branch push that runs the queue's scope (ci.yml's `scope` job gives
@@ -1212,7 +1210,7 @@ local function full_run_legs(platform: CiWorkflow.Job): {string: {string: string
   for _, name in ipairs(names) do
     local leg: mut {string: string} = { name = name }
     for _, entry in ipairs(assert(matrix.include)) do
-      if entry.name == nil or entry.name == name then
+      if entry["name"] == nil or entry["name"] == name then
         for key, value in pairs(entry) do
           if value is string then leg[key] = value end
         end
@@ -1239,9 +1237,9 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   local platform = assert(jobs["platform"])
   local legs = full_run_legs(platform)
   local env = assert(platform.env)
-  assert(env.COSMIC_CI_CHECKED_SUITE == "skip", "a leg runs the checked suite: " ..
-      tostring(env.COSMIC_CI_CHECKED_SUITE))
-  local format = assert(env.COSMIC_CI_FORMAT, "ci.yml's platform job sets no COSMIC_CI_FORMAT")
+  assert(env["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
+      tostring(env["COSMIC_CI_CHECKED_SUITE"]))
+  local format = assert(env["COSMIC_CI_FORMAT"], "ci.yml's platform job sets no COSMIC_CI_FORMAT")
   local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
   assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
   local function env_of(job: CiWorkflow.Job): {string: string}
@@ -1260,7 +1258,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
     end
     return table.concat(phases, " ")
   end
-  local checked = assert(jobs.checked, "ci.yml has no checked job")
+  local checked = assert(jobs["checked"], "ci.yml has no checked job")
   assert(env_of(checked)["COSMIC_CI_CHECKED_SUITE"] == "gather",
     "the checked job does not gather the checked suite")
   assert(phases_of(checked) == "boot checked-build checked performance-checked",
@@ -1275,7 +1273,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   local narrowing = assert(jobs["checked-narrowing"], "ci.yml has no checked narrowing job")
   assert(phases_of(narrowing) == "boot checked-narrowing",
     "the checked narrowing job runs the phases " .. phases_of(narrowing))
-  local light = assert(jobs.format, "ci.yml has no format job")
+  local light = assert(jobs["format"], "ci.yml has no format job")
   assert(phases_of(light) == "boot format", "the format job runs the phases " .. phases_of(light))
 end
 
@@ -1741,7 +1739,7 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
       local passed = case.ok or row.suite ~= "darwin"
       assert(row.status == (if passed then "pass" else "fail" end), case.name .. ": " .. row.suite ..
           ": " .. tostring(row.status))
-      local stood = row.suite == "local" and case.stood or 0
+      local stood = if row.suite == "local" then case.stood else 0 end
       assert(not passed or (row.ran == 2 and row.stood == stood), case.name .. ": " .. row.suite)
     end
     assert(db:close())
@@ -1956,13 +1954,14 @@ local function test_the_rehearsal_boots_the_tool_again_runs_the_projects_and_pro
     end
     local boots = Fs.read(fake .. "/o.boots")
     if case.ran then
-      -- the second boot is the plain `boot` with the new checker asked for, the first the legs' with the mode unset
-      assert(boots ~= nil and boots:find("\nbuild boot -Dboot-cores=all|new\n", 1, true) ~= nil and boots:find("build cores boot -Dboot-cores=all|\n", 1, true) == 1,
+      -- the second boot is the plain `boot` with the new checker asked for, the first the legs'; the driver is run with
+      -- COSMIC_GRAMMAR=new (the CI driver's wrapper sets it), which both boots inherit
+      assert(boots ~= nil and boots:find("\nbuild boot -Dboot-cores=all|new\n", 1, true) ~= nil and boots:find("build cores boot -Dboot-cores=all|new\n", 1, true) == 1,
         case.name .. ": " .. tostring(boots))
       local projects = Fs.read(fake .. "/o/bin/cosmic.projects")
       assert(projects == "new|0\n", case.name .. ": " .. tostring(projects))
       local examples = Fs.read(fake .. "/o/bin/cosmic.examples")
-      assert(examples == "|build/example_checks_main.tl\n", case.name .. ": " .. tostring(examples))
+      assert(examples == "new|build/example_checks_main.tl\n", case.name .. ": " .. tostring(examples))
       local proof = Fs.read(fake .. "/o/bin/cosmic.proof")
       assert(proof ~= nil and proof:find("new|build/lang_proof_main.tl prove ", 1, true) == 1 and
           proof:find(" --seed /pinned/cosmic", 1, true) ~= nil, case.name .. ": " .. tostring(proof))
@@ -2135,7 +2134,7 @@ local function lane_rig(tmp: string): LaneRig
   assert(Fs.mkdirs(candidate) and Fs.mkdirs(state) and Fs.mkdirs(tmp .. "/logs"))
   local c: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
-  local events: {string} = {}
+  local events: mut {string} = {}
   local sink = assert(Fs.open_write(tmp .. "/sink"))
   local function group(name: string, script: string, timeout_ns?: integer): Orch.Group
     local out, err = tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"

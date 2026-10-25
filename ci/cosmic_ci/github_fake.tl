@@ -9,7 +9,7 @@ local Json = require("cosmic.json")
 
 local record GithubFake
   record Fake
-    host: Github.Host
+    mut host: Github.Host
     --- Each request, as its method and the path below the API's address
     --- (`GET repos/o/r/actions/runs`), in order.
     calls: {string}
@@ -20,9 +20,9 @@ local record GithubFake
     --- Each wait, in seconds.
     sleeps: {integer}
     --- The time, in seconds, which each wait moves on.
-    clock: integer
+    mut clock: integer
     --- Whether the checkout's harness moved from the base asked after.
-    moved: boolean
+    mut moved: boolean
     --- The bases asked after.
     asked: {string}
   end
@@ -64,8 +64,8 @@ end
 function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFake.Fake
   local refused: mut {string:boolean} = {}
   for _, id in ipairs(refuse or {}) do refused[id] = true end
-  local asks: {string:integer} = {}
-  local calls: {string} = {}
+  local asks: mut {string:integer} = {}
+  local calls: mut {string} = {}
   local origin <const> = "https://api.test"
   local function reply(status: integer, body: string, headers?: {string:string}): GithubApi.Reply
     return { status = status, body = body, headers = headers or {} }
@@ -95,11 +95,11 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
   end
   local over = Github.over({ send = send, base = origin,
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end })
-  local outputs: {string} = {}
-  local summaries: {string} = {}
-  local printed: {string} = {}
-  local sleeps: {integer} = {}
-  local asked_bases: {string} = {}
+  local outputs: mut {string} = {}
+  local summaries: mut {string} = {}
+  local printed: mut {string} = {}
+  local sleeps: mut {integer} = {}
+  local asked_bases: mut {string} = {}
   -- Made with a host that does nothing, which the real one, naming the fake, replaces.
   local fake: GithubFake.Fake = { calls = calls, outputs = outputs, summaries = summaries, printed = printed,
     sleeps = sleeps, clock = START, moved = false, asked = asked_bases,

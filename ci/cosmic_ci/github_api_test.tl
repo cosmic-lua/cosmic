@@ -51,7 +51,7 @@ end
 --- what each `send` wrote.
 local function live(script: {{string}}, env?: {string:string},
                     download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
-  local sent: {string} = {}
+  local sent: mut {string} = {}
   local given: mut {string:string} = {}
   for name, value in pairs(env or {}) do given[name] = value end
   if given["GH_TOKEN"] == nil then given["GH_TOKEN"] = token end
@@ -147,7 +147,7 @@ end
 --- fetches the redirect's URL, which [`Http.download_result`] is handed without
 --- one.
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
-  local urls: {string} = {}
+  local urls: mut {string} = {}
   local captured: Captured = {}
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} }, nil,
     function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
@@ -448,12 +448,12 @@ end
 --- the test steps, recording the timeout each request was given.
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
   local clock: Tally = { value = 0 }
-  local timeouts: {integer} = {}
+  local timeouts: mut {integer} = {}
   local function send(request: GithubApi.Request): GithubApi.Reply?, string
     timeouts[#timeouts + 1] = assert(request.timeout_ns)
     clock.value = clock.value + cost_ns
     local number = #timeouts
-    local head = {}
+    local head: mut {string: string} = {}
     if number < pages then
       head["link"] = '<http://api.test/next' .. tostring(number) .. '>; rel="next"'
     end

@@ -25,16 +25,18 @@ place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
 pin's own.
 
-`islands.txt` lists the files that stay Teal until the pin moves past
-the switch (doc/plans/strict-teal.md): `ci/`, the scripts
-`bin/cosmic-bootstrap` runs and the ones `build/zig.tl` runs on that
-release's binary (`build/patch.tl`, `build/zig_fetch.tl`). CI's `check-islands` command
-(`cosmic-driver cosmic_ci/driver.tl check-islands`) gives each file of the
-list to the running driver's `compile`, which parses and type-checks it
-and runs nothing, and fails on a syntax error or any type error. A
-directory of the list is compiled by the driver's own tests.
-`build/islands_test.tl` holds the list to the tree, and is its only other
-reader.
+`bin/cosmic-bootstrap` runs the pinned release with `COSMIC_GRAMMAR=new`, and
+the CI driver is put on the job's PATH by a two-line wrapper that sets it,
+so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
+ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
+`build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
+no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
+lists as Teal. CI's `check-islands` command (`cosmic-driver
+cosmic_ci/driver.tl check-islands`) runs each of those scripts with `--help`
+on the running driver, which refuses a script that has a finding before it
+runs, and fails on a syntax error or any finding; `ci/` is compiled by the
+driver's own tests. `build/islands_test.tl` holds the scripts' list to those
+of `bin/` and `build/zig.tl`.
 
 ## running the platform job locally
 

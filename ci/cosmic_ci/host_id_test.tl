@@ -40,7 +40,7 @@ end
 --- The facts of the recorded host `vector`, where `docker` answers the
 --- engine's version (nil: it fails).
 local function facts_of(vector: Vector, docker?: string): HostId.Facts
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   local function put(path: string, content?: string)
     if content ~= nil then files[path] = content end
   end
@@ -135,7 +135,7 @@ local function named(tmp: string, host: string, words: {string}, env: {string:st
   assert(Fs.mkdirs(dir))
   local merged: mut {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
   for name, value in pairs(env) do merged[name] = value end
-  local said: {string} = {}
+  local said: mut {string} = {}
   local code = HostId.leg_host_id(words, merged, facts_of(vector_named(host), docker),
     function(text: string) said[#said + 1] = text end)
   local env_text, _ = Fs.read(dir .. "/env")

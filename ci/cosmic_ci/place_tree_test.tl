@@ -110,8 +110,8 @@ ffffffffffffffffffffffffffffffffffffffff checked schedule 1 322e3b17c5eaead
 
 --- A host over `env`, collecting what it prints and warns.
 local function host(env: {string:string}): PlaceTree.Host, {string}, {string}
-  local out: {string} = {}
-  local err: {string} = {}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
   return {
     env = env,
     print = function(line: string) out[#out + 1] = line end,
@@ -228,7 +228,7 @@ end
 --- Everything under `root`, a line each: a link with its target, a
 --- directory, or a file with its contents.
 local function layout(root: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local function walk(relative: string)
     for _, entry in ipairs((assert(Fs.list(root .. relative)))) do
       local path = relative .. "/" .. entry

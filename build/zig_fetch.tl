@@ -131,8 +131,12 @@ function ZigFetch.sources(version: string, name: string, mirrors: {string},
   for i = #order, 2, -1 do
     local j = pick(i)
     local at_i, at_j = order[i], order[j]
-    if at_i ~= nil and at_j ~= nil then
-      order[i], order[j] = at_j, at_i
+    if at_i ~= nil and at_j ~= nil and i ~= j then
+      -- A swap by removal and insertion: an index write to the array would be a hole.
+      table.remove(order, i)
+      table.remove(order, j)
+      table.insert(order, j, at_i)
+      table.insert(order, i, at_j)
     end
   end
   local out: mut {string} = {}
@@ -190,7 +194,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   if via ~= nil then fetcher = via end
   local download, sleep, now = fetcher.download, fetcher.sleep, fetcher.now
   local deadline = now() + BUDGET_NS
-  local last: {string:string} = {}
+  local last: mut {string:string} = {}
   local wrong: mut {string:boolean} = {}
   local tally: Tally = { attempts = 0 }
   local out_of_time = false

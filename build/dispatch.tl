@@ -432,11 +432,7 @@ local function run(file: string, argv: {string}): integer
     log:complain(grammar_trouble)
     return 1
   end
-  -- A file of ci/islands.txt stays on the fork, as it does for `--standalone` ([`build.standalone`]).
   local grammar = asked
-  if asked == "new" and require("build.islands").holds(file) then
-    grammar = "teal"
-  end
   local tool = GrammarMode.tool(Store.meta("compiler") or "", grammar)
 
   local database = build_paths.under(handle.dir).projection

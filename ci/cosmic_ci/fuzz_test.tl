@@ -197,7 +197,7 @@ local function test_execute_runs_the_checked_core_on_every_property(tmp: string)
   fake_checkout(root, "3")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp,
     env = { FUZZ_SEED = "9", FUZZ_ITERS = "5", PATH = "/usr/bin:/bin" },
     log = log_fd,
@@ -223,7 +223,7 @@ local function test_execute_passes_and_says_so_briefly(tmp: string)
   fake_checkout(root, "0")
   assert(Fs.mkdirs(temp))
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   local status = Fuzz.execute({ root = root, temp = temp, env = {},
     log = log_fd,
     summarize = function(text: string) summary[#summary + 1] = text end })

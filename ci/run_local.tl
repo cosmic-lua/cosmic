@@ -16,16 +16,16 @@ local record Local
   --- fixed, so [`Local.calls`] hands out this record, which the run reads each call from. This file runs
   --- standalone on the pinned library and cannot require a module of its own project to hold them.
   record Calls
-    child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
-    env_all: function(): {string:string}
-    fs_put: function(fd: integer, bytes: string): boolean, string
-    fs_read: function(path: string): string?, string
-    proc_user: function(name: string): Proc.User?, string
-    signal_close: function(guard: Signal.Guard): boolean, string
+    mut child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
+    mut env_all: function(): {string:string}
+    mut fs_put: function(fd: integer, bytes: string): boolean, string
+    mut fs_read: function(path: string): string?, string
+    mut proc_user: function(name: string): Proc.User?, string
+    mut signal_close: function(guard: Signal.Guard): boolean, string
     signal_guard: function(): Signal.Guard?, string
-    sys_getuid: function(): integer
-    sys_mkdtemp: function(template: string): string?, string, integer
-    sys_pread: function(fd: integer, count: integer, offset: integer): string?, string, integer
+    mut sys_getuid: function(): integer
+    mut sys_mkdtemp: function(template: string): string?, string, integer
+    mut sys_pread: function(fd: integer, count: integer, offset: integer): string?, string, integer
   end
   --- The calls in force: the library's, until a test assigns its own to a field and puts the library's back.
   calls: function(): Calls

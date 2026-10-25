@@ -42,7 +42,7 @@ local record Ranks
   upper: integer
 end
 
-local rank_cache: {string:Ranks} = {}
+local rank_cache: mut {string:Ranks} = {}
 
 --- Relative binomial masses start at the mode, avoiding the underflow of
 --- p^n at large n. Each outward recurrence decreases; normalizing their sum
@@ -54,18 +54,20 @@ local function ranks(n: integer, numerator: integer, denominator: integer,
   local cached = rank_cache[key]
   if cached ~= nil then return cached.lower, cached.upper end
   local mode = ((n + 1) * numerator) // denominator
-  local weights: mut {number} = {}
-  for _ = 1, n + 1 do weights[#weights + 1] = 0.0 end
-  weights[mode + 1] = 1
+  -- The weights below the mode come from the mode down, and are put in rank order.
+  local below: mut {number} = {}
   local weight = 1.0
   for k = mode, 1, -1 do
     weight = weight * k * (denominator - numerator) / ((n - k + 1) * numerator)
-    weights[k] = weight
+    below[#below + 1] = weight
   end
+  local weights: mut {number} = {}
+  for at = #below, 1, -1 do weights[#weights + 1] = assert(below[at]) end
+  weights[#weights + 1] = 1
   weight = 1.0
   for k = mode, n - 1 do
     weight = weight * (n - k) * numerator / ((k + 1) * (denominator - numerator))
-    weights[k + 2] = weight
+    weights[#weights + 1] = weight
   end
   local total = 0.0
   for _, each in ipairs(weights) do total = total + each end
@@ -286,22 +288,17 @@ local record Observation
   mut leaf_value?: integer
 end
 
---- `value` as an `any`, which a parameter declared `any` takes and answers.
-local function passed(value: any): any
-  return value
-end
-
 --- A value as the JSON files hold it: itself, and `null` where it is missing, which a record's missing field
 --- would leave out (doc/performance.md: an unbounded side is `null`).
-local function shown(value?: number): any
+local function shown(value?: number): number | Json.Null
   if value == nil then return Json.null end
-  return passed(value)
+  return value
 end
 
 --- An [`Perf.Interval`] as the JSON files hold it.
 local record IntervalJson
-  low: any
-  high: any
+  low: number | Json.Null
+  high: number | Json.Null
   lower_bounded: boolean
   upper_bounded: boolean
 end
@@ -328,7 +325,7 @@ local record ReadingJson
   tail_interval: IntervalJson
   calibration_tail_delta: number
   calibration_tail_interval: IntervalJson
-  tail_noise: any
+  tail_noise: number | Json.Null
   sample_count: integer
   calibration_count: integer
   status: string
@@ -410,7 +407,8 @@ end
 
 local function fixture(binary: string, root: string): Fixture
   assert(Fs.mkdirs(root .. "/cmd/noop"))
-  local env = Env.all()
+  local env: mut {string: string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
   for name in pairs(env) do
     if name:sub(1, 7) == "COSMIC_" then env[name] = nil end
   end
@@ -755,7 +753,7 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
     metadata.supervisor_with_true_ns = "unmeasured: /usr/bin/true unavailable"
   end
   save(output .. "/metadata.json", metadata)
-  local raw: {Observation} = {}
+  local raw: mut {Observation} = {}
   local summaries: mut {string:ReadingJson} = {}
   local failed = false
   local stride = ((count + 4) // 2) * 2

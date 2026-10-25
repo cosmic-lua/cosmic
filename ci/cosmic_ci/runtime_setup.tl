@@ -56,7 +56,7 @@ end
 --- its database, and a name with no file in the tree is none of the
 --- tree's, so neither is followed.
 function RuntimeSetup.closure(root: string, entry: string): {string}
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   local function visit(relative: string)
     if seen[relative] == true then return end

@@ -139,7 +139,7 @@ local commands: {string:Command} = {
     usage = "", handler = CommitVerdicts.invalidate_command },
   ["place-tree"] = { about = "move the checkout to the path this commit and leg choose, or back",
     usage = "[--name | --restore]", spec = PlaceTree.spec(), options = PlaceTree.command },
-  ["check-islands"] = { about = "type-check the files of ci/islands.txt on the running driver's Teal, running none of them",
+  ["check-islands"] = { about = "type-check the bootstrap's scripts on the running driver, in the new grammar, by running each with --help",
     usage = "[ROOT]", handler = Islands.command },
   platform = { about = "run one phase of this worker's platform job",
     usage = "PHASE [ARG]", handler = Orchestration.platform },

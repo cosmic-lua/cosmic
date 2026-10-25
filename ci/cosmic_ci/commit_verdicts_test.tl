@@ -58,7 +58,7 @@ local function test_the_queue_names_its_base_and_main_none()
   }
   for _, env in ipairs(cases) do
     local none, _, _, asked = merge_base(env, nil)
-    assert(none == "" and #asked == 0, tostring(env.EVENT) .. " " .. tostring(env.REF) .. ": " .. none ..
+    assert(none == "" and #asked == 0, tostring(env["EVENT"]) .. " " .. tostring(env["REF"]) .. ": " .. none ..
         table.concat(asked, "\n"))
   end
 end
@@ -235,6 +235,6 @@ local function test_a_failed_invalidate_fails_nothing()
   for _, given in ipairs(invalid) do
     local env = Maps.with(given, { REPOSITORY = "o/r" })
     fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
-    assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env.COMMIT))
+    assert(CommitVerdicts.invalidate(env, fake.host) == 2 and #fake.calls == 0, tostring(env["COMMIT"]))
   end
 end

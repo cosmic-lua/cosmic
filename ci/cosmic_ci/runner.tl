@@ -45,11 +45,11 @@ local record Runner
   record Running
     phase: string
     recording: Recording
-    handle?: Child.Handle
-    descriptors: {integer}
+    mut handle?: Child.Handle
+    mut descriptors: {integer}
     --- Set when the command could not start, and once it is reaped.
-    outcome?: Outcome
-    reaped: boolean
+    mut outcome?: Outcome
+    mut reaped: boolean
   end
 end
 

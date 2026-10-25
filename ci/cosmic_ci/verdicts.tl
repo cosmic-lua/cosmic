@@ -150,9 +150,9 @@ local function merge_file(from: string, into: string): string, string
     return "", "verdicts-merge: " .. into .. ": " .. open_trouble .. "; nothing merged\n"
   end
   local db: Sqlite.Handle = opened
-  local skipped: {string} = {}
-  local added: {string} = {}
-  local differing: {string} = {}
+  local skipped: mut {string} = {}
+  local added: mut {string} = {}
+  local differing: mut {string} = {}
   local session: Attached = { attached = false }
   local function work(): boolean, string
     local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(busy_ms))

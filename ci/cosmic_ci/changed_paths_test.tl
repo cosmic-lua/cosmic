@@ -130,7 +130,7 @@ end
 
 --- The fetch is cut off after FETCH_SECONDS, the diff never.
 local function test_the_fetch_waits_as_long_as_it_is_told(tmp: string)
-  local waits: {integer} = {}
+  local waits: mut {integer} = {}
   local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code = ChangedPaths.changed_paths({ BASE = RECORDED_BASE, OUT = tmp .. "/changed", FETCH_SECONDS = "7" },
     fake.host, function(_argv: {string}, seconds: integer): ChangedPaths.Ran

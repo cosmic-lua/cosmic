@@ -248,14 +248,14 @@ end
 local record Release
   id: integer
   tag: string
-  draft: boolean
-  prerelease: boolean
+  mut draft: boolean
+  mut prerelease: boolean
   assets: mut {Asset}
   title: string
   notes: string
   --- The commit publishing the release makes its tag at, where the tag
   --- is missing.
-  target?: string
+  mut target?: string
 end
 
 --- A repository standing in for GitHub's, answering a client's `send`
@@ -268,15 +268,15 @@ end
 local record Repo
   client: GithubApi.Client
   release: string
-  temp: string
+  mut temp: string
   tags: mut {string:string}
-  annotated: {string:string}
-  tag_objects: {string:string}
-  branches: {string:string}
+  annotated: mut {string:string}
+  tag_objects: mut {string:string}
+  branches: mut {string:string}
   releases: mut {Release}
   mut assets: integer
-  compare: {string}
-  fail: {string:string}
+  mut compare: {string}
+  fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
   log: mut {string}
   --- The content type each uploaded asset came with.

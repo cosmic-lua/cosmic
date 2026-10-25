@@ -233,7 +233,8 @@ end
 local function standalone(root: string, script: string,
                           words: {string}): Child.Result?, string
   local argv: mut {string} = {}
-  local env: mut {string:string} = Env.all()
+  local env: mut {string:string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
   local fds: mut {integer:integer | string} = {}
   local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
@@ -245,7 +246,7 @@ local function standalone(root: string, script: string,
     if self == nil then
       return nil, self_trouble
     end
-    argv[1] = self
+    argv[#argv + 1] = self
   end
   argv[#argv + 1] = "--standalone"
   argv[#argv + 1] = root .. "/" .. script
@@ -1113,7 +1114,8 @@ function Zig.enter(argv: {string}, script: string): integer
   local zig = found.zig
   -- The pinned release runs on its library with patch/zig-lib/'s records
   -- applied, unless the caller names a library of their own.
-  local environment = Env.all()
+  local environment: mut {string:string} = {}
+  for name, value in pairs(Env.all()) do environment[name] = value end
   local install = found.install
   if install ~= nil and (environment["ZIG_LIB_DIR"] or "") == "" then
     local lib, lib_trouble = patched_lib(root, install)

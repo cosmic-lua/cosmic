@@ -47,8 +47,7 @@ stands on another checkout's pass.
   boots a tool that carries the Lua the new generator wrote, and records that
   in its `compiled_by`: a run without the variable, or with the other mode,
   finds it unsettled and builds it again ([`build.reboot`]'s `settled_by`).
-  A lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too; a lone file of
-  [`ci/islands.txt`] stays on the fork, which the release that runs it reads.
+  A lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too.
   `cosmic build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles
   to is written in the new grammar then ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are
   compiled by it as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its
@@ -555,7 +554,6 @@ Other rules:
 [`build/test_state.tl`]: ../build/test_state.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
-[`ci/islands.txt`]: ../ci/islands.txt
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl

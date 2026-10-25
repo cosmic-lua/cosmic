@@ -13,8 +13,8 @@ local Seams = require("cosmic_ci.seams")
 local record Images
   --- How a command came out: 0 and "", or docker's failing status and why.
   record Outcome
-    code: integer
-    trouble: string
+    mut code: integer
+    mut trouble: string
   end
 
   --- The words after `docker` for each of publish's three commands.

@@ -29,28 +29,28 @@ local record SuiteOutput
 
   record Figures
     --- "pass" or "fail", from the summary line; nil without one.
-    verdict?: string
-    tests?: integer
-    modules?: integer
-    ran?: integer
-    stood?: integer
-    every?: integer
-    shared?: integer
-    failed?: integer
-    errors?: integer
-    elapsed_ms?: integer
+    mut verdict?: string
+    mut tests?: integer
+    mut modules?: integer
+    mut ran?: integer
+    mut stood?: integer
+    mut every?: integer
+    mut shared?: integer
+    mut failed?: integer
+    mut errors?: integer
+    mut elapsed_ms?: integer
     --- What the summary line says after its time: "sandboxed", or why not.
-    sandbox?: string
+    mut sandbox?: string
     --- How many tests a bailing run (`cosmic test --bail`) started none
     --- of after its first failure; nil where the line says none.
-    not_run?: integer
+    mut not_run?: integer
     --- Each key part by the name the line gives it ("host features",
     --- "runtime", ...), its digest's prefix as said ("" for none).
-    parts?: {string:string}
+    mut parts?: {string:string}
     --- What the verdict cache held when the run began: its census
     --- line's list as said ("" for "no rows"), which `held` reads;
     --- nil where the run said none.
-    held?: string
+    mut held?: string
   end
   --- A suite's figures and how it ended ([`SuiteOutput.status`]).
   record Read

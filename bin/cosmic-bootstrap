@@ -8,11 +8,12 @@
 # `exec` of this script -- against its own embedded standard library,
 # so neither the tree's state nor its build directory matters to it.
 #
-# What this runs must parse under that release's Teal, which the tree's
-# may be ahead of. ci.yml's checked job type-checks it on the pinned driver
-# (`cosmic-driver cosmic_ci/driver.tl check-islands`, which reads
-# ci/islands.txt), and `cosmic-driver test cosmic_ci`
-# compiles ci/ on the pinned release.
+# What this runs is written in the new checker's grammar, and the release
+# reads that grammar when COSMIC_GRAMMAR=new, which this script sets for
+# whatever it runs (a stand-in too). ci.yml's checked job type-checks the
+# scripts on the pinned driver (`cosmic-driver cosmic_ci/driver.tl
+# check-islands`), and `cosmic-driver test cosmic_ci` compiles ci/ on the
+# pinned release.
 #
 # COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
 # pin's -- the tree's own tool, say -- for every one of them, and
@@ -69,7 +70,7 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
     printf '%s\n' "$COSMIC_BOOTSTRAP"
     exit 0
   fi
-  exec "$COSMIC_BOOTSTRAP" "$@"
+  exec env COSMIC_GRAMMAR=new "$COSMIC_BOOTSTRAP" "$@"
 fi
 
 [ -f "$pin" ] || die "no pin at $pin"
@@ -176,4 +177,4 @@ if [ "$#" -eq 0 ]; then
   printf '%s\n' "$cached"
   exit 0
 fi
-exec "$cached" "$@"
+exec env COSMIC_GRAMMAR=new "$cached" "$@"

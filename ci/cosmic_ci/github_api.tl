@@ -28,7 +28,7 @@ local record GithubApi
   record Request
     method: string
     url: string
-    headers: {string:string}
+    headers: mut {string:string}
     body?: string
     --- How long the request may take, in nanoseconds; a minute where nil.
     timeout_ns?: integer
@@ -46,10 +46,10 @@ local record GithubApi
   --- Downloads `url`, a link the API gave, to `path`: true, or false and why.
   type Fetch = function(url: string, path: string): boolean, string
   record Client
-    send: Send
-    fetch: Fetch
+    mut send: Send
+    mut fetch: Fetch
     --- The API's origin and path prefix, without a trailing "/".
-    base: string
+    mut base: string
     --- The origin release assets are uploaded to, as `upload` compares it:
     --- uploads.github.com for api.github.com, uploads.<x> for api.<x>
     --- (a data-residency host), and the API's own for an Enterprise

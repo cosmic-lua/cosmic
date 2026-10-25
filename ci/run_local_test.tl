@@ -68,7 +68,7 @@ end
 local function invoke(root: string, env: {string:string}, phases: {string}, uid?: integer): integer, string
   local seams = Local.calls()
   local all, getuid, put = seams.env_all, seams.sys_getuid, seams.fs_put
-  local messages: {string} = {}
+  local messages: mut {string} = {}
   seams.env_all = function(): {string:string} return env end
   -- This selects the ordinary path for snapshot tests on a root-only
   -- development host. It is not credential-transition evidence.

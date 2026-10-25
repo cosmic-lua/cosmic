@@ -16,7 +16,7 @@ local record BuildPaths
   end
 end
 
-local directories: {string:string} = {}
+local directories: mut {string:string} = {}
 
 --- A command line of the driver that is already running, past its
 --- launcher where it has one, with `words` after it, and the environment

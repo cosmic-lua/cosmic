@@ -253,7 +253,7 @@ end
 --- out of its archive with this too, by the rules its PIN names.
 function Vendor.kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string}?, string
   local out: mut {string:string} = {}
-  local used: {string:boolean} = {}
+  local used: mut {string:boolean} = {}
   local strip = plain(pin.strip)
   for _, entry in ipairs(entries) do
     local path = plain(entry.path)
@@ -615,7 +615,7 @@ function Vendor.run(argv: {string}, program: string): integer
 
   -- Asked for once a tree needs it: keeping a feed's snapshot needs none.
   local repo: string = root
-  local held: {string:string} = {}
+  local held: mut {string:string} = {}
   local function cache_dir(): string, string
     local cache = held["cache"]
     if cache == nil then

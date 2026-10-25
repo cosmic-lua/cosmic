@@ -86,15 +86,10 @@ local spec = Cli.verbs.compile.spec or {}
 
 local usage = "cosmic compile [--grammar teal|new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 
--- TODO: at the switch (doc/plans/strict-teal.md, "the switch"), once the translated `lang/` is committed: have
--- build.zig's `seedCompiler` run `compile --grammar new` over the translated `lang/*.tl` and
--- [`build/checker_wrapper.tl`] in place of `checker/*.tl` (no declaration file is needed: the Lua does not depend
--- on them; the pinned release's `compile` reads the grammar, and writes for the translation that
--- [`build/lang_proof.tl`] makes the Lua this verb writes), and make the switch: commit the translated tree but
--- for the `ci/` island of [`ci/islands.txt`], decide how the tool reads the islands of `build/` that it also
--- requires as modules (they hold `T | nil`, which the pinned release alone reads), rewrite the tests of `where`
--- records ([`build/lang_proof.tl`] does it on the translation) and rerun that proof. `seedCompiler` runs
--- `compile` over `checker/*.tl` until the translated source exists to give it.
+-- TODO: at the switch (doc/plans/strict-teal.md, "the switch"): have build.zig's `seedCompiler` run `compile --grammar new`
+-- over the files of build/seed.txt in place of `checker/*.tl` (no declaration file is needed: the Lua does not depend on
+-- them; the pinned release's `compile` reads the grammar, and writes for the translated tree, which is committed, the
+-- Lua this verb writes). `seedCompiler` runs `compile` over `checker/*.tl` until that step is made.
 
 --- What a command line asks for.
 local record Request

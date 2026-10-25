@@ -24,7 +24,7 @@ local record Prerelease
   --- What `stage` reads from its environment: PRODUCTS, RELEASE,
   --- SOURCE_COMMIT and SOURCE_RUN_URL.
   record Stage
-    products: string
+    mut products: string
     release: string
     commit: string
     run_url: string
@@ -38,7 +38,7 @@ local record Prerelease
     release: string
     commit: string
     run_prefix: string
-    temp: string
+    mut temp: string
   end
   --- The release `publish` makes: a draft prerelease.
   record NewRelease
@@ -175,6 +175,10 @@ function Prerelease.known_asset(name: string): boolean
   end
   return false
 end
+
+-- TODO: spell the optional `any` fields of this file's records so that the pinned release's [`Shape.record_of`] reads them as
+-- optional, once ci/cosmic-driver.pin names a release whose [`Shape.record_of`] does (in the new grammar it reads `f?: any` as a
+-- required field, and a payload without it is refused: prerelease_test and queue_seed_test fail on that).
 
 --- One release of the releases list. The flags and ids are `any` so that a
 --- release without them is refused by name ([`Prerelease.draft_ids`]).
