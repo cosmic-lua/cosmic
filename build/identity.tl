@@ -308,6 +308,20 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   return rows[1]:text(1)
 end
 
+--- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
+--- seed list (a project's), whose tool's compiler is the one it was given.
+local function seed_paths(root: string): {string}?, string
+  local path = root .. "/build/seed.txt"
+  local present, missing = Fs.exists(path)
+  if present == nil then return nil, "seed list: " .. missing end
+  if not present then return {}, "" end
+  local listed, trouble = Fs.read(path)
+  if listed == nil then return nil, "seed list: " .. trouble end
+  local paths: mut {string} = {}
+  for line in listed:gmatch("[^\n]+") do paths[#paths + 1] = line end
+  return paths, ""
+end
+
 --- The tool's fingerprints, over `tool` (which holds no test: see
 --- [`is_tool`]): `boot` over every row, and `image` over what the C core
 --- is built from. That is `core/` but the Teal beside its C (no core is
@@ -334,7 +348,7 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
   if boot == nil then
     return nil, boot_trouble
   end
-  local seed, seed_trouble = identity.seed_paths(root)
+  local seed, seed_trouble = seed_paths(root)
   if seed == nil then
     return nil, seed_trouble
   end
@@ -360,20 +374,6 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
     end
   end
   return { boot = boot, image = image }
-end
-
---- The files the seed compiles, as [`build/seed.txt`] under `root` lists them, one to a line; none in a tree that has no
---- seed list (a project's), whose tool's compiler is the one it was given.
-function identity.seed_paths(root: string): {string}?, string
-  local path = root .. "/build/seed.txt"
-  local present, missing = Fs.exists(path)
-  if present == nil then return nil, "seed list: " .. missing end
-  if not present then return {}, "" end
-  local listed, trouble = Fs.read(path)
-  if listed == nil then return nil, "seed list: " .. trouble end
-  local paths: mut {string} = {}
-  for line in listed:gmatch("[^\n]+") do paths[#paths + 1] = line end
-  return paths, ""
 end
 
 --- The `boot` fingerprint [`identity.record_fingerprint`] wrote into `meta` at
