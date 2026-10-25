@@ -1,8 +1,7 @@
 --- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them with the new checker
 --- (`COSMIC_GRAMMAR=new`): a lookup builds the project as it stands before it answers ([`build.rebuild`]), and that build reads the
 --- sources with the new checker's syntax tree, so a symbol declared with `mut` or `name?: T` is found, and so is a call through
---- a method. The fork does not read the grammar, which the same project's lookups in the default mode show. A project written
---- in Teal both checkers read is answered the same in either mode. The project is the fixture of [`build.new_grammar_project`].
+--- a method. The project is the fixture of [`build.new_grammar_project`].
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -266,7 +265,7 @@ local function test_a_lookup_refuses_a_grammar_that_is_none(tmp: string)
   for _, args in ipairs({ { "docs", "Fs.read" }, { "uses", "Fs.read" } }) do
     local result, out, err = ran(tmp, tmp, "bogus", args)
     assert(result.code == 1 and out == "", out .. err)
-    holds(err, "COSMIC_GRAMMAR=bogus: the grammars are `teal` (the default) and `new`")
+    holds(err, "COSMIC_GRAMMAR=bogus: the only grammar is `new` (the default)")
   end
 end
 
@@ -291,14 +290,15 @@ local function test_db_and_sql_read_the_rows_the_new_checkers_syntax_tree_made(t
   assert(databases:find("syntax error", 1, true) == nil, databases)
 end
 
-local function test_the_fork_reads_none_of_the_grammar_so_a_lookup_in_the_default_mode_finds_nothing_of_it(tmp: string)
+--- The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone: a lookup refuses it, naming the verb that rewrites a
+--- project to the new one, and answers nothing.
+local function test_a_lookup_refuses_the_forks_grammar_naming_migrate(tmp: string)
   local root = started(tmp, "forked")
-  local result, out, err = ran(root, tmp, "teal", { "docs", "Box" })
-  -- it answers, from the binary's own databases and the last build, and says why the build did not happen
-  assert(result.ok == false or out:find("Shapes.Box", 1, true) == nil, out)
-  holds(err, "not rebuilt, answering from the last build")
-  holds(err, "syntax error")
-  assert(out:find("shapes Shapes.Box", 1, true) == nil, out)
+  for _, args in ipairs({ { "docs", "Box" }, { "uses", "Box.grow" } }) do
+    local result, out, err = ran(root, tmp, "teal", args)
+    assert(result.code == 1 and out == "", out .. err)
+    holds(err, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; `cosmic migrate` rewrites a project to the new one")
+  end
 end
 
 local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_refuses_a_module(tmp: string)
@@ -319,54 +319,27 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   assert(mended_err:find("not rebuilt", 1, true) == nil, mended_err)
 end
 
---- `text` with the words the translation of a Teal source to the new grammar changes set to the source's: a signature the new
---- checker reads is the translation's (`T | nil` is `T?`, a field the program changes is `mut`), as it is in every row of the
---- analysis (`build.syntax_compared_analysis` compares them by the words they hold).
-local function spelled(text: string): string
-  return (text:gsub("mut ", ""):gsub("(%S+) | nil", "%1?"))
-end
-
---- A copy of the project of testdata/rehearsal, Teal both checkers read, under `tmp`, for a run in `grammar`.
-local function teal_project(tmp: string, grammar: string): string
-  local root = tmp .. "/teal-" .. grammar
+--- A copy of the project of testdata/rehearsal under `tmp`, built by `cosmic test`.
+local function rehearsal_project(tmp: string): string
+  local root = tmp .. "/rehearsal"
   assert(Fs.copy_tree("testdata/rehearsal/project", root))
-  local result, out, err = ran(root, tmp, grammar, { "test" })
+  local result, out, err = ran(root, tmp, "new", { "test" })
   assert(result.ok, out .. err)
   return root
 end
 
---- That `forked` and `new`, each built by its own checker, answer `question` the same, by the words of the source, with
---- something to compare: the output of the fork is not empty. The row count of what was compared.
-local function same_answer(forked: string, new: string, tmp: string, question: {string}): integer
-  local said = table.concat(question, " ")
-  local fork_result, fork_out = ran(forked, tmp, "teal", question)
-  local new_result, new_out = ran(new, tmp, "new", question)
-  assert(fork_result.ok and new_result.ok, said)
-  assert(fork_out ~= "", said .. " found nothing")
-  assert(spelled(new_out) == spelled(fork_out), said .. "\nthe fork:\n" .. fork_out .. "\nthe new checker:\n" .. new_out)
-  local _, rows = fork_out:gsub("\n", "")
-  return rows
-end
-
---- The same Teal is answered the same by either checker: every row the build recorded of the project of testdata/rehearsal,
---- the symbols documented and the uses, in one question each mode. The rows carry their file and line, in order.
-local function test_the_rows_of_a_project_both_checkers_read_are_the_same_in_either_mode(tmp: string)
-  local forked, new = teal_project(tmp, "teal"), teal_project(tmp, "new")
-  local rows = same_answer(forked, new, tmp, { "sql",
+--- Every row the build recorded of the project of testdata/rehearsal, the symbols documented and the uses, in one
+--- question, and what `docs` and `uses` say of it, each finding something: the rows carry their file and line, in order.
+local function test_the_rows_and_lookups_of_the_rehearsal_project_are_answered(tmp: string)
+  local root = rehearsal_project(tmp)
+  local rows = looked_up(root, tmp, { "sql",
     "SELECT 'docs', module, symbol, file, line FROM docs UNION ALL SELECT 'uses', module, symbol, from_file, line FROM uses " ..
       "WHERE from_module IN ('queue', 'queue_test', 'report', 'report_test') ORDER BY 1, 2, 3, 4, 5" })
+  local _, count = rows:gsub("\n", "")
   -- the project holds more rows than its few uses alone: a dimension that compared nothing fails
-  assert(rows > 20, tostring(rows))
-end
-
---- The same Teal is answered the same by either checker: what `docs` and `uses` say of the project of testdata/rehearsal in
---- each mode, over the questions below, every one of which finds something.
-local function test_the_lookups_of_a_project_both_checkers_read_say_the_same_in_either_mode(tmp: string)
-  local forked, new = teal_project(tmp, "teal"), teal_project(tmp, "new")
-  local questions: {{string}} = { { "docs", "Report.of" }, { "uses", "Queue.new" } }
-  local rows = 0
-  for _, question in ipairs(questions) do
-    rows = rows + same_answer(forked, new, tmp, question)
+  assert(count > 20, tostring(count))
+  for _, question in ipairs({ { "docs", "Report.of" }, { "uses", "Queue.new" } }) do
+    local said = looked_up(root, tmp, question)
+    assert(said ~= "", table.concat(question, " ") .. " found nothing")
   end
-  assert(rows >= #questions * 2, tostring(rows))
 end

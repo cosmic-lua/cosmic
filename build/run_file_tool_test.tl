@@ -14,7 +14,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/top.tl", 'print(arg[0] .. "|" .. table.concat(arg, ","))\n' ..
+  assert(Fs.write(root .. "/top.tl", 'print((arg[0] or "") .. "|" .. table.concat(arg, ","))\n' ..
       'return function(argv: {string}): integer\n  print(table.concat(argv, ","))\n' ..
       '  return 0\nend\n'))
   local started = this_program.program({ "top.tl", "one", "two" }, { cwd = root,
@@ -43,7 +43,7 @@ local function test_a_paired_declaration_runs_its_implementation(tmp: string)
   assert(Fs.write(root .. "/foo.d.tl",
     "local record Foo\n  answer: integer\nend\nreturn Foo\n"))
   local function implementation(answer: integer): string
-    return "local record Foo\n  answer: integer\nend\nreturn {answer = " .. answer .. "} as Foo\n"
+    return "local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = " .. answer .. " }\nreturn foo\n"
   end
   assert(Fs.write(root .. "/foo.tl", implementation(42)))
   assert(Fs.write(root .. "/main.tl", 'local Foo = require("foo")\nprint(Foo.answer)\n'))
@@ -113,7 +113,7 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
   }
   for _, case in ipairs(cases) do
     local name, files = case.name, case.files
-    local refusal = if files["bad.tl"] == SYNTAX_ERROR then "bad.tl: bad.tl:1:21: syntax error" else
+    local refusal = if files["bad.tl"] == SYNTAX_ERROR then "bad.tl:1:21: expected `:` after `...`, found `x` (expected_token)" else
       "bad.tl: the compiler refused it" end
     local result = run_in(tree_of(tmp, name, files), "good.tl")
     local said = tostring(result.stdout) .. tostring(result.stderr)
@@ -130,7 +130,7 @@ local function test_a_broken_file_a_declaration_requires_stops_a_file_run(tmp: s
   local root = tree_of(tmp, "declared", {
     ["good.tl"] = 'local foo = require("foo")\nprint(foo.answer)\n',
     ["foo.d.tl"] = 'local types = require("types")\nlocal record Foo\n  answer: types.N\nend\nreturn Foo\n',
-    ["foo.tl"] = 'local record Foo\n  answer: integer\nend\nreturn { answer = 42 } as Foo\n',
+    ["foo.tl"] = 'local record Foo\n  answer: integer\nend\nlocal foo: Foo = { answer = 42 }\nreturn foo\n',
     ["types.tl"] = 'local record types\n  type N = integer\nend\nlocal n: integer = "s"\nprint(n)\nreturn types\n',
   })
   local result = run_in(root, "good.tl")
