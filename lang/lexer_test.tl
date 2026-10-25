@@ -686,6 +686,23 @@ local function test_a_byte_order_mark_inside_a_file_is_not_said_to_start_it()
   assert(only_error(bom .. "x = 1").fix == "delete the byte order mark at the start of the file")
 end
 
+--- Lua's loader skips a byte order mark and then a `#!` line; here the mark is refused, once, and the line is still skipped,
+--- so its bytes raise no error of their own and the lines after it keep their numbers.
+local function test_a_hashbang_line_after_a_byte_order_mark_is_skipped_with_one_error()
+  local bom = "\239\187\191"
+  for _, break_ in ipairs({ "\n", "\r\n", "\r" }) do
+    local lexed = lex(bom .. "#!/usr/bin/env cosmic" .. break_ .. "local y")
+    assert(#lexed.errors == 1, tostring(#lexed.errors))
+    local err = assert(lexed.errors[1])
+    assert(err.code == "stray_byte" and err.msg == "stray byte order mark" and err.y == 1 and err.length == 3)
+    local mark, word, name = Lexer.token(lexed.tokens, 1), Lexer.token(lexed.tokens, 2), Lexer.token(lexed.tokens, 3)
+    assert(mark.kind == "$ERR$" and word.text == "local" and word.y == 2 and name.text == "y" and name.y == 2)
+  end
+  assert(#lex(bom .. "#!x").errors == 1 and Lexer.token(lex(bom .. "#!x").tokens, 2).kind == "$EOF$")
+  -- only a `#!` line directly after the mark is skipped: a `#` elsewhere is still the stray byte it was
+  assert(#lex(bom .. " #!x").errors > 1)
+end
+
 local function test_a_bad_escape_names_the_whole_character_it_backslashes()
   local e = bad_escape_at("x = '\\" .. E_ACUTE .. "'")
   assert(e.msg == "invalid escape `\\" .. E_ACUTE .. "`" and e.length == 3, e.msg)

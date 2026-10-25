@@ -62,6 +62,26 @@ local function test_a_test_of_an_optional_narrows_it_in_the_branch_it_holds_and_
   refused("local s = find()\nif s == nil then\n  print(1)\nend\nprint(#s)\n", "nil_not_allowed")
 end
 
+--- The nil that ends a generic `for` is the end, not a value of the loop variable: an iterator declared `T?` gives a
+--- variable that is not optional.
+local function test_the_nil_that_ends_a_for_iterator_is_the_end_not_a_value_of_the_variable()
+  stands([[
+local function words(): function(): string?
+  return function(): string?
+    st.n = st.n + 1
+    if st.n > 3 then
+      return nil
+    end
+    return "ab"
+  end
+end
+for word in words() do
+  local n: integer = #word
+  print(n)
+end
+]], "2,2,2")
+end
+
 local function test_and_or_and_not_combine_what_their_operands_say()
   stands("local s = find()\nprint(s ~= nil and #s > 1)\nlocal t = find()\nprint(t ~= nil and #t > 1)\n", "true,false")
   stands("local function f(): integer\n  local s = find()\n  if s == nil or #s == 0 then\n    return 0\n  end\n  return #s\nend\n" ..

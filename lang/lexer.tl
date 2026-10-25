@@ -641,6 +641,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   if sub(source, 1, 2) == "#!" then
     pos = (find(source, "[\r\n]", 3) or len + 1)
   end
+  -- A byte order mark is refused (`stray_byte`) and is a token of its own, as anywhere; where a `#!` line follows it,
+  -- that line is skipped too, as Lua's loader skips a mark and then the line, so the one error is not followed by a
+  -- cascade for the line's bytes. `shebang_after` is the offset the mark's token ends before.
+  local shebang_after = if sub(source, 1, 5) == "\239\187\191#!" then 4 else 0 end
 
   -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
   -- the loop makes the token. What only some tokens carry is entered here, under the number of the token to come.
@@ -900,6 +904,9 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         pending = nil
       end
       pos = e + 1
+      if pos == shebang_after then
+        pos = (find(source, "[\r\n]", pos + 2) or len + 1)
+      end
     end
   end
 

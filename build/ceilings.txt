@@ -1312,7 +1312,7 @@ cosmic/shape_test.tl nil_not_allowed 1
 
 cosmic/signal.tl nil_not_allowed 1
 
-cosmic/sqlite.tl nil_not_allowed 7
+cosmic/sqlite.tl nil_not_allowed 6
 
 cosmic/store.tl nil_not_allowed 14
 
@@ -1320,7 +1320,7 @@ cosmic/store_handles_test.tl nil_not_allowed 5
 
 cosmic/store_seal_test.tl nil_not_allowed 18
 
-cosmic/stream.tl nil_not_allowed 10
+cosmic/stream.tl nil_not_allowed 9
 
 cosmic/stream_fd_test.tl nil_not_allowed 1
 

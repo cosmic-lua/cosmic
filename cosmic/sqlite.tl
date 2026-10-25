@@ -216,12 +216,7 @@ local record Sqlite
     read: function(Query): Row?, string
     --- An iterator for a `for` loop over the rows still to come. It
     --- ends at the last one or at a failure, which `failure` then says.
-    ---
-    -- TODO: this iterator answers nil to end a loop, which its type
-    -- `function(): Row` does not admit; declare `function(): Row | nil`
-    -- once the checker reads the nil that ends a `for` loop's iterator
-    -- as the end, not as a possible value of the loop variable.
-    each: function(Query): function(): Row
+    each: function(Query): function(): Row?
     --- Why the rows ended early, or "" when they have not: after an
     --- `each` loop that ran out, "" means every row was read. A `break`,
     --- or a `close` inside the loop, ends it early with no failure.
@@ -826,12 +821,8 @@ local class StatementQuery is Sqlite.Query
     return row, ""
   end
 
-  function each(self): function(): Sqlite.Row
-    -- TODO: the iterator answers nil after the last row, which `function():
-    -- Sqlite.Row` does not admit; declare it `| nil` (here and in
-    -- [`Query`]'s `each`) once the checker reads the nil that ends a `for`
-    -- loop's iterator as the end.
-    return function(): Sqlite.Row
+  function each(self): function(): Sqlite.Row?
+    return function(): Sqlite.Row?
       local row, _ = self:read()
       return row
     end

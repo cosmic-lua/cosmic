@@ -308,3 +308,15 @@ local function test_a_member_of_an_enum_is_not_read_indexed_or_written()
   assert(codes_of(KIND .. "local x = k[1]\n") ~= "")
   assert(codes_of(KIND .. "local x = k[\"upper\"]\n") ~= "")
 end
+
+--- `format` called as a method of a text is typed as `string.format` is: the conversions of a literal format fix the
+--- arguments it takes, so `("x"):format("y")` is refused because the format `x` has no conversion (it is no mistyped
+--- method), and a format with one conversion takes one argument by either spelling.
+local function test_format_called_as_a_method_takes_the_arguments_its_format_asks_for()
+  refused('local a = ("x"):format("y")\nprint(a)\n', "arity", "takes 0 arguments, but 1 is given")
+  refused('local a = string.format("x", "y")\nprint(a)\n', "arity", "takes 1 argument, but 2 are given")
+  refused('local s: string = "x"\nlocal a = s:format("y")\nprint(a)\n', "arity", "takes 0 arguments, but 1 is given")
+  assert(codes_of('local a = ("x%s"):format("y")\nprint(a)\n') == "")
+  assert(codes_of('local s: string = "x%s"\nlocal a = s:format("y")\nprint(a)\n') == "")
+  assert(codes_of('local a = string.format("x%s", "y")\nprint(a)\n') == "")
+end
