@@ -4,6 +4,11 @@
 --- Only a checked run (`cosmic test --check-types`) compiles the checks
 --- in, so a test using this skips in any other.
 
+-- TODO: read what the hook `__fact` of a checked run collects (build/test_worker.tl, [`lang.fact_wraps`]) in place of
+-- `__cosmic_tc`, which no compile writes since the fork's boundary checks went: a checked run meets no violation here, so the
+-- tests that ask `during` cannot fail until they read the facts; the declarations they hold are the ones the new checker
+-- reads, which they hold no longer. Wants the facts to carry the declared kind of a value crossing a boundary, not only a
+-- narrowed read.
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")
 
