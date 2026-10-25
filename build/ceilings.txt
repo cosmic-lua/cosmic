@@ -7967,7 +7967,7 @@ eval/round_test.tl concat_type 1
 
 eval/summarize.tl concat_type 1
 
-lang/check.tl concat_type 23
+lang/check.tl concat_type 22
 
 lang/check_flow_fuzz_test.tl concat_type 2
 

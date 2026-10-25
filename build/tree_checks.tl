@@ -87,6 +87,9 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
+allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
+  "since a skipping test cannot show it"
+
 allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"
 
 allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
