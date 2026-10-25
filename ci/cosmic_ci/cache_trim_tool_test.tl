@@ -28,7 +28,7 @@ local Compiles = require("cosmic_ci.compiles")
 local Seams = require("cosmic_ci.seams")
 local seams = Seams.calls()
 local actual = seams.child_run
-seams.child_run = function(_argv: {string}, options?: Child.Options): Child.Result | nil, string
+seams.child_run = function(_argv: {string}, options?: Child.Options): Child.Result?, string
   return actual({ "/bin/sh", "-c", %q }, options)
 end
 Compiles.command({ "1", %q }, { COSMIC_BUILD_CACHE = %q, GITHUB_OUTPUT = %q })
