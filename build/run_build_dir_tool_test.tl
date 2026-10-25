@@ -34,8 +34,8 @@ local function test_a_tree_that_cannot_be_written_builds_in_the_cache(tmp: strin
   local cache = tmp .. "/cache"
   assert(Fs.mkdirs(root) and Fs.mkdirs(cache))
   assert(Fs.write(root .. "/main.tl", 'local helper = require("helper")\n' ..
-      'return function(argv: {string}): integer\n  print(helper .. argv[1])\n  return 0\nend\n'))
-  assert(Fs.write(root .. "/helper.tl", 'return "from "\n'))
+      'return function(argv: {string}): integer\n  print(helper .. (argv[1] or ""))\n  return 0\nend\n'))
+  assert(Fs.write(root .. "/helper.tl", 'local greeting: string = "from "\nreturn greeting\n'))
   assert(sys.chmod(root, tonumber("555", 8) as integer))
   local first = run(root, cache, "main.tl", "here")
   assert(first.code == 0 and first.stdout == "from here\n", tostring(first.stderr))

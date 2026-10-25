@@ -115,8 +115,8 @@ local function test_unavailable_noexec_skips_without_loading_and_keeps_no_verdic
   assert(Fs.write(root .. "/noexec_test.tl", [[
 local Test = require("cosmic.test")
 Test.policy { grants = { { path = "/noexec", letters = "rwc" } } }
-error("an unavailable capability must not load its test module")
 local function test_requires_noexec() error("must not execute") end
+error("an unavailable capability must not load its test module")
 ]]))
   for _ = 1, 2 do
     local out, code = run(root, { COSMIC_TEST_NOEXEC = "/forged" })

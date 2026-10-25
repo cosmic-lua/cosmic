@@ -56,14 +56,14 @@ local Test = require("cosmic.test")
 
 Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
-local held: {Child.Handle} = {}
+local held: mut {Child.Handle} = {}
 local function test_hangs()
-  held[1] = assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))
+  held[#held + 1] = assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))
   -- Still running a moment on, so what is found gone below was there:
   -- a probe that never started, or ended at once, fails this instead
   -- of timing out.
   local _, _ = sys.nanosleep(300 * 1000 * 1000)
-  local state = assert(held[1]:try_wait())
+  local state = assert(assert(held[1]):try_wait())
   assert(not state.finished, "the probe is not running")
   while true do end
 end
