@@ -70,7 +70,7 @@ local record verb
   --- a function of the text and the compiler, which a check that keeps it relies on. Nil and why where the parser
   --- refuses the text or the generator writes none. `built` is the caller's own compiler (from [`build.teal`]'s
   --- `load`), since this sets how it searches for modules.
-  lua: function(built: compiler, name: string, text: string): string | nil, string
+  lua: function(built: compiler, name: string, text: string): string?, string
 
   --- Where `run` writes: what a test stands in for.
   record Io
@@ -100,10 +100,10 @@ local usage = "cosmic compile [--grammar teal|new] [--errors] [--root <dir>] [-o
 local record Request
   files: {string}
   --- The directory to write `<name>.lua` in, or nil for standard output.
-  directory: string | nil
+  directory: string?
   errors: boolean
   --- The directory module names are relative to, nil for the working directory.
-  root: string | nil
+  root: string?
   --- The grammar of every file: "teal" or "new".
   grammar: string
 end
@@ -114,7 +114,7 @@ local function base_of(path: string): string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {string}): Request | nil, string
+local function arguments(argv: {string}): Request?, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
   local request: Request = {
@@ -157,8 +157,8 @@ end
 
 --- The path of the absolute `path` below `root` (absolute too), which is
 --- what names the file to the checker; nil when it is outside `root`.
-local function below(path: string, root: string): string | nil
-  local prefix = root == "/" and "/" or root .. "/"
+local function below(path: string, root: string): string?
+  local prefix = if root == "/" then "/" else root .. "/" end
   if path:sub(1, #prefix) ~= prefix then return nil end
   return path:sub(#prefix + 1)
 end
@@ -181,7 +181,7 @@ end
 local function serving(built: compiler, texts: {string:string}, paths: {string:string})
   teal.serve_standard(built)
   local standard = built.search_module
-  built.search_module = function(name: string, search_all: boolean): string | nil, compiler.Handle | nil
+  built.search_module = function(name: string, search_all: boolean): string?, compiler.Handle?
     local text = texts[name]
     if text == nil then
       return standard(name, search_all)
@@ -197,7 +197,7 @@ end
 
 --- The errors `list` of the fork, as this verb reports them.
 local function problems(list: {compiler.Error}): {Grammar.Problem}
-  local out: {Grammar.Problem} = {}
+  local out: mut {Grammar.Problem} = {}
   for index, e in ipairs(list) do
     out[index] = problem(e)
   end
@@ -215,7 +215,7 @@ local function compile_one(built: compiler, path: string, filename: string, text
     }
   end
   local result = built.check_string(text, env, filename, "tl")
-  local code: string | nil = nil
+  local code: string? = nil
   local why_not = ""
   local ast = result.ast
   if #result.syntax_errors == 0 and ast ~= nil then
@@ -231,8 +231,8 @@ local function compile_one(built: compiler, path: string, filename: string, text
   }
 end
 
-function verb.lua(built: compiler, name: string, text: string): string | nil, string
-  built.search_module = function(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+function verb.lua(built: compiler, name: string, text: string): string?, string
+  built.search_module = function(_name: string, _search_all: boolean): string?, compiler.Handle?
     return nil
   end
   local compiled = compile_one(built, name, name, text)
@@ -261,7 +261,7 @@ end
 
 --- The count of `n` type errors, as a phrase.
 local function counted(n: integer): string
-  return tostring(n) .. (n == 1 and " type error" or " type errors")
+  return tostring(n) .. (if n == 1 then " type error" else " type errors" end)
 end
 
 --- Runs the command line `argv`, `compile` at slot 1, and answers the
@@ -286,16 +286,16 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
     complain(root .. ": --root must name a directory, not a file")
     return bare.refused
   end
-  local texts: {string:string} = {}
-  local paths: {string:string} = {}
+  local texts: mut {string:string} = {}
+  local paths: mut {string:string} = {}
   --- The files in the order given, each with the name the checker knows
   --- it by.
-  local todo: {Grammar.Source} = {}
-  local skipped: {string} = {}
+  local todo: mut {Grammar.Source} = {}
+  local skipped: mut {string} = {}
   --- The file given for each module name, and for each resolved path.
-  local holders: {string:string} = {}
-  local resolved: {string:string} = {}
-  local bases: {string:string} = {}
+  local holders: mut {string:string} = {}
+  local resolved: mut {string:string} = {}
+  local bases: mut {string:string} = {}
   for _, path in ipairs(request.files) do
     local text, why = Fs.read(path)
     if text == nil then
@@ -325,7 +325,7 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
     end
     local declaration = base_of(path):match("%.d%.tl$") ~= nil
     -- The new grammar's program has one file for a module.
-    local kind = name .. ((declaration and not new_grammar) and "\0d" or "\0t")
+    local kind = name .. (if (declaration and not new_grammar) then "\0d" else "\0t" end)
     if holders[kind] ~= nil then
       complain(path .. " and " .. holders[kind] .. " are both the module " .. name ..
           ": a require could mean only one; name one of them, or compile them in two runs")
@@ -353,11 +353,11 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
   end
   if #skipped > 0 then
     complain(table.concat(skipped, ", ") .. ": declares " ..
-        (request.grammar == "new" and "globals and types" or "types") .. " and has no Lua, so none is written; " ..
+        (if request.grammar == "new" then "globals and types" else "types" end) .. " and has no Lua, so none is written; " ..
         "it still types a require of it")
   end
 
-  local made: {Grammar.Compiled} = {}
+  local made: mut {Grammar.Compiled} = {}
   if request.grammar == "new" then
     made = require("build.compile_grammar").compile(todo)
   else
@@ -402,8 +402,8 @@ function verb.run(argv: {string}, streams?: verb.Io, built?: compiler): integer
     end
     if count > 0 then
       complain(compiled.path .. ": " .. counted(count) ..
-          (compiled.declaration and ", a declaration file, which has no Lua" or ", the Lua is written anyway") ..
-          (request.errors and "" or " (--errors lists them)"))
+          (if compiled.declaration then ", a declaration file, which has no Lua" else ", the Lua is written anyway" end) ..
+          (if request.errors then "" else " (--errors lists them)" end))
     end
   end
 

@@ -7,7 +7,7 @@
 local Json = require("cosmic.json")
 
 local function steps_text(steps: Json.Steps): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, step in ipairs(steps) do
     parts[i] = step is string and Json.quote(step) or tostring(step)
   end
@@ -165,12 +165,12 @@ local function test_select_answers_the_rfc_examples()
     return (assert(Json.select(store, (assert(Json.query(text))))))
   end
   local function values(found: {Json.Match}): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i, m in ipairs(found) do out[i] = assert(Json.encode_any(m.value)) end
     return table.concat(out, " ")
   end
   local function pointers(found: {Json.Match}): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i, m in ipairs(found) do out[i] = assert(Json.pointer(m.steps)) end
     return table.concat(out, " ")
   end

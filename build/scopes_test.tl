@@ -15,13 +15,13 @@ end
 local function scopes_at(source: string, places: {string}): {string}
   local parsed = assert(ast.parse(built, source, "fixture.tl"))
   local bindings = scopes.bindings_of(parsed)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, place in ipairs(places) do
     local y, x, doc = place:match("^(%d+):(%d+)(:?d?o?c?)$")
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name, module in pairs(scopes.in_scope(bindings, math.tointeger(tonumber(y)),
         math.tointeger(tonumber(x)), doc == ":doc")) do
-      names[#names + 1] = module ~= "" and name .. "=" .. module or name
+      names[#names + 1] = if module ~= "" then name .. "=" .. module else name end
     end
     table.sort(names)
     out[#out + 1] = place .. " " .. table.concat(names, " ")
@@ -77,7 +77,7 @@ local function test_every_statement_kind_is_walked()
     "return function(rp: integer) end",
   })
   local parsed = assert(ast.parse(built, source, "fixture.tl"))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   for _, stmt in ipairs(parsed.node) do kinds[#kinds + 1] = stmt.kind end
   local want_kinds = "global_declaration local_macroexp op global_type label do while return"
   assert(table.concat(kinds, " ") == want_kinds, table.concat(kinds, " "))
@@ -127,7 +127,7 @@ local function test_a_walk_looks_inside_every_expression_that_holds_one()
     "local b = { fs.write, k = fs.stat }",
     "print(#(fs.list), -(fs.size), not fs.ok, (function(p: integer) return p end)(1))",
   }), "fixture.tl"))
-  local read: {string} = {}
+  local read: mut {string} = {}
   local found = scopes.walk(parsed, function(module: string, name: string, line: integer)
     read[#read + 1] = module .. "." .. name .. ":" .. line
   end)

@@ -70,7 +70,7 @@ end
 local function type_of(body: string, name: string): string
   local r = Programs.run(HEAD .. body)
   assert(#r.before == 0 and Programs.codes(r) == "", table.concat(r.before, " ") .. Programs.codes(r) .. " in\n" .. body)
-  local found: Types.Type | nil = nil
+  local found: Types.Type? = nil
   for _, v in ipairs(r.scoped.list) do
     if v.name == name then
       found = r.result.vars[v.id] or found
@@ -219,7 +219,7 @@ end
 local function silent_invalid(body: string): {string}
   local r = Programs.run(HEAD .. body)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. body)
-  local found: {string} = {}
+  local found: mut {string} = {}
   if #r.errors == 0 then
     for _, v in ipairs(r.scoped.list) do
       local t = r.result.vars[v.id]

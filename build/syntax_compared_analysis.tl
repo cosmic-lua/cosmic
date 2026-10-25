@@ -80,14 +80,14 @@ local function words(text: string, owner?: string, code?: boolean): string
     folded = (folded:gsub("%f[%w_]" .. owner:gsub("%p", "%%%0") .. "%s*[:.]%s*", " "))
   end
   folded = (folded:gsub("[^%w_{}?:,]+", " "):gsub("([{}?:,])", " %1 "))
-  local out: {string} = {}
-  local owned: {string: boolean} = {}
+  local out: mut {string} = {}
+  local owned: mut {string: boolean} = {}
   for part in (owner or ""):gmatch("[%w_]+") do
     owned[part] = true
   end
   for word in folded:gmatch("%S+") do
     if APART[word] == nil and owned[word] == nil and not (code == true and CODE[word] == true) then
-      out[#out + 1] = word == "class" and "record" or word
+      out[#out + 1] = if word == "class" then "record" else word end
     end
   end
   return table.concat(out, " ")
@@ -122,7 +122,7 @@ end
 local function first_difference(a: {string}, b: {string}): string
   for i = 1, math.max(#a, #b) do
     if a[i] ~= b[i] then
-      local function shown(each: string | nil): string
+      local function shown(each: string?): string
         if each == nil then
           return "nothing"
         end
@@ -135,7 +135,7 @@ local function first_difference(a: {string}, b: {string}): string
 end
 
 --- A policy declaration as a row, its line left out where `placed` is false.
-local function inputs_row(declared: PolicyRules.Declared | nil, placed: boolean): string
+local function inputs_row(declared: PolicyRules.Declared?, placed: boolean): string
   if declared == nil then
     return "none"
   end
@@ -155,24 +155,24 @@ end
 
 --- The fork's analysis as the port's record, field for field.
 local function as_port(found: analyzer.Analysis): Analyzer.Analysis
-  local catalog: {Analyzer.CatalogEntry} = {}
+  local catalog: mut {Analyzer.CatalogEntry} = {}
   for _, each in ipairs(found.catalog) do
     catalog[#catalog + 1] = { symbol = each.symbol, message = each.message, line = each.line }
   end
-  local docs: {Analyzer.DocEntry} = {}
+  local docs: mut {Analyzer.DocEntry} = {}
   for _, each in ipairs(found.docs) do
     docs[#docs + 1] = { symbol = each.symbol, source_symbol = each.source_symbol, exported = each.exported,
       kind = each.kind, signature = each.signature, text = each.text, line = each.line }
   end
-  local examples: {Analyzer.ExampleEntry} = {}
+  local examples: mut {Analyzer.ExampleEntry} = {}
   for _, each in ipairs(found.examples) do
     examples[#examples + 1] = { name = each.name, text = each.text, source = each.source, line = each.line }
   end
-  local references: {Analyzer.Reference} = {}
+  local references: mut {Analyzer.Reference} = {}
   for _, each in ipairs(found.references) do
     references[#references + 1] = { module = each.module, member = each.member, line = each.line }
   end
-  local bound: {Analyzer.Bound} = {}
+  local bound: mut {Analyzer.Bound} = {}
   for _, each in ipairs(found.bound) do
     bound[#bound + 1] = { name = each.name, module = each.module }
   end
@@ -185,8 +185,8 @@ end
 --- record and `function R:read()` outside it, the translation makes the one method `read` of a class, which takes the
 --- field's doc comment above the function's own. The fork's rows are those of the method, with that text.
 local function as_class(docs: {Analyzer.DocEntry}): {Analyzer.DocEntry}
-  local fields: {string: Analyzer.DocEntry} = {}
-  local methods: {string: boolean} = {}
+  local fields: mut {string: Analyzer.DocEntry} = {}
+  local methods: mut {string: boolean} = {}
   for _, entry in ipairs(docs) do
     if entry.kind == "field" then
       fields[entry.source_symbol] = entry
@@ -194,7 +194,7 @@ local function as_class(docs: {Analyzer.DocEntry}): {Analyzer.DocEntry}
       methods[(entry.source_symbol:gsub(":", "."))] = true
     end
   end
-  local out: {Analyzer.DocEntry} = {}
+  local out: mut {Analyzer.DocEntry} = {}
   for _, entry in ipairs(docs) do
     local key = (entry.source_symbol:gsub(":", "."))
     local field = fields[key]
@@ -219,13 +219,13 @@ end
 --- `docs` less the metamethods that `held` has none of: a metatable's `__close = function(self)` is a method of the
 --- class the translation makes, which the fork's reader does not see in a table.
 local function without_made_metamethods(docs: {Analyzer.DocEntry}, held: {Analyzer.DocEntry}): {Analyzer.DocEntry}
-  local known: {string: boolean} = {}
+  local known: mut {string: boolean} = {}
   for _, entry in ipairs(held) do
     if entry.kind == "metamethod" then
       known[entry.source_symbol] = true
     end
   end
-  local out: {Analyzer.DocEntry} = {}
+  local out: mut {Analyzer.DocEntry} = {}
   for _, entry in ipairs(docs) do
     if entry.kind ~= "metamethod" or known[entry.source_symbol] == true then
       out[#out + 1] = entry
@@ -240,7 +240,7 @@ local function signature_words(entry: Analyzer.DocEntry, moved: boolean): string
   if moved and entry.kind == "metamethod" then
     return ""
   end
-  local owner: string | nil = nil
+  local owner: string? = nil
   if entry.kind == "method" then
     owner = entry.source_symbol:match("^(.*):")
   end
@@ -250,35 +250,35 @@ end
 --- The rows of an analysis, by dimension; `placed` leaves the lines out where it is false.
 local function rows_of(found: Analyzer.Analysis, docs_of: {Analyzer.DocEntry}, placed: boolean, moved: boolean):
     {string: {string}}
-  local by: {string: {string}} = {}
+  local by: mut {string: {string}} = {}
   local function line(number: integer): string
     return choose(placed, tostring(number), "")
   end
   by["analyzer tests"] = found.tests
   by["analyzer export"] = { row(found.export, flag(found.has_top_level_return)) }
   by["analyzer inputs"] = { inputs_row(found.inputs, placed) }
-  local catalog: {string} = {}
+  local catalog: mut {string} = {}
   for _, each in ipairs(found.catalog) do
     catalog[#catalog + 1] = row(each.symbol, each.message, line(each.line))
   end
   by["analyzer catalog"] = catalog
-  local docs: {string} = {}
+  local docs: mut {string} = {}
   for _, each in ipairs(docs_of) do
     docs[#docs + 1] = row(each.symbol, each.source_symbol, flag(each.exported), each.kind, each.text,
       line(each.line), signature_words(each, moved))
   end
   by["analyzer docs"] = docs
-  local references: {string} = {}
+  local references: mut {string} = {}
   for _, each in ipairs(found.references) do
     references[#references + 1] = row(each.module, each.member, line(each.line))
   end
   by["analyzer references"] = references
-  local bound: {string} = {}
+  local bound: mut {string} = {}
   for _, each in ipairs(found.bound) do
     bound[#bound + 1] = row(each.name, each.module)
   end
   by["analyzer bound"] = bound
-  local examples: {string} = {}
+  local examples: mut {string} = {}
   for _, each in ipairs(found.examples) do
     examples[#examples + 1] = row(each.name, each.text, line(each.line),
       choose(placed, words(each.source, nil, true), ""))
@@ -289,7 +289,7 @@ end
 
 --- The lines of `text`.
 local function lines_of(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
     out[#out + 1] = line
   end
@@ -299,7 +299,7 @@ end
 --- The links of an analysis as rows. A link's column is compared where the line it is on is the same in the source and
 --- in the translation.
 local function link_rows(found: {LinkText.Found}, placed: boolean, same: {integer: boolean}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, each in ipairs(found) do
     local link = each.link
     out[#out + 1] = row(choose(placed, tostring(link.line), ""),
@@ -311,10 +311,10 @@ end
 
 function CompareAnalysis.file(built: compiler, file: string, source: string, parsed: ast.Parsed, text: string,
                               chunk: Ast.Chunk, scoped: Scopes.Scoped, moved: boolean): CompareAnalysis.Differences
-  local differences: {string} = {}
-  local counts: {string: integer} = {}
+  local differences: mut {string} = {}
+  local counts: mut {string: integer} = {}
   local placed = not moved
-  local function compare(dimension: string, old: {string}, new: {string}, counted: boolean)
+  local function compare(dimension: string, old: mut {string}, new: mut {string}, counted: boolean)
     if moved then
       table.sort(old)
       table.sort(new)
@@ -340,8 +340,8 @@ function CompareAnalysis.file(built: compiler, file: string, source: string, par
       end
       counts["analyzer inputs"] = (counts["analyzer inputs"] or 0) + 1
     else
-      differences[#differences + 1] = "analyzer inputs: " .. (old_found == nil and "the fork refuses it: " .. old_why or
-        "the port refuses it: " .. new_why)
+      differences[#differences + 1] = "analyzer inputs: " .. (if old_found == nil then "the fork refuses it: " .. old_why else
+        "the port refuses it: " .. new_why end)
     end
   else
     local old_port = as_port(old_found)
@@ -367,7 +367,7 @@ function CompareAnalysis.file(built: compiler, file: string, source: string, par
   end
   -- The links of the comments, by line where the lines are the source's.
   local old_lines, new_lines = lines_of(source), lines_of(text)
-  local same: {integer: boolean} = {}
+  local same: mut {integer: boolean} = {}
   for y, line in ipairs(old_lines) do
     same[y] = new_lines[y] == line
   end

@@ -14,11 +14,11 @@ local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
 
 local record Ran
-  code: integer
-  err: string
+  mut code: integer
+  mut err: string
   --- What it asked to start: nil when it started nothing, and then `opts` is empty.
-  argv?: {string}
-  opts: Child.Options
+  mut argv?: {string}
+  mut opts: Child.Options
 end
 
 --- What a stood-in start answers: a result, or nil and why.
@@ -27,7 +27,7 @@ local record Answer
   why?: string
 end
 
-local function finished(code: integer | nil, signal?: integer, timed_out?: boolean): Child.Result
+local function finished(code: integer?, signal?: integer, timed_out?: boolean): Child.Result
   return { code = code, signal = signal, ok = code == 0, timed_out = timed_out or false,
     captured = {}, truncated = false }
 end
@@ -35,13 +35,13 @@ end
 --- Runs the verb on `words`, its start answering `answer` (the program
 --- exits 0 when none is given), and says what it asked to start.
 local function run(words: {string}, answer?: Answer): Ran
-  local argv: {string} = { "sandbox" }
+  local argv: mut {string} = { "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   local ran: Ran = { code = -1, err = "", opts = {} }
   local given = answer or { result = finished(0) }
   ran.code = sandbox.run(argv, {
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    run = function(command: {string}, opts: Child.Options): Child.Result | nil, string
+    run = function(command: {string}, opts: Child.Options): Child.Result?, string
       ran.argv, ran.opts = command, opts
       local result = given.result
       if result == nil then return nil, given.why end
@@ -67,7 +67,7 @@ local function letters(policy: Sandbox.Policy, path: string): string
   return ""
 end
 
-local function same(got: {string} | nil, want: {string})
+local function same(got: {string}?, want: {string})
   assert(table.concat(got or {}, "|") == table.concat(want, "|"),
     table.concat(got or {}, "|") .. " is not " .. table.concat(want, "|"))
 end
@@ -127,8 +127,8 @@ local function test_a_value_is_the_next_word_or_follows_an_equals_sign()
 end
 
 local function test_the_program_is_the_first_word_no_option_claims()
-  local function slot(words: {string}): integer | nil
-    local argv: {string} = { "sandbox" }
+  local function slot(words: {string}): integer?
+    local argv: mut {string} = { "sandbox" }
     for index, word in ipairs(words) do argv[index + 1] = word end
     return sandbox.program_slot(argv)
   end
@@ -188,7 +188,7 @@ local function test_a_number_is_a_whole_one_in_range()
       { "--timeout", "0" }, { "--timeout", "1.5" }, { "--timeout", "99999999999" },
       { "--timeout", "1", "--timeout", "2" },
   }) do
-    local words: {string} = {}
+    local words: mut {string} = {}
     for _, word in ipairs(case) do words[#words + 1] = word end
     words[#words + 1] = "prog"
     local ran = refused(words)
@@ -229,14 +229,14 @@ end
 
 --- Runs the verb on `words` with the relay's client stood in for: the words
 --- it was given, or nil when it was not run, and the verb's status.
-local function client_of(words: {string}): {string} | nil, integer
-  local argv: {string} = { "sandbox" }
+local function client_of(words: {string}): {string}?, integer
+  local argv: mut {string} = { "sandbox" }
   for index, word in ipairs(words) do argv[index + 1] = word end
-  local given = { value = nil as {string} | nil }
+  local given = { value = nil as {string}? }
   local started = { value = false }
   local code = sandbox.run(argv, {
     err = function(_: string) end,
-    run = function(_: {string}, _: Child.Options): Child.Result | nil, string
+    run = function(_: {string}, _: Child.Options): Child.Result?, string
       started.value = true
       return finished(0), ""
     end,
@@ -407,7 +407,7 @@ local others <const>: {string:boolean} = {
 
 --- The policy the verb builds from `words` and a program.
 local function policy_after(words: {string}): {string:any}
-  local line: {string} = {}
+  local line: mut {string} = {}
   for _, word in ipairs(words) do line[#line + 1] = word end
   line[#line + 1] = "prog"
   local ran = run(line)
@@ -424,7 +424,7 @@ end
 local function test_every_policy_field_has_a_flag()
   local names = assert(POLICY.spec.names)
   assert(POLICY.spec.kind == "record" and #names > 0)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     if exempt[name] == nil and name ~= "limits" then
       local words = samples[name]

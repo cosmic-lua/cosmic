@@ -35,7 +35,7 @@ end
 
 --- The command lines only a process of their own can run, and why:
 --- every other runs here ([`build.invoke`]) without starting a process.
-local function needs_a_process(args: {string}): string | nil
+local function needs_a_process(args: {string}): string?
   local asks_help = false
   for _, word in ipairs(args) do
     if word == "--" then break end
@@ -105,7 +105,7 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
     end
   elseif verb == "test" then
     local summary = last_line(out)
-    local pattern = code == 0 and "^test: %d+ tests? passed in " or "^test: %d+ of %d+ tests? failed, "
+    local pattern = if code == 0 then "^test: %d+ tests? passed in " else "^test: %d+ of %d+ tests? failed, " end
     assert(summary:find(pattern) ~= nil, "expected the summary last on stdout: " .. shown)
   elseif code == 0 then
     assert(String.starts_with(last_line(err), verb .. ": "),

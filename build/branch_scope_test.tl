@@ -180,7 +180,7 @@ end
 --- merge base, the count and the files, a line each, as the script's
 --- `--jq` makes them) or fails, where it is nil, answering the `scope`,
 --- `base` and the log's line.
-local function decided(tmp: string, answer: string | nil): string, string, string
+local function decided(tmp: string, answer: string?): string, string, string
   local bin = tmp .. "/bin"
   assert(Fs.mkdirs(bin))
   if answer ~= nil then

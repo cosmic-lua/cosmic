@@ -71,7 +71,7 @@ end
 --- @param pattern Node A compiled pattern ([`build.ast.match.compile_pattern`])
 --- @return {Hit} Every match, in source order
 local function find_all(ast: Node, pattern: Node): {Hit}
-  local hits: {Hit} = {}
+  local hits: mut {Hit} = {}
   ast_walk.walk(ast, function(n: Node)
     local caps = ast_match.match(pattern, n)
     if caps then
@@ -91,7 +91,7 @@ end
 --- @param source string
 --- @return {integer}
 local function line_starts(source: string): {integer}
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   local pos = 1
   while true do
     local nl = source:find("\n", pos, true)
@@ -146,7 +146,7 @@ end
 --- @return integer|nil a
 --- @return integer|nil b
 local function find_name(text: string, name: string,
-                         init: integer): integer | nil, integer | nil
+                         init: integer): integer?, integer?
   local pos = init
   while pos <= #text + 1 do
     local a, b = text:find(name, pos, true)
@@ -170,7 +170,7 @@ end
 --- @param value string The literal bytes to splice in for each occurrence
 --- @return string
 local function substitute(text: string, name: string, value: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local pos = 1
   while true do
     local a, b = find_name(text, name, pos)
@@ -196,7 +196,7 @@ end
 --- @return {Span} Kept ranges, unordered
 local function kept_ranges(caps: {string: Node}, replacement: string,
                            tokens: {compiler.Token}, starts: {integer}): {Span}
-  local kept: {Span} = {}
+  local kept: mut {Span} = {}
   for name, cap in pairs(caps) do
     if find_name(replacement, name, 1) and not empty_rest(cap) then
       local a, b = byte_span(cap, tokens, starts)
@@ -219,7 +219,7 @@ end
 --- @return {string} The dropped comments' own text, in token order
 local function dropped_comments(tokens: {compiler.Token}, starts: {integer},
                                 a: integer, b: integer, kept: {Span}): {string}
-  local dropped: {string} = {}
+  local dropped: mut {string} = {}
   for _, t in ipairs(tokens) do
     local comments = t.comments
     if comments then
@@ -289,7 +289,7 @@ local function line_range(node: Node, tokens: {compiler.Token}, starts: {integer
   local sy = ast_walk.span_start(node).y
   local ey = ast_walk.span_end(node, tokens).y
   local a = starts[sy]
-  local b = ey + 1 <= #starts and starts[ey + 1] - 1 or source_len
+  local b = if ey + 1 <= #starts then starts[ey + 1] - 1 else source_len end
   return a, b
 end
 
@@ -310,7 +310,7 @@ end
 --- @return RewriteResult|nil The spliced result plus any refused hits, or nil on failure
 --- @return string Error message on failure, "" on success
 local function rewrite(built: compiler, source: string, name: string, pattern: Node,
-                       replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
+                       replacement: string, keep?: function(Node): boolean): RewriteResult?, string
   local parsed, perr = node_mod.parse(built, source, name)
   if not parsed then
     return nil, perr
@@ -318,7 +318,7 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
   local desugared = ast_match.desugar(replacement)
   local hits = find_all(parsed.node, pattern)
   if keep ~= nil then
-    local kept: {Hit} = {}
+    local kept: mut {Hit} = {}
     for _, h in ipairs(hits) do
       if keep(h.node) then kept[#kept + 1] = h end
     end
@@ -327,8 +327,8 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
   local starts = line_starts(source)
   local statements = statements_of(parsed.node)
   local out = source
-  local refused: {Refusal} = {}
-  local edits: {Hit} = {}
+  local refused: mut {Refusal} = {}
+  local edits: mut {Hit} = {}
   for i = #hits, 1, -1 do
     local h = hits[i]
     local a, b: integer, integer
@@ -368,7 +368,7 @@ local record RewriteModule
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
-  replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
+  replacement: string, keep?: function(Node): boolean): RewriteResult?, string
 end
 
 local M: RewriteModule = {

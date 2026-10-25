@@ -10,7 +10,7 @@ local record Rehearsal
   --- The entries of the list `text`: a failure's name to why it is expected. A line is `<name> -- <reason>`; a blank line and a
   --- line that starts with `#` say nothing. nil and what is wrong with the text: an entry with no reason or a name that two
   --- entries give.
-  parse: function(text: string): {string: string} | nil, string
+  parse: function(text: string): {string: string}?, string
 
   --- The name of each failure the output of a run lists, once each, in order. A line `test: FAIL  <failure>` names the test
   --- (`<module> <test>`) or the module the new checker refused (`<file> <code>`, the code of its first error, none for a
@@ -41,8 +41,8 @@ function Rehearsal.path(): string
   return PATH
 end
 
-function Rehearsal.parse(text: string): {string: string} | nil, string
-  local out: {string: string} = {}
+function Rehearsal.parse(text: string): {string: string}?, string
+  local out: mut {string: string} = {}
   local number = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     number = number + 1
@@ -64,9 +64,9 @@ end
 -- does, once `cosmic test` prints a failure's reason on a line of its own that does not carry a path or a number
 -- (build/test_report.tl); a test is expected by name today.
 function Rehearsal.failures(output: string): {string}
-  local out: {string} = {}
-  local seen: {string: boolean} = {}
-  local rows: {string} = {}
+  local out: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  local rows: mut {string} = {}
   for line in output:gmatch("[^\n]+") do
     rows[#rows + 1] = line
   end
@@ -123,7 +123,7 @@ local PROJECT_SAYS <const>: {string: {Says}} = {
 }
 
 function Rehearsal.judge_project(name: string, status: integer, output: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local says = PROJECT_SAYS[name]
   if says == nil then
     return { name .. ": no such project of the rehearsal" }
@@ -150,7 +150,7 @@ function Rehearsal.judge_project(name: string, status: integer, output: string):
 end
 
 function Rehearsal.judge_tool(output: string, errors: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, said in ipairs({ "the tool is stale; rebuilding it", "building it again", "bin/zig build boot" }) do
     if output:find(said, 1, true) ~= nil or errors:find(said, 1, true) ~= nil then
       out[#out + 1] = "the run built the tool again (`" .. said .. "`): the tool booted with the new checker was not settled for " ..
@@ -161,15 +161,15 @@ function Rehearsal.judge_tool(output: string, errors: string): {string}
 end
 
 function Rehearsal.judge(allowed: {string: string}, failed: {string}): {string}
-  local out: {string} = {}
-  local happened: {string: boolean} = {}
+  local out: mut {string} = {}
+  local happened: mut {string: boolean} = {}
   for _, name in ipairs(failed) do
     happened[name] = true
     if allowed[name] == nil then
       out[#out + 1] = name .. " failed and " .. PATH .. " does not expect it: fix it, or list it with its reason"
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(allowed) do
     names[#names + 1] = name
   end

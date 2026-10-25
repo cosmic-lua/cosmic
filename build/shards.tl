@@ -46,9 +46,9 @@ local compile_share <const> = 2
 --- them, however far: which of its own imports each stands on. `order`
 --- names no module before what it requires.
 local function closures(order: {shards.Item}): {string:{string:boolean}}
-  local out: {string:{string:boolean}} = {}
+  local out: mut {string:{string:boolean}} = {}
   for _, item in ipairs(order) do
-    local reached: {string:boolean} = {}
+    local reached: mut {string:boolean} = {}
     for _, name in ipairs(item.requires) do
       local below = out[name]
       if below ~= nil then
@@ -99,8 +99,8 @@ local function place_all(order: {shards.Item}, wanted: {string:boolean},
   end
   local limit = even * slack // (count * 100)
 
-  local checked: {{string:boolean}} = {}
-  local busy: {integer} = {}
+  local checked: mut {{string:boolean}} = {}
+  local busy: mut {integer} = {}
   for at = 1, count do
     checked[at] = {}
     busy[at] = 0
@@ -138,7 +138,7 @@ local function place_all(order: {shards.Item}, wanted: {string:boolean},
       -- Shards that fit rank by what the head adds, the rest and all of
       -- them without a slack by where they end up.
       local fits = slack > 0 and ends <= limit
-      local rank = fits and 0 or 1
+      local rank = if fits then 0 else 1 end
       local second = fits and more or ends
       if best == 0 or rank < best_rank or
           (rank == best_rank and (second < best_second or
@@ -153,7 +153,7 @@ local function place_all(order: {shards.Item}, wanted: {string:boolean},
   -- module compiles on the lightest of those, once.
   for _, item in ipairs(order) do
     if wanted[item.path] and owner[item.path] == nil then
-      local holders: {integer} = {}
+      local holders: mut {integer} = {}
       for at = 1, count do
         if checked[at][item.path] then holders[#holders + 1] = at end
       end
@@ -186,12 +186,12 @@ end
 --- @param count how many shards at most
 function shards.plan(order: {shards.Item}, wanted: {string:boolean}, count: integer): shards.Plan
   local closure = closures(order)
-  local weight: {string:integer} = {}
+  local weight: mut {string:integer} = {}
   for _, item in ipairs(order) do weight[item.path] = item.size + fixed_cost end
 
   -- A module's own weight and what it stands on, to rank the placement.
-  local standing: {string:integer} = {}
-  local required: {string:boolean} = {}
+  local standing: mut {string:integer} = {}
+  local required: mut {string:boolean} = {}
   for _, item in ipairs(order) do
     local total = weight[item.path]
     for name in pairs(closure[item.path]) do total = total + weight[name] end
@@ -201,7 +201,7 @@ function shards.plan(order: {shards.Item}, wanted: {string:boolean}, count: inte
     end
   end
 
-  local heads: {shards.Item} = {}
+  local heads: mut {shards.Item} = {}
   for _, item in ipairs(order) do
     if wanted[item.path] and not required[item.path] then heads[#heads + 1] = item end
   end
@@ -210,7 +210,7 @@ function shards.plan(order: {shards.Item}, wanted: {string:boolean}, count: inte
     return a.path < b.path
   end)
 
-  local chosen: Placed | nil = nil
+  local chosen: Placed? = nil
   for _, slack in ipairs(slacks) do
     local made = place_all(order, wanted, closure, weight, heads, count, slack)
     if chosen == nil or made.heaviest < chosen.heaviest or
@@ -220,9 +220,9 @@ function shards.plan(order: {shards.Item}, wanted: {string:boolean}, count: inte
   end
   local kept = assert(chosen)
 
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   for at = 1, count do
-    local paths: {string} = {}
+    local paths: mut {string} = {}
     for _, item in ipairs(order) do
       if kept.owner[item.path] == at then paths[#paths + 1] = item.path end
     end

@@ -56,7 +56,7 @@ end
 --- its bytes, and 200 with the whole for no Range, or one it ignores.
 function Example.range()
   local data = "0123456789"
-  local function answer(range: string | nil): Server.Reply
+  local function answer(range: string?): Server.Reply
     local r = Server.range(range, #data)
     if r.kind == "span" then
       local first, last = assert(r.first), assert(r.last)
@@ -79,7 +79,7 @@ end
 --- no body, where If-None-Match names the version it would send.
 function Example.none_match()
   local etag = '"v7"'
-  local function answer(if_none_match: string | nil): Server.Reply
+  local function answer(if_none_match: string?): Server.Reply
     if Server.none_match(if_none_match, etag) then
       return { status = 304, headers = { ETag = etag } }
     end

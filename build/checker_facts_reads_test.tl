@@ -10,7 +10,7 @@ local type compiler = require("build.compiler")
 
 Test.policy{}
 
-local built = { value = nil as compiler | nil }
+local built = { value = nil as compiler? }
 
 --- The tree's checker, loaded once.
 local function checker(): compiler

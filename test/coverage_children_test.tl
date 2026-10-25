@@ -109,7 +109,7 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   -- The inner process, this program again, is given what it needs to
   -- start -- itself alone, every Linux core being static
   -- (core/linkage_test.tl) -- and the directory it reports to.
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if Fs.exists(path) then reads[#reads + 1] = path end

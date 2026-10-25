@@ -78,7 +78,7 @@ local record Programs
     --- What the program printed, one string per call of `print`, its arguments tab separated.
     printed: {string}
     --- The error the run raised, or nil: a nil operand, a `fact violated` or an `assert` that failed.
-    fault: string | nil
+    fault: string?
   end
 
   --- Checks `source` and, where the checker takes it, writes it as Lua and runs it with `print` collected; a `require` of one
@@ -238,14 +238,14 @@ end
 --- `parsed` is the parse of `source` where the caller has it already.
 local function lower(program: Declarations.Program, module: string, source: string, dialect: Ast.Dialect,
                      globals: {string: Scopes.Global}, required?: {string: Programs.Run}, read?: Parser.Parsed): Programs.Run
-  local name = module .. (dialect == "decl" and ".d.tl" or ".tl")
+  local name = module .. (if dialect == "decl" then ".d.tl" else ".tl" end)
   local parsed = read or Parser.parse(Lexer.lex(source, name), name, dialect)
   local scoped = Scopes.build(parsed.chunk, name, globals)
   local input: Declarations.Input = {
     module = module, filename = name, chunk = parsed.chunk, scoped = scoped, dialect = dialect,
   }
   local lowered = program:lower(input)
-  local before: {string} = {}
+  local before: mut {string} = {}
   for _, e in ipairs(parsed.errors) do
     before[#before + 1] = e.code
   end
@@ -267,7 +267,7 @@ end
 
 --- The names of `named`, in order.
 local function sorted_names<V>(named: {string: V}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(named) do
     names[#names + 1] = name
   end
@@ -300,7 +300,7 @@ function Programs.runner(): function(source: string, module?: string, modules?: 
       local _ = lower(program, name, assert(files[name]), "decl", globals)
     end
     local sources = modules or {}
-    local required: {string: Programs.Run} = {}
+    local required: mut {string: Programs.Run} = {}
     for _, name in ipairs(sorted_names(sources)) do
       required[name] = lower(program, name, assert(sources[name]), "tl", globals)
     end
@@ -345,7 +345,7 @@ end
 
 function Programs.declared(prelude: string, stdlib: string): {string}
   local _, _, first, second = standard_program(prelude, stdlib)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, code in ipairs(first.before) do
     out[#out + 1] = "lang/prelude.d.tl: " .. code
   end
@@ -501,12 +501,12 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
 end
 
 --- The Lua of a checked program: the code generator's text, with the classes its literals make and the enums it tests.
-local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean | nil): string
-  local classes: {integer: string} = {}
+local function generated(run: Programs.Run, wraps: {integer: string}, kind_only: boolean?): string
+  local classes: mut {integer: string} = {}
   for id, decl in pairs(run.result.literals) do
     classes[id] = decl.name
   end
-  return Codegen.generate(run.chunk, run.scoped, nil, classes, kind_only and {} or Check.enums(run.lowered), wraps).text
+  return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only then {} else Check.enums(run.lowered) end, wraps).text
 end
 
 function Programs.lua(run: Programs.Run): string
@@ -535,7 +535,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     end,
   }
   env.print = function(...: any)
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for i = 1, select("#", ...) do
       parts[i] = tostring((select(i, ...)))
     end
@@ -574,7 +574,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
 end
 
 function Programs.codes(run: Programs.Run): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(run.errors) do
     out[#out + 1] = e.code
   end

@@ -112,8 +112,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, default_env)
   outcome_ok(default, "default cache")
-  local default_cache = ctx.target == "aarch64-macos" and
-    home .. "/Library/Caches/cosmic/cores" or home .. "/.cache/cosmic/cores"
+  local default_cache = if ctx.target == "aarch64-macos" then
+    home .. "/Library/Caches/cosmic/cores" else home .. "/.cache/cosmic/cores" end
   local default_exists = Predicate.is_dir(default_cache)
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
@@ -283,10 +283,10 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   assert(Fixture.hash(core) == core_hash, "short repair core digest differs")
 
   -- A launcher arm is the quoted `uname -sm` answer it selects.
-  local host = ctx.target == "aarch64-macos" and "'Darwin arm64'" or
-    (ctx.target == "aarch64-linux-musl" and "'Linux aarch64'" or "'Linux x86_64'")
+  local host = if ctx.target == "aarch64-macos" then "'Darwin arm64'" else
+    (if ctx.target == "aarch64-linux-musl" then "'Linux aarch64'" else "'Linux x86_64'" end) end
   local artifact = Fixture.read(ctx.artifact)
-  local selected: string | nil = nil
+  local selected: string? = nil
   for line in artifact:sub(1, 16384):gmatch("[^\n]+") do
     if String.starts_with(line, "  " .. host) then
       assert(selected == nil, "duplicate selected launcher header")
@@ -391,7 +391,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     assert(killed.handle:stop(sys.SIGKILL))
     assert(not Process.finish(killed).ok, "killed repair succeeded")
     expect_failure(ctx, "stale-lock", "cache repair is already locked:", interrupted)
-    local stale: string | nil = nil
+    local stale: string? = nil
     for _, name in ipairs((assert(Fs.list(interrupted)))) do
       if name:sub(1, 8) == ".repair-" then
         assert(stale == nil, "multiple stale repair owners")

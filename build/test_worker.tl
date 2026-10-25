@@ -153,7 +153,7 @@ local record worker
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
-    program: string | nil
+    program: string?
   end
 
   --- How a worker starts (`invocation`): its command line and its
@@ -269,7 +269,7 @@ local hex = key_parts.hex
 local unhex_either = key_parts.unhex
 
 --- The bytes `hex` spelled, or nil for text it would not have written.
-local function unhex(data: string): string | nil
+local function unhex(data: string): string?
   if data:find("[^0-9a-f]") ~= nil then return nil end
   local bytes, _ = unhex_either(data)
   return bytes
@@ -288,8 +288,8 @@ end
 --- needs its `policy` stands for, and the reason it gave for passing
 --- unchecked.
 local record Given
-  handed: Test.Needs | nil
-  deliberate: string
+  mut handed: Test.Needs?
+  mut deliberate: string
 end
 
 --- The run-time checks of a checked run. A module compiled with them calls
@@ -316,15 +316,15 @@ end
 local record Check
   kind: string
   at: string
-  name: string
-  n: integer
-  labels: {string}
-  declared: {string}
-  kinds: {{string:boolean}}
-  integral: {boolean}
+  mut name: string
+  mut n: integer
+  labels: mut {string}
+  declared: mut {string}
+  kinds: mut {{string:boolean}}
+  integral: mut {boolean}
   -- The violations met at each position, by the value's kind and then the
   -- place that sent it, so a repeated one is found without building a key.
-  memo: {{string:{string:worker.Violation}}}
+  memo: mut {{string:{string:worker.Violation}}}
 end
 
 -- The library the hook runs on, taken as the module loads: a test that
@@ -335,10 +335,10 @@ local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type = type, math.type
 local lua_char, lua_error = string.char, error
 -- These are overloaded in the library, so each is declared with the one signature the hook calls it by.
-local lua_byte: function(string, integer): integer | nil = string.byte
+local lua_byte: function(string, integer): integer? = string.byte
 local lua_gsub: function(string, string, any): string, integer = string.gsub
-local lua_tonumber: function(string, integer): number | nil = tonumber
-local lua_pcall: function(any, any...): boolean, any... = pcall
+local lua_tonumber: function(string, integer): number? = tonumber
+local lua_pcall: function(any, ...: any): boolean, any... = pcall
 local lua_select = select
 local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
   table.concat, string.format, string.sub, getmetatable, tostring, string.find
@@ -348,10 +348,10 @@ local record Fact
   at: string
   name: string
   --- The kinds the value may have, or those it may not (`negated`).
-  kinds: {string:boolean}
+  kinds: mut {string:boolean}
   negated: boolean
   declared: string
-  integral: boolean
+  mut integral: boolean
 end
 
 local checks: {string:Check} = {}
@@ -365,7 +365,7 @@ local tally = { dropped = 0 }
 -- worker keeps ([`worker.most_kept`]).
 
 local function parse_check(text: string): Check
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
   local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {},
     declared = {}, kinds = {}, integral = {}, memo = {} }
@@ -391,7 +391,7 @@ local function parse_check(text: string): Check
     check.memo[index] = {}
     check.labels[index] = label
     if declared ~= "-" then
-      local kinds: {string:boolean} = {}
+      local kinds: mut {string:boolean} = {}
       local integer, number = false, false
       for kind in gmatch(declared, "[^|]+") do
         if kind == "integer" then
@@ -430,7 +430,7 @@ end
 
 -- Keeps `met`, the first violation of its kind at `at` among `sites`, unless
 -- the worker keeps as many as it may: then it is only counted.
-local function keep(sites: {string:worker.Violation}, at: string, met: worker.Violation)
+local function keep(sites: mut {string:worker.Violation}, at: string, met: worker.Violation)
   if #found >= worker.most_kept then
     tally.dropped = tally.dropped + 1
     return
@@ -469,7 +469,7 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   else
     target = "field " .. check.name
   end
-  local met: worker.Violation = { kind = check.kind == "p" and "parameter" or check.kind == "r" and "return" or "field",
+  local met: worker.Violation = { kind = if check.kind == "p" then "parameter" elseif check.kind == "r" then "return" else "field" end,
     at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
   keep(sites, at, met)
 end
@@ -481,7 +481,7 @@ local function parse_fact(text: string)
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
     local byte = lua_tonumber(digits, 16)
     return byte is integer and lua_char(byte) or "?"
-  end)), name = name, declared = negated and "not " .. declared:sub(2) or declared,
+  end)), name = name, declared = if negated then "not " .. declared:sub(2) else declared end,
     kinds = {}, negated = negated, integral = false }
   local integer, number = false, false
   for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do
@@ -675,7 +675,7 @@ end
 --- The violations this process has met since it installed its checks, in
 --- the order met.
 function worker.violations(): {worker.Violation}
-  local out: {worker.Violation} = {}
+  local out: mut {worker.Violation} = {}
   for i, met in ipairs(found) do out[i] = met end
   return out
 end
@@ -696,16 +696,16 @@ local function monotonic_ns(): integer
   return reading
 end
 
-local function encode_hits(lines: {string}, tag: string, hits: Coverage.Hits)
+local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits)
   if hits == nil then return end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(hits) do paths[#paths + 1] = path end
   table.sort(paths)
   for _, path in ipairs(paths) do
-    local numbers: {integer} = {}
+    local numbers: mut {integer} = {}
     for line in pairs(hits[path]) do numbers[#numbers + 1] = line end
     table.sort(numbers)
-    local text: {string} = {}
+    local text: mut {string} = {}
     for i, line in ipairs(numbers) do text[i] = tostring(line) end
     lines[#lines + 1] = tag .. " " .. hex(path) .. " " .. table.concat(text, ",")
   end
@@ -741,9 +741,9 @@ end
 --- The report as text: a header, one line per fact, and a closing line
 --- whose absence says the worker never finished writing it.
 function worker.encode(report: worker.Report): string
-  local lines: {string} = { HEADER,
-    "loaded " .. (report.loaded and "1" or "0"),
-    "passed " .. (report.passed and "1" or "0"),
+  local lines: mut {string} = { HEADER,
+    "loaded " .. (if report.loaded then "1" else "0" end),
+    "passed " .. (if report.passed then "1" else "0" end),
     "elapsed " .. tostring(report.elapsed_ns),
     "message " .. hex(report.message),
   }
@@ -787,7 +787,7 @@ local decoded_hits: {string:DecodedHit} = {}
 --- Reads a report back; nil and why when it is not a whole one. The
 --- tables of its `load_hits` and `test_hits` are shared with every other
 --- report read, so a caller does not change them.
-function worker.decode(text: string): worker.Report | nil, string
+function worker.decode(text: string): worker.Report?, string
   if text == nil or text == "" then return nil, "no report" end
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
@@ -820,7 +820,7 @@ function worker.decode(text: string): worker.Report | nil, string
           local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
           local decoded = path ~= nil and unhex(path) or nil
           if decoded == nil then return nil, "a malformed hit: " .. line end
-          local per_line: {integer:boolean} = {}
+          local per_line: mut {integer:boolean} = {}
           for number in numbers:gmatch("%d+") do
             per_line[math.tointeger(tonumber(number)) or 0] = true
           end
@@ -843,7 +843,7 @@ function worker.decode(text: string): worker.Report | nil, string
       elseif tag == "violation" then
         local packed, count = rest:match("^([0-9a-f]+) (%d+)$")
         local decoded = packed ~= nil and unhex(packed) or nil
-        local kind, at, target, declared, actual: string | nil, string | nil, string | nil, string | nil, string | nil
+        local kind, at, target, declared, actual: string?, string?, string?, string?, string?
         if decoded ~= nil then
           kind, at, target, declared, actual =
             decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
@@ -893,7 +893,7 @@ end
 -- the store of a closure that holds build.teal, the one module that loads it
 -- ([`build.closure_store`]'s `loaded_beside`).
 local function refusal(name: string, module_path: string, closure: {string:boolean},
-                       tree: {string:boolean}): string | nil
+                       tree: {string:boolean}): string?
   if closure[name] or not tree[name] then return nil end
   return string.format("module '%s' is outside the import closure of %s: the build " ..
       "follows a require only when it is called directly on a literal name, so neither a " ..
@@ -906,7 +906,7 @@ end
 --- A call made with the `require`s of the tree's modules held to
 --- `closure`, the set of the names `module_path`'s import closure
 --- holds.
-local type Held = function(fn: function(any...): (any...), argument?: any): any
+local type Held = function(fn: function(...: any): (any...), argument?: any): any
 
 --- Answers a [`Held`], `tree` the set of the tree's modules. It calls `fn`
 --- with `argument` while two things hold: a searcher ahead of every
@@ -927,7 +927,7 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   -- hands a wrapper (core/syscalls_test.tl's `raw_behind`) finds none
   -- beside it and asks the next, as it would of a searcher that knew
   -- nothing of the name.
-  local function gate(name: string): (function(? string, ? any): (any), any)
+  local function gate(name: string): (function(arg1?: string, arg2?: any): (any), any)
     local why = refusal(name, module_path, closure, tree)
     if why == nil then return nil, nil end
     return function(_?: string, _?: any): any
@@ -935,8 +935,8 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       error(why, 3)
     end, nil
   end
-  return function(fn: function(any...): (any...), argument?: any): any
-    local set_aside: {string:any} = {}
+  return function(fn: function(...: any): (any...), argument?: any): any
+    local set_aside: mut {string:any} = {}
     for name, value in pairs(package.loaded) do
       if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
     end
@@ -960,10 +960,10 @@ end
 --- executable instead. What it answers is the relaunch's own: the
 --- arguments that lead its command line, the variables it adds, and
 --- the descriptors it hands on.
-function worker.program(): Proc.Relaunch | nil, string
+function worker.program(): Proc.Relaunch?, string
   local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
-    local env: {string:string} = {}
+    local env: mut {string:string} = {}
     for name, value in pairs(relaunch.env) do env[name] = value end
     return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
   end
@@ -1000,7 +1000,7 @@ end
 --- and no stray is left for the runner to adopt ([`build.test`]'s
 --- `run_jobs`).
 function worker.invocation(given: worker.Invocation): worker.Command
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   for i, value in ipairs(given.start.argv) do argv[i] = value end
   local program = given.program
   -- A relaunch's argv is the core, `--artifact` and the artifact's path,
@@ -1029,12 +1029,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
   for _, name in ipairs(given.closure) do argv[#argv + 1] = name end
   argv[#argv + 1] = "--tree"
   for _, name in ipairs(given.tree) do argv[#argv + 1] = name end
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for name, value in pairs(given.env) do env[name] = value end
   for name, value in pairs(given.start.env) do env[name] = value end
   env.COSMIC_COVERAGE_STARTUP = "1"
-  env.COSMIC_TEST_TYPES = given.checks and "1" or nil
-  local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
+  env.COSMIC_TEST_TYPES = if given.checks then "1" else nil end
+  local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   local given_policy = given.policy
   if given_policy ~= nil and promises_nest(given_policy) then
@@ -1079,9 +1079,9 @@ end
 --- carries that is no module of the tree is the TODO above `refusal`.
 local function unkeyed(modules: {string}, carried: {string:boolean},
                        closure: {string:boolean}): {string}
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, name in ipairs(worker.loads) do listed[name] = true end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(modules) do
     if carried[name] and not listed[name] and not closure[name] then
       out[#out + 1] = name
@@ -1114,7 +1114,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   if result.timed_out then
     return { passed = false, skipped = "", message = "timed out after " ..
         tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
-        (judging.sandboxed and "its pid namespace" or "its process group") .. " was ended" }
+        (if judging.sandboxed then "its pid namespace" else "its process group" end) .. " was ended" }
   end
   local report, decode_trouble = worker.decode(result.captured[worker.report_fd])
   if report == nil then
@@ -1126,7 +1126,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   if not result.ok or result.code ~= 0 or result.signal ~= nil then
     local message = "the test process " .. ending(result) .. " after it reported"
     judgement.passed = false
-    judgement.message = report.message ~= "" and report.message .. "\n  " .. message or message
+    judgement.message = if report.message ~= "" then report.message .. "\n  " .. message else message end
   end
   local closure = judging.closure
   local carried = judging.carried
@@ -1137,7 +1137,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
       judgement.message = "its worker ran " .. table.concat(names, ", ") .. ", which the " ..
         "tool carries and neither its module's import closure nor the modules every " ..
         "worker loads hold, so no key of its test does: require " ..
-        (#names == 1 and "it" or "each") .. " at the top level of its module, or, where " ..
+        (if #names == 1 then "it" else "each" end) .. " at the top level of its module, or, where " ..
         "every worker loads it, name it in build/test_worker.tl's `worker.loads`"
     end
   end
@@ -1247,7 +1247,7 @@ function worker.run(argv: {string}): integer
   -- The closure's names start after `--store` and its path.
   local first = 9
   local sandboxed = argv[first] == "--sandboxed"
-  local runs: {string} | nil = nil
+  local runs: mut {string}? = nil
   local own_scratch = false
   if sandboxed then
     first = first + 1
@@ -1310,7 +1310,7 @@ function worker.run(argv: {string}): integer
     return 2
   end
   -- Without a closure, a call as it is.
-  local held: Held = function(fn: function(any...): (any...), argument?: any): any
+  local held: Held = function(fn: function(...: any): (any...), argument?: any): any
     return fn(argument)
   end
   if argv[first] ~= nil then
@@ -1334,7 +1334,7 @@ function worker.run(argv: {string}): integer
   }
   -- Where the C hits of the processes the test starts are folded: the
   -- test's coverage once it ran, else the load's, else nowhere.
-  local child_into: Coverage.Hits | nil = nil
+  local child_into: Coverage.Hits? = nil
   Assertions.install()
   if env_get("COSMIC_TEST_TYPES") == "1" then worker.install_checks() end
   -- Processes the test starts report the core's C they ran here, so it
@@ -1346,7 +1346,7 @@ function worker.run(argv: {string}): integer
   -- The directories the test owns, which a process it confines may
   -- change ([`confine.call`]): its own, as it is handed it and as it
   -- resolves, and where a process it starts writes its coverage.
-  local own: {string} = { tmp }
+  local own: mut {string} = { tmp }
   if sandboxed and ("\n" .. expected_needs .. "\n"):find("\nnoexec true\n", 1, true) then
     own[#own + 1] = "/noexec"
   end
@@ -1411,9 +1411,9 @@ function worker.run(argv: {string}): integer
     produced = "its cosmic.test policy call stands for what the build did not read " ..
       "from its source -- the build reads only a top-level Test.policy { ... } " ..
       "on a local bound to require(\"cosmic.test\") (see cosmic.test):\n" ..
-      "  handed:\n    " .. (needs == "" and "nothing" or needs:gsub("\n", "\n    ")) ..
-      "\n  read:\n    " .. (expected_needs == "" and "nothing" or
-        expected_needs:gsub("\n", "\n    "))
+      "  handed:\n    " .. (if needs == "" then "nothing" else needs:gsub("\n", "\n    ") end) ..
+      "\n  read:\n    " .. (if expected_needs == "" then "nothing" else
+        expected_needs:gsub("\n", "\n    ") end)
   end
   report.loaded = loaded
   if not loaded then
@@ -1423,7 +1423,7 @@ function worker.run(argv: {string}): integer
     end
   else
     local fn: any = produced is {string: any} and produced[name] or nil
-    if not (fn is function(any...): (any...)) then
+    if not (fn is function(...: any): (any...)) then
       report.message = module_path .. " has no test named " .. name
     else
       local test_session, _ = Coverage.start()
@@ -1441,7 +1441,7 @@ function worker.run(argv: {string}): integer
       -- A test that skipped ends by raising `ended_by_skip`: it passed as far
       -- as it ran, and `report.skipped` says it checked less than it exists to.
       report.passed = ran.ok or ran.produced == ended_by_skip
-      report.message = report.passed and "" or tostring(ran.produced)
+      report.message = if report.passed then "" else tostring(ran.produced) end
       if sandboxed and not report.passed then
         report.message = report.message .. unseen_note(report.message, ran.unseen)
       end
@@ -1456,7 +1456,7 @@ function worker.run(argv: {string}): integer
   end
   -- What it ran, as `judge` holds it: taken last, so it holds what the
   -- test loaded as well as what this did.
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for loaded_name in pairs(package.loaded) do
     if loaded_name is string then modules[#modules + 1] = loaded_name end
   end

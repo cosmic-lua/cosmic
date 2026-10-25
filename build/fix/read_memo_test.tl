@@ -72,7 +72,7 @@ end
 
 --- The names `declared` sees, those it holds and `everywhere`, which it inherits.
 local function seen(declared: link_text.Declared, everywhere: {string: boolean}): {string: boolean}
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   for name in pairs(declared.names) do out[name] = true end
   for name in pairs(everywhere) do out[name] = true end
   return out
@@ -103,7 +103,7 @@ local function holds(file: string, source: string)
     assert(read.facts.known.module_level[name] == true, file .. ": " .. name .. " is made up")
   end
   -- Every line a link can be on, and lines that are no comment's: the kept ones and the ones read off a parse then.
-  local lines: {integer} = {}
+  local lines: mut {integer} = {}
   for line = 1, #(source:gsub("[^\n]", "")) + 1 do lines[#lines + 1] = line end
   for _, line in ipairs(lines) do
     local want, got = read.facts.known.at(line), back.facts.known.at(line)
@@ -183,7 +183,7 @@ local function test_a_row_that_does_not_read_is_a_miss()
 end
 
 local function test_the_code_that_names_a_row_holds_what_the_readers_call()
-  local held: {string: boolean} = {}
+  local held: mut {string: boolean} = {}
   for _, name in ipairs(read_memo.roots) do held[name] = true end
   for _, name in ipairs(read_memo.alone) do held[name] = true end
   -- [`tree_checks.plurals_in`] reads the sites of a plural in a parse by a module of its own, which [`build.tree_checks`] holds

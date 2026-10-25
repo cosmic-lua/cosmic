@@ -275,31 +275,27 @@ end
 --- A connection read under a deadline: each read waits at most `each`,
 --- and none past `deadline`, a [`Clock.monotonic_ns`] reading (nil for
 --- none).
-local record Timed is Stream.Reader
+local class Timed is Stream.Reader
   conn: Net.Conn
   each: integer
-  deadline?: integer
-  read: function(Timed, max_bytes?: integer): string | nil, string
-  close: function(Timed): boolean, string
-end
+  mut deadline?: integer
 
-local timed_mt: metatable<Timed> = { __index = Timed }
-
-function Timed:read(max_bytes?: integer): string | nil, string
-  local wait = self.each
-  local deadline = self.deadline
-  if deadline ~= nil then
-    local left = deadline - Clock.monotonic_ns()
-    if left <= 0 then return nil, Poll.TIMEOUT end
-    if wait == nil or left < wait then wait = left end
+  function read(self, max_bytes?: integer): string?, string
+    local wait = self.each
+    local deadline = self.deadline
+    if deadline ~= nil then
+      local left = deadline - Clock.monotonic_ns()
+      if left <= 0 then return nil, Poll.TIMEOUT end
+      if wait == nil or left < wait then wait = left end
+    end
+    self.conn:set_timeout(wait)
+    return self.conn:read(max_bytes)
   end
-  self.conn:set_timeout(wait)
-  return self.conn:read(max_bytes)
-end
 
---- The connection is the server's to close.
-function Timed:close(): boolean, string
-  return true, ""
+  --- The connection is the server's to close.
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 --- A server's state for the length of its run.
@@ -310,10 +306,10 @@ local record Serving
   idle_ns: integer
   head_ns: integer
   body_ns: integer
-  stopping: boolean
+  mut stopping: boolean
   --- Each connection waiting for its next request's first byte, which
   --- stopping closes at once.
-  idle: {Net.Conn: boolean}
+  idle: mut {Net.Conn: boolean}
 end
 
 --- Gives `trouble` to the spec's [`Server.ServeSpec.on_error`], or stderr.
@@ -333,7 +329,7 @@ end
 
 --- Sends the server's own reply of `status` to the request `head` (nil
 --- where there is none), saying `why` in its body, and closes after it.
-local function answer(s: Serving, conn: Net.Conn, head: wire.Head | nil, status: integer, why: string)
+local function answer(s: Serving, conn: Net.Conn, head: wire.Head?, status: integer, why: string)
   local text = ("%d %s"):format(status, wire.reason(status))
   if why ~= "" then text = text .. ": " .. why end
   conn:set_timeout(s.timeout_ns)
@@ -418,7 +414,7 @@ end
 --- Closes the Reader body of `reply`, what a handler answered, where it
 --- has one the server will not send: checked as it runs, since the
 --- handler's answer is a [`Reply`] only by its declaration.
-local function drop_body(reply: Server.Reply | nil)
+local function drop_body(reply: Server.Reply?)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if body == nil then return end
@@ -460,7 +456,7 @@ end
 --- writes its reply, or the server's own. True where the connection
 --- stays open for the next request.
 local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wire.Head,
-                        timed: Timed, peer: Net.Address | nil): boolean
+                        timed: Timed, peer: Net.Address?): boolean
   -- Whether `100 Continue` went, and whether the final head has: an
   -- interim reply after it would be read as the final reply's body.
   local interim = { continued = false, replied = false }
@@ -488,7 +484,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   if state == "over" or state == "bad" or state == "failed" then
     if ok then drop_body(reply) end
     if state ~= "failed" then
-      answer(s, conn, head, state == "over" and 413 or 400, (body.failure:gsub("^http: ", "")))
+      answer(s, conn, head, if state == "over" then 413 else 400 end, (body.failure:gsub("^http: ", "")))
       linger(conn)
     elseif body.failure == Poll.TIMEOUT then
       answer(s, conn, head, 408, "the body came slower than body_ns or timeout_ns")
@@ -583,7 +579,7 @@ end
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
 local function serve_conn(s: Serving, conn: Net.Conn)
-  local timed: Timed = setmetatable({ conn = conn, each = s.timeout_ns }, timed_mt)
+  local timed: Timed = { conn = conn, each = s.timeout_ns }
   local input = wire.input(timed)
   -- Nil where the connection has none (a unix one); the request then has no peer.
   local peer, _ = conn:peer()
@@ -696,7 +692,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     on_ready = spec.on_ready,
     on_stop = function(server: Net.Server)
       s.stopping = true
-      local idle: {Net.Conn} = {}
+      local idle: mut {Net.Conn} = {}
       for conn in pairs(s.idle) do idle[#idle + 1] = conn end
       for _, conn in ipairs(idle) do local _, _ = conn:close() end
       local on_stop = spec.on_stop
@@ -711,7 +707,7 @@ end
 
 --- Whether byte `b` is a space or a tab, RFC 9110's OWS; nil, past
 --- the text's end, is not.
-local function ows(b: integer | nil): boolean
+local function ows(b: integer?): boolean
   return b == 32 or b == 9
 end
 
@@ -781,7 +777,7 @@ end
 --- method; a handler that honors If-Range passes nil where its
 --- validator does not match. A `size` that is no integer from 0
 --- raises.
-function Server.range(header: string | nil, size: integer): Server.Range
+function Server.range(header: string?, size: integer): Server.Range
   if not (math.type(size) == "integer" and size >= 0) then
     error("http: Server.range's size must be an integer from 0", 2)
   end
@@ -792,11 +788,11 @@ function Server.range(header: string | nil, size: integer): Server.Range
   if equals == nil or value:sub(1, equals - 1):lower() ~= "bytes" or ows(value:byte(equals + 1)) then
     return unranged
   end
-  local spec: string | nil = nil
+  local spec: string? = nil
   local from = equals + 1
   while true do
     local comma = value:find(",", from, true)
-    local element = stripped(value, from, comma ~= nil and comma - 1 or #value)
+    local element = stripped(value, from, if comma ~= nil then comma - 1 else #value end)
     if element ~= "" then
       if spec ~= nil then return unranged end
       spec = element
@@ -831,7 +827,7 @@ end
 --- Where the entity tag that starts at `at` in `text` ends, and its
 --- opaque tag, quotes and all, which a weak comparison compares; nil
 --- where none starts there.
-local function entity_tag(text: string, at: integer): EntityTag | nil
+local function entity_tag(text: string, at: integer): EntityTag?
   local from = at
   if text:sub(at, at + 1) == "W/" then from = at + 2 end
   local _, last = text:find('^"[!\x23-\x7e\x80-\xff]*"', from)
@@ -855,7 +851,7 @@ end
 --- `*` names a representation that exists, so a handler asks only of
 --- one it has. A list element that is no entity tag names nothing, and
 --- the rest are still read. An `etag` that is no entity tag raises.
-function Server.none_match(header: string | nil, etag: string): boolean
+function Server.none_match(header: string?, etag: string): boolean
   local own = entity_tag(etag, 1)
   if own == nil or own.last ~= #etag then
     error(("http: Server.none_match's etag %q is no entity tag, as \"v1\" or W/\"v1\""):format(etag), 2)
@@ -870,7 +866,7 @@ function Server.none_match(header: string | nil, etag: string): boolean
       at = at + 1
     else
       local found = entity_tag(value, at)
-      local after = found ~= nil and found.last + 1 or at
+      local after = if found ~= nil then found.last + 1 else at end
       while ows(value:byte(after)) do after = after + 1 end
       if found ~= nil and (after > #value or value:byte(after) == 44) then
         if found.opaque == own.opaque then return true end

@@ -5,8 +5,8 @@ local record ItemPath
   id: integer
 end
 local record Listing
-  page: integer | nil
-  tag: {string} | nil
+  page: integer?
+  tag: {string}?
 end
 local record NewItem
   title: string
@@ -15,7 +15,7 @@ end
 local record Settings
   name: string
   notify: boolean
-  secret: string | nil
+  secret: string?
 end
 local record Rest
   rest: string
@@ -41,7 +41,7 @@ local function test_a_typed_get_is_given_its_path_and_query_as_records()
   local app = Web.app{ routes = {
     Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response
-        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), next(b) == nil and "empty" or "full")
+        seen[#seen + 1] = ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), if next(b) == nil then "empty" else "full" end)
         return Web.json({ id = p.id })
       end, { name = "item" }),
   } }
@@ -132,7 +132,7 @@ end
 
 local function test_on_invalid_re_renders_in_place_of_the_handler()
   local called = { value = false }
-  local seen = { value = nil as Web.Invalid | nil }
+  local seen = { value = nil as Web.Invalid? }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
@@ -155,7 +155,7 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
 end
 
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
-  local got = { value = nil as Settings | nil }
+  local got = { value = nil as Settings? }
   local app = Web.app{ routes = {
     Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response

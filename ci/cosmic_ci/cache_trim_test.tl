@@ -10,7 +10,7 @@ local Signal = require("cosmic.signal")
 
 --- A count a stand-in keeps.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A report as the driver prints it, each member already JSON text (the
@@ -36,7 +36,7 @@ local function encoded(path: string): Parts
 end
 
 local function text_of(parts: Parts): string
-  local members: {string} = { '"version":' .. parts.version, '"warnings":' .. parts.warnings,
+  local members: mut {string} = { '"version":' .. parts.version, '"warnings":' .. parts.warnings,
     '"files":[' .. table.concat(parts.files, ",") .. "]" }
   local digest, fresh = parts.digest, parts.fresh
   if digest ~= nil then members[#members + 1] = '"digest":' .. digest end
@@ -47,9 +47,9 @@ end
 --- What [`CacheTrim.run`] came to under a stand-in for the driver: what it
 --- said, or why it raised.
 local record Tried
-  ok: boolean
-  out: string
-  err: string
+  mut ok: boolean
+  mut out: string
+  mut err: string
 end
 
 --- [`CacheTrim.run`] of `request` while the driver answers `payload` (and
@@ -58,7 +58,7 @@ local function trying(request: CacheTrim.Request, env: {string:string}, payload:
                       code?: integer, truncated?: boolean): Tried
   local seams = Seams.calls()
   local original = seams.child_run
-  seams.child_run = function(_argv: {string}, _options?: Child.Options): Child.Result | nil, string
+  seams.child_run = function(_argv: {string}, _options?: Child.Options): Child.Result?, string
     return { ok = code == nil or code == 0, code = code or 0, signal = nil, stdout = payload,
       stderr = "diagnostic", truncated = truncated == true, timed_out = false, captured = {} }, ""
   end
@@ -95,7 +95,7 @@ end
 local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: string)
   local path = tmp .. "/cache.db"
   local request: CacheTrim.Request = { family = "compiles", paths = { path }, since_ns = 1, whole = false }
-  local cases: {Parts} = {}
+  local cases: mut {Parts} = {}
   local bad = encoded(path)
   bad.version = "2"
   cases[#cases + 1] = bad
@@ -147,7 +147,7 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   assert(Fs.write(restored, "owned"))
   local seams = Seams.calls()
   local original = seams.fs_exists
-  seams.fs_exists = function(name: string): boolean | nil, string
+  seams.fs_exists = function(name: string): boolean?, string
     if name == restored or name == tmp .. "/output" then
       return nil, "injected inaccessible path"
     end
@@ -201,11 +201,11 @@ local function test_snapshot_identity_failures_retain_snapshot_and_save_nothing(
   assert(Fs.write(restored, "owned"))
   local seams = Seams.calls()
   local absolute, exists = seams.fs_absolute, seams.fs_exists
-  seams.fs_absolute = function(name: string): string | nil, string
+  seams.fs_absolute = function(name: string): string?, string
     if name == path then return nil, "injected identity failure" end
     return absolute(name)
   end
-  seams.fs_exists = function(name: string): boolean | nil, string
+  seams.fs_exists = function(name: string): boolean?, string
     if name == path then return nil, "injected identity failure" end
     return exists(name)
   end
@@ -223,7 +223,7 @@ local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string
   end
   local seams = Seams.calls()
   local original = seams.child_run
-  seams.child_run = function(_argv: {string}, _options?: Child.Options): Child.Result | nil, string
+  seams.child_run = function(_argv: {string}, _options?: Child.Options): Child.Result?, string
     return nil, "injected start failure"
   end
   local command = guarded({ "5", restored },
@@ -241,7 +241,7 @@ local function test_a_guard_failure_cleans_snapshot_without_raising(tmp: string)
   assert(Fs.write(restored, "owned"))
   local seams = Seams.calls()
   local original = seams.signal_guard
-  seams.signal_guard = function(): Signal.Guard | nil, string
+  seams.signal_guard = function(): Signal.Guard?, string
     return nil, "injected guard failure"
   end
   local command = guarded({ "5", restored },

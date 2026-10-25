@@ -15,12 +15,12 @@ Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", let
 
 --- A number a stand-in keeps.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A string a stand-in keeps.
 local record Text
-  value: string
+  mut value: string
 end
 
 local function git(root: string, args: {string}): string
@@ -91,10 +91,10 @@ end
 
 --- What [`invoke`] came to, a raise caught.
 local record Tried
-  ok: boolean
-  code: integer
-  diagnostic: string
-  raised: string
+  mut ok: boolean
+  mut code: integer
+  mut diagnostic: string
+  mut raised: string
 end
 
 local function trying(root: string, env: {string:string}, phases: {string}, uid?: integer): Tried
@@ -184,7 +184,7 @@ exit 29
 ]], 0x1ed))
   local seams = Local.calls()
   local read = seams.fs_read
-  seams.fs_read = function(path: string): string | nil, string
+  seams.fs_read = function(path: string): string?, string
     assert(not path:match("/logs/.*%.log$"), "failure log was read whole")
     return read(path)
   end
@@ -231,10 +231,10 @@ local function test_credential_setup_refusal_precedes_state_and_phase(tmp: strin
   local root, env = checkout(tmp)
   local seams = Local.calls()
   local user, run = seams.proc_user, seams.child_run
-  seams.proc_user = function(_name: string): Proc.User | nil, string
+  seams.proc_user = function(_name: string): Proc.User?, string
     return { uid = 65532, gid = 65532 }, ""
   end
-  seams.child_run = function(argv: {string}, options?: Child.Options): Child.Result | nil, string
+  seams.child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
     if options and options.credentials then return nil, "injected credential refusal" end
     return run(argv, options)
   end
@@ -317,10 +317,10 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
   local scratch: Text = { value = "" }
   local handed: Count = { value = -1 }
   local entered: Count = { value = 0 }
-  seams.proc_user = function(_name: string): Proc.User | nil, string
+  seams.proc_user = function(_name: string): Proc.User?, string
     return { uid = 65532, gid = 65532 }, ""
   end
-  seams.child_run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+  seams.child_run = function(words: {string}, options?: Child.Options): Child.Result?, string
     if not options or not options.credentials then return run(words, options) end
     entered.value = entered.value + 1
     scratch.value = Fs.dirname(assert(words[1]))
@@ -342,7 +342,7 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
       assert(option_fds[number] == expected, "another runtime grant changed")
     end
     for name, value in pairs(launched.env) do assert(option_env[name] == value) end
-    local probe: {string} = {}
+    local probe: mut {string} = {}
     for position, word in ipairs(words) do
       if position < #words then probe[#probe + 1] = word end
     end
@@ -373,15 +373,15 @@ local function test_runtime_copy_failure_cleans_up_before_any_credential_child(t
   local seams = Local.calls()
   local user, pread, mkdtemp = seams.proc_user, seams.sys_pread, seams.sys_mkdtemp
   local scratch: Text = { value = "" }
-  seams.proc_user = function(_name: string): Proc.User | nil, string
+  seams.proc_user = function(_name: string): Proc.User?, string
     return { uid = 65532, gid = 65532 }, ""
   end
-  seams.sys_mkdtemp = function(template: string): string | nil, string, integer
+  seams.sys_mkdtemp = function(template: string): string?, string, integer
     local path, why, errno = mkdtemp(template)
     if template:find("cosmic-local-runtime", 1, true) then scratch.value = path or "" end
     return path, why, errno
   end
-  seams.sys_pread = function(_fd: integer, _count: integer, _offset: integer): string | nil, string, integer
+  seams.sys_pread = function(_fd: integer, _count: integer, _offset: integer): string?, string, integer
     return nil, "injected runtime read failure", 5
   end
   local tried = trying(root, env, { "build" }, 0)
@@ -396,7 +396,7 @@ local function test_ordinary_runner_creates_no_runtime_handoff(tmp: string)
   local seams = Local.calls()
   local mkdtemp = seams.sys_mkdtemp
   local copies: Count = { value = 0 }
-  seams.sys_mkdtemp = function(template: string): string | nil, string, integer
+  seams.sys_mkdtemp = function(template: string): string?, string, integer
     if template:find("cosmic-local-runtime", 1, true) then copies.value = copies.value + 1 end
     return mkdtemp(template)
   end
@@ -413,10 +413,10 @@ local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: st
     local seams = Local.calls()
     local user, run = seams.proc_user, seams.child_run
     local scratch: Text = { value = "" }
-    seams.proc_user = function(_name: string): Proc.User | nil, string
+    seams.proc_user = function(_name: string): Proc.User?, string
       return { uid = 65532, gid = 65532 }, ""
     end
-    seams.child_run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+    seams.child_run = function(words: {string}, options?: Child.Options): Child.Result?, string
       if not options or not options.credentials then return run(words, options) end
       scratch.value = Fs.dirname(assert(words[1]))
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -435,7 +435,7 @@ end
 
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
   if Predicate.is_dir(directory) ~= true then directory = "/dev/fd" end
@@ -476,7 +476,7 @@ local function test_a_run_closes_its_signal_guard_once(tmp: string)
 end
 
 local record CredentialedTally
-  runs: integer
+  mut runs: integer
 end
 
 --- A credentialed run that ends well removes the copy of the runtime it made and closes its descriptor: the copy
@@ -487,15 +487,15 @@ local function test_a_successful_credentialed_run_removes_its_runtime_copy(tmp: 
   local user, run, mkdtemp = seams.proc_user, seams.child_run, seams.sys_mkdtemp
   local scratch: Text = { value = "" }
   local credentialed: CredentialedTally = { runs = 0 }
-  seams.proc_user = function(_name: string): Proc.User | nil, string
+  seams.proc_user = function(_name: string): Proc.User?, string
     return { uid = 65532, gid = 65532 }, ""
   end
-  seams.sys_mkdtemp = function(template: string): string | nil, string, integer
+  seams.sys_mkdtemp = function(template: string): string?, string, integer
     local path, why, errno = mkdtemp(template)
     if template:find("cosmic-local-runtime", 1, true) then scratch.value = path or "" end
     return path, why, errno
   end
-  seams.child_run = function(words: {string}, options?: Child.Options): Child.Result | nil, string
+  seams.child_run = function(words: {string}, options?: Child.Options): Child.Result?, string
     if options == nil or options.credentials == nil then return run(words, options) end
     credentialed.runs = credentialed.runs + 1
     local code = assert(words[#words])

@@ -33,7 +33,7 @@ end
 --- The paths `text`, the list ci/islands.txt holds, names: one a line, with
 --- what a `#` starts and blank lines left out.
 function Islands.paths(text: string): {string}
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then paths[#paths + 1] = path end
@@ -44,7 +44,7 @@ end
 --- What is wrong with `path`, a file of the checkout `root`, as the running
 --- driver reads it: nil where its `compile` takes it without a word, else
 --- what it said or why it did not.
-function Islands.complaint(root: string, path: string, env: {string:string}): string | nil
+function Islands.complaint(root: string, path: string, env: {string:string}): string?
   local driver = BuildPaths.driver({ "compile", "--errors", path }, env)
   local answer, why = Child.run(driver.argv, { env = driver.env, fds = driver.fds, cwd = root, stdin = "null",
     stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(60) })
@@ -62,7 +62,7 @@ end
 --- how many files were checked. A path that is neither a directory (a `/`
 --- ends it) nor a `.tl` file is a complaint too.
 function Islands.check(root: string, paths: {string}, env: {string:string}): Islands.Report
-  local complaints: {string} = {}
+  local complaints: mut {string} = {}
   local checked = 0
   for _, path in ipairs(paths) do
     if path:sub(-1) == "/" then

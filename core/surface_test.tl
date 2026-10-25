@@ -143,10 +143,10 @@ local function test_big_strings_keep_their_bytes_through_reused_blocks()
   local sizes = { 30000, 33000, 40960, 40961, 65536, 65537, 100000, 1 << 20,
     (2 << 20) - 1, 2 << 20, (2 << 20) + 1, 3 << 20 }
   for round = 1, 3 do
-    local made: {string} = {}
+    local made: mut {string} = {}
     for index, size in ipairs(sizes) do
       local byte = string.char(65 + (index + round) % 26)
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       for i = 1, size // 1000 do pieces[i] = string.rep(byte, 1000) end
       pieces[#pieces + 1] = string.rep(byte, size % 1000)
       local joined = table.concat(pieces)
@@ -194,7 +194,7 @@ end
 local function test_where_names_a_frame_by_source_and_line()
   local here = errors.where() as string
   assert(here:match("^.-:(%d+)$") ~= nil, here)
-  local function asks(level: integer): string | nil
+  local function asks(level: integer): string?
     local place = errors.where(level)
     return place
   end
@@ -207,7 +207,7 @@ local function test_where_names_a_frame_by_source_and_line()
   assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
   -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
   -- first Lua frame above it is this one, at the line of the call.
-  local viewed = { value = nil as string | nil }
+  local viewed = { value = nil as string? }
   local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
   local viewed_value = viewed.value
   assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. line)

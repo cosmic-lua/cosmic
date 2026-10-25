@@ -59,7 +59,7 @@ local record policy_rules
   --- What the field `name` of a `policy` declaration takes: a list of string literals ("list"), a table of names to
   --- string literals ("map"), `true` or `false` ("flag"), a list of tables of string literals ("grants"), a table of
   --- integers ("limits"), an integer ("id") or a string ("string"); nil for a name that is no field.
-  kind_of: function(name: string): string | nil
+  kind_of: function(name: string): string?
 
   --- The names of the fields of a `policy` declaration, sorted and joined by ", ".
   field_list: function(): string
@@ -71,7 +71,7 @@ local record policy_rules
 
   --- The declaration the policy `data` stands for ([`Test.needs_of`] of cosmic.test, whose refusals these are): nil and
   --- why where it is none. `line` is the line the policy starts on.
-  declared: function(data: PolicyData, line: integer): Declared | nil, string
+  declared: function(data: PolicyData, line: integer): Declared?, string
 end
 
 --- The rule a policy's `loopback` is held to, as a refusal names it.
@@ -141,7 +141,7 @@ function policy_rules.entry_trouble(field: string, value: string): string
   else
     trouble = path_trouble(value, field == "host")
   end
-  if trouble ~= "" then return (field == "env" and "env" or "grants") .. ": " .. trouble end
+  if trouble ~= "" then return (if field == "env" then "env" else "grants" end) .. ": " .. trouble end
   return ""
 end
 
@@ -152,13 +152,13 @@ local fields <const>: {string: string} = {
   database = "string", requires = "list",
 }
 
-local field_names: {string} = {}
+local field_names: mut {string} = {}
 for name in pairs(fields) do
   field_names[#field_names + 1] = name
 end
 table.sort(field_names)
 
-function policy_rules.kind_of(name: string): string | nil
+function policy_rules.kind_of(name: string): string?
   return fields[name]
 end
 
@@ -183,8 +183,8 @@ end
 
 --- The declaration the policy `data` stands for ([`Test.needs_of`] of
 --- cosmic.test, whose refusals these are): nil and why where it is none.
-function policy_rules.declared(data: policy_rules.PolicyData, line: integer): policy_rules.Declared | nil, string
-  local parents: {string} = {}
+function policy_rules.declared(data: policy_rules.PolicyData, line: integer): policy_rules.Declared?, string
+  local parents: mut {string} = {}
   local out: policy_rules.Declared = {
     line = line, reads = {}, host = {}, env = {}, network = {},
     tool = false, lua = false, nests = false, noexec = false, store = false,
@@ -238,7 +238,7 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
           "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
       end
       if cache_names.names[named] == nil then
-        local known: {string} = {}
+        local known: mut {string} = {}
         for name in pairs(cache_names.names) do known[#known + 1] = name end
         table.sort(known)
         return nil, at .. ".path /cache/" .. named .. ": no cache " .. named ..
@@ -290,7 +290,7 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
     return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
   end
   if data.user ~= nil or data.group ~= nil then
-    return nil, (data.user ~= nil and "user" or "group") .. " is refused: the harness " ..
+    return nil, (if data.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
   for _, name in ipairs(data.env or {}) do
@@ -305,8 +305,8 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
   if proc then out.host[#out.host + 1] = "/proc" end
   out.tool, out.lua = cosmic and bin, cosmic and not bin
   if out.lua then
-    local beside = out.store and "o/cosmic.db" or out.system and "system" or
-      #out.caches > 0 and "/cache/" .. out.caches[1] or nil
+    local beside = if out.store then "o/cosmic.db" elseif out.system then "system" elseif
+      #out.caches > 0 then "/cache/" .. out.caches[1] else nil end
     if beside ~= nil then
       return nil, "profiles: \"cosmic\" without the grant of o/bin holds the program to " ..
         "what the module requires, which is refused beside " .. beside ..

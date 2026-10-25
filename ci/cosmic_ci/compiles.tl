@@ -40,7 +40,7 @@ function Compiles.command(argv: {string}, env: {string:string}): CacheTrim.Comma
     return { code = 2, out = "", err = "compiles-trim: RESTORED must be an absolute path without NUL\n" }
   end
   local path = env["COSMIC_BUILD_CACHE"] or ""
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   if path:sub(1, 1) == "/" then
     if path:find("\0", 1, true) then
       return { code = 2, out = "", err = "compiles-trim: cache path contains NUL\n" }

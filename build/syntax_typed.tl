@@ -98,11 +98,11 @@ local record Typed
 
   --- The rows of `row` as lists of text, for a memo, and the row they spell (nil where they spell none).
   encode: function(row: Row): {{string}}
-  decode: function(rows: {{string}}): Row | nil
+  decode: function(rows: {{string}}): Row?
 
   --- What the working database `db` holds of the tree: the rows of `typed_refs`, and the kind and the refusal of each compile
   --- of the plan, by file; nil and why where it cannot be read.
-  from_database: function(db: Sqlite.Handle): Fork | nil, string
+  from_database: function(db: Sqlite.Handle): Fork?, string
 
   --- The dimensions of `file` where the port's `row` and the fork's rows differ. `moved` says the translation moved lines.
   compare: function(file: string, row: Row, fork: ForkFile, moved: function(): boolean): Outcome
@@ -140,11 +140,11 @@ function Typed.stub_verdict(made: Stub.Made, built: Driver.Build, source: Driver
     return "its stub is not a module"
   end
   -- The stub may not add a refusal to the source's: a code it is refused for more often than the source is.
-  local had: {string: integer} = {}
+  local had: mut {string: integer} = {}
   for _, e in ipairs(source.errors) do
     had[e.code] = (had[e.code] or 0) + 1
   end
-  local has: {string: integer} = {}
+  local has: mut {string: integer} = {}
   for _, e in ipairs(result.errors) do
     has[e.code] = (has[e.code] or 0) + 1
     -- A body the stub leaves out is a function that returns nothing, and code after the `error()` that stands for a body
@@ -168,7 +168,7 @@ function Typed.judged(row: Typed.Row, why: string): Typed.Row
 end
 
 function Typed.encode(row: Typed.Row): {{string}}
-  local out: {{string}} = { { "A", row.applies and "1" or "0" } }
+  local out: mut {{string}} = { { "A", if row.applies then "1" else "0" end } }
   for _, r in ipairs(row.refs) do
     local tag = "R"
     if r.top == true then
@@ -192,18 +192,18 @@ function Typed.encode(row: Typed.Row): {{string}}
   for _, at in ipairs(row.known) do
     out[#out + 1] = { "K", at }
   end
-  out[#out + 1] = { "H", row.judged and "1" or "0", row.stub }
+  out[#out + 1] = { "H", if row.judged then "1" else "0" end, row.stub }
   return out
 end
 
-function Typed.decode(rows: {{string}}): Typed.Row | nil
+function Typed.decode(rows: {{string}}): Typed.Row?
   local applies, judged, stub = false, false, ""
-  local refs: {Receivers.Reference} = {}
-  local problems: {string} = {}
-  local used: {string} = {}
-  local sites: {string: integer} = {}
-  local error_lines: {integer} = {}
-  local known: {string} = {}
+  local refs: mut {Receivers.Reference} = {}
+  local problems: mut {string} = {}
+  local used: mut {string} = {}
+  local sites: mut {string: integer} = {}
+  local error_lines: mut {integer} = {}
+  local known: mut {string} = {}
   local untyped = 0
   local seen = false
   for _, fields in ipairs(rows) do
@@ -213,7 +213,7 @@ function Typed.decode(rows: {{string}}): Typed.Row | nil
       applies = fields[2] == "1"
       seen = true
     elseif (tag == "R" or tag == "Q") and #fields == 4 and n ~= nil then
-      local beyond: boolean | nil = nil
+      local beyond: boolean? = nil
       if tag == "Q" then
         beyond = true
       end
@@ -246,7 +246,7 @@ function Typed.decode(rows: {{string}}): Typed.Row | nil
   }
 end
 
-function Typed.from_database(db: Sqlite.Handle): Typed.Fork | nil, string
+function Typed.from_database(db: Sqlite.Handle): Typed.Fork?, string
   local fork: Typed.Fork = { files = {} }
   local plan, trouble = Sqlite.text_rows(db,
     "SELECT i.file, i.kind, COALESCE((SELECT c.seen FROM compiled c WHERE c.key = p.key), 0) " ..
@@ -311,11 +311,11 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   --   - a use the fork sees at a position where the port finds the same name read through a value of another, known type: the
   --     fork keys the type of a value by the position it starts at, so a call's or a list's type can stand for the value;
   --   - a use only the port finds, on a line where the fork lost the same name to another record: the other half of that.
-  local blind: {integer: boolean} = {}
+  local blind: mut {integer: boolean} = {}
   for _, line in ipairs(row.error_lines) do
     blind[line] = true
   end
-  local known: {string: boolean} = {}
+  local known: mut {string: boolean} = {}
   for _, at in ipairs(row.known) do
     known[at] = true
   end
@@ -331,11 +331,11 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   local lined = true
   local function order(a: Receivers.Reference, b: Receivers.Reference): integer
     if lined and a.line ~= b.line then
-      return a.line < b.line and -1 or 1
+      return if a.line < b.line then -1 else 1 end
     elseif a.module ~= b.module then
-      return a.module < b.module and -1 or 1
+      return if a.module < b.module then -1 else 1 end
     elseif a.member ~= b.member then
-      return a.member < b.member and -1 or 1
+      return if a.member < b.member then -1 else 1 end
     end
     return 0
   end
@@ -344,13 +344,13 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   end
   --- The uses on one side alone.
   local record Alone
-    fork: {Receivers.Reference}
-    port: {Receivers.Reference}
+    fork: mut {Receivers.Reference}
+    port: mut {Receivers.Reference}
   end
   local function merged(): Alone
     local alone: Alone = { fork = {}, port = {} }
-    local theirs: {Receivers.Reference} = {}
-    local ours: {Receivers.Reference} = {}
+    local theirs: mut {Receivers.Reference} = {}
+    local ours: mut {Receivers.Reference} = {}
     for _, r in ipairs(fork.refs) do
       theirs[#theirs + 1] = r
     end
@@ -400,7 +400,7 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   local function seen_at(r: Receivers.Reference): boolean
     return (lined and known[r.line .. " " .. last_name(r)] == true) or (not lined and #row.known > 0)
   end
-  local lost: {Receivers.Reference} = {}
+  local lost: mut {Receivers.Reference} = {}
   for _, r in ipairs(alone.fork) do
     if (lined and blind[r.line] == true) or (not lined and #row.error_lines > 0) then
       counted("typed refs lost to an invalid value", 1)
@@ -412,7 +412,7 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
     end
   end
   -- A use the port finds is the other half of one the fork keyed by position when the fork lost the same name on its line.
-  local taken: {string: integer} = {}
+  local taken: mut {string: integer} = {}
   local function place(r: Receivers.Reference): string
     if lined then
       return tostring(r.line) .. " " .. last_name(r)
@@ -443,15 +443,15 @@ function Typed.compare(file: string, row: Typed.Row, fork: Typed.ForkFile, moved
   local breached = row.applies and #row.problems > 0
   local unheld = row.judged and row.stub ~= ""
   if fork.refused and not breached and not unheld then
-    differ(holds and "contracts" or "stub", "the fork refuses it and the port finds nothing to refuse")
+    differ(if holds then "contracts" else "stub" end, "the fork refuses it and the port finds nothing to refuse")
   elseif not fork.refused and breached then
     differ("contracts", "the fork holds it and the port finds " .. tostring(#row.problems) .. ": " .. row.problems[1])
   elseif not fork.refused and unheld then
     differ("stub", "the fork holds it and the port finds: " .. row.stub)
   end
   if holds ~= row.applies then
-    differ("contracts", "the fork " .. (holds and "holds" or "does not hold") .. " it to the discipline, the port " ..
-        (row.applies and "does" or "does not"))
+    differ("contracts", "the fork " .. (if holds then "holds" else "does not hold" end) .. " it to the discipline, the port " ..
+        (if row.applies then "does" else "does not" end))
   end
   return out
 end
@@ -459,11 +459,11 @@ end
 function Typed.used(rows: {string: Typed.Row}, fork: Typed.Fork): Typed.Outcome
   local out: Typed.Outcome = { differences = {}, pinnable = 0, counts = {} }
   local own = Rules.own_exemptions()
-  local expected: {string} = {}
+  local expected: mut {string} = {}
   local function need(name: string, table_of: {string: string})
     for key in pairs(table_of) do
       local file = key:match("^([^:]*):")
-      local held: Typed.ForkFile | nil = nil
+      local held: Typed.ForkFile? = nil
       if file ~= nil then
         held = fork.files[file]
       end
@@ -477,7 +477,7 @@ function Typed.used(rows: {string: Typed.Row}, fork: Typed.Fork): Typed.Outcome
   need("casts", own.casts)
   need("modes", own.modes)
   table.sort(expected)
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, row in pairs(rows) do
     for _, used in ipairs(row.used) do
       found[#found + 1] = used

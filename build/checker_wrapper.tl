@@ -14,7 +14,7 @@ function checker_wrapper.wrapped(code: string, declarations: string, modules: {{
   local function quoted(text: string): string
     return (string.format("%q", text):gsub("\\\n", "\\n"))
   end
-  local sources: {string} = {}
+  local sources: mut {string} = {}
   for index, module in ipairs(modules) do
     sources[index] = "[" .. quoted(module[1]) .. "] = {" .. quoted(module[3]) ..
       ", " .. quoted(module[2]) .. "}"

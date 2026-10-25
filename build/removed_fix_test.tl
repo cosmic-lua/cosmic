@@ -30,7 +30,7 @@ end
 
 --- The problems of each of the modules `texts` (`m1`, `m2`, ...), checked in one build so that the library is lowered once.
 local function problems_of_each(texts: {string}, stubs?: {string: string}): {{Driver.Problem}}
-  local files: {{string}} = {}
+  local files: mut {{string}} = {}
   for i, text in ipairs(texts) do
     files[#files + 1] = { "m" .. tostring(i) .. ".tl", text }
   end
@@ -41,7 +41,7 @@ local function problems_of_each(texts: {string}, stubs?: {string: string}): {{Dr
   })
   build:provide(Driver.files(index))
   build:provide(Driver.stubs(stubs or {}))
-  local out: {{Driver.Problem}} = {}
+  local out: mut {{Driver.Problem}} = {}
   for i = 1, #texts do
     out[#out + 1] = assert(build:result("m" .. tostring(i), true)).errors
   end
@@ -69,7 +69,7 @@ end
 
 --- The last problem of `text`.
 local function last(text: string, stubs?: {string: string}): Driver.Problem
-  local found: Driver.Problem | nil = nil
+  local found: Driver.Problem? = nil
   for _, p in ipairs(problems_of(text, stubs)) do
     found = p
   end
@@ -78,7 +78,7 @@ local function last(text: string, stubs?: {string: string}): Driver.Problem
 end
 
 local function sorted(map: {string: string}): {string}
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(map) do
     keys[#keys + 1] = key
   end
@@ -94,9 +94,9 @@ local function instead(key: string): string
 end
 
 local function test_a_removed_global_read_with_a_field_says_what_to_write_for_that_field()
-  local names: {string} = {}
-  local fields: {string} = {}
-  local texts: {string} = {}
+  local names: mut {string} = {}
+  local fields: mut {string} = {}
+  local texts: mut {string} = {}
   for _, dotted in ipairs(sorted(Removed.replacements)) do
     local name, field = dotted:match("^(%a+)%.(%a+)$")
     if name ~= nil and field ~= nil and name ~= "package" then
@@ -169,8 +169,8 @@ local STUB <const> = "local record Module\n  alive: integer\nend\nreturn Module\
 
 local function test_a_member_a_module_no_longer_has_says_what_to_write_instead()
   local keys: {string} = sorted(Removed.members)
-  local stubs: {string: string} = {}
-  local texts: {string} = {}
+  local stubs: mut {string: string} = {}
+  local texts: mut {string} = {}
   for _, key in ipairs(keys) do
     local module, member = split(key)
     stubs[module] = STUB

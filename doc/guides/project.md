@@ -106,7 +106,7 @@ with `attempt to call a nil value (method 'add')`.
 
 local Fs = require("cosmic.fs")
 
-local record Counts
+local class Counts
   --- One word and how many times it appeared.
   record Entry
     word: string
@@ -114,7 +114,27 @@ local record Counts
   end
 
   --- Each word seen, and how many times.
-  seen: {string:integer}
+  seen: mut {string:integer}
+
+  --- Counts each word of `text`, split on whitespace.
+  function add(self, text: string)
+    for word in text:gmatch("%S+") do
+      self.seen[word] = (self.seen[word] or 0) + 1
+    end
+  end
+
+  --- Every word seen, the most frequent first, then in byte order.
+  function top(self): {Counts.Entry}
+    local out: mut {Counts.Entry} = {}
+    for word, times in pairs(self.seen) do
+      out[#out + 1] = { word = word, times = times }
+    end
+    table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
+      if a.times ~= b.times then return a.times > b.times end
+      return a.word < b.word
+    end)
+    return out
+  end
 end
 
 -- A value's methods: those of the Counts table.
@@ -127,36 +147,16 @@ end
 
 --- Counts the words in the file at `path`, or nil and why it could not be
 --- read. A constructor that can fail returns `Counts | nil, string`.
-function Counts.open(path: string): Counts | nil, string
+function Counts.open(path: string): Counts?, string
   local text, why = Fs.read(path)
   if text == nil then
     return nil, why
   end
-  local seen: {string:integer} = {}
+  local seen: mut {string:integer} = {}
   for word in text:gmatch("%S+") do
     seen[word] = (seen[word] or 0) + 1
   end
   return setmetatable({ seen = seen }, counts_mt), ""
-end
-
---- Counts each word of `text`, split on whitespace.
-function Counts:add(text: string)
-  for word in text:gmatch("%S+") do
-    self.seen[word] = (self.seen[word] or 0) + 1
-  end
-end
-
---- Every word seen, the most frequent first, then in byte order.
-function Counts:top(): {Counts.Entry}
-  local out: {Counts.Entry} = {}
-  for word, times in pairs(self.seen) do
-    out[#out + 1] = { word = word, times = times }
-  end
-  table.sort(out, function(a: Counts.Entry, b: Counts.Entry): boolean
-    if a.times ~= b.times then return a.times > b.times end
-    return a.word < b.word
-  end)
-  return out
 end
 
 return Counts
@@ -210,7 +210,7 @@ local log = Log.new("tally")
 
 --- The file a command names, or standard input; nil once it has said
 --- why it could not read it.
-local function input(got: Flags.Parsed): string | nil
+local function input(got: Flags.Parsed): string?
   local text, trouble = Fs.read(got.words[1] or "/dev/stdin")
   if text == nil then
     log:complain(trouble)

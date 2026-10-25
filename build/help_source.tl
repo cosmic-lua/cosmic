@@ -11,7 +11,7 @@ end
 
 --- What makes the texts `cosmic help` prints, set by [`provide`].
 local record Provided
-  source: function(): {string: string} | nil
+  mut source: function(): {string: string}?
 end
 
 local provided: Provided = {}
@@ -25,7 +25,7 @@ end
 --- `exit`, and each verb's own; the input `references` reads help from.
 --- Nil and why until [`build.dispatch`] has loaded and called
 --- [`provide`].
-function HelpSource.texts(): {string: string} | nil, string
+function HelpSource.texts(): {string: string}?, string
   local source = provided.source
   if source == nil then
     return nil, "build.dispatch has not provided the texts of `cosmic help`"

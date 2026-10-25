@@ -47,7 +47,7 @@ local gen_any <const> = programs.any
 -- The compiler is the tree's own checker, keyed by the core; [`Fuzz.run`] reads the corpus.
 Test.policy{}
 
-local built = { value = nil as compiler | nil }
+local built = { value = nil as compiler? }
 
 local function compiler_of(): compiler
   if built.value == nil then
@@ -59,7 +59,7 @@ end
 --- `source` checked as a program in a fresh environment, so that one
 --- program's declarations never reach the next. Raises what the checker
 --- raises.
-local function check(source: string): string | nil, compiler.Result
+local function check(source: string): string?, compiler.Result
   local c = compiler_of()
   local env = assert(c.new_env({ defaults = teal.defaults() }))
   return c.gen(source, env, nil, "tl")
@@ -75,7 +75,7 @@ local function count_lines(text: string): integer
 end
 
 --- Why an error is not one a reader could act on, or nil.
-local function malformed(e: compiler.Error, lines: integer): string | nil
+local function malformed(e: compiler.Error, lines: integer): string?
   local code = e.code
   if code == nil then return "no code: " .. e.msg end
   if e.msg == nil or e.msg == "" then return "no message for code " .. code end
@@ -180,7 +180,7 @@ local function runs_safely(source: string): boolean, string
   end
   Fuzz.label("accepted")
   if source:find("assert%(") then Fuzz.label("accepted with assert") end
-  local env: {string:any} = { assert = assert, ipairs = ipairs, tostring = tostring, type = type,
+  local env: mut {string:any} = { assert = assert, ipairs = ipairs, tostring = tostring, type = type,
     setmetatable = setmetatable }
   -- A program reaches its globals through `_G` as well.
   env["_G"] = env
@@ -204,8 +204,8 @@ local function runs_safely(source: string): boolean, string
     Fuzz.label("stopped by assert")
     return true, ""
   end
-  local what = message:find(NIL_FAULT, 1, true) and "accepted a program that fails at run time: " or
-    "an accepted program raised: "
+  local what = if message:find(NIL_FAULT, 1, true) then "accepted a program that fails at run time: " else
+    "an accepted program raised: " end
   return false, about(what .. message, source)
 end
 

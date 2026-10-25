@@ -18,7 +18,7 @@ local function check(root: string): string
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
   assert(not result.ok, result.stdout)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in String.lines(assert(result.stdout)) do
     if line:find(": link: ", 1, true) ~= nil then out[#out + 1] = line end
   end

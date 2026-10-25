@@ -29,12 +29,12 @@ local record laid
   --- The salt of the code that makes an answer: `version`, the core's identity, the compiler's bytecode and the bytecode
   --- of the modules `roots` name and everything they load, and of `alone`, the modules named without what they load. Nil
   --- where any of it cannot be named.
-  code_salt: function(version: string, roots: {string}, alone: {string}): string | nil
+  code_salt: function(version: string, roots: {string}, alone: {string}): string?
   --- The salt of the code that lays out a file, or nil where some of it cannot be named.
-  salt: function(): string | nil
+  salt: function(): string?
   --- Begins a run over the memo in `db`, nil where it cannot or where the code cannot be named. A test gives the `salt`
   --- it keys by.
-  begin: function(db: Sqlite.Handle, salt?: string): laid.Kept | nil
+  begin: function(db: Sqlite.Handle, salt?: string): laid.Kept?
   --- Whether `kept` holds that the text `source` of the file `name` is laid out as it stands.
   holds: function(kept: laid.Kept, name: string, source: string): boolean
   --- Keeps that `source` of `name` is laid out as it stands.
@@ -47,8 +47,8 @@ laid.modules = { "build.ast", "build.fix.rule", "build.fix.render", "build.fix.e
 
 local KIND <const> = "laid"
 
-function laid.code_salt(version: string, roots: {string}, alone: {string}): string | nil
-  local parts: {string} = { version }
+function laid.code_salt(version: string, roots: {string}, alone: {string}): string?
+  local parts: mut {string} = { version }
   -- The core's own digest: what the modules do runs on it. (The boot hash moves with every module of the tool, which the
   -- bytecode of the modules that make the answer names more narrowly.)
   local identity = Store.meta("host_image")
@@ -61,7 +61,7 @@ function laid.code_salt(version: string, roots: {string}, alone: {string}): stri
     return nil
   end
   parts[#parts + 1] = Hash.hex_sha256(compiler)
-  local every: {string} = {}
+  local every: mut {string} = {}
   local listed, _ = pcall(function(): string
     for _, name in ipairs(Store.closure(roots)) do
       every[#every + 1] = name
@@ -84,11 +84,11 @@ function laid.code_salt(version: string, roots: {string}, alone: {string}): stri
   return Hash.hex_sha256(table.concat(parts, "\0"))
 end
 
-function laid.salt(): string | nil
+function laid.salt(): string?
   -- What [`fix.source`] calls: the compiler's parse, the rules, the renderer and the equivalence of what it rendered; and
   -- [`build.fix`], which holds `source` itself.
-  local roots: {string} = {}
-  local alone: {string} = {}
+  local roots: mut {string} = {}
+  local alone: mut {string} = {}
   for _, name in ipairs(laid.modules) do
     if name == "build.fix" then
       alone[#alone + 1] = name
@@ -99,7 +99,7 @@ function laid.salt(): string | nil
   return laid.code_salt("laid 2", roots, alone)
 end
 
-function laid.begin(db: Sqlite.Handle, salt?: string): laid.Kept | nil
+function laid.begin(db: Sqlite.Handle, salt?: string): laid.Kept?
   local keyed = salt or laid.salt()
   if keyed == nil then
     return nil

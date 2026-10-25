@@ -50,7 +50,7 @@ end
 
 --- A whole number of `name` in `env`, `default` where it names none, nil
 --- and why where it is no whole number.
-local function whole(env: {string:string}, name: string, default: integer): integer | nil, string
+local function whole(env: {string:string}, name: string, default: integer): integer?, string
   local text = env[name]
   if text == nil or text == "" then return default, "" end
   local value = math.tointeger(tonumber(text))
@@ -66,9 +66,9 @@ function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
   local git, _ = Proc.find("git", env["PATH"] or "")
   return function(argv: {string}, seconds: integer): ChangedPaths.Ran
     if git == nil then return { ok = false, output = "" } end
-    local words: {string} = { git }
+    local words: mut {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
-    local timeout_ns: integer | nil = nil
+    local timeout_ns: integer? = nil
     if seconds > 0 then timeout_ns = Time.seconds(seconds) end
     local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "capture",
       timeout_ns = timeout_ns })
@@ -90,7 +90,7 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     return 0
   end
   local limit, why = whole(env, "LIMIT", 400)
-  local wait: integer | nil
+  local wait: integer?
   if limit ~= nil then wait, why = whole(env, "FETCH_SECONDS", 60) end
   if limit == nil or wait == nil then
     local _, _ = Fs.put(Fs.stderr, "changed-paths: " .. why .. "\n")

@@ -10,11 +10,11 @@ Test.policy{ grants = { { path = "eval/check/testdata/", letters = "r" } } }
 
 --- The text of every hidden API test, by file name, comment lines left out.
 local function sources(): {string:string}
-  local found: {string:string} = {}
+  local found: mut {string:string} = {}
   for _, entry in ipairs((assert(Fs.list("eval/check/testdata")))) do
     if entry:match("_api_test%.tl$") then
       local text = assert(Fs.read("eval/check/testdata/" .. entry))
-      local lines: {string} = {}
+      local lines: mut {string} = {}
       for line in (text .. "\n"):gmatch("([^\n]*)\n") do
         if not String.trim(line):match("^%-%-") then lines[#lines + 1] = line end
       end

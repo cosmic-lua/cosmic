@@ -33,7 +33,7 @@ end
 --- The generator's result for `text`, which is in the new grammar. `truthy` is what it takes as neither false nor nil.
 local function generated(text: string, truthy?: function(e: Ast.Exp): boolean): Codegen.Generated
   local parsed = Parser.parse(Lexer.lex(text, "t.tl"), "t.tl", "tl")
-  assert(#parsed.errors == 0, parsed.errors[1] ~= nil and parsed.errors[1].msg .. "\n" .. text or "")
+  assert(#parsed.errors == 0, if parsed.errors[1] ~= nil then parsed.errors[1].msg .. "\n" .. text else "" end)
   return Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), truthy)
 end
 
@@ -41,7 +41,7 @@ end
 local function same(...: string)
   local source = table.concat({ ... }, "\n") .. "\n"
   local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg .. "\n" .. made.text or "")
+  assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg .. "\n" .. made.text else "" end)
   -- The translator writes an `if` expression only where the value is never false, which is what it tells the generator.
   local ours = generated(made.text, Truthy.never_false)
   assert(#ours.errors == 0, ours.errors[1] ~= nil and ours.errors[1].msg or "")
@@ -588,7 +588,7 @@ local function test_a_test_with_its_type_on_another_line_is_still_lua()
   local text = generated(source).text
   assert(text == "local x = 1\nlocal ok = x\n  type(x) == \"string\"\nlocal after = 1\nreturn ok" or
       load(text, "=t", "t") ~= nil, text)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = line
   end
@@ -669,7 +669,7 @@ local function test_a_match_keeps_every_statement_on_its_line()
     "end",
     "local after = 1",
   }, "\n") .. "\n"
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (generated(source).text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = line
   end
@@ -714,7 +714,7 @@ local function classed(source: string): Codegen.Generated
   -- The programs return what they run for the test to read, which a module does not declare.
   local codes = Programs.codes(checked):gsub("export_not_declared", ""):gsub("%s+", "")
   assert(#checked.before == 0 and codes == "", table.concat(checked.before, " ") .. " " .. codes .. " in\n" .. source)
-  local names: {integer: string} = {}
+  local names: mut {integer: string} = {}
   for id, decl in pairs(checked.result.literals) do
     names[id] = decl.name
   end
@@ -946,7 +946,7 @@ end
 --- The generator's Lua and the fork's for the Teal `source`, each apart from the classes of its translation.
 local function apart_from_classes(source: string): string, string, Translate.Result
   local made = Translate.translate(source, "t.tl")
-  assert(#made.errors == 0, made.errors[1] ~= nil and made.errors[1].msg .. "\n" .. made.text or "")
+  assert(#made.errors == 0, if made.errors[1] ~= nil then made.errors[1].msg .. "\n" .. made.text else "" end)
   local parsed = Parser.parse(Lexer.lex(made.text, "t.tl"), "t.tl", "tl")
   assert(#parsed.errors == 0)
   local ours = Codegen.generate(parsed.chunk, Scopes.build(parsed.chunk, "t.tl", {}), Truthy.never_false)
@@ -1304,11 +1304,11 @@ local function test_a_name_of_another_module_is_tested_for_what_the_checker_reso
   local parsed = Parser.parse(Lexer.lex(text, "t.tl"), "t.tl", "tl")
   local scoped = Scopes.build(parsed.chunk, "t.tl", {})
   local words: {string: string} = { Name = "string", Count = "integer", Flag = "true" }
-  local kinds: {integer: string} = {}
+  local kinds: mut {integer: string} = {}
   -- Every node, the walk's own list growing as it goes.
   local nodes: {Ast.Node} = { parsed.chunk.body }
   for _, node in ipairs(nodes) do
-    if node is Ast.TypeName then
+    if (node.kind == "TypeName") then
       local member = node.path[2]
       if member ~= nil then
         local word = words[member]

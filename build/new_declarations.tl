@@ -149,8 +149,8 @@ function NewDeclarations.apply(file: string, text: string, strict?: boolean): st
           " that build/new_declarations.tl edits: change the table with the file", 0)
     end
   end
-  local out: {string} = {}
-  local replaced: {string: boolean} = {}
+  local out: mut {string} = {}
+  local replaced: mut {string: boolean} = {}
   for held in (text .. "\n"):gmatch("([^\n]*)\n") do
     local line = held
     for _, edit in ipairs(edits) do
@@ -166,7 +166,7 @@ function NewDeclarations.apply(file: string, text: string, strict?: boolean): st
 end
 
 function NewDeclarations.missing(file: string, text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, edit in ipairs(NewDeclarations.files[file] or {}) do
     if times(text, edit.was) ~= 1 then
       out[#out + 1] = edit.was

@@ -17,7 +17,7 @@ end
 --- Holds the checker to reporting `msg` for `source`, and
 --- [`teal.replacement`] to answering it `want`.
 local function answers(source: string, msg: string, want: string)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, e in ipairs(type_errors(source)) do
     if e.msg == msg then
       local got = teal.replacement(e, source)
@@ -32,7 +32,7 @@ end
 
 --- The first error of kind `code` for `source`.
 local function diagnostic(source: string, code: compiler.ErrorCode): compiler.Error
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, e in ipairs(type_errors(source)) do
     local e_code = e.code
     if e_code == code then
@@ -46,7 +46,7 @@ end
 --- The first error for `source` that carries the note that a test of a field
 --- or a global narrowed nothing.
 local function noted(source: string): compiler.Error
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, e in ipairs(type_errors(source)) do
     if e.also == "narrowing_not_local" then
       return e
@@ -57,7 +57,7 @@ local function noted(source: string): compiler.Error
 end
 
 --- Whether `found` holds the strings `want`, in order.
-local function listed(found: {string} | nil, ...: string): boolean
+local function listed(found: {string}?, ...: string): boolean
   local want = { ... }
   if found == nil or #found ~= #want then
     return false

@@ -2,7 +2,7 @@ local Csv = require("cosmic.csv")
 
 --- Records as text, to compare: fields joined by `|`, records by `;`.
 local function show(records: {{string}}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, record in ipairs(records) do
     out[index] = table.concat(record, "|")
   end
@@ -10,7 +10,7 @@ local function show(records: {{string}}): string
 end
 
 --- The rows [`Csv.table`] reads, or nil and why.
-local function rows_of(text: string, opts?: Csv.Options): {{string:string}} | nil, string
+local function rows_of(text: string, opts?: Csv.Options): {{string:string}}?, string
   local made, why = Csv.table(text, opts)
   if made == nil then
     return nil, why
@@ -141,7 +141,7 @@ end
 local function lines_of(text: string, opts?: Csv.Options): string
   local made = assert(Csv.table(text, opts))
   assert(#made.lines == #made.rows, #made.lines .. " lines for " .. #made.rows .. " rows")
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, line in ipairs(made.lines) do
     out[index] = tostring(line)
   end
@@ -171,7 +171,7 @@ end
 local function records_text(text: string, opts?: Csv.Options): string
   local rows, why = Csv.records(text, opts)
   assert(rows ~= nil, why)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, row in ipairs(rows) do
     out[index] = row.line .. ":" .. table.concat(row.fields, "|")
   end
@@ -221,7 +221,7 @@ local function test_headers_are_renamed_deterministically()
 end
 
 local function test_a_large_file_reads_in_full()
-  local lines: {string} = { "id,name,note" }
+  local lines: mut {string} = { "id,name,note" }
   for index = 1, 60000 do
     lines[#lines + 1] = index .. ',name ' .. index .. ',"note, ""' .. index .. '"" \nmore"'
   end

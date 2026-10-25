@@ -64,9 +64,9 @@ local record sql
     --- What the summary and a complaint call it.
     name: string
     --- The database file; nil for the binary's own database.
-    path: string | nil
+    path: string?
     --- Said after "no such database" when the file is missing.
-    hint: string | nil
+    hint: string?
   end
 
   --- Where `run` writes: a row line, a complaint, and the summary.
@@ -84,7 +84,7 @@ local record sql
   --- One `--from`: a data file to load as a table.
   record Input
     --- The file; nil for standard input.
-    path: string | nil
+    path: string?
     --- What a complaint calls it: the path, or "standard input".
     label: string
     --- The table's name.
@@ -117,8 +117,8 @@ local spec = Cli.verbs.sql.spec or {}
 --- own otherwise, each named by its path. Nil
 --- and why when the line gives more than one of them, or one of them
 --- twice, or `--db` names the empty path.
-function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, string
-  local named: {string} = {}
+function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
+  local named: mut {string} = {}
   for _, option in ipairs(parsed.given) do
     if option == "--db" or option == "--build" or option == "--store" then
       named[#named + 1] = option
@@ -168,7 +168,7 @@ end
 --- Nil and why when the file is missing, is not a regular file (after
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
-function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, string
+function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   local named = source.path
   if named == nil then
     local all = Store.databases()
@@ -208,7 +208,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened | nil, s
   -- accepts. Only holding its lock would prevent that, and avoiding that
   -- lock is what an immutable open is for.
   local wal = path .. "-wal"
-  local function has_frames(): boolean | nil, string
+  local function has_frames(): boolean?, string
     local there, exists_trouble = Fs.exists(wal)
     if there == nil then
       return nil, exists_trouble
@@ -304,22 +304,22 @@ end
 --- How a statement's rows are written: its column names' line, if any,
 --- and a row's line, or nil and why when the row has no line in it.
 local record Writer
-  header: function(names: {string}): string | nil
-  row: function(statement: Sqlite.Statement, width: integer): string | nil, string
+  header: function(names: {string}): string?
+  row: function(statement: Sqlite.Statement, width: integer): string?, string
 end
 
 --- The default: a tab-separated line of names, then of each row's cells
 --- as [`cell_text`] writes them.
 local row_lines: Writer = {
-  header = function(names: {string}): string | nil
-    local cells: {string} = {}
+  header = function(names: {string}): string?
+    local cells: mut {string} = {}
     for index, name in ipairs(names) do
       cells[index] = escape(name)
     end
     return table.concat(cells, "\t")
   end,
-  row = function(statement: Sqlite.Statement, width: integer): string | nil, string
-    local cells: {string} = {}
+  row = function(statement: Sqlite.Statement, width: integer): string?, string
+    local cells: mut {string} = {}
     for index = 0, width - 1 do
       cells[index + 1] = cell_text(statement, index)
     end
@@ -340,15 +340,15 @@ end
 --- row: NULL an empty field, '' a quoted empty one, a number as a row
 --- line writes it, and text and a blob's bytes as they are.
 local csv_writer: Writer = {
-  header = function(names: {string}): string | nil
-    local fields: {string} = {}
+  header = function(names: {string}): string?
+    local fields: mut {string} = {}
     for index, name in ipairs(names) do
       fields[index] = csv_field(name)
     end
     return table.concat(fields, ",")
   end,
-  row = function(statement: Sqlite.Statement, width: integer): string | nil, string
-    local fields: {string} = {}
+  row = function(statement: Sqlite.Statement, width: integer): string?, string
+    local fields: mut {string} = {}
     for index = 0, width - 1 do
       local kind = statement:kind(index)
       if kind == "null" then
@@ -366,8 +366,8 @@ local csv_writer: Writer = {
 --- Names made unique as JSON keys, which tell case apart: a name an
 --- earlier one already is gets `_2` after it, then `_3` and on.
 local function unique(names: {string}): {string}
-  local taken: {string:boolean} = {}
-  local out: {string} = {}
+  local taken: mut {string:boolean} = {}
+  local out: mut {string} = {}
   for index, name in ipairs(names) do
     local candidate, number = name, 1
     while taken[candidate] do
@@ -390,7 +390,7 @@ local function ndjson_writer(): Writer
   local keys: {string} = {}
   local names_seen = { unnamable = "", whole = false }
   return {
-    header = function(names: {string}): string | nil
+    header = function(names: {string}): string?
       names_seen.whole = #names == 1 and names[1] == "_json"
       for index, name in ipairs(unique(names)) do
         local encoded, _ = Json.encode(name)
@@ -401,7 +401,7 @@ local function ndjson_writer(): Writer
       end
       return nil
     end,
-    row = function(statement: Sqlite.Statement, width: integer): string | nil, string
+    row = function(statement: Sqlite.Statement, width: integer): string?, string
       if names_seen.unnamable ~= "" then
         return nil, names_seen.unnamable
       end
@@ -413,7 +413,7 @@ local function ndjson_writer(): Writer
         end
         return text, ""
       end
-      local members: {string} = {}
+      local members: mut {string} = {}
       for index = 0, width - 1 do
         local kind = statement:kind(index)
         local value: any = Json.null
@@ -455,7 +455,7 @@ local writers: {string: function(): Writer} = {
 --- answers false and why when it could not write the line; the
 --- statement is stepped no further, and that is the failure answered.
 local function stream(db: Sqlite.Handle, statement: string,
-                      emit: function(string): boolean, string, writer?: Writer): integer | nil, string
+                      emit: function(string): boolean, string, writer?: Writer): integer?, string
   local write = writer or row_lines
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
@@ -466,10 +466,10 @@ local function stream(db: Sqlite.Handle, statement: string,
   if wanted > 0 then
     prepared:finalize()
     return nil, "the statement takes " .. wanted ..
-      (wanted == 1 and " parameter" or " parameters") .. "; cosmic sql binds none"
+      (if wanted == 1 then " parameter" else " parameters" end) .. "; cosmic sql binds none"
   end
   local width = prepared:columns()
-  local names: {string} = {}
+  local names: mut {string} = {}
   for index = 0, width - 1 do
     names[index + 1] = prepared:name(index)
   end
@@ -511,7 +511,7 @@ end
 
 --- `stream`'s lines held: the column names' line, if any, then a line
 --- per row; nil and why when it failed.
-function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
+function sql.query(db: Sqlite.Handle, statement: string): {string}?, string
   local lines: {string} = {}
   local rows, trouble = stream(db, statement, function(line: string): boolean, string
     lines[#lines + 1] = line
@@ -576,21 +576,21 @@ end
 --- or `--at` before any `--from`, names an unknown format or a bad
 --- path, two tables the same name (case aside), or a file no format
 --- reads.
-local function read_inputs(parsed: Flags.Parsed): {sql.Input} | nil, string
-  local inputs: {sql.Input} = {}
+local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
+  local inputs: mut {sql.Input} = {}
   local given_as: {integer:boolean} = {}
   local given_at: {integer:boolean} = {}
-  local given_raw: {integer:boolean} = {}
+  local given_raw: mut {integer:boolean} = {}
   local stdin_seen = false
-  local seen: {string:integer} = {}
-  local counts: {string:integer} = {}
+  local seen: mut {string:integer} = {}
+  local counts: mut {string:integer} = {}
   for _, name in ipairs(parsed.given) do
     local index = (counts[name] or 0) + 1
     counts[name] = index
     local value = parsed.all[name] and parsed.all[name][index]
     if name == "--from" then
       local label = value
-      local table_name: string | nil
+      local table_name: string?
       local given_name, rest = value:match("^([%w_]+)=(.*)$")
       if given_name ~= nil then
         if not given_name:match("^[%a_]") then
@@ -685,7 +685,7 @@ local function column_lists(tables: {dataset.Table}): string
   if #tables == 1 then
     return plain(table.concat(tables[1].columns, ", "))
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, each in ipairs(tables) do
     parts[#parts + 1] = plain(each.name .. ": " .. table.concat(each.columns, ", "))
   end
@@ -699,7 +699,7 @@ local function hinted(trouble: string, tables: {dataset.Table}): string
   if trouble:find("^no such column") then
     return trouble .. "; columns: " .. column_lists(tables)
   elseif trouble:find("^no such table") then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, each in ipairs(tables) do
       names[#names + 1] = each.name
     end
@@ -713,10 +713,10 @@ end
 --- SQLite types stored in it (`integer`, `real`, `text`, `null`, joined
 --- by `|`; none for a table without rows), and the first row as JSON,
 --- cut at 200 bytes. Nil and why when SQLite fails.
-local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | nil, string
-  local lines: {string} = {}
+local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, string
+  local lines: mut {string} = {}
   for _, each in ipairs(tables) do
-    lines[#lines + 1] = each.name .. ": " .. each.count .. (each.count == 1 and " row" or " rows")
+    lines[#lines + 1] = each.name .. ": " .. each.count .. (if each.count == 1 then " row" else " rows" end)
     local width = 0
     for _, column in ipairs(each.columns) do
       width = math.max(width, #plain(column))
@@ -728,7 +728,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string} | 
       if rows == nil then
         return nil, trouble
       end
-      local types: {string} = {}
+      local types: mut {string} = {}
       for _, row in ipairs(rows) do
         types[#types + 1] = row:text(1)
       end
@@ -757,7 +757,7 @@ end
 
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("standard input is a terminal; pipe the data in")
 end
 
@@ -769,7 +769,7 @@ end
 local function run_from(parsed: Flags.Parsed, to: sql.Output,
                         summarize: function(detail: string),
                         complain: function(line: string),
-                        stdin: function(): string | nil, string, writer: Writer | nil): integer
+                        stdin: function(): string?, string, writer: Writer?): integer
   local usage = from_usage
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
@@ -788,7 +788,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     return refuse(trouble)
   end
   local inputs: {sql.Input} = found
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   for index, input in ipairs(inputs) do
     labels[index] = input.label
   end
@@ -804,9 +804,9 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     complain(why)
     return 1
   end
-  local tables: {dataset.Table} = {}
+  local tables: mut {dataset.Table} = {}
   for _, input in ipairs(inputs) do
-    local text: string | nil
+    local text: string?
     local read_trouble: string
     local path = input.path
     if path == nil then
@@ -816,7 +816,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     end
     if text == nil then
       -- A file's failure already names the file; standard input's does not.
-      return fail(input.path == nil and input.label .. ": " .. read_trouble or read_trouble)
+      return fail(if input.path == nil then input.label .. ": " .. read_trouble else read_trouble end)
     end
     local loaded, load_trouble = dataset.load_text(db, input.table, input.format, text,
       { at = input.at, raw = input.raw }, input.path)
@@ -844,13 +844,13 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
         return fail(source .. ": " .. write_trouble)
       end
     end
-    counted = #tables .. (#tables == 1 and " table" or " tables")
+    counted = #tables .. (if #tables == 1 then " table" else " tables" end)
   else
     local rows, statement_trouble = stream(db, parsed.words[1], to.out, writer)
     if rows == nil then
       return fail(source .. ": " .. hinted(statement_trouble, tables))
     end
-    counted = rows .. (rows == 1 and " row" or " rows")
+    counted = rows .. (if rows == 1 then " row" else " rows" end)
   end
   local _, _ = db:close()
   summarize(counted .. " from " .. source)
@@ -870,7 +870,7 @@ end
 --- @param stdin the whole of standard input for `--from -`, or nil and
 ---   why; the process's own when nil
 function sql.run(argv: {string}, root?: string, output?: sql.Output,
-                 stdin?: function(): string | nil, string): integer
+                 stdin?: function(): string?, string): integer
   local started = Clock.monotonic_ns()
   local to = output or standard
   local function complain(line: string)
@@ -886,7 +886,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     complain(parse_trouble .. "; " .. usage)
     return 2
   end
-  local writer: Writer | nil = nil
+  local writer: Writer? = nil
   local format = parsed.values["--to"]
   if format ~= nil then
     local times = 0
@@ -943,12 +943,12 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
   end
   local refusal = { unwritable = false }
-  local written: Writer | nil = nil
+  local written: Writer? = nil
   if writer ~= nil then
     local inner = writer
     written = {
       header = inner.header,
-      row = function(statement: Sqlite.Statement, width: integer): string | nil, string
+      row = function(statement: Sqlite.Statement, width: integer): string?, string
         local line, why = inner.row(statement, width)
         if line == nil then
           refusal.unwritable = true
@@ -970,7 +970,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     complain(source.name .. ": " .. trouble)
     return 1
   end
-  summarize(rows .. (rows == 1 and " row" or " rows") .. " from " .. source.name)
+  summarize(rows .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)
   return 0
 end
 

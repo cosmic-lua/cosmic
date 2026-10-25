@@ -30,7 +30,7 @@ end
 --- Checks that the declarations of `source` have exactly the errors `codes`, and that the first says `msg`.
 local function declared_wrong(source: string, codes: string, msg: string)
   local r = Programs.run(source)
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, e in ipairs(r.lowered.errors) do
     got[#got + 1] = e.code
   end
@@ -89,7 +89,7 @@ local function test_the_literals_that_make_a_class_are_the_ones_the_checker_repo
   local r = Programs.run(COUNTER .. "local record Plain\n  n: integer\nend\n" ..
       "local c: Counter = { n = 0 }\nlocal p: Plain = { n = 0 }\nlocal d: Counter = { n = 1 }\n")
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
-  local classes: {string} = {}
+  local classes: mut {string} = {}
   for _, decl in pairs(r.result.literals) do
     classes[#classes + 1] = decl.name
   end
@@ -335,7 +335,7 @@ local function test_a_declaration_used_as_a_value_has_a_type_of_its_own()
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
   local value, instance = Programs.var(r, "value"), Programs.var(r, "c")
   assert(value ~= instance and Types.display(value) == "Counter (declaration)" and Types.display(instance) == "Counter")
-  assert(value is Types.Named and instance is Types.Named and value.value and not instance.value and
+  assert((value.tag == "named") and (instance.tag == "named") and value.value and not instance.value and
       value.decl == instance.decl)
   refused(COUNTER .. "local c: Counter = { n = 0 }\nlocal value = Counter\nvalue = c\n", "declaration_value",
     "is a value of `Counter`, where the declaration `Counter` itself is wanted")

@@ -80,7 +80,7 @@ end
 --- The promises of a worker: `base_promises`, and `nest` where its module
 --- declares `nests`, whose tests build roots of their own.
 local function worker_promises(nests?: boolean): {Sandbox.Promise}
-  local out: {Sandbox.Promise} = {}
+  local out: mut {Sandbox.Promise} = {}
   for _, promise in ipairs(base_promises) do out[#out + 1] = promise end
   if nests then out[#out + 1] = "nest" end
   return out
@@ -94,7 +94,7 @@ local MOST_OPEN_FILES <const> = 1048576
 --- what is the same wherever the tree is and whatever is declared beside it
 --- ([`test_policy.worker`] adds the paths).
 local function shape(effective: test_inputs.Effective): Sandbox.Policy
-  local loopback: {string} = {}
+  local loopback: mut {string} = {}
   for address in pairs(effective.network) do loopback[#loopback + 1] = address end
   table.sort(loopback)
   -- A policy's descriptors default to 1024, soft and hard, where a default
@@ -107,7 +107,7 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
   return {
-    profiles = effective.system and { "system" } or nil,
+    profiles = if effective.system then { "system" } else nil end,
     isolate = { "file" },
     promises = worker_promises(effective.nests),
     loopback = loopback,
@@ -144,13 +144,13 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   local policy = shape(effective)
   local unveil = assert(plan.sandbox.unveil)
   local at = unveil.at or {}
-  local grants: {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(unveil.reads) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
       letters = letters_of(path, inside, plan.runs) }
   end
-  local scratch: string | nil = nil
+  local scratch: string? = nil
   for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }
@@ -178,10 +178,10 @@ end
 --- @param policy the policy of a worker
 --- @return the paths, in the policy's order, nil and why where it does not merge
 --- @return why, where it does not
-function test_policy.runs(policy: Sandbox.Policy): {string} | nil, string
+function test_policy.runs(policy: Sandbox.Policy): {string}?, string
   local merged, why = Sandbox.merge(policy)
   if merged == nil then return nil, why end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, grant in ipairs(merged.grants or {}) do
     if grant.letters:find("x", 1, true) then out[#out + 1] = grant.path end
   end

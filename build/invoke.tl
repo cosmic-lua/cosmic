@@ -45,7 +45,7 @@ local record invoke
     --- it.
     cwd: string
     --- The environment it reads, name to value; this process's when nil.
-    env: {string:string} | nil
+    env: {string:string}?
   end
 
   --- What a run ended with, as a started binary's would be.
@@ -57,7 +57,7 @@ local record invoke
 end
 
 --- Whether the first word runs a file, as [`build.dispatch`] decides it.
-local function runs_a_file(first: string | nil): boolean
+local function runs_a_file(first: string?): boolean
   if first == nil then return false end
   if first == "--standalone" then return true end
   return first:sub(1, 1) ~= "-" and (first:find("/", 1, true) ~= nil or
@@ -66,7 +66,7 @@ end
 
 --- Reads the whole of what a run wrote to `fd`.
 local function drained(fd: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 0
   while true do
     local chunk, _ = sys.pread(fd, 65536, at)
@@ -81,8 +81,8 @@ end
 --- What [`invoke.run`] learns of the command line as it runs: the first
 --- call it was refused, and the status it exited with.
 local record Run
-  refused: string | nil
-  code: integer
+  mut refused: string?
+  mut code: integer
 end
 
 --- Runs `args` -- the words after `cosmic` -- as the binary would, here.
@@ -96,7 +96,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     error("invoke: `" .. tostring(args[1]) .. "` runs a file, which loads its " ..
         "modules into the process: start the binary instead", 2)
   end
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   for i, word in ipairs(args) do argv[i] = word end
 
   local dir = assert(Fs.mkdtemp("cosmic-invoke-"))
@@ -105,7 +105,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     for _, fd in ipairs(held) do local _, _ = sys.close(fd) end
     local _, _ = Fs.remove_tree(dir)
   end
-  local function hold(fd: integer | nil, trouble: string | nil, what: string): integer
+  local function hold(fd: integer?, trouble: string?, what: string): integer
     if fd == nil then
       release()
       error("invoke: " .. what .. ": " .. (trouble or "no reason given"), 3)
@@ -146,9 +146,9 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     local env = opts.env
     if env ~= nil then
       local given_env: {string:string} = env
-      sys.getenv = function(name: string): string | nil return given_env[name] end
+      sys.getenv = function(name: string): string? return given_env[name] end
       sys.environ = function(): {string:string}
-        local copy: {string:string} = {}
+        local copy: mut {string:string} = {}
         for name, value in pairs(given_env) do copy[name] = value end
         return copy
       end
@@ -192,10 +192,10 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local result: invoke.Result = { code = run.code, stdout = drained(out), stderr = drained(err) }
   -- A descriptor that could not be put back is left open: closed, what it
   -- stood for would be gone for good.
-  local keep: {integer:boolean} = {}
+  local keep: mut {integer:boolean} = {}
   if not out_back then keep[saved_out] = true end
   if not err_back then keep[saved_err] = true end
-  local closing: {integer} = {}
+  local closing: mut {integer} = {}
   for _, fd in ipairs(held) do
     if not keep[fd] then closing[#closing + 1] = fd end
   end

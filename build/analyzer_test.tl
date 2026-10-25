@@ -379,7 +379,7 @@ end
 local function docs(source: string): {string: analyzer.DocEntry}, {analyzer.DocEntry}
   local found, err = analyzer.analyze(built, source, "fixture.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local by_symbol: {string: analyzer.DocEntry} = {}
+  local by_symbol: mut {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by_symbol[entry.symbol] = entry
   end
@@ -746,7 +746,7 @@ local function test_documents_a_records_metamethods()
   assert(by_symbol["__index"].signature ==
       "metamethod __index: function(Thing, string): any", by_symbol["__index"].signature)
   assert(by_symbol["__index"].text == "Looks a member up.")
-  local order: {string} = {}
+  local order: mut {string} = {}
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
@@ -895,7 +895,7 @@ local function test_documents_a_record_and_its_fields()
   assert(by_symbol["Kind.file"].signature == "\"file\"")
   assert(by_symbol["read"].kind == "method")
   assert(by_symbol["read"].text == "Reads it.")
-  local order: {string} = {}
+  local order: mut {string} = {}
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
@@ -941,7 +941,7 @@ local function test_finds_the_export_and_the_references()
   local found, err = analyzer.analyze(built, source, "fixture.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   assert(found.export == "Thing", found.export)
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, r in ipairs(found.references) do
     seen[#seen + 1] = r.module .. " " .. r.member .. " " .. r.line
   end
@@ -1047,7 +1047,7 @@ local function test_finds_the_names_the_chunk_binds_to_a_module()
     'local Shadowed = require("cosmic.proc")',
     'return { plain = plain, f = f, Typed = Typed, Shadowed = Shadowed }',
   }), "fixture.tl"))
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, each in ipairs(found.bound) do seen[#seen + 1] = each.name .. "=" .. each.module end
   assert(table.concat(seen, " ") == "Stream=cosmic.stream raw=cosmic.internal.fs",
     table.concat(seen, " "))
@@ -1084,7 +1084,7 @@ local function test_export_alias_points_to_implementation_definition()
     "Public.run = implementation",
     "return Public",
   }), "fixture.tl"))
-  local by_symbol: {string: analyzer.DocEntry} = {}
+  local by_symbol: mut {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do by_symbol[entry.symbol] = entry end
   local public = assert(by_symbol["run"])
   assert(public.source_symbol == "Public.run")
@@ -1106,7 +1106,7 @@ local function test_export_alias_survives_later_local_reassignment()
     "implementation = function(): boolean return false end",
     "return Public",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry | nil = nil
+  local exported: analyzer.DocEntry? = nil
   for _, entry in ipairs(found.docs) do
     if entry.exported and entry.symbol == "run" then exported = entry end
   end
@@ -1128,7 +1128,7 @@ local function test_nested_shadow_does_not_invalidate_export_alias()
     "end",
     "return Public",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry | nil = nil
+  local exported: analyzer.DocEntry? = nil
   for _, entry in ipairs(found.docs) do
     if entry.exported and entry.symbol == "run" then exported = entry end
   end
@@ -1173,8 +1173,8 @@ local function test_table_return_alias_points_to_implementation()
     "end",
     "return { run = implementation }",
   }), "fixture.tl"))
-  local exported: analyzer.DocEntry | nil = nil
-  local private: analyzer.DocEntry | nil = nil
+  local exported: analyzer.DocEntry? = nil
+  local private: analyzer.DocEntry? = nil
   for _, entry in ipairs(found.docs) do
     if entry.symbol == "run" then exported = entry end
     if entry.symbol == "implementation" then private = entry end
@@ -1309,7 +1309,7 @@ end
 
 --- `analyze` on `source`, answering its `policy` declaration and what it
 --- refused, as `analysis_of` does.
-local function declared(source: string): analyzer.Declared | nil, string
+local function declared(source: string): analyzer.Declared?, string
   local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
   if found == nil then return nil, trouble end
   return found.inputs, ""
@@ -1628,7 +1628,7 @@ end
 --- A helper longer than the cap is left out, and so is one that would
 --- take the carried helpers over their total.
 local function test_a_long_helper_is_not_carried()
-  local long: {string} = { "local function long(): integer" }
+  local long: mut {string} = { "local function long(): integer" }
   for at = 1, 15 do long[#long + 1] = "  local v" .. at .. " = " .. at end
   long[#long + 1] = "  return v1"
   long[#long + 1] = "end"
@@ -1735,14 +1735,14 @@ local function test_every_field_of_policy_is_one_the_build_reads()
     env = {}, set_env = {}, set_env_digests = {}, tmp = true, limits = {}, user = 1,
     group = 1, database = "", requires = {},
   }
-  local named: {string} = {}
+  local named: mut {string} = {}
   for name in pairs(every as {string:any}) do named[#named + 1] = name end
   table.sort(named)
   for _, name in ipairs(named) do
     -- Spelled as the field takes it; some are refused for another reason.
     local given = (every as {string:any})[name]
-    local text = given is boolean and "true" or given is integer and "1" or
-      given is string and '""' or "{}"
+    local text = if given is boolean then "true" elseif given is integer then "1" elseif
+      given is string then '""' else "{}" end
     local why = refusal_of("{ " .. name .. " = " .. text .. " }")
     assert(why:find("no field " .. name, 1, true) == nil, name .. ": " .. why)
   end

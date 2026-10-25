@@ -180,9 +180,9 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
   local asked: {string} = {}
   local calls = sys as {string:any}
-  local stood: {string:any} = {}
+  local stood: mut {string:any} = {}
   for _, name in ipairs({ "getenv", "stat", "lstat", "access", "open" }) do
-    local was = calls[name] as function(any...): any...
+    local was = calls[name] as function(...: any): any...
     stood[name] = was
     calls[name] = function(...: any): any...
       local given: any = ...
@@ -283,7 +283,7 @@ local function test_own_tree_scans_github_for_todos()
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, todo in ipairs(listed) do
     seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
   end
@@ -376,7 +376,7 @@ local function test_a_record_s_note_spans_lines_and_upstream_lines_stay_upstream
     "-- and ours",
     "--- end",
   })))
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   for _, each in ipairs(found) do
     seen[#seen + 1] = each.line .. "-" .. each.last .. " " .. each.text
   end
@@ -408,8 +408,8 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
   local listed = assert(todos.list(handle.db, root)).todos
-  local seen: {string} = {}
-  local id_of: {integer:string} = {}
+  local seen: mut {string} = {}
+  local id_of: mut {integer:string} = {}
   for _, todo in ipairs(listed) do
     seen[#seen + 1] = todo.file .. ":" .. todo.line .. ": " .. todo.text
     if todo.file:sub(1, 6) == "patch/" then
@@ -422,7 +422,7 @@ local function test_own_tree_lists_a_patch_record_s_own_todos()
       "patch/curl/01-x.txt:2: drop this once upstream takes it|" ..
       "patch/curl/01-x.txt:9: ours, once ci/cosmic-driver.pin names a release carrying it",
     table.concat(seen, "|"))
-  local hits: {string} = {}
+  local hits: mut {string} = {}
   for id in pairs((assert(todos.search(handle.db, "\"cosmic-driver.pin\"")))) do
     hits[#hits + 1] = id_of[id]
   end
@@ -442,13 +442,13 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local all = assert(todos.list(handle.db, root)).todos
-  local line_of: {integer:string} = {}
+  local line_of: mut {integer:string} = {}
   for _, todo in ipairs(all) do
     line_of[todo.id] = todo.file .. ":" .. todo.line
   end
   local function found(query: string): {string}
     local ranks = assert(todos.search(handle.db, query))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for id, rank in pairs(ranks) do
       out[rank] = line_of[id]
     end
@@ -493,7 +493,7 @@ local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
   -- Which of build/a.tl and core/b.tl the paths hold, then the words.
   local function split(argv: {string}): string
     local split_up = todos.arguments(root, argv)
-    local held: {string} = {}
+    local held: mut {string} = {}
     for _, file in ipairs({ "build/a.tl", "core/b.tl" }) do
       if narrow.holds(split_up.paths, file) then
         held[#held + 1] = file

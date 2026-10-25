@@ -21,7 +21,7 @@ local function told(site: {string}): string
 end
 
 local function told_all(sites: {{string}}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, site in ipairs(sites) do out[#out + 1] = told(site) end
   return out
 end
@@ -146,9 +146,9 @@ end
 
 local function test_the_sites_are_the_ones_each_case_says()
   for _, case in ipairs(CASES) do
-    local expected: {string} = {}
+    local expected: mut {string} = {}
     for _, each in ipairs(case.found) do expected[#expected + 1] = each end
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     for _, site in ipairs(read(case.text)) do
       local line, noun = site:match("^(%d+)|([^|]*)|")
       seen[#seen + 1] = assert(line) .. " " .. assert(noun)

@@ -17,9 +17,9 @@ end
 --- `text`, which holds every token of `from` where `from` has it (a stub
 --- of it, [`stub.made`]); nil where a splice does not follow the same
 --- token in both.
-local function moved(from: string, text: string, splices: {shape_specs.Splice}): {shape_specs.Splice} | nil
+local function moved(from: string, text: string, splices: {shape_specs.Splice}): {shape_specs.Splice}?
   local from_starts, starts = lines.checker_starts(from), lines.checker_starts(text)
-  local out: {shape_specs.Splice} = {}
+  local out: mut {shape_specs.Splice} = {}
   for _, one in ipairs(splices) do
     local line = 1
     while true do
@@ -95,7 +95,7 @@ end
 --- in `env` of `built`, or as it is before there are both. A rewrite
 --- that fails leaves the text as it is: the module's refusal is its own,
 --- not the document's.
-function splice.rewritten(built: compiler | nil, env: compiler.Env | nil, name: string,
+function splice.rewritten(built: compiler?, env: compiler.Env?, name: string,
                           served: source.Served): string
   if built == nil or env == nil then return served.text end
   local ok, resolved, _ = pcall(shape_specs.resolve, built, env, served.file, name, served.text)

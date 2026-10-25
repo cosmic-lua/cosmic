@@ -21,7 +21,7 @@ local function begun(): laid.Kept
 end
 
 local function test_the_modules_are_those_the_layout_calls()
-  local held: {string: boolean} = {}
+  local held: mut {string: boolean} = {}
   for _, name in ipairs(laid.modules) do
     held[name] = true
   end

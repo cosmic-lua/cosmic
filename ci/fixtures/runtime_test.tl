@@ -120,7 +120,7 @@ end
 local function selected_header_line(artifact_bytes: string, host: string):
     string
   local header = artifact_bytes:sub(1, 16384)
-  local line: string | nil = nil
+  local line: string? = nil
   for candidate in header:gmatch("[^\n]+") do
     if String.starts_with(candidate, "  " .. host) then
       assert(line == nil, "duplicate selected manifest header line")
@@ -288,7 +288,7 @@ local function test_runtime_environment_scrubbing(tmp: string)
 
   local cache = work .. "/cache-environment"
   local names = { "COSMIC_PORTABLE_ADJACENT_A", "COSMIC_PORTABLE_ADJACENT_B" }
-  local values: {string:string} = {
+  local values: mut {string:string} = {
     COSMIC_PORTABLE_ADJACENT_A = "a",
     COSMIC_PORTABLE_ADJACENT_B = "b",
   }
@@ -302,7 +302,7 @@ local function test_runtime_environment_scrubbing(tmp: string)
   values[long_name] = "long"
   values["COSMIC_PORTABLE_CACHE"] = cache
 
-  local argv: {string} = { fixture_dir .. "/runtime.old",
+  local argv: mut {string} = { fixture_dir .. "/runtime.old",
     tool .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
@@ -435,7 +435,7 @@ local function test_runtime_corrupt_ranges(tmp: string)
     fixture_dir .. "/runtime.release", work, tostring(offset) }, tool,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
-  local selected_corrupt: string | nil = nil
+  local selected_corrupt: string? = nil
   local nonselected_count = 0
   local index = 0
   for line in Fixture.read(work .. "/corrupt-ranges"):gmatch("[^\n]+") do
@@ -500,7 +500,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   local program = fixture_dir .. "/runtime.release"
   Fixture.run("stamp-cold", { program, "help" }, work, diagnostics, values)
 
-  local key: string | nil = nil
+  local key: string? = nil
   for _, name in ipairs((assert(Fs.list(cache)))) do
     if name:sub(1, 5) == "core-" then key = name end
   end

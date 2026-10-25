@@ -83,7 +83,7 @@ local function test_concat_joins_in_order()
   local parts = { Html.trust("<p>"), Html.escape("a < b"), Html.trust("</p>") }
   assert(Html.raw(Html.concat(parts)) == "<p>a &lt; b</p>")
   assert(Html.raw(Html.concat({})) == "")
-  local many: {Html.SafeHtml} = {}
+  local many: mut {Html.SafeHtml} = {}
   for i = 1, 500 do many[i] = Html.trust(tostring(i) .. ",") end
   assert(Html.raw(Html.concat(many)):sub(1, 8) == "1,2,3,4,")
   assert(#Html.raw(Html.concat(many)) == 1892)
@@ -92,7 +92,7 @@ end
 --- Nothing but `raw` reaches the string: a safe value has no operator.
 --- A table of the values given, as a sequence, with its type forgotten.
 local function table_of(...: any): {any: any}
-  local out: {any: any} = {}
+  local out: mut {any: any} = {}
   for index, value in ipairs({ ... }) do out[index] = value end
   return out
 end
@@ -297,10 +297,10 @@ end
 --- Strings from a fixed generator, spread over every byte, so the
 --- agreement tests need no random source and name the same inputs each run.
 local function sample_strings(count: integer): {string}
-  local strings: {string} = {}
+  local strings: mut {string} = {}
   local state = 12345
   for _ = 1, count do
-    local bytes: {string} = {}
+    local bytes: mut {string} = {}
     for _ = 1, state % 9 do
       state = (state * 1103515245 + 12345) % 2147483648
       bytes[#bytes + 1] = string.char((state >> 8) % 256)
@@ -454,7 +454,7 @@ end
 --- and every ASCII byte but a letter, digit, `-` and `_` is a hex escape
 --- ending in a space, and NUL is U+FFFD.
 local function css_escape(s: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, #s do
     local c = s:sub(i, i)
     local byte = c:byte()
@@ -478,7 +478,7 @@ local function css_unescape(text: string): string
   local plain = text:gsub("&#(%d+);", function(code: string): string
     return string.char(tonumber(code) as integer)
   end)
-  local out: {string} = {}
+  local out: mut {string} = {}
   local i = 1
   while i <= #plain do
     local c = plain:sub(i, i)

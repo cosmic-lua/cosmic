@@ -136,8 +136,8 @@ local function test_a_worker_is_started_as_its_command_line_says()
       tree = {},
     })
     local said = table.concat(given.argv, " ", 10)
-    local wanted = store ~= "" and "--store /stores/a.db suite.a_test --tree" or
-      "suite.a_test --tree"
+    local wanted = if store ~= "" then "--store /stores/a.db suite.a_test --tree" else
+      "suite.a_test --tree" end
     assert(said == wanted, said)
   end
 end
@@ -209,8 +209,8 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
     assert(not judged.passed and judged.skipped == "")
     local judged_report = judged.report
     assert(judged_report ~= nil and judged_report.test_hits["suite.tl"][12])
-    local ending = i == 2 and "was killed by signal 9" or
-      "exited with status " .. (i == 1 and "7" or "0")
+    local ending = if i == 2 then "was killed by signal 9" else
+      "exited with status " .. (if i == 1 then "7" else "0" end) end
     assert(judged.message:find(ending .. " after it reported", 1, true), judged.message)
   end
   report.passed, report.message = false, "assertion failed"

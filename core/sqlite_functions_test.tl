@@ -93,7 +93,7 @@ end
 --- compress.c's length prefix: seven bits a byte, most significant
 --- first, the last byte's top bit set.
 local function length_prefix(n: integer): string
-  local bytes: {integer} = {}
+  local bytes: mut {integer} = {}
   repeat
     table.insert(bytes, 1, n & 0x7f)
     n = n >> 7
@@ -224,7 +224,7 @@ local function test_tables_used_and_bytecode_read_a_statement_without_running_it
   local rows = assert(Sqlite.text_rows(handle,
     "SELECT type, name, wr FROM tables_used('INSERT INTO t SELECT b FROM u WHERE b > 1') " ..
       "ORDER BY name"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, r in ipairs(rows) do got[#got + 1] = table.concat(r:texts(), " ") end
   -- The index covers the query, so SQLite reads it in place of u.
   assert(table.concat(got, ", ") == "table t 1, index ub 0", table.concat(got, ", "))

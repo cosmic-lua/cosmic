@@ -157,7 +157,7 @@ end
 --- valid source.
 --- @param node any A pattern node, possibly a rest-capture marker
 --- @return string|nil The capture name, or nil when `node` is not one
-local function rest_capture_name(node: any): string | nil
+local function rest_capture_name(node: any): string?
   if not (node is {any: any}) then
     return nil
   end
@@ -214,7 +214,7 @@ local match_value: function(pv: any, nv: any, caps: {string: Node},
 --- @param caps {string: Node} Capture bindings accumulated so far
 --- @param seen {any: boolean} Identity-keyed cycle guard
 --- @return boolean
-local function match_list(pa: {any}, na: {any}, caps: {string: Node},
+local function match_list(pa: {any}, na: {any}, caps: mut {string: Node},
                           seen: {any: boolean}): boolean
   if #pa > 0 then
     local last_raw = pa[#pa]
@@ -229,7 +229,7 @@ local function match_list(pa: {any}, na: {any}, caps: {string: Node},
           return false
         end
       end
-      local rest_elems: {any} = {}
+      local rest_elems: mut {any} = {}
       for i = prefix_n + 1, #na do
         rest_elems[#rest_elems + 1] = na[i]
       end
@@ -257,8 +257,8 @@ end
 --- @param caps {string: Node} Capture bindings accumulated so far
 --- @param seen {any: boolean} Identity-keyed cycle guard, own to this matcher
 --- @return boolean
-match_value = function(pv: any, nv: any, caps: {string: Node},
-                       seen: {any: boolean}): boolean
+match_value = function(pv: any, nv: any, caps: mut {string: Node},
+                       seen: mut {any: boolean}): boolean
   if pv == nil then
     return nv == nil
   end
@@ -341,7 +341,7 @@ end
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
 --- @return string Error message on failure, "" on success
-local function compile_pattern(built: compiler, pattern_src: string): Node | nil, string
+local function compile_pattern(built: compiler, pattern_src: string): Node?, string
   local desugared, predicates = desugar_with_predicates(pattern_src)
   local parsed, err = node_mod.parse(built, desugared, "<pattern>")
   if parsed then
@@ -359,7 +359,7 @@ local function compile_pattern(built: compiler, pattern_src: string): Node | nil
   return attach_predicates(exps[1], predicates), ""
 end
 
-local function matched(pattern: Node, node: Node): {string: Node} | nil
+local function matched(pattern: Node, node: Node): {string: Node}?
   local caps: {string: Node} = {}
   if match_value(pattern, node, caps, {}) then
     return caps
@@ -369,7 +369,7 @@ end
 
 local record MatchModule
   desugar: function(pattern_src: string): string
-  compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
+  compile_pattern: function(built: compiler, pattern_src: string): Node?, string
 
   -- TODO: rename `match`, so that [`build.ast.match.match`] does not repeat the module's name. Nothing blocks it:
   -- it touches the 17 calls in build/ast/match_test.tl, the one in build/ast/rewrite.tl, and the local function
@@ -384,7 +384,7 @@ local record MatchModule
   --- @param pattern Node A compiled pattern (see [`compile_pattern`])
   --- @param node Node A candidate node to test
   --- @return {string: Node}|nil Capture bindings by name, or nil when it does not match
-  match: function(pattern: Node, node: Node): {string: Node} | nil
+  match: function(pattern: Node, node: Node): {string: Node}?
 end
 
 local M: MatchModule = {

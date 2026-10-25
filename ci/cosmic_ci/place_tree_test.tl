@@ -123,7 +123,7 @@ end
 --- where `declared` is "1", for a checkout at `workspace` where given.
 local function environment(sha: string, leg: string, event?: string, declared?: string,
                            workspace?: string): {string:string}
-  local values: {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
+  local values: mut {string:string} = { GITHUB_SHA = sha, COSMIC_WORKER = leg,
     GITHUB_EVENT_NAME = event or "push", COSMIC_CI_DECLARED_KEYS = declared or "0" }
   if workspace ~= nil then values["GITHUB_WORKSPACE"] = workspace end
   return values
@@ -157,7 +157,7 @@ end
 local LEGS <const> = { "linux-x86_64", "linux-aarch64", "macos-aarch64", "alpine-x86_64", "fuzz", "checked" }
 
 local function test_every_commit_and_leg_names_one_directory_of_its_own_length()
-  local lengths: {integer: boolean} = {}
+  local lengths: mut {integer: boolean} = {}
   local distinct = 0
   for n = 0, 15 do
     local sha = string.format("%x", n) .. SHA:sub(2)

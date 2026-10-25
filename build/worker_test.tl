@@ -31,7 +31,7 @@ local built = assert(teal.load())
 --- led by the word `global` and declares none, as the checker's own
 --- sources do: the pool takes the build all the same.
 local function project(): {string:string}
-  local files: {string:string} = {
+  local files: mut {string:string} = {
     ["lib.tl"] = [[
 --[=[
 global G: integer = 1
@@ -95,12 +95,12 @@ local function written(db: Sqlite.Handle): {string:string}
     test_inputs = "SELECT * FROM test_inputs",
     links = "SELECT * FROM links",
   }
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for table_name, statement in pairs(statements) do
     local rows = assert(Sqlite.rows(db, statement))
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, row in ipairs(rows) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for index = 1, row:count() do
         local kind = row:kind(index)
         local value = ""
@@ -120,7 +120,7 @@ end
 
 local record Built
   rows: {string:string}
-  result: importer.Result | nil
+  result: importer.Result?
   trouble: string
 end
 
@@ -297,7 +297,7 @@ end
 --- temporary directory.
 local function scratch_left(): {string}
   local parent = (this_program.environment().TMPDIR or "/tmp") .. "/cosmic-workers-" .. sys.getuid()
-  local found: {string} = {}
+  local found: mut {string} = {}
   if Fs.exists(parent) then
     for _, name in ipairs(names_in(parent)) do
       if name:match("^%.scratch%.") then found[#found + 1] = name end
@@ -351,7 +351,7 @@ local function test_a_pool_its_build_never_closed_leaves_no_worker_and_is_swept(
     eventually("worker " .. pid .. " ended", function(): boolean return not running(pid) end)
   end
   local left = names_in(parent)
-  local abandoned: {string} = {}
+  local abandoned: mut {string} = {}
   for _, name in ipairs(left) do
     if name:match("^%.scratch%.") then abandoned[#abandoned + 1] = name end
   end
@@ -386,7 +386,7 @@ end
 --- modules that are as they should be and one whose cast the contracts
 --- refuse, none importing another.
 local function own_tree(): {string:string}
-  local files: {string:string} = {
+  local files: mut {string:string} = {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
     ["core/syscalls.h"] = table.concat({
       "/**",
@@ -538,12 +538,12 @@ end
 --- its digest, and how many were used after `since`.
 local function cache_of(path: string, since: integer): {string}, integer
   local db = (assert(Sqlite.open(path)))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local used = 0
   for _, kind in ipairs({ cache_formats.compiled, cache_formats.parsed }) do
     local held = (assert(Sqlite.rows(db, "SELECT * FROM " .. kind)))
     for _, row in ipairs(held) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for index = 1, row:count() do
         local cell_kind = row:kind(index)
         cells[#cells + 1] = cell_kind == "text" and row:text(index) or
@@ -647,7 +647,7 @@ local function counted(pool: importer.Workers, before?: function(Sqlite.Handle))
     parse = pool.parse,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own: boolean,
-                       judged: boolean): importer.Ahead | nil, string
+                       judged: boolean): importer.Ahead?, string
       if before ~= nil then before(db) end
       local ahead, trouble = pool.compile(db, root, order, wanted, own, judged)
       if ahead ~= nil then taken[1] = taken[1] + 1 end

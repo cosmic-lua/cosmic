@@ -32,7 +32,7 @@ function Secret.check(key: string): boolean, string
     return false, ("secret: a key is %s; it must be at least %s (make one with Secret.generate)"):
       format(String.counted(#key, "byte"), String.counted(MIN_BYTES, "byte"))
   end
-  local seen: {integer:boolean} = {}
+  local seen: mut {integer:boolean} = {}
   local distinct = 0
   for i = 1, #key do
     local byte = key:byte(i)
@@ -56,9 +56,9 @@ end
 --- @param name string | nil Where it came from, for the reason
 --- @return {string} | nil The keys
 --- @return string Why none, or ""
-function Secret.parse_keys(text: string, name?: string): {string} | nil, string
+function Secret.parse_keys(text: string, name?: string): {string}?, string
   local where = name or "the key list"
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for piece in (text .. ","):gmatch("([^,]*),") do
     local key = piece:match("^%s*(.-)%s*$")
     local ok, why = Secret.check(key)
@@ -78,7 +78,7 @@ end
 --- @param name string The variable's name
 --- @return {string} | nil The keys
 --- @return string Why none, or ""
-function Secret.keys_from_env(name: string): {string} | nil, string
+function Secret.keys_from_env(name: string): {string}?, string
   local value = Env.get(name)
   if value == nil or value == "" then
     return nil, ("secret: %s is not set; generate a key with Secret.generate()"):format(name)

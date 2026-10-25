@@ -215,7 +215,7 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.list
-  Fs.list = function(dir: string): {string} | nil, string
+  Fs.list = function(dir: string): {string}?, string
     local names, why = original(dir)
     if dir == tmp then assert(Fs.remove(retired)) end
     return names, why
@@ -235,7 +235,7 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = sys.lstat
-  sys.lstat = function(name: string): sys.Stat | nil, string, integer
+  sys.lstat = function(name: string): sys.Stat?, string, integer
     if name == retired then return nil, "injected lstat failure", sys.EACCES end
     return original(name)
   end
@@ -277,7 +277,7 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
     end,
     err = function(text: string) trouble.value = trouble.value .. text end,
   }
-  local argv: {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
+  local argv: mut {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
   assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
   assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true), output.value)
   argv[6] = "-1"
@@ -341,7 +341,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
   compiled(db, "old", 1)
   assert(db:close())
   local original = Sqlite.open
-  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle | nil, string
+  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle?, string
     if name == path then assert(Fs.remove(path)) end
     return original(name, options)
   end
@@ -356,7 +356,7 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local db = database(path, formats.verdicts)
   assert(db:close())
   local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows?, string
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
       return original(handle, "SELECT 1, 3, 2")
     end

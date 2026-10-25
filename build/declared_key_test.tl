@@ -169,7 +169,7 @@ end
 --- them, and an edit to what `-e` loads moves both.
 local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: string)
   tree(tmp)
-  local by_path: {string:positions.Module} = {}
+  local by_path: mut {string:positions.Module} = {}
   for _, list in ipairs({ test_inputs.lua_loads, test_inputs.standalone_loads }) do
     for _, name in ipairs(list) do
       local file = name:gsub("%.", "/") .. ".tl"
@@ -179,7 +179,7 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
         requires = {}, tests = {} }
     end
   end
-  local needed: {string} = {}
+  local needed: mut {string} = {}
   for _, name in ipairs(test_inputs.standalone_loads) do
     if name ~= "build.standalone" then needed[#needed + 1] = name end
   end
@@ -190,7 +190,7 @@ local function test_a_chunk_module_is_keyed_without_what_standalone_loads(tmp: s
       store = false, system = false, caches = {}, requires = {} }
     local m: positions.Module = { path = "suite.t_test", file = "suite/t_test.tl",
       kind = "test", source = "", source_hash = "",
-      requires = standalone and { "suite.lib", "build.standalone" } or { "suite.lib" },
+      requires = if standalone then { "suite.lib", "build.standalone" } else { "suite.lib" } end,
       tests = { "test_t" }, inputs = declared }
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
@@ -222,7 +222,7 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
   local function key_with(type_only: {string:{string:boolean}}): string
     local lib: positions.Module = { path = "suite.lib", file = "suite/lib.tl", kind = "module",
       source = "", source_hash = "", requires = { "suite.typed", "suite.valued" }, tests = {} }
-    local by_path: {string:positions.Module} = { ["suite.lib"] = lib }
+    local by_path: mut {string:positions.Module} = { ["suite.lib"] = lib }
     for _, name in ipairs({ "typed", "valued", "named" }) do
       local path = "suite." .. name
       by_path[path] = { path = path, file = "suite/" .. name .. ".tl", kind = "module",
@@ -342,7 +342,7 @@ local function fields_of(module: string, record: string): {string}
   local built = assert(teal.load())
   local source = assert(Store.source(module))
   local analysis = assert(analyzer.analyze(built, source, module))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(analysis.docs) do
     local name = entry.symbol:match("^" .. record:gsub("%.", "%%.") .. "%.([%w_]+)$")
     if name ~= nil and entry.kind == "field" then out[#out + 1] = name end
@@ -375,7 +375,7 @@ end
 local function each_field_moves<T>(what: string, fields: {string}, make: function(): T,
                                    holder: function(T): any, key: function(T): string,
                                    changes: {string:Change<T>}, unkeyed: {string:string})
-  local declared: {string:boolean} = {}
+  local declared: mut {string:boolean} = {}
   for _, name in ipairs(fields) do
     declared[name] = true
     local full = holder(make()) as {string:any}
@@ -756,7 +756,7 @@ end
 --- says it is, and nothing else: a change to either word moves it, and
 --- a module it does not name does not, whatever requires it.
 local function test_a_named_module_moves_the_digest()
-  local sources: {string:string} = {
+  local sources: mut {string:string} = {
     ["build.test_worker"] = "w wb", ["build.test_sandbox"] = "s sb", ["build.caches"] = "c cb",
     ["cosmic.fs"] = "f fb", ["build.docs"] = "d db",
   }
@@ -872,7 +872,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   assert(darwin[1] == plist and darwin[2] == plist and darwin[3] == "", table.concat(darwin, " "))
   assert(declared_key.system_sources("Linux")[2] == "/proc/sys/kernel/osrelease")
   local fake = tmp .. "/SystemVersion.plist"
-  local system: {string} = {}
+  local system: mut {string} = {}
   for i, path in ipairs(darwin) do system[i] = path == plist and fake or path end
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
@@ -1077,7 +1077,7 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
   local db = assert(Sqlite.open(db_path, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
       "CREATE TABLE modules (path TEXT PRIMARY KEY, bytecode BLOB NOT NULL)"))
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(meta) do keys[#keys + 1] = key end
   table.sort(keys)
   for _, key in ipairs(keys) do

@@ -59,7 +59,7 @@ local record Assets
   --- source does not hold, and raises for none.
   record Source
     --- The asset at `path` ("css/app.css"), or nil and why.
-    get: function(self: Source, path: string): Asset | nil, string
+    get: function(self: Source, path: string): Asset?, string
     --- Every path the source holds, sorted.
     paths: function(self: Source): {string}
     --- True when `get` may answer differently later (a directory being
@@ -90,7 +90,7 @@ local MAX_PATH <const> = 255
 
 --- Why `path` names no file of a source, or nil when it might: relative,
 --- with no empty, "." or ".." component, and no backslash or NUL.
-local function path_refusal(path: any): string | nil
+local function path_refusal(path: any): string?
   if not path is string then return "the path is not a string" end
   if path == "" then return "the path is empty" end
   if #path > MAX_PATH then return "the path is longer than a source holds" end
@@ -106,8 +106,8 @@ end
 
 --- The digest of `data` as an SRI value: "<algorithm>-<base64>".
 local function integrity_of(data: string, algorithm: Assets.Algorithm): string
-  local digest: Hash.Algorithm = algorithm == "sha256" and "sha256" or
-    algorithm == "sha384" and "sha384" or "sha512"
+  local digest: Hash.Algorithm = if algorithm == "sha256" then "sha256" elseif
+    algorithm == "sha384" then "sha384" else "sha512" end
   return algorithm .. "-" .. Codec.base64(Hash.digest(digest, data))
 end
 
@@ -154,19 +154,19 @@ end
 --- @param opts {string:boolean} | nil `gzip` stores a gzip variant
 --- @return Assets.Source The source
 function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.Source
-  local held: {string:Assets.Asset} = {}
-  local names: {string} = {}
+  local held: mut {string:Assets.Asset} = {}
+  local names: mut {string} = {}
   for path, data in pairs(files) do
     local why = path_refusal(path)
     if why ~= nil then error(("web: assets: memory: %q: %s"):format(tostring(path), why), 2) end
-    local gzip: string | nil = nil
+    local gzip: string? = nil
     if opts ~= nil and opts.gzip then gzip = Mime.gzip(path, data) end
     held[path] = make(path, data, { gzip = gzip })
     names[#names + 1] = path
   end
   table.sort(names)
   local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset | nil, string
+  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
     local why = path_refusal(path)
     if why ~= nil then return miss(path, why) end
     local asset = held[path]
@@ -174,7 +174,7 @@ function Assets.memory(files: {string:string}, opts?: {string:boolean}): Assets.
     return asset, ""
   end
   source.paths = function(_self: Assets.Source): {string}
-    local copy: {string} = {}
+    local copy: mut {string} = {}
     for i, name in ipairs(names) do copy[i] = name end
     return copy
   end
@@ -212,7 +212,7 @@ function Assets.directory(root: string): Assets.Source
   end
   local seen: {string:Seen} = {}
   local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset | nil, string
+  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
     local why = path_refusal(path)
     if why ~= nil then return miss(path, why) end
     if ("/" .. path):find("/%.") then return miss(path, "a hidden file") end
@@ -251,7 +251,7 @@ end
 --- The first database of the store holding the payload table, queried.
 --- Each handle is tried in search order; one without the table is
 --- skipped.
-local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows | nil
+local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   for _, handle in ipairs(Store.databases()) do
     local rows, _ = Sqlite.text_rows(handle, sql, values)
     if rows ~= nil and #rows > 0 then return rows end
@@ -267,7 +267,7 @@ end
 function Assets.embedded(): Assets.Source
   local held: {string:Assets.Asset} = {}
   local source: Assets.Source = {}
-  source.get = function(_self: Assets.Source, path: string): Assets.Asset | nil, string
+  source.get = function(_self: Assets.Source, path: string): Assets.Asset?, string
     local why = path_refusal(path)
     if why ~= nil then return miss(path, why) end
     local asset = held[path]
@@ -277,7 +277,7 @@ function Assets.embedded(): Assets.Source
       { { text = path } })
     if rows == nil then return miss(path, "not held") end
     local row = rows[1]
-    local packed: string | nil = nil
+    local packed: string? = nil
     if row:text(5) == "1" then packed = row:text(4) end
     asset = make(path, row:text(1), { sha256 = row:text(2), type = row:text(3), gzip = packed })
     held[path] = asset
@@ -285,7 +285,7 @@ function Assets.embedded(): Assets.Source
   end
   source.paths = function(_self: Assets.Source): {string}
     local rows = payload_query("SELECT path FROM payload ORDER BY path", {})
-    local list: {string} = {}
+    local list: mut {string} = {}
     for i, row in ipairs(rows or {}) do list[i] = row:text(1) end
     return list
   end

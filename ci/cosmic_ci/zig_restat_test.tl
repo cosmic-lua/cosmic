@@ -5,7 +5,7 @@ local ZigRestat = require("cosmic_ci.zig_restat")
 local sys = require("cosmic.sys")
 
 --- [`ZigRestat.command`], its answer as three values.
-local function restat_command(project: string, shared: string | nil, root: string,
+local function restat_command(project: string, shared: string?, root: string,
                               lib?: string): integer, string, string
   local command = ZigRestat.command(project, shared, root, lib)
   return command.code, command.out, command.err
@@ -103,8 +103,8 @@ end
 local function test_changed_bytes_with_preserved_mtime_are_left(tmp: string)
   local project, shared, tree = layout(tmp)
   local roots: {integer:string} = { [0] = tree, [1] = tree, [3] = shared, [4] = tree }
-  local files: {string} = {}
-  local pieces: {string} = {}
+  local files: mut {string} = {}
+  local pieces: mut {string} = {}
   for prefix = 0, 4 do
     local root = project
     if prefix ~= 2 then root = assert(roots[prefix]) end

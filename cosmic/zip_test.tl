@@ -278,9 +278,9 @@ local function test_a_zip64_size_past_2_63_is_refused_at_open()
     le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
   local extra = le16(1) .. le16(8) .. le64(1 << 63)
   for _, which in ipairs({ "usize", "csize", "offset" }) do
-    local csize = which == "csize" and 0xFFFFFFFF or 0
-    local usize = which == "usize" and 0xFFFFFFFF or 0
-    local offset = which == "offset" and 0xFFFFFFFF or 0
+    local csize = if which == "csize" then 0xFFFFFFFF else 0 end
+    local usize = if which == "usize" then 0xFFFFFFFF else 0 end
+    local offset = if which == "offset" then 0xFFFFFFFF else 0 end
     local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
       le32(0) .. le32(csize) .. le32(usize) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
       le16(0) .. le32(0) .. le32(offset) .. "a" .. extra
@@ -314,7 +314,7 @@ local function test_an_entry_past_the_end_of_the_archive_is_refused_at_open(tmp:
   }
   for i, case in ipairs(cases) do
     local which, csize, offset, wide = case.which, case.csize, case.offset, case.wide
-    local extra = wide >= 0 and le16(1) .. le16(8) .. le64(wide) or ""
+    local extra = if wide >= 0 then le16(1) .. le16(8) .. le64(wide) else "" end
     local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
       le32(0) .. le32(csize) .. le32(0) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
       le16(0) .. le32(0) .. le32(offset) .. "a" .. extra
@@ -457,8 +457,8 @@ end
 --- not.
 local function zip_with_local_extra(name: string, body: string, extra_len: integer): string
   local crc = crc32_reference(body)
-  local extra = extra_len > 0 and (le16(0xCAFE) .. le16(extra_len - 4) ..
-    string.rep("x", extra_len - 4)) or ""
+  local extra = if extra_len > 0 then (le16(0xCAFE) .. le16(extra_len - 4) ..
+    string.rep("x", extra_len - 4)) else "" end
   local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0x21) ..
     le32(crc) .. le32(#body) .. le32(#body) .. le16(#name) .. le16(#extra) .. name .. extra
   local cd = "PK\1\2" .. le16((3 << 8) | 20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) ..
@@ -500,7 +500,7 @@ end
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n = { value = 0 }
   local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     if n.value >= rounds then return nil, "" end
     n.value = n.value + 1
     if each ~= nil then each(n.value) end
@@ -531,7 +531,7 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
     local a = by_path(entries, "a")
     assert(a.size == #whole and a.crc32 == whole_crc)
-    assert(a.method == (method == "store" and 0 or 8))
+    assert(a.method == (if method == "store" then 0 else 8 end))
     if method == "deflate" then assert(a.compressed_size < #whole // 10) end
   end
 end
@@ -632,7 +632,7 @@ end
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string | nil, string
+  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
     return nil, "disk on fire"
   end
   bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
@@ -645,7 +645,7 @@ end
 local function test_a_streamed_body_takes_bounded_memory()
   local block = {} as {integer}
   for i = 1, 65536 do block[i] = (i * 131 + (i >> 8) + (i >> 3) * 7) & 255 end
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   for first = 1, #block, 4096 do
     pieces[#pieces + 1] = string.char(table.unpack(block, first, first + 4095))
   end
@@ -701,7 +701,7 @@ local function test_a_symlink_round_trips_with_its_target_mode_and_time()
   assert(by_path(entries, "deep/link").linkpath == "../a.txt")
   assert(by_path(entries, "a.txt").kind == "file" and by_path(entries, "a.txt").linkpath == "")
   -- `next` says the same of each entry.
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   while true do
     local entry = r:next()
     if entry == nil then break end
@@ -828,7 +828,7 @@ local function test_the_recorded_crc32_matches_the_known_value_and_continues()
   assert(recorded_crc("") == 0)
   -- Long, and at an unaligned start: the hardware paths fold 16 bytes
   -- at a time and handle the ragged ends apart (binascii.crc32 again).
-  local bytes: {string} = {}
+  local bytes: mut {string} = {}
   for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
   local block = table.concat(bytes)
   local long = block:rep(40)

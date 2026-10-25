@@ -8,7 +8,7 @@ end
 
 --- The route table of a few patterns, each named after itself.
 local function table_of(patterns: {string}): Web.Router
-  local routes: {Web.Route} = {}
+  local routes: mut {Web.Route} = {}
   for _, pattern in ipairs(patterns) do
     routes[#routes + 1] = Web.get(pattern, ok, { name = pattern })
   end
@@ -303,7 +303,7 @@ end
 
 local function test_a_mount_answers_reverse_through_its_resolver()
   local router = Web.router({ Web.mount_handler("/assets", ok, { name = "assets",
-    reverse = function(prefix: string, params: {string:string}): string | nil, string
+    reverse = function(prefix: string, params: {string:string}): string?, string
       if params.path == nil then return nil, "assets: a path is needed" end
       return prefix .. "/" .. params.path .. ".v1", ""
     end }) })
@@ -312,7 +312,7 @@ local function test_a_mount_answers_reverse_through_its_resolver()
   local none, why = router:reverse("assets", {})
   assert(none == nil and why == "assets: a path is needed")
   local nested = Web.router({ Web.mount("/outer", { Web.mount_handler("/in", ok, { name = "in",
-    reverse = function(prefix: string, _params: {string:string}): string | nil, string
+    reverse = function(prefix: string, _params: {string:string}): string?, string
       return prefix, ""
     end }) }, { name = "outer" }) })
   assert(nested:reverse("outer:in") == "/outer/in", "the resolver is given the full prefix")

@@ -9,7 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 local fox = "The quick brown fox jumps over the lazy dog"
 
 local record Holder
-  h: Hash.Hasher
+  mut h: Hash.Hasher
 end
 
 local vectors: {{string}} = {
@@ -162,7 +162,7 @@ end
 --- so the slot must be released at once. A slot left behind would make
 --- the thirty-third live hasher fail to start.
 local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
-  local live: {Hash.Hasher} = {}
+  local live: mut {Hash.Hasher} = {}
   for i = 1, 100 do
     local mac, trouble = Hash.hmac_hasher("sha256", "key" .. i)
     assert(mac ~= nil, "hasher " .. i .. ": " .. trouble)
@@ -231,7 +231,7 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved = { value = nil as Hash.Hasher | nil }
+  local saved = { value = nil as Hash.Hasher? }
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)
@@ -382,7 +382,7 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved = { value = nil as Hash.Hasher | nil }
+  local saved = { value = nil as Hash.Hasher? }
   local holder: Holder = setmetatable({} as Holder, {
     __gc = function(self: Holder) saved.value = self.h end,
   } as metatable<Holder>)

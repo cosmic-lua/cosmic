@@ -115,14 +115,14 @@ local SAFE <const>: {string:boolean} = { GET = true, HEAD = true, OPTIONS = true
 
 --- `a` xor `b`, both of one length.
 local function xor(a: string, b: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, #a do out[i] = string.char(a:byte(i) ~ b:byte(i)) end
   return table.concat(out)
 end
 
 --- The session's secret as raw bytes, or nil when it has none or it is not
 --- 32 bytes.
-local function secret_of(session: Session.Handle): string | nil
+local function secret_of(session: Session.Handle): string?
   local text = session:get_string(Session.CSRF_KEY)
   if text == nil then return nil end
   local raw, _ = Codec.unbase64url(text)
@@ -191,7 +191,7 @@ end
 
 --- The first part of a multipart body when it is the token, read from at most
 --- `PEEK` bytes; the bytes are put back on the request.
-local function multipart_token(req: Types.Request): string | nil
+local function multipart_token(req: Types.Request): string?
   local cached = req:get(Input.FORM)
   if cached ~= nil then
     local list = cached.by_name[Csrf.FIELD]
@@ -206,7 +206,7 @@ local function multipart_token(req: Types.Request): string | nil
   local reader, _ = Multipart.reader(Stream.from_string(head), { boundary = boundary, max_parts = 1 })
   if reader == nil then return nil end
   local part, _ = reader:next_part()
-  local value: string | nil = nil
+  local value: string? = nil
   if part ~= nil and part.name == Csrf.FIELD and part.filename == nil then
     value, _ = Stream.read_up_to(part.body, TOKEN_LENGTH + 1)
   end
@@ -216,7 +216,7 @@ end
 
 --- The token field of a urlencoded body when it lies within the first `PEEK`
 --- bytes and appears once; the bytes are put back on the request.
-local function urlencoded_token(req: Types.Request): string | nil
+local function urlencoded_token(req: Types.Request): string?
   local cached = req:get(Input.FORM)
   if cached ~= nil then
     local list = cached.by_name[Csrf.FIELD]
@@ -226,7 +226,7 @@ local function urlencoded_token(req: Types.Request): string | nil
   local head, _ = Stream.read_up_to(body, PEEK)
   if head == nil then return nil end
   req.raw.body = Stream.prepend(head, body)
-  local found: string | nil = nil
+  local found: string? = nil
   local count = 0
   local from = 1
   while from <= #head do
@@ -246,7 +246,7 @@ local function urlencoded_token(req: Types.Request): string | nil
 end
 
 --- The token the request carries: the header, else the form's field.
-local function token_of(req: Types.Request): string | nil
+local function token_of(req: Types.Request): string?
   local header = req.headers["x-csrf-token"]
   if header ~= nil then return header end
   local essence = Input.media_type(req).essence
@@ -262,9 +262,9 @@ local function bearer(req: Types.Request): boolean
 end
 
 --- Why the Origin layer refuses `req`, or nil.
-local function origin_refusal(req: Types.Request, trusted: {string:boolean}, strict: boolean): string | nil
+local function origin_refusal(req: Types.Request, trusted: {string:boolean}, strict: boolean): string?
   local origin = req.headers["origin"]
-  local normal: string | nil = nil
+  local normal: string? = nil
   if origin ~= nil then
     if origin == "null" then
       if trusted["null"] then return nil end
@@ -294,7 +294,7 @@ local function origin_refusal(req: Types.Request, trusted: {string:boolean}, str
 end
 
 --- Makes `text`, a client's, safe for a log line.
-local function plain(text: string | nil): string
+local function plain(text: string?): string
   if text == nil then return "-" end
   return (text:sub(1, 200):gsub("[^%w%p ]", "?"))
 end
@@ -333,9 +333,9 @@ end
 --- @return Types.Middleware The middleware
 function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
   opts = opts or {}
-  local trusted: {string:boolean} = {}
+  local trusted: mut {string:boolean} = {}
   for _, each in ipairs(opts.trusted_origins or {}) do
-    local normal = each == "null" and "null" or (type(each) == "string" and Origin.normalize(each) or nil)
+    local normal = if each == "null" then "null" else (type(each) == "string" and Origin.normalize(each) or nil) end
     if normal == nil then
       error(("csrf: trusted_origins: %s is not an origin like https://app.example.com"):format(tostring(each)), 2)
     end
@@ -350,7 +350,7 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
       if not checked(req) or (exempt ~= nil and exempt(req)) then return inner(req) end
-      local reason: string | nil = nil
+      local reason: string? = nil
       if origin_on then reason = origin_refusal(req, trusted, strict) end
       if reason == nil and token_on and not (bearer_exempt and bearer(req)) then
         local secret = secret_of(Session.of(req))

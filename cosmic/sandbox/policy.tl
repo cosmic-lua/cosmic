@@ -179,7 +179,7 @@ local record rules
     --- The file's absolute path, with no "..".
     path: string
     --- The SHA-256 of the file's bytes, in lowercase hex; nil for a path alone.
-    sha256: string | nil
+    sha256: string?
   end
 end
 
@@ -193,14 +193,14 @@ local LETTERS <const> = "rwxcu"
 
 --- `letters` as a set in the order of "rwxcu", each letter once; nil for
 --- none or a letter outside it.
-local function canonical_letters(letters: string): string | nil
-  local seen: {string:boolean} = {}
+local function canonical_letters(letters: string): string?
+  local seen: mut {string:boolean} = {}
   for i = 1, #letters do
     local letter = letters:sub(i, i)
     if not LETTERS:find(letter, 1, true) then return nil end
     seen[letter] = true
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, #LETTERS do
     local letter = LETTERS:sub(i, i)
     if seen[letter] then out[#out + 1] = letter end
@@ -236,7 +236,7 @@ local function listed(name: string, names: {string}): boolean
 end
 
 --- Why the limit `name`, nil for none, is below `least`, or "".
-local function below(name: string, value: integer | nil, least: integer): string
+local function below(name: string, value: integer?, least: integer): string
   if value == nil or value >= least then return "" end
   return "pointer \"/limits/" .. name .. "\": a limit is at least " .. least
 end
@@ -251,7 +251,7 @@ local function loopback_conflict(loopback: {string}, connect: {string}, joined: 
   for i, address in ipairs(loopback) do
     local target = RelayConfig.naming(connect, address)
     if target ~= "" then
-      return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (joined and " of the merged policy" or "") .. ": \"" .. address .. "\" is also the host address that " ..
+      return "pointer \"/loopback/" .. (i - 1) .. "\"" .. (if joined then " of the merged policy" else "" end) .. ": \"" .. address .. "\" is also the host address that " ..
         "connect \"" .. target .. "\" names, and a proxy client cannot tell the two apart by port: " ..
         "give the sandbox's own services another 127.x address (127.0.0.2, say)"
     end
@@ -397,7 +397,7 @@ end
 --- kernel reads after a link; [`invalid`] refuses it. An empty result
 --- is "." (relative) or "/".
 local function clean_path(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part ~= "." then parts[#parts + 1] = part end
   end
@@ -409,8 +409,8 @@ end
 
 --- The members of every list given, each once, in byte order.
 local function sorted_set<T>(...: {T}): {T}
-  local seen: {T:boolean} = {}
-  local out: {T} = {}
+  local seen: mut {T:boolean} = {}
+  local out: mut {T} = {}
   for _, list in ipairs({ ... }) do
     for _, item in ipairs(list) do
       if not seen[item] then
@@ -431,7 +431,7 @@ end
 
 --- Why `held` and `incoming`, two values for the limit `name` (either nil
 --- for none), disagree, or "" when they do not.
-local function limit_conflict(name: string, held: integer | nil, incoming: integer | nil): string
+local function limit_conflict(name: string, held: integer?, incoming: integer?): string
   if held ~= nil and incoming ~= nil and held ~= incoming then
     return "limits." .. name .. " is given two values, " .. held .. " and " .. incoming
   end
@@ -506,7 +506,7 @@ end
 --- without a /lib64. Apart from [`rules.profile`], which asks this host, only
 --- a test of the other host's list calls it.
 function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, entry in ipairs(rules.system_paths(host)) do
     if exists(entry[1]) then
       grants[#grants + 1] = { path = entry[1], letters = entry[2] }
@@ -529,7 +529,7 @@ end
 --- needs neither the launcher's shell nor a cache to unpack a core into;
 --- a process that runs the path itself (a shell under the policy) runs
 --- the launcher, which needs both.
-local function cosmic_profile(): rules.Policy | nil, string
+local function cosmic_profile(): rules.Policy?, string
   local path, why = Proc.executable()
   if path == nil then
     return refuse("profile \"cosmic\": this process has no executable: " .. why)
@@ -548,10 +548,10 @@ end
 
 --- What the profile `name` holds on this host: [`Sandbox.profile`], which
 --- says how.
-function rules.profile(name: string): rules.Policy | nil, string
+function rules.profile(name: string): rules.Policy?, string
   if name == "proc" then return proc_profile(), "" end
   if name == "system" then
-    return rules.system_profile(on_darwin() and "darwin" or "linux", present), ""
+    return rules.system_profile(if on_darwin() then "darwin" else "linux" end, present), ""
   end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
@@ -560,7 +560,7 @@ end
 
 --- The database at `path`, with the SHA-256 of its bytes now:
 --- [`Sandbox.database`], which says how.
-function rules.database(path: string): rules.Database | nil, string
+function rules.database(path: string): rules.Database?, string
   local bytes, why = Fs.read(path)
   if bytes == nil then return refuse("database " .. why) end
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
@@ -568,8 +568,8 @@ end
 
 --- What the policies given hold together: [`Sandbox.merge`], which says
 --- how.
-function rules.merge(...: rules.Policy): rules.Policy | nil, string
-  local flat: {rules.Policy} = {}
+function rules.merge(...: rules.Policy): rules.Policy?, string
+  local flat: mut {rules.Policy} = {}
   local given: {rules.Policy} = { ... }
   local on_database = false
   for _, p in ipairs(given) do
@@ -590,19 +590,19 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     end
     flat[#flat + 1] = p
   end
-  local joined: {string:Joined} = {}
-  local order: {Joined} = {}
+  local joined: mut {string:Joined} = {}
+  local order: mut {Joined} = {}
   local limits: rules.Limits = {}
-  local set_env: {string:string} = {}
-  local digests: {string:string} = {}
+  local set_env: mut {string:string} = {}
+  local digests: mut {string:string} = {}
   local isolate: {rules.Isolate} = {}
   local promises: {rules.Promise} = {}
   local connect: {string} = {}
   local loopback: {string} = {}
   local env: {string} = {}
   local tmp = false
-  local user, group: integer | nil, integer | nil
-  local database: rules.Database | nil = nil
+  local user, group: integer?, integer?
+  local database: rules.Database? = nil
   for _, p in ipairs(flat) do
     local named = p.database
     if named ~= nil then
@@ -667,9 +667,9 @@ function rules.merge(...: rules.Policy): rules.Policy | nil, string
     limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, held in ipairs(order) do
-    local letters: {string} = {}
+    local letters: mut {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
     grants[#grants + 1] = { path = held.path, from = held.from,
       letters = canonical_letters(table.concat(letters)) }

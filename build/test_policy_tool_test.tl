@@ -60,7 +60,7 @@ end
 local function run(root: string, output: string, env: {string:string},
                    words: {string}): string, boolean
   local fd = assert(Fs.open_write(output))
-  local argv: {string} = { "test" }
+  local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
@@ -287,7 +287,7 @@ local function test_the_verdicts_of_a_sandboxed_and_an_unsandboxed_run_stand_apa
   local step = { value = 0 }
   local function said(sandboxed: boolean, wanted: string): string
     step.value = step.value + 1
-    env.COSMIC_TEST_SANDBOX = not sandboxed and "0" or nil
+    env.COSMIC_TEST_SANDBOX = if not sandboxed then "0" else nil end
     local text, ok = run(root, tmp .. "/run" .. step.value, env, { "suite/plain_test.tl" })
     assert(ok and text:find(wanted, 1, true), step.value .. ": " .. text)
     return text

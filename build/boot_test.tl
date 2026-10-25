@@ -67,7 +67,7 @@ end
 
 local function run(mode: string, records_path: string, build_directory: string,
                    extra?: {string}): integer
-  local argv: {string} = { "--boot", "/nonexistent-tree",
+  local argv: mut {string} = { "--boot", "/nonexistent-tree",
     "/nonexistent-tl", mode, "x86", records_path, build_directory }
   for _, argument in ipairs(extra or {}) do
     argv[#argv + 1] = argument

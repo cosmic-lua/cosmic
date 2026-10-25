@@ -85,9 +85,9 @@ local record rebuild_lock
   --- The lock's descriptor and SQLite handle, each nil once let go or
   --- never taken.
   record Claim
-    fd: integer | nil
-    db: Sqlite.Handle | nil
-    metamethod __close: function(Claim)
+    fd: integer?
+    db: Sqlite.Handle?
+    __close: function(Claim)
   end
 end
 
@@ -144,13 +144,13 @@ local lock_mt: metatable<Lock> = {
 --- The lock this process holds, kept here so it lives as long as the
 --- process does, or until the exec that replaces it.
 local record Hold
-  lock: Lock | nil
+  mut lock: Lock?
   --- The path of the lock, as [`build.paths`] names it, so two spellings
   --- of a root that resolve to one build directory hold one lock.
-  path: string | nil
+  mut path: string?
   --- The lock whose holder this process has said it does not wait for
   --- ([`rebuild_lock.tell_not_waiting`]).
-  told: string | nil
+  mut told: string?
 end
 
 local held: Hold = {}
@@ -158,7 +158,7 @@ local held: Hold = {}
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
 --- `wait_ns`. Answers "held", "busy", or nil and why.
 local function take_sqlite(lock: Lock, path: string,
-                           wait_ns: integer): rebuild_lock.Taken | nil, string
+                           wait_ns: integer): rebuild_lock.Taken?, string
   local db, db_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
     return nil, path .. ": " .. db_trouble
@@ -177,7 +177,7 @@ end
 --- where another run held it past the wait, or nil and why where it
 --- could not be asked for at all. A half taken is let go again whenever
 --- the other is not.
-local function acquire(path: string, wait_ns: integer): Lock | nil, string
+local function acquire(path: string, wait_ns: integer): Lock?, string
   local started_ns = Clock.monotonic_ns()
   -- For writing, which an exclusive flock over NFS or SMB needs.
   local fd, open_trouble = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x1a4)
@@ -226,7 +226,7 @@ end
 --- another checkout's). A half taken is let go again whenever the
 --- other is not.
 function rebuild_lock.take(root: string, wait_ns: integer,
-                           role?: rebuild_lock.Role): rebuild_lock.Taken | nil, string
+                           role?: rebuild_lock.Role): rebuild_lock.Taken?, string
   if wait_ns < 0 or wait_ns > Poll.MOST_NS then
     error("rebuild_lock.take: the wait is out of range", 2)
   end
@@ -266,7 +266,7 @@ end
 --- "" where another run holds it; nil and why where it cannot be asked
 --- for. It names no holder, and leaves this process's own hold of
 --- another directory as it is.
-function rebuild_lock.claim(directory: string): rebuild_lock.Claim | nil, string
+function rebuild_lock.claim(directory: string): rebuild_lock.Claim?, string
   return acquire(build_paths.under(directory).lock, 0)
 end
 
@@ -296,7 +296,7 @@ end
 --- taken to be rebuilding.
 function rebuild_lock.holder(root: string): string
   local text, _ = Fs.read(build_paths.resolve(root).holder)
-  local pid: integer | nil = nil
+  local pid: integer? = nil
   local role = "rebuild"
   if text ~= nil then
     local number, named = text:match("^(%d+)\n(%l*)\n?$")
@@ -323,7 +323,7 @@ end
 --- `environment` with the lock of `root`, which this process holds,
 --- handed on to a child that would take it (`handed_variable`).
 function rebuild_lock.hand(environment: {string:string}, root: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
   out[handed_variable] = build_paths.resolve(root).lock
   return out
@@ -332,7 +332,7 @@ end
 --- `environment` with no lock handed on in it (`handed_variable`), for
 --- what a `cosmic test` run starts: none of it holds this run's lock.
 function rebuild_lock.unhanded(environment: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
   out[handed_variable] = nil
   return out
@@ -389,7 +389,7 @@ end
 --- when this process held it already or a parent handed it on for a
 --- write or a remake; nil and "" where another run holds it, nil and why
 --- where it cannot be asked for.
-local function at_once(root: string, role: rebuild_lock.Role): boolean | nil, string
+local function at_once(root: string, role: rebuild_lock.Role): boolean?, string
   if rebuild_lock.holds(root) then
     return false, ""
   end
@@ -423,7 +423,7 @@ end
 --- It must be called holding nothing that run may wait for: the working
 --- database's transaction above all ([`build.work`]).
 function rebuild_lock.hold(root: string, role: rebuild_lock.Role,
-                           what: string): boolean | nil, string
+                           what: string): boolean?, string
   local took, trouble = at_once(root, role)
   if took ~= nil then
     return took, ""
@@ -459,7 +459,7 @@ end
 --- where another run holds it, having said so for `what`
 --- ([`rebuild_lock.tell_not_waiting`]).
 function rebuild_lock.try_hold(root: string, role: rebuild_lock.Role,
-                               what: string): boolean | nil, string
+                               what: string): boolean?, string
   local took, trouble = at_once(root, role)
   if took ~= nil then
     return took, ""

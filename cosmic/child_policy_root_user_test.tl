@@ -94,7 +94,7 @@ end
 --- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
 --- answer to `status-field Uid`: real, effective, saved and filesystem.
 local function uids(said: string): {integer}
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for number in said:gmatch("%d+") do
     found[#found + 1] = assert(math.tointeger(tonumber(number)))
   end
@@ -251,7 +251,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
   local at = placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "proc" }, grants = { { path = at.probe, letters = "rx" },
     { path = at.work, letters = "r" } } }
-  local running: {Child.Handle} = {}
+  local running: mut {Child.Handle} = {}
   for i = 1, 3 do
     local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
       { policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
@@ -261,7 +261,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
     end
     running[i] = handle
   end
-  local seen: {integer:boolean} = {}
+  local seen: mut {integer:boolean} = {}
   for _, handle in ipairs(running) do
     local result = assert(handle:wait())
     local id = uids(result.stdout or "")[1]

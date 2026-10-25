@@ -136,7 +136,7 @@ local WILDCARD_SLOTS <const> = 65535
 local function table_bytes(rows: {Config.Endpoint}): integer
   local bytes = 0
   for _, row in ipairs(rows) do
-    local stride = row.host:find(":", 1, true) and 32 or 16
+    local stride = if row.host:find(":", 1, true) then 32 else 16 end
     bytes = (bytes + stride - 1) // stride * stride + (row.port == 0 and WILDCARD_SLOTS or 1) * stride
   end
   return bytes
@@ -145,12 +145,12 @@ end
 --- `rows` without a fixed-port endpoint whose address has a port-0 (any
 --- port) endpoint too, and without a repeat.
 local function normalized(rows: {Config.Endpoint}): {Config.Endpoint}
-  local any: {string: boolean} = {}
+  local any: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     if row.port == 0 then any[row.host] = true end
   end
-  local kept: {Config.Endpoint} = {}
-  local seen: {string: boolean} = {}
+  local kept: mut {Config.Endpoint} = {}
+  local seen: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     local key = row.host .. " " .. row.port
     if not seen[key] and (row.port == 0 or not any[row.host]) then
@@ -163,7 +163,7 @@ end
 
 --- Which limit of a connector `rows` pass, as text naming it, or nil for
 --- none: the endpoints (128) and the table bytes (32 MiB) together.
-local function limit_passed(rows: {Config.Endpoint}): string | nil
+local function limit_passed(rows: {Config.Endpoint}): string?
   if #rows > MOST_ENDPOINTS then
     return ("%s, more than the 128 a connector holds"):format(String.counted(#rows, "endpoint"))
   end
@@ -207,7 +207,7 @@ local RELAY_FILES <const>: {string} = {
 --- @param digest string The database's SHA-256, in hex
 --- @return rules.Policy The policy
 function relay.policy(database: string, digest: string): rules.Policy
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, file in ipairs(RELAY_FILES) do
     local there, _ = sys.stat(file)
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
@@ -227,7 +227,7 @@ end
 --- @param digest string The database's SHA-256, in hex
 --- @return rules.Policy The policy
 function relay.seatbelt_policy(database: string, digest: string): rules.Policy
-  local grants: {rules.Grant} = {}
+  local grants: mut {rules.Grant} = {}
   for _, file in ipairs(RELAY_FILES) do
     local there, _ = sys.stat(file)
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
@@ -258,7 +258,7 @@ local LOOPBACK_BACKLOG <const> = 128
 --- it reach nothing. Nil and why where no port is free on both.
 --- @return relay.Loopback|nil The sockets and their port
 --- @return string Why there are none, "" otherwise
-function relay.loopback_listeners(): relay.Loopback | nil, string
+function relay.loopback_listeners(): relay.Loopback?, string
   local last = ""
   for _ = 1, LOOPBACK_TRIES do
     local v4, why = raw.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, LOOPBACK_BACKLOG)
@@ -292,7 +292,7 @@ end
 --- @param opts relay.NameServerOptions|nil Where to read, and the lookup's time
 --- @return relay.NameServers|nil The servers and the wait
 --- @return string Why there are none, "" otherwise
-function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers | nil, string
+function relay.name_servers(opts?: relay.NameServerOptions): relay.NameServers?, string
   opts = opts or {}
   local resolve = opts.resolve or RESOLVE_NS
   if math.type(resolve) ~= "integer" or resolve <= 0 then
@@ -319,7 +319,7 @@ end
 --- hex groups.
 local function numeric(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] << 8 | bytes[i + 1]) end
   return table.concat(groups, ":")
 end
@@ -335,10 +335,10 @@ end
 --- @param env {string:string} The caller's proxy variables
 --- @return relay.Plan|nil What they open
 --- @return string Why the start cannot go on, "" otherwise
-function relay.plan(grants: {string}, env: {string: string}): relay.Plan | nil, string
+function relay.plan(grants: {string}, env: {string: string}): relay.Plan?, string
   local up, up_why = Config.upstream(env)
   if up == nil and up_why ~= "" then return nil, up_why end
-  local listed: {Config.Endpoint} = {}
+  local listed: mut {Config.Endpoint} = {}
   local names = false
   for _, grant in ipairs(grants) do
     -- A target the relay cannot use was refused when the policy was
@@ -371,14 +371,14 @@ end
 --- @param unresolved string Why there is no `through`
 --- @return {string}|nil The addresses, numeric text
 --- @return string Why there are none, "" otherwise
-function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | nil,
-                                  unresolved: string): {string} | nil, string
+function relay.upstream_addresses(up: Config.Upstream, through: relay.Through?,
+                                  unresolved: string): {string}?, string
   local bytes = Address.parse(up.host)
   if bytes ~= nil then return { numeric(bytes) }, "" end
   if through == nil then
     return nil, "https_proxy's host " .. up.host .. " cannot be resolved: " .. unresolved
   end
-  local servers: {raw_socket.ThroughServer} = {}
+  local servers: mut {raw_socket.ThroughServer} = {}
   for i, server in ipairs(through.name_servers.servers) do
     servers[i] = { host = server.host, port = server.port, index = i }
   end
@@ -391,7 +391,7 @@ function relay.upstream_addresses(up: Config.Upstream, through: relay.Through | 
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end
-  local addresses: {string} = {}
+  local addresses: mut {string} = {}
   for i, answer in ipairs(found) do addresses[i] = answer.address end
   return addresses, ""
 end
@@ -403,14 +403,14 @@ end
 --- @param up Config.Upstream The upstream
 --- @return {string}|nil The addresses, numeric text
 --- @return string Why there are none, "" otherwise
-function relay.resolved_upstream(up: Config.Upstream): {string} | nil, string
+function relay.resolved_upstream(up: Config.Upstream): {string}?, string
   local bytes = Address.parse(up.host)
   if bytes ~= nil then return { numeric(bytes) }, "" end
   local found, trouble = Resolv.lookup(up.host, { timeout_ns = RESOLVE_NS })
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble
   end
-  local addresses: {string} = {}
+  local addresses: mut {string} = {}
   for i, answer in ipairs(found) do addresses[i] = answer.address end
   return addresses, ""
 end
@@ -423,8 +423,8 @@ end
 --- @param addresses {string}|nil The upstream's addresses, nil for none
 --- @return {Config.Endpoint}|nil The table
 --- @return string Why there is none, "" otherwise
-function relay.table(plan: relay.Plan, addresses: {string} | nil): {Config.Endpoint} | nil, string
-  local all: {Config.Endpoint} = {}
+function relay.table(plan: relay.Plan, addresses: {string}?): {Config.Endpoint}?, string
+  local all: mut {Config.Endpoint} = {}
   for _, entry in ipairs(plan.literals) do all[#all + 1] = entry end
   for _, address in ipairs(addresses or {}) do
     local bytes = Address.parse(address)
@@ -460,7 +460,7 @@ end
 --- `wait_ns` for each connection, for the relay: the process, or nil and
 --- why. A table or list the core refuses is a why too.
 local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer,
-                               public?: Connector.Public): Connector.Process | nil, string
+                               public?: Connector.Public): Connector.Process?, string
   local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
   if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
   if process == nil then return nil, why end
@@ -484,15 +484,15 @@ end
 --- connector cannot start. Name servers that cannot be read are no
 --- failure: the relay is told why, is handed a connector that is not public, and
 --- reaches only what a target names literally, and the upstream.
-function relay.handover(connect: {string}, own: {string}): Config.Handover | nil, string
-  local env: {string: string} = {}
+function relay.handover(connect: {string}, own: {string}): Config.Handover?, string
+  local env: mut {string: string} = {}
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
     env[name] = sys.getenv(name)
   end
   local planned, plan_why = relay.plan(connect, env)
   if planned == nil then return nil, plan_why end
   local plan: relay.Plan = planned
-  local processes: {Connector.Process} = {}
+  local processes: mut {Connector.Process} = {}
   local closing = { closed = false }
   local function close()
     if closing.closed then return end
@@ -504,9 +504,9 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
     return nil, why
   end
   local config: Config.Config = { grants = connect, own_addresses = own, log = "null", public = false }
-  local fds: {integer: integer} = {}
+  local fds: mut {integer: integer} = {}
   local up = plan.upstream
-  local servers: relay.NameServers | nil
+  local servers: relay.NameServers?
   local unresolved = ""
   -- A name is reached directly, and so resolved and connected by the relay
   -- itself, only with no upstream or one that no_proxy bypasses for some.
@@ -516,10 +516,10 @@ function relay.handover(connect: {string}, own: {string}): Config.Handover | nil
     local listed, servers_why = relay.name_servers()
     if listed == nil then unresolved = servers_why else servers = listed end
   end
-  local addresses: {string} | nil
+  local addresses: {string}?
   if up ~= nil then
-    local through: relay.Through | nil
-    local lookup: Connector.Process | nil
+    local through: relay.Through?
+    local lookup: Connector.Process?
     if upstream_named and servers ~= nil then
       local started, dns_why = relay_connector(servers.servers, servers.wait_ns)
       if started == nil then return fail("the name servers' connector: " .. dns_why) end
@@ -562,8 +562,8 @@ end
 --- told of the network: no connector, and the upstream proxy's addresses,
 --- resolved once, here. Nil and why where the upstream cannot be used or
 --- does not resolve.
-function relay.direct_handover(connect: {string}, own: {string}): Config.Handover | nil, string
-  local env: {string: string} = {}
+function relay.direct_handover(connect: {string}, own: {string}): Config.Handover?, string
+  local env: mut {string: string} = {}
   for _, name in ipairs({ "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY" }) do
     env[name] = sys.getenv(name)
   end
@@ -584,7 +584,7 @@ end
 --- `listeners`, its descriptors from 3, and its `close`, which closes this
 --- process's own hold of the port once the relay ends, as a connector's
 --- would; the relay and the program hold it beside. The port, or nil and why.
-function relay.hold_loopback(handover: Config.Handover): integer | nil, string
+function relay.hold_loopback(handover: Config.Handover): integer?, string
   local loopback, trouble = relay.loopback_listeners()
   if loopback == nil then return nil, trouble end
   local sockets, port = loopback.sockets, loopback.port

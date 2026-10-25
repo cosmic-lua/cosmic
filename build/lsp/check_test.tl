@@ -235,7 +235,7 @@ local function test_a_dependent_reached_through_another_module_is_checked_again(
     open(root, "fresh.tl", top) })) == "0,0,0")
   local changed = publications(send({ change(root, "helper.tl", text) }))
   -- What each document was told after the change, by its file's name.
-  local told: {string:string} = {}
+  local told: mut {string:string} = {}
   for i = 4, #changed do
     local publication = assert(changed[i])
     told[publication.uri:match("[^/]+$") or ""] = messages_of(publication.diagnostics)

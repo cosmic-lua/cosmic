@@ -26,7 +26,7 @@ local PIECES <const> = {
 }
 
 local function gen_stream(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local count = 0
   while Fuzz.more(src, count, 60) do
     count = count + 1
@@ -44,7 +44,7 @@ end
 --- What `input` passes and answers, fed in `size` bytes at a time.
 local function sized(input: string, size: integer): string, string
   local filter = TermFilter.new()
-  local passed, answered: {string}, {string} = {}, {}
+  local passed, answered: mut {string}, mut {string} = {}, {}
   for at = 1, math.max(#input, 1), size do
     local out, replies = filter:feed(input:sub(at, at + size - 1))
     passed[#passed + 1], answered[#answered + 1] = out, replies
@@ -55,7 +55,7 @@ end
 --- The same, cut where the input's own bytes say, so a failure replays.
 local function cut_by_content(input: string): string, string
   local filter = TermFilter.new()
-  local passed, answered: {string}, {string} = {}, {}
+  local passed, answered: mut {string}, mut {string} = {}, {}
   local from = 1
   for at = 1, #input do
     if (input:byte(at) + at) % 5 == 0 then
@@ -97,7 +97,7 @@ end
 --- ESC begins a listed sequence, written whole, and nothing else but
 --- valid UTF-8 and the controls that pass is left.
 local function unsafe(out: string): string
-  local rest: {string} = {}
+  local rest: mut {string} = {}
   local at = 1
   while true do
     local esc = out:find("\27", at, true)
@@ -121,7 +121,7 @@ local function unsafe(out: string): string
     elseif seq:find("^\27%[[0-2]?K") then
       length = #seq:match("^\27%[%d*K")
     elseif seq:find("^\27%[[su]") or seq:find("^\27[78]") then
-      length = seq:find("^\27%[") and 3 or 2
+      length = if seq:find("^\27%[") then 3 else 2 end
     else
       local numbers = seq:match("^\27%[%?([%d;]+)[hl]")
       if numbers == nil or not listed_modes(numbers) then
@@ -183,7 +183,7 @@ local function linear_holds(input: string): boolean, string
   local out = whole(input:rep(copies))
   if #out > #input * copies then return false, "a stream passed more than it was fed" end
   local filter = TermFilter.new()
-  local passed: {string} = {}
+  local passed: mut {string} = {}
   for _ = 1, copies do passed[#passed + 1] = filter:feed(input) end
   if table.concat(passed) ~= out then return false, "copies fed one after another differ" end
   if #input > 0 then Fuzz.label("fed") end

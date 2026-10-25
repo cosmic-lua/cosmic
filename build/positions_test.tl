@@ -8,8 +8,8 @@ local function module_at(file: string, requires: {string}): positions.Module
   return {
     path = (base:gsub("/", ".")),
     file = file,
-    kind = file:match("_test%.tl$") and "test" or
-      file:match("_example%.tl$") and "example" or "module",
+    kind = if file:match("_test%.tl$") then "test" elseif
+      file:match("_example%.tl$") then "example" else "module" end,
     source = "", source_hash = "", requires = requires, tests = {},
     has_top_level_return = true, generated = false, key = "", lua = "",
   }
@@ -19,9 +19,9 @@ end
 --- project tree or in cosmic's own.
 local function positioned(files: {{string}}, own_tree: boolean,
                           carried?: function(name: string): boolean): boolean, string
-  local modules: {positions.Module} = {}
+  local modules: mut {positions.Module} = {}
   for _, row in ipairs(files) do
-    local requires: {string} = {}
+    local requires: mut {string} = {}
     for i = 2, #row do requires[#requires + 1] = row[i] end
     modules[#modules + 1] = module_at(row[1], requires)
   end

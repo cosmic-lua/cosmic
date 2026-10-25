@@ -30,7 +30,7 @@ local record SyntaxCodes
   catalog: {Row}
 
   --- The row of `code`, or nil.
-  row: function(code: string): Row | nil
+  row: function(code: string): Row?
 end
 
 local GRAMMAR <const> = "the syntactic grammar"
@@ -439,7 +439,7 @@ SyntaxCodes.catalog = {
   },
 }
 
-function SyntaxCodes.row(code: string): SyntaxCodes.Row | nil
+function SyntaxCodes.row(code: string): SyntaxCodes.Row?
   for _, r in ipairs(SyntaxCodes.catalog) do
     if r.code == code then
       return r

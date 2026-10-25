@@ -91,8 +91,8 @@ end
 --- what `body` returned, the bytes the server heard, and its port.
 local function serving(body: function(port: integer, heard: {string}): Ran): Ran, {string}, integer
   local heard: {string} = {}
-  local answered = { value = nil as Ran | nil }
-  local at = { value = nil as integer | nil }
+  local answered = { value = nil as Ran? }
+  local at = { value = nil as integer? }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local task = echoing(listener, function(data: string) heard[#heard + 1] = data end)
@@ -152,10 +152,10 @@ end
 --- What a proxy of the caller's is given: the line of its CONNECT and the
 --- bytes it carries, answered `echo:` as the servers do.
 local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
-  local made = { value = nil as Ran | nil }
-  local request = { value = nil as string | nil }
-  local carried = { value = nil as string | nil }
-  local at = { value = nil as integer | nil }
+  local made = { value = nil as Ran? }
+  local request = { value = nil as string? }
+  local carried = { value = nil as string? }
+  local at = { value = nil as integer? }
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local proxy = assert(listener.address.port)

@@ -56,7 +56,7 @@ end
 
 --- A checker environment that answers `cosmic.*` from this binary's own
 --- sources and nothing else: no path is searched.
-function standalone.environment(built: compiler): compiler.Env | nil, string
+function standalone.environment(built: compiler): compiler.Env?, string
   teal.serve_standard(built)
   local env, trouble = built.new_env({ defaults = teal.defaults() })
   if env == nil then
@@ -70,7 +70,7 @@ end
 --- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
 --- no cache. `grammar` names the checker that compiled it, so that the Lua of
 --- one is never taken for the other's.
-local function cached_path(source: string, variables?: {string:string}, grammar?: string): string | nil
+local function cached_path(source: string, variables?: {string:string}, grammar?: string): string?
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
@@ -80,7 +80,7 @@ local function cached_path(source: string, variables?: {string:string}, grammar?
 end
 
 --- `code`, loaded as `file`'s chunk.
-local function loaded(file: string, code: string): standalone.Main | nil, string
+local function loaded(file: string, code: string): standalone.Main?, string
   local chunk, chunk_trouble = load(code, "@" .. file, "t")
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
@@ -91,13 +91,13 @@ end
 --- `file`'s Teal, checked and compiled to Lua by the new checker ([`build.pipeline`]): nil and every complaint it has when
 --- the file is not clean. The standard library's declarations are the new checker's, the ones the tool carries
 --- ([`build.checker_declarations`]).
-local function generate_new(file: string, source: string, options: Pipeline.Options): string | nil, string
+local function generate_new(file: string, source: string, options: Pipeline.Options): string?, string
   return require("build.pipeline").lone(file, source, options)
 end
 
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
 --- the checker has when it is not clean.
-local function generate(file: string, source: string, built?: compiler): string | nil, string
+local function generate(file: string, source: string, built?: compiler): string?, string
   local load_trouble = ""
   if built == nil then
     built, load_trouble = teal.load()
@@ -110,7 +110,7 @@ local function generate(file: string, source: string, built?: compiler): string 
     return nil, env_trouble
   end
   local code, result = built.gen(source, env, nil, "tl")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if result ~= nil then
     local refused = teal.refused_type_requires(file, source, result)
     for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
@@ -119,7 +119,7 @@ local function generate(file: string, source: string, built?: compiler): string 
         local instead = where == file and
           teal.replacement(e, source, file, refused) or nil
         lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg ..
-          (instead ~= nil and " -- " .. instead or "")
+          (if instead ~= nil then " -- " .. instead else "" end)
       end
     end
   end
@@ -134,7 +134,7 @@ end
 
 --- The checker that reads `file`: `grammar` where given, else the one COSMIC_GRAMMAR names, and the fork's for an island, a
 --- file the pinned release reads and so must stay in the Teal that release reads.
-local function checker_of(file: string, grammar?: GrammarMode.Mode): GrammarMode.Mode | nil, string
+local function checker_of(file: string, grammar?: GrammarMode.Mode): GrammarMode.Mode?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -163,14 +163,14 @@ end
 --- used for a file of [`ci/islands.txt`]: those stay on the fork, as the
 --- release that runs them reads Teal alone.
 function standalone.code(file: string, source: string,
-                         variables?: {string:string}, built?: compiler, grammar?: GrammarMode.Mode): string | nil, string
+                         variables?: {string:string}, built?: compiler, grammar?: GrammarMode.Mode): string?, string
   local mode, mode_trouble = checker_of(file, grammar)
   if mode == nil then
     return nil, mode_trouble
   end
   -- What the new checker reads besides the file is the declarations of the standard library, which the tool carries (so
   -- they are part of the binary the cache name holds).
-  local options: Pipeline.Options | nil = nil
+  local options: Pipeline.Options? = nil
   if mode == "new" then
     local made, trouble = require("build.pipeline").alone()
     if made == nil then
@@ -178,15 +178,15 @@ function standalone.code(file: string, source: string,
     end
     options = made
   end
-  local cached = cached_path(source, variables, mode == "new" and "grammar-new" or nil)
-  local code: string | nil
+  local cached = cached_path(source, variables, if mode == "new" then "grammar-new" else nil end)
+  local code: string?
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
     local read, _ = Fs.read(cached)
     code = read
   end
   if code == nil then
-    local generated: string | nil = nil
+    local generated: string? = nil
     local trouble = ""
     if options ~= nil then
       generated, trouble = generate_new(file, source, options)
@@ -208,7 +208,7 @@ end
 --- of the checker that compiles the file ([`standalone.code`]), which for the new one is its own parse and for the fork's the
 --- fork's. nil and why where the file does not parse. `built`, when given, is the fork's compiler.
 function standalone.requires(file: string, source: string, built?: compiler, grammar?: GrammarMode.Mode):
-    {string} | nil, string
+    {string}?, string
   local mode, mode_trouble = checker_of(file, grammar)
   if mode == nil then
     return nil, mode_trouble
@@ -235,7 +235,7 @@ end
 --- loaded as `file`'s).
 function standalone.compile(file: string, source: string,
                             variables?: {string:string}, built?: compiler,
-                            grammar?: GrammarMode.Mode): standalone.Main | nil, string
+                            grammar?: GrammarMode.Mode): standalone.Main?, string
   local code, trouble = standalone.code(file, source, variables, built, grammar)
   if code == nil then
     return nil, trouble
@@ -245,7 +245,7 @@ end
 
 --- The entry point `produced` names: itself when it is a function, its
 --- `main` field when that is one, nil otherwise.
-function standalone.entry(produced: any): standalone.Main | nil
+function standalone.entry(produced: any): standalone.Main?
   if produced is standalone.Main then
     return produced
   end
@@ -283,7 +283,7 @@ function standalone.run(argv: {string}, why?: string): integer
     end
     return 1
   end
-  local arguments: {string} = { table.unpack(argv, 3) }
+  local arguments: mut {string} = { table.unpack(argv, 3) }
   arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments)

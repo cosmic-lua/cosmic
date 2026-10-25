@@ -38,7 +38,7 @@ end
 --- What stands between a `[` and the key or index inside it: a space
 --- when the key opens with a long string, since `[[` would open one.
 local function inside_brackets(c: Ctx, key: Node): string
-  return first_token(c, key):sub(1, 1) == "[" and " " or ""
+  return if first_token(c, key):sub(1, 1) == "[" then " " else "" end
 end
 
 --- A key or index between brackets, the `]` where the source put it: a
@@ -70,17 +70,17 @@ end
 --- one: the type begins right after it, which is a surer place to start
 --- than the type object's recorded position, since tl stamps a generic
 --- type at the end of its file.
-local function cast_start(c: Ctx, n: Node, anchor: integer | nil): integer | nil
+local function cast_start(c: Ctx, n: Node, anchor: integer?): integer?
   local declared = n.casttype
   if declared == nil then
     return nil
   end
-  return anchor ~= nil and anchor + 1 or
-    typescan.index_at(c.scan, declared.y, declared.x)
+  return if anchor ~= nil then anchor + 1 else
+    typescan.index_at(c.scan, declared.y, declared.x) end
 end
 
 --- What follows an `as` or an `is`, as original bytes.
-local function cast_type(c: Ctx, n: Node, anchor: integer | nil)
+local function cast_type(c: Ctx, n: Node, anchor: integer?)
   if n.casttype == nil then
     refuse(c, "a cast with no type")
     return
@@ -126,7 +126,7 @@ local function items(c: Ctx, list: Node, first_inline: string, table_like?: bool
   for i, item in ipairs(list) do
     local inline = first_inline
     if i > 1 then
-      emit.put(c.em, table_like and ends_in_open_returns(c, list[i - 1]) and ";" or ",")
+      emit.put(c.em, if table_like and ends_in_open_returns(c, list[i - 1]) then ";" else "," end)
       inline = " "
     end
     c.starting = inside == true
@@ -149,7 +149,7 @@ local function bracketed(c: Ctx, list: Node, open: string, close: string,
                          table_like: boolean)
   local close_y = list.yend or list.y
   local close_x = list.xend or list.x
-  local gap = table_like and " " or ""
+  local gap = if table_like then " " else "" end
   emit.put(c.em, open)
   ctx_mod.opens(c)
   if #list == 0 then
@@ -161,7 +161,7 @@ local function bracketed(c: Ctx, list: Node, open: string, close: string,
   end
   items(c, list, gap, table_like, true)
   if table_like and close_y > c.em.line then
-    emit.put(c.em, ends_in_open_returns(c, list[#list]) and ";" or ",")
+    emit.put(c.em, if ends_in_open_returns(c, list[#list]) then ";" else "," end)
   end
   c.closing = true
   ctx_mod.lead_at(c, close_y, close_x, gap)
@@ -224,7 +224,7 @@ local function literal_function(c: Ctx, n: Node)
   -- literal's own line moved, not as the statement around it did. The
   -- line's indentation is counted in spaces alone, as the buffer counts.
   local read = (c.source:sub(c.starts[n.y] or 1):match("^ *") or "")
-  ctx_mod.lead_to_closer(c, closing, xend ~= nil and xend - #"end" + 1 or 1, base,
+  ctx_mod.lead_to_closer(c, closing, if xend ~= nil then xend - #"end" + 1 else 1 end, base,
     base - #read)
   emit.put(c.em, "end")
   ctx_mod.ended(c, n, inline)
@@ -272,7 +272,7 @@ local function operator(c: Ctx, n: Node)
     -- front of another to stay out of a comment.
     local apart = o.op:match("^%a") ~= nil or (o.op == "-" and first_token(c, e1):sub(1, 1) == "-")
     emit.text(c.em, o.op)
-    ctx_mod.lead(c, e1, apart and " " or "")
+    ctx_mod.lead(c, e1, if apart then " " else "" end)
     expression(c, e1)
     return
   end

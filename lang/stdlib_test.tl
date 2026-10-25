@@ -30,7 +30,7 @@ end
 
 --- The display of each declaration of `owner.name` (a library's field) in `r`, in order.
 local function declared(r: Programs.Run, owner: string, name: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   if owner == "StandardLibrary" then
     -- The globals of the file are the values `global name <const> = StandardLibrary.name` gives.
     for _, t in ipairs(r.program.values[name] or {}) do
@@ -160,18 +160,18 @@ end
 --- Checks the programs of `lines` together, the standard library lowered once: each is a line of its own, and has the
 --- errors `codes` says.
 local function lines_have(lines: {Line}): Programs.Run
-  local sources: {string} = {}
+  local sources: mut {string} = {}
   for i, line in ipairs(lines) do
     sources[i] = line.source
   end
   local r = run(table.concat(sources, "\n") .. "\n")
-  local found: {integer: {string}} = {}
+  local found: mut {integer: {string}} = {}
   for _, e in ipairs(r.errors) do
     local at = found[e.y] or {}
     at[#at + 1] = e.code
     found[e.y] = at
   end
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for i, line in ipairs(lines) do
     local got = table.concat(found[i] or {}, " ")
     if got ~= line.codes then

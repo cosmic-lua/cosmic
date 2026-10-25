@@ -337,7 +337,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(every.whole and #every.c_files == 2, "the fixture is no tree of cosmic's own")
   local db = program_modules()
   local function names(files: {string}): string
-    local sorted: {string} = {}
+    local sorted: mut {string} = {}
     for _, file in ipairs(files) do sorted[#sorted + 1] = file end
     table.sort(sorted)
     return table.concat(sorted, " ")
@@ -401,7 +401,7 @@ local function test_changed_rendering_is_checked_before_it_is_accepted()
       "what was rendered does not parse:",
     }
     for i, output in ipairs(outputs) do
-      render_mod.laid_out = function(): render_mod.Layout | nil, string
+      render_mod.laid_out = function(): render_mod.Layout?, string
         return { text = output }
       end
       local result, why = fix.source(built, source, "probe.tl")
@@ -423,7 +423,7 @@ local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
   local ok, trouble = pcall(function(): (any...)
     local source = "local x = 1\n"
     local calls = { value = 0 }
-    render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout | nil, string
+    render_mod.laid_out = function(_: ast.Parsed, src: string): render_mod.Layout?, string
       calls.value = calls.value + 1
       if calls.value == 1 then
         return { text = "local  x = 1\n" }
@@ -544,13 +544,13 @@ end
 --- A world on disk under `root`, where no symbol is known but `known`.
 local function on_disk(root: string, known: {string: {link_resolve.Symbol}}): link_resolve.Context
   return link_resolve.on_disk(root,
-    function(query: string): {link_resolve.Symbol} | nil, string
+    function(query: string): {link_resolve.Symbol}?, string
       return known[query] or {}, ""
     end,
-    function(_: string, _: string): {link_resolve.Symbol} | nil, string
+    function(_: string, _: string): {link_resolve.Symbol}?, string
       return {}, ""
     end,
-    function(): string | nil return nil end)
+    function(): string? return nil end)
 end
 
 --- A link that resolves passes and one that does not fails, naming its
@@ -627,7 +627,7 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
     assert(opened.value == 1, "opened " .. opened.value .. " times")
-    assert(rebuilt.value == (whole and 0 or 1), (whole and "whole" or "part") .. ": rebuilt " .. rebuilt.value)
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value)
   end
 end
 
@@ -639,7 +639,7 @@ local function test_links_keep_why_their_build_failed(tmp: string)
   for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
     local source = fix.link_context(root, false, true,
       function(_: string): boolean, string
-        return case.ok, case.ok and "" or "a.tl: the compiler refused it"
+        return case.ok, if case.ok then "" else "a.tl: the compiler refused it" end
       end,
       function(): docs.Sources return { handles = {}, public = {}, opened = {} } end)
     assert(source.unbuilt == nil, "before a link named a symbol")
@@ -675,12 +675,12 @@ local function test_an_unbuilt_project_still_checks_a_known_modules_members(tmp:
   assert(Fs.write(root .. "/a.tl", 'local Fs = require("cosmic.fs")\n\n--- See [`Fs.nosuch`].\n' ..
       'local function f(): string return (Fs.read("x")) end\n\nreturn f\n'))
   local context = link_resolve.on_disk(root,
-    function(query: string): {link_resolve.Symbol} | nil, string
+    function(query: string): {link_resolve.Symbol}?, string
       if query == "cosmic.fs" then return { { module = "cosmic.fs", symbol = "" } }, "" end
       return {}, ""
     end,
-    function(_: string, _: string): {link_resolve.Symbol} | nil, string return {}, "" end,
-    function(): string | nil return "not built" end)
+    function(_: string, _: string): {link_resolve.Symbol}?, string return {}, "" end,
+    function(): string? return "not built" end)
   local found = fix.links(context, built, { root .. "/a.tl" })
   assert(#found.broken == 1 and found.broken[1]:find("Fs.nosuch does not resolve (cosmic.fs has no nosuch)",
     1, true), table.concat(found.broken, "\n"))

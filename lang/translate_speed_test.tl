@@ -48,7 +48,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return "local x: function(" .. ("a: A | nil, "):rep(n * 20) .. "b: B | nil)"
   end,
   ["a class of many methods"] = function(n: integer): string
-    local out: {string} = { "local record R\n  n: integer\nend\n" }
+    local out: mut {string} = { "local record R\n  n: integer\nend\n" }
     for i = 1, n * 10 do
       out[#out + 1] = "local v" .. i .. " = " .. i .. "\n"
       out[#out + 1] = "function R:m" .. i .. "(a: string | nil): integer\n  self.n = v" .. i .. "\n  return 1\nend\n"
@@ -56,7 +56,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["many records with fields"] = function(n: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i = 1, n * 10 do
       out[#out + 1] = "local record R" .. i .. "\n  a: integer\n  b: {string}\nend\n"
       out[#out + 1] = "local function f" .. i .. "(r: R" .. i .. ", xs: {integer})\n  r.a = 1\n  xs[1] = 2\nend\n"

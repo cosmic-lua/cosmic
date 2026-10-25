@@ -70,7 +70,7 @@ local record Migrate
   --- What a run is asked for.
   record Options
     --- The most rounds of rewrites: 12 where not given.
-    rounds: integer | nil
+    rounds: integer?
   end
 
   --- What a run came to.
@@ -119,7 +119,7 @@ local record Migrate
 
   --- Migrates the project `files` (the text of each `.tl` and `.d.tl` file, by its path below the project's root). nil and
   --- why when the checker cannot be set up.
-  run: function(files: {string: string}, options?: Options): Result | nil, string
+  run: function(files: {string: string}, options?: Options): Result?, string
 
   --- The `cosmic migrate` command line.
   main: function(argv: {string}, streams?: Io): integer
@@ -165,28 +165,28 @@ local record Request
   --- Whether the collection the field holds is declared `mut`, in place of the field.
   collection: boolean
   --- The finding it answers, which says why it was not made.
-  finding: Migrate.Finding | nil
+  finding: Migrate.Finding?
 end
 
 --- The nodes of one file, by what is asked of them.
 local record Facts
-  parent: {integer: Ast.Node}
-  node: {integer: Ast.Node}
+  parent: mut {integer: Ast.Node}
+  node: mut {integer: Ast.Node}
   --- The nodes whose first token starts at an offset, an outer node before the ones it holds.
-  at: {integer: {Ast.Node}}
+  at: mut {integer: {Ast.Node}}
 end
 
 --- What one reading of the whole project found.
 local record Survey
-  counts: {string: integer}
-  findings: {Migrate.Finding}
+  counts: mut {string: integer}
+  findings: mut {Migrate.Finding}
   --- The rewrites made from the findings of a file, by path.
-  rewrites: {string: {Rewrite}}
-  requests: {Request}
+  rewrites: mut {string: {Rewrite}}
+  mut requests: mut {Request}
   --- The path of the file that holds each module.
-  holders: {string: string}
+  holders: mut {string: string}
   --- The families of declarations that were made `mut` together.
-  shared: {Migrate.Shared}
+  shared: mut {Migrate.Shared}
 end
 
 --- Everything a rewrite needs of the file it reads.
@@ -205,7 +205,7 @@ end
 
 local function peel(e: Ast.Exp): Ast.Exp
   local at = e
-  while at is Ast.Paren do
+  while (at.kind == "Paren") do
     at = at.inner
   end
   return at
@@ -214,7 +214,7 @@ end
 local function facts_of(chunk: Ast.Chunk): Facts
   local facts: Facts = { parent = {}, node = {}, at = {} }
   local tokens = chunk.tokens
-  local stack: {Ast.Node} = { chunk }
+  local stack: mut {Ast.Node} = { chunk }
   while #stack > 0 do
     local n = table.remove(stack)
     local b = base_of(n)
@@ -236,15 +236,15 @@ local function facts_of(chunk: Ast.Chunk): Facts
   return facts
 end
 
-local function type_of(ctx: Ctx, node: Ast.Node): Types.Type | nil
+local function type_of(ctx: Ctx, node: Ast.Node): Types.Type?
   return ctx.outcome.types[base_of(node).id]
 end
 
 --- The type of the value `node` read with the nil taken off a type that is only that and nil: a place a test showed was
 --- not nil is typed by what it was declared as.
-local function present(ctx: Ctx, node: Ast.Node): Types.Type | nil
+local function present(ctx: Ctx, node: Ast.Node): Types.Type?
   local t = type_of(ctx, node)
-  if t ~= nil and t is Types.Union and #t.members == 1 then
+  if t ~= nil and (t.tag == "union") and #t.members == 1 then
     return t.members[1]
   end
   return t
@@ -255,7 +255,7 @@ local function text_edit(lo: integer, hi: integer, text: string): Edit
 end
 
 local function rewrite_of(code: string, edits: {Edit}): Rewrite
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for _, e in ipairs(edits) do
     keys[#keys + 1] = e.lo .. ":" .. e.hi .. ":" .. e.text
   end
@@ -269,7 +269,7 @@ local function may_be_false(t: Types.Type): boolean
       tag == "never" or tag == "var" then
     return true
   end
-  if t is Types.Union then
+  if (t.tag == "union") then
     if t.nilable then
       return true
     end
@@ -284,19 +284,19 @@ end
 
 --- Whether `t` is a collection that is not `mut`.
 local function is_view(t: Types.Type): boolean
-  if t is Types.Array then
+  if (t.tag == "array") then
     return not t.mut
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     return not t.mut
   end
   return false
 end
 
 --- The target of an assignment that starts at `offset`.
-local function target_at(ctx: Ctx, offset: integer): Ast.Exp | nil
+local function target_at(ctx: Ctx, offset: integer): Ast.Exp?
   for _, n in ipairs(ctx.facts.at[offset] or {}) do
     local parent = ctx.facts.parent[base_of(n).id]
-    if parent is Ast.Assign then
+    if (parent.kind == "Assign") then
       for _, target in ipairs(parent.targets) do
         if target == n then
           return target
@@ -308,28 +308,28 @@ local function target_at(ctx: Ctx, offset: integer): Ast.Exp | nil
 end
 
 --- The edit that declares the collection type `ty` `mut`, or why it cannot be.
-local function mut_collection(tokens: Lexer.Tokens, ty: Ast.Type): Edit | nil, string
+local function mut_collection(tokens: Lexer.Tokens, ty: Ast.Type): Edit?, string
   local inner: Ast.Type = ty
-  if inner is Ast.TypeOptional then
+  if (inner.kind == "TypeOptional") then
     inner = inner.inner
   end
-  if inner is Ast.TypeArray or inner is Ast.TypeMap then
+  if (inner.kind == "TypeArray") or (inner.kind == "TypeMap") then
     local at = Lexer.offset(tokens, base_of(inner).first)
     return text_edit(at, at, "mut "), ""
-  elseif inner is Ast.TypeMut then
+  elseif (inner.kind == "TypeMut") then
     return nil, "its type is already `mut`"
   end
   return nil, "its type is a name or a union, which `mut` does not apply to"
 end
 
 --- The edit that declares the local or parameter `name` refers to `mut {T}`, or why it cannot be.
-local function declared_mut(ctx: Ctx, name: Ast.Name): Edit | nil, string
+local function declared_mut(ctx: Ctx, name: Ast.Name): Edit?, string
   local id = name.binding
   if id == nil then
     return nil, "`" .. name.text .. "` is not a local or a parameter"
   end
   local owner = ctx.facts.parent[id]
-  if owner is Ast.Local then
+  if (owner.kind == "Local") then
     for i, binding in ipairs(owner.bindings) do
       if base_of(binding).id == id then
         local ty = owner.types[i]
@@ -350,7 +350,7 @@ local function declared_mut(ctx: Ctx, name: Ast.Name): Edit | nil, string
         return mut_collection(ctx.tokens, ty)
       end
     end
-  elseif owner is Ast.Param then
+  elseif (owner.kind == "Param") then
     local ty = owner.type
     if ty == nil then
       return nil, "`" .. name.text .. "` is declared with no type"
@@ -376,9 +376,9 @@ end
 
 --- The request to declare the field `field` of the value `object`, or why it cannot be asked.
 local function field_request(ctx: Ctx, code: string, object: Ast.Exp, field: string, collection: boolean):
-    Request | nil, string
+    Request?, string
   local t = present(ctx, object)
-  if t == nil or not (t is Types.Named) then
+  if t == nil or not ((t.tag == "named")) then
     return nil, "the value is not a record, a class or an interface"
   end
   if t.value then
@@ -409,9 +409,9 @@ end
 
 --- The declarations that must declare a field alike.
 local record Family
-  members: {Types.Decl}
+  members: mut {Types.Decl}
   --- Why they cannot: a class that lists one of them declares the field as a method, which is never `mut`. "" otherwise.
-  blocked: string
+  mut blocked: string
 end
 
 --- The declarations that must declare `field` as `decl` does: the interfaces above it that declare it, and the
@@ -422,13 +422,13 @@ local function family(list: {Types.Decl}, decl: Types.Decl, field: string): Fami
   if has_method(decl, field) then
     made.blocked = "`" .. decl.name .. "` declares `" .. field .. "` as a method, which is never `mut`"
   end
-  local held: {Types.Decl: boolean} = { [decl] = true }
+  local held: mut {Types.Decl: boolean} = { [decl] = true }
   local at = 1
   while at <= #made.members do
     local body = assert(made.members[at]).body
     if body ~= nil then
       for _, super in ipairs(body.supers) do
-        if super is Types.Named and not held[super.decl] and declares(super.decl, field) then
+        if (super.tag == "named") and not held[super.decl] and declares(super.decl, field) then
           held[super.decl] = true
           made.members[#made.members + 1] = super.decl
         end
@@ -443,7 +443,7 @@ local function family(list: {Types.Decl}, decl: Types.Decl, field: string): Fami
       local body = d.body
       if body ~= nil and not held[d] then
         for _, super in ipairs(body.supers) do
-          if super is Types.Named and held[super.decl] then
+          if (super.tag == "named") and held[super.decl] then
             if has_method(d, field) then
               made.blocked = "`" .. d.name .. "` lists `" .. super.decl.name .. "` and declares `" .. field ..
                 "` as a method, which is never `mut`"
@@ -468,8 +468,8 @@ end
 
 --- A rewrite of the file read, or a request for one of the file that declares a field, or why neither.
 local record Made
-  rewrite: Rewrite | nil
-  request: Request | nil
+  rewrite: Rewrite?
+  request: Request?
   why: string
 end
 
@@ -479,7 +479,7 @@ end
 
 local function map_field(ctx: Ctx, p: Driver.Problem): Made
   for _, n in ipairs(ctx.facts.at[p.offset] or {}) do
-    if n is Ast.Field then
+    if (n.kind == "Field") then
       local t = present(ctx, n.object)
       if t ~= nil and t.tag == "map" then
         local last = base_of(n).last
@@ -496,9 +496,9 @@ end
 
 local function and_ternary(ctx: Ctx, p: Driver.Problem): Made
   for _, n in ipairs(ctx.facts.at[p.offset] or {}) do
-    if n is Ast.Binary and n.op == "or" then
+    if (n.kind == "Binary") and n.op == "or" then
       local conjunction = n.left
-      if conjunction is Ast.Binary and conjunction.op == "and" then
+      if (conjunction.kind == "Binary") and conjunction.op == "and" then
         local middle = type_of(ctx, conjunction.right)
         if middle == nil or may_be_false(middle) then
           return nothing("the value after `and` can be false or nil, where `if` answers it and `or` answers what follows")
@@ -526,15 +526,15 @@ end
 
 local function view_written(ctx: Ctx, p: Driver.Problem): Made
   local target = target_at(ctx, p.offset)
-  if target is Ast.Index then
+  if (target.kind == "Index") then
     local owner = peel(target.object)
-    if owner is Ast.Name then
+    if (owner.kind == "Name") then
       local edit, why = declared_mut(ctx, owner)
       if edit == nil then
         return nothing(why)
       end
       return { rewrite = rewrite_of("view_written", { edit }), request = nil, why = "" }
-    elseif owner is Ast.Field then
+    elseif (owner.kind == "Field") then
       local request, why = field_request(ctx, "view_written", owner.object, owner.name, true)
       if request == nil then
         return nothing(why)
@@ -548,13 +548,13 @@ end
 
 local function field_fixed(ctx: Ctx, p: Driver.Problem): Made
   local target = target_at(ctx, p.offset)
-  local object: Ast.Exp | nil = nil
+  local object: Ast.Exp? = nil
   local field = ""
-  if target is Ast.Field then
+  if (target.kind == "Field") then
     object, field = target.object, target.name
-  elseif target is Ast.Index then
+  elseif (target.kind == "Index") then
     local key = peel(target.key)
-    if key is Ast.String then
+    if (key.kind == "String") then
       object, field = target.object, key.value
     end
   end
@@ -569,7 +569,7 @@ local function field_fixed(ctx: Ctx, p: Driver.Problem): Made
 end
 
 --- The type `t` written as the type of an element, or nil where it is not a plain one.
-local function plain(ctx: Ctx, t: Types.Type | nil): string | nil
+local function plain(ctx: Ctx, t: Types.Type?): string?
   if t == nil then
     return nil
   end
@@ -578,7 +578,7 @@ local function plain(ctx: Ctx, t: Types.Type | nil): string | nil
     return tag
   elseif tag == "boolean" then
     return "boolean"
-  elseif t is Types.Named and #t.args == 0 and not t.value and t.decl.module == ctx.outcome.module then
+  elseif (t.tag == "named") and #t.args == 0 and not t.value and t.decl.module == ctx.outcome.module then
     return t.decl.name
   end
   return nil
@@ -587,11 +587,11 @@ end
 --- Whether `key` is `#object + 1`, which appends to `object`.
 local function appends(key: Ast.Exp, object: Ast.Name): boolean
   local k = peel(key)
-  if k is Ast.Binary and k.op == "+" then
+  if (k.kind == "Binary") and k.op == "+" then
     local length, one = k.left, k.right
-    if length is Ast.Unary and length.op == "#" and one is Ast.Integer and one.value == 1 then
+    if (length.kind == "Unary") and length.op == "#" and (one.kind == "Integer") and one.value == 1 then
       local counted = peel(length.operand)
-      return counted is Ast.Name and counted.binding == object.binding
+      return (counted.kind == "Name") and counted.binding == object.binding
     end
   end
   return false
@@ -599,7 +599,7 @@ end
 
 --- The type of `local name = {}` that the first write to `name` shows: `mut {T}` for an append or a `table.insert`, and
 --- `mut {string: T}` for a string key.
-local function written_type(ctx: Ctx, var: integer): string | nil
+local function written_type(ctx: Ctx, var: integer): string?
   local scoped = ctx.outcome.scoped
   local entry = scoped.vars[var]
   if entry == nil then
@@ -608,9 +608,9 @@ local function written_type(ctx: Ctx, var: integer): string | nil
   for _, read in ipairs(entry.reads) do
     local name = ctx.facts.node[read]
     local parent = ctx.facts.parent[read]
-    if name is Ast.Name and parent is Ast.Index and peel(parent.object) == name then
+    if (name.kind == "Name") and (parent.kind == "Index") and peel(parent.object) == name then
       local assign = ctx.facts.parent[base_of(parent).id]
-      if assign is Ast.Assign then
+      if (assign.kind == "Assign") then
         for j, target in ipairs(assign.targets) do
           local value = assign.values[j]
           if target == parent and value ~= nil and #assign.targets == #assign.values then
@@ -629,11 +629,11 @@ local function written_type(ctx: Ctx, var: integer): string | nil
           end
         end
       end
-    elseif name is Ast.Name and parent is Ast.Call and parent.args[1] == name and #parent.args == 2 then
+    elseif (name.kind == "Name") and (parent.kind == "Call") and parent.args[1] == name and #parent.args == 2 then
       local callee = parent.callee
-      if callee is Ast.Field and callee.name == "insert" then
+      if (callee.kind == "Field") and callee.name == "insert" then
         local table_name = callee.object
-        if table_name is Ast.Name and table_name.text == "table" then
+        if (table_name.kind == "Name") and table_name.text == "table" then
           local element = plain(ctx, type_of(ctx, assert(parent.args[2])))
           if element == nil then
             return nil
@@ -648,9 +648,9 @@ end
 
 local function literal_needs_type(ctx: Ctx, p: Driver.Problem): Made
   for _, n in ipairs(ctx.facts.at[p.offset] or {}) do
-    if n is Ast.Table and #n.items == 0 then
+    if (n.kind == "Table") and #n.items == 0 then
       local owner = ctx.facts.parent[base_of(n).id]
-      if owner is Ast.Local and #owner.bindings == 1 and #owner.values == 1 and #owner.types == 0 then
+      if (owner.kind == "Local") and #owner.bindings == 1 and #owner.values == 1 and #owner.types == 0 then
         local binding = assert(owner.bindings[1])
         if binding.attr ~= nil then
           return nothing("the local is declared with an attribute")
@@ -675,17 +675,17 @@ local function interface_disagrees(ctx: Ctx, p: Driver.Problem): Made
     return nothing("")
   end
   for _, n in ipairs(ctx.facts.at[p.offset] or {}) do
-    local member: Ast.Node | nil = n
-    if n is Ast.Binding then
+    local member: Ast.Node? = n
+    if (n.kind == "Binding") then
       member = ctx.facts.parent[base_of(n).id]
     end
-    if member is Ast.FieldDecl or member is Ast.Method then
-      local names: {string} = {}
+    if (member.kind == "FieldDecl") or (member.kind == "Method") then
+      local names: mut {string} = {}
       local at = ctx.facts.parent[base_of(member).id]
-      while at ~= nil and not (at is Ast.Chunk) do
-        if at is Ast.Record or at is Ast.Class or at is Ast.Interface then
+      while at ~= nil and not ((at.kind == "Chunk")) do
+        if (at.kind == "Record") or (at.kind == "Class") or (at.kind == "Interface") then
           table.insert(names, 1, at.name.name)
-        elseif not (at is Ast.Block) then
+        elseif not ((at.kind == "Block")) then
           return nothing("the declaration is in the body of a function")
         end
         at = ctx.facts.parent[base_of(at).id]
@@ -733,8 +733,8 @@ end
 -- TODO: take the offsets of any text the checker adds to a file from the checker, not only a [`Shape.record_of`] splice found by
 -- comparing the two texts, once [`Driver.Outcome`] answers the splices its source's `mend` and [`build.syntax_shape_specs`] made.
 -- A file whose text is more than insertions is read, its findings are listed with a note, and nothing is rewritten in it.
-local function insertions(original: string, spliced: string): {Shift} | nil
-  local shifts: {Shift} = {}
+local function insertions(original: string, spliced: string): {Shift}?
+  local shifts: mut {Shift} = {}
   local i, j = 1, 1
   local n = #original
   while i <= n do
@@ -757,7 +757,7 @@ local function insertions(original: string, spliced: string): {Shift} | nil
 end
 
 --- The offset in the text before the splices of `offset` in the text after them, or nil where it is inside a splice.
-local function unshifted(shifts: {Shift}, offset: integer): integer | nil
+local function unshifted(shifts: {Shift}, offset: integer): integer?
   local added = 0
   for _, s in ipairs(shifts) do
     local start = s.at + 1 + added
@@ -773,7 +773,7 @@ local function unshifted(shifts: {Shift}, offset: integer): integer | nil
 end
 
 --- `edit`, which is in the text after the splices, as an edit of the text before them.
-local function unshifted_edit(shifts: {Shift}, edit: Edit): Edit | nil
+local function unshifted_edit(shifts: {Shift}, edit: Edit): Edit?
   if #shifts == 0 then
     return edit
   end
@@ -794,7 +794,7 @@ end
 --- Reads the project `texts` (the paths `paths`) with the checker and makes the rewrites its findings call for.
 local function survey(texts: {string: string}, paths: {string}, options: Pipeline.Options): Survey
   local made: Survey = { counts = {}, findings = {}, rewrites = {}, requests = {}, holders = {}, shared = {} }
-  local entries: {{string}} = {}
+  local entries: mut {{string}} = {}
   for _, path in ipairs(paths) do
     entries[#entries + 1] = { path, assert(texts[path]) }
   end
@@ -802,7 +802,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
     return false
   end)
   local build = TreeProgram.build(index, options.globals, true, nil, Pipeline.carried())
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for _, source in ipairs(index.sources) do
     if index.by_module[source.module] == source then
       modules[#modules + 1] = source.module
@@ -816,7 +816,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
     end
     local path = outcome.source.filename
     local wanted = false
-    local recorded: {Migrate.Finding} = {}
+    local recorded: mut {Migrate.Finding} = {}
     for i, p in ipairs(outcome.errors) do
       made.counts[p.code] = (made.counts[p.code] or 0) + 1
       local finding: Migrate.Finding = { path = path, y = p.y, x = p.x, code = p.code, msg = p.msg, note = "" }
@@ -847,7 +847,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
     local ctx: Ctx = { outcome = outcome, facts = facts_of(outcome.chunk), tokens = outcome.chunk.tokens, index = index,
       decls = build.program.store.list,
     }
-    local list: {Rewrite} = {}
+    local list: mut {Rewrite} = {}
     for i, p in ipairs(outcome.errors) do
       local maker = MAKERS[p.code]
       if maker ~= nil then
@@ -861,7 +861,7 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
           request.finding = recorded[i]
           made.requests[#made.requests + 1] = request
         elseif rewrite ~= nil then
-          local edits: {Edit} = {}
+          local edits: mut {Edit} = {}
           for _, e in ipairs(rewrite.edits) do
             local moved = unshifted_edit(shifts, e)
             if moved ~= nil then
@@ -878,8 +878,8 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
     end
     made.rewrites[path] = list
   end)
-  local families: {string: Family} = {}
-  local requests: {Request} = {}
+  local families: mut {string: Family} = {}
+  local requests: mut {Request} = {}
   for _, request in ipairs(made.requests) do
     local key = request_key(request)
     local together = families[key]
@@ -919,17 +919,17 @@ local function survey(texts: {string: string}, paths: {string}, options: Pipelin
 end
 
 --- The members of the declaration `node`, or nil where it declares none.
-local function members_of(node: Ast.Node): {Ast.Member} | nil
-  if node is Ast.Record or node is Ast.Class or node is Ast.Interface then
+local function members_of(node: Ast.Node): {Ast.Member}?
+  if (node.kind == "Record") or (node.kind == "Class") or (node.kind == "Interface") then
     return node.members
   end
   return nil
 end
 
 --- The declaration among `members` named `name`.
-local function named(members: {Ast.Node}, name: string): Ast.Node | nil
+local function named(members: {Ast.Node}, name: string): Ast.Node?
   for _, m in ipairs(members) do
-    if m is Ast.Record or m is Ast.Class or m is Ast.Interface then
+    if (m.kind == "Record") or (m.kind == "Class") or (m.kind == "Interface") then
       if m.name.name == name then
         return m
       end
@@ -939,17 +939,17 @@ local function named(members: {Ast.Node}, name: string): Ast.Node | nil
 end
 
 --- The rewrite that `request` asks for in the file `path` whose text is `text`, or why there is none.
-local function resolved(request: Request, path: string, text: string): Rewrite | nil, string
-  local dialect: Ast.Dialect = path:match("%.d%.tl$") ~= nil and "decl" or "tl"
+local function resolved(request: Request, path: string, text: string): Rewrite?, string
+  local dialect: Ast.Dialect = if path:match("%.d%.tl$") ~= nil then "decl" else "tl" end
   local read = Driver.parse(Driver.source(request.decl.module, path, text, dialect))
   if #read.syntax > 0 then
     return nil, path .. " does not parse"
   end
-  local level: {Ast.Node} = {}
+  local level: mut {Ast.Node} = {}
   for _, s in ipairs(read.chunk.body.stats) do
     level[#level + 1] = s
   end
-  local found: Ast.Node | nil = nil
+  local found: Ast.Node? = nil
   for _, name in ipairs(request.decl.names) do
     found = named(level, name)
     if found == nil then
@@ -961,7 +961,7 @@ local function resolved(request: Request, path: string, text: string): Rewrite |
     end
   end
   for _, m in ipairs(level) do
-    if m is Ast.FieldDecl and m.name.name == request.field then
+    if (m.kind == "FieldDecl") and m.name.name == request.field then
       local tokens = read.chunk.tokens
       if request.collection then
         local edit, why = mut_collection(tokens, m.type)
@@ -983,9 +983,9 @@ end
 --- `text` with the edits of `rewrites` made, each rewrite once, and the rewrites made. No two edits share a byte or the place
 --- of an insertion: a rewrite is one token or one declaration, and none edits another's.
 local function edited(text: string, rewrites: {Rewrite}): string, {Rewrite}
-  local made: {Rewrite} = {}
-  local edits: {Edit} = {}
-  local seen: {string: boolean} = {}
+  local made: mut {Rewrite} = {}
+  local edits: mut {Edit} = {}
+  local seen: mut {string: boolean} = {}
   for _, r in ipairs(rewrites) do
     if not seen[r.key] then
       seen[r.key] = true
@@ -1003,7 +1003,7 @@ local function edited(text: string, rewrites: {Rewrite}): string, {Rewrite}
     end
     return a.text < b.text
   end)
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local at = 1
   for _, e in ipairs(edits) do
     assert(e.lo >= at, "two rewrites edit the same bytes")
@@ -1019,12 +1019,12 @@ end
 --- (every file is in `texts`), and the rewrites made by code.
 local function apply(found: Survey, texts: {string: string}):
     {string: string}, {string: integer}
-  local per_file: {string: {Rewrite}} = {}
+  local per_file: mut {string: {Rewrite}} = {}
   for path, list in pairs(found.rewrites) do
     per_file[path] = list
   end
-  local requested: {string: boolean} = {}
-  local refused: {string: string} = {}
+  local requested: mut {string: boolean} = {}
+  local refused: mut {string: string} = {}
   for _, request in ipairs(found.requests) do
     local key = request_key(request)
     local path = found.holders[request.decl.module]
@@ -1050,8 +1050,8 @@ local function apply(found: Survey, texts: {string: string}):
       finding.note = why
     end
   end
-  local changed: {string: string} = {}
-  local counts: {string: integer} = {}
+  local changed: mut {string: string} = {}
+  local counts: mut {string: integer} = {}
   for path, list in pairs(per_file) do
     local text = assert(texts[path])
     local made_text, made = edited(text, list)
@@ -1065,14 +1065,14 @@ local function apply(found: Survey, texts: {string: string}):
   return changed, counts
 end
 
-function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrate.Result | nil, string
+function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrate.Result?, string
   local started = Clock.monotonic_ns()
   local rounds = (options ~= nil and options.rounds) or ROUNDS
   local checking, why = Pipeline.alone()
   if checking == nil then
     return nil, why
   end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(files) do
     paths[#paths + 1] = path
   end
@@ -1081,7 +1081,7 @@ function Migrate.run(files: {string: string}, options?: Migrate.Options): Migrat
     texts = {}, changed = {}, untranslated = {}, before = {}, after = {}, rewrites = {}, left = {}, unchecked = {},
     shared = {}, rounds = 0, converged = true, nanoseconds = 0,
   }
-  local shared_seen: {string: boolean} = {}
+  local shared_seen: mut {string: boolean} = {}
   for _, path in ipairs(paths) do
     local translated = Translate.translate(assert(files[path]), path)
     result.texts[path] = translated.text
@@ -1147,12 +1147,12 @@ end
 
 --- The counts by code as `code n, code n`, or `none`.
 local function listed(counts: {string: integer}): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for code, n in pairs(counts) do
     parts[#parts + 1] = code .. " " .. n
   end
   table.sort(parts)
-  return #parts == 0 and "none" or table.concat(parts, ", ")
+  return if #parts == 0 then "none" else table.concat(parts, ", ") end
 end
 
 local function total(counts: {string: integer}): integer
@@ -1173,7 +1173,7 @@ end
 
 --- The files of `path` below the working directory: itself where it is a file, and the `.tl` files below it where it is a
 --- directory, apart from hidden directories and `vendor`. nil and why where it cannot be read.
-local function expand(path: string): {string} | nil, string
+local function expand(path: string): {string}?, string
   local directory, trouble = Fs.is_dir(path)
   if directory == nil then
     return nil, trouble
@@ -1187,8 +1187,8 @@ local function expand(path: string): {string} | nil, string
   if walked == nil then
     return nil, why
   end
-  local out: {string} = {}
-  local prefix = path == "." and "" or path:gsub("/+$", "") .. "/"
+  local out: mut {string} = {}
+  local prefix = if path == "." then "" else path:gsub("/+$", "") .. "/" end
   for _, relative in ipairs(walked) do
     if is_source(relative) then
       out[#out + 1] = prefix .. relative
@@ -1213,7 +1213,7 @@ end
 --- The files below the working directory that this run was not given and that mention a declaration it changed `mut` together
 --- with the types that list it: they may list it, and need the same change. A line each; none where nothing was changed.
 local function unnamed_mentions(files: {string: string}, shared: {Migrate.Shared}): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if #shared == 0 then
     return lines
   end
@@ -1247,8 +1247,8 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     return bare.refused
   end
   local checking = parsed.set["--check"] or false
-  local files: {string: string} = {}
-  local modes: {string: integer} = {}
+  local files: mut {string: string} = {}
+  local modes: mut {string: integer} = {}
   for _, word in ipairs(parsed.words) do
     if word == "" then
       complain(bare.empty_file)
@@ -1258,7 +1258,7 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     while given:sub(1, 2) == "./" do
       given = given:sub(3)
     end
-    local listed_files, why = expand(given == "" and "." or given)
+    local listed_files, why = expand(if given == "" then "." else given end)
     if listed_files == nil then
       complain(why)
       return bare.refused
@@ -1284,7 +1284,7 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
         end
         files[path] = text
         local st, _ = Fs.stat(path)
-        modes[path] = st ~= nil and st.mode & 0x1ff or 0x1a4
+        modes[path] = if st ~= nil then st.mode & 0x1ff else 0x1a4 end
       end
     end
   end
@@ -1294,7 +1294,7 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     return bare.failed
   end
   -- The files are written first, so that the report says what was written.
-  local written: {string} = {}
+  local written: mut {string} = {}
   local write_trouble = ""
   if not checking then
     for _, path in ipairs(result.changed) do
@@ -1311,9 +1311,9 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
       written[#written + 1] = path
     end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, path in ipairs(checking and result.changed or written) do
-    lines[#lines + 1] = (checking and "would migrate " or "migrated ") .. path
+    lines[#lines + 1] = (if checking then "would migrate " else "migrated " end) .. path
   end
   for _, line in ipairs(result.untranslated) do
     lines[#lines + 1] = line .. ": not translated: write it by hand"
@@ -1340,11 +1340,11 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
   for _ in pairs(files) do
     paths_count = paths_count + 1
   end
-  lines[#lines + 1] = "read " .. plural.count(paths_count, "file") .. ", " .. (checking and "would change " or "changed ") ..
+  lines[#lines + 1] = "read " .. plural.count(paths_count, "file") .. ", " .. (if checking then "would change " else "changed " end) ..
     #result.changed .. "; findings " .. total(result.before) .. " after the translation (" .. listed(result.before) ..
     "), " .. total(result.after) .. " after " .. plural.count(total(result.rewrites), "rewrite") .. " in " ..
     plural.count(result.rounds, "round") .. " (" .. listed(result.after) .. ")"
-  local open: {string} = {}
+  local open: mut {string} = {}
   if checking and #result.changed > 0 then
     open[#open + 1] = plural.count(#result.changed, "file") .. " would change"
   end
@@ -1364,13 +1364,13 @@ function Migrate.main(argv: {string}, streams?: Migrate.Io): integer
     open[#open + 1] = "the rewrites were still going after " .. plural.count(result.rounds, "round") .. ": run migrate again"
   end
   if #open == 0 then
-    lines[#lines + 1] = checking and "migrate: nothing would change and nothing is left" or "migrate: nothing is left"
+    lines[#lines + 1] = if checking then "migrate: nothing would change and nothing is left" else "migrate: nothing is left" end
   else
     lines[#lines + 1] = "migrate: exit 1: " .. table.concat(open, "; ")
   end
   local sent = bare.delivered(complain, to.out(table.concat(lines, "\n") .. "\n"))
   if write_trouble ~= "" then
-    complain(write_trouble .. (#written > 0 and "; already migrated: " .. table.concat(written, ", ") or "; none was written"))
+    complain(write_trouble .. (if #written > 0 then "; already migrated: " .. table.concat(written, ", ") else "; none was written" end))
     return bare.failed
   end
   if not sent then

@@ -116,7 +116,7 @@ local record test_sandbox
     --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
     --- nil where it keeps the runner's, as a worker whose module does
     --- not declare `tool` does.
-    program: string | nil
+    program: string?
     --- The host
     --- paths among `sandbox.unveil.reads` that are run, which the policy
     --- grants `x` as well: the program and its core, and what its module
@@ -173,7 +173,7 @@ local UNVEIL_MAX <const> = confine.unveil_max
 --- each worker sandboxed wherever one can be; "on", "1", for every
 --- worker sandboxed or the run failing; "off", "0", for none. Any other
 --- value is an error, so a misspelt one never passes for any of them.
-function test_sandbox.mode(): string | nil, string
+function test_sandbox.mode(): string?, string
   local value = Env.get(test_sandbox.switch)
   if value == nil or value == "" then return "auto", "" end
   if value == "1" then return "on", "" end
@@ -198,9 +198,9 @@ local parent_place <const> = "/tree-up"
 --- scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end
-  out.COSMIC_TEST_NOEXEC = effective.noexec_ready and "/noexec" or nil
+  out.COSMIC_TEST_NOEXEC = if effective.noexec_ready then "/noexec" else nil end
   out.COSMIC_TEST_PARENT = #(effective.parent or {}) > 0 and parent_place or nil
   out.TMPDIR = test_sandbox.scratch
   out.COSMIC_BUILD_HOME = build_home
@@ -277,7 +277,7 @@ end
 function test_sandbox.cache_writes(effective: test_inputs.Effective,
                                    environment: {string:string}): {string}
   local cores = caches.cores(environment)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, path in ipairs(effective.cache_paths or {}) do
     if path ~= cores then out[#out + 1] = path end
   end
@@ -286,7 +286,7 @@ end
 
 --- What of `path` lies beneath `dir` -- "" for `dir` itself, else the
 --- rest from its "/" on -- or nil for a path not beneath it.
-local function beneath(path: string, dir: string): string | nil
+local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
   if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
   if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
@@ -327,7 +327,7 @@ end
 --- worker has a tree of its own there: it is given at
 --- /program/<its name> instead (`program_place`). Nil where it
 --- keeps its own name.
-local function program_name(root: string): string | nil, boolean
+local function program_name(root: string): string?, boolean
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--artifact" then return nil, false end
   local program = confine.executable()
@@ -345,7 +345,7 @@ end
 --- `path` with no "/" after it but for "/" itself.
 local function trimmed(path: string): string
   local out = path:gsub("/+$", "")
-  return out == "" and "/" or out
+  return if out == "" then "/" else out end
 end
 
 --- Why a worker of `effective` is not given a scratch directory of its own
@@ -377,7 +377,7 @@ local function why_shared_scratch(effective: test_inputs.Effective, reads: {stri
     local there, _ = sys.stat(path)
     if there ~= nil and (there.kind == "dir" or there.kind == "socket") and
         path ~= "/proc" then
-      return "it reads " .. path .. ", " .. (there.kind == "dir" and "a directory" or "a socket") ..
+      return "it reads " .. path .. ", " .. (if there.kind == "dir" then "a directory" else "a socket" end) ..
         " (a grant of its Test.policy): grant the files it reads, not a directory"
     end
   end
@@ -424,7 +424,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- not have it as the tree's own, in its build directory. A worker
   -- whose module does not declare `tool` has no name to read it by, so
   -- it keeps the runner's, which it cannot open either.
-  local program, own_program: string | nil, boolean = nil, false
+  local program, own_program: string?, boolean = nil, false
   if effective.tool then program, own_program = program_name(root) end
   local executable = confine.executable()
   local layout = build_layout(root)
@@ -433,10 +433,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- cosmic.db but for a run that writes its own beside it (`projection`).
   local store = projection or layout.projection
   local base = confine.worker_unveil(nil, scratch, false, effective.tool and not own_program, store)
-  local reads: {string} = {}
-  local at: {string:string} = {}
+  local reads: mut {string} = {}
+  local at: mut {string:string} = {}
   local seen: {string:boolean} = {}
-  local runs: {string:boolean} = {}
+  local runs: mut {string:boolean} = {}
   -- With `run` where the path is run, as it may be by a worker's test; a
   -- read of a path of the closure is not.
   local function give(path: string, inside?: string, run?: boolean)
@@ -501,7 +501,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
       give(source, inside, run)
     end
   end
-  local files: {string} = {}
+  local files: mut {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
   -- The closure's files, which the module's key holds already.
@@ -554,7 +554,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
           if refused == "" and where ~= "" and own ~= "" and
               ((mine and Fs.within(where, own)) or Fs.within(own, where)) then
             refused = string.format("Test.policy grant of the host path %q: %s is where its " ..
-                "sandbox has %s", path, plain, mine and "its scratch directory" or own)
+                "sandbox has %s", path, plain, if mine then "its scratch directory" else own end)
           end
         end
       end
@@ -578,7 +578,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     end
     give(source, parent_place .. "/" .. relative)
   end
-  local writes: {string} = { scratch }
+  local writes: mut {string} = { scratch }
   at[scratch] = test_sandbox.scratch
   -- Each host cache the module declares, writable at its own name, made
   -- first where it is not there yet, so a fresh host has one to bind.
@@ -609,7 +609,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- `host` directory would meet the same ENOENT were the host to rename
   -- another over it as a worker starts, which nothing in a run does
   -- today.
-  local given_reads: {string} = {}
+  local given_reads: mut {string} = {}
   for _, path in ipairs(reads) do
     local held_by_cache = false
     if at[path] == nil then
@@ -690,22 +690,22 @@ end
 function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: string,
                              effective: test_inputs.Effective): test_sandbox.Plan
   local unveil = assert(plan.sandbox.unveil)
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   for i, path in ipairs(unveil.reads) do reads[i] = path end
-  local writes: {string} = {}
+  local writes: mut {string} = {}
   for i, path in ipairs(unveil.writes or {}) do writes[i] = path == from and scratch or path end
-  local at: {string:string} = {}
+  local at: mut {string:string} = {}
   for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for name, value in pairs(plan.env) do env[name] = value end
-  local runs: {string:boolean} = {}
+  local runs: mut {string:boolean} = {}
   for path in pairs(plan.runs) do runs[path] = true end
   local made, trouble = make_own_cores(effective, scratch)
   return {
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = plan.sandbox.offline },
     env = env,
     over = plan.over,
-    trouble = made and "" or "a cache it declares: " .. trouble,
+    trouble = if made then "" else "a cache it declares: " .. trouble end,
     program = plan.program,
     runs = runs,
     own_scratch = plan.own_scratch,
@@ -744,7 +744,7 @@ end
 --- process whose environment dropped [`confine.held_variable`], which
 --- would have named it.
 function test_sandbox.refusal(trouble: string): string
-  local why: string | nil = nil
+  local why: string? = nil
   if trouble:find("No space left on device", 1, true) then
     why = "this host allows no user namespaces (user.max_user_namespaces is 0)"
   elseif trouble:find("Operation not permitted", 1, true) or

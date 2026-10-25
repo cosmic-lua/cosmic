@@ -102,10 +102,10 @@ end
 
 local record Result
   --- The child's exit status, or nil when a signal ended it.
-  code: integer | nil
+  mut code: integer?
   --- The number of the signal that ended the child, or nil when it
   --- exited by itself.
-  signal: integer | nil
+  mut signal: integer?
   --- Whether the child exited with status 0 and was not ended for
   --- running past its timeout.
   ok: boolean
@@ -113,14 +113,14 @@ local record Result
   --- [`Options.timeout_ns`], or [`Handle.wait`]'s -- and was ended for it.
   timed_out: boolean
   --- Captured stdout, when stdout was "capture".
-  stdout: string | nil
+  mut stdout: string?
   --- Captured stderr, when stderr was "capture".
-  stderr: string | nil
+  mut stderr: string?
   --- Every captured stream by the child's descriptor number, stdout and
   --- stderr included.
-  captured: {integer:string}
+  captured: mut {integer:string}
   --- Whether any captured stream lost its beginning to `capture_limit`.
-  truncated: boolean
+  mut truncated: boolean
 end
 
 --- The paths a sandbox gives a child ([`Sandbox.unveil`]), each
@@ -583,19 +583,19 @@ end
 --- One captured or streamed output of one child.
 local record Pipe
   --- The read end, nil once the stream has ended and it is closed.
-  fd?: integer
+  mut fd?: integer
   child_fd: integer
-  chunks: {string}
-  size: integer
-  truncated: boolean
+  mut chunks: mut {string}
+  mut size: integer
+  mut truncated: boolean
   --- A stream the caller reads, not one kept for the Result: `chunks`
   --- is then a queue, read from `head` and written at `tail`, and
   --- `size` is how much of it is unread.
   streamed: boolean
   --- The first terminal read or raw poll failure, after any queued bytes.
-  failure?: string
-  head: integer
-  tail: integer
+  mut failure?: string
+  mut head: integer
+  mut tail: integer
   --- The Reader ended this pipe, explicitly or after an escaped writer.
   reader_closed: boolean
   consuming: boolean
@@ -608,9 +608,9 @@ local record DrainOptions
   --- Required positive total byte budget across both outputs.
   max_bytes: integer
   --- Required exactly when stdout was started as "stream"; never closed here.
-  stdout: Stream.Writer | nil
+  stdout: Stream.Writer?
   --- Required exactly when stderr was started as "stream"; never closed here.
-  stderr: Stream.Writer | nil
+  stderr: Stream.Writer?
 end
 
 --- Why a bounded output drain stopped.
@@ -633,7 +633,7 @@ local record DrainResult
 end
 
 local record Handle
-  metamethod __close: function(Handle)
+  __close: function(Handle)
   --- The child's process id.
   pid: integer
   --- Whether the child leads a process group of its own that this
@@ -651,9 +651,9 @@ local record Handle
   --- it left, and a write fails. A read or raw poll failure follows the
   --- bytes already queued, then remains the reader's failure on later
   --- reads.
-  stdout_stream: Stream.Reader | nil
+  stdout_stream: Stream.Reader?
   --- See `stdout_stream`.
-  stderr_stream: Stream.Reader | nil
+  stderr_stream: Stream.Reader?
   --- A Writer to stdin, when it was "stream": [`Stream.to_fd`] over the
   --- pipe, so a write goes out whole and a failure is sticky; its `close`
   --- (or `abort`) closes the child's stdin, so the child reads end of
@@ -663,39 +663,39 @@ local record Handle
   --- reading until its streamed stdout is read, which sits unread at
   --- `capture_limit`, waits forever -- read the outputs as the input
   --- goes in, or bound the child with a timeout.
-  stdin_stream: Stream.Writer | nil
-  _feed_fd: integer | nil
+  stdin_stream: Stream.Writer?
+  mut _feed_fd: integer?
   --- A descriptor readable once the child has exited (`exit_watch`),
   --- until its status is claimed; -1 where there is none, so that
   --- setting it makes no new field, which could fail to allocate with
   --- the descriptor in hand.
-  _exit_fd: integer
-  _result?: Result
-  _status?: raw_process.ChildStatus
-  _closed: boolean
-  _explicit_close: boolean
-  _drain_next: integer
+  mut _exit_fd: integer
+  mut _result?: Result
+  mut _status?: raw_process.ChildStatus
+  mut _closed: boolean
+  mut _explicit_close: boolean
+  mut _drain_next: integer
   _streams?: {Pipe}
-  _input_fd: integer | nil
+  mut _input_fd: integer?
   _input?: string
   _input_at?: integer
   _limit: integer
   --- When the child's own `timeout_ns` passes, on the monotonic clock;
   --- nil for none ([`Options.timeout_ns`]).
-  _deadline: integer | nil
+  _deadline: integer?
   --- The temporary directory a policy's `tmp` made for the child, removed
   --- once the child is settled; nil for none.
-  _tmp: string | nil
+  mut _tmp: string?
   --- The network relay that serves a policy's `connect`, a child of its
   --- own, which a settle ends (the relay's standard input closes, and it
   --- is ended should it outlive that); nil for none, and once it is ended.
-  _relay?: Handle
+  mut _relay?: Handle
   --- Whether the relay was found dead while the child ran, which ended
   --- the child for want of its way out.
-  _relay_gone: boolean
+  mut _relay_gone: boolean
   --- Of a relay's own handle, the connectors its starter handed it, ended
   --- with it; nil for any other handle.
-  _handover?: RelayConfig.Handover
+  mut _handover?: RelayConfig.Handover
   --- The Seatbelt profile and parameters the child was started under, on
   --- macOS; nil for a child no profile holds.
   _seatbelt?: raw_process.Seatbelt
@@ -712,7 +712,7 @@ local record Handle
   --- [`Poll.run`] that is cancelled, it answers nil and
   --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
   --- below 0 or past [`Poll.MOST_NS`] raises.
-  wait: function(Handle, timeout_ns?: integer): Result | nil, string
+  wait: function(Handle, timeout_ns?: integer): Result?, string
   --- Fairly copies streamed outputs to borrowed Writers within both required
   --- bounds. EOF requires closed pipes, including escaped writers. A previous
   --- guard cancellation may be bypassed only after its signal was taken; a
@@ -732,7 +732,7 @@ local record Handle
   --- ended as an expired `wait` ends it, which waits for it to go, and
   --- `finished` is true, its Result `timed_out`. Nil and why when
   --- settling the child fails.
-  try_wait: function(Handle): TryWait | nil, string
+  try_wait: function(Handle): TryWait?, string
   --- Sends `signal` (SIGTERM by default) to the child, or to its whole
   --- group when `process_group` is true. It does not wait. False and why when the child
   --- has been reaped already or the signal cannot be sent.
@@ -789,7 +789,7 @@ local reaped: {integer:raw_process.ChildStatus} = {}
 local record Reaping
   --- Whether this process adopts orphaned descendants: nil until the
   --- first grouped start asks.
-  adopting: boolean | nil
+  mut adopting: boolean?
 end
 
 local reaping: Reaping = {}
@@ -819,7 +819,7 @@ end
 --- open is not ended by a guard another task of the run opens after:
 --- a wait reads the guards open as it waits, and a guard opened
 --- meanwhile guards the waits that come after it.
-local function slice(deadline: integer | nil, handles: {Handle}): integer | nil
+local function slice(deadline: integer?, handles: {Handle}): integer?
   local most = POLL_NS
   if exits_seen(handles) then most = reaping.adopting and REAP_NS or -1 end
   if deadline == nil then return most end
@@ -830,12 +830,12 @@ local function slice(deadline: integer | nil, handles: {Handle}): integer | nil
 end
 
 local function target(self: Handle): integer
-  return self.process_group and -self.pid or self.pid
+  return if self.process_group then -self.pid else self.pid end
 end
 
 --- The earlier of `deadline` (nil for none) and the child's own, which
 --- counts only while it is unsettled.
-local function sooner(deadline: integer | nil, self: Handle): integer | nil
+local function sooner(deadline: integer?, self: Handle): integer?
   local own = self._deadline
   if own == nil or self._status ~= nil or (deadline ~= nil and deadline <= own) then
     return deadline
@@ -890,7 +890,7 @@ local relay_lost: function(Handle)
 
 --- This handle's child's exit status, once it has one. With `block`,
 --- waits for it.
-local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | nil, string
+local function exited(self: Handle, block?: boolean): raw_process.ChildStatus?, string
   local _status = self._status
   if _status then return _status, "" end
   if self._relay ~= nil then relay_lost(self) end
@@ -907,7 +907,7 @@ local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | 
   return claim(self, status), ""
 end
 
-local function close_fd(fd: integer | nil)
+local function close_fd(fd: integer?)
   if fd ~= nil then
     Poll.closing(fd)
     local _, _ = sys.close(fd)
@@ -1073,7 +1073,7 @@ local services: {Kind:Service} = {
 --- its exit while it is not reaped. With `feeding`, room in that
 --- handle's stdin stream too.
 local function watching(handles: {Handle}, feeding?: Handle): {Entry}
-  local entries: {Entry} = {}
+  local entries: mut {Entry} = {}
   if feeding ~= nil then
     entries[1] = { fd = feeding._feed_fd, events = sys.POLLOUT, owner = feeding, kind = "feed" }
   end
@@ -1103,14 +1103,14 @@ end
 --- What a shielded [`Poll.delay`] answered, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
-  paused: boolean | nil
-  cancelled: string | nil
+  mut paused: boolean?
+  mut cancelled: string?
 end
 
 --- What a shielded [`Poll.ready`] answered, as [`Delayed`] does.
 local record Readied
-  answers: {integer} | nil
-  why: string | nil
+  mut answers: {integer}?
+  mut why: string?
 end
 
 --- Services `entries` once: waits up to `timeout_ns` (-1 for no limit)
@@ -1125,7 +1125,7 @@ end
 --- pump answers false and [`Poll.CANCELLED`] at once; any other waits
 --- shielded from the cancel ([`Poll.shielded`]), as the cleanup it
 --- serves -- ending a child, emptying its pipes -- must finish.
-local function pump(entries: {Entry}, timeout_ns: integer,
+local function pump(entries: mut {Entry}, timeout_ns: integer,
                     cancellable?: boolean, signalled?: boolean): boolean, string
   -- TODO: wait through Poll.delay and Poll.ready alone, here and in
   -- Child.end_strays's sleep, once it is decided how they answer where
@@ -1147,8 +1147,8 @@ local function pump(entries: {Entry}, timeout_ns: integer,
   if signalled and Innermost.active() ~= nil and (in_run or not Poll.in_task()) then
     entries[#entries + 1] = { fd = raw.child_signal_fd(), events = sys.POLLIN, kind = "wake" }
   end
-  local fds: {integer} = {}
-  local events: {integer} = {}
+  local fds: mut {integer} = {}
+  local events: mut {integer} = {}
   for i, e in ipairs(entries) do fds[i], events[i] = e.fd, e.events end
   if #fds == 0 then
     -- Nothing here could end a wait with no limit: it waits a slice.
@@ -1276,7 +1276,7 @@ end
 --- not end with its task's cancel. In a `<close>` handler of a task
 --- being killed, or a finalizer, no wait can yield, and they hold the
 --- thread in [`sys.poll`]: the cleanup there must finish too.
-local function end_child(self: Handle): Result | nil, string
+local function end_child(self: Handle): Result?, string
   local _result = self._result
   if _result ~= nil then return _result, "" end
   local status, trouble = exited(self)
@@ -1392,7 +1392,7 @@ local record Consumption
   pipes: {Pipe}
   discard: boolean
   reason?: string
-  metamethod __close: function(Consumption)
+  __close: function(Consumption)
 end
 
 local consumption_mt: metatable<Consumption> = {
@@ -1445,25 +1445,7 @@ end
 -- how an object is made in cosmic/stream.tl says why Teal limits how
 -- that is written.
 
---- The Reader of a child's streamed output: it takes what `pump` queued,
---- pumping every stream of the child while it waits.
-local record PipeReader is Stream.Reader
-  child: Handle
-  pipe: Pipe
-  closed: boolean
-  --- Why a wait the child could not go on with ended, "" until one has:
-  --- every later read answers it.
-  failed: string
-  --- Holds the pipe while a read waits; one per Reader, so a read costs no
-  --- allocation.
-  owner: Consumption
-  read: function(PipeReader, max_bytes?: integer): string | nil, string
-  close: function(PipeReader): boolean, string
-end
-
-local pipe_reader_mt: metatable<PipeReader> = { __index = PipeReader }
-
-local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil, string
+local function waiting_read(self: PipeReader, max_bytes?: integer): string?, string
   local child, pipe = self.child, self.pipe
   local _ownership <close> = self.owner
   pipe.consuming = true
@@ -1507,81 +1489,90 @@ local function waiting_read(self: PipeReader, max_bytes?: integer): string | nil
   return take_chunk(pipe, max_bytes or CHUNK), ""
 end
 
-function PipeReader:read(max_bytes?: integer): string | nil, string
-  if max_bytes ~= nil and max_bytes < 1 then
-    error("child: read's max_bytes must be positive", 2)
-  end
-  local pipe = self.pipe
-  if pipe.consuming then error("child: output is already being consumed", 2) end
-  if self.failed ~= "" then return nil, self.failed end
-  if self.closed then return nil, closed_reader end
-  if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
-  return waiting_read(self, max_bytes)
-end
+--- The Reader of a child's streamed output: it takes what `pump` queued,
+--- pumping every stream of the child while it waits.
+local class PipeReader is Stream.Reader
+  child: Handle
+  pipe: Pipe
+  mut closed: boolean
+  --- Why a wait the child could not go on with ended, "" until one has:
+  --- every later read answers it.
+  mut failed: string
+  --- Holds the pipe while a read waits; one per Reader, so a read costs no
+  --- allocation.
+  owner: Consumption
 
-function PipeReader:close(): boolean, string
-  if self.closed then return true, "" end
-  self.closed = true
-  local pipe = self.pipe
-  pipe.reader_closed = true
-  -- The child's next write to it fails, as it would into `head`.
-  end_stream(pipe)
-  pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
-  return true, ""
+  function read(self, max_bytes?: integer): string?, string
+    if max_bytes ~= nil and max_bytes < 1 then
+      error("child: read's max_bytes must be positive", 2)
+    end
+    local pipe = self.pipe
+    if pipe.consuming then error("child: output is already being consumed", 2) end
+    if self.failed ~= "" then return nil, self.failed end
+    if self.closed then return nil, closed_reader end
+    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
+    return waiting_read(self, max_bytes)
+  end
+
+  function close(self): boolean, string
+    if self.closed then return true, "" end
+    self.closed = true
+    local pipe = self.pipe
+    pipe.reader_closed = true
+    -- The child's next write to it fails, as it would into `head`.
+    end_stream(pipe)
+    pipe.chunks, pipe.head, pipe.tail, pipe.size = {}, 1, 0, 0
+    return true, ""
+  end
 end
 
 --- The Reader of `self`'s streamed output at `index`.
 local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local pipe = assert(self._streams)[index]
   local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt)
-  local r: PipeReader = setmetatable(
-    { child = self, pipe = pipe, closed = false, failed = "", owner = owner }, pipe_reader_mt)
+  local r: PipeReader = 
+    { child = self, pipe = pipe, closed = false, failed = "", owner = owner }
   return r
 end
 
 --- The Writer of a child's stdin stream: [`Stream.to_fd`] over the pipe,
 --- whose waits for room pump the child's outputs meanwhile, so a child
 --- that waits for its output to be read does not stall the write.
-local record FeedWriter is Stream.Writer
+local class FeedWriter is Stream.Writer
   child: Handle
   --- The pipe's descriptor as this Writer was made with, to tell it
   --- from the one the handle holds once it has been closed.
   fd: integer
-  closed: boolean
-  into?: Stream.Writer
-  write: function(FeedWriter, data: string): boolean, string
-  close: function(FeedWriter): boolean, string
-  abort: function(FeedWriter): boolean, string
-end
+  mut closed: boolean
+  mut into?: Stream.Writer
 
-local feed_writer_mt: metatable<FeedWriter> = { __index = FeedWriter }
+  function write(self, data: string): boolean, string
+    if self.closed then return false, closed_writer end
+    -- Only a settled child's stdin is closed from under its writer.
+    if self.child._feed_fd ~= self.fd then return false, EXITED end
+    return assert(self.into):write(data)
+  end
 
-function FeedWriter:write(data: string): boolean, string
-  if self.closed then return false, closed_writer end
-  -- Only a settled child's stdin is closed from under its writer.
-  if self.child._feed_fd ~= self.fd then return false, EXITED end
-  return assert(self.into):write(data)
-end
+  function close(self): boolean, string
+    self.closed = true
+    local child, fd = self.child, self.fd
+    if child._feed_fd == nil then return true, "" end
+    child._feed_fd = nil
+    Poll.closing(fd)
+    local ok, trouble = sys.close(fd)
+    if not ok then return false, trouble end
+    return true, ""
+  end
 
-function FeedWriter:close(): boolean, string
-  self.closed = true
-  local child, fd = self.child, self.fd
-  if child._feed_fd == nil then return true, "" end
-  child._feed_fd = nil
-  Poll.closing(fd)
-  local ok, trouble = sys.close(fd)
-  if not ok then return false, trouble end
-  return true, ""
-end
-
-function FeedWriter:abort(): boolean, string
-  return self:close()
+  function abort(self): boolean, string
+    return self:close()
+  end
 end
 
 local function feed_writer(self: Handle, fd: integer): Stream.Writer
-  local w: FeedWriter = setmetatable({ child = self, fd = fd, closed = false }, feed_writer_mt)
+  local w: FeedWriter = { child = self, fd = fd, closed = false }
   -- A closure, for [`Stream.FdOptions.wait`] is called with no Writer.
-  local function room(_fd: integer, _events: integer, _left: integer | nil): boolean, string
+  local function room(_fd: integer, _events: integer, _left: integer?): boolean, string
     local why = interrupted(self)
     if why == "" and overdue(self) then
       local _, trouble = end_child(self)
@@ -1619,7 +1610,7 @@ end
 --- included, and a reap that holds the thread and cannot wait through
 --- anything that raised. The Result is left for a later `close` or
 --- collection to settle; the failure is answered as the reason.
-local function end_or_kill(self: Handle): Result | nil, string
+local function end_or_kill(self: Handle): Result?, string
   local ok, r, why = pcall(end_child, self)
   if ok then
     if r == nil then return nil, why end
@@ -1641,8 +1632,8 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
   local timeout_ns, max_bytes = opts.timeout_ns, opts.max_bytes
-  local pipes: {Pipe} = {}
-  local sinks: {Stream.Writer} = {}
+  local pipes: mut {Pipe} = {}
+  local sinks: mut {Stream.Writer} = {}
   local stdout, stderr = false, false
   for _, pipe in ipairs(self._streams or {}) do
     if pipe.streamed then
@@ -1665,7 +1656,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   local function result(kind: DrainKind, reason?: string): DrainResult
     return { kind = kind, bytes = bytes, reason = reason or "" }
   end
-  local function control(): DrainResult | nil
+  local function control(): DrainResult?
     if self._explicit_close then return result("failed", "child: the handle is closed") end
     for _, pipe in ipairs(pipes) do
       if pipe.reader_closed then return result("failed", closed_reader) end
@@ -1680,7 +1671,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
     end
     return nil
   end
-  local function complete(): DrainResult | nil
+  local function complete(): DrainResult?
     local eof = true
     for _, pipe in ipairs(pipes) do
       local failure = pipe.failure
@@ -1747,7 +1738,7 @@ local function closing_outputs(self: Handle)
   end
 end
 
-Handle.try_wait = function(self: Handle): TryWait | nil, string
+Handle.try_wait = function(self: Handle): TryWait?, string
   local _result = self._result
   if _result then return { finished = true, result = _result }, "" end
   local _, _ = pump(watching({ self }), 0)
@@ -1768,7 +1759,7 @@ Handle.stop = function(self: Handle, signal?: integer): boolean, string
   return true, ""
 end
 
-Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
+Handle.wait = function(self: Handle, timeout_ns?: integer): Result?, string
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   local _result = self._result
   if _result then return _result, "" end
@@ -1778,7 +1769,7 @@ Handle.wait = function(self: Handle, timeout_ns?: integer): Result | nil, string
     if not status then return nil, trouble end
     return end_child(self)
   end
-  local deadline: integer | nil
+  local deadline: integer?
   if timeout_ns ~= nil then deadline = now() + timeout_ns end
   deadline = sooner(deadline, self)
   -- Services the child's pipes until it exits, `deadline` passes ("")
@@ -1848,7 +1839,7 @@ local handle_mt: metatable<Handle> = {
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
-                           deadline: integer | nil): Handle
+                           deadline: integer?): Handle
   local h: Handle = setmetatable({
     pid = pid, process_group = process_group, _closed = false, _exit_fd = -1, _limit = limit,
     _explicit_close = false, _drain_next = 1, _deadline = deadline, _relay_gone = false,
@@ -1927,7 +1918,7 @@ end
 
 --- Raises at level 4, the caller of [`Child.start`] or [`Child.run`]: it and
 --- [`without_nul`] run under `validate`, which runs under either one.
-local function descriptor(value: integer | string | nil, name: string, words: {string:boolean}):
+local function descriptor(value: (integer | string)?, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
   if value is string and words[value] then return value end
@@ -1936,7 +1927,7 @@ local function descriptor(value: integer | string | nil, name: string, words: {s
     error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
         "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
   end
-  local allowed: {string} = {}
+  local allowed: mut {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
   table.sort(allowed)
   error("child: " .. name .. " must be a file descriptor or one of " .. table.concat(allowed, ", "), 4)
@@ -2070,11 +2061,11 @@ end
 --- Descriptors this process opened for one start, closed together
 --- whatever happens: the child's ends always, ours only on failure.
 local record Wiring
-  child_ends: {integer}
-  ours: {integer}
-  streams: {Pipe}
-  input_fd: integer | nil
-  feed_fd: integer | nil
+  child_ends: mut {integer}
+  ours: mut {integer}
+  streams: mut {Pipe}
+  mut input_fd: integer?
+  mut feed_fd: integer?
 end
 
 local function unwire(wiring: Wiring, keep_ours: boolean)
@@ -2087,7 +2078,7 @@ end
 --- A pipe whose read end is ours and whose write end the child gets
 --- as `child_fd`; the stream records it, as the caller's to read when
 --- `streamed`.
-local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): integer | nil, string
+local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): integer?, string
   local ends, trouble = raw.pipe()
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
@@ -2101,7 +2092,7 @@ local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): i
   return ends.writer, ""
 end
 
-local function null(wiring: Wiring, flags: integer): integer | nil, string
+local function null(wiring: Wiring, flags: integer): integer?, string
   local fd, trouble = sys.open("/dev/null", flags)
   if fd == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = fd
@@ -2112,7 +2103,7 @@ end
 --- a pipe to capture or stream, /dev/null, or a descriptor given; nil
 --- and "" to inherit this process's, and nil and why when it fails.
 local function wire_output(wiring: Wiring, child_fd: integer,
-                           how: integer | string): integer | nil, string
+                           how: integer | string): integer?, string
   if how == "capture" or how == "stream" then
     return capture(wiring, child_fd, how == "stream")
   elseif how == "null" then
@@ -2125,8 +2116,8 @@ end
 
 --- Resolves the options into the descriptor each child slot copies:
 --- nil to inherit, or a descriptor number.
-local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer} | nil, string
-  local slots: {integer:integer} = {}
+local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer}?, string
+  local slots: mut {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
   if pty ~= nil and pty.streams[0] then
     slots[0] = pty.slave
@@ -2176,7 +2167,7 @@ local function wire(opts: Options, wiring: Wiring, pty?: Pty): {integer:integer}
   end
   local fds = opts.fds
   if fds ~= nil then
-    local numbers: {integer} = {}
+    local numbers: mut {integer} = {}
     for number in pairs(fds) do numbers[#numbers + 1] = number end
     table.sort(numbers)
     for _, number in ipairs(numbers) do
@@ -2235,8 +2226,8 @@ local function descriptor_limit_hint(slots: {integer:integer}): string
   -- The child's status end takes top + 1; above it, a copy of each
   -- descriptor handed and what spawn places besides.
   if limits == nil or limits.soft > top + 1 + count + raw.SPAWN_PLACED_ABOVE then return "" end
-  local remedy = limits.soft < limits.hard and "sys.setrlimit raises it as far as the hard one" or
-    "only a higher hard limit makes room"
+  local remedy = if limits.soft < limits.hard then "sys.setrlimit raises it as far as the hard one" else
+    "only a higher hard limit makes room" end
   return ": the child is handed descriptor " .. tostring(top) .. ", and the start " ..
     "places descriptors above it, past RLIMIT_NOFILE's soft limit of " ..
     tostring(limits.soft) .. " (hard " .. tostring(limits.hard) .. "): " .. remedy
@@ -2257,12 +2248,12 @@ local record Held
   --- The file to run.
   path: string
   --- The child's whole environment.
-  env: {string:string}
+  env: mut {string:string}
   --- What spawn is handed to hold the child to it.
   sandbox: raw_process.Sandbox
   --- The temporary directory made for the child, "" for none: made by
   --- [`make_tmp`], the last step before the spawn.
-  tmp: string
+  mut tmp: string
   --- Whether the policy asks for one: not under `isolate` file, whose
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
@@ -2316,7 +2307,7 @@ end
 --- one. A grant whose path does not exist is skipped, as spawn names
 --- it.
 local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): string
-  local reals: {{string}} = {}
+  local reals: mut {{string}} = {}
   for _, grant in ipairs(grants) do
     local at = grant.path
     if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
@@ -2324,7 +2315,7 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
     if real ~= nil then reals[#reals + 1] = { real, grant.letters } end
   end
   for i, file in ipairs(files) do
-    local missing: {string} = {}
+    local missing: mut {string} = {}
     for _, letter in ipairs({ "r", "x" }) do
       local given = false
       for _, held in ipairs(reals) do
@@ -2333,7 +2324,7 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
       if not given then missing[#missing + 1] = letter end
     end
     if #missing > 0 then
-      local what = i == 1 and "the program" or "the interpreter the program starts through"
+      local what = if i == 1 then "the program" else "the interpreter the program starts through" end
       return string.format("%s %s is not granted %s: grant it, { path = %q, letters = \"rx\" }, " ..
           "or add the \"system\" profile for the host's own programs", what, file,
         table.concat(missing, " and "), file)
@@ -2365,11 +2356,11 @@ end
 --- A policy's fields not yet met, by what each would need.
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
-  local held = #(merged.grants or {}) + (merged.tmp and not file and 1 or 0)
+  local held = #(merged.grants or {}) + (if merged.tmp and not file then 1 else 0 end)
   local most = file and MAX_ISOLATED_GRANTS or MAX_GRANTS
   if held > most then
     return "grants: the policy holds " .. held ..
-      (file and ", and the sandbox's /proc is one more" or ", tmp's included") ..
+      (if file then ", and the sandbox's /proc is one more" else ", tmp's included" end) ..
       ", past the most a start takes, " .. most .. "; grant a directory above them instead"
   end
   if nests(merged) and not file then
@@ -2404,7 +2395,7 @@ local TMP_BYTES <const> = 256 * 1024 * 1024
 local function named(path: string, base: string): string
   if path:sub(1, 1) == "/" then return path end
   if path == "." then return base end
-  return base .. (base:sub(-1) == "/" and "" or "/") .. path
+  return base .. (if base:sub(-1) == "/" then "" else "/" end) .. path
 end
 
 --- Whether `letters` holds `letter`.
@@ -2435,9 +2426,9 @@ end
 --- With `nest`, which has no Landlock to refuse running a file, every grant
 --- without `x` is noexec. Nil and why where a grant cannot be placed.
 local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nest: boolean,
-                       tmp_exec: boolean): raw_process.Unveil | nil, string
-  local binds: {raw_process.Bind} = {}
-  local reads: {string} = {}
+                       tmp_exec: boolean): raw_process.Unveil?, string
+  local binds: mut {raw_process.Bind} = {}
+  local reads: mut {string} = {}
   local proc = true
   for index, grant in ipairs(merged.grants or {}) do
     local name = named(grant.path, base)
@@ -2457,7 +2448,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {boolean}, nes
       noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] or nil }
   end
   if proc then reads[1] = "/proc" end
-  local tmp: integer | nil
+  local tmp: integer?
   if merged.tmp then tmp = TMP_BYTES end
   return { reads = reads, writes = {}, binds = binds, tmp = tmp, tmp_exec = tmp_exec or nil }, ""
 end
@@ -2482,7 +2473,7 @@ local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): s
     local st, _ = sys.stat(named(grant.from or grant.path, base))
     local kind = st ~= nil and st.kind or ""
     if kind == "dir" or (kind == "socket" and not lettered(grant.letters, "u")) then
-      local what = kind == "dir" and "a directory" or "a socket without `u`"
+      local what = if kind == "dir" then "a directory" else "a socket without `u`" end
       if nest then
         return "a `u` grant under isolate file beside " .. what .. " (" ..
           string.format("%q", grant.path) .. ") needs Landlock, which promises \"nest\" gives " ..
@@ -2578,7 +2569,7 @@ end
 --- [`Sandbox.user_id`]'s pool; nil and why where it is root but may not
 --- map one -- it needs CAP_SETUID, CAP_SETGID and CAP_SETFCAP, and a user
 --- namespace that maps the user.
-local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
+local function mapped_user(merged: Rules.Policy): MappedUser?, string
   local platform, _, _ = raw.sandbox_platform()
   local own = effective_user()
   if not platform and own == 0 then
@@ -2595,7 +2586,7 @@ local function mapped_user(merged: Rules.Policy): MappedUser | nil, string
     local merged_user = merged.user
     if merged_user ~= nil and (merged_user ~= own or (merged_group ~= nil and merged_group ~= group)) then
       local merged_group2 = merged.group
-      return nil, "user " .. merged_user .. (merged_group2 ~= nil and ", group " .. merged_group2 or "") ..
+      return nil, "user " .. merged_user .. (if merged_group2 ~= nil then ", group " .. merged_group2 else "" end) ..
         ": only a root caller chooses the user its program runs as, and this process is user " ..
         own .. ", group " .. group .. ", which its program runs as: name that or none"
     end
@@ -2662,7 +2653,7 @@ end
 --- program starts in, and, for `tmp`, TMPDIR's; under it the root is built without walking to a
 --- grant. A grant that does not exist is left for the start's own report.
 local function reached_by(merged: Rules.Policy, base: string, file: boolean,
-                          user: MappedUser): {boolean} | nil, string
+                          user: MappedUser): {boolean}?, string
   if merged.tmp and not file then
     local given = sys.getenv("TMPDIR")
     local tmpdir = "/tmp"
@@ -2676,11 +2667,11 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         "or isolate \"file\", whose /tmp is a tmpfs of the sandbox's own"
     end
   end
-  local idmap: {boolean} = {}
+  local idmap: mut {boolean} = {}
   for index, grant in ipairs(merged.grants or {}) do
     local named_at = named(grant.from or grant.path, base)
     local real, _ = sys.realpath(named_at)
-    local st: sys.Stat | nil
+    local st: sys.Stat?
     if real ~= nil then
       local got, _ = sys.stat(real)
       st = got
@@ -2735,7 +2726,7 @@ end
 local SHARED_CORES <const> = "/run/cosmic-sandbox-cores"
 
 --- Whether `st` is a directory of root's that no one else may write.
-local function roots_alone(st: sys.Stat | nil): boolean
+local function roots_alone(st: sys.Stat?): boolean
   return st ~= nil and st.kind == "dir" and st.uid == 0 and st.mode & 0x12 == 0
 end
 
@@ -2747,7 +2738,7 @@ end
 -- TODO: remove a copy no start has used for a while, as nothing prunes
 -- the launcher's own cores directory either, once that has a rule to
 -- share: each core a host's root runs this program under leaves one.
-local function shared_core(core: string): string | nil, string
+local function shared_core(core: string): string?, string
   local name = core:match("([^/]+)$")
   if name == nil or not name:find("^core%-") then
     return nil, core .. " is not a cached core of this program"
@@ -2815,7 +2806,7 @@ local shared_fds: {string:integer} = {}
 --- no descriptor to hand on; a core already run against a database
 --- relaunches so too, on its own. Nil and "" where this program has no
 --- core to start past its own start (a host program), or nil and why.
-local function relaunch_of(user: MappedUser | nil, database?: string): Proc.Relaunch | nil, string
+local function relaunch_of(user: MappedUser?, database?: string): Proc.Relaunch?, string
   local launched, _ = Proc.relaunch()
   if launched == nil then return nil, "" end
   local portable = launched.env.COSMIC_PORTABLE_CORE_FD ~= nil
@@ -2831,7 +2822,7 @@ local function relaunch_of(user: MappedUser | nil, database?: string): Proc.Rela
   local copy, trouble = shared_core(launched.argv[1])
   if copy == nil then return nil, trouble end
   if not portable then
-    local argv: {string} = { copy }
+    local argv: mut {string} = { copy }
     for i = 2, #launched.argv do argv[i] = launched.argv[i] end
     return { argv = argv, env = launched.env, fds = launched.fds, cwd = launched.cwd }, ""
   end
@@ -2855,9 +2846,9 @@ local function relaunch_of(user: MappedUser | nil, database?: string): Proc.Rela
     shared_fds[copy] = fd
   end
   local core_fd = math.tointeger(tonumber(launched.env.COSMIC_PORTABLE_CORE_FD))
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for number, given in pairs(launched.fds) do fds[number] = number == core_fd and fd or given end
-  local argv: {string} = { copy }
+  local argv: mut {string} = { copy }
   for i = 2, #launched.argv do argv[i] = launched.argv[i] end
   return { argv = argv, env = launched.env, fds = fds, cwd = launched.cwd }, ""
 end
@@ -2880,7 +2871,7 @@ end
 --- This program's own file's real path ([`Proc.executable`]) where `name`,
 --- a policy's program as the caller names it, from `cwd` (this process's
 --- own where nil), is it; nil for any other program.
-local function this_program(name: string, cwd: string | nil): string | nil
+local function this_program(name: string, cwd: string?): string?
   local executable, _ = Proc.executable()
   if executable == nil then return nil end
   local own, _ = sys.realpath(executable)
@@ -2900,7 +2891,7 @@ end
 
 --- Whether `name`, a policy's program, is this program's own file, which
 --- `grants` let it read and run.
-local function runs_this_program(name: string, cwd: string | nil, grants: {Rules.Grant}): boolean
+local function runs_this_program(name: string, cwd: string?, grants: {Rules.Grant}): boolean
   local own = this_program(name, cwd)
   return own ~= nil and ungranted({ own }, grants, cwd) == ""
 end
@@ -2913,7 +2904,7 @@ end
 --- hard link, a copy or a bind-mounted view of it elsewhere in a granted
 --- directory still reads the program, so it does not hold against a
 --- policy author who means to reach it.
-local function reaching(file: string, grants: {Rules.Grant}, base: string | nil): string
+local function reaching(file: string, grants: {Rules.Grant}, base: string?): string
   for _, grant in ipairs(grants) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
@@ -2930,11 +2921,11 @@ end
 --- `user` is [`relaunch_of`]'s, `base` the directory grants are relative
 --- to, and `reach` the grants that must not reach this program's own file:
 --- the host's own (Landlock's profiles are not Seatbelt's).
-local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser | nil,
-                       base: string | nil, reach: {Rules.Grant}): Proc.Relaunch | nil, string
+local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser?,
+                       base: string?, reach: {Rules.Grant}): Proc.Relaunch?, string
   local named_database = merged.database
   local database: string = named_database and named_database.path
-  local program: string | nil
+  local program: string?
   if database ~= nil then
     program = this_program(argv[1], opts.cwd)
     if program == nil then
@@ -2954,13 +2945,13 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
     -- The core a database program runs is the file it is started by only
     -- where this process is that core already, so there it is granted.
     local started, _ = Proc.relaunch()
-    local started_real: string | nil
+    local started_real: string?
     if started ~= nil then
       local real, _ = sys.realpath(started.argv[1])
       started_real = real
     end
     local own_core = started_real == program
-    local reached = own_core and "" or reaching(program, reach, base)
+    local reached = if own_core then "" else reaching(program, reach, base) end
     if reached ~= "" then
       return nil, "sandbox: grant \"" .. reached .. "\" reaches this program's own file, " ..
         program .. ", which holds modules the database " .. database .. " leaves out: " ..
@@ -2992,7 +2983,7 @@ local DEFAULT_PROCESSES <const> = 4096
 --- older, and a limit the policy names fails there; either is lowered
 --- to this process's hard limit if that is lower, but only the default
 --- may be: a limit the policy names above it fails.
-local function process_limit(merged: Rules.Policy, isolated: boolean): integer | nil, string
+local function process_limit(merged: Rules.Policy, isolated: boolean): integer?, string
   local named_limit = (merged.limits or {}).processes
   if not isolated then return nil, "" end
   local release = kernel_release()
@@ -3018,7 +3009,7 @@ end
 --- "": the proxy variables the relay sets are not the policy's to set.
 local function reserved_by_relay(merged: Rules.Policy): string
   if #(merged.connect or {}) == 0 then return "" end
-  local variables: {string} = {}
+  local variables: mut {string} = {}
   for _, name in ipairs(merged.env or {}) do variables[#variables + 1] = name end
   for name, _ in pairs(merged.set_env or {}) do variables[#variables + 1] = name end
   table.sort(variables)
@@ -3034,7 +3025,7 @@ end
 --- environment, the limits, what isolates it and, for `tmp`, the
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
-local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Held | nil, string
+local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Held?, string
   local merged, why = Rules.merge(policy)
   if merged == nil then return nil, why end
   local trouble = unmet(merged)
@@ -3051,7 +3042,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- host's /tmp, so it is no grant of the root's.
   local tmp_exec = false
   if file and merged.tmp then
-    local others: {Rules.Grant} = {}
+    local others: mut {Rules.Grant} = {}
     for _, grant in ipairs(merged.grants or {}) do
       if grant.from == nil and named(grant.path, "/") == "/tmp" then
         if grant.letters ~= "rwc" and grant.letters ~= "rwxc" then
@@ -3086,7 +3077,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- with it: what runs is the file the grant names, through its core. On a
   -- `database` it is the core and that file alone, so this program's own
   -- file, which holds every module of the tree, is none of the child's.
-  local relaunch: Proc.Relaunch | nil
+  local relaunch: Proc.Relaunch?
   local named_database = merged.database
   local database: string = named_database and named_database.path
   local found, relaunch_trouble = core_of(argv, opts, merged, user, base, merged.grants or {})
@@ -3125,7 +3116,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     end
   end
   local idmap: {boolean} = {}
-  local drop: MappedUser | nil
+  local drop: MappedUser?
   if user ~= nil then
     local here, here_trouble = sys.realpath(opts.cwd or ".")
     if here == nil then return nil, "sandbox: cwd " .. (opts.cwd or ".") .. ": " .. here_trouble end
@@ -3145,7 +3136,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       drop = user
     end
   end
-  local root: raw_process.Unveil | nil
+  local root: raw_process.Unveil?
   if file and isolated_unix(merged) then
     local unheld = unix_unheld(merged, base, nest)
     if unheld ~= "" then return nil, "sandbox: " .. unheld end
@@ -3199,7 +3190,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       "beneath or above a grant: grant it, or start in a directory that is"
   end
 
-  local grants: {raw_process.Grant} = {}
+  local grants: mut {raw_process.Grant} = {}
   local unix = false
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.from or grant.path
@@ -3207,7 +3198,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     grants[#grants + 1] = { path = at, access = grant.letters }
     if lettered(grant.letters, "u") then unix = true end
   end
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
@@ -3218,7 +3209,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
       env[name] = value
     end
   end
-  local run_argv: {string} | nil
+  local run_argv: mut {string}?
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
     -- A file it runs is run as `--standalone`, writing no build directory,
@@ -3244,7 +3235,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- cannot map a child: the static checks above need no mapped user.
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   rlimits.nproc = counted
-  local promises: {string} = {}
+  local promises: mut {string} = {}
   for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   -- A network namespace of its own with a loopback holds the network of a
   -- program that declares addresses of it, has a relay to reach, or has a
@@ -3252,7 +3243,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- namespace is their hold) when it declared a loopback or `connect`, and
   -- unix ones when it was granted `u`.
   local inet = #(merged.loopback or {}) > 0 or relayed
-  local sockets: {string} = {}
+  local sockets: mut {string} = {}
   if unix then sockets[#sockets + 1] = "unix" end
   if inet then sockets[#sockets + 1] = "inet" end
   -- Under `nest` no ruleset holds the paths: the kernel refuses a mount to
@@ -3323,7 +3314,7 @@ end
 --- the relay's own.
 --- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
-                                serves_relay?: integer): Held | nil, string
+                                serves_relay?: integer): Held?, string
   local merged, why = Rules.merge(policy)
   if merged == nil then return nil, why end
   local credentials = seatbelt_credentials(merged)
@@ -3339,7 +3330,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     return nil, "sandbox: a policy's child on macOS leads a session, and so a process group, of " ..
       "its own, so process_group = false is refused"
   end
-  local own: string | nil
+  local own: string?
   local executable, _ = Proc.executable()
   if executable ~= nil then
     local real, _ = sys.realpath(executable)
@@ -3355,8 +3346,8 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- `r` alone: the core opens it read-only and immutable.
   local relaunch, core_trouble = core_of(argv, opts, merged, nil, opts.cwd, Seatbelt.grants(policy))
   if relaunch == nil and core_trouble ~= "" then return nil, core_trouble end
-  local core: string | nil
-  local sealed: string | nil
+  local core: string?
+  local sealed: string?
   if relaunch ~= nil then
     local real, real_trouble = sys.realpath(relaunch.argv[1])
     if real == nil then return nil, "sandbox: " .. relaunch.argv[1] .. ": " .. real_trouble end
@@ -3398,19 +3389,19 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants or {}, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
-  local parameters = profile.tmp ~= nil and 1 or 0
+  local parameters = if profile.tmp ~= nil then 1 else 0 end
   for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
   if parameters > raw.SEATBELT_PARAMETER_MAX then
     return nil, "sandbox: grants: the paths the profile holds, " .. parameters .. ", are past the " ..
       "most a start takes, " .. raw.SEATBELT_PARAMETER_MAX .. "; grant a directory above them instead"
   end
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
     local value = sys.getenv(name)
     if value ~= nil then env[name] = value end
   end
   for name, value in pairs(merged.set_env or {}) do env[name] = value end
-  local run_argv: {string} | nil
+  local run_argv: mut {string}?
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
     -- As under Landlock: run as `--standalone`, writing no build
@@ -3494,7 +3485,7 @@ end
 --- `slots` is [`wire`]'s: the descriptor each child number copies, and
 --- 0 to 2 not in it are this process's own.
 local function nest_descriptors(slots: {integer:integer}): string
-  local numbers: {integer} = {}
+  local numbers: mut {integer} = {}
   for number, _ in pairs(slots) do numbers[#numbers + 1] = number end
   for number = 0, 2 do
     if slots[number] == nil then numbers[#numbers + 1] = number end
@@ -3502,7 +3493,7 @@ local function nest_descriptors(slots: {integer:integer}): string
   table.sort(numbers)
   for _, number in ipairs(numbers) do
     local fd = slots[number] or number
-    local what = "descriptor " .. number .. (fd ~= number and " (this process's " .. fd .. ")" or "")
+    local what = "descriptor " .. number .. (if fd ~= number then " (this process's " .. fd .. ")" else "" end)
     -- The descriptors the runtime retains of its own (its artifact and core,
     -- which a relaunch hands on) are refused to every binding that takes a
     -- descriptor, a stat included, by raising; any other raise is rethrown.
@@ -3519,7 +3510,7 @@ local function nest_descriptors(slots: {integer:integer}): string
     elseif st ~= nil and st.kind == "file" then
       local info, _ = Fs.read("/proc/self/fdinfo/" .. fd)
       local flags = info ~= nil and info:match("flags:%s*(%d+)") or nil
-      local mode = flags ~= nil and (math.tointeger(tonumber(flags, 8)) or 0) & 3 or nil
+      local mode = if flags ~= nil then (math.tointeger(tonumber(flags, 8)) or 0) & 3 else nil end
       if mode ~= 2 then
         return what .. " is a file not open for reading and writing, which promises " ..
           "\"nest\" cannot hand a program: with Landlock given up, /proc/self/fd/" ..
@@ -3578,7 +3569,7 @@ end
 --- TMPDIR's, which the start says if they are too). The start removes it once
 --- the relay has opened the database, before the program exists. Nil and why where this
 --- program does not carry the module or the database cannot be written.
-local function seal_relay(): RelayProgram | nil, string
+local function seal_relay(): RelayProgram?, string
   local found, names = pcall(Store.closure, { RELAY_MAIN })
   if not found or not names is {string} then
     return nil, "this program does not carry " .. RELAY_MAIN .. ", the relay's program (" ..
@@ -3605,7 +3596,7 @@ end
 --- A token for a relay on the host's loopback, which every user of the host
 --- can reach: 32 bytes from the system's secure source, in hex. Nil and why
 --- where the source fails.
-local function relay_token(): string | nil, string
+local function relay_token(): string?, string
   local bytes, why = sys.entropy(32)
   if bytes == nil then return nil, "the relay's token: " .. why end
   return (bytes:gsub(".", function(byte: string): string
@@ -3618,7 +3609,7 @@ end
 --- it is handed, started, and the config; under Seatbelt (`seatbelt`), no
 --- connector and a token. Nil and why, with nothing left running, where it
 --- cannot have them.
-local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean): RelayPrep | nil, string
+local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean): RelayPrep?, string
   -- A descriptor given as the relay's log is the relay's standard error, on
   -- which a terminal is refused as for any sandboxed process; say so naming
   -- the option, not the relay's own start. The descriptors this program
@@ -3637,7 +3628,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   -- while the program runs is not refused by this relay.
   local addresses, address_trouble = RelayConfig.host_addresses()
   if addresses == nil then return nil, address_trouble end
-  local token: string | nil
+  local token: string?
   if seatbelt then
     local drawn, token_trouble = relay_token()
     if drawn == nil then return nil, token_trouble end
@@ -3655,7 +3646,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
     local _, _ = Fs.remove_tree(program.dir)
     return nil, handover_trouble
   end
-  local port: integer | nil
+  local port: integer?
   if seatbelt then
     local held_port, loopback_trouble = RelayStart.hold_loopback(handover)
     if held_port == nil then
@@ -3666,7 +3657,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   end
   local log = opts.relay_log or "null"
   local config = handover.config
-  config.log = log == "null" and "null" or "stderr"
+  config.log = if log == "null" then "null" else "stderr" end
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
   -- which is what `/database/sha256` holds; [`Rules.merge`] checks it anyway.
@@ -3678,7 +3669,7 @@ end
 
 --- Removes the database `prep` sealed, which the relay has opened or never
 --- will.
-local function abandon_relay(prep: RelayPrep | nil)
+local function abandon_relay(prep: RelayPrep?)
   if prep ~= nil then
     local _, _ = Fs.remove_tree(prep.dir)
   end
@@ -3705,11 +3696,11 @@ end
 local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog | integer): string
   local ended, _ = end_or_kill(relay)
   local signal = ended ~= nil and ended.signal or nil
-  local how = signal ~= nil and "signal " .. signal or
-    "status " .. tostring(ended ~= nil and ended.code or "unknown")
+  local how = if signal ~= nil then "signal " .. signal else
+    "status " .. tostring(ended ~= nil and ended.code or "unknown") end
   return "the relay ended (" .. how .. ") before it served" ..
-    (read_trouble ~= "" and ": " .. read_trouble or "") ..
-    (log ~= "null" and "" or "; start with relay_log = \"inherit\" to see why")
+    (if read_trouble ~= "" then ": " .. read_trouble else "" end) ..
+    (if log ~= "null" then "" else "; start with relay_log = \"inherit\" to see why" end)
 end
 
 --- Reads the relay's next line, which must be `wanted`: true; or false and
@@ -3738,9 +3729,9 @@ end
 --- [`Child.start_on_pty`] has just made, the standard streams it names are
 --- its slave, which is not refused as a terminal is; stream 0 among them
 --- also makes it the child's controlling terminal.
-local begin_relay: function(RelayPrep, integer | nil): RelayLaunch | nil, string
+local begin_relay: function(RelayPrep, integer?): RelayLaunch?, string
 
-local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Handle | nil, string
+local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Handle?, string
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
   if opts.policy ~= nil then
@@ -3751,10 +3742,10 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       end
     end
   end
-  local held: Held | nil
+  local held: Held?
   local policy = opts.policy
   if policy ~= nil then
-    local made: Held | nil
+    local made: Held?
     local why: string
     if holds_by_seatbelt() then
       made, why = held_by_seatbelt(argv, opts, policy, pty, serves_relay)
@@ -3804,7 +3795,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       return refuse("start: sandbox: " .. why)
     end
   end
-  local extra: {integer:integer} | nil
+  local extra: mut {integer:integer}?
   for number, fd in pairs(slots) do
     if number > 2 then
       extra = extra or {}
@@ -3825,7 +3816,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
   -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
   -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
-  local sandbox: raw_process.Sandbox | nil = nil
+  local sandbox: raw_process.Sandbox? = nil
   local opts_sandbox = opts.sandbox
   if opts_sandbox ~= nil then
     local given = opts_sandbox.unveil
@@ -3836,15 +3827,15 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at }
     end
   end
-  local credentials: raw_process.Credentials | nil
+  local credentials: raw_process.Credentials?
   local opts_credentials = opts.credentials
   if opts_credentials ~= nil then
     credentials = { user = opts_credentials.user, group = opts_credentials.group }
   end
   local path, env, cwd = argv[1], opts.env, opts.cwd
-  local prep: RelayPrep | nil
-  local channel: {integer} | nil
-  local early: RelayLaunch | nil
+  local prep: RelayPrep?
+  local channel: {integer}?
+  local early: RelayLaunch?
   if held ~= nil then
     path, env, sandbox = held.path, held.env, held.sandbox
     local drop = held.drop
@@ -3863,7 +3854,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       end
       prep = made
       local began_ok, began, began_trouble = pcall(begin_relay, made, nil)
-      local launched: RelayLaunch | nil = began
+      local launched: RelayLaunch? = began
       local launch_trouble = began_trouble
       if not began_ok then launched, launch_trouble = nil, tostring(began) end
       abandon_relay(made)
@@ -3919,7 +3910,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       end
       channel = pair
       local began_ok, began, began_trouble = pcall(begin_relay, made, pair[2])
-      local launched: RelayLaunch | nil = began
+      local launched: RelayLaunch? = began
       local launch_trouble = began_trouble
       if not began_ok then launched, launch_trouble = nil, tostring(began) end
       local _, _ = sys.close(pair[2])
@@ -3993,7 +3984,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     end
     return refuse("start: " .. trouble)
   end
-  local deadline: integer | nil
+  local deadline: integer?
   local timeout = opts.timeout_ns
   if timeout ~= nil then deadline = now() + timeout end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
@@ -4051,7 +4042,7 @@ end
 --- It answers once the relay says it has opened its database, which it
 --- does before it waits for the listeners: the database is then no longer
 --- needed. Nil and why where it cannot start or ends first.
-begin_relay = function(prep: RelayPrep, channel: integer | nil): RelayLaunch | nil, string
+begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
   local program, program_trouble = Proc.executable()
   if program == nil then return nil, "this program's own file is unknown: " .. program_trouble end
   local logged = prep.log
@@ -4059,9 +4050,9 @@ begin_relay = function(prep: RelayPrep, channel: integer | nil): RelayLaunch | n
   if logged is integer then
     log = logged
   else
-    log = logged == "inherit" and "inherit" or "null"
+    log = if logged == "inherit" then "inherit" else "null" end
   end
-  local fds: {integer: integer} = {}
+  local fds: mut {integer: integer} = {}
   if channel ~= nil then fds[3] = channel end
   for number, fd in pairs(prep.handover.fds) do fds[number] = fd end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
@@ -4093,7 +4084,7 @@ end
 --- does a wait once the child's `timeout_ns`, counted from here, has
 --- passed. Nothing ends it for `timeout_ns` while nothing waits on it
 --- ([`Options.timeout_ns`]).
-function Child.start(argv: {string}, opts?: Options): Handle | nil, string
+function Child.start(argv: {string}, opts?: Options): Handle?, string
   opts = opts or {}
   validate(argv, opts)
   return start(argv, opts)
@@ -4104,13 +4095,13 @@ end
 --- started, and ours would keep the master from ever reading the end of
 --- the child's output.
 local record PtyHolder
-  metamethod __close: function(PtyHolder)
+  __close: function(PtyHolder)
   master: integer
   slave: integer
   --- Whether the master is the caller's.
-  keep: boolean
+  mut keep: boolean
   --- Whether the slave is the caller's too.
-  keep_slave: boolean
+  mut keep_slave: boolean
 end
 
 local pty_holder_mt: metatable<PtyHolder> = {
@@ -4146,9 +4137,9 @@ local pty_holder_mt: metatable<PtyHolder> = {
 --- @param pty the pty's streams and size
 --- @return the child and the master, or nil
 --- @return why, when there is none
-function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): PtyStart | nil, string
+function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): PtyStart?, string
   validate(argv, opts)
-  local streams: {integer:boolean} = {}
+  local streams: mut {integer:boolean} = {}
   for _, number in ipairs(pty.streams) do
     if not (number is integer) or number < 0 or number > 2 or streams[number] then
       error("child: pty streams are each of 0, 1 and 2 once", 2)
@@ -4184,7 +4175,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   end
   -- Darwin's start opens the slave by name to make it the controlling
   -- terminal, and its profile grants that path; Linux has no use for it.
-  local slave_path: string | nil
+  local slave_path: string?
   if streams[0] and holds_by_seatbelt() then
     local found, name_why = sys.ttyname(made.slave)
     if found == nil then return refuse("pty: " .. name_why) end
@@ -4210,14 +4201,14 @@ end
 --- [`Poll.run`] that is cancelled, it answers nil and
 --- [`Poll.CANCELLED`], the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
-function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle | nil, string
+function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle?, string
   -- TODO: carry a settled group's lingering members on Child.Result, a
   -- field beside the exit status, and answer the handle with "" here:
   -- build/test.tl reads the trouble beside the handle's result today, and
   -- build.contracts exempts this pair from the error-slot rules until then.
   if #handles == 0 then error("child: no handles to wait for", 2) end
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
-  local deadline = timeout_ns ~= nil and now() + timeout_ns or nil
+  local deadline = if timeout_ns ~= nil then now() + timeout_ns else nil end
   while true do
     for _, h in ipairs(handles) do
       if h._result then return h, "" end
@@ -4248,12 +4239,12 @@ end
 --- table lists this thread's (`children`), but for the sandboxes' inits
 --- it started (`sandbox_inits`), each of which ends with the child it
 --- was started for; nil where there is no such list.
-local function strays(): {integer} | nil
+local function strays(): {integer}?
   local children, _ = raw.children()
   if children == nil then return nil end
-  local inits: {integer:boolean} = {}
+  local inits: mut {integer:boolean} = {}
   for _, pid in ipairs(raw.sandbox_inits()) do inits[pid] = true end
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for _, pid in ipairs(children) do
     if not owned[pid] and not inits[pid] then found[#found + 1] = pid end
   end
@@ -4271,16 +4262,16 @@ end
 --- find them; elsewhere this returns 0 and they are init's.
 function Child.end_strays(spared?: {integer}): integer
   if not reaping.adopting then return 0 end
-  local groups: {integer:boolean} = {}
+  local groups: mut {integer:boolean} = {}
   for _, group in ipairs(spared or {}) do groups[group] = true end
   local ended = 0
-  local seen: {integer:boolean} = {}
+  local seen: mut {integer:boolean} = {}
   local deadline = now() + KILL_REAP_NS
   while true do
     collect()
     local found = strays()
     if found ~= nil and next(groups) ~= nil then
-      local ending: {integer} = {}
+      local ending: mut {integer} = {}
       for _, pid in ipairs(found) do
         -- Not answered: ended as before.
         local group, _ = sys.getpgid(pid)
@@ -4331,7 +4322,7 @@ end
 --- nil and "child: signal guard: ..." when its guard cannot be opened.
 --- In a task of [`Poll.run`] that is cancelled, it ends the child, as a
 --- timeout would, and answers nil and [`Poll.CANCELLED`].
-function Child.run(argv: {string}, opts?: Options): Result | nil, string
+function Child.run(argv: {string}, opts?: Options): Result?, string
   opts = opts or {}
   validate(argv, opts)
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
@@ -4343,8 +4334,8 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
   local started, wait_trouble = start(argv, opts)
-  local r: Result | nil
-  local cleanup_trouble: string | nil
+  local r: Result?
+  local cleanup_trouble: string?
   if started ~= nil then
     -- Ends the child where the run is left by a raise, or a task's kill.
     local _ending <close> = started

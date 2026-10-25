@@ -254,7 +254,7 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
     "end",
     "",
     "return Stream"))
-  local by: {string: Analyzer.DocEntry} = {}
+  local by: mut {string: Analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by[entry.source_symbol] = entry
   end
@@ -265,7 +265,7 @@ local function test_a_classs_methods_are_documented_as_the_methods_the_fork_docu
   assert(read ~= nil and read.kind == "method" and read.symbol == "read" and read.exported and read.text == "Reads.")
   assert(read.signature == "function read(self, max: integer?): string?, string", read.signature)
   -- The metamethods follow the fields, and the methods come last, as the fork's rows came.
-  local order: {string} = {}
+  local order: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     order[#order + 1] = entry.source_symbol
   end
@@ -308,7 +308,7 @@ local function test_a_method_named_for_a_metamethod_is_a_metamethod_row()
     "  end",
     "end",
     "return Conn"))
-  local kinds: {string} = {}
+  local kinds: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     kinds[#kinds + 1] = entry.kind .. ":" .. entry.symbol
   end
@@ -323,7 +323,7 @@ local function test_the_values_of_an_enum_are_listed_in_order_and_each_carries_i
     "  --- First in the alphabet.",
     "  \"a\"",
     "end"))
-  local values: {string} = {}
+  local values: mut {string} = {}
   for _, entry in ipairs(found.docs) do
     values[#values + 1] = entry.symbol .. "=" .. entry.text
   end
@@ -371,7 +371,7 @@ end
 local function test_the_opening_comment_documents_the_module_or_the_function_below_it()
   local function symbols(source: string): string
     local found = analyzed(source)
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, entry in ipairs(found.docs) do
       out[#out + 1] = entry.kind .. ":" .. entry.symbol .. "=" .. entry.text
     end

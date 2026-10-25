@@ -59,7 +59,7 @@ local record Htmx
     --- The event's name: not empty, no comma, quote or control byte.
     name: string
     --- Becomes `event.detail`; nil sends an empty one.
-    detail: any
+    detail: Json.Value?
   end
 
   --- The object form of `HX-Location`: a client-side navigation with
@@ -226,7 +226,7 @@ end
 
 --- A URL for a header that htmx follows: a string must be a reference
 --- on this origin ([`Html.local_href`]); a [`Html.SafeUrl`] was vouched for.
-local function url_of(what: string, url: string | Html.SafeUrl): string | nil, string
+local function url_of(what: string, url: string | Html.SafeUrl): string?, string
   if url is string then
     local checked = Html.raw_url(Html.local_href(url))
     if checked == "about:invalid" or checked == "" then
@@ -242,7 +242,7 @@ local function url_of(what: string, url: string | Html.SafeUrl): string | nil, s
 end
 
 --- A selector or other free text: not empty, no control byte.
-local function text_of(what: string, value: any): string | nil, string
+local function text_of(what: string, value: any): string?, string
   if not (value is string) or value == "" or not plain(value) then
     return nil, "htmx: " .. what .. " is not a non-empty text without control bytes"
   end
@@ -263,7 +263,7 @@ end
 
 --- The JSON text of `value` for a header: ASCII only, as the header's
 --- bytes reach htmx as Latin-1.
-local function header_json(what: string, value: any): string | nil, string
+local function header_json(what: string, value: any): string?, string
   local text, why = Json.encode_any(value, { ascii = true })
   if text == nil then return nil, "htmx: " .. what .. ": " .. why end
   return text
@@ -271,7 +271,7 @@ end
 
 --- The value of an event header: the names alone where no event has a
 --- detail, else a JSON object of detail by name.
-local function events_of(what: string, events: {Htmx.Event}): string | nil, string
+local function events_of(what: string, events: {Htmx.Event}): string?, string
   if #events == 0 then return nil, "htmx: " .. what .. " names no event" end
   local detailed = false
   for _, event in ipairs(events) do
@@ -282,7 +282,7 @@ local function events_of(what: string, events: {Htmx.Event}): string | nil, stri
     end
     if event.detail ~= nil then detailed = true end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, event in ipairs(events) do
     if not detailed then
       if event.name:find("[\128-\255]") then
@@ -318,7 +318,7 @@ end
 --- @param reply Htmx.Reply The effects
 --- @return Types.Response | nil The same response, or nil
 --- @return string Why it was refused
-function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | nil, string
+function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, string
   local lines: {{string}} = {}
   local function put(name: string, value: string)
     lines[#lines + 1] = { name, value }
@@ -335,7 +335,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
     if location is Htmx.Location then
       local path, why = url_of("location path", location.path)
       if path == nil then return nil, why end
-      local object: {string: any} = { path = path, values = location.values, headers = location.headers }
+      local object: mut {string: any} = { path = path, values = location.values, headers = location.headers }
       for _, pair in ipairs({ { "target", location.target }, { "swap", location.swap },
           { "select", location.select }, { "source", location.source }, { "event", location.event } }) do
         if pair[2] ~= nil then
@@ -353,10 +353,10 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
       put("HX-Location", url)
     end
   end
-  local function url_field(label: string, header: string, value: string | Html.SafeUrl | boolean | nil): string | nil
+  local function url_field(label: string, header: string, value: (string | Html.SafeUrl | boolean)?): string?
     if value == nil then return nil end
     if value is boolean then
-      put(header, value and "true" or "false")
+      put(header, if value then "true" else "false" end)
       return nil
     end
     local url, why = url_of(label, value)
@@ -387,7 +387,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response | ni
     end
     put("HX-Reswap", swap)
   end
-  local function events_field(label: string, header: string, events: {Htmx.Event} | nil): string | nil
+  local function events_field(label: string, header: string, events: {Htmx.Event}?): string?
     if events == nil then return nil end
     local text, why = events_of(label, events)
     if text == nil then return why end
@@ -411,7 +411,7 @@ end
 --- @param url string | Html.SafeUrl Where to
 --- @return Types.Response | nil The response, or nil
 --- @return string Why `url` was refused
-function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types.Response | nil, string
+function Htmx.redirect_to(req: Types.Request, url: string | Html.SafeUrl): Types.Response?, string
   local target, why = url_of("redirect", url)
   if target == nil then return nil, why end
   local seen = Htmx.request(req)
@@ -478,7 +478,7 @@ end
 --- One script tag: the parts are the binary's own or escaped.
 local function script_tag(which: Htmx.Asset, opts: Htmx.HeadOptions): string
   local opts_nonce = opts.nonce
-  local nonce = opts_nonce ~= nil and (' nonce="' .. Html.raw_attr(Html.escape_attr(opts_nonce)) .. '"') or ""
+  local nonce = if opts_nonce ~= nil then (' nonce="' .. Html.raw_attr(Html.escape_attr(opts_nonce)) .. '"') else "" end
   local prefix = opts.prefix or ""
   return '<script src="' .. prefix .. Htmx.path(which) .. '" integrity="' .. Htmx.integrity(which) ..
     '" crossorigin="anonymous"' .. nonce .. " defer></script>"

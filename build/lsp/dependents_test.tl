@@ -29,7 +29,7 @@ end
 
 --- The messages that open `names` below `root` as they are on disk.
 local function opened(root: string, names: {string}): {string}
-  local out: {string} = { initialize(root), open(root, "helper.tl", integer) }
+  local out: mut {string} = { initialize(root), open(root, "helper.tl", integer) }
   for _, name in ipairs(names) do
     out[#out + 1] = open(root, name .. ".tl", (assert(Fs.read(root .. "/" .. name .. ".tl"))))
   end
@@ -56,7 +56,7 @@ end
 --- keyed once no message waits.
 local function test_a_change_to_a_comment_or_a_space_checks_no_dependent()
   local root = helped({ "main" })
-  local batches: {{string}} = { opened(root, { "main" }),
+  local batches: mut {{string}} = { opened(root, { "main" }),
     { change(root, "helper.tl", integer .. "-- Twice.\n") },
     { change(root, "helper.tl", integer:gsub("\n", "  \n") .. "-- Doubled.\n\n") } }
   local function between(_after: integer) end
@@ -76,7 +76,7 @@ end
 
 --- Whether the request was sent.
 local record Asked
-  asked: boolean
+  mut asked: boolean
 end
 
 --- The changed document's diagnostics are published before any of its
@@ -88,13 +88,13 @@ local function test_a_request_is_answered_before_the_dependents_left()
   local messages = opened(root, names)
   messages[#messages + 1] = change(root, "helper.tl", text)
   local held: Asked = { asked = false }
-  local ran = session_fixture.served_arriving(root, messages, function(checked: integer): string | nil
+  local ran = session_fixture.served_arriving(root, messages, function(checked: integer): string?
     if checked < 1 or held.asked then return nil end
     held.asked = true
     return at(7, "textDocument/hover", root, "a.tl", 0, 0)
   end)
   assert(ran.dependents == 3, tostring(ran.dependents))
-  local order: {string} = {}
+  local order: mut {string} = {}
   for i, body in ipairs(ran.sent) do
     local sent = sent_of(body)
     if sent.id == 7 then

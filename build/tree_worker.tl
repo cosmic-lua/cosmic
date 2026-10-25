@@ -52,7 +52,7 @@ function tree_worker.serve(): integer
   if opened == nil then return 1 end
   local memo: Sqlite.Handle = opened
   local _, _ = check_memo.prepare(memo, "read")
-  local more: {string: function(compiler, string, integer): string} = {}
+  local more: mut {string: function(compiler, string, integer): string} = {}
   more["tree_read"] = function(built: compiler, job: string, index: integer): string
     return tree_shard.serve(job, index, function(b: compiler, file: string, source: string, extra: string): {string}
       return tree_worker.reading(memo, b, file, source, extra)

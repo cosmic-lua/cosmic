@@ -31,7 +31,7 @@ local refuse = ctx_mod.refuse
 --- The arguments the source actually wrote, in order: a method's
 --- implicit `self` is in the parser's list but not in the text.
 local function written(list: Node): {Node}
-  local out: {Node} = {}
+  local out: mut {Node} = {}
   for _, a in ipairs(list) do
     if a.kind == "argument" then
       out[#out + 1] = a
@@ -81,7 +81,7 @@ end
 --- types, so they are written as original bytes like other type syntax.
 --- @param c Ctx
 --- @param anchor integer|nil The token a `<` would follow: a name, or `function`
-local function typeargs(c: Ctx, anchor: integer | nil)
+local function typeargs(c: Ctx, anchor: integer?)
   if anchor == nil or typescan.tk(c.scan, anchor + 1) ~= "<" then
     return
   end
@@ -108,7 +108,7 @@ local function arguments(c: Ctx, list: Node)
       emit.put(c.em, ",")
     end
     c.starting = true
-    ctx_mod.lead(c, a, i > 1 and " " or "")
+    ctx_mod.lead(c, a, if i > 1 then " " else "" end)
     emit.text(c.em, a.tk or "")
     if a.opt and a.tk ~= "..." then
       emit.put(c.em, "?")
@@ -134,7 +134,7 @@ end
 --- @param bx integer That token's column
 --- @param never boolean | nil Whether the list is `never`, which has no types
 local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
-                       bx: integer, never: boolean | nil)
+                       bx: integer, never: boolean?)
   local declared = rets.tuple
   if (declared == nil or #declared == 0) and not never then
     return
@@ -151,9 +151,9 @@ local function returns(c: Ctx, rets: TypeNode, list: Node, by: integer,
 end
 
 local record SigModule
-  typeargs: function(c: Ctx, anchor: integer | nil)
+  typeargs: function(c: Ctx, anchor: integer?)
   arguments: function(c: Ctx, list: Node)
-  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer, never: boolean | nil)
+  returns: function(c: Ctx, rets: TypeNode, list: Node, by: integer, bx: integer, never: boolean?)
 end
 
 local M: SigModule = {

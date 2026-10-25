@@ -123,7 +123,7 @@ local text = bind.text
 --- else `verdicts.db` in `Fs.cache_dir("verdicts")`, made if missing.
 --- Nil and "" when the variable is `0`, or nil and why when there is
 --- nowhere to keep it.
-function shared_verdicts.location(environment?: {string:string}): string | nil, string
+function shared_verdicts.location(environment?: {string:string}): string?, string
   local value: string
   if environment ~= nil then
     value = environment[variable] or ""
@@ -159,7 +159,7 @@ end
 
 --- Turns the cache off in `environment`, for a process that is to
 --- neither read nor write it.
-function shared_verdicts.turn_off(environment: {string:string})
+function shared_verdicts.turn_off(environment: mut {string:string})
   environment[variable] = "0"
 end
 
@@ -172,7 +172,7 @@ local schema <const> = cache_formats.verdicts
 --- little that way.
 local function packed(hits: string): string
   return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     local last = 0
     for line in lines:gmatch("%d+") do
       local number = math.tointeger(tonumber(line)) or 0
@@ -186,7 +186,7 @@ end
 --- `packed` undone.
 local function unpacked(hits: string): string
   return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     local last = 0
     for step in lines:gmatch("%d+") do
       last = last + (math.tointeger(tonumber(step)) or 0)
@@ -198,7 +198,7 @@ end
 
 --- Whether `db`'s table of this format has its `parts` column, which a
 --- file from a binary without it lacks.
-local function has_parts(db: Sqlite.Handle): boolean | nil, string
+local function has_parts(db: Sqlite.Handle): boolean?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
       declared .. "') WHERE name = 'parts'")
   if rows == nil then return nil, trouble end
@@ -246,7 +246,7 @@ end
 
 --- Opens the cache at `path`, making it and its directory when missing,
 --- in write-ahead mode ([`shared_sqlite.open`]).
-function shared_verdicts.open(path: string): shared_verdicts.Cache | nil, string
+function shared_verdicts.open(path: string): shared_verdicts.Cache?, string
   local made, made_trouble = Fs.mkdirs(Fs.dirname(path))
   if not made then return nil, made_trouble end
   local db, trouble = shared_sqlite.open(path, prepare)
@@ -261,7 +261,7 @@ end
 --- The coverage and duration of the passing verdict under the declared
 --- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,
-                                  key: string): shared_verdicts.Found | nil, string
+                                  key: string): shared_verdicts.Found?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
@@ -274,7 +274,7 @@ end
 --- The digest of the bytes of the closure store at `address`, as a run
 --- that had it kept it (`settle`), or nil.
 function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
-                                      address: string): string | nil, string
+                                      address: string): string?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, trouble end
@@ -288,7 +288,7 @@ end
 --- tests under keys the run no longer reaches (a host, runtime or
 --- harness that moved), which `unmatched` says.
 function shared_verdicts.census(cache: shared_verdicts.Cache,
-                                tests: {string:boolean}): shared_verdicts.Census | nil, string
+                                tests: {string:boolean}): shared_verdicts.Census?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
   if rows == nil then return nil, trouble end
@@ -307,7 +307,7 @@ end
 --- the system's, the compiler's and the program's, only the keys of
 --- modules given them.
 function shared_verdicts.named(parts: {{string}}): string
-  local named: {string} = {}
+  local named: mut {string} = {}
   for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
   return table.concat(named, ", ")
 end
@@ -322,11 +322,11 @@ end
 --- How many rows the cache holds under each set of key parts its rows
 --- name, the most first: what a run found in the cache before it
 --- stood on or kept anything (`cosmic test --census`).
-function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held} | nil, string
+function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held}?, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
       declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
   if rows == nil then return nil, trouble end
-  local out: {shared_verdicts.Held} = {}
+  local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
   end
@@ -342,7 +342,7 @@ end
 ---     test: census: no rows
 function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   if #held == 0 then return "test: census: no rows" end
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
       plural.noun(group.rows, "row"),
@@ -358,10 +358,10 @@ end
 --- nothing to stand on.
 function shared_verdicts.unmatched(path: string, looked: integer,
                                    census: shared_verdicts.Census,
-                                   parts: {{string}}): string | nil
+                                   parts: {{string}}): string?
   if looked == 0 or census.rows == 0 then return nil end
-  local why = census.of_tests > 0 and "none under the keys this run reached" or
-    "no other run reached them"
+  local why = if census.of_tests > 0 then "none under the keys this run reached" else
+    "no other run reached them" end
   return string.format("test: shared verdicts: none of %s looked up stood, " ..
       "though %s holds %s, %d of them of those tests: %s (%s)",
     plural.count(looked, "test"), path, plural.count(census.rows, "row"), census.of_tests,
@@ -404,7 +404,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       end
     end
     local stored = owed.stores or {}
-    local addresses: {string} = {}
+    local addresses: mut {string} = {}
     for address in pairs(stored) do addresses[#addresses + 1] = address end
     table.sort(addresses)
     -- A digest here that differs from the run's for the same address

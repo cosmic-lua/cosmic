@@ -12,7 +12,7 @@ local type Net = require("cosmic.net")
 --- `log` as "<name> <host> <timeout_ns>", holds it for `hold_ns`, and
 --- then refuses it, or ends where it `dies`. One made `gone` has ended
 --- already.
-local function fake(name: string, log: {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
+local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
   local hold = hold_ns or 0
   local ended = { value = gone or false }
   local stand_in: any = {
@@ -48,7 +48,7 @@ local function test_requests_are_asked_of_the_connector_at_once_each_with_its_ow
   local log: {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("one", log, Clock.ms(200)) })
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     local began = Clock.monotonic_ns()
     for i = 1, 4 do
       tasks[i] = Poll.spawn(function()

@@ -99,7 +99,7 @@ local record test_key
   --- What [`test_key.prepare`] made of a job: the command that starts its
   --- worker, or none and why it cannot be started.
   record Prepared
-    command: worker.Command | nil
+    command: worker.Command?
     --- Why there is no command: the failure the runner records for the test.
     trouble: string
     --- Whether the test is refused for it (its `host` paths cannot be
@@ -107,7 +107,7 @@ local record test_key
     refused: boolean
     --- For a worker its module's `noexec` leaves no way to start: why the
     --- host cannot check the test, which the runner records as a skip.
-    unavailable: string | nil
+    unavailable: string?
   end
 
   --- The compiler identities the running binary names
@@ -180,11 +180,11 @@ local record test_key
     --- The test's key, or nil for one that has none: it reaches a network
     --- beyond loopback, or reads a link out of the tree, so it runs every
     --- time.
-    key: string | nil
+    key: string?
     --- The verdict this checkout holds under it, and the one another
     --- checkout reached under it ([`build.shared_verdicts`]), if either.
-    own: Verdict | nil
-    elsewhere: shared_verdicts.Found | nil
+    own: Verdict?
+    elsewhere: shared_verdicts.Found?
     --- Whether the shared verdicts were asked.
     asked: boolean
     --- What the run does with the test: "run" it, "stand" on this
@@ -196,7 +196,7 @@ local record test_key
   --- its verdict turns on: whether it passed, and whether it checked.
   record Judged
     --- What its worker reported, nil where there is no report to go by.
-    report: worker.Report | nil
+    report: worker.Report?
     --- Whether it passed: a worker's pass that made no call to `assert`
     --- is a failure under a held run.
     passed: boolean
@@ -240,13 +240,13 @@ local text = bind.text
 local hex_sha256 = hashing.hex_sha256
 
 --- Every verdict ever reached, by key.
-function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict} | nil, string
+function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, string
   local rows, trouble = Sqlite.text_rows(handle,
     "SELECT key, passed, run_at_ns, elapsed_ns FROM verdicts")
   if rows == nil then
     return nil, trouble
   end
-  local out: {string:Verdict} = {}
+  local out: mut {string:Verdict} = {}
   for _, row in ipairs(rows) do
     out[row:text(1)] = {
       passed = row:text(2) == "1",
@@ -264,7 +264,7 @@ function test_key.record_verdict(handle: Sqlite.Handle, key: string, passed: boo
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5)",
-    { text(key), { integer = passed and 1 or 0 }, { integer = run_at_ns },
+    { text(key), { integer = if passed then 1 else 0 end }, { integer = run_at_ns },
       { integer = run }, { integer = elapsed } })
 end
 
@@ -276,14 +276,14 @@ local worker_view: function(): {string:string}
 --- What a lookup made inside [`Store.alone`], which hands nothing back,
 --- found: the value, or why there is none.
 local record Looked<T>
-  value: T | nil
-  trouble: string
+  mut value: T?
+  mut trouble: string
 end
 
 --- The digest of the zones and CA roots the running binary's own
 --- database carries ([`schema.tables_digest`]), searched alone so no
 --- attached database stands in for it.
-local function binary_tables(): string | nil, string
+local function binary_tables(): string?, string
   local looked: Looked<Sqlite.Rows> = { trouble = "the running binary has no database" }
   Store.alone(function()
     local databases = Store.databases()
@@ -429,9 +429,9 @@ local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 --- requires), and each of `own` alone.
 local function closure_of(roots: {string}, own: {string},
                           imports: {string:{string}}): {string}
-  local seen: {string:boolean} = {}
-  local names: {string} = {}
-  local stack: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local names: mut {string} = {}
+  local stack: mut {string} = {}
   for _, name in ipairs(own) do
     seen[name] = true
     names[#names + 1] = name
@@ -466,11 +466,11 @@ local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
 --- require (`require"x"`, one split across lines, one inside a
 --- function) leaves the name in the bytecode, and so does a name that
 --- is only a string there: the test errs toward following an edge.
-function test_key.value_imports(db: Sqlite.Handle): {string:{string}} | nil, string
+function test_key.value_imports(db: Sqlite.Handle): {string:{string}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
-  local out: {string:{string}} = {}
+  local out: mut {string:{string}} = {}
   for _, row in ipairs(rows) do
     local list = out[row:text(1)] or {}
     out[row:text(1)] = list
@@ -486,11 +486,11 @@ end
 --- module only to name its types runs without loading it, so an edit to
 --- it that leaves the importer's bytecode as it was moves no key, and a
 --- test importing the importer is not run again for it.
-function test_key.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}} | nil, string
+function test_key.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.requires FROM imports i WHERE EXISTS " .. erased_require)
   if rows == nil then return nil, trouble end
-  local out: {string:{string:boolean}} = {}
+  local out: mut {string:{string:boolean}} = {}
   for _, row in ipairs(rows) do
     local set = out[row:text(1)] or {}
     out[row:text(1)] = set
@@ -500,7 +500,7 @@ function test_key.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}
 end
 
 --- [`test_key.type_only_imports`] of the projection at `path`.
-local function projection_type_only(path: string): {string:{string:boolean}} | nil, string
+local function projection_type_only(path: string): {string:{string:boolean}}?, string
   local opened, trouble = Sqlite.open(path)
   if opened == nil then return nil, path .. ": " .. trouble end
   local db: Sqlite.Handle = opened
@@ -537,29 +537,29 @@ end
 --- store's bytes follow from both. Nil and why where a module either
 --- names is none `db` carries, which the digests or the salt would
 --- otherwise leave out unnoticed.
-function test_key.harness(db: Sqlite.Handle): Harness | nil, string
+function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash, lower(hex(sha256(bytecode))) FROM modules " ..
       "WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
-  local sources: {string:string} = {}
-  local compiled: {string:string} = {}
-  local carried: {string:boolean} = {}
+  local sources: mut {string:string} = {}
+  local compiled: mut {string:string} = {}
+  local carried: mut {string:boolean} = {}
   for _, row in ipairs(modules) do
     sources[row:text(1)] = row:text(2)
     compiled[row:text(1)] = row:text(2) .. " " .. row:text(3)
     carried[row:text(1)] = true
   end
-  local imports: {string:{string}} = {}
+  local imports: mut {string:{string}} = {}
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
     list[#list + 1] = row:text(2)
   end
-  local names: {string} = {}
-  local runs: {string} = {}
+  local names: mut {string} = {}
+  local runs: mut {string} = {}
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
@@ -574,7 +574,7 @@ function test_key.harness(db: Sqlite.Handle): Harness | nil, string
       if name ~= epoch_module then names[#names + 1] = name end
     end
   end
-  local each: {string:string} = {}
+  local each: mut {string:string} = {}
   for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, compiled) end
   local salted = store_code(imports)
   for _, name in ipairs(salted) do
@@ -596,7 +596,7 @@ end
 --- an enum's test) is compiled into the importer's bytecode. None of it
 --- is keyed by what it is: the epoch stands for it
 --- (build/harness_epoch.tl).
-function test_key.binary_harness(): Harness | nil, string
+function test_key.binary_harness(): Harness?, string
   local looked: Looked<Harness> = { trouble = "the running binary has no database" }
   Store.alone(function()
     local databases = Store.databases()
@@ -615,7 +615,7 @@ end
 --- (build/sandboxed_verdicts_test.tl): a count, a dash and hex digits,
 --- as the file's is, so the census and key-parts lines, which say it
 --- as one word, stay parseable. Nil and why for another.
-function test_key.epoch_of(): string | nil, string
+function test_key.epoch_of(): string?, string
   local named = Env.get("COSMIC_TEST_HARNESS_EPOCH") or ""
   if named == "" then return harness_epoch.epoch, "" end
   if not named:match("^%d+%-%x+$") then
@@ -790,8 +790,8 @@ end
 local function tool_use(rec: Recording, m: Module): ToolUse
   local effective = rec.effective[m.path]
   if effective.tool then return "declared" end
-  if effective.lua or effective.nests then return seals(rec, m) and "sealed" or "allowed" end
-  return can_forbid(rec, m) and "forbidden" or "allowed"
+  if effective.lua or effective.nests then return if seals(rec, m) then "sealed" else "allowed" end end
+  return if can_forbid(rec, m) then "forbidden" else "allowed" end
 end
 
 --- How a worker of `m`'s tests is held by a Landlock ruleset
@@ -803,7 +803,7 @@ end
 --- a ruleset.
 local function hold_of(rec: Recording, m: Module): worker.Hold
   if not rec.sandbox or rec.effective[m.path].nests then return "none" end
-  return tool_use(rec, m) == "forbidden" and "forbid" or "mounts"
+  return if tool_use(rec, m) == "forbidden" then "forbid" else "mounts" end
 end
 
 --- Whether a worker of `m`'s tests can read the compiler's identity,
@@ -841,9 +841,9 @@ local function extras_digest(rec: Recording): string
   end
   local digest = "unread"
   if rows ~= nil then
-    local in_tree: {string:boolean} = {}
+    local in_tree: mut {string:boolean} = {}
     for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, row in ipairs(rows) do
       if not in_tree[row:text(1)] then
         lines[#lines + 1] = table.concat(row:texts(), "\0")
@@ -857,7 +857,7 @@ end
 
 --- The digest of the store `m`'s workers are given, which its key holds
 --- (defined with the stores, below).
-local store_digest: function(rec: Recording, m: Module): string | nil, string
+local store_digest: function(rec: Recording, m: Module): string?, string
 
 --- The program a test that runs this program runs
 --- ([`Recording.program`]), worked out the first time a key holds it.
@@ -891,7 +891,7 @@ local program_of = test_key.program_of
 -- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
-local function declared_of(rec: Recording, m: Module, id: string): string | nil
+local function declared_of(rec: Recording, m: Module, id: string): string?
   local effective = rec.effective[m.path]
   local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
@@ -907,7 +907,7 @@ local function declared_of(rec: Recording, m: Module, id: string): string | nil
     epoch = rec.epoch, timeout_ns = rec.timeout_ns,
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
-    launcher = seals(rec, m) and (assert(rec.core) .. "\0" .. extras_digest(rec)) or rec.launcher,
+    launcher = if seals(rec, m) then (assert(rec.core) .. "\0" .. extras_digest(rec)) else rec.launcher end,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
     environment = view_of(rec, m), runs_tool = runs_tool,
@@ -957,7 +957,7 @@ local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true, S
 --- and with the shared verdict cache off (`COSMIC_VERDICT_CACHE=0`) and
 --- the shared compiles too (`COSMIC_BUILD_CACHE=0`).
 function test_key.worker_environment(environment: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(environment) do
     if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" and not launch_only[name] then
       out[name] = value
@@ -1012,13 +1012,13 @@ worker_view = test_key.worker_view
 -- where the checkout is. Drop it only once a case of its own on the
 -- macOS leg catches a path resolved on one side of a comparison and not
 -- the other, which the link catches on every leg today.
-function test_key.scratch(): string | nil, string
+function test_key.scratch(): string?, string
   -- Padded so the scratch directory's path is as long on this host as
   -- a sandbox's is, and as macOS's is ([`test_sandbox.scratch_length`]),
   -- past the temporary directory's resolved path and mkdtemp's six.
   local base, base_trouble = Fs.absolute(Env.get_or("TMPDIR", "/tmp"))
   if base == nil then return nil, base_trouble end
-  local separator = base:sub(-1) == "/" and 0 or 1
+  local separator = if base:sub(-1) == "/" then 0 else 1 end
   local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",
     test_sandbox.scratch_length - #base - separator - 6))
   if made == nil then return nil, trouble end
@@ -1088,7 +1088,7 @@ end
 --- take one out costs only room, and is said once.
 local function sweep_stores(rec: Recording)
   local directory = stores_directory(rec.root)
-  local named: {string:boolean} = {}
+  local named: mut {string:boolean} = {}
   for _, address in pairs(rec.stores) do named[address .. ".db"] = true end
   named[base_name(assert(rec.base_store))] = true
   local listed, _ = Fs.list(directory)
@@ -1111,7 +1111,7 @@ end
 --- ends ([`drop_extraction`]). Apart from the stores directory, whose
 --- every other entry [`sweep_stores`] takes out. Nil and why where it
 --- could not be made.
-local function extraction_for(rec: Recording): string | nil, string
+local function extraction_for(rec: Recording): string?, string
   local extraction = rec.extraction
   if extraction ~= nil then return extraction, "" end
   local path = build_paths.resolve(rec.root).uses
@@ -1135,7 +1135,7 @@ end
 --- and why where it could not be made. `base` names the store of no
 --- module ([`base_name`]), which the counts of stores written leave out.
 local function store_at(rec: Recording, address: string, names: {string},
-                        base?: boolean): string | nil, string
+                        base?: boolean): string?, string
   local path = rec.built[address]
   if path ~= nil then return path, "" end
   local directory = stores_directory(rec.root)
@@ -1164,7 +1164,7 @@ end
 --- The path of the closure store a worker of `m`'s tests is given
 --- ([`store_at`]), or nil where `m` declares `store` and is given the
 --- whole projection; nil and why where it could not be made.
-local function given_store(rec: Recording, m: Module): string | nil, string
+local function given_store(rec: Recording, m: Module): string?, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return store_at(rec, address, rec.closures[m.path])
@@ -1264,7 +1264,7 @@ local sealed_fill <const>: {string} = {
 --- [`Fs.mkdtemp`] makes is shut to; its parents are the temporary
 --- directory's, which must be open to that user too: the start says if
 --- not). Nil and why where there is none, said once.
-local function sealing_for(rec: Recording): Sealing | nil, string
+local function sealing_for(rec: Recording): Sealing?, string
   local sealing = rec.sealing
   if sealing ~= nil then return sealing, "" end
   local sealing_trouble = rec.sealing_trouble
@@ -1368,10 +1368,10 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   if core == nil or core == "" or basis == nil or basis == "" then
     return false, "this process has no core digest or runtime basis to record"
   end
-  local meta: {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
+  local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
     { "runtime_basis", basis } }
-  for _, key in ipairs(with_compiler and { "image_hash", "compiler", "compiled_by" } or
-        { "image_hash" }) do
+  for _, key in ipairs(if with_compiler then { "image_hash", "compiler", "compiled_by" } else
+        { "image_hash" } end) do
     local value = Store.meta(key)
     if value ~= nil then meta[#meta + 1] = { key, value } end
   end
@@ -1410,7 +1410,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
       local held, held_trouble = Sqlite.text_rows(db,
         "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs')")
       if held == nil then return false, held_trouble end
-      local absent: {string:boolean} = { web_assets = true, stubs = true }
+      local absent: mut {string:boolean} = { web_assets = true, stubs = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
@@ -1463,12 +1463,12 @@ end
 --- worker or of a process it starts reaches a module its key does not hold.
 --- Nil where `m`'s worker is not sealed ([`seals`]), and nil and why where
 --- its database could not be made.
-local function sealed_for(rec: Recording, m: Module): string | nil, string
+local function sealed_for(rec: Recording, m: Module): string?, string
   if not seals(rec, m) then return nil, "" end
   local with_compiler = reads_compiler(rec, m)
   -- A worker whose key holds the compiler's identity reads it, so its
   -- database holds it: another file than a closure's that does not.
-  local name = rec.stores[m.path] .. (with_compiler and "-compiler" or "")
+  local name = rec.stores[m.path] .. (if with_compiler then "-compiler" else "" end)
   local kept = rec.sealed[name]
   if kept ~= nil then return kept, "" end
   local started = Clock.monotonic_ns()
@@ -1518,8 +1518,8 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
   rec.errors[#rec.errors + 1] = "the closure store at address " .. address .. " was written " ..
     "with bytes whose digest is " .. digest .. ", but " .. where .. " has " .. kept ..
     ": a store's bytes must follow from its address alone (build.closure_store's " ..
-    "`address`), and these do not. " .. (saved and ("This run's is kept at " .. aside) or
-      ("This run's could not be kept aside (" .. trouble .. ")")) .. "; report it with the " ..
+    "`address`), and these do not. " .. (if saved then ("This run's is kept at " .. aside) else
+      ("This run's could not be kept aside (" .. trouble .. ")") end) .. "; report it with the " ..
     "other, and both digests, and remove it once reported. The next run keeps " .. digest ..
     " for the address in the shared verdicts, in place of " .. kept .. "."
 end
@@ -1527,7 +1527,7 @@ end
 --- The digest the shared verdicts keep for the store at `address`, as a
 --- run that wrote it kept it, looked up once a run ([`Recording.store_kept`]);
 --- nil for none, or where the run has no shared verdicts.
-local function shared_digest(rec: Recording, address: string): string | nil
+local function shared_digest(rec: Recording, address: string): string?
   local kept = rec.store_kept[address]
   if kept == nil then
     kept = ""
@@ -1564,13 +1564,13 @@ end
 --- and so is one sampled each run that writes none ([`verify_sample`]).
 --- Nil and why where it could not be written.
 local function address_digest(rec: Recording, address: string, names: {string},
-                              base: boolean): string | nil, string
+                              base: boolean): string?, string
   local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
   local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
     (address .. ".db"))
-  local digest: string | nil = nil
+  local digest: string? = nil
   local there, _ = sys.stat(path)
   if rec.built[address] == nil and there == nil then
     digest = rec.store_digests[address]
@@ -1589,7 +1589,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
     if kept == nil then
       kept = shared_digest(rec, address)
       local shared = rec.shared
-      where = shared ~= nil and ("the shared verdicts at " .. shared.path) or ""
+      where = if shared ~= nil then ("the shared verdicts at " .. shared.path) else "" end
     end
     if kept ~= nil and kept ~= digest and not rec.store_mismatched[address] then
       rec.store_mismatched[address] = true
@@ -1612,7 +1612,7 @@ end
 --- of the run (`mismatched`); no file is left but one kept aside.
 local function verify_sample(rec: Recording)
   if rec.written > 0 then return end
-  local addresses: {string} = {}
+  local addresses: mut {string} = {}
   for address in pairs(rec.store_digests) do addresses[#addresses + 1] = address end
   if #addresses == 0 then return end
   table.sort(addresses)
@@ -1653,7 +1653,7 @@ end
 --- The digest of the bytes of the closure store a worker of `m`'s tests
 --- is given ([`address_digest`]), which its key holds. Nil where `m`
 --- declares `store`; nil and why where it could not be made.
-store_digest = function(rec: Recording, m: Module): string | nil, string
+store_digest = function(rec: Recording, m: Module): string?, string
   local address = rec.stores ~= nil and rec.stores[m.path] or nil
   if address == nil then return nil, "" end
   return address_digest(rec, address, rec.closures[m.path], false)
@@ -1674,7 +1674,7 @@ end
 --- the plan of its paths (`job.plan`). Its environment is added by
 --- [`worker.invocation`], which gives a policy's `set_env` the whole of the
 --- worker's. Nil and why where its directory cannot be made.
-local function policy_of(rec: Recording, job: Job): Sandbox.Policy | nil, string
+local function policy_of(rec: Recording, job: Job): Sandbox.Policy?, string
   local effective = rec.effective[job.m.path]
   local policy = test_policy.worker(assert(job.plan), effective)
   if effective.noexec_ready then
@@ -1690,7 +1690,7 @@ local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 
 --- The names a module requires of its host, as its policy declares them
 --- ([`host_names.check`]), sorted.
 local function requirements_of(m: Module): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
   for _, name in ipairs(declared.requires or {}) do names[#names + 1] = name end
@@ -1713,8 +1713,8 @@ end
 --- asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
-                           promises: {string}, leg: string): host_requires.Host | nil
-  local host: host_requires.Host | nil = nil
+                           promises: {string}, leg: string): host_requires.Host?
+  local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
     local names = requirements_of(m)
     if #names > 0 then
@@ -1723,7 +1723,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
         -- for a platform without Linux's requirements or a portable artifact on
         -- a host that has them: it makes modules not applicable, which keeps
         -- no verdict and fails no run.
-        local linux: boolean | nil = nil
+        local linux: boolean? = nil
         local portable = Store.meta("runtime_context") == "portable-v1"
         local checked = testing.configuration == "sanitized"
         local function host_only(): boolean
@@ -1752,8 +1752,8 @@ function test_key.ask_host(rec: Recording, modules: {Module},
         rec.unmet[m.path] = { kind = "refused", why = "the probe of what it requires of the host " ..
             "failed: " .. tostring(answers) }
       end
-      local present: {string:string} = {}
-      local unmet: Unmet | nil
+      local present: mut {string:string} = {}
+      local unmet: Unmet?
       for _, answer in ipairs(found) do
         if answer.kind == "present" then
           present[answer.name] = answer.key
@@ -1761,7 +1761,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           local said = "requires " .. answer.name .. ": " .. answer.why
           local kind = answer.kind
           if held and kind ~= "refused" and host_names.promised(promises, answer.name) then
-            said = said .. " (" .. (leg == "" and "this run" or "the leg " .. leg) ..
+            said = said .. " (" .. (if leg == "" then "this run" else "the leg " .. leg end) ..
               " promises " .. answer.name .. ", and a held run fails what its leg promised)"
             kind = "refused"
           end
@@ -1787,15 +1787,15 @@ end
 --- of the closures, and the host, system and launcher identities, then
 --- frozen. Nil where it is, or why it cannot be: the runner stops with the
 --- reason.
-function test_key.gather(rec: Recording, from: Gather): string | nil
+function test_key.gather(rec: Recording, from: Gather): string?
   local records, records_path, selected_modules = from.records, from.records_path, from.selected
   local identity = from.identity
-  local by_path: {string:Module} = {}
+  local by_path: mut {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
     "SELECT path, file FROM inputs WHERE kind = 'decl'")
   if declaration_rows == nil then return records_path .. ": " .. declaration_trouble end
-  local declarations: {string:string} = {}
+  local declarations: mut {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row:text(1)] = row:text(2) end
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
   table.sort(rec.tree_names)
@@ -1825,7 +1825,7 @@ function test_key.gather(rec: Recording, from: Gather): string | nil
   local remembered, remembered_trouble = Sqlite.text_rows(records,
     "SELECT path, signature, sha256 FROM digests")
   if remembered == nil then return records_path .. ": " .. remembered_trouble end
-  local earlier: {{string}} = {}
+  local earlier: mut {{string}} = {}
   for _, row in ipairs(remembered) do earlier[#earlier + 1] = row:texts() end
   rec.digests = declared_key.digests(from.root, earlier)
   -- A core that carries debug information, as the checked core does,
@@ -1923,7 +1923,7 @@ end
 --- binary's own rows rather than taken from anything it records of
 --- them, which a refresh or a writer that did not know to update it
 --- would leave stale.
-function test_key.runtime_of(): Runtime | nil, string
+function test_key.runtime_of(): Runtime?, string
   local identity = Store.meta("runtime") or ""
   if identity == "" then
     return nil, "the running binary names no runtime identity"
@@ -1945,7 +1945,7 @@ end
 --- apart from one reached without a sandbox, by a runtime of its own, so
 --- neither stands for the other.
 function test_key.sandboxed_runtime(runtime: string, made: {string:string}, must: boolean): string
-  return runtime .. " sandboxed" .. (must and " must" or "") .. " policy " ..
+  return runtime .. " sandboxed" .. (if must then " must" else "" end) .. " policy " ..
     hashing.hex_sha256(test_policy.common() .. "\0" ..
         (made["build.test_policy"] or "") .. "\0" .. (made["build.test_sandbox"] or ""))
 end
@@ -1955,7 +1955,7 @@ end
 --- tell these verdicts from a sandboxed run's; the tag says so in the key
 --- itself (build/declared_unenforced_test.tl).
 function test_key.declared_runtime(runtime: string, must: boolean): string
-  return runtime .. " declared" .. (must and " must" or "")
+  return runtime .. " declared" .. (if must then " must" else "" end)
 end
 
 --- Sets what every key of the run holds of the harness and the runtime
@@ -1990,12 +1990,12 @@ end
 --- verdicts are asked only where the run `consult`s them and nothing here
 --- answers.
 function test_key.lookup(rec: Recording, m: Module, id: string,
-                         verdicts: {string:Verdict}, forced: boolean | nil,
-                         consult: boolean | nil): Lookup
+                         verdicts: {string:Verdict}, forced: boolean?,
+                         consult: boolean?): Lookup
   local force: boolean = forced == true or rec.checks
   local key = declared_of(rec, m, id)
   local own = key ~= nil and verdicts[key] or nil
-  local elsewhere: shared_verdicts.Found | nil = nil
+  local elsewhere: shared_verdicts.Found? = nil
   local asked = false
   local rec_shared = rec.shared
   if key ~= nil and not force and own == nil and consult and rec_shared ~= nil then
@@ -2060,9 +2060,9 @@ end
 --- it: it passes by running). Neither is kept as a verdict, pass or fail,
 --- so it runs again on the next run -- and on a host that can check it,
 --- whose key differs, as its own.
-function test_key.judge(rec: Recording, job: Job, result: Child.Result | nil,
-                        trouble: string, refused: boolean | nil,
-                        unavailable: string | nil): Judged
+function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
+                        trouble: string, refused: boolean?,
+                        unavailable: string?): Judged
   local judgement: worker.Judgement
   if unavailable ~= nil then
     judgement = { passed = true, skipped = unavailable, message = "" }
@@ -2100,7 +2100,7 @@ end
 --- keyed by before it started: its declared inputs must be as they were,
 --- or the verdict describes no one state of them, and is not kept.
 local function holds(rec: Recording, m: Module, id: string,
-                     key: string | nil): boolean
+                     key: string?): boolean
   return key ~= nil and declared_of(rec, m, id) == key
 end
 
@@ -2160,7 +2160,7 @@ end
 --- only what it looked at, and one of some of it adds to what the rest
 --- looked at before. True where it did, or false and why.
 function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
-                                  whole: boolean | nil): boolean, string
+                                  whole: boolean?): boolean, string
   local digests = rec.digests
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
@@ -2178,7 +2178,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
 end
 
 --- A worker that could not be started ([`test_key.prepare`]).
-local function cannot(trouble: string, refused: boolean, unavailable: string | nil): Prepared
+local function cannot(trouble: string, refused: boolean, unavailable: string?): Prepared
   return { command = nil, trouble = trouble, refused = refused, unavailable = unavailable }
 end
 
@@ -2214,10 +2214,10 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     return cannot("", false, effective.noexec_trouble)
   end
   -- The store its worker attaches ([`worker.Invocation`]'s `store`).
-  local attached: string | nil = nil
+  local attached: string? = nil
   -- The sealed database of its closure its worker runs on ([`sealed_for`]):
   -- nil for none.
-  local sealed: string | nil = nil
+  local sealed: string? = nil
   local sealed_trouble = ""
   if rec.sandbox then
     local store, store_trouble = given_store(rec, job.m)
@@ -2233,9 +2233,9 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     if sealed == nil and rec.effective[job.m.path].lua and not rec.effective[job.m.path].store and
         not rec.effective[job.m.path].tool then
       local launched, _ = Proc.relaunch()
-      local why = (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) and
-        "this program is no portable artifact to take its database from" or
-        "it is given no closure store to seal"
+      local why = if (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) then
+        "this program is no portable artifact to take its database from" else
+        "it is given no closure store to seal" end
       return cannot("its module declares lua, so what its tests start runs a sealed " ..
           "database of its closure, which cannot be made: " .. why, false, nil)
     end
@@ -2335,7 +2335,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
   local declared = job.m.inputs
   local hold = hold_of(rec, job.m)
   if rec.sandbox then
-    local given: {string:string} = {}
+    local given: mut {string:string} = {}
     for name, value in pairs(env) do given[name] = value end
     given[confine.held_variable] = hold ~= "none" and job.m.path or nil
     env = given
@@ -2344,7 +2344,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
   -- is started from must be run to start it, so a worker whose module does
   -- not declare `tool` still puts up the ruleset that forbids it running
   -- the program again ([`worker.run`]'s `forbid_running`).
-  local policy: Sandbox.Policy | nil = nil
+  local policy: Sandbox.Policy? = nil
   local runs: {string} = {}
   if rec.sandbox then
     -- A worker that may run the program has nothing to forbid: the ruleset
@@ -2355,7 +2355,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
       return cannot(made_trouble, true, nil)
     end
     policy = made
-    policy.database = sealed ~= nil and { path = sealed } or nil
+    policy.database = if sealed ~= nil then { path = sealed } else nil end
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then

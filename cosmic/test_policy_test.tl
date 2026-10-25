@@ -15,7 +15,7 @@ Test.policy{ grants = { { path = "cosmic/sandbox/policy.tl", letters = "r" } } }
 local built = assert(teal.load())
 
 --- A module that declares `call` on `Test`, as the build reads it.
-local function declared(call: string): analyzer.Declared | nil, string
+local function declared(call: string): analyzer.Declared?, string
   local source = 'local Test = require("cosmic.test")\n' .. call .. "\n"
   local found, trouble = analyzer.analyze(built, source, "fixture_test.tl")
   if found == nil then return nil, trouble end
@@ -24,7 +24,7 @@ end
 
 --- The `needs` the running harness makes of the policy `call` writes, as
 --- a table of its fields, or nil and why: `call` is `Test.policy <table>`.
-local function runtime_needs(call: string): Test.Needs | nil, string
+local function runtime_needs(call: string): Test.Needs?, string
   local chunk = load("return " .. call:gsub("^Test%.policy%s*", ""))
   if chunk == nil then return nil, "not a table" end
   return Test.needs_of(chunk())
@@ -260,7 +260,7 @@ end
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
-  local theirs: {string} = {}
+  local theirs: mut {string} = {}
   for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do theirs[#theirs + 1] = name end
   theirs[#theirs + 1] = "requires"
   table.sort(theirs)

@@ -115,7 +115,7 @@ end
 
 --- `list` less its first member.
 local function rest<T>(list: {T}): {T}
-  local out: {T} = {}
+  local out: mut {T} = {}
   for i, each in ipairs(list) do
     if i > 1 then
       out[#out + 1] = each
@@ -133,7 +133,7 @@ end
 
 local function test_a_fork_refusal_the_new_checker_now_takes_is_a_problem()
   local text = problem_of(function(list: {Verdicts.Row}, ruled: {Verdicts.Rule}, kept: {Verdicts.Retired}): {Verdicts.Row}, {Verdicts.Rule}, {Verdicts.Retired}
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     local done = false
     for i, row in ipairs(list) do
       if not done and row.fork == "refused" and row.new == "refused" then
@@ -150,7 +150,7 @@ end
 
 local function test_a_code_with_no_rule_is_a_problem()
   local text = problem_of(function(list: {Verdicts.Row}, ruled: {Verdicts.Rule}, kept: {Verdicts.Retired}): {Verdicts.Row}, {Verdicts.Rule}, {Verdicts.Retired}
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     local done = false
     for i, row in ipairs(list) do
       if not done and row.fork == "accepted" and row.new == "refused" then
@@ -166,7 +166,7 @@ local function test_a_code_with_no_rule_is_a_problem()
   assert(text:find("no_such_rule, which has no rule", 1, true) ~= nil, text)
   -- A code of the parser is a rule only through rules.json.
   local missing = problem_of(function(list: {Verdicts.Row}, ruled: {Verdicts.Rule}, kept: {Verdicts.Retired}): {Verdicts.Row}, {Verdicts.Rule}, {Verdicts.Retired}
-    local without: {Verdicts.Rule} = {}
+    local without: mut {Verdicts.Rule} = {}
     for _, rule in ipairs(ruled) do
       if rule.code ~= "unknown_variable" then
         without[#without + 1] = rule
@@ -180,7 +180,7 @@ end
 local function test_a_retired_row_needs_a_code_with_a_catalog_row_a_reason_and_a_twin_the_checker_refuses()
   local text = problem_of(function(list: {Verdicts.Row}, ruled: {Verdicts.Rule}, kept: {Verdicts.Retired}): {Verdicts.Row}, {Verdicts.Rule}, {Verdicts.Retired}
     local head = first(kept)
-    local changed: {Verdicts.Retired} = { { id = head.id, code = "no_such_rule", reason = head.reason, twin = head.twin,
+    local changed: mut {Verdicts.Retired} = { { id = head.id, code = "no_such_rule", reason = head.reason, twin = head.twin,
       twin_code = head.twin_code } }
     for _, entry in ipairs(rest(kept)) do
       changed[#changed + 1] = entry
@@ -191,7 +191,7 @@ local function test_a_retired_row_needs_a_code_with_a_catalog_row_a_reason_and_a
   -- a twin that the checker takes
   local kept = retired()
   local head = first(kept)
-  local twinned: {Verdicts.Retired} = { { id = head.id, code = head.code, reason = head.reason,
+  local twinned: mut {Verdicts.Retired} = { { id = head.id, code = head.code, reason = head.reason,
     twin = "local x = 1\nprint(x)\n", twin_code = head.twin_code } }
   for _, entry in ipairs(rest(kept)) do
     twinned[#twinned + 1] = entry
@@ -207,7 +207,7 @@ end
 
 local function test_a_retired_row_for_a_program_the_new_checker_refuses_is_stale()
   local kept = retired()
-  local row: Verdicts.Row | nil = nil
+  local row: Verdicts.Row? = nil
   for _, each in ipairs(rows()) do
     if row == nil and each.fork == "refused" and each.new == "refused" then
       row = each
@@ -230,7 +230,7 @@ end
 local function test_a_row_is_the_digest_of_its_source()
   local text = problem_of(function(list: {Verdicts.Row}, ruled: {Verdicts.Rule}, kept: {Verdicts.Retired}): {Verdicts.Row}, {Verdicts.Rule}, {Verdicts.Retired}
     local head = first(list)
-    local changed: {Verdicts.Row} = {
+    local changed: mut {Verdicts.Row} = {
       {
         id = head.id, origins = head.origins, source = head.source .. " ", fork = head.fork, fork_stage = head.fork_stage,
         fork_codes = head.fork_codes, fork_templates = head.fork_templates, new = head.new, new_stage = head.new_stage,
@@ -250,7 +250,7 @@ end
 --- The rows `shard` of `shards` holds (every `shards`th), checked against what the checker says of them now.
 local function holds(shard: integer, shards: integer)
   local check = judge()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for i, row in ipairs(rows()) do
     if i % shards == shard then
       local v = check(row.source)
@@ -258,7 +258,7 @@ local function holds(shard: integer, shards: integer)
         wrong[#wrong + 1] = row.id .. " (" .. row.origins .. "): " .. table.concat(v.silent, ", ") ..
           " has type invalid and nothing is reported"
       end
-      local verdict = (v.refused and "refused" or "accepted") .. " " .. v.stage .. " " .. table.concat(v.codes, " ")
+      local verdict = (if v.refused then "refused" else "accepted" end) .. " " .. v.stage .. " " .. table.concat(v.codes, " ")
       local said = row.new .. " " .. row.new_stage .. " " .. row.new_codes
       if verdict ~= said then
         wrong[#wrong + 1] = row.id .. " (" .. row.origins .. "): the table says " .. said .. ", the checker " .. verdict
@@ -286,7 +286,7 @@ local function test_the_table_is_what_the_checker_says_of_a_quarter_of_its_progr
 end
 
 local function test_every_input_of_the_corpora_is_in_the_table_once()
-  local by_id: {string: Verdicts.Row} = {}
+  local by_id: mut {string: Verdicts.Row} = {}
   for _, row in ipairs(rows()) do
     by_id[row.id] = row
   end
@@ -317,7 +317,7 @@ end
 
 --- Runs `source` (in the fork's grammar) as the checker's Lua: it must be taken, and it answers what it printed and the
 --- error it ended with, if any.
-local function run(source: string): {string}, string | nil
+local function run(source: string): {string}, string?
   local x = Programs.execute(Translate.translate(source, "t.tl").text, true)
   assert(#x.run.before == 0 and #x.run.errors == 0, "refused: " .. Programs.codes(x.run) .. "\n" .. source)
   assert(x.ran, "did not run")
@@ -498,7 +498,7 @@ end
 
 --- The refusals that a row covers (the first of each).
 local function covered_by_rows(): {string: boolean}
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   for _, row in ipairs(rows()) do
     for word in row.fork_templates:gmatch("%S+") do
       out[word] = true
@@ -516,7 +516,7 @@ end
 local function test_the_counts_of_the_refusals_are_the_gates()
   local list = refusals()
   local covered = covered_by_rows()
-  local with_reason: {string: integer} = {}
+  local with_reason: mut {string: integer} = {}
   local rows_named = 0
   for _, each in ipairs(list) do
     if each.reason ~= "" then
@@ -553,9 +553,9 @@ local function test_a_template_no_row_covers_is_a_problem_unless_it_says_why()
         id = each.id
       end
     end
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     for i, row in ipairs(list) do
-      local named: {string} = {}
+      local named: mut {string} = {}
       for word in row.fork_templates:gmatch("%S+") do
         if word ~= id then
           named[#named + 1] = word
@@ -571,7 +571,7 @@ end
 local function test_a_reason_for_a_template_a_row_covers_is_a_problem()
   local covered = covered_by_rows()
   local text = refusal_problem_of(function(list: {Verdicts.Row}, kept: {Verdicts.Refusal}): {Verdicts.Row}, {Verdicts.Refusal}
-    local changed: {Verdicts.Refusal} = {}
+    local changed: mut {Verdicts.Refusal} = {}
     local done = false
     for i, each in ipairs(kept) do
       if not done and each.reason == "" and covered[each.id] == true then
@@ -589,7 +589,7 @@ end
 local function test_a_reason_that_is_none_of_the_reasons_or_says_nothing_is_a_problem()
   local function change_one(reason: string, why: string): string
     return refusal_problem_of(function(list: {Verdicts.Row}, kept: {Verdicts.Refusal}): {Verdicts.Row}, {Verdicts.Refusal}
-      local changed: {Verdicts.Refusal} = {}
+      local changed: mut {Verdicts.Refusal} = {}
       local done = false
       for i, each in ipairs(kept) do
         if not done and each.reason ~= "" then
@@ -625,7 +625,7 @@ local function test_no_refusal_of_the_fork_is_left_unfound()
   end
   assert(lazy_told, table.concat(lazy, "\n", 1, math.min(#lazy, 3)))
   -- a reason that is none of the reasons is a problem, "unfound" among them
-  local one: Verdicts.Refusal | nil = nil
+  local one: Verdicts.Refusal? = nil
   for _, each in ipairs(refusals()) do
     if one == nil and each.reason == "unproven" then
       one = each
@@ -642,7 +642,7 @@ end
 
 local function test_a_row_that_names_a_template_the_list_lacks_or_names_none_is_a_problem()
   local unknown = refusal_problem_of(function(list: {Verdicts.Row}, kept: {Verdicts.Refusal}): {Verdicts.Row}, {Verdicts.Refusal}
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     for i, row in ipairs(list) do
       if i == 1 then
         changed[i] = naming(row, row.fork_templates .. " ffffffffffff")
@@ -654,7 +654,7 @@ local function test_a_row_that_names_a_template_the_list_lacks_or_names_none_is_
   end)
   assert(unknown:find("is no template of the list", 1, true) ~= nil, unknown)
   local none = refusal_problem_of(function(list: {Verdicts.Row}, kept: {Verdicts.Refusal}): {Verdicts.Row}, {Verdicts.Refusal}
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     local done = false
     for i, row in ipairs(list) do
       if not done and row.fork == "refused" then
@@ -668,7 +668,7 @@ local function test_a_row_that_names_a_template_the_list_lacks_or_names_none_is_
   end)
   assert(none:find("the fork refuses it and no template is named", 1, true) ~= nil, none)
   local taken = refusal_problem_of(function(list: {Verdicts.Row}, kept: {Verdicts.Refusal}): {Verdicts.Row}, {Verdicts.Refusal}
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     local done = false
     for i, row in ipairs(list) do
       if not done and row.fork == "accepted" then
@@ -728,7 +728,7 @@ local function test_a_program_the_fork_refuses_and_the_new_checker_takes_is_reti
 end
 
 local function test_an_open_program_the_new_checker_refuses_is_a_problem()
-  local refused: Verdicts.Row | nil = nil
+  local refused: Verdicts.Row? = nil
   for _, row in ipairs(rows()) do
     if refused == nil and row.fork == "refused" and row.new == "refused" then
       refused = row
@@ -769,7 +769,7 @@ local function test_every_refusal_program_is_refused_for_the_rule_it_expects_or_
   local problems = Verdicts.program_problems(made, rows(), refusals(), retired(), open_programs())
   assert(#problems == 0, tostring(#problems) .. " problems, the first:\n" .. table.concat(problems, "\n", 1, math.min(#problems, 8)))
   -- each side has its programs: the ones refused by a code, the ones taken
-  local by: {string: integer} = {}
+  local by: mut {string: integer} = {}
   for _, program in ipairs(made) do
     local kind = "code"
     if program.expected == "open" or program.expected == "retired" then
@@ -786,7 +786,7 @@ local function test_a_refusal_program_is_told_when_it_expects_what_the_new_check
   -- another code, no expectation, taken where a code is expected, refused where it is taken
   local function with_expected(want: string): string
     return program_problem_of(function(made: {Verdicts.Program}, list: {Verdicts.Row}): {Verdicts.Program}, {Verdicts.Row}
-      local changed: {Verdicts.Program} = {}
+      local changed: mut {Verdicts.Program} = {}
       for i, program in ipairs(made) do
         if i == 1 then
           changed[i] = { template = program.template, expected = want, source = program.source }
@@ -804,15 +804,15 @@ end
 
 local function test_a_refusal_program_without_a_row_or_for_another_template_or_that_the_fork_takes_is_told()
   local gone = program_problem_of(function(made: {Verdicts.Program}, list: {Verdicts.Row}): {Verdicts.Program}, {Verdicts.Row}
-    local changed: {Verdicts.Program} = {}
+    local changed: mut {Verdicts.Program} = {}
     for i, program in ipairs(made) do
-      changed[i] = i == 1 and { template = program.template, expected = program.expected, source = program.source .. "\n" } or program
+      changed[i] = if i == 1 then { template = program.template, expected = program.expected, source = program.source .. "\n" } else program end
     end
     return changed, list
   end)
   assert(gone:find("the program has no row", 1, true) ~= nil, gone)
   local elsewhere = program_problem_of(function(made: {Verdicts.Program}, list: {Verdicts.Row}): {Verdicts.Program}, {Verdicts.Row}
-    local changed: {Verdicts.Program} = {}
+    local changed: mut {Verdicts.Program} = {}
     local other = made[2]
     assert(other ~= nil)
     for i, program in ipairs(made) do
@@ -828,7 +828,7 @@ local function test_a_refusal_program_without_a_row_or_for_another_template_or_t
   local taken = program_problem_of(function(made: {Verdicts.Program}, list: {Verdicts.Row}): {Verdicts.Program}, {Verdicts.Row}
     local head = made[1]
     assert(head ~= nil)
-    local changed: {Verdicts.Row} = {}
+    local changed: mut {Verdicts.Row} = {}
     for i, row in ipairs(list) do
       if row.id == Verdicts.id(head.source) then
         changed[i] = { id = row.id, origins = row.origins, source = row.source, fork = "accepted", fork_stage = "", fork_codes = "",

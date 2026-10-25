@@ -22,9 +22,9 @@ local directories: {string:string} = {}
 --- launcher where it has one, with `words` after it, and the environment
 --- and descriptors to start it with (`values` added to the launcher's).
 function BuildPaths.driver(words: {string}, values: {string:string}): BuildPaths.Driver
-  local argv: {string} = {}
-  local env: {string:string} = {}
-  local fds: {integer:integer | string} = {}
+  local argv: mut {string} = {}
+  local env: mut {string:string} = {}
+  local fds: mut {integer:integer | string} = {}
   for name, value in pairs(values) do env[name] = value end
   local relaunch, _why = Proc.relaunch()
   if relaunch then

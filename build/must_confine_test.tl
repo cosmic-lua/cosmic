@@ -89,7 +89,7 @@ end
 ]]
 
 --- The line a run printed for one failing test of the refused suite.
-local function failure(text: string, name: string): string | nil
+local function failure(text: string, name: string): string?
   return failure_of(text, "refused_test", name)
 end
 

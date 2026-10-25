@@ -105,7 +105,7 @@ end
 local function test_checked_manifest_keeps_release_entries_but_selects_checked()
   local checked_records = records ..
     "1\t2\tsanitized\tsanitized-x86\tLinux\tx86_64\n"
-  local checked_cores: {string:string} = {
+  local checked_cores: mut {string:string} = {
     x86 = cores.x86,
     arm = cores.arm,
     mac = cores.mac,

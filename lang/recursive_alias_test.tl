@@ -39,7 +39,7 @@ end
 local function test_an_alias_is_a_declaration_whose_body_is_the_type_it_names()
   local w = world()
   local v = w.v
-  assert(v is Types.Named and v.decl.kind == "alias")
+  assert((v.tag == "named") and v.decl.kind == "alias")
   assert(Types.unfold(w.v) == w.body)
   assert(Types.unfold(w.body) == w.body)
   assert(Types.unfold(w.store.string) == w.store.string)
@@ -55,10 +55,10 @@ end
 local function test_an_alias_declaration_is_text_and_reads_back_as_one()
   local w = world()
   local named = w.v
-  assert(named is Types.Named)
+  assert((named.tag == "named"))
   local text = Types.encode_declaration(named.decl)
   assert(text:find("(alias ", 1, true) ~= nil, text)
-  local other = Types.new(function(module: string, name: string): string | nil
+  local other = Types.new(function(module: string, name: string): string?
     if module == "m" and name == "V" then
       return text
     end
@@ -66,7 +66,7 @@ local function test_an_alias_declaration_is_text_and_reads_back_as_one()
   end)
   local loaded, why = other:decode("(ref \"m\" \"V\")")
   assert(loaded ~= nil, why)
-  assert(loaded is Types.Named and loaded.decl.kind == "alias")
+  assert((loaded.tag == "named") and loaded.decl.kind == "alias")
   assert(Types.encode_declaration(loaded.decl) == text)
   assert(Types.display(Types.unfold(loaded)) == "V | string" or Types.display(Types.unfold(loaded)) == "string | {V}")
 end
@@ -222,7 +222,7 @@ end
 --- The errors of checking `source`, as `line:col code` in order.
 local function errors_of(source: string): {string}
   local r = Programs.run(source)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(r.lowered.errors) do
     out[#out + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. e.code
   end
@@ -250,14 +250,14 @@ end
 --- Checks that `source` is refused with exactly `codes` (space separated) and answers the errors: those of the lowering first.
 local function refuses(source: string, codes: string): Found
   local r = Programs.run(source)
-  local found: {Found} = {}
+  local found: mut {Found} = {}
   for _, e in ipairs(r.lowered.errors) do
     found[#found + 1] = { code = e.code, msg = e.msg, fix = e.fix, y = e.y, x = e.x }
   end
   for _, e in ipairs(r.errors) do
     found[#found + 1] = { code = e.code, msg = e.msg, fix = e.fix, y = e.y, x = e.x }
   end
-  local got: {string} = {}
+  local got: mut {string} = {}
   for i, e in ipairs(found) do
     got[i] = e.code
   end

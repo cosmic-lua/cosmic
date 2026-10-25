@@ -18,7 +18,7 @@ local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches
 
 --- Compiles the project of `files` (filename -> source) under `tmp/<case>`.
 local function compile_project(tmp: string, case: string,
-                               files: {string:string}): importer.Result | nil, string
+                               files: {string:string}): importer.Result?, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   for filename, source in pairs(files) do

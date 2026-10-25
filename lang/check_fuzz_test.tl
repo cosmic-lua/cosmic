@@ -21,11 +21,11 @@ end
 local record Gen
   src: Fuzz.Source
   --- The statements written, one per line.
-  lines: {string}
-  vars: {Var}
-  count: integer
+  lines: mut {string}
+  vars: mut {Var}
+  mut count: integer
   --- The lines that are `local v: T = e` statements: the line and the type, to put a wrong value in.
-  inits: {{string | integer}}
+  inits: mut {{string | integer}}
 end
 
 local PRELUDE <const> = [[
@@ -62,7 +62,7 @@ end
 
 --- The variables of `t` in scope.
 local function variables(g: Gen, t: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, v in ipairs(g.vars) do
     if v.type == t and v.params == nil then
       out[#out + 1] = v.name
@@ -73,7 +73,7 @@ end
 
 --- The functions in scope that answer `t`.
 local function functions(g: Gen, t: string): {Var}
-  local out: {Var} = {}
+  local out: mut {Var} = {}
   for _, v in ipairs(g.vars) do
     if v.type == t and v.params ~= nil then
       out[#out + 1] = v
@@ -86,7 +86,7 @@ local gen_expr: function(g: Gen, t: string, depth: integer): string
 
 --- A number or an integer, which a number operator takes.
 local function numeric(g: Gen, depth: integer): string
-  return gen_expr(g, g.src:int(1, 2) == 1 and "integer" or "number", depth)
+  return gen_expr(g, if g.src:int(1, 2) == 1 then "integer" else "number" end, depth)
 end
 
 --- An expression of the optional type `t` that may be nil: an index read. A variable of the type is no source: its
@@ -130,7 +130,7 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
   local called = functions(g, t)
   if #called > 0 and k == 1 then
     local f = Fuzz.pick(g.src, called)
-    local args: {string} = {}
+    local args: mut {string} = {}
     for i, p in ipairs(f.params or {}) do
       args[i] = gen_expr(g, p, d)
     end
@@ -181,7 +181,7 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
     return "(if " .. gen_expr(g, "boolean", d) .. " then " .. gen_expr(g, "Color", d) .. " else " ..
       gen_expr(g, "Color", d) .. " end)"
   elseif t == "Point" then
-    local tag = g.src:int(1, 2) == 1 and ", tag = " .. gen_expr(g, "string", d) or ""
+    local tag = if g.src:int(1, 2) == 1 then ", tag = " .. gen_expr(g, "string", d) else "" end
     return "{ x = " .. numeric(g, d) .. ", y = " .. numeric(g, d) .. ", color = " .. gen_expr(g, "Color", d) .. tag .. " }"
   elseif t == "integer?" then
     return k == 2 and maybe(g, "integer?") or gen_expr(g, "integer", d)
@@ -207,7 +207,7 @@ local gen_statements: function(g: Gen, n: integer, depth: integer, indent: strin
 
 --- A statement.
 local function gen_statement(g: Gen, depth: integer, indent: string)
-  local k = g.src:int(1, depth > 0 and 10 or 7)
+  local k = g.src:int(1, if depth > 0 then 10 else 7 end)
   if k <= 3 then
     local t = pick(g, TYPES)
     local name = fresh(g, "v")
@@ -217,7 +217,7 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
     end
     g.vars[#g.vars + 1] = { name = name, type = t }
   elseif k == 4 then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, v in ipairs(g.vars) do
       if v.type == "integer" and v.params == nil and not v.readonly then
         names[#names + 1] = v.name
@@ -233,7 +233,7 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
   elseif k == 6 then
     add(g, indent .. "a0[#a0 + 1] = " .. gen_expr(g, "integer", 2))
   elseif k == 7 then
-    add(g, indent .. "m0[" .. gen_expr(g, "string", 2) .. "] = " .. (g.src:int(1, 3) == 1 and "nil" or gen_expr(g, "integer", 2)))
+    add(g, indent .. "m0[" .. gen_expr(g, "string", 2) .. "] = " .. (if g.src:int(1, 3) == 1 then "nil" else gen_expr(g, "integer", 2) end))
   elseif k == 8 then
     add(g, indent .. "if " .. gen_expr(g, "boolean", 2) .. " then")
     local saved = #g.vars

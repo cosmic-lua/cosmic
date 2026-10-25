@@ -202,15 +202,15 @@ function Example.run()
   print(why)
   assert(out == nil and why == "stream: output is larger than 100 bytes", why)
   local record Shouter is Stream.Transform
-    update: function(Shouter, chunk: string): string | nil, string
-    finish: function(Shouter): string | nil, string
+    update: function(Shouter, chunk: string): string?, string
+    finish: function(Shouter): string?, string
     pending: function(Shouter): boolean
   end
   local shouting: Shouter = {
-    update = function(_self: Shouter, chunk: string): string | nil, string
+    update = function(_self: Shouter, chunk: string): string?, string
       return chunk:upper(), ""
     end,
-    finish = function(_self: Shouter): string | nil, string return "!", "" end,
+    finish = function(_self: Shouter): string?, string return "!", "" end,
     pending = function(_self: Shouter): boolean return false end,
   }
   local shouted = assert(Stream.run(shouting, "hello"))

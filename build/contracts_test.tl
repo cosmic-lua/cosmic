@@ -64,7 +64,7 @@ end
 --- build.contracts' own.
 local function exempting(which: string, keys: {string}): contracts.Exemptions
   local out: contracts.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
-  local named: {string: string} = which == "exempt" and out.exempt or
+  local named: mut {string: string} = which == "exempt" and out.exempt or
     which == "parsing" and out.parsing or which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do named[key] = "a test's own exemption" end
   return out

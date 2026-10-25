@@ -14,7 +14,7 @@ local function compiled(source: string, checks: boolean): string
   local built = assert(teal.load(true))
   local env = assert(built.new_env({ defaults = teal.defaults(checks) }))
   local result = built.check_string(source, env, "snippet", "tl")
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for _, list in ipairs({ result.syntax_errors, result.type_errors }) do
     for _, each in ipairs(list) do
       problems[#problems + 1] = each.y .. ":" .. each.x .. ": " .. each.msg
@@ -115,7 +115,7 @@ end
 --- integer by `math.type`.
 local function test_the_hook_holds_a_value_to_its_fact()
   worker.install_checks()
-  local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, any...): any...
+  local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, ...: any): any...
   local function refused(spec: string, value: any): string
     local ok, err = pcall(hook, 2, spec, value)
     assert(not ok, spec .. " passed " .. tostring(value))
@@ -216,10 +216,10 @@ local valid_source = table.concat({
 }, "\n")
 
 local record Valid
-  run: function(string | nil, {string:any}, any, any): {string}
-  strict: function(string | nil): string
-  varargs: function(string | nil, string...): string
-  set_shared: function(string | nil)
+  run: function(string?, {string:any}, any, any): {string}
+  strict: function(string?): string
+  varargs: function(string?, ...: string): string
+  set_shared: function(string?)
 end
 
 local function describe(list: {string}): string
@@ -248,7 +248,7 @@ local function test_valid_narrowed_reads_pass_and_answer_what_they_did()
   local with = (assert(load(code, "=snippet", "t"))() as Valid)
   local without = (assert(load(compiled(valid_source, false), "=snippet", "t"))() as Valid)
   for _, shared in ipairs({ "g", "" }) do
-    local value: string | nil = shared ~= "" and shared or nil
+    local value: string? = shared ~= "" and shared or nil
     with.set_shared(value)
     without.set_shared(value)
     -- Each run is given cases of its own: `run` writes the box it is given.

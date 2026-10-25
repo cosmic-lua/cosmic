@@ -49,7 +49,7 @@ local function refuse(why: string): nil, string
 end
 
 local record Window
-  session: Coverage.Session | nil
+  mut session: Coverage.Session?
 end
 
 --- The window `start` opened and `stop` has not closed.
@@ -62,7 +62,7 @@ local active: Window = {}
 --- silently reset a collection already in progress.
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
-function Coverage.start(): Coverage.Session | nil, string
+function Coverage.start(): Coverage.Session?, string
   if active.session ~= nil then
     return refuse("collection is already active")
   end
@@ -82,7 +82,7 @@ end
 --- @param session Session The value the matching `start` returned
 --- @return Hits | nil Every line hit since `start`, or nil if refused
 --- @return string Error message when refused, "" on success
-function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
+function Coverage.stop(session: Coverage.Session): Coverage.Hits?, string
   local active_session = active.session
   if active_session == nil or session ~= active_session then
     return refuse("no matching open collection for this session")

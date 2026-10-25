@@ -56,7 +56,7 @@ end
 local NOTE <const> = Shape.record_of("NotePath")
 
 local record Page
-  limit: integer | nil
+  limit: integer?
 end
 local PAGE <const> = Shape.record_of("Page")
 
@@ -83,7 +83,7 @@ function Api.mount(opts: Api.Options): Web.Route
   local notes: {Api.Note} = {}
 
   local function list(_req: Web.Request, _p: Web.None, q: Page, _b: Web.None): Web.Response
-    local out: {Api.Note} = {}
+    local out: mut {Api.Note} = {}
     local limit = q.limit
     for _, note in ipairs(notes) do
       if limit == nil or #out < limit then out[#out + 1] = note end

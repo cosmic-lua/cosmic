@@ -118,7 +118,7 @@ end
 --- uses it passes as shown; one too long to carry is refused, naming it.
 local function test_a_short_helper_is_carried_and_a_long_one_is_refused(dir: string)
   local function with_helper(size: integer): string
-    local body: {string} = { "local function helper(): string" }
+    local body: mut {string} = { "local function helper(): string" }
     for at = 1, size do body[#body + 1] = "  print(" .. at .. ")" end
     body[#body + 1] = '  return "x"'
     body[#body + 1] = "end"
@@ -171,7 +171,7 @@ local function test_only_declarations_count_as_helpers(dir: string)
     "return Example"))
   assert(#found > 0 and found[1]:find("unknown variable: Missing", 1, true) and
       not found[1]:find("helper", 1, true), table.concat(found, "\n"))
-  local long: {string} = { "local a, b = {" }
+  local long: mut {string} = { "local a, b = {" }
   for at = 1, 20 do long[#long + 1] = "  " .. at .. "," end
   long[#long + 1] = "}, 2"
   found = found_in(dir, source(

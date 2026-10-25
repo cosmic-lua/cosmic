@@ -196,7 +196,7 @@ end
 --- @return {string:string} The variables, by name
 function relay_config.proxy_env(loopback: {string}, port?: integer, token?: string,
                                 connect?: {string}): {string:string}
-  local userinfo = token ~= nil and ("cosmic:" .. token .. "@") or ""
+  local userinfo = if token ~= nil then ("cosmic:" .. token .. "@") else "" end
   local http = "http://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.http_port)
   local socks = "socks5h://" .. userinfo .. "127.0.0.1:" .. (port or relay_config.socks_port)
   local targets = connect or {}
@@ -235,7 +235,7 @@ end
 
 --- A 32-digit hex address of /proc/self/net/if_inet6 as colon-separated groups.
 local function grouped(hex: string): string
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for i = 1, 32, 4 do groups[#groups + 1] = hex:sub(i, i + 3) end
   return table.concat(groups, ":")
 end
@@ -250,14 +250,14 @@ end
 --- @return {string} The addresses
 function relay_config.parse_addresses(fib_trie: string, if_inet6: string): {string}
   local seen: {string:boolean} = {}
-  local found: {string} = {}
+  local found: mut {string} = {}
   local function add(address: string)
     if not seen[address] then
       seen[address] = true
       found[#found + 1] = address
     end
   end
-  local last: string | nil
+  local last: string?
   for line in fib_trie:gmatch("[^\n]+") do
     local address = line:match("^%s*|%-%- (%d+%.%d+%.%d+%.%d+)%s*$")
     if address ~= nil then
@@ -285,11 +285,11 @@ end
 --- is a host with no IPv6.
 --- @return {string}|nil The addresses
 --- @return string Why they cannot be read, "" otherwise
-function relay_config.host_addresses(): {string} | nil, string
+function relay_config.host_addresses(): {string}?, string
   local listed, listed_why, errno = sys.getifaddrs()
   if listed ~= nil then
-    local seen: {string:boolean} = {}
-    local found: {string} = {}
+    local seen: mut {string:boolean} = {}
+    local found: mut {string} = {}
     for _, entry in ipairs(listed) do
       if not seen[entry.address] then
         seen[entry.address] = true
@@ -319,7 +319,7 @@ local function lower(text: string): string
 end
 
 --- A decimal port from 1 to 65535 with no leading zero, or nil.
-local function number_of(text: string): integer | nil
+local function number_of(text: string): integer?
   if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
   local port = math.tointeger(tonumber(text))
   if port == nil or port < 1 or port > 65535 then return nil end
@@ -342,7 +342,7 @@ end
 --- @param env {string:string} The caller's environment
 --- @return Upstream|nil The upstream, nil for none
 --- @return string Why the variable cannot be used, "" otherwise
-function relay_config.upstream(env: {string:string}): relay_config.Upstream | nil, string
+function relay_config.upstream(env: {string:string}): relay_config.Upstream?, string
   local value = env.https_proxy or env.HTTPS_PROXY
   if value == nil or value == "" then return nil, "" end
   local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
@@ -359,7 +359,7 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream | ni
   local userinfo, hostport = rest:match("^(.*)@(.-)$")
   if userinfo == nil then hostport = rest end
   local host: string
-  local port: integer | nil = 80
+  local port: integer? = 80
   local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$")
   if bracketed ~= nil then
     host = bracketed
@@ -387,7 +387,7 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream | ni
 end
 
 --- `up` as the record [`decode`] reads, or nil for none.
-local function upstream_record(up: relay_config.Upstream | nil): any
+local function upstream_record(up: relay_config.Upstream?): any
   if up == nil then return nil end
   local addresses = up.addresses
   return {
@@ -404,9 +404,9 @@ end
 --- @param config Config What the relay is told
 --- @return string The line, with no newline
 function relay_config.encode(config: relay_config.Config): string
-  local function endpoints(list: {relay_config.Endpoint} | nil): any
+  local function endpoints(list: {relay_config.Endpoint}?): any
     if list == nil then return nil end
-    local out: {any} = {}
+    local out: mut {any} = {}
     for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
     return Json.array(out)
   end
@@ -429,9 +429,9 @@ function relay_config.encode(config: relay_config.Config): string
 end
 
 --- The strings of `value`, a list, or nil and why.
-local function strings(value: any, name: string): {string} | nil, string
+local function strings(value: any, name: string): {string}?, string
   if not value is {any} then return nil, name .. " is not a list" end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, entry in ipairs(value) do
     if not entry is string then return nil, name .. "[" .. i .. "] is not a string" end
     out[i] = entry
@@ -440,10 +440,10 @@ local function strings(value: any, name: string): {string} | nil, string
 end
 
 --- The endpoints of `value`, a list of at most 128, or nil and why.
-local function endpoints_of(value: any, name: string): {relay_config.Endpoint} | nil, string
+local function endpoints_of(value: any, name: string): {relay_config.Endpoint}?, string
   if not value is {any} then return nil, name .. " is not a list" end
   if #value > 128 then return nil, name .. " holds more than 128 endpoints" end
-  local out: {relay_config.Endpoint} = {}
+  local out: mut {relay_config.Endpoint} = {}
   for i, entry in ipairs(value) do
     if not entry is {string: any} then return nil, name .. "[" .. i .. "] is not an endpoint" end
     local host, port = entry.host, entry.port
@@ -457,7 +457,7 @@ end
 
 --- The [`Upstream`] `value` holds, or nil and why. No reason repeats a
 --- value: `authorization` is a credential.
-local function upstream_of(value: any): relay_config.Upstream | nil, string
+local function upstream_of(value: any): relay_config.Upstream?, string
   if not value is {string: any} then return nil, "upstream is not an object" end
   local host, port, authorization = value.host, value.port, value.authorization
   if not host is string or host == "" or host:find("[%c%s]") then
@@ -491,7 +491,7 @@ end
 --- @param text string The config
 --- @return Config|nil What it holds
 --- @return string Why it is no config, "" otherwise
-function relay_config.decode(text: string): relay_config.Config | nil, string
+function relay_config.decode(text: string): relay_config.Config?, string
   local value, why = Json.decode_object(text)
   if value == nil then return nil, why end
   local grants, grants_why = strings(value.grants, "grants")

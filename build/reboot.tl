@@ -62,7 +62,7 @@ local record reboot
   --- new checker built records the second, so a run that asks for the fork's finds it unsettled and builds it again, as a run
   --- that asks for the new checker finds a tool the fork built. A word that names no mode is the fork's: the verb itself
   --- refuses it where it reads it.
-  settled_by: function(compiler: string, word: string | nil): string
+  settled_by: function(compiler: string, word: string?): string
 
   --- How a test has [`reboot.stale_exit`] see the running tool, where it
   --- cannot run the tree's own: the path it runs as ([`reboot.own_tool`]'s
@@ -86,7 +86,7 @@ local marker = "COSMIC_REBOOTED"
 
 --- The running binary's `meta` value of `key`, or what `seen` says in
 --- its place ([`reboot.Seen`]).
-local function meta_of(key: string, seen?: reboot.Seen): string | nil
+local function meta_of(key: string, seen?: reboot.Seen): string?
   if seen ~= nil then
     local given = seen.meta[key]
     if given ~= nil then return given end
@@ -94,7 +94,7 @@ local function meta_of(key: string, seen?: reboot.Seen): string | nil
   return Store.meta(key)
 end
 
-function reboot.settled_by(identity_of_compiler: string, word: string | nil): string
+function reboot.settled_by(identity_of_compiler: string, word: string?): string
   local mode, _ = GrammarMode.of(word)
   if mode ~= "new" then
     return identity_of_compiler
@@ -114,7 +114,7 @@ local function unsettled(seen?: reboot.Seen): boolean
   local written_by = meta_of("written_by", seen)
   local compiled_by = meta_of("compiled_by", seen)
   local carried = meta_of("compiler", seen)
-  local word: string | nil
+  local word: string?
   if seen ~= nil then
     word = seen.environment["COSMIC_GRAMMAR"]
   else
@@ -175,7 +175,7 @@ local foreign_refusal = "this cosmic is stale against the tree and is not " ..
 -- which then reads ".../cosmic (deleted)", and a rebuild would write a
 -- file of that name. Once Proc.executable says the file is gone, answer
 -- nil for it here.
-function reboot.own_tool(root: string, executable?: string): boolean | nil, string
+function reboot.own_tool(root: string, executable?: string): boolean?, string
   local running = executable
   if running == nil then
     local found, trouble = Proc.executable()
@@ -199,7 +199,7 @@ end
 --- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
 --- (a fixture holding the artifact still, say) sets.
 function reboot.auto_boot(environment?: {string:string}): boolean
-  local value: string | nil
+  local value: string?
   if environment ~= nil then
     value = environment.COSMIC_AUTO_BOOT
   else
@@ -211,7 +211,7 @@ end
 --- `argv` from slot 1 on, led by `program`, the path to exec, as the
 --- list [`Proc.exec`] takes.
 local function reentry(program: string, argv: {string}): {string}
-  local arguments: {string} = { program }
+  local arguments: mut {string} = { program }
   local at = 1
   while argv[at] ~= nil do
     arguments[#arguments + 1] = argv[at]
@@ -221,7 +221,7 @@ local function reentry(program: string, argv: {string}): {string}
 end
 
 --- Compares the tree's fingerprints with the running binary's.
-local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State | nil, string
+local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?, string
   local fingerprint, trouble = identity.record_fingerprint(handle.db)
   if fingerprint == nil then
     return nil, trouble
@@ -243,7 +243,7 @@ end
 
 --- The `marker` this process runs under, as `seen` ([`reboot.Seen`]) has it
 --- where given: nil where no reboot entered it.
-local function entered_by(seen?: reboot.Seen): string | nil
+local function entered_by(seen?: reboot.Seen): string?
   if seen ~= nil then
     return seen.environment[marker]
   end
@@ -252,7 +252,7 @@ end
 
 --- Why a rebuild (`into`, settling when `settle`) refuses in this
 --- process, which a reboot has entered: nil when it may go on.
-local function refusal(settle: boolean, seen?: reboot.Seen): string | nil
+local function refusal(settle: boolean, seen?: reboot.Seen): string?
   local entered = entered_by(seen)
   if entered == nil or (settle and entered == "1") then
     return nil
@@ -298,7 +298,7 @@ end
 --- this tree built and always records its compiler's, so a nil there is
 --- a damaged database, whose failure is reported as the tree's own
 --- rather than answered with a boot that would mend nothing.
-function reboot.compiler_moved(tool: string | nil, wanted: string | nil): boolean
+function reboot.compiler_moved(tool: string?, wanted: string?): boolean
   return tool ~= nil and wanted ~= nil and tool ~= wanted
 end
 
@@ -310,7 +310,7 @@ end
 --- @param root string The tree's root
 --- @return {work.WebAsset} | nil The files
 --- @return string Why not
-function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset} | nil, string
+function reboot.web_assets(db: Sqlite.Handle, root: string): {work.WebAsset}?, string
   local web, trouble = work.web_assets_of(db)
   if web == nil then
     return nil, trouble
@@ -325,8 +325,8 @@ end
 --- What a compile of the tree teaches [`into`] of the tree: whether the tool
 --- carries the tree's code, and the compiler identity the tree recorded.
 local record Learned
-  code: boolean
-  compiler: string | nil
+  mut code: boolean
+  mut compiler: string?
 end
 
 --- Rebuilds the tool from the tree and replaces this process with it,
@@ -413,7 +413,7 @@ local function into(handle: work.Handle, built: compiler,
   if grammar == nil then
     return closing(handle, grammar_trouble), false
   end
-  local pool: importer.Workers | nil = nil
+  local pool: importer.Workers? = nil
   if grammar ~= "new" then
     pool = workers.pool(workers.tool_spec())
   end
@@ -492,7 +492,7 @@ local function into(handle: work.Handle, built: compiler,
     (Clock.monotonic_ns() - started) / Clock.seconds(1),
     plural.count(result.compiled, "module"), result.cached))
   local environment = sys.environ()
-  environment[marker] = settle and "2" or "1"
+  environment[marker] = if settle then "2" else "1" end
   local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
   return exec_trouble, false
 end
@@ -552,7 +552,7 @@ local identity_keys <const> = { "written_by", "compiled_by", "boot_hash" }
 --- What `replaced` found comparing a tool's identity with the running
 --- one's, inside [`Store.alone`].
 local record Compared
-  differs: boolean
+  mut differs: boolean
 end
 
 --- Whether the program at `out` is no longer the one this process runs:
@@ -585,7 +585,7 @@ local function replaced(root: string, out: string): boolean
   if rows == nil then
     return false
   end
-  local carried: {string:string} = {}
+  local carried: mut {string:string} = {}
   for _, row in ipairs(rows) do
     carried[row:text(1)] = row:text(2)
   end
@@ -644,7 +644,7 @@ end
 --- ([`rebuild_lock.tell_not_waiting`]) and answers `read_on`, going on
 --- with its own code.
 local function serialize(handle: work.Handle, root: string,
-                         argv: {string}, reads: boolean): integer | nil
+                         argv: {string}, reads: boolean): integer?
   -- Tried at once, while this run holds the working database: a run
   -- holding the lock may be waiting for that database, so this run
   -- waits for the lock only once it has closed it.
@@ -700,7 +700,7 @@ end
 --- `environment` is what both run in, this process's by default.
 --- Returns only when it cannot, saying why.
 function reboot.boot_into(root: string, argv: {string},
-                          environment?: {string:string}): string
+                          environment?: mut {string:string}): string
   environment = environment or sys.environ()
   if environment[marker] ~= nil then
     return "the tool is still stale after a reboot"
@@ -797,7 +797,7 @@ end
 --- `seen` is [`reboot.Seen`].
 --- @param argv the command line, re-entered after a rebuild
 function reboot.guard(handle: work.Handle, root: string,
-                      argv: {string}, reads?: boolean, seen?: reboot.Seen): integer | nil
+                      argv: {string}, reads?: boolean, seen?: reboot.Seen): integer?
   local state, state_trouble = state_of(handle, seen)
   if state == nil then
     log:complain(closing(handle, state_trouble))
@@ -806,7 +806,7 @@ function reboot.guard(handle: work.Handle, root: string,
   if state == "fresh" and not unsettled(seen) then
     return nil
   end
-  local tool: string | nil = nil
+  local tool: string? = nil
   if seen ~= nil then tool = seen.tool end
   local own, own_tool_trouble = reboot.own_tool(root, tool)
   if own == nil then
@@ -839,7 +839,7 @@ function reboot.guard(handle: work.Handle, root: string,
     return 3
   end
   if state == "core" then
-    local environment: {string:string} | nil = nil
+    local environment: {string:string}? = nil
     if seen ~= nil then environment = seen.environment end
     if not reboot.auto_boot(environment) then
       log:complain(closing(handle, core_refusal()))
@@ -955,7 +955,7 @@ end
 --- @param argv the command line, re-entered after a rebuild
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
 function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
-                           seen?: reboot.Seen): integer | nil
+                           seen?: reboot.Seen): integer?
   local at = root
   if at == nil then
     local found, root_trouble = Fs.absolute(".")
@@ -1018,7 +1018,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     -- A tool that is not the tree's own never settles ([`reboot.guard`]),
     -- so only the tree's own is sent there to.
     if fresh and unsettled(seen) then
-      local tool: string | nil = nil
+      local tool: string? = nil
       if seen ~= nil then tool = seen.tool end
       local own, _ = reboot.own_tool(at, tool)
       fresh = own == false

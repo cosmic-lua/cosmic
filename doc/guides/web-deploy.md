@@ -87,7 +87,7 @@ local record Config
 end
 
 --- The settings `env` holds, or nil and why.
-function Config.read(env: {string:string}): Config.Settings | nil, string
+function Config.read(env: {string:string}): Config.Settings?, string
   local keys, why = Secret.parse_keys(env["HELLO_KEYS"] or "", "HELLO_KEYS")
   if keys == nil then return nil, why end
   local listen = env["HELLO_LISTEN"] or "127.0.0.1:8080"
@@ -96,7 +96,7 @@ function Config.read(env: {string:string}): Config.Settings | nil, string
   if host == nil or port == nil or port > 65535 then
     return nil, "HELLO_LISTEN: want host:port, such as 127.0.0.1:8080"
   end
-  local hosts: {string} | nil = nil
+  local hosts: {string}? = nil
   if env["HELLO_HOSTS"] ~= nil then hosts = String.split(env["HELLO_HOSTS"], ",") end
   return {
     keys = keys, host = host, port = port, hosts = hosts,

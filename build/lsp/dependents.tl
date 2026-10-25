@@ -35,22 +35,22 @@ local record dependents
   record Queue
     --- The files, by name, whose served form changed since their
     --- dependents were found.
-    due: {string:boolean}
+    mut due: mut {string:boolean}
     --- The dependents found, by URI, in the order they are checked, and
     --- the set of them.
-    waiting: {string}
-    queued: {string:boolean}
+    waiting: mut {string}
+    queued: mut {string:boolean}
     --- The key of what each open document served when last keyed, by
     --- URI, and the documents to key yet, by URI: "open" for one just
     --- opened, "change" for one whose text changed since.
-    served: {string:string}
-    keying: {string:string}
+    served: mut {string:string}
+    mut keying: mut {string:string}
     --- The files of the documents closed, by name, and the key their
     --- dependents were last checked against: "?", which no key is, where
     --- that is not known.
-    closing: {string:string}
+    mut closing: mut {string:string}
     --- How many dependents were checked, all told: what a test reads.
-    checked: integer
+    mut checked: integer
   end
 
   --- What one step of [`dependents.next`] did: the publications of the
@@ -77,7 +77,7 @@ local function key_of(checker: check.Checker, name: string): string
   local built = check.compiler(checker)
   local served = source.served(checker.source, built, listed.path, check.open_files(checker), true)
   if served == nil then return "" end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   if checker.source.grammar == "new" then
     parts = syntax_read.token_parts(served.text, served.file)
   else
@@ -160,7 +160,7 @@ function dependents.next(q: Queue, o: publish.Open, waiting: function(): boolean
   if waiting() then return none end
   keyed(q, o)
   if next(q.due) ~= nil then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(q.due) do names[#names + 1] = name end
     table.sort(names)
     q.due = {}

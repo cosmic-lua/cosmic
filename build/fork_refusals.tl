@@ -78,7 +78,7 @@ local record ForkRefusals
   collect: function(sites: {Site}): Collected
 
   --- The templates of the fork's source: those of every file of `FILES`, read from the checkout.
-  read: function(): Collected | nil, string
+  read: function(): Collected?, string
 
   --- The ids of the templates `message` is: of those in `refusals` of `kind`, the ones it matches that no other it matches
   --- is the specific case of. None where it matches no template.
@@ -113,7 +113,7 @@ local function unescape(body: string): string
 end
 
 function ForkRefusals.tokens(text: string): {Token}
-  local out: {Token} = {}
+  local out: mut {Token} = {}
   local at, line, size = 1, 1, #text
   while at <= size do
     local c = text:sub(at, at)
@@ -207,7 +207,7 @@ local KEEPERS <const>: {string: boolean} = {
 local OPENERS <const>: {string: boolean} = { ["("] = true, ["{"] = true, ["["] = true }
 local CLOSERS <const>: {string: boolean} = { [")"] = true, ["}"] = true, ["]"] = true }
 
-local function symbol_is(token: Token | nil, text: string): boolean
+local function symbol_is(token: Token?, text: string): boolean
   return token ~= nil and token.kind == "symbol" and token.text == text
 end
 
@@ -268,8 +268,8 @@ end
 --- `%s`, a `("..."):format(...)` as the string it holds, and `%d` and `%s` as one placeholder. Empty where there is no
 --- string at all, and the second answer says it is because the expression is a choice (`and`, `or`) of operands.
 local function template_of(tokens: {Token}, from: integer, to: integer): string, boolean
-  local current: {Token} = {}
-  local operands: {{Token}} = { current }
+  local current: mut {Token} = {}
+  local operands: mut {{Token}} = { current }
   local depth = 0
   for at = from, to do
     local token = token_at(tokens, at)
@@ -289,10 +289,10 @@ local function template_of(tokens: {Token}, from: integer, to: integer): string,
       current[#current + 1] = token
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local strings = 0
   for _, operand in ipairs(operands) do
-    local held: Token | nil = nil
+    local held: Token? = nil
     if #operand == 1 and token_at(operand, 1).kind == "string" then
       held = token_at(operand, 1)
     elseif #operand >= 3 and symbol_is(token_at(operand, 1), "(") and token_at(operand, 2).kind == "string" and symbol_is(token_at(operand, 3), ")") and
@@ -339,9 +339,9 @@ end
 
 function ForkRefusals.sites(tokens: {Token}, notes: Notes): {Site}
   local extra_lines = notes.extra
-  local out: {Site} = {}
+  local out: mut {Site} = {}
   local function kind_of(line: integer): string
-    return line < 4800 and "syntax" or "type"
+    return if line < 4800 then "syntax" else "type" end
   end
   local function named_between(from: integer, to: integer): boolean
     for line = from, to do
@@ -453,7 +453,7 @@ local FILES <const>: {string} = {
 }
 
 local function lines_of(list: {integer}): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for _, line in ipairs(list) do
     out[line] = true
   end
@@ -477,9 +477,9 @@ function ForkRefusals.id(kind: string, template: string): string
 end
 
 function ForkRefusals.collect(sites: {Site}): Collected
-  local out: {Refusal} = {}
-  local known: {string: Refusal} = {}
-  local trouble: {string} = {}
+  local out: mut {Refusal} = {}
+  local known: mut {string: Refusal} = {}
+  local trouble: mut {string} = {}
   for _, site in ipairs(sites) do
     if site.template == "" then
       trouble[#trouble + 1] = "line " .. tostring(site.line) .. ": " .. site.head .. " gives a choice of messages"
@@ -504,7 +504,7 @@ end
 
 --- The fixed parts of a template, in order.
 local function pieces(template: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local rest = template
   while true do
     local stop = rest:find("%s", 1, true)
@@ -517,8 +517,8 @@ local function pieces(template: string): {string}
   end
 end
 
-function ForkRefusals.read(): Collected | nil, string
-  local all: {Site} = {}
+function ForkRefusals.read(): Collected?, string
+  local all: mut {Site} = {}
   for _, file in ipairs(FILES) do
     local text, why = Fs.read(file)
     if text == nil then
@@ -553,7 +553,7 @@ function ForkRefusals.matches(template: string, message: string): boolean
 end
 
 function ForkRefusals.best(refusals: {Refusal}, kind: string, message: string): {string}
-  local matching: {Refusal} = {}
+  local matching: mut {Refusal} = {}
   for _, refusal in ipairs(refusals) do
     if refusal.kind == kind and ForkRefusals.matches(refusal.template, message) then
       matching[#matching + 1] = refusal
@@ -562,7 +562,7 @@ function ForkRefusals.best(refusals: {Refusal}, kind: string, message: string): 
   -- A template whose fixed parts all occur in another matching template is that one's general case (`got %s, expected
   -- %s` in `in tuple entry %s: got %s, expected %s`), and the message is the specific one's. Templates neither holds
   -- the other (`in map key: %s` wraps the message `got %s, expected %s` gives) are both the message's.
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, refusal in ipairs(matching) do
     local general = false
     for _, other in ipairs(matching) do

@@ -93,7 +93,7 @@ local record Span
   x: integer
   to_y: integer
   to_x: integer
-  instead: string | nil
+  instead: string?
 end
 
 local function before(ay: integer, ax: integer, by: integer, bx: integer): boolean
@@ -128,8 +128,8 @@ local not_followed <const>: {string:boolean} = { if_parent = true }
 local not_into_body <const>: {string:boolean} = { if_parent = true, body = true }
 
 local function scan(statements: {ast.Node}): Scan
-  local found: {Span} = {}
-  local firsts: {{integer}} = {}
+  local found: mut {Span} = {}
+  local firsts: mut {{integer}} = {}
   for i, statement in ipairs(statements) do
     local first = { y = statement.y, x = statement.x }
     local function visit(n: ast.Node)
@@ -190,8 +190,8 @@ local droppable <const>: {string:boolean} = {
 
 --- The names the top-level statement `s` declares, and, for a
 --- `function M.f`, the name it adds a field to (its owner's first part).
-local function names_of(s: ast.Node): {string}, string | nil
-  local declared: {string} = {}
+local function names_of(s: ast.Node): {string}, string?
+  local declared: mut {string} = {}
   local fn_name, type_var = s.name, s.var
   if s.kind == "local_declaration" then
     for _, var in ipairs(s.vars or {}) do
@@ -214,7 +214,7 @@ end
 --- The names the top-level statement `s`, an assignment, writes as plain
 --- names (`feed = function() ... end`); none for any other statement.
 local function written_names(s: ast.Node): {string}
-  local written: {string} = {}
+  local written: mut {string} = {}
   if s.kind == "assignment" then
     for _, var in ipairs(s.vars or {}) do
       if var.kind == "variable" then
@@ -254,7 +254,7 @@ end
 --- spelt, as a field's name too, which keeps a statement at worst. What is
 --- left out is code only bodies read and requires only they reach, so a
 --- project's checker loads fewer modules too.
-local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
+local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span}?
   local statements: {ast.Node} = parsed.node
   local tokens = parsed.tokens
   local body_spans = scanned.bodies
@@ -265,9 +265,9 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
   if returned == nil then
     return nil
   end
-  local declares: {{string}} = {}
-  local writes: {{string}} = {}
-  local owners: {string | nil} = {}
+  local declares: mut {{string}} = {}
+  local writes: mut {{string}} = {}
+  local owners: mut {string?} = {}
   local typed = false
   for i, s in ipairs(statements) do
     declares[i], owners[i] = names_of(s)
@@ -283,11 +283,11 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
     return nil
   end
   -- Each statement's first token, by its leftmost node's position.
-  local at: {integer:integer} = {}
+  local at: mut {integer:integer} = {}
   for k, token in ipairs(tokens) do
     at[token.y * line_width + token.x] = k
   end
-  local starts: {integer} = {}
+  local starts: mut {integer} = {}
   for i, first in ipairs(scanned.firsts) do
     local k = at[first[1] * line_width + first[2]]
     if k == nil or (i > 1 and k <= starts[i - 1]) then
@@ -303,7 +303,7 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
     starts[i] = k
   end
   -- The names each statement's tokens outside a body spell.
-  local spelt: {{string:boolean}} = {}
+  local spelt: mut {{string:boolean}} = {}
   local statement, next_span = 0, 1
   for k, token in ipairs(tokens) do
     while starts[statement + 1] ~= nil and k >= starts[statement + 1] do
@@ -320,8 +320,8 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
       spelt[statement][token.tk] = true
     end
   end
-  local kept: {integer:boolean} = { [#statements] = true }
-  local wanted: {string:boolean} = {}
+  local kept: mut {integer:boolean} = { [#statements] = true }
+  local wanted: mut {string:boolean} = {}
   local grew = true
   while grew do
     grew = false
@@ -348,7 +348,7 @@ local function unneeded(parsed: ast.Parsed, scanned: Scan): {Span} | nil
       end
     end
   end
-  local out: {Span} = {}
+  local out: mut {Span} = {}
   for i = 1, #statements - 1 do
     if not kept[i] then
       local from, to = tokens[starts[i]], tokens[starts[i + 1]]
@@ -368,11 +368,11 @@ end
 ---   ([`build.lsp.check`]). The stub made is never `pruned` then.
 function stub.made(parsed: ast.Parsed, every?: boolean): stub.Made
   local scanned = scan(parsed.node)
-  local spans: {Span} = {}
+  local spans: mut {Span} = {}
   for _, span in ipairs(scanned.bodies) do
     spans[#spans + 1] = span
   end
-  local dropped: {Span} | nil = nil
+  local dropped: {Span}? = nil
   if every ~= true then dropped = unneeded(parsed, scanned) end
   for _, span in ipairs(dropped or {}) do
     spans[#spans + 1] = span
@@ -399,7 +399,7 @@ function stub.made(parsed: ast.Parsed, every?: boolean): stub.Made
       cursor.y = cursor.y + 1
       last = math.tointeger(at) or 0
     end
-    cursor.x = last > 0 and #text - last + 1 or at_x + #text
+    cursor.x = if last > 0 then #text - last + 1 else at_x + #text end
   end
   local next_span = 1
   for _, token in ipairs(parsed.tokens) do
@@ -448,7 +448,7 @@ function stub.canonical(text: string): string
     local stop = find(text, "[%s\"'%[]", at) or size + 1
     if from ~= nil then
       if #out > 0 then
-        push(find(sub(text, from, to), "\n", 1, true) ~= nil and "\n" or " ")
+        push(if find(sub(text, from, to), "\n", 1, true) ~= nil then "\n" else " " end)
       end
       at = assert(to) + 1
     elseif stop > at then
@@ -456,8 +456,8 @@ function stub.canonical(text: string): string
       at = stop
     else
       local c = sub(text, at, at)
-      local close: integer | nil = nil
-      local level: string | nil = nil
+      local close: integer? = nil
+      local level: string? = nil
       if c == "[" then
         level = text:match("^%[(=*)%[", at)
       end
@@ -520,12 +520,12 @@ local type_variables <const>: {string:boolean} = { typevar = true, typearg = tru
 --- counterpart again, and only it, so a cycle compares as a cycle; every other field
 --- but the [`incidental`] ones must match, and every one of a [`named`]
 --- field.
-function stub.difference(from_source: any, from_stub: any): string | nil
+function stub.difference(from_source: any, from_stub: any): string?
   local paired: {any:any} = {}
   local paired_back: {any:any} = {}
   local renamed: {string:string} = {}
   local renamed_back: {string:string} = {}
-  local function differ(a: any, b: any, path: string, key: string, names: boolean): string | nil
+  local function differ(a: any, b: any, path: string, key: string, names: boolean): string?
     if rawequal(a, b) then
       return nil
     end
@@ -542,7 +542,7 @@ function stub.difference(from_source: any, from_stub: any): string | nil
     end
     if paired[a] ~= nil or paired_back[b] ~= nil then
       local same = rawequal(paired[a], b) and rawequal(paired_back[b], a)
-      return not same and path .. ": a different type in the stub" or nil
+      return if not same then path .. ": a different type in the stub" else nil end
     end
     paired[a], paired_back[b] = b, a
     for field, value in pairs(a) do

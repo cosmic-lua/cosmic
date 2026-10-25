@@ -95,9 +95,9 @@ local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: str
         "local record Thing",
         "  type Opts = Options",
         "  type Handle = Handle",
-        exported and "  type Where = Where" or "",
-        exported and "  type Made = Made" or "",
-        exported and "  type Alias = Gone" or "",
+        if exported then "  type Where = Where" else "" end,
+        if exported then "  type Made = Made" else "" end,
+        if exported then "  type Alias = Gone" else "" end,
         "end",
         "",
         "function Thing.run(options: Options) end",
@@ -449,7 +449,7 @@ end
 local function test_a_verb_is_held_to_its_registration(dir: string)
   local quickstart = "# quickstart\n\n## a thing\n\n`cosmic thing` does it.\n\n## a stray\n\nnothing\n\n```\n## in a fence\n```\n"
   local function found_with(thing: string, extra?: {string:string}): {string}
-    local files: {string:string} = {
+    local files: mut {string:string} = {
       ["build/verb_list.tl"] = source("local thing = require(\"build.thing\")", "return {}"),
       ["build/thing.tl"] = thing,
       ["build/thing_test.tl"] = source("return {}"),
@@ -493,7 +493,7 @@ end
 local function test_a_spec_is_read_in_any_layout_of_literals(dir: string)
   local quickstart = "## a thing\n\n`cosmic thing` does it.\n"
   local function found_with(thing: string, extra?: {string:string}): {string}
-    local files: {string:string} = {
+    local files: mut {string:string} = {
       ["build/verb_list.tl"] = source(
         "local record list end",
         "local x = { load = function() return require(\"build.thing\").spec end }",
@@ -664,7 +664,7 @@ local function test_a_run_names_each_check(dir: string)
     ["cosmic/bare.tl"] = source("--- Bare.", "local record Bare", "end",
       "function Bare.go()", "end", "return Bare"),
   })
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, line in ipairs(tree_checks.run(db, "")) do
     seen[line:match("^([^:]+): ") or line] = true
   end
@@ -893,7 +893,7 @@ local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string
   assert(Fs.write(base .. "/sub/c.tl", "return 4\n"))
   assert(Fs.write(base .. "/notes.md", "no\n"))
   local found = tree_checks.ci_sources(dir .. "/tree")
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, row in ipairs(found) do names[#names + 1] = row[1] .. "=" .. row[2]:gsub("\n", "") end
   assert(table.concat(names, ",") == "ci/cosmic_ci/a.tl=return 1,ci/cosmic_ci/b.tl=return 2,ci/cosmic_ci/sub/c.tl=return 4",
     table.concat(names, ","))
@@ -984,7 +984,7 @@ local function test_a_cut_form_of_the_new_grammar_past_its_pin_is_refused_with_i
     1, true), found)
   assert(not found:find("ok.tl", 1, true) and not found:find("vendor", 1, true) and not found:find("stale", 1, true) and
       not found:find("hidden", 1, true), found)
-  local pins: {string: integer} = { ["build/jumps.tl label_or_goto"] = 2, ["checker/decls.d.tl long_comment"] = 1 }
+  local pins: mut {string: integer} = { ["build/jumps.tl label_or_goto"] = 2, ["checker/decls.d.tl long_comment"] = 1 }
   assert(#tree_checks.lexed(root, pins) == 0)
   pins["build/jumps.tl label_or_goto"] = 3
   pins["build/gone.tl semicolon"] = 1
@@ -999,7 +999,7 @@ end
 local function test_the_tree_is_held_to_the_cut_forms_the_grammar_draft_counts(dir: string)
   local ceilings = assert(Ceilings.read("."))
   local stale = tree_checks.lexed(dir, Ceilings.of(ceilings, "lexed"))
-  local totals: {string: integer} = {}
+  local totals: mut {string: integer} = {}
   for _, line in ipairs(stale) do
     local file, code, count = line:match("^(%S+) (%S+): pinned (%d+) but")
     assert(file ~= nil, line)
@@ -1030,7 +1030,7 @@ local function test_a_form_the_translator_leaves_is_refused_past_its_pin_with_it
     found)
   assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and
       not found:find("vendor", 1, true), found)
-  local pins: {string: integer} = { ["build/tuple.tl tuple_type"] = 1 }
+  local pins: mut {string: integer} = { ["build/tuple.tl tuple_type"] = 1 }
   assert(#tree_checks.translated(root, pins, 0) == 0)
   pins["build/tuple.tl tuple_type"] = 2
   pins["build/gone.tl tuple_type"] = 1
@@ -1178,7 +1178,7 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_past_its_
   assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and
       not found:find("checker/stdlib.d.tl", 1, true) and not found:find("lang/stdlib.d.tl", 1, true) and
       not found:find("vendor", 1, true) and not found:find("print", 1, true), found)
-  local pins: {string: integer} = { ["build/bad.tl shadows"] = 1, ["build/bad.tl unknown_variable"] = 1 }
+  local pins: mut {string: integer} = { ["build/bad.tl shadows"] = 1, ["build/bad.tl unknown_variable"] = 1 }
   assert(#tree_checks.scoped(root, pins) == 0)
   pins["build/bad.tl shadows"] = 2
   pins["build/gone.tl shadows"] = 1
@@ -1209,7 +1209,7 @@ local function test_a_declaration_the_lowering_refuses_is_refused_past_its_pin_w
     found)
   assert(found:find("array_of_optional", 1, true), found)
   assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true), found)
-  local pins: {string: integer} = { ["build/bad.tl float_key"] = 1, ["build/bad.tl array_of_optional"] = 1 }
+  local pins: mut {string: integer} = { ["build/bad.tl float_key"] = 1, ["build/bad.tl array_of_optional"] = 1 }
   assert(#tree_checks.declared(root, pins) == 0)
   pins["build/bad.tl float_key"] = 2
   pins["build/gone.tl key_type"] = 1
@@ -1351,7 +1351,7 @@ local function test_a_mistake_in_a_body_is_refused_past_its_pin_with_its_fix(dir
     found)
   assert(not found:find("ok.tl", 1, true) and not found:find("checker/tl.tl", 1, true) and not found:find("broken.tl", 1, true) and
       not found:find("testdata", 1, true), found)
-  local pins: {string: integer} = { ["build/bad.tl not_assignable"] = 2 }
+  local pins: mut {string: integer} = { ["build/bad.tl not_assignable"] = 2 }
   assert(#tree_checks.checked(root, pins) == 0, table.concat(tree_checks.checked(root, pins), "\n"))
   pins["build/bad.tl not_assignable"] = 3
   pins["build/gone.tl nil_not_allowed"] = 1
@@ -1512,7 +1512,7 @@ local function test_the_lua_of_a_file_is_held_to_the_forks_but_for_its_pins(dir:
   assert(found[1]:find("^build/classy%.tl:%d+: the Lua differs from the fork's: .*@v == R .*type%(v%) == \"table\"", 1), joined)
   local differ = assert(math.tointeger(tonumber(found[2]:match("^build/classy%.tl: (%d+) lines? differ from the fork's Lua, pinned 0"))), joined)
   assert(differ > 0)
-  local pins: {string: integer} = { ["build/classy.tl"] = differ }
+  local pins: mut {string: integer} = { ["build/classy.tl"] = differ }
   assert(#tree_checks.generated(root, pins) == 0)
   pins["build/classy.tl"] = differ + 2
   pins["build/ok.tl"] = 1
@@ -1582,7 +1582,7 @@ end
 
 --- The refusal of a compile through the driver for the same file, over the same pins.
 local function refused_by_the_driver(root: string, file: string, ceilings: Ceilings.Table): boolean
-  local entries: {{string}} = {}
+  local entries: mut {{string}} = {}
   for _, name in ipairs({ "hazard", "broken", "bad", "fine" }) do
     local text = assert(Fs.read(root .. "/build/" .. name .. ".tl"))
     entries[#entries + 1] = { "build/" .. name .. ".tl", tostring(text) }
@@ -1906,7 +1906,7 @@ local function test_every_dimension_of_the_typed_comparison_reports_a_difference
   end, "contracts used: the exemptions the fork needs")
   local difference = SyntaxStub.difference
   planted(function(): function()
-    SyntaxStub.difference = function(_source: Declarations.Program, _stubbed: Declarations.Program, _module: string): string | nil
+    SyntaxStub.difference = function(_source: Declarations.Program, _stubbed: Declarations.Program, _module: string): string?
       return "planted"
     end
     return function() SyntaxStub.difference = difference end
@@ -1991,7 +1991,7 @@ local function test_the_projection_of_the_tree_checks_is_written_in_the_mode_ask
     local db = assert(tree_checks.projection(root, (assert(teal.load())), mode))
     local own, trouble = writer.other_code(db, rebuild.compiled_by(mode))
     assert(own == nil and trouble == "", mode .. ": " .. tostring(own) .. trouble)
-    local other: GrammarMode.Mode = mode == "new" and "teal" or "new"
+    local other: GrammarMode.Mode = if mode == "new" then "teal" else "new" end
     assert(writer.other_code(db, rebuild.compiled_by(other)) ~= nil, mode .. ": read as " .. other)
     assert(db:close())
   end

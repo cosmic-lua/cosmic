@@ -73,7 +73,7 @@ end
 --- in), with the output it vouches for holding `outputs`; the output's
 --- name.
 local function step(root: string, name: string, files: {string}, outputs: {string}): string
-  local records: {string} = {}
+  local records: mut {string} = {}
   for i, file in ipairs(files) do
     local prefix, path = file:match("^(%d+) (.*)$")
     assert(prefix ~= nil and path ~= nil, file)

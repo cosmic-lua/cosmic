@@ -107,7 +107,7 @@ local function test_a_portable_program_is_refreshed_as_it_was(tmp: string)
   write_project(tmp)
   assert(embed.tree(tmp))
   local path = build_dir(tmp) .. "/bin/hello"
-  local cacert: refresh.Dataset | nil
+  local cacert: refresh.Dataset?
   for _, dataset in ipairs(refresh.datasets) do
     if dataset.name == "cacert" then cacert = dataset end
   end

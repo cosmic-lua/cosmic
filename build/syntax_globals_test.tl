@@ -8,7 +8,7 @@ Test.policy{}
 --- The places `source`, a declaration file, declares globals at, as `line:column`.
 local function found(source: string, name: string): string
   local chunk, why = Node.parse(source, name)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, place in ipairs(Globals.found((assert(chunk, why)))) do
     out[#out + 1] = place.line .. ":" .. place.column
   end

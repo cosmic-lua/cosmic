@@ -14,7 +14,7 @@ local Url = require("cosmic.url")
 
 local record Inner
   city: string
-  zip: integer | nil
+  zip: integer?
 end
 local SPECS <const>: {Shape.Spec} = {
   Shape.record({
@@ -43,7 +43,7 @@ local VALUES <const>: {string} = { "", "0", "1", "-1", "42", " 7 ", "+5", "1.5",
 
 local function gen_pairs(src: Fuzz.Source): string
   local which = src:int(1, #SPECS)
-  local fields: {string} = { tostring(which) }
+  local fields: mut {string} = { tostring(which) }
   while Fuzz.more(src, #fields // 2, 12) do
     local name = src:int(0, 9) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES[which])
     local value = src:int(0, 5) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, VALUES)
@@ -79,7 +79,7 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         list[#list + 1] = value
       end
       local ok, r = pcall(function(): Types.Parsed<{string:any}>
-        return Input.bind_strings(q, spec, { secret = { "name" }, repeated = which == 2 and "error" or nil })
+        return Input.bind_strings(q, spec, { secret = { "name" }, repeated = if which == 2 then "error" else nil end })
       end)
       if not ok then return false, "raised: " .. tostring(r) end
       local invalid = r.invalid
@@ -129,7 +129,7 @@ local function test_a_content_type_of_any_bytes_parses(tmp: string)
       for name in pairs(m.params) do
         if name ~= name:lower() then return false, "parameter name not lowercase" end
       end
-      Fuzz.label(m.essence:find("/", 1, true) and "typed" or "empty")
+      Fuzz.label(if m.essence:find("/", 1, true) then "typed" else "empty" end)
       return true, ""
     end,
   })
@@ -138,8 +138,8 @@ end
 local record Doc
   title: string
   qty: integer
-  tags: {string} | nil
-  address: Inner | nil
+  tags: {string}?
+  address: Inner?
 end
 local DOC <const> = Shape.record_of("Doc")
 
@@ -147,7 +147,7 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
   local TEXTS <const>: {string} = { '{"title":"t","qty":1}', '{"qty":"x"}', '{"title":null}', "[]", "null", '"s"',
     '{"title":1,"qty":1.5,"tags":[1]}', '{"address":{"city":3}}', "{", "", '{"tags":{"a":1}}',
     '{"title":"t","qty":1,"address":{"city":"c","zip":"z"}}' }
-  local last = { value = nil as Types.Parsed<Doc> | nil }
+  local last = { value = nil as Types.Parsed<Doc>? }
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     last.value = Input.json_into(req, DOC)
     return Web.empty()

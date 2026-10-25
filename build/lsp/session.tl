@@ -60,7 +60,7 @@ local record session
     initialized: boolean
     shut_down: boolean
     --- Set at `exit`: the exit status the session ends with.
-    exit: integer | nil
+    exit: integer?
     --- The open documents, by URI.
     documents: {string:check.Document}
     --- Where complaints go, without their newline.
@@ -68,7 +68,7 @@ local record session
     checker: check.Checker
     --- Whether the editor takes a registration of the files to watch.
     watch: boolean
-    store: {Sqlite.Handle} | nil
+    store: {Sqlite.Handle}?
     docs: hover.Docs
     --- The dependents yet to be checked again.
     queue: dependents.Queue
@@ -106,7 +106,7 @@ end
 function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
-  local held: {Session} = {}
+  local held: mut {Session} = {}
   local checker = check.new(root, err, hints_of(held), given.grammar)
   local made: Session = {
     root = root,
@@ -128,12 +128,12 @@ function session.new(root: string, options?: session.Options): Session
 end
 
 --- The document `params` names, opened as `text` when it is given.
-local function document_of(s: Session, params: protocol.DocumentParams, text?: string): check.Document | nil
+local function document_of(s: Session, params: protocol.DocumentParams, text?: string): check.Document?
   local uri = params.textDocument.uri
   local document = s.documents[uri]
   if document == nil and text ~= nil then
     local path = protocol.path_of(uri)
-    local name: string | nil = nil
+    local name: string? = nil
     if path ~= nil then name = protocol.below(path, s.root) end
     document = check.document(uri, name or path or uri, text, name == nil)
     s.documents[uri] = document
@@ -145,7 +145,7 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
 end
 
 --- The hover for `params`, or nil when nothing is documented there.
-local function hovered(s: Session, params: protocol.DocumentParams): protocol.Hover | nil
+local function hovered(s: Session, params: protocol.DocumentParams): protocol.Hover?
   local document = document_of(s, params)
   local where = params.position
   if document == nil or where == nil then return nil end
@@ -154,7 +154,7 @@ end
 
 --- The edits that format `params`' document, encoded, or nil and why
 --- there are none.
-local function formatting(s: Session, params: protocol.DocumentParams): string | nil, string
+local function formatting(s: Session, params: protocol.DocumentParams): string?, string
   local document = document_of(s, params)
   if document == nil then return nil, "no such document is open" end
   -- The grammar is the session's, not the document's: nothing in a text says which grammar it is written in.
@@ -175,7 +175,7 @@ local function formatting(s: Session, params: protocol.DocumentParams): string |
 end
 
 --- The workspace's root `params` names, if any.
-local function root_of(params: protocol.InitializeParams): string | nil
+local function root_of(params: protocol.InitializeParams): string?
   local uri = params.rootUri
   local folders = params.workspaceFolders
   if uri == nil and folders ~= nil then
@@ -197,20 +197,20 @@ local function initialize(s: Session, params: protocol.InitializeParams): protoc
     checked_at(s, root)
   end
   local capabilities = params.capabilities
-  local general: protocol.General | nil = nil
+  local general: protocol.General? = nil
   if capabilities ~= nil then general = capabilities.general end
   local offered: {string} = {}
   if general ~= nil then offered = general.positionEncodings or offered end
   for _, name in ipairs(offered) do
     if name == "utf-8" then s.encoding = "utf-8" end
   end
-  local workspace: protocol.WorkspaceCapabilities | nil = nil
+  local workspace: protocol.WorkspaceCapabilities? = nil
   if capabilities ~= nil then workspace = capabilities.workspace end
-  local watched: protocol.DynamicRegistration | nil = nil
+  local watched: protocol.DynamicRegistration? = nil
   if workspace ~= nil then watched = workspace.didChangeWatchedFiles end
   s.watch = watched ~= nil and watched.dynamicRegistration == true
   s.initialized = true
-  local formats: boolean | nil = nil
+  local formats: boolean? = nil
   if s.checker.grammar ~= "new" then formats = true end
   return {
     capabilities = {
@@ -243,7 +243,7 @@ end
 --- What `message` asks: each message to send in answer, encoded, in
 --- order, a request's response among them.
 local function handle(s: Session, message: protocol.Message): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local method = message.method
   -- A response, to the registration of the files watched: JSON-RPC
   -- answers none.
@@ -364,7 +364,7 @@ local function answers(s: Session, body: string): {string}
     -- One message shown a session: a root outside any build has no stage
     -- to leave unchecked.
     if not s.told_outside then
-      local shown: string | nil = nil
+      local shown: string? = nil
       if source.outside(s.checker.source) then
         shown = s.root .. " is not built yet, so its modules " ..
           "are not found and nothing is checked: run `cosmic test` (or `cosmic build`) there"
@@ -387,7 +387,7 @@ end
 
 --- The document the message `body` sends a whole new text of, or nil
 --- when it is no `textDocument/didChange`.
-local function changed_uri(body: string): string | nil
+local function changed_uri(body: string): string?
   local message, _ = protocol.message_of(body)
   if message == nil or message.method ~= "textDocument/didChange" then return nil end
   local params, _ = protocol.document_params(message.params)
@@ -397,12 +397,12 @@ end
 
 --- A message [`session.serve`] read ahead and has yet to answer.
 local record Ahead
-  body: string | nil
+  mut body: string?
 end
 
 --- The next message to answer: the one read ahead, else the next of
 --- `frames`.
-local function next_body(frames: protocol.Frames, ahead: Ahead): string | nil, string
+local function next_body(frames: protocol.Frames, ahead: Ahead): string?, string
   local body = ahead.body
   if body ~= nil then
     ahead.body = nil

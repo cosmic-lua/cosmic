@@ -15,9 +15,9 @@ local type compiler = require("build.compiler")
 Test.policy{}
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local held: {compiler} = {}
@@ -37,7 +37,7 @@ local where: {string} = {}
 
 --- One run: `words` after `cosmic compile`, its output collected.
 local function run(words: {string}): Ran
-  local argv: {string} = { "compile" }
+  local argv: mut {string} = { "compile" }
   local at = 2
   local rooted = false
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
@@ -232,7 +232,7 @@ local function test_a_declaration_beside_its_source_types_a_require_in_any_order
   local user = file(tmp, "user.tl",
     "local Foo = require(\"foo\")\nlocal f: Foo = { n = 1 }\nreturn f\n")
   for _, order in ipairs({ { decl, source, user }, { source, user, decl }, { user, decl, source } }) do
-    local words: {string} = { "--errors", "-o", tmp .. "/out" }
+    local words: mut {string} = { "--errors", "-o", tmp .. "/out" }
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)

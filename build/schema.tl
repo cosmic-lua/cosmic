@@ -263,7 +263,7 @@ local docs_indexes: {{string}} = {
 --- and then every index under `qualifier`: `"out."` for a schema
 --- attached under that name, `""` for a connection's own.
 function schema.create(qualifier: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, pair in ipairs(tables) do
     out[#out + 1] = "CREATE TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
   end
@@ -284,7 +284,7 @@ end
 --- would keep the two in sync, which a write-once database has no use
 --- for.
 function schema.rebuild(qualifier: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, pair in ipairs(virtual_tables) do
     out[#out + 1] = "INSERT INTO " .. qualifier .. pair[1] .. "(" .. pair[1] ..
       ") VALUES ('rebuild')"
@@ -295,7 +295,7 @@ end
 --- The pragmas that set a database up to be reproducible, for the
 --- schema `qualifier` names; they must run before its first table.
 function schema.settings(qualifier: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, setting in ipairs(settings) do
     out[#out + 1] = "PRAGMA " .. qualifier .. setting
   end

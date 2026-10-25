@@ -15,7 +15,7 @@ Test.policy{}
 
 --- A store and `n` named types of distinct declarations.
 local function populate(store: Types.Store, n: integer): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   for i = 1, n do
     out[i] = store:named(store:declare("record", "m", { "R" .. i }))
   end
@@ -24,7 +24,7 @@ end
 
 --- `n` interfaces and the class that lists all of them.
 local function listing(store: Types.Store, n: integer): Types.Type, {Types.Type}
-  local interfaces: {Types.Type} = {}
+  local interfaces: mut {Types.Type} = {}
   for i = 1, n do
     local decl = store:declare("interface", "m", { "I" .. i }, 0)
     store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
@@ -44,11 +44,11 @@ end
 --- A store and `n` interfaces that each extend the one before.
 local function chain_of(n: integer): Chain
   local store = Types.new()
-  local previous: Types.Type | nil
-  local first: Types.Type | nil
+  local previous: Types.Type?
+  local first: Types.Type?
   for i = 1, n do
     local decl = store:declare("interface", "m", { "E" .. i }, 0)
-    local supers: {Types.Type} = {}
+    local supers: mut {Types.Type} = {}
     if previous ~= nil then
       supers[1] = previous
     end
@@ -63,8 +63,8 @@ end
 local function test_a_pair_that_is_settled_costs_no_more_than_its_lookup()
   local store = Types.new()
   local judge = Relation.new(store)
-  local views: {Types.Type} = {}
-  local wider: {Types.Type} = {}
+  local views: mut {Types.Type} = {}
+  local wider: mut {Types.Type} = {}
   for i, t in ipairs(populate(store, 2000)) do
     views[i] = store:array(store:array(t))
     wider[i] = store:array(store:array(store:optional(t)))
@@ -97,7 +97,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   ["a long union below a superset"] = function(n: integer)
     local store = Types.new()
     local members = populate(store, n * 10 + 1)
-    local sub: {Types.Type} = {}
+    local sub: mut {Types.Type} = {}
     for i = 1, n * 10 do
       sub[i] = members[i]
     end
@@ -108,7 +108,7 @@ local FORMS <const>: {string: function(n: integer)} = {
   ["a long union of optionals below a superset"] = function(n: integer)
     local store = Types.new()
     local members = populate(store, n * 10 + 1)
-    local sub: {Types.Type} = {}
+    local sub: mut {Types.Type} = {}
     for i = 1, n * 10 do
       sub[i] = members[i]
     end
@@ -201,8 +201,8 @@ local FORMS <const>: {string: function(n: integer)} = {
   ["a function of many parameters"] = function(n: integer)
     local store = Types.new()
     local judge = Relation.new(store)
-    local given: {Types.Param} = {}
-    local wanted: {Types.Param} = {}
+    local given: mut {Types.Param} = {}
+    local wanted: mut {Types.Param} = {}
     for i = 1, n * 10 do
       given[i] = { type = store.number, omittable = i % 3 == 0 }
       wanted[i] = { type = store.integer, omittable = i % 3 == 0 }
@@ -213,8 +213,8 @@ local FORMS <const>: {string: function(n: integer)} = {
   ["a function of many return values"] = function(n: integer)
     local store = Types.new()
     local judge = Relation.new(store)
-    local given: {Types.Type} = {}
-    local wanted: {Types.Type} = {}
+    local given: mut {Types.Type} = {}
+    local wanted: mut {Types.Type} = {}
     for i = 1, n * 10 do
       given[i] = store.integer
       wanted[i] = store.number
@@ -227,7 +227,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local judge = Relation.new(store)
     local decl = store:declare("record", "m", { "Wide" })
     local given = populate(store, n * 10)
-    local wanted: {Types.Type} = {}
+    local wanted: mut {Types.Type} = {}
     for i, t in ipairs(given) do
       wanted[i] = t
     end

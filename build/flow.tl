@@ -124,7 +124,7 @@ local ESCAPES <const>: {string: boolean} = {
 --- U+2028 and U+2029, which JSON5 ends a line at and YAML 1.2 does not;
 --- and U+FEFF, U+FFFE and U+FFFF.
 local function characters(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   if utf8.len(text) == nil then
     return { "the text is not UTF-8" }
   end
@@ -165,14 +165,14 @@ end
 ---   half a surrogate pair, which YAML keeps as a lone half and JSON5
 ---   joins to its pair: write the character itself.
 --- - No key twice in one object, which GitHub refuses.
-local function scan(text: string, comments: {string}): {string}
+local function scan(text: string, comments: mut {string}): {string}
   local found: {string} = characters(text)
   local line = 1
   local function say(why: string)
     found[#found + 1] = ("line %d: %s"):format(line, why)
   end
   --- For each open container, an object's keys seen, or false.
-  local open: {{string: boolean} | boolean} = {}
+  local open: mut {{string: boolean} | boolean} = {}
   local function key(name: string)
     local keys = open[#open]
     if keys is {string: boolean} then
@@ -238,14 +238,14 @@ local function scan(text: string, comments: {string}): {string}
         i = text:find("\n", i, true) or n + 1
       else
         local _, close = text:find("*/", i + 2, true)
-        i = close and close + 1 or n + 1
+        i = if close then close + 1 else n + 1 end
       end
     elseif c == ":" then
       if not text:sub(i + 1, i + 1):match("^[ \r\n]") then say("a : with no space after it") end
       if token_line ~= line then say("a : on another line than its key") end
       i = i + 1
     elseif c == "{" or c == "[" then
-      open[#open + 1] = c == "{" and {} or false
+      open[#open + 1] = if c == "{" then {} else false end
       i = i + 1
     elseif c == "}" or c == "]" then
       open[#open] = nil
@@ -313,7 +313,7 @@ function flow.scalar(value: any): flow.Node
   if value is string then
     return { kind = "scalar", text = quote(value) }
   elseif value == Json.null or value is boolean then
-    return { kind = "scalar", text = value == Json.null and "null" or tostring(value) }
+    return { kind = "scalar", text = if value == Json.null then "null" else tostring(value) end }
   elseif math.type(value) == "integer" and #tostring(value):gsub("^%-", "") <= 15 then
     return { kind = "scalar", text = tostring(value) }
   end
@@ -332,18 +332,18 @@ end
 --- The parser's place in the text, and how deep it is.
 local record Reader
   text: string
-  at: integer
-  line: integer
-  depth: integer
+  mut at: integer
+  mut line: integer
+  mut depth: integer
 end
 
 --- What lies between two tokens: the comments, each with the line it
 --- is on, and where a blank line fell ("" entries), and how many line
 --- breaks the run held in all.
 local record Trivia
-  entries: {string}
-  lines: {integer}
-  breaks: integer
+  entries: mut {string}
+  lines: mut {integer}
+  mut breaks: integer
 end
 
 --- Reads the spaces, line breaks and comments from the reader's place
@@ -384,8 +384,8 @@ end
 
 --- `entries` with runs of blank lines made one, and none at the start
 --- or the end where asked.
-local function tidy(entries: {string} | nil, trim_start: boolean, trim_end: boolean): {string}
-  local out: {string} = {}
+local function tidy(entries: {string}?, trim_start: boolean, trim_end: boolean): {string}
+  local out: mut {string} = {}
   for _, entry in ipairs(entries or {}) do
     if entry ~= "" or (#out > 0 and out[#out] ~= "") or (#out == 0 and not trim_start) then
       out[#out + 1] = entry
@@ -399,7 +399,7 @@ end
 
 --- Splits `t` at the comment on `line`, the line the token before it
 --- ended: that comment, then everything after it.
-local function trailing(t: Trivia, line: integer): string | nil, {string}
+local function trailing(t: Trivia, line: integer): string?, {string}
   if #t.entries > 0 and t.entries[1] ~= "" and t.lines[1] == line then
     return t.entries[1], { table.unpack(t.entries, 2) }
   end
@@ -447,11 +447,11 @@ end
 
 local function parse_container(r: Reader): flow.Node
   local open = r.text:sub(r.at, r.at)
-  local close = open == "{" and "}" or "]"
+  local close = if open == "{" then "}" else "]" end
   r.depth = r.depth + 1
   if r.depth > MAX_DEPTH then fail(r.line, "containers nested deeper than " .. MAX_DEPTH) end
-  local items: {flow.Item} = {}
-  local node: flow.Node = { kind = open == "{" and "object" or "array", items = items, tail = {} }
+  local items: mut {flow.Item} = {}
+  local node: flow.Node = { kind = if open == "{" then "object" else "array" end, items = items, tail = {} }
   local open_line = r.line
   r.at = r.at + 1
   local t = trivia(r)
@@ -466,7 +466,7 @@ local function parse_container(r: Reader): flow.Node
       r.depth = r.depth - 1
       return node
     end
-    local key: string | nil = nil
+    local key: string? = nil
     if node.kind == "object" then
       local key_line = r.line
       if r.text:sub(r.at, r.at) == '"' or r.text:sub(r.at, r.at) == "'" then
@@ -520,7 +520,7 @@ end
 
 --- The tree of a flow-style text, or nil and why it is not one. It does
 --- not hold the text to the subset: `format` does.
-function flow.parse(text: string): flow.Doc | nil, string
+function flow.parse(text: string): flow.Doc?, string
   local r: Reader = { text = text, at = 1, line = 1, depth = 0 }
   local doc: {flow.Doc} = {}
   local ok, raised = pcall(function(): string
@@ -549,11 +549,11 @@ end
 
 local function inline_text(node: flow.Node): string
   if node.kind == "scalar" then return node.text end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, item in ipairs(members(node)) do
     local value = inline_text(item.value)
     local key = item.key
-    parts[#parts + 1] = key ~= nil and key_text(key) .. ": " .. value or value
+    parts[#parts + 1] = if key ~= nil then key_text(key) .. ": " .. value else value end
   end
   local open, close = "[", "]"
   if node.kind == "object" then open, close = "{", "}" end
@@ -579,16 +579,16 @@ local function one_line(node: flow.Node, column: integer, after: integer): boole
   return width == nil or column + #inline_text(node) + after <= width
 end
 
-local function comment_lines(out: {string}, entries: {string}, pad: string)
+local function comment_lines(out: mut {string}, entries: {string}, pad: string)
   for _, entry in ipairs(entries) do
-    out[#out + 1] = entry == "" and "" or pad .. entry
+    out[#out + 1] = if entry == "" then "" else pad .. entry end
   end
 end
 
 --- Appends `node`'s text to `out`, whose last line it continues; `pad`
 --- is its line's indentation, and `after` how many bytes follow it on
 --- its last line (a member's comma).
-local function write(out: {string}, node: flow.Node, pad: string, after: integer)
+local function write(out: mut {string}, node: flow.Node, pad: string, after: integer)
   if one_line(node, #out[#out], after) then
     out[#out] = out[#out] .. inline_text(node)
     return
@@ -596,16 +596,16 @@ local function write(out: {string}, node: flow.Node, pad: string, after: integer
   local open, close = "[", "]"
   if node.kind == "object" then open, close = "{", "}" end
   local comment = node.comment
-  out[#out] = out[#out] .. open .. (comment ~= nil and " " .. comment or "")
+  out[#out] = out[#out] .. open .. (if comment ~= nil then " " .. comment else "" end)
   local inner = pad .. "  "
   local items = members(node)
   for index, item in ipairs(items) do
     comment_lines(out, tidy(item.before, index == 1, false), inner)
     local key = item.key
-    out[#out + 1] = inner .. (key ~= nil and key_text(key) .. ": " or "")
+    out[#out + 1] = inner .. (if key ~= nil then key_text(key) .. ": " else "" end)
     write(out, item.value, inner, 1)
     local item_comment = item.comment
-    out[#out] = out[#out] .. "," .. (item_comment ~= nil and " " .. item_comment or "")
+    out[#out] = out[#out] .. "," .. (if item_comment ~= nil then " " .. item_comment else "" end)
   end
   comment_lines(out, tidy(node.tail, #items == 0, true), inner)
   out[#out + 1] = pad .. close
@@ -613,7 +613,7 @@ end
 
 --- A tree's text, in the canonical form.
 function flow.render(doc: flow.Doc): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   comment_lines(out, tidy(doc.head, true, false), "")
   out[#out + 1] = ""
   write(out, doc.root, "", 0)
@@ -625,7 +625,7 @@ end
 
 --- `text`'s value, with `null` kept, as one canonical encoding to
 --- compare.
-local function value_of(text: string): string | nil, string
+local function value_of(text: string): string?, string
   local value, trouble = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
   if trouble ~= nil and trouble ~= "" then return nil, trouble end
   return Json.encode_any(value)
@@ -653,7 +653,7 @@ end
 --- `text` in the canonical form, or nil and why not: a text outside the
 --- subset, or whose form would leave it, read as another value, lose a
 --- comment, or change again on a second pass.
-function flow.format(text: string): string | nil, string
+function flow.format(text: string): string?, string
   local before_comments: {string} = {}
   local found = scan(text, before_comments)
   if #found > 0 then return nil, found[1] end
@@ -701,9 +701,9 @@ end
 
 --- An object's keys in the order `opts` writes them.
 local function ordered(value: {string: any}, opts: flow.Options): {string}
-  local rank: {string: integer} = {}
+  local rank: mut {string: integer} = {}
   for i, key in ipairs(opts.order or WORKFLOW_ORDER) do rank[key] = i end
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(value) do
     if not key is string then
       error("flow.from: an object key " .. tostring(key) .. " is no string", 0)
@@ -728,7 +728,7 @@ local function build(value: any, opts: flow.Options, depth: integer): flow.Node
   if depth >= MAX_DEPTH then
     error("flow.from: containers nested deeper than " .. MAX_DEPTH .. ", or a table that holds itself", 0)
   end
-  local items: {flow.Item} = {}
+  local items: mut {flow.Item} = {}
   local node: flow.Node = { kind = "object", items = items, tail = {}, width = opts.width or 100 }
   if is_array(value) and value is {any} then
     node.kind = "array"
@@ -764,16 +764,16 @@ end
 
 --- A node's value, as `cosmic.json` reads it ([`Json.null`] for null), or
 --- nil and why it reads as none.
-function flow.value(node: flow.Node): any | nil, string
+function flow.value(node: flow.Node): any?, string
   return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
 end
 
 --- The member of `node` down `path`, a key for each object and an index
 --- for each array, or nil where there is none.
-function flow.get(node: flow.Node, ...: string | integer): flow.Node | nil
+function flow.get(node: flow.Node, ...: string | integer): flow.Node?
   local at = node
   for _, step in ipairs({ ... }) do
-    local found: flow.Node | nil = nil
+    local found: flow.Node? = nil
     for index, item in ipairs(at.items or {}) do
       if (at.kind == "object" and item.key == step) or (at.kind == "array" and index == step) then
         found = item.value
@@ -830,7 +830,7 @@ end
 --- What names a member across a change to it: an object's `id`, `name`
 --- or the action its `uses` names, without the version after `@` -- a
 --- step, a job, a matrix leg -- or nil.
-local function identity(value: any): string | nil
+local function identity(value: any): string?
   if not value is {string: any} then return nil end
   for _, field in ipairs({ "id", "name" }) do
     local found = value[field]
@@ -850,15 +850,15 @@ end
 --- from `old` and added from `new`. The result maps `new`'s indexes to
 --- the old item, or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
-  local a, b: {string}, {string} = {}, {}
-  local old_values: {any} = {}
+  local a, b: mut {string}, mut {string} = {}, {}
+  local old_values: mut {any} = {}
   for i, item in ipairs(old) do
     local value, trouble = flow.value(item.value)
     old_values[i] = value
     a[i] = encoded(value, trouble, i)
   end
   for j, value in ipairs(new) do b[j] = encoded(value, "", j) end
-  local out: {integer: flow.Item} = {}
+  local out: mut {integer: flow.Item} = {}
   -- The common start and end, which most changes leave most of.
   local lo = 1
   while lo <= #a and lo <= #b and a[lo] == b[lo] do
@@ -871,7 +871,7 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
     hi_a, hi_b = hi_a - 1, hi_b - 1
   end
   -- The table of longest common runs from each (i, j) to the middle's end.
-  local lcs: {{integer}} = {}
+  local lcs: mut {{integer}} = {}
   for i = hi_a + 1, lo, -1 do
     lcs[i] = {}
     for j = hi_b + 1, lo, -1 do
@@ -936,7 +936,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
     return build(value, o, depth)
   end
   local was = inline_text(node)
-  local kept: {flow.Item} = {}
+  local kept: mut {flow.Item} = {}
   if array and value is {any} then
     local pairing = paired(members(node), value)
     for index, each in ipairs(value) do
@@ -949,7 +949,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
       end
     end
   elseif value is {string: any} then
-    local seen: {string: boolean} = {}
+    local seen: mut {string: boolean} = {}
     for _, item in ipairs(members(node)) do
       if value[item.key] ~= nil then
         item.value = update(item.value, value[item.key], o, depth + 1)

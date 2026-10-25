@@ -9,10 +9,10 @@ end
 --- The text every cell of `sql` reads as, `NULL` for none, one row per
 --- element and `|` between cells.
 local function grid(db: Sqlite.Handle, sql: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local q <close> = assert(Sqlite.query(db, sql))
   for row in q:each() do
-    local cells: {string} = {}
+    local cells: mut {string} = {}
     for index = 1, row:count() do
       local kind = row:kind(index)
       if kind == "null" then
@@ -83,7 +83,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   assert(made.renamed["_JSON_2"] == "_JSON" and made.renamed["_json_3"] == "_json")
   assert(made.renamed["A"] == nil and made.renamed["select"] == nil)
   -- Every column is distinct even when case is folded, and `_json` is the row's own.
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, column in ipairs(made.columns) do
     assert(not seen[column:lower()], column .. " twice")
     seen[column:lower()] = true
@@ -206,7 +206,7 @@ local function csv_cells(text: string, raw?: boolean): string
   local rows = assert(dataset.read("csv", text, { raw = raw }))
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
-  local picks: {string} = {}
+  local picks: mut {string} = {}
   for index = 1, #made.columns - 1 do
     picks[index] = 'typeof("' .. made.columns[index] .. '") || \':\' || coalesce("' .. made.columns[index] .. '", \'NULL\')'
   end

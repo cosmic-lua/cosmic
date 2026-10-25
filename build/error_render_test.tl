@@ -30,7 +30,7 @@ end
 
 --- The element `i` of `list`, which a test expects to be there.
 local function at(list: {string}, i: integer): string
-  local found: string | nil = nil
+  local found: string? = nil
   for index, line in ipairs(list) do
     if index == i then
       found = line
@@ -216,7 +216,7 @@ end
 
 local function test_a_line_is_its_place_message_code_and_fix()
   local result = result_of("local n: integer = \"s\"\nprint(n)\n")
-  local p: Driver.Problem | nil = nil
+  local p: Driver.Problem? = nil
   for _, e in ipairs(result.errors) do
     p = e
   end

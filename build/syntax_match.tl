@@ -50,10 +50,10 @@ local record Match
 
   --- The pattern `source` spells, or nil and why the source does not parse. A source that is no statement is read as
   --- the expression of a `return`, so `$X as $T` is a pattern.
-  compile: function(source: string): Pattern | nil, string
+  compile: function(source: string): Pattern?, string
 
   --- The captures of `pattern` if `node` of `chunk` matches it, else nil.
-  matches: function(pattern: Pattern, chunk: Ast.Chunk, node: Ast.Node): {string: Capture} | nil
+  matches: function(pattern: Pattern, chunk: Ast.Chunk, node: Ast.Node): {string: Capture}?
 
   --- Every node under `root` that `pattern` matches, in source order (an outer node before one it holds that starts at
   --- the same token).
@@ -75,7 +75,7 @@ end
 
 --- The Lua patterns of the captures that carry one, by desugared name.
 local function predicates_of(source: string): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   local rest = source:gsub("%$%$%$([%u_][%w_]*)", "___%1")
   for name, pred in rest:gmatch("%$([%u_][%w_]*):([^%s%(%),]+)") do
     out["_" .. name] = pred
@@ -91,8 +91,8 @@ local function fields_of(node: any): {string: any}
   return {}
 end
 
-local function as_node(value: any): Ast.Node | nil
-  if value ~= nil and value is Ast.Node then
+local function as_node(value: any): Ast.Node?
+  if value ~= nil and (value.kind == "Chunk" or value.kind == "Block" or value.kind == "Local" or value.kind == "LocalFunction" or value.kind == "Function" or value.kind == "Assign" or value.kind == "CallStat" or value.kind == "Return" or value.kind == "Do" or value.kind == "Break" or value.kind == "Continue" or value.kind == "While" or value.kind == "Repeat" or value.kind == "If" or value.kind == "Arm" or value.kind == "Match" or value.kind == "MatchArm" or value.kind == "PatBool" or value.kind == "PatBind" or value.kind == "ForNum" or value.kind == "ForIn" or value.kind == "Name" or value.kind == "Nil" or value.kind == "Boolean" or value.kind == "Integer" or value.kind == "Float" or value.kind == "String" or value.kind == "Vararg" or value.kind == "Paren" or value.kind == "FunctionLit" or value.kind == "Table" or value.kind == "Positional" or value.kind == "Named" or value.kind == "Keyed" or value.kind == "Field" or value.kind == "Index" or value.kind == "Call" or value.kind == "MethodCall" or value.kind == "Unary" or value.kind == "Binary" or value.kind == "IsTest" or value.kind == "Cast" or value.kind == "IfExp" or value.kind == "ExpArm" or value.kind == "Fn" or value.kind == "Rets" or value.kind == "Param" or value.kind == "Binding" or value.kind == "TypeName" or value.kind == "TypeBool" or value.kind == "TypeNil" or value.kind == "TypeError" or value.kind == "TypeArray" or value.kind == "TypeMap" or value.kind == "TypeUnion" or value.kind == "TypeOptional" or value.kind == "TypeMut" or value.kind == "TypeFunction" or value.kind == "PType" or value.kind == "Narrows" or value.kind == "TypeParam" or value.kind == "Record" or value.kind == "Interface" or value.kind == "Class" or value.kind == "Enum" or value.kind == "EnumValue" or value.kind == "Alias" or value.kind == "Import" or value.kind == "FieldDecl" or value.kind == "Method" or value.kind == "Userdata" or value.kind == "Error") then
     return value
   end
   return nil
@@ -100,7 +100,7 @@ end
 
 --- The name a node stands for in a pattern when it is a capture, else nil: a name, a one-word type or a binding spelled
 --- `_NAME`.
-local function capture_of(node: Ast.Node): string | nil
+local function capture_of(node: Ast.Node): string?
   local f = fields_of(node)
   local kind = f["kind"]
   local text: any = nil
@@ -123,7 +123,7 @@ end
 
 --- The name of the rest capture a list element is, else nil: a name, a type, the name as an item of a table, or a call
 --- of the name with no arguments as a statement.
-local function rest_of(node: Ast.Node): string | nil
+local function rest_of(node: Ast.Node): string?
   local f = fields_of(node)
   local kind = f["kind"]
   if kind == "Positional" then
@@ -149,11 +149,11 @@ end
 local record State
   pattern: Match.Pattern
   chunk: Ast.Chunk
-  caps: {string: Match.Capture}
+  caps: mut {string: Match.Capture}
 end
 
 local function range_text(chunk: Ast.Chunk, first: integer, last: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = first, last do
     parts[#parts + 1] = Lexer.text(chunk.tokens, i)
   end
@@ -162,9 +162,9 @@ end
 
 --- Binds the capture `name` to `target`, or to the token `token` where it is a name in a field: false where the name is
 --- bound to other text or its predicate refuses.
-local function bind(st: State, name: string, target: Ast.Node | nil, token: integer): boolean
+local function bind(st: State, name: string, target: Ast.Node?, token: integer): boolean
   local first, last = token, token
-  local nodes: {Ast.Node} = {}
+  local nodes: mut {Ast.Node} = {}
   if target ~= nil then
     local base = Node.base(target)
     first, last = base.first, base.last
@@ -195,7 +195,7 @@ local match_node: function(st: State, p: Ast.Node, n: Ast.Node): boolean
 --- The token of the name in a field or a method call: the second token after the object.
 local function name_token(node: Ast.Node): integer
   local object = as_node(fields_of(node)["object"])
-  return object ~= nil and Node.base(object).last + 2 or 0
+  return if object ~= nil then Node.base(object).last + 2 else 0 end
 end
 
 local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): boolean
@@ -212,7 +212,7 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
     return true
   end
   local count = #pl
-  local rest: string | nil = nil
+  local rest: string? = nil
   local tail = count > 0 and as_node(pl[count]) or nil
   if tail ~= nil then
     rest = rest_of(tail)
@@ -237,7 +237,7 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
     end
   end
   if rest ~= nil then
-    local taken: {Ast.Node} = {}
+    local taken: mut {Ast.Node} = {}
     for i = count + 1, #nl do
       local item = as_node(nl[i])
       if item ~= nil then
@@ -302,14 +302,14 @@ match_node = function(st: State, p: Ast.Node, n: Ast.Node): boolean
   return true
 end
 
-function Match.compile(source: string): Match.Pattern | nil, string
+function Match.compile(source: string): Match.Pattern?, string
   local desugared = Match.desugar(source)
   local predicates = predicates_of(source)
   local chunk, why = Node.parse(desugared, "<pattern>")
   if chunk ~= nil then
     local first = chunk.body.stats[1]
     if first ~= nil then
-      if first is Ast.CallStat then
+      if (first.kind == "CallStat") then
         return { root = first.call, predicates = predicates }, ""
       end
       return { root = first, predicates = predicates }, ""
@@ -320,14 +320,14 @@ function Match.compile(source: string): Match.Pattern | nil, string
   local wrapped, _ = Node.parse("return " .. desugared, "<pattern>")
   if wrapped ~= nil then
     local ret = wrapped.body.stats[1]
-    if ret ~= nil and ret is Ast.Return and ret.values[1] ~= nil then
+    if ret ~= nil and (ret.kind == "Return") and ret.values[1] ~= nil then
       return { root = ret.values[1], predicates = predicates }, ""
     end
   end
   return nil, why
 end
 
-function Match.matches(pattern: Match.Pattern, chunk: Ast.Chunk, node: Ast.Node): {string: Match.Capture} | nil
+function Match.matches(pattern: Match.Pattern, chunk: Ast.Chunk, node: Ast.Node): {string: Match.Capture}?
   local st: State = { pattern = pattern, chunk = chunk, caps = {} }
   if match_node(st, pattern.root, node) then
     return st.caps

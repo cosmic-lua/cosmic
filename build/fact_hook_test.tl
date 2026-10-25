@@ -14,7 +14,7 @@ Test.policy{}
 --- the program under test did.
 local function since(before: integer): {worker.Violation}
   local met = worker.violations()
-  local out: {worker.Violation} = {}
+  local out: mut {worker.Violation} = {}
   for i = before + 1, #met do
     local each = met[i]
     if each ~= nil and each.kind == "fact" then out[#out + 1] = each end
@@ -22,7 +22,7 @@ local function since(before: integer): {worker.Violation}
   return out
 end
 
-local function spelled(met: worker.Violation | nil): string
+local function spelled(met: worker.Violation?): string
   if met == nil then return "no row" end
   return table.concat({ met.kind, met.at, met.target, met.declared, met.actual, tostring(met.count) }, " | ")
 end
@@ -76,8 +76,8 @@ end
 
 --- Calls the hook with a value that the conclusion is false of: it raises, naming the read and what was seen, and
 --- keeps one row.
-local function refuses(index: integer, value: any, taken: string, strings: {string} | nil, classes: {any} | nil,
-                       tag: string | nil, tags: {string} | nil, actual: string, declared: string)
+local function refuses(index: integer, value: any, taken: string, strings: {string}?, classes: {any}?,
+                       tag: string?, tags: {string}?, actual: string, declared: string)
   local at = "false.tl:" .. tostring(index) .. ":9"
   local before = #worker.violations()
   local ok, message = pcall(function(): any
@@ -172,7 +172,7 @@ local function test_a_compile_with_facts_writes_the_wraps_and_without_none()
 end
 
 local record Api
-  read: function(string | nil, function()): string
+  read: function(string?, function()): string
 end
 
 local record Shapes
@@ -190,7 +190,7 @@ end
 --- The Lua of `name` run in an environment of the standard library, where `assert` is Lua's or, where `lax`, one that
 --- does not raise.
 local function loaded(code: string, name: string, lax: boolean): any
-  local env: {string:any} = {}
+  local env: mut {string:any} = {}
   if lax then
     env["assert"] = function(...: any): any...
       return ...
@@ -239,7 +239,7 @@ local function test_a_narrowing_planted_by_a_lax_assert_is_one_row()
 end
 
 local record Box
-  value: string | nil
+  mut value: string?
 end
 
 local record PokeApi

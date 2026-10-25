@@ -19,7 +19,7 @@ local function test_the_shared_key_moves_with_each_salt()
     key("k", false, true),
     key("k", false, false, "compiled_v3"),
   }
-  local seen: {string:boolean} = { [base] = true }
+  local seen: mut {string:boolean} = { [base] = true }
   for index, other in ipairs(others) do
     assert(not seen[other], "salt " .. index .. " did not move the key")
     seen[other] = true
@@ -85,7 +85,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   local sibling = path .. ".corrupt-older"
   assert(Fs.write(sibling, "earlier evidence"))
   local files = { path, path .. "-wal", path .. "-shm", sibling }
-  local inodes: {integer} = {}
+  local inodes: mut {integer} = {}
   for index, file in ipairs(files) do inodes[index] = assert(Fs.stat(file)).ino end
   local bytes = assert(Fs.read(path))
   local wal = assert(Fs.read(path .. "-wal"))

@@ -90,7 +90,7 @@ print(table.concat(said, "\n"))
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
@@ -107,7 +107,7 @@ end
 --- stand-in the chunk starts is built. Answers the lines it said, or nil
 --- where there is no portable artifact to start again or no sandbox to
 --- be had.
-local function sandboxed_worker(tmp: string): {string} | nil
+local function sandboxed_worker(tmp: string): {string}?
   if Proc.relaunch() == nil then return nil end -- no portable artifact to start again
   local probe = probe_in(tmp)
   local given, hidden = tmp .. "/given", tmp .. "/hidden"
@@ -140,7 +140,7 @@ local function sandboxed_worker(tmp: string): {string} | nil
   local said = assert(sys.pread(output, 65536, 0))
   sys.close(output)
   assert(status.code == 0, said)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   return lines
 end
@@ -193,14 +193,14 @@ end
 --- path into names and joins them again, not how a link resolves.
 local function resolved_by_names(path: string): string
   if path:sub(1, 1) ~= "/" then return "" end
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   local at = path
   while true do
     local real, _ = sys.realpath(at)
     if real ~= nil then
       local resolved: string = real
       for i = #missing, 1, -1 do
-        resolved = (resolved == "/" and "" or resolved) .. "/" .. missing[i]
+        resolved = (if resolved == "/" then "" else resolved end) .. "/" .. missing[i]
       end
       return resolved
     end

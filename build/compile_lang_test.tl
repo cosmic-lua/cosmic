@@ -34,7 +34,7 @@ end
 local function requiring(tmp: string, files: {string}): function(string): any
   local made: {string: any} = {}
   local real: function(string): any = require
-  local env: {string: any} = {}
+  local env: mut {string: any} = {}
   local function required(module: string): any
     local stem = module:match("^lang%.(.+)$")
     for _, name in ipairs(files) do
@@ -58,7 +58,7 @@ local function test_the_lexer_tests_pass_against_the_lexer_the_seed_would_build(
   local files = built(tmp)
   local loaded = requiring(tmp, files)("lang.lexer_test")
   assert(loaded is {string: function()}, "the compiled test module exports no tests")
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(loaded) do
     names[#names + 1] = name
   end

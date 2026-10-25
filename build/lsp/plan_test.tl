@@ -36,7 +36,7 @@ local NEW <const> = table.concat({
 local function said(planned: plan.Planned): string
   local out = ""
   for _, refusal in ipairs(planned.refusals) do
-    out = out .. (out == "" and "" or "\n") .. tostring(refusal.line) .. ":" .. tostring(refusal.column) .. ": " ..
+    out = out .. (if out == "" then "" else "\n" end) .. tostring(refusal.line) .. ":" .. tostring(refusal.column) .. ": " ..
       refusal.message
   end
   return out
@@ -46,7 +46,7 @@ end
 local function required(planned: plan.Planned): string
   local out = ""
   for _, site in ipairs(planned.requires) do
-    out = out .. (out == "" and "" or " ") .. site.name .. "@" .. tostring(site.line) .. ":" .. tostring(site.column)
+    out = out .. (if out == "" then "" else " " end) .. site.name .. "@" .. tostring(site.line) .. ":" .. tostring(site.column)
   end
   return out
 end

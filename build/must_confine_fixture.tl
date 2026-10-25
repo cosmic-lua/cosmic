@@ -31,7 +31,7 @@ end
 function must_confine_fixture.run(root: string, output: string, env: {string:string},
                                   words?: {string}): must_confine_fixture.Run
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -49,7 +49,7 @@ end
 --- where they can be, whatever this run's switch: this one's own
 --- sandbox may refuse theirs, which a run that requires one would fail
 --- on.
-function must_confine_fixture.environment(mode: string | nil): {string:string}
+function must_confine_fixture.environment(mode: string?): {string:string}
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil
@@ -60,7 +60,7 @@ end
 
 --- The line a run printed for one failing test of `module`, from its
 --- message on.
-function must_confine_fixture.failure_of(text: string, module: string, name: string): string | nil
+function must_confine_fixture.failure_of(text: string, module: string, name: string): string?
   return text:match("FAIL  suite%." .. module .. " " .. name .. ": ([^\n]*)")
 end
 

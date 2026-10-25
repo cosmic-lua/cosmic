@@ -209,7 +209,7 @@ end
 --- `journal` (none when nil), with a stand-in cosmic whose every
 --- command passes and whose `fix` fails where the journal was not set
 --- aside; answers the status and lines.
-local function graded_with_journal(dir: string, journal: string | nil): integer, string
+local function graded_with_journal(dir: string, journal: string?): integer, string
   assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
   if journal ~= nil then
     assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
@@ -289,7 +289,7 @@ local function test_api_failures_names_each_failing_test_and_refused_line()
   assert(#failures == 1, table.concat(failures, "; "))
   assert(failures[1] == "does not compile: kv_api_test.tl:1:12: module not found: 'kv'",
     failures[1])
-  local refusals: {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
+  local refusals: mut {string} = { "cosmic: kv_api_test.tl: the compiler refused it" }
   for i = 1, 7 do
     refusals[#refusals + 1] = "kv_api_test.tl:" .. i .. ":1: unknown type kv.Lru"
   end
@@ -316,7 +316,7 @@ local function graded_api(dir: string, lines: {string}, code: integer,
   assert(Fs.write(dir .. "/project/kv.tl", "return {}\n"))
   assert(Fs.write(dir .. "/project/o/marker", "built\n"))
   assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
-  local script: {string} = {}
+  local script: mut {string} = {}
   for _, probe in ipairs(probes or {}) do script[#script + 1] = "[test] env-of " .. probe end
   for _, line in ipairs({ "[test] present kv_api_test.tl || exit 0", "[test] ls .",
       "[test] write leftover.txt written by the hidden test", "[test] cwd " .. dir .. "/copy.txt" }) do

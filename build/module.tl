@@ -20,7 +20,7 @@ local record module
     tests: {string}
     --- A test or example module's `policy` declaration ([`cosmic.test`]),
     --- or nil for none (see [`build.test_inputs`]).
-    inputs: analyzer.Declared | nil
+    inputs: analyzer.Declared?
     has_top_level_return?: boolean
     --- True only for a module [`build.doctest`] produced from a
     --- `doc/guides/*.md` file rather than read off disk as `.tl`

@@ -37,7 +37,7 @@ local rules: {Rule} = {}
 --- had a hit refused
 --- @return string Error message on failure
 local function apply(built: compiler, source: string,
-                     name: string): string | nil, string
+                     name: string): string?, string
   local out = source
   for _, r in ipairs(rules) do
     local pattern, why = ast.compile_pattern(built, r.pattern)
@@ -49,7 +49,7 @@ local function apply(built: compiler, source: string,
       return nil, r.name .. ": " .. trouble
     end
     if #result.refused > 0 then
-      local said: {string} = {}
+      local said: mut {string} = {}
       -- `refused` runs last hit first; report in source order.
       for i = #result.refused, 1, -1 do
         local refusal = result.refused[i]
@@ -66,7 +66,7 @@ end
 local record RuleModule
   type Rule = Rule
   rules: {Rule}
-  apply: function(built: compiler, source: string, name: string): string | nil, string
+  apply: function(built: compiler, source: string, name: string): string?, string
 end
 
 local M: RuleModule = {

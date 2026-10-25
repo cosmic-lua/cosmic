@@ -208,10 +208,10 @@ end
 --- hands each wrapper its own (core/store.c's `raw_modules`), so those
 --- are left out; a Teal module of `cosmic/internal/` has its row and is
 --- carried like any other.
-local function carried(): {Carried} | nil, string
-  local order: {Carried} = {}
-  local seen: {string:boolean} = {}
-  local pending: {string} = { probe_module }
+local function carried(): {Carried}?, string
+  local order: mut {Carried} = {}
+  local seen: mut {string:boolean} = {}
+  local pending: mut {string} = { probe_module }
   for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
   while #pending > 0 do
     local name = table.remove(pending, 1)
@@ -238,13 +238,13 @@ end
 --- roots, which the probe never reads, and the error catalog, so an
 --- uncaught error of the stand-in's prints its message and trace with
 --- no guidance beneath.
-local function database(path: string): string | nil, string
+local function database(path: string): string?, string
   local modules, closure_trouble = carried()
   if modules == nil then return nil, closure_trouble end
   local _, _ = Fs.remove(path)
   local db, open_trouble = Sqlite.open(path, { writable = true })
   if db == nil then return nil, path .. ": " .. open_trouble end
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
   for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
   for _, statement in ipairs(statements) do
@@ -269,7 +269,7 @@ local function database(path: string): string | nil, string
       -- the binary's own, and the main, under no such name, does not.
       local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
           "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
-        { text(name), text(name == main_module and "main" or "module"), bind.blob(bytecode) })
+        { text(name), text(if name == main_module then "main" else "module" end), bind.blob(bytecode) })
       if not ok then return false, name .. ": " .. insert_trouble end
       for _, required in ipairs(module.requires) do
         local edge, edge_trouble = Sqlite.run(db,
@@ -304,7 +304,7 @@ end
 --- runs, so a test that builds one needs no `tool`: what it carries is
 --- its test's import closure, and the core is the runtime its verdict is
 --- keyed by.
-function stand_in.build(dir: string): string | nil, string
+function stand_in.build(dir: string): string?, string
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end
   local core, core_trouble = artifact.trusted_core()

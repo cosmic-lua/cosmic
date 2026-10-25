@@ -47,7 +47,7 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- The whole of standard input, or nil and why.
-    stdin: function(): string | nil, string
+    stdin: function(): string?, string
   end
 
   --- What a command line asks for.
@@ -58,7 +58,7 @@ local record verb
     --- Whether the query names one value at most: no `*` and no `..`.
     singular: boolean
     --- The file to read; nil for standard input.
-    file: string | nil
+    file: string?
     --- Whether the file is a lone word that reads like a path of
     --- another language than JSONPath (`.users`, `[0]`), for a hint
     --- when there is no such file.
@@ -91,10 +91,10 @@ local function plain(why: string): string
 end
 
 --- What `argv` asks for, or nil and why it is refused.
-local function arguments(argv: {string}): verb.Request | nil, string
+local function arguments(argv: {string}): verb.Request?, string
   local parsed, trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then return nil, trouble end
-  local modes: {string} = {}
+  local modes: mut {string} = {}
   for _, name in ipairs({ "exists", "keys", "shape", "flat" }) do
     if parsed.set["--" .. name] then modes[#modes + 1] = "--" .. name end
   end
@@ -104,8 +104,8 @@ local function arguments(argv: {string}): verb.Request | nil, string
   local raw = parsed.set["-r"] or parsed.set["--raw"] or false
   local compact = parsed.set["--compact"] or false
   if #modes == 1 and (raw or compact) then
-    return nil, (raw and "--raw" or "--compact") .. " shapes a printed value, which " ..
-      modes[1] .. (modes[1] == "--flat" and " prints in one form" or " does not print")
+    return nil, (if raw then "--raw" else "--compact" end) .. " shapes a printed value, which " ..
+      modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print" end)
   end
   local words = parsed.words
   -- No option of this verb takes a value, so the first `--` is the one
@@ -125,7 +125,7 @@ local function arguments(argv: {string}): verb.Request | nil, string
     compact = compact, raw = raw,
   }
   if #modes == 1 then request.mode = modes[1]:sub(3) end
-  local path: string | nil
+  local path: string?
   if #words == 2 then
     path, request.file = words[1], words[2]
   elseif #words == 1 then
@@ -165,12 +165,12 @@ end
 
 --- What `--keys` prints for `value`: an object's keys, sorted, one per
 --- line, or an array's length; nil and why when it is neither.
-local function keys_of(value: any): string | nil, string
+local function keys_of(value: any): string?, string
   if value is {any:any} then
     local layout = Json.layout(value)
     if layout == "array" then return rawlen(value) .. "\n", "" end
     if layout == "object" then
-      local names: {string} = {}
+      local names: mut {string} = {}
       for key in pairs(value) do
         if key is string then names[#names + 1] = key end
       end
@@ -184,7 +184,7 @@ end
 
 --- The bytes of standard input, refusing a terminal, where nothing
 --- would ever end them.
-local function read_stdin(): string | nil, string
+local function read_stdin(): string?, string
   return bare.stdin_text("no file given and standard input is a terminal; give a file " ..
       "(written ./name, or after --, when its name begins with $), or pipe JSON in")
 end
@@ -199,8 +199,8 @@ local standard: verb.Io = {
 --- as `$..*..a` reaches one value by more than one way, and RFC 9535
 --- lists it once for each.
 local function distinct(found: {Json.Match}): {Json.Match}
-  local seen: {string:boolean} = {}
-  local kept: {Json.Match} = {}
+  local seen: mut {string:boolean} = {}
+  local kept: mut {Json.Match} = {}
   for _, hit in ipairs(found) do
     local pointer = assert(Json.pointer(hit.steps))
     if not seen[pointer] then
@@ -217,13 +217,13 @@ end
 --- `$..*`). A pointer's prefixes ending before a `/` are its ancestors',
 --- since a name's own `/` is written `~1`.
 local function outermost(found: {Json.Match}): {Json.Match}
-  local pointers: {string} = {}
-  local matched: {string:boolean} = {}
+  local pointers: mut {string} = {}
+  local matched: mut {string:boolean} = {}
   for i, hit in ipairs(found) do
     pointers[i] = assert(Json.pointer(hit.steps))
     matched[pointers[i]] = true
   end
-  local kept: {Json.Match} = {}
+  local kept: mut {Json.Match} = {}
   for i, hit in ipairs(found) do
     local pointer = pointers[i]
     local inside = pointer ~= "" and matched[""]
@@ -255,7 +255,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return bare.refused
   end
   local request: verb.Request = parsed
-  local text: string | nil
+  local text: string?
   local read_trouble: string
   local file = request.file
   if file == nil then
@@ -287,10 +287,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- line per leaf or match; `-r` prints the matches as their text, one
   -- to a line.
   local function print_lines(found: {Json.Match}, as_text: boolean): integer
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, item in ipairs(found) do
-      local line: string | nil
-      local why: string | nil
+      local line: string?
+      local why: string?
       local leaf = item.value
       if as_text and leaf is string then
         line = leaf
@@ -310,7 +310,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   -- The leaves under each of `found`, in its order.
   local function flattened(found: {Json.Match}): integer
-    local leaves: {Json.Match} = {}
+    local leaves: mut {Json.Match} = {}
     for _, hit in ipairs(found) do
       local under, why = json_query.flatten(hit.value, { max_depth = Json.depth_limit, root = hit.steps })
       if under == nil then
@@ -339,7 +339,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
           steps[i] = segment.name
         else
           local index = assert(segment.index)
-          steps[i] = index >= 0 and index + 1 or index
+          steps[i] = if index >= 0 then index + 1 else index end
         end
       end
       local _, missing = Json.get(document, steps)

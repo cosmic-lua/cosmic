@@ -41,13 +41,13 @@ end
 --- The type of the `i`th annotation of the `local` statement `stat` of a lowered source.
 local function annotation(result: Programs.Result, stat: integer, i?: integer): Types.Type
   local s = result.chunk.body.stats[stat]
-  assert(s is Ast.Local)
+  assert((s.kind == "Local"))
   return result.lowered.types[s.types[i or 1].id]
 end
 
 --- Interfaces that each list the next twice with other arguments: `rungs` of them have a closure of 2^rungs.
 local function ladder(rungs: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 1, rungs do
     if i < rungs then
       out[#out + 1] = "local interface Rung" .. i .. "<T> is Rung" .. (i + 1) .. "<{T}>, Rung" .. (i + 1) ..
@@ -229,10 +229,10 @@ local CASES <const>: {Case} = {
 
 --- Code, message and fix for the sources above.
 local function test_each_code_has_an_error_with_its_message_and_fix()
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, case in ipairs(CASES) do
     local errors = errors_of(case.source)
-    local found: Declarations.Error | nil
+    local found: Declarations.Error?
     for _, e in ipairs(errors) do
       if e.code == case.code and found == nil then
         found = e
@@ -251,7 +251,7 @@ local function test_each_code_has_an_error_with_its_message_and_fix()
 end
 
 local function test_the_catalog_holds_a_row_for_each_code_once()
-  local rows: {string: Declarations.Row} = {}
+  local rows: mut {string: Declarations.Row} = {}
   for _, row in ipairs(Declarations.catalog) do
     assert(rows[row.code] == nil, row.code .. " twice")
     rows[row.code] = row
@@ -309,7 +309,7 @@ end
 
 local function test_a_type_parameter_that_no_parameter_or_result_names_is_unused_in_every_spelling_of_a_function()
   local function unused(source: string): string
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, e in ipairs(errors_of(source)) do
       names[#names + 1] = e.code
     end
@@ -340,7 +340,7 @@ end
 
 local function test_a_field_named_with_two_underscores_is_the_name_of_a_lua_metamethod_or_refused()
   local function codes(field: string, kind?: string): string
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, e in ipairs(errors_of("local " .. (kind or "record") .. " R\n  " .. field .. "\nend\n")) do
       names[#names + 1] = e.code
     end
@@ -365,7 +365,7 @@ end
 
 local function test_the_array_part_of_a_record_is_a_sequence_and_not_a_map()
   local function codes(head: string): string
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, e in ipairs(errors_of("local record R is " .. head .. "\n  x: integer\nend\n")) do
       names[#names + 1] = e.code
     end
@@ -499,7 +499,7 @@ local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowere
   local used = errors_of("local function f()\n  local type A = {integer}\n  local x: A\n  local y: A\nend\n")
   assert(#used == 0, used[1] and used[1].msg or "")
   local twice = errors_of("local type A = integer\nlocal type A = {number: string}\nlocal x: A\n")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for i, e in ipairs(twice) do
     codes[i] = e.code
   end
@@ -597,7 +597,7 @@ local function test_a_key_is_an_integer_string_boolean_enum_or_a_declaration_nev
   assert(#errors_of(ok) == 0)
   local bad = errors_of("local a: {number: R}\nlocal b: {any: integer}\nlocal c: {string?: integer}\nlocal d: {{integer}: integer}\n" ..
       "local e: {function(): integer: integer}\nlocal f: {true: integer}\nlocal g: {nil: integer}\n")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for i, e in ipairs(bad) do
     codes[i] = e.code
   end
@@ -637,7 +637,7 @@ local function test_the_count_of_type_arguments_is_held_for_declarations_aliases
 end
 
 local function test_a_type_nested_past_the_store_depth_through_aliases_is_invalid_and_reported()
-  local out: {string} = { "local type A0 = integer\n" }
+  local out: mut {string} = { "local type A0 = integer\n" }
   for i = 1, 1005 do
     out[#out + 1] = "local type A" .. i .. " = {A" .. (i - 1) .. "}\n"
   end
@@ -657,7 +657,7 @@ end
 
 local function test_a_chain_of_aliases_longer_than_the_nesting_limit_is_reported_and_not_unfolded_without_end()
   -- declared last first, so that lowering the first recurses through all
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = 400, 1, -1 do
     out[#out + 1] = "local type A" .. i .. " = A" .. (i - 1) .. "\n"
   end
@@ -782,14 +782,14 @@ local y: Row
 ]]
   local result = Programs.lower(program, "t", source)
   assert(#result.lowered.errors == 0, Programs.codes(result.lowered))
-  local rows: {Types.Decl} = {}
+  local rows: mut {Types.Decl} = {}
   for _, d in ipairs(program.store:declarations()) do
     if d.name == "Row" then
       rows[#rows + 1] = d
     end
   end
   assert(#rows == 3, #rows)
-  local modules: {string: boolean} = {}
+  local modules: mut {string: boolean} = {}
   for _, d in ipairs(rows) do
     modules[d.module] = true
   end
@@ -842,16 +842,16 @@ end
   local result = Programs.lower(program, "t", source)
   assert(#result.lowered.errors == 0, Programs.codes(result.lowered))
   local fn = result.chunk.body.stats[1]
-  assert(fn is Ast.LocalFunction)
+  assert((fn.kind == "LocalFunction"))
   local types = result.lowered.types
   local names: {{string}} = { { "A", "B" } }
   local param = fn.fn.params[1].type
   assert(param ~= nil and Types.display(types[param.id], names) == "A")
   local both = fn.fn.body.stats[1]
-  assert(both is Ast.Local)
+  assert((both.kind == "Local"))
   assert(Types.display(types[both.types[1].id], names) == "{A}")
   local f = fn.fn.body.stats[2]
-  assert(f is Ast.Local)
+  assert((f.kind == "Local"))
   -- the function's own parameter is the nearest binder's, displayed under a name of its own
   assert(Types.display(types[f.types[1].id], names) == "function<T_1>(T_1, A): B", Types.display(types[f.types[1].id], names))
   assert(Types.display(types[fn.fn.id]) == "function<T, U>(T, U): T", Types.display(types[fn.fn.id]))
@@ -873,7 +873,7 @@ local y: function(a: string, b: any): asserts b is Reader
   local result = Programs.lower(program, "t", source)
   assert(#result.lowered.errors == 0, Programs.codes(result.lowered))
   local xt, yt = annotation(result, 3), annotation(result, 4)
-  assert(xt is Types.Fn and yt is Types.Fn)
+  assert((xt.tag == "fn") and (yt.tag == "fn"))
   local xn, yn = xt.rets[1].narrows, yt.rets[1].narrows
   assert(xn ~= nil and xn.param == 1 and not xn.asserts)
   assert(yn ~= nil and yn.param == 2 and yn.asserts)
@@ -913,7 +913,7 @@ end
   local result = Programs.lower(program, "t", source)
   assert(Programs.codes(result.lowered) == "", Programs.codes(result.lowered))
   local body = body_of(program, "t", "R")
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, f in ipairs(body.fields) do
     names[#names + 1] = f.name
   end
@@ -927,7 +927,7 @@ end
   -- the statement of a declared field is lowered once, as any function is
   local twice = 0
   for _, e in ipairs(result.lowered.errors) do
-    twice = twice + (e.code == "repeated_field" and 1 or 0)
+    twice = twice + (if e.code == "repeated_field" then 1 else 0 end)
   end
   assert(twice == 0)
 end

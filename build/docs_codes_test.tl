@@ -51,7 +51,7 @@ end
 
 --- The element `i` of `list`, which a test expects to be there.
 local function entry_at(list: {docs.Entry}, i: integer): docs.Entry
-  local found: docs.Entry | nil = nil
+  local found: docs.Entry? = nil
   for at, entry in ipairs(list) do
     if at == i then
       found = entry
@@ -62,7 +62,7 @@ local function entry_at(list: {docs.Entry}, i: integer): docs.Entry
 end
 
 local function line_at(list: {string}, i: integer): string
-  local found: string | nil = nil
+  local found: string? = nil
   for at, line in ipairs(list) do
     if at == i then
       found = line

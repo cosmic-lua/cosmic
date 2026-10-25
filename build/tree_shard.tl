@@ -25,7 +25,7 @@ local record tree_shard
   record Shards
     ready: function(bytes: integer): boolean
     size: function(): integer
-    path: function(name: string): string | nil, string
+    path: function(name: string): string?, string
     run: function(phase: string, job: string, count: integer): {string}
     say: function(line: string)
   end
@@ -36,7 +36,7 @@ local record tree_shard
   --- `salt`'s and the dialect and source's ([`check_memo.key`]), and where `fork_salt` is not "" the answer comes with the
   --- fork's Lua, which keeps under `fork_salt`'s key. The files left out are those no check of the fork reads
   --- ([`checker/tl.tl`] and the declaration files). Answers how many files the workers answered.
-  warm: function(shards: Shards | nil, memo: Sqlite.Handle, kind: string, files: {{string}}, salt: string,
+  warm: function(shards: Shards?, memo: Sqlite.Handle, kind: string, files: {{string}}, salt: string,
                  fork_salt: string): integer
   --- The worker's side of a phase over the job `job`, as shard `index`, making the texts of each of its files as
   --- `compute` does with `built`: answers "" or why not.
@@ -72,7 +72,7 @@ local function results_of(job: string, index: integer): string
 end
 
 --- A new file at `path` with `statements` run on it.
-local function created(path: string, statements: {string}): Sqlite.Handle | nil, string
+local function created(path: string, statements: {string}): Sqlite.Handle?, string
   local db, trouble = Sqlite.open(path, { writable = true })
   if db == nil then return nil, trouble end
   for _, statement in ipairs(statements) do
@@ -87,7 +87,7 @@ end
 
 --- Writes the job of `items` for `count` shards at `path`: each shard takes every `count`th item, the largest first, so
 --- that the shards are of about the same size. Answers why it could not.
-local function written(path: string, items: {Item}, count: integer): string | nil
+local function written(path: string, items: {Item}, count: integer): string?
   local jobs, create_trouble = created(path, {
     "PRAGMA synchronous = OFF",
     "CREATE TABLE items (ordinal INTEGER PRIMARY KEY, shard INTEGER NOT NULL, file TEXT NOT NULL, " ..
@@ -95,7 +95,7 @@ local function written(path: string, items: {Item}, count: integer): string | ni
     "BEGIN",
   })
   if jobs == nil then return create_trouble end
-  local order: {Entry} = {}
+  local order: mut {Entry} = {}
   for ordinal, item in ipairs(items) do
     order[#order + 1] = { item = item, size = #item.source, ordinal = ordinal }
   end
@@ -121,7 +121,7 @@ end
 
 --- The texts the workers wrote for `job`, by the ordinal of the item each answers.
 local function read_back(job: string, count: integer): {integer: {string}}
-  local made: {integer: {string}} = {}
+  local made: mut {integer: {string}} = {}
   for index = 1, count do
     local results, _ = Sqlite.open(results_of(job, index))
     if results ~= nil then
@@ -130,7 +130,7 @@ local function read_back(job: string, count: integer): {integer: {string}}
         for _, row in ipairs(rows) do
           local ordinal = math.tointeger(tonumber(row:text(1)))
           if ordinal ~= nil then
-            local list: {string} = made[ordinal] or {}
+            local list: mut {string} = made[ordinal] or {}
             list[#list + 1] = row:text(2)
             made[ordinal] = list
           end
@@ -158,10 +158,10 @@ local function made_by(shards: tree_shard.Shards, phase: string, items: {Item}):
   return read_back(job, count)
 end
 
-function tree_shard.warm(shards: tree_shard.Shards | nil, memo: Sqlite.Handle, kind: string, files: {{string}}, salt: string,
+function tree_shard.warm(shards: tree_shard.Shards?, memo: Sqlite.Handle, kind: string, files: {{string}}, salt: string,
                          fork_salt: string): integer
   if shards == nil then return 0 end
-  local lacking: {Item} = {}
+  local lacking: mut {Item} = {}
   local bytes = 0
   for _, row in ipairs(files) do
     local file, source = row[1], row[2]

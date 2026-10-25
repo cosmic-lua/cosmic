@@ -168,7 +168,7 @@ local record fix
     close: function()
     --- Why the build made to resolve a link failed, once one has: the
     --- links then resolved against the last build, and the run fails.
-    unbuilt: string | nil
+    mut unbuilt: string?
   end
 
   record Chosen
@@ -192,13 +192,13 @@ local record fix
     --- For a run of `--changed`, everything a run over the whole tree
     --- covers, which the checks spanning files still cover: the asserts
     --- the build refuses and the links; nil for any other run.
-    every: Chosen | nil
+    every: Chosen?
     --- For a run of `--changed`, the Teal files whose notes it reads
     --- ([`fix.notes`]), where these are not `files`.
-    noted: {string} | nil
+    noted: {string}?
     --- For a run of `--changed` that lays out the whole tree after all,
     --- why: a path named that is part of what checks each file alone.
-    widened: string | nil
+    widened: string?
   end
 end
 
@@ -250,14 +250,14 @@ end
 --- @param own whether `root` is cosmic's own tree, which holds out `held_out_of_own_tree` and `held_new_grammar`
 --- @return {string}|nil
 --- @return string Error message on failure
-local function sources(root: string, own: boolean): {string} | nil, string
+local function sources(root: string, own: boolean): {string}?, string
   local files, trouble = Fs.walk(root, function(entry: string): boolean
     return skip(entry) or (own and (entry == held_out_of_own_tree or held_new_grammar[entry] == true))
   end)
   if files == nil then
     return nil, trouble
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     if String.ends_with(file, ".tl") then
       out[#out + 1] = file
@@ -269,12 +269,12 @@ end
 --- Every template under `root`, as paths relative to it, but those under
 --- a `testdata/` directory, which the build never makes a module of
 --- ([`build.derivation`]) and a test may keep broken on purpose.
-local function template_sources(root: string): {string} | nil, string
+local function template_sources(root: string): {string}?, string
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
     return nil, trouble
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     if String.ends_with(file, ".tmpl") and file:sub(1, 9) ~= "testdata/" and
         file:find("/testdata/", 1, true) == nil then
@@ -294,12 +294,12 @@ end
 --- walk for links finds ([`link_files.walk`]), and the core's Teal,
 --- which a narrower run names as it names any other. The core's C is
 --- checked apart.
-local function checked_sources(root: string): {string} | nil, string
+local function checked_sources(root: string): {string}?, string
   local files, trouble = link_files.walk(root)
   if files == nil then
     return nil, trouble
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     local core_teal = file:sub(1, 5) == "core/" and
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
@@ -333,7 +333,7 @@ end
 local function covers(root: string, files: {string}): boolean
   local all, _ = sources(root, true)
   if all == nil then return false end
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for _, file in ipairs(files) do
     local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then named[absolute] = true end
@@ -356,12 +356,12 @@ end
 --- For any other directory there are none, since the walk of the tree
 --- passes over a `.github/` anywhere else. A file that cannot be read
 --- is a failure, not passed over.
-local function workflow_sources(dir: string, root: string): {string} | nil, string
+local function workflow_sources(dir: string, root: string): {string}?, string
   dir = dir:gsub("/+$", "")
   if dir == "" then dir = "/" end
   local absolute, _ = Fs.absolute(dir)
   local top, _ = Fs.absolute(root)
-  local inside: string | nil = nil
+  local inside: string? = nil
   if absolute ~= nil and top ~= nil then
     local relative, _ = Fs.relative(absolute, top)
     if relative ~= nil and relative ~= ".." and relative:sub(1, 3) ~= "../" then
@@ -376,7 +376,7 @@ local function workflow_sources(dir: string, root: string): {string} | nil, stri
     return {}
   end
   local base = within and dir or dir .. "/.github"
-  local prefix = within and "" or ".github/"
+  local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
     return {}
@@ -387,7 +387,7 @@ local function workflow_sources(dir: string, root: string): {string} | nil, stri
   if files == nil then
     return nil, trouble
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     if is_yaml(file) then
       local text, read_trouble = Fs.read(base .. "/" .. file)
@@ -435,7 +435,7 @@ local breaking_passes <const> = 16
 --- @return fix.Fixed|nil What to write, and whether it differs
 --- @return string Error message on failure
 function fix.source(built: compiler, source: string,
-                    name: string): fix.Fixed | nil, string
+                    name: string): fix.Fixed?, string
   local rewritten, rule_trouble = rule.apply(built, source, name)
   if rewritten == nil then
     return nil, rule_trouble
@@ -450,7 +450,7 @@ function fix.source(built: compiler, source: string,
   -- holding a block it did not before, so this repeats until none is
   -- due, which for a file already laid out is the first render.
   local parsed, text = before, rewritten
-  local out: string | nil
+  local out: string?
   for pass = 1, breaking_passes do
     local layout, render_trouble = render_mod.laid_out(parsed, text)
     if layout == nil then
@@ -521,7 +521,7 @@ end
 --- @param paths {string} The paths named on the command line
 --- @return fix.Chosen|nil The files to fix and the paths refused
 --- @return string Error message on failure
-function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
+function fix.chosen(root: string, paths: {string}): fix.Chosen?, string
   local own, own_trouble = tree.is_own(root)
   if own == nil then
     return nil, own_trouble
@@ -556,16 +556,16 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     return { files = all, c_files = c_files, flow_files = flow_files, checked = checked,
       templates = templates, refused = {}, whole = own }
   end
-  local out: {string} = {}
-  local c_out: {string} = {}
-  local flow_out: {string} = {}
-  local checked_out: {string} = {}
-  local templates_out: {string} = {}
-  local refused: {string} = {}
+  local out: mut {string} = {}
+  local c_out: mut {string} = {}
+  local flow_out: mut {string} = {}
+  local checked_out: mut {string} = {}
+  local templates_out: mut {string} = {}
+  local refused: mut {string} = {}
   local static_root, _ = Fs.absolute(root .. "/static")
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
-    local real: string | nil = nil
+    local real: string? = nil
     if what ~= nil then
       local resolved, _ = Fs.absolute(path)
       real = resolved
@@ -688,7 +688,7 @@ local file_check_files: {string: string} = {
 
 --- `path` as a path under `root` without a leading `./` or trailing
 --- `/`, "" for the root itself; nil for one outside it.
-local function under(root: string, path: string): string | nil
+local function under(root: string, path: string): string?
   local out = path
   if String.starts_with(out, root .. "/") then
     out = out:sub(#root + 2)
@@ -713,14 +713,14 @@ end
 --- every module they require, as the running program's `databases`
 --- ([`Store.databases()`]) hold them: nil, and why, where they hold
 --- none of one.
-local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean} | nil, string
-  local roots: {string} = {}
+local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}?, string
+  local roots: mut {string} = {}
   for _, module in ipairs(file_checks) do roots[#roots + 1] = "('" .. module .. "')" end
   local query = "WITH RECURSIVE closure(module) AS (VALUES " .. table.concat(roots, ", ") ..
     " UNION SELECT imports.requires FROM imports JOIN closure ON imports.path = closure.module) " ..
     "SELECT modules.path, modules.file FROM closure JOIN modules ON modules.path = closure.module"
-  local out: {string: boolean} = {}
-  local found: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
+  local found: mut {string: boolean} = {}
   for _, db in ipairs(databases) do
     local rows, _ = Sqlite.text_rows(db, query)
     for _, row in ipairs(rows or {}) do
@@ -765,7 +765,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
       whole = every.whole,
       every = every, widened = why }
   end
-  local named: {string} = {}
+  local named: mut {string} = {}
   for _, path in ipairs(changed) do
     local relative = under(root, path)
     if relative == nil then return widened(path .. ": outside the tree") end
@@ -776,7 +776,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
   if checking == nil then return widened(checking_trouble) end
   for _, path in ipairs(named) do
     local first = path:match("^([^/]+)") or path
-    local why: string | nil = nil
+    local why: string? = nil
     if not String.ends_with(path, "_test.tl") then why = file_check_dirs[first] end
     for file, reason in pairs(file_check_files) do
       if why == nil and inside(file, path) then why = reason end
@@ -787,7 +787,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
     if why ~= nil then return widened(path .. ": " .. why) end
   end
   local function picked(files: {string}): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, file in ipairs(files) do
       local relative = under(root, file) or file
       for _, path in ipairs(named) do
@@ -805,7 +805,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
   -- A note on the standard library fails the run, and reads the docs
   -- the program carries of every file of it, which a change to what
   -- writes them can move as well as a change to one of them.
-  local noted: {string} = {}
+  local noted: mut {string} = {}
   for _, file in ipairs(every.files) do
     if tree_checks.standard(under(root, file) or file) then noted[#noted + 1] = file end
   end
@@ -821,10 +821,10 @@ end
 --- unless `checking`: each one that changes, or would, is appended to
 --- `changed`, and each one refused -- not in flow style, or not one
 --- [`flow.format`] takes -- to `failures`, with why.
-function fix.lay_out(files: {string}, checking: boolean, changed: {string}, failures: {string})
+function fix.lay_out(files: {string}, checking: boolean, changed: mut {string}, failures: mut {string})
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
-    local out, flow_trouble: string | nil, string
+    local out, flow_trouble: string?, string
     if source == nil then
       flow_trouble = read_trouble
     elseif not flow.is_flow(source) then
@@ -851,7 +851,7 @@ end
 --- The new text of `file`, a file of `kind` whose spans were linked,
 --- as it is written: what the verb makes of it with its links in, or
 --- nil and why when linking moved what the rest of the verb writes.
-local function relaid(built: compiler, kind: string, file: string, linked: string): string | nil, string
+local function relaid(built: compiler, kind: string, file: string, linked: string): string?, string
   if kind == "teal" then
     local result, trouble = fix.source(built, linked, file)
     if result == nil then return nil, trouble end
@@ -886,10 +886,10 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
                    laid_out?: {string: boolean}, new_grammar?: {string: boolean}): fix.Linked
   local known: {string: links.Facts} = facts or {}
   local resolver = link_resolve.resolver(context)
-  local out: {string} = {}
-  local would: {string} = {}
-  local redefined: {string} = {}
-  local rewritten: {string} = {}
+  local out: mut {string} = {}
+  local would: mut {string} = {}
+  local redefined: mut {string} = {}
+  local rewritten: mut {string} = {}
   for _, file in ipairs(files) do
     local kind = link_files.kind_of(file)
     local source, read_trouble = Fs.read(file)
@@ -945,7 +945,7 @@ function fix.links(context: link_resolve.Context, built: compiler, files: {strin
   if resolver_trouble ~= nil then
     out[#out + 1] = "links: reading the symbols: " .. resolver_trouble
   end
-  local notes: {string} = {}
+  local notes: mut {string} = {}
   if resolver.unchecked > 0 then
     notes[1] = "links: " .. plural.count(resolver.unchecked, "link") ..
       " to a symbol not checked: " .. tostring(context.unbuilt())
@@ -977,8 +977,8 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
                           databases: function(): docs.Sources): fix.LinkSource
   local opened: {docs.Sources} = {}
-  local source: fix.LinkSource | nil
-  local function open(): docs.View | nil, string
+  local source: fix.LinkSource?
+  local function open(): docs.View?, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
       if not rebuilt then
@@ -990,7 +990,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     opened[1] = found
     return docs.view(found.handles, found.public)
   end
-  local function unbuilt(): string | nil
+  local function unbuilt(): string?
     if own then return nil end
     local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
     if built_before then return nil end
@@ -1017,7 +1017,7 @@ end
 --- The candidate `near` compares for a doc entry, nil for one it passes over: an exported function or method with a
 --- doc comment. `signature` tells a method written as a function with a `self` first.
 local function candidate_of(exported: boolean, kind: string, text: string, signature: string, source_symbol: string,
-                            line: integer): near.Candidate | nil
+                            line: integer): near.Candidate?
   if exported and (kind == "function" or kind == "method") and text ~= "" then
     return { source_symbol = source_symbol, text = text, line = line,
       method = kind == "method" or signature:find("^[^(]*%(%s*self%s*:") ~= nil }
@@ -1028,7 +1028,7 @@ end
 --- What `near` compares of a file: each exported function or method
 --- with a doc comment, read off a parse already made of `source`.
 local function candidates_of(parsed: ast.Parsed, source: string): {near.Candidate}
-  local candidates: {near.Candidate} = {}
+  local candidates: mut {near.Candidate} = {}
   for _, entry in ipairs(analyzer.docs(parsed, source)) do
     local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
     if found ~= nil then candidates[#candidates + 1] = found end
@@ -1042,7 +1042,7 @@ end
 
 --- [`candidates_of`] by the new checker's reading ([`SyntaxAnalyzer.docs`]) of `text`, the source `chunk` is the tree of.
 local function candidates_from(chunk: Ast.Chunk, text: string): {near.Candidate}
-  local candidates: {near.Candidate} = {}
+  local candidates: mut {near.Candidate} = {}
   for _, entry in ipairs(SyntaxAnalyzer.docs(chunk, text)) do
     local found = candidate_of(entry.exported, entry.kind, entry.text, entry.signature, entry.source_symbol, entry.line)
     if found ~= nil then candidates[#candidates + 1] = found end
@@ -1052,7 +1052,7 @@ end
 
 --- [`candidates_from`] the fork's Teal of the file `file`, `source`, translated ([`lang.translate`]); nil where the
 --- translation does not parse.
-local function syntax_candidates_of(source: string, file: string): {near.Candidate} | nil
+local function syntax_candidates_of(source: string, file: string): {near.Candidate}?
   local made = Translate.translate(source, file)
   local chunk, _ = SyntaxNode.parse(made.text, file)
   if chunk == nil then return nil end
@@ -1060,7 +1060,7 @@ local function syntax_candidates_of(source: string, file: string): {near.Candida
 end
 
 --- [`candidates_from`] `source`, a file in the new grammar, as written; nil where it does not parse.
-local function written_candidates_of(source: string, file: string): {near.Candidate} | nil
+local function written_candidates_of(source: string, file: string): {near.Candidate}?
   local chunk, _ = SyntaxNode.parse(source, file)
   if chunk == nil then return nil end
   return candidates_from(chunk, source)
@@ -1102,16 +1102,16 @@ function fix.notes(built: compiler, root: string, files: {string},
     return { "comparing with the standard library: " .. known_trouble }
   end
   local prepared = near.index(known)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     local plain = compared(file)
     local absolute, _ = Fs.absolute(file)
-    local relative: string | nil = nil
+    local relative: string? = nil
     if plain and absolute ~= nil then
       local within, _ = Fs.relative(absolute, base)
       relative = within
     end
-    local candidates: {near.Candidate} | nil = nil
+    local candidates: {near.Candidate}? = nil
     if relative ~= nil and relative:sub(1, 3) ~= "../" then
       candidates = ready ~= nil and ready[file] or nil
       if candidates == nil then
@@ -1146,8 +1146,8 @@ end
 --- In the new grammar mode the notes and the plurals are read off the new
 --- checker's tree of `result.source` instead of the fork's `result.parsed`.
 function fix.read_off(file: string, result: fix.Fixed, grammar: GrammarMode.Mode,
-                      facts: {string: links.Facts}, ready: {string: {near.Candidate}},
-                      plurals: {string: tree_checks.Plurals} | nil)
+                      facts: mut {string: links.Facts}, ready: mut {string: {near.Candidate}},
+                      plurals: mut {string: tree_checks.Plurals}?)
   facts[file] = links.facts(result.parsed, result.source)
   if compared(file) then
     if grammar == "new" then
@@ -1170,8 +1170,8 @@ end
 
 --- [`fix.read_off`] for `file`, a file in the new grammar: `chunk` is the new checker's tree of `source` as written, so
 --- that its links, notes and plurals are read off it as they stand, with no translation.
-function fix.read_off_written(file: string, chunk: Ast.Chunk, source: string, facts: {string: links.Facts},
-                              ready: {string: {near.Candidate}}, plurals: {string: tree_checks.Plurals} | nil)
+function fix.read_off_written(file: string, chunk: Ast.Chunk, source: string, facts: mut {string: links.Facts},
+                              ready: mut {string: {near.Candidate}}, plurals: mut {string: tree_checks.Plurals}?)
   facts[file] = SyntaxLinks.facts(chunk, SyntaxNode.scope(chunk, file), source)
   if compared(file) then ready[file] = candidates_from(chunk, source) end
   if plurals ~= nil then
@@ -1197,56 +1197,56 @@ local record Fix
   started: integer
 
   -- The command line ([`read_command`]).
-  checking?: boolean
-  paths?: {string}
-  changes_only?: boolean
-  root?: string
+  mut checking?: boolean
+  mut paths?: {string}
+  mut changes_only?: boolean
+  mut root?: string
 
   -- The files chosen ([`choose_files`]).
-  picked?: fix.Chosen
-  every?: fix.Chosen
+  mut picked?: fix.Chosen
+  mut every?: fix.Chosen
 
   -- The compiler ([`load_compiler`]).
-  built?: compiler
-  grammar?: GrammarMode.Mode
+  mut built?: compiler
+  mut grammar?: GrammarMode.Mode
 
   -- What the run has found so far ([`start_tally`] onward).
-  files?: {string}
-  counted?: integer
-  changed?: {string}
+  mut files?: {string}
+  mut counted?: integer
+  mut changed?: {string}
   --- The changed files whose only change was a link written.
-  link_only?: {string:boolean}
-  failures?: {string}
+  mut link_only?: {string:boolean}
+  mut failures?: {string}
 
   -- The C ([`lay_out_c`]).
-  c_files?: {string}
+  mut c_files?: {string}
 
   -- The Teal ([`lay_out_teal`]).
-  facts?: {string: links.Facts}
-  ready?: {string: {near.Candidate}}
-  plurals: {string: tree_checks.Plurals} | nil
+  mut facts?: {string: links.Facts}
+  mut ready?: {string: {near.Candidate}}
+  mut plurals: {string: tree_checks.Plurals}?
   --- The files only the new grammar reads, which are read as written and never laid out.
-  new_grammar?: {string: boolean}
+  mut new_grammar?: {string: boolean}
 
   -- The asserts ([`wrap_asserts`]).
-  listed?: {string:boolean}
-  refused?: string
-  spilled?: boolean
+  mut listed?: {string:boolean}
+  mut refused?: string
+  mut spilled?: boolean
 
   -- The build's refusal ([`find_unbuilt`]).
-  unbuilt: string | nil
+  mut unbuilt: string?
 
   -- The tree checks ([`run_tree_checks`]).
-  findings?: {string}
+  mut findings?: {string}
 
   -- The links ([`check_links`]).
-  linked_out?: fix.Linked
-  links_unbuilt: string | nil
+  mut linked_out?: fix.Linked
+  mut links_unbuilt: string?
 end
 
 --- Reads the command line and the working directory into `ctx`.
 --- @return integer | nil The exit code when either is refused, else nil
-local function read_command(ctx: Fix): integer | nil
+local function read_command(ctx: Fix): integer?
   local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec))
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
@@ -1267,7 +1267,7 @@ end
 
 --- Chooses the files the run covers, narrowing them for `--changed`.
 --- @return integer | nil The exit code when the choice fails, else nil
-local function choose_files(ctx: Fix): integer | nil
+local function choose_files(ctx: Fix): integer?
   local root = assert(ctx.root)
   local paths = assert(ctx.paths)
   -- A run of `--changed` starts from the whole tree, which it narrows.
@@ -1304,7 +1304,7 @@ end
 
 --- Loads the Teal compiler, and reads the checker `COSMIC_GRAMMAR` asks for.
 --- @return integer | nil The exit code when it does not load, else nil
-local function load_compiler(ctx: Fix): integer | nil
+local function load_compiler(ctx: Fix): integer?
   local built, load_trouble = teal.load()
   if built == nil then
     log:complain(load_trouble)
@@ -1331,7 +1331,7 @@ local function start_tally(ctx: Fix)
   -- refused rather than only how many of what survived the naming.
   ctx.counted = #files + #picked.c_files + #picked.flow_files + #picked.checked +
     #picked.templates + #picked.refused
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   ctx.changed = {}
   ctx.failures = failures
   for _, why in ipairs(picked.refused) do
@@ -1364,12 +1364,12 @@ local function lay_out_c(ctx: Fix)
   local failures = assert(ctx.failures)
   -- The C is compiled from the root, so a path named from elsewhere is
   -- taken relative to it.
-  local c_files: {string} = {}
+  local c_files: mut {string} = {}
   for _, file in ipairs(picked.c_files) do
     -- A path that cannot be resolved, or lies outside the root, is
     -- refused below either way; the failure line says why.
     local absolute, _ = Fs.absolute(file)
-    local rest: string | nil = nil
+    local rest: string? = nil
     if absolute ~= nil then
       local relative, _ = Fs.relative(absolute, root)
       rest = relative
@@ -1381,10 +1381,10 @@ local function lay_out_c(ctx: Fix)
     end
   end
   ctx.c_files = c_files
-  local compiled: {string} = {}
+  local compiled: mut {string} = {}
   for _, file in ipairs(c_files) do
     local source, read_trouble = Fs.read(root .. "/" .. file)
-    local out, layout_trouble: string | nil, string
+    local out, layout_trouble: string?, string
     if source ~= nil then
       out, layout_trouble = c_check.laid_out(source)
     else
@@ -1403,7 +1403,7 @@ local function lay_out_c(ctx: Fix)
   end
   -- What the checks made of the compile of each file is kept in the build directory, so that a file whose inputs have not
   -- changed is not compiled again; without the memo every file is.
-  local memo: Sqlite.Handle | nil = nil
+  local memo: Sqlite.Handle? = nil
   if #compiled > 0 then
     local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
     memo = opened
@@ -1421,8 +1421,8 @@ local function lay_out_c(ctx: Fix)
         local variants = f.variants
         -- Named only when the variants it was found in are not all that
         -- its file was checked under.
-        local seen = variants ~= nil and #variants < #assert(outcome.variants) and
-          " [" .. table.concat(variants, ", ") .. "]" or ""
+        local seen = if variants ~= nil and #variants < #assert(outcome.variants) then
+          " [" .. table.concat(variants, ", ") .. "]" else "" end
         failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
           " in " .. f.within .. seen .. ": " .. f.message
       end
@@ -1443,18 +1443,18 @@ local function lay_out_teal(ctx: Fix)
   local grammar = assert(ctx.grammar)
   -- What the links read of each Teal file, from the parse its fix made,
   -- while the file on disk is what was parsed.
-  local facts: {string: links.Facts} = {}
+  local facts: mut {string: links.Facts} = {}
   -- What the notes compare of each file whose text on disk the parse
   -- read, kept from that parse rather than parsing it again.
-  local ready: {string: {near.Candidate}} = {}
+  local ready: mut {string: {near.Candidate}} = {}
   -- What the tree checks' plurals read of each file, when they will run.
-  local plurals: {string: tree_checks.Plurals} | nil = nil
+  local plurals: mut {string: tree_checks.Plurals}? = nil
   if picked.whole then plurals = {} end
-  local new_grammar: {string: boolean} = {}
+  local new_grammar: mut {string: boolean} = {}
   -- A file left as it was by the layout of this code is not laid out again while its text stays: the memo holds that it
   -- was, so that all the run does with it is parse it.
-  local memo: Sqlite.Handle | nil = nil
-  local kept: laid.Kept | nil = nil
+  local memo: Sqlite.Handle? = nil
+  local kept: laid.Kept? = nil
   if #files > 0 then
     local opened, _ = Sqlite.open(build_paths.resolve(assert(ctx.root)).translate_check, { writable = true })
     memo = opened
@@ -1466,7 +1466,7 @@ local function lay_out_teal(ctx: Fix)
   -- over the whole tree, which is the one that looks for plurals, so that a row made by another kind of run is not read in
   -- one that needs more of it. The new grammar reads notes and plurals off another tree, so its runs neither read nor make a
   -- row.
-  local read_salt: string | nil = nil
+  local read_salt: string? = nil
   if kept ~= nil and plurals ~= nil and grammar ~= "new" then
     read_salt = read_memo.salt()
   end
@@ -1478,7 +1478,7 @@ local function lay_out_teal(ctx: Fix)
       local plural_key = file
       while plural_key:sub(1, 2) == "./" do plural_key = plural_key:sub(3) end
       local laid_before = kept ~= nil and laid.holds(kept, file, source)
-      local from_memo: read_memo.Read | nil = nil
+      local from_memo: read_memo.Read? = nil
       if laid_before and memo ~= nil and read_salt ~= nil then
         from_memo = read_memo.get(memo, read_salt, built, file, source)
         -- A row that lacks what the file is read for is not one of this kind of run.
@@ -1493,7 +1493,7 @@ local function lay_out_teal(ctx: Fix)
         local found = from_memo.plurals
         if found ~= nil then plurals[plural_key] = found end
       else
-        local result: fix.Fixed | nil = nil
+        local result: fix.Fixed? = nil
         local trouble = ""
         if laid_before then
           local parsed, _ = ast.parse(built, source, file)
@@ -1506,7 +1506,7 @@ local function lay_out_teal(ctx: Fix)
         end
         -- A file the fork cannot read is read by the new parser, which gives it no layout; one neither reads fails in the
         -- new parser's words.
-        local chunk: Ast.Chunk | nil = nil
+        local chunk: Ast.Chunk? = nil
         local refusal = ""
         if result == nil and grammar == "new" then
           local forked, _ = ast.parse(built, source, file)
@@ -1569,12 +1569,12 @@ local function wrap_asserts(ctx: Fix)
   local failures = assert(ctx.failures)
   local facts = assert(ctx.facts)
   local ready = assert(ctx.ready)
-  local chosen_files: {string:string} = {}
+  local chosen_files: mut {string:string} = {}
   for _, file in ipairs(every.files) do
     local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then chosen_files[absolute] = file end
   end
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, file in ipairs(changed) do listed[file] = true end
   -- The new checker names no spill ([`build.fix.spill`] reads the fork's message), so there is nothing to wrap; whether the
   -- tree builds is [`find_unbuilt`]'s to say.
@@ -1605,13 +1605,13 @@ local function wrap_asserts(ctx: Fix)
       if file ~= nil then spilled = true end
       if file ~= nil and not checking then
         local source, read_trouble = Fs.read(file)
-        local out, wrap_trouble: string | nil, string
+        local out, wrap_trouble: string?, string
         if source ~= nil then
           out, wrap_trouble = spill.wrap(built, source, file, at)
         else
           wrap_trouble = read_trouble
         end
-        local result: fix.Fixed | nil
+        local result: fix.Fixed?
         if out ~= nil then
           result, wrap_trouble = fix.source(built, out, file)
         end
@@ -1654,7 +1654,7 @@ end
 --- tree and names no spill.
 local function find_unbuilt(ctx: Fix)
   local picked = assert(ctx.picked)
-  local unbuilt: string | nil = nil
+  local unbuilt: string? = nil
   if ctx.grammar == "new" then
     -- The new checker's build, in its own words: over the whole tree the tree checks' projection says so
     -- ([`finish_projection`]); a narrower run builds the project here.
@@ -1685,7 +1685,7 @@ local function promise_findings(root: string): {string}
   end
   local legs, legs_trouble = tree_checks.legs(root)
   if legs == nil then return { "tree checks: " .. legs_trouble } end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(tree_checks.promises(declared, legs)) do
     out[#out + 1] = "promises: " .. line
   end
@@ -1701,7 +1701,7 @@ local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
   local unsealed, unsealed_trouble = tree_checks.unsealed(build)
   local _, _ = build:close()
   if unsealed == nil then return { "tree checks: " .. unsealed_trouble } end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(tree_checks.sealed_launch(db, unsealed)) do
     out[#out + 1] = "sealed launch: " .. line
   end
@@ -1710,7 +1710,7 @@ end
 
 --- What the readers that need the checker's types answer over the tree, against what the compile of the tree in the working
 --- database says ([`tree_checks.typed`]).
-local function typed_findings(root: string, memo: Sqlite.Handle | nil): {string}
+local function typed_findings(root: string, memo: Sqlite.Handle?): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { open_trouble } end
   local fork, fork_trouble = Typed.from_database(build)
@@ -1721,7 +1721,7 @@ end
 
 --- Whether the build's own pipeline holds each module as the checks of the tree do, over the working database's inputs
 --- ([`tree_checks.pipeline`]).
-local function pipeline_findings(root: string, memo: Sqlite.Handle | nil): {string}
+local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { open_trouble } end
   local lines = tree_checks.pipeline(root, build, memo)
@@ -1737,7 +1737,7 @@ end
 --- `COSMIC_GRAMMAR=new` asks for it, saying why when it cannot. The tree checks read the fork's rows, whose counts the
 --- ceilings pin ([`build.ceilings`]). What reads the projection afterwards, the links and every lookup, reads one of its own
 --- mode only ([`writer.other_code`]) and would answer from the standard library alone from the fork's.
-local function finish_projection(db: Sqlite.Handle, root: string, built: compiler): string | nil
+local function finish_projection(db: Sqlite.Handle, root: string, built: compiler): string?
   local closed, close_trouble = db:close()
   if not closed then return close_trouble end
   local grammar, grammar_trouble = GrammarMode.mode()
@@ -1757,7 +1757,7 @@ end
 --- When the check being run began, in nanoseconds of the monotonic clock,
 --- and when the tree checks did.
 local record TreeTiming
-  began: integer
+  mut began: integer
   run_began: integer
 end
 
@@ -1765,7 +1765,7 @@ end
 --- have run, so that a part that takes minutes is not silent: [`tree_took`]
 --- speaks only once it is over. `step` is "n of m" for the memoed checks.
 local function tree_begin(timing: TreeTiming, name: string, step?: string)
-  local _, _ = logger.summary("fix", "tree checks: " .. name .. (step ~= nil and " (" .. step .. ")" or "") ..
+  local _, _ = logger.summary("fix", "tree checks: " .. name .. (if step ~= nil then " (" .. step .. ")" else "" end) ..
       ", " .. progress.elapsed(Clock.monotonic_ns() - timing.run_began) .. " in")
 end
 
@@ -1785,7 +1785,7 @@ local function run_tree_checks(ctx: Fix)
   local picked = assert(ctx.picked)
   local root = assert(ctx.root)
   local built = assert(ctx.built)
-  local findings: {string} = {}
+  local findings: mut {string} = {}
   ctx.findings = findings
   if picked.whole then
     local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
@@ -1933,7 +1933,7 @@ local function check_links(ctx: Fix)
   local changed = assert(ctx.changed)
   local listed = assert(ctx.listed)
   local own, _ = tree.is_own(root)
-  local linked: {string} = {}
+  local linked: mut {string} = {}
   local groups: {{string}} = { files, c_files, picked.checked }
   -- TODO: in a run of `--changed`, check the links of only the files
   -- changed and those naming a symbol of a module that changed (what
@@ -1947,12 +1947,12 @@ local function check_links(ctx: Fix)
     end
   end
   local new_grammar = assert(ctx.new_grammar)
-  local laid_out: {string: boolean} = {}
+  local laid_out: mut {string: boolean} = {}
   for _, file in ipairs(files) do
     if new_grammar[file] ~= true then laid_out[file] = true end
   end
   local linked_out: fix.Linked
-  local links_unbuilt: string | nil = nil
+  local links_unbuilt: string? = nil
   do
     -- Built even where no build has been made yet: this run has staged
     -- and compiled the directory already ([`spill.check`]), and a link
@@ -1960,7 +1960,7 @@ local function check_links(ctx: Fix)
     local source = fix.link_context(root, picked.whole, own == true,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
-    linked_out = fix.links(source.context, built, linked, ctx.checking and "check" or "write",
+    linked_out = fix.links(source.context, built, linked, if ctx.checking then "check" else "write" end,
       ctx.facts, laid_out, new_grammar)
     source.close()
     local unbuilt = source.unbuilt
@@ -1970,7 +1970,7 @@ local function check_links(ctx: Fix)
     end
   end
   -- Held no longer than the links need them.
-  local link_only: {string:boolean} = {}
+  local link_only: mut {string:boolean} = {}
   ctx.facts = {}
   ctx.link_only = link_only
   for _, file in ipairs(linked_out.rewritten) do
@@ -2008,7 +2008,7 @@ local function say_notes(ctx: Fix)
       ready, ctx.grammar, ctx.new_grammar)) do
     local named = line:match("^([^:]*):") or ""
     local absolute, _ = Fs.absolute(named)
-    local relative: string | nil = nil
+    local relative: string? = nil
     if absolute ~= nil then
       local within, _ = Fs.relative(absolute, root)
       relative = within
@@ -2038,7 +2038,7 @@ local function kind_list(picked: fix.Chosen): string
   end
   local counts = { #picked.files, #picked.c_files, #picked.flow_files, markdown, zig, #picked.templates }
   local names = { "Teal", "C", "YAML", "Markdown", "Zig", "template" }
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, count in ipairs(counts) do
     if count > 0 then
       parts[#parts + 1] = count .. " " .. names[i]
@@ -2055,7 +2055,7 @@ local function files_said(ctx: Fix): string
   if kinds == "" or #picked.refused > 0 then
     return plural.count(assert(ctx.counted), "file")
   end
-  return kinds .. (ctx.counted == 1 and " file" or " files")
+  return kinds .. (if ctx.counted == 1 then " file" else " files" end)
 end
 
 --- What the summary says of the files only the new grammar reads, once: that their layout is not applied. Empty where
@@ -2087,7 +2087,7 @@ local function report(ctx: Fix): integer
   local function plain(line: string): string
     return (line:gsub("^%./([^:]*): %./", "%1: "))
   end
-  local failed: {string:boolean} = {}
+  local failed: mut {string:boolean} = {}
   for _, line in ipairs(failures) do
     failed[plain(line)] = true
     log:say("fix: FAIL  " .. line)
@@ -2123,12 +2123,12 @@ local function report(ctx: Fix): integer
   end
   local linked = link_only
   for _, file in ipairs(changed) do
-    log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file ..
-        (linked[file] and " (links)" or ""))
+    log:say("fix: " .. (if checking then "would fix  " else "fixed  " end) .. file ..
+        (if linked[file] then " (links)" else "" end))
   end
   if #failures > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
-    local said: {string} = {}
+    local said: mut {string} = {}
     if #failures > 0 then
       said[#said + 1] = #failures .. " of " .. plural.count(counted, "file") .. " refused"
     end
@@ -2161,7 +2161,7 @@ local function report(ctx: Fix): integer
     return 1
   end
   local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. #changed ..
-      (checking and " to fix, " or " fixed, ") .. clock.took(ctx.started) .. layout_said(ctx))
+      (if checking then " to fix, " else " fixed, " end) .. clock.took(ctx.started) .. layout_said(ctx))
   return 0
 end
 

@@ -30,13 +30,13 @@ end
 
 --- `all` is each task eval/task holds, no more and no fewer.
 local function test_all_is_every_task_there_is()
-  local names: {string} = {}
+  local names: mut {string} = {}
   local listing = assert(Fs.list("eval/task"))
   for _, entry in ipairs(listing) do
     names[#names + 1] = entry:match("^(.*)%.md$")
   end
   table.sort(names)
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for _, name in ipairs(Round.all_tasks) do listed[#listed + 1] = name end
   table.sort(listed)
   assert(table.concat(listed, ",") == table.concat(names, ","), table.concat(listed, ","))
@@ -70,10 +70,10 @@ end
 --- round waits for one; the first started ends first. `most` is the
 --- most running at once. A task named in `fails` has its grade fail.
 local record Fake
-  system: Round.System
-  events: {string}
-  files: {string: string}
-  most: integer
+  mut system: Round.System
+  events: mut {string}
+  files: mut {string: string}
+  mut most: integer
 end
 
 local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fake
@@ -89,7 +89,7 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       f.events[#f.events + 1] = "mkdirs " .. path
       return true
     end,
-    read = function(path: string): string | nil return f.files[path] end,
+    read = function(path: string): string? return f.files[path] end,
     write = function(path: string, text: string): boolean
       f.files[path] = text
       return true
@@ -103,19 +103,19 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       if verb == "summarize" then return { code = 0, text = "turns=1\n" } end
       if verb == "notes" or verb == "kv" or verb == "pack" or verb == "ledger" then
         local failed = fails[task]
-        return { code = failed and 1 or 0, text = "check: logs " .. argv[2] .. "/grades/1\ncheck: " ..
-            (failed and "FAIL" or "PASS") .. "\n" }
+        return { code = if failed then 1 else 0 end, text = "check: logs " .. argv[2] .. "/grades/1\ncheck: " ..
+            (if failed then "FAIL" else "PASS" end) .. "\n" }
       end
       if verb == "result" then
         local code = argv[#argv - 2 + 0]
         local text = assert(Json.encode({ status = "completed", turns = 3, cost_usd = 1.5,
-          grade_verdict = code == "0" and "PASS" or "FAIL" }))
+          grade_verdict = if code == "0" then "PASS" else "FAIL" end }))
         f.files[argv[2] .. "/result.json"] = text
         return { code = 0, text = "" }
       end
       return { code = 0, text = "" }
     end,
-    start = function(argv: {string}, _log: string): integer | nil
+    start = function(argv: {string}, _log: string): integer?
       issued.value = issued.value + 1
       running[issued.value] = task_of(argv)
       count.value = count.value + 1

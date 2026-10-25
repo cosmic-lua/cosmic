@@ -19,16 +19,16 @@ local teal = require("build.teal")
 --- Reads the drawn bytes one at a time; past the end every byte is 0.
 local record Recipe
   bytes: string
-  at: integer
+  mut at: integer
   -- How many statements the program may still hold.
-  left: integer
+  mut left: integer
   -- Labels made so far, which name the next.
-  labels: integer
+  mut labels: integer
   -- The labels some `goto` has been drawn for: a label nothing continues to
   -- is refused, so it is not written.
-  jumped: {string:boolean}
+  jumped: mut {string:boolean}
   -- The loops (by their label) some `break` has been drawn for.
-  broke: {string:boolean}
+  broke: mut {string:boolean}
 end
 
 local function draw(r: Recipe, n: integer): integer
@@ -39,8 +39,8 @@ end
 --- The two texts of one program: the Teal the checker is asked about and
 --- the Lua that is run.
 local record Program
-  teal: {string}
-  lua: {string}
+  teal: mut {string}
+  lua: mut {string}
 end
 
 local function emit(p: Program, teal_line: string, lua_line?: string)
@@ -143,7 +143,7 @@ function draws.statement(r: Recipe, p: Program, depth: integer, loop_end: string
       emit(p, "::" .. continue_label .. "::")
     end
     -- The condition of a `repeat` may read the variable the body declared.
-    emit(p, kind ~= "repeat" and "end" or draw(r, 2) == 0 and "until condx(x)" or "until cond()")
+    emit(p, if kind ~= "repeat" then "end" elseif draw(r, 2) == 0 then "until condx(x)" else "until cond()" end)
     if kind == "repeat" then
       return body_ended and not r.broke[continue_label] and not r.jumped[continue_label]
     end
@@ -253,7 +253,7 @@ local function reads_unassigned(code: string): boolean
       made.value = made.value + 1
       steps.value = steps.value + 1
       if made.value > MOST_CHOICES or steps.value > MOST_STEPS then error(ended, 0) end
-      return choices[made.value] and 1 or 2
+      return if choices[made.value] then 1 else 2 end
     end,
   }
   env.condx = function(v: any): boolean
@@ -264,7 +264,7 @@ local function reads_unassigned(code: string): boolean
   -- No pass, one or two: a second pass is the next round of the loop.
   env.count = function(): integer
     if not choose() then return 0 end
-    return choose() and 2 or 1
+    return if choose() then 2 else 1 end
   end
   -- The path ends, but a function made may be out, and called later.
   env.stop = function()
@@ -274,7 +274,7 @@ local function reads_unassigned(code: string): boolean
   local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t",
     env as table))
   local run = chunk() as function()
-  local pending: {{boolean}} = { {} }
+  local pending: mut {{boolean}} = { {} }
   local runs = 0
   while #pending > 0 and not bad.value do
     choices = table.remove(pending) as {boolean}
@@ -288,7 +288,7 @@ local function reads_unassigned(code: string): boolean
     -- Every call past the choices given took the first way: take the other
     -- at each of them in turn.
     for at = #choices + 1, math.min(made.value, MOST_CHOICES) do
-      local longer: {boolean} = {}
+      local longer: mut {boolean} = {}
       for i = 1, at - 1 do longer[i] = choices[i] or false end
       longer[at] = true
       pending[#pending + 1] = longer
@@ -314,7 +314,7 @@ end
 
 local type compiler = require("build.compiler")
 
-local compiled = { value = nil as compiler | nil }
+local compiled = { value = nil as compiler? }
 
 --- The carried compiler, loaded once.
 local function carried(): compiler
@@ -340,20 +340,20 @@ local function check(input: string): boolean, string
     refused = true
   end
   local bad = reads_unassigned(code)
-  Fuzz.label(refused and "refused" or "accepted")
+  Fuzz.label(if refused then "refused" else "accepted" end)
   if source:find("goto ", 1, true) then Fuzz.label("jumps") end
   if source:find("while true", 1, true) then Fuzz.label("endless") end
   if source:find("return x end", 1, true) then Fuzz.label("closures") end
   if refused ~= bad then
-    return false, (refused and "refused a program no way of reads x before it is assigned or lets a function that names it read it\n" or
-      "accepted a program some way of reads x before it is assigned\n") .. source
+    return false, (if refused then "refused a program no way of reads x before it is assigned or lets a function that names it read it\n" else
+      "accepted a program some way of reads x before it is assigned\n" end) .. source
   end
   return true, ""
 end
 
 --- Ninety-six bytes, each any, which a program is read from.
 local function draw_bytes(src: Fuzz.Source): string
-  local chars: {string} = {}
+  local chars: mut {string} = {}
   for i = 1, 96 do chars[i] = string.char(src:int(0, 255)) end
   return table.concat(chars)
 end

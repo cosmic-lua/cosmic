@@ -34,7 +34,7 @@ local function build_of(files: {{string}}): Driver.Build, Driver.Index
 end
 
 local function codes_of(list: {Driver.Problem}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, p in ipairs(list) do
     out[#out + 1] = p.code
   end
@@ -113,7 +113,7 @@ end
 local function test_a_module_a_provider_answers_with_text_is_lowered_for_its_types_and_never_checked()
   local build = build_of({ { "use.tl", "local Box = require(\"cosmic.box\")\nlocal b: Box = { n = 1 }\nreturn b\n" } })
   -- the `cosmic.*` modules of the binary, each its stub or source; this one has a mistake in a body it never checks
-  build:provide(Driver.standard(function(module: string): string | nil
+  build:provide(Driver.standard(function(module: string): string?
     if module == "cosmic.box" then
       return "local record Box\n  n: integer\nend\nlocal bad: integer = \"not checked\"\nreturn Box\n"
     end
@@ -154,7 +154,7 @@ end
 local function test_the_globals_are_what_the_declaration_files_declare_less_what_the_host_withholds()
   local text = "global record Seen\n  n: integer\nend\nglobal record Withheld\n  n: integer\nend\n"
   local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, false, {}) },
-    function(names: {string: Scopes.Global})
+    function(names: mut {string: Scopes.Global})
       names["Withheld"] = nil
       names["Added"] = { space = "type", const = false }
     end)
@@ -206,14 +206,14 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   assert(#result.errors == 0, codes_of(result.errors))
   local calls: {Ast.Node} = {}
   Node.walk(result.chunk, function(n: Ast.Node)
-    if n is Ast.Call or n is Ast.MethodCall then
+    if (n.kind == "Call") or (n.kind == "MethodCall") then
       calls[#calls + 1] = n
     end
   end)
   assert(#calls == 7, "calls: " .. #calls)
   local function took(i: integer): Types.Fn
     local t = result.callees[Node.base(calls[i]).id]
-    assert(t ~= nil and t is Types.Fn, "call " .. i .. " took no function")
+    assert(t ~= nil and (t.tag == "fn"), "call " .. i .. " took no function")
     return t
   end
   -- the method takes its record as the first parameter and answers two results
@@ -226,7 +226,7 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   -- is chosen: the callee is the overload that takes a function of one parameter
   assert(#took(6).tparams == 1)
   local literal = took(7).params[1].type
-  assert(literal is Types.Fn and #literal.params == 1)
+  assert((literal.tag == "fn") and #literal.params == 1)
   local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) }, adjust = nil, external = {}, types = false })
   lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, false, nothing)))
   assert(next(assert(lean:result("m", true)).callees) == nil)
@@ -320,11 +320,11 @@ local function test_the_driver_checks_what_the_checker_does_alone()
   local source = "local record Box\n  n: integer\nend\nlocal b: Box = { n = \"s\" }\nlocal n: string = b.n\nreturn b\n"
   local run = Programs.run(source)
   local result = assert(build_of({ { "t.tl", source } }):result("t", true))
-  local want: {string} = {}
+  local want: mut {string} = {}
   for _, e in ipairs(run.errors) do
     want[#want + 1] = tostring(e.code) .. tostring(e.y) .. ":" .. tostring(e.x)
   end
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, e in ipairs(result.bodies) do
     got[#got + 1] = e.code .. tostring(e.y) .. ":" .. tostring(e.x)
   end
@@ -586,7 +586,7 @@ end
 local function test_a_retired_module_leaves_no_syntax_tree_behind()
   local build = build_of({ { "box.tl", RECORD } })
   build:lower({ "box" })
-  local weak: {Ast.Chunk} = setmetatable({}, { __mode = "v" })
+  local weak: mut {Ast.Chunk} = setmetatable({}, { __mode = "v" })
   weak[1] = assert(build:result("box", true)).chunk
   collectgarbage("collect")
   assert(weak[1] ~= nil, "the build holds the tree until it is retired")
@@ -692,7 +692,7 @@ local function test_a_standard_library_module_is_translated_when_asked_and_a_dec
     ["cosmic.box"] = "local record Box\n  n: integer | nil\nend\nreturn Box\n",
     ["cosmic.sys"] = "local record Sys\n  n: integer\nend\nreturn Sys\n",
   }
-  local function read(module: string): string | nil
+  local function read(module: string): string?
     return texts[module]
   end
   local fork = Driver.standard(read, true)("cosmic.box")

@@ -22,9 +22,9 @@ local record read_memo
   record Read
     facts: links.Facts
     --- What the notes compare: nil for a file they do not read.
-    ready: {near.Candidate} | nil
+    ready: {near.Candidate}?
     --- What the tree checks look for: nil for a file they do not read.
-    plurals: tree_checks.Plurals | nil
+    plurals: tree_checks.Plurals?
   end
 
   --- The modules whose bytecode, with everything they load, and those whose bytecode alone, name the code that reads a parse
@@ -32,10 +32,10 @@ local record read_memo
   roots: {string}
   alone: {string}
   --- The salt of the code that reads a parse, or nil where it cannot be named.
-  salt: function(): string | nil
+  salt: function(): string?
   --- What the memo `db` keeps under `salt` of the file `name` whose text is `source`, or nil where it keeps none or it does not
   --- read. `built` parses the file where a line is asked for that the text does not hold.
-  get: function(db: Sqlite.Handle, salt: string, built: compiler, name: string, source: string): Read | nil
+  get: function(db: Sqlite.Handle, salt: string, built: compiler, name: string, source: string): Read?
   --- Keeps `read`, made of `parsed`, the parse of `source`.
   put: function(db: Sqlite.Handle, salt: string, name: string, source: string, read: Read, parsed: ast.Parsed)
 end
@@ -45,7 +45,7 @@ local KIND <const> = "laid"
 read_memo.roots = { "build.link_text", "build.analyzer", "build.scopes", "build.ast", "build.symbols", "build.plural_sites" }
 read_memo.alone = { "build.links", "build.fix", "build.tree_checks", "build.fix.read_memo", "build.fix.near" }
 
-function read_memo.salt(): string | nil
+function read_memo.salt(): string?
   -- What the readers run: what a link says of a file, the docs of its functions, the scopes, the parse and the sites of its
   -- plurals ([`tree_checks.plurals_in`] calls [`build.plural_sites`]), with everything they load; and the modules that hold
   -- [`links.facts`], `read_off`, `candidates_of`, `plurals_in` and this one, themselves alone (what they load beyond those is
@@ -55,8 +55,8 @@ end
 
 --- The line of every comment of a parse, in order and once.
 local function comment_lines(parsed: ast.Parsed): {integer}
-  local out: {integer} = {}
-  local seen: {integer: boolean} = {}
+  local out: mut {integer} = {}
+  local seen: mut {integer: boolean} = {}
   for _, token in ipairs(parsed.tokens) do
     for _, comment in ipairs(token.comments or {}) do
       if seen[comment.y] == nil then
@@ -69,12 +69,12 @@ local function comment_lines(parsed: ast.Parsed): {integer}
 end
 
 local function encode(read: read_memo.Read, parsed: ast.Parsed): string
-  local rows: {{string}} = { { "V", "1" } }
+  local rows: mut {{string}} = { { "V", "1" } }
   for _, block in ipairs(read.facts.blocks) do
     local starts = "-"
     local held = block.starts
     if held ~= nil then
-      local numbers: {string} = {}
+      local numbers: mut {string} = {}
       for _, at in ipairs(held) do
         numbers[#numbers + 1] = tostring(at)
       end
@@ -86,7 +86,7 @@ local function encode(read: read_memo.Read, parsed: ast.Parsed): string
     rows[#rows + 1] = { "M", name }
   end
   -- What each comment's line sees: the names every line sees once, then each distinct place's own names and aliases.
-  local ids: {link_text.Declared: integer} = {}
+  local ids: mut {link_text.Declared: integer} = {}
   local count = 0
   local shared = false
   for _, line in ipairs(comment_lines(parsed)) do
@@ -117,7 +117,7 @@ local function encode(read: read_memo.Read, parsed: ast.Parsed): string
   if noted ~= nil then
     rows[#rows + 1] = { "k" }
     for _, c in ipairs(noted) do
-      rows[#rows + 1] = { "K", c.source_symbol, c.text, tostring(c.line), c.method == true and "1" or "0" }
+      rows[#rows + 1] = { "K", c.source_symbol, c.text, tostring(c.line), if c.method == true then "1" else "0" end }
     end
   end
   local found = read.plurals
@@ -130,15 +130,15 @@ local function encode(read: read_memo.Read, parsed: ast.Parsed): string
   return check_memo.encode(rows)
 end
 
-local function decode(text: string, built: compiler, name: string, source: string): read_memo.Read | nil
-  local blocks: {link_text.Block} = {}
-  local module_level: {string: boolean} = {}
-  local everywhere: {string: boolean} = {}
-  local own: {integer: {string: boolean}} = {}
-  local aliases: {integer: {string: string}} = {}
-  local at_line: {integer: integer} = {}
-  local candidates: {near.Candidate} | nil = nil
-  local sites: {{string}} | nil = nil
+local function decode(text: string, built: compiler, name: string, source: string): read_memo.Read?
+  local blocks: mut {link_text.Block} = {}
+  local module_level: mut {string: boolean} = {}
+  local everywhere: mut {string: boolean} = {}
+  local own: mut {integer: {string: boolean}} = {}
+  local aliases: mut {integer: {string: string}} = {}
+  local at_line: mut {integer: integer} = {}
+  local candidates: mut {near.Candidate}? = nil
+  local sites: mut {{string}}? = nil
   local versioned = false
   for _, f in ipairs(check_memo.decode(text)) do
     local kind = f[1]
@@ -148,7 +148,7 @@ local function decode(text: string, built: compiler, name: string, source: strin
       local line = math.tointeger(tonumber(f[2] or ""))
       local marker = (f[4] or ""):sub(1, 1)
       if line == nil or (marker ~= "-" and marker ~= "+") then return nil end
-      local starts: {integer} | nil = nil
+      local starts: mut {integer}? = nil
       if marker == "+" then
         starts = {}
         for number in ((f[4] or ""):sub(2)):gmatch("[^,]+") do
@@ -188,7 +188,7 @@ local function decode(text: string, built: compiler, name: string, source: strin
     elseif kind == "K" and #f == 5 and candidates ~= nil then
       local line = math.tointeger(tonumber(f[4] or ""))
       if line == nil then return nil end
-      local method: boolean | nil = nil
+      local method: boolean? = nil
       if f[5] == "1" then
         method = true
       end
@@ -204,7 +204,7 @@ local function decode(text: string, built: compiler, name: string, source: strin
   if not versioned then
     return nil
   end
-  local places: {integer: link_text.Declared} = {}
+  local places: mut {integer: link_text.Declared} = {}
   local inherit: metatable<{string: boolean}> = { __index = everywhere }
   for id, names in pairs(own) do
     places[id] = { names = setmetatable(names, inherit), aliases = aliases[id] or {} }
@@ -227,7 +227,7 @@ local function decode(text: string, built: compiler, name: string, source: strin
     end
     return settled.at(line)
   end
-  local plurals: tree_checks.Plurals | nil = nil
+  local plurals: tree_checks.Plurals? = nil
   if sites ~= nil then
     plurals = { source = source, sites = sites }
   end
@@ -238,7 +238,7 @@ local function decode(text: string, built: compiler, name: string, source: strin
   }
 end
 
-function read_memo.get(db: Sqlite.Handle, salt: string, built: compiler, name: string, source: string): read_memo.Read | nil
+function read_memo.get(db: Sqlite.Handle, salt: string, built: compiler, name: string, source: string): read_memo.Read?
   local text = check_memo.get(db, KIND, check_memo.key(salt, "read " .. name, source))
   if text == nil then
     return nil

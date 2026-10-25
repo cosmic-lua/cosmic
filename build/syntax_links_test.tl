@@ -23,7 +23,7 @@ end
 --- `module.symbol@file`).
 local function world(files: {string: string}, symbols?: {string: {string}}, members?: {string: {string}}):
     link_resolve.Context
-  local dirs: {string: boolean} = { ["/p"] = true }
+  local dirs: mut {string: boolean} = { ["/p"] = true }
   for path in pairs(files) do
     local dir = Fs.dirname(path)
     while dir ~= "/" and dir ~= "" do
@@ -32,7 +32,7 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
     end
   end
   local function symbols_of(spelled: {string}): {link_resolve.Symbol}
-    local out: {link_resolve.Symbol} = {}
+    local out: mut {link_resolve.Symbol} = {}
     for _, written in ipairs(spelled) do
       local name, file = written:match("^(.-)@(.+)$")
       name = name or written
@@ -43,18 +43,18 @@ local function world(files: {string: string}, symbols?: {string: {string}}, memb
   end
   return {
     root = "/p",
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
       if dirs[path] then return "dir" end
       return nil
     end,
-    read = function(path: string): string | nil return files[path] end,
-    real = function(path: string): string | nil return path end,
-    unbuilt = function(): string | nil return nil end,
-    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+    read = function(path: string): string? return files[path] end,
+    real = function(path: string): string? return path end,
+    unbuilt = function(): string? return nil end,
+    symbols = function(query: string): {link_resolve.Symbol}?, string
       return symbols_of((symbols or {})[query] or {}), ""
     end,
-    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+    member = function(module: string, member: string): {link_resolve.Symbol}?, string
       return symbols_of((members or {})[module .. "." .. member] or {}), ""
     end,
   }

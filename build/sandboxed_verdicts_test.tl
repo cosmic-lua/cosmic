@@ -117,7 +117,7 @@ end
 local function run(root: string, output: string, env: {string:string}, words?: {string},
                    unchecked?: boolean): string
   local fd = assert(Fs.open_write(output))
-  local args: {string} = { "test" }
+  local args: mut {string} = { "test" }
   for _, word in ipairs(words or {}) do args[#args + 1] = word end
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
@@ -130,7 +130,7 @@ local function run(root: string, output: string, env: {string:string}, words?: {
   return text
 end
 
-local type Said = function(string, ?{string}): string
+local type Said = function(string, arg2?: {string}): string
 
 --- A checkout of the suite in `tmp`, run once, sandboxed: the
 --- environment its runs take, and a check of a run after the last one
@@ -533,7 +533,7 @@ end
     step.value = step.value + 1
     local out = tmp .. "/" .. step.value .. ".out"
     local fd = assert(Fs.open_write(out))
-    local args: {string} = { "test" }
+    local args: mut {string} = { "test" }
     for _, word in ipairs(words) do args[#args + 1] = word end
     local started = this_program.program(args, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
@@ -699,7 +699,7 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   -- The closures' stores, less the store of no module the census names
   -- (build/test_key.tl's `base_name`).
   local function closure_stores(): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
     for _, name in ipairs(listed) do
       if name:sub(1, 5) ~= "base-" then out[#out + 1] = name end

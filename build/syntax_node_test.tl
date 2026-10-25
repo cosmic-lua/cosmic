@@ -24,7 +24,7 @@ end
 local function test_a_node_reads_its_place_from_its_tokens()
   local chunk = parsed("local x = f(1,\n  2)\n")
   local stat = chunk.body.stats[1]
-  assert(stat is Ast.Local)
+  assert((stat.kind == "Local"))
   local span = Node.span(chunk, stat)
   assert(span.y == 1 and span.x == 1 and span.yend == 2 and span.xend == 4, span.y .. ":" .. span.x)
   local range = Node.range(chunk, stat)
@@ -52,13 +52,13 @@ local function test_a_walk_can_leave_a_subtree_alone()
   local seen: {string} = {}
   Node.walk_until(chunk, function(node: Ast.Node): boolean
     seen[#seen + 1] = Node.base(node).kind
-    return not (node is Ast.FunctionLit)
+    return not ((node.kind == "FunctionLit"))
   end)
   assert(table.concat(seen, " ") == "Chunk Block Local Binding FunctionLit Return Name", table.concat(seen, " "))
 end
 
 local function test_a_chain_of_any_length_is_walked()
-  local operands: {string} = {}
+  local operands: mut {string} = {}
   for i = 1, 30000 do
     operands[i] = "a"
   end
@@ -75,9 +75,9 @@ local function test_the_parent_of_each_node_is_the_node_that_holds_it()
   local parents = Node.parents(chunk)
   assert(parents[Node.base(chunk).id] == nil)
   local stat = chunk.body.stats[1]
-  assert(stat is Ast.Local)
+  assert((stat.kind == "Local"))
   local call = stat.values[1]
-  assert(call is Ast.Call)
+  assert((call.kind == "Call"))
   assert(parents[Node.base(call).id] == stat and parents[Node.base(call.args[1]).id] == call)
   assert(parents[Node.base(stat).id] == chunk.body)
   assert(#Node.children(call) == 2)
@@ -141,7 +141,7 @@ local function test_a_require_site_is_where_the_string_naming_its_module_stands(
     "",
   }, "\n")
   local chunk, why = Node.parse(source, "t.tl")
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, site in ipairs(Node.require_sites((assert(chunk, why)))) do
     found[#found + 1] = ("%s@%d:%d"):format(site.name, site.y, site.x)
   end

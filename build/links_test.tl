@@ -21,7 +21,7 @@ end
 
 --- The links `text` holds, each as `line form target`.
 local function parsed(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, link in ipairs(link_text.parse(text)) do
     out[#out + 1] = link.line .. " " .. link.form .. " " .. link.target
   end
@@ -243,7 +243,7 @@ end
 --- message names is the whole spelling either way. A spelling may end
 --- in `@` and the file that declares the symbol.
 local function symbols_of(spelled: {string}): {link_resolve.Symbol}
-  local out: {link_resolve.Symbol} = {}
+  local out: mut {link_resolve.Symbol} = {}
   for _, written in ipairs(spelled) do
     local name, file = written:match("^(.-)@(.+)$")
     name = name or written
@@ -258,7 +258,7 @@ end
 local function world(files: {string: string}, symbols?: {string: {string}},
                      members?: {string: {string}}, links_to?: {string: string},
                      unbuilt?: string): link_resolve.Context
-  local dirs: {string: boolean} = { ["/p"] = true }
+  local dirs: mut {string: boolean} = { ["/p"] = true }
   for path in pairs(files) do
     local dir = Fs.dirname(path)
     while dir ~= "/" and dir ~= "" do
@@ -268,13 +268,13 @@ local function world(files: {string: string}, symbols?: {string: {string}},
   end
   return {
     root = "/p",
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       if files[path] ~= nil then return "file" end
       if dirs[path] then return "dir" end
       return nil
     end,
-    read = function(path: string): string | nil return files[path] end,
-    real = function(path: string): string | nil
+    read = function(path: string): string? return files[path] end,
+    real = function(path: string): string?
       for from, to in pairs(links_to or {}) do
         if path == from or String.starts_with(path, from .. "/") then
           return to .. path:sub(#from + 1)
@@ -282,11 +282,11 @@ local function world(files: {string: string}, symbols?: {string: {string}},
       end
       return path
     end,
-    unbuilt = function(): string | nil return unbuilt end,
-    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+    unbuilt = function(): string? return unbuilt end,
+    symbols = function(query: string): {link_resolve.Symbol}?, string
       return symbols_of((symbols or {})[query] or {}), ""
     end,
-    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+    member = function(module: string, member: string): {link_resolve.Symbol}?, string
       return symbols_of((members or {})[module .. "." .. member] or {}), ""
     end,
   }
@@ -494,7 +494,7 @@ local function test_a_link_is_recorded_by_the_scope_it_is_in()
     "-- [`Fs.read`] by [`step`].",
     "return a")
   local parsed_source = assert(ast.parse(built, source, "a.tl"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, found in ipairs(link_text.found(built, parsed_source.node, source, "a.tl")) do
     got[#got + 1] = found.link.line .. " " .. found.link.target .. " " .. tostring(found.own) ..
       " " .. found.alias
@@ -651,7 +651,7 @@ local function test_the_roots_output_is_never_looked_at()
   local context = world({ ["/p/o/y.md"] = "" })
   local kind = context.kind
   local asked: {string} = {}
-  context.kind = function(path: string): string | nil
+  context.kind = function(path: string): string?
     asked[#asked + 1] = path
     return kind(path)
   end
@@ -785,9 +785,9 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
       "",
       "return other"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/a.md", "markdown", lines(
     "[`Fs.read`] [`cosmic.fs.read`] [`cosmic.fs.Fs.read`] [`cosmic.fs`] [`read`]",
     "[`Thing.Box.grow`] [`cosmic.thing.Box.grow`] [`Thing.Box.shrink`]")), {
@@ -833,9 +833,9 @@ local function test_a_member_through_a_required_modules_type_resolves(dir: strin
       "",
       "return User"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
     "local User = require(\"cosmic.user\")",
     "-- [`User.Entry.path`], [`User.Item.path`], [`cosmic.user.Item.path`];",
@@ -870,9 +870,9 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
       "",
       "return module"),
   })
-  local context = links.context(dir, function(): docs.View | nil, string
+  local context = links.context(dir, function(): docs.View?, string
     return docs.view({ db })
-  end, function(): string | nil return nil end)
+  end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
     "local Cli = require(\"cosmic.cli\")",
     "-- [`Cli.order`], [`cosmic.cli.order`], [`Module.order`]; not [`Cli.chaos`],",

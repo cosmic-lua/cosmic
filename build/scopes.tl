@@ -46,7 +46,7 @@ local leaves: {string: boolean} = {
 
 local type Stack = {{string: string}}
 
-local function binding(stack: Stack, name: string): string | nil
+local function binding(stack: Stack, name: string): string?
   for index = #stack, 1, -1 do
     local value = stack[index][name]
     if value ~= nil then
@@ -81,7 +81,7 @@ end
 
 --- The module `call` names when it is `require("<module>")`, a call
 --- of `require` on one string literal; nil for any other expression.
-local function required_name(call: ast.Node): string | nil
+local function required_name(call: ast.Node): string?
   local op = call.op
   if call.kind ~= "op" or op == nil or op.op ~= "@funcall" then
     return nil
@@ -98,7 +98,7 @@ end
 --- name = require("m")` or `local type name = require("m")`: the one
 --- import form whose identity is sure. "" for any other.
 local function alias_of(stmt: ast.Node): string
-  local value: ast.Node | nil = nil
+  local value: ast.Node? = nil
   local vars, exps = stmt.vars, stmt.exps
   if stmt.kind == "local_type" then
     value = stmt.value
@@ -117,7 +117,7 @@ end
 --- Where `block`, a `statements` node, ends, as a position: its
 --- terminator's (`end`, `else`, `until`), or `outer` when the parser
 --- stamped none.
-local function block_end(block: ast.Node | nil, outer: integer): integer
+local function block_end(block: ast.Node?, outer: integer): integer
   local y, x = block ~= nil and block.yend or nil, block ~= nil and block.xend or nil
   if y == nil or x == nil then return outer end
   return scopes.position(y, x)
@@ -131,11 +131,11 @@ end
 --- locals and loop variables shadow bindings; reassignment in any
 --- possibly-executed branch invalidates the outer alias for `member`.
 function scopes.walk(parsed: ast.Parsed,
-                     member: function(module: string, name: string, line: integer) | nil): {scopes.Binding}
+                     member: (function(module: string, name: string, line: integer))?): {scopes.Binding}
   local out: {scopes.Binding} = {}
   local stack: Stack = { {} }
   local ends: {integer} = { math.maxinteger }
-  local function open(block: ast.Node | nil)
+  local function open(block: ast.Node?)
     ends[#ends + 1] = block_end(block, ends[#ends])
     stack[#stack + 1] = {}
   end
@@ -143,8 +143,8 @@ function scopes.walk(parsed: ast.Parsed,
     ends[#ends] = nil
     stack[#stack] = nil
   end
-  local function declare(name: string | nil, module: string, from: integer, head: integer,
-                         annotated?: boolean): scopes.Binding | nil
+  local function declare(name: string?, module: string, from: integer, head: integer,
+                         annotated?: boolean): scopes.Binding?
     if name == nil then return nil end
     stack[#stack][name] = module
     local made: scopes.Binding = { name = name, module = module, from = from, to = ends[#ends],
@@ -179,7 +179,7 @@ function scopes.walk(parsed: ast.Parsed,
         read ~= nil then
       -- `alias.member`, or a member read straight off the module a
       -- literal `require` names: `require("build.test").run`.
-      local module: string | nil = nil
+      local module: string? = nil
       local alias = receiver.tk
       if receiver.kind == "variable" and alias ~= nil then
         module = binding(stack, alias)
@@ -215,7 +215,7 @@ function scopes.walk(parsed: ast.Parsed,
   process_block = function(block: ast.Node)
     -- A local's scope starts past its statement, where the next one
     -- starts, or at the end of the block for its last.
-    local pending: {scopes.Binding} = {}
+    local pending: mut {scopes.Binding} = {}
     for _, stmt in ipairs(block) do
       for _, each in ipairs(pending) do each.from = head_of(stmt) end
       pending = {}
@@ -229,7 +229,7 @@ function scopes.walk(parsed: ast.Parsed,
         if vars ~= nil then
           -- A `require` a local or a parameter shadows is no import. A
           -- `local type`'s is read by the compiler whatever is in scope.
-          local module = bound(stack, "require") and "" or alias_of(stmt)
+          local module = if bound(stack, "require") then "" else alias_of(stmt) end
           local decltuple = stmt.decltuple
           local declared = decltuple ~= nil and decltuple.tuple or nil
           for index, var in ipairs(vars) do
@@ -347,8 +347,8 @@ function scopes.in_scope(bindings: {scopes.Binding}, y: integer, x: integer,
                          heading: boolean): {string: string}
   local at = scopes.position(y, x)
   local line = scopes.position(y, 0)
-  local out: {string: string} = {}
-  local from: {string: integer} = {}
+  local out: mut {string: string} = {}
+  local from: mut {string: integer} = {}
   for _, each in ipairs(bindings) do
     local seen = each.from <= at or heading and each.head == line
     if seen and at <= each.to and (from[each.name] == nil or each.from >= from[each.name]) then

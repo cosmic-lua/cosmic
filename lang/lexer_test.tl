@@ -19,7 +19,7 @@ end
 
 --- The tokens as `kind:text`, without the final `$EOF$`.
 local function shape(source: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local tokens = lex(source).tokens
   for i = 1, Lexer.count(tokens) - 1 do
     parts[#parts + 1] = Lexer.kind(tokens, i) .. ":" .. Lexer.text(tokens, i)
@@ -216,7 +216,7 @@ end
 local function test_a_comment_is_a_dash_dash_to_the_end_of_the_line()
   local lexed = lex("---[[ x\n--[ y\n--[= z\n--#pragmatic w\n--\nq")
   local comments = assert(Lexer.token(lexed.tokens, 1).comments)
-  local texts: {string} = {}
+  local texts: mut {string} = {}
   for _, c in ipairs(comments) do
     texts[#texts + 1] = c.text
   end
@@ -226,7 +226,7 @@ end
 
 local function test_a_token_knows_its_bytes_and_its_places()
   local lexed = lex("local s =\n\t\"" .. E_ACUTE .. "\" + 12\n")
-  local places: {string} = {}
+  local places: mut {string} = {}
   for i = 1, Lexer.count(lexed.tokens) do
     local t = Lexer.token(lexed.tokens, i)
     places[#places + 1] = string.format("%s@%d+%d=%d:%d-%d:%d", t.kind, t.offset, t.length, t.y, t.x, t.yend, t.xend)
@@ -449,7 +449,7 @@ end
 
 local function test_one_run_reports_every_problem()
   local lexed = lex("::a:: ; @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for _, e in ipairs(lexed.errors) do
     codes[#codes + 1] = e.code
   end
@@ -708,7 +708,7 @@ local BYTES_PER_TOKEN_CEILING <const> = 100
 
 local record Link
   token: Lexer.Token
-  rest: Link | nil
+  rest: Link?
 end
 
 --- Garbage collects twice, so that what is counted is what is kept.
@@ -735,7 +735,7 @@ local function test_a_table_for_each_token_is_found_to_hold_more_than_the_ceilin
   local count = Lexer.count(tokens)
   local before = settled()
   -- A linked list holds a table for each token, which it makes without writing an array.
-  local planted: Link | nil = nil
+  local planted: Link? = nil
   for i = 1, count do
     planted = { token = Lexer.token(tokens, i), rest = planted }
   end

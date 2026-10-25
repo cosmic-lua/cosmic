@@ -34,7 +34,7 @@ local function encode(spec: Spec): string
     spec.errors, spec.dep, spec.example, spec.declared)
 end
 
-local function integer_of(text: string | nil): integer
+local function integer_of(text: string?): integer
   return assert(math.tointeger(tonumber(assert(text))))
 end
 

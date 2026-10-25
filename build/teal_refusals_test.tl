@@ -52,7 +52,7 @@ local function templates_of(loaded: compiler, source: string, list: {ForkRefusal
 end
 
 --- The id of the template whose text is `template`, of either kind.
-local function id_of(list: {ForkRefusals.Refusal}, template: string): string | nil
+local function id_of(list: {ForkRefusals.Refusal}, template: string): string?
   for _, refusal in ipairs(list) do
     if refusal.template == template and refusal.kind ~= "internal" then
       return refusal.id
@@ -131,7 +131,7 @@ local function test_the_last_eighth_of_the_programs_is_refused_with_their_templa
 end
 
 local function test_no_program_is_in_the_file_twice()
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   local all = programs()
   assert(#all > 0)
   for _, program in ipairs(all) do

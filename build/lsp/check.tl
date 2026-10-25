@@ -72,21 +72,21 @@ local record check
   --- A document the editor holds open.
   record Document
     uri: string
-    text: string
+    mut text: string
     --- The name the checker knows it by: its path below the root, or its
     --- absolute path or URI when it is not below it.
     name: string
     --- Whether it is no file below the root, which no build there reads.
     outside: boolean
     --- The SHA-256 of `text`, once asked for.
-    hash: string | nil
+    mut hash: string?
     --- What it last published, each diagnostic encoded, and the text and
     --- the checker's [`Checker`] `epoch` it was of.
-    published: {string} | nil
-    published_text: string
-    published_epoch: integer
+    mut published: {string}?
+    mut published_text: string
+    mut published_epoch: integer
     --- What its text required at its last check, nil before one.
-    requires: {string} | nil
+    mut requires: {string}?
   end
 
   --- The databases a message's hint looks a name up in, and whether each is read as the public standard library's.
@@ -103,34 +103,34 @@ local record check
     --- the new grammar ([`build.grammar_mode`]).
     grammar: GrammarMode.Mode
     --- The fork's compiler, which the new grammar reads no text with either: it stages the tree ([`source.refresh`]).
-    built: compiler | nil
-    env: compiler.Env | nil
+    mut built: compiler?
+    mut env: compiler.Env?
     --- What the new checker is made over besides the document: the declarations of the standard library the tool carries.
-    options: Pipeline.Options | nil
+    mut options: Pipeline.Options?
     --- The program the session of the new checker checks in ([`build.lsp.held`]), made at its first check.
-    program: held.Program | nil
+    mut program: held.Program?
     --- The types the checker reports of the document it checks, which
     --- [`build.contracts`] reads.
-    typed: receivers.State | nil
+    mut typed: receivers.State?
     --- The globals a fresh environment has, so a check drops those an
     --- earlier text declared.
-    base_globals: {string:boolean}
+    base_globals: mut {string:boolean}
     --- What each project module the checker was served was served from
     --- ([`source.key`]), by name: "" for one not found.
-    served: {string:string}
+    mut served: mut {string:string}
     --- How many times the modules served were dropped.
-    epoch: integer
+    mut epoch: integer
     --- The open documents, by name.
-    open: {string:Document}
+    open: mut {string:Document}
     --- The databases a message's hint looks a name up in.
     hints: function(): Hinted
     --- Whether a check found a document requiring other modules than
     --- before, since [`check.moved`] last asked: a cycle of imports
     --- through another open document may have closed or opened.
-    graph_moved: boolean
+    mut graph_moved: boolean
     --- How many times each document was checked, by name, those
     --- answered from its last check among them: what a test reads.
-    checks: {string:integer}
+    checks: mut {string:integer}
   end
 end
 
@@ -256,7 +256,7 @@ end
 
 --- The open documents as [`source.Open`] reads them.
 function check.open_files(checker: Checker): source.Open
-  return function(file: string): source.Text | nil
+  return function(file: string): source.Text?
     local document = checker.open[file]
     if document == nil then return nil end
     return { text = document.text, hash = hash_of(document) }
@@ -279,7 +279,7 @@ local function prepared(checker: Checker): compiler, compiler.Env
   if built ~= nil and env ~= nil then return built, env end
   local loaded = compiler_of(checker)
   local open = check.open_files(checker)
-  loaded.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  loaded.search_module = function(name: string, _search_all: boolean): string?, compiler.Handle?
     local listed = checker.source.modules[name] ~= nil
     local found = source.served(checker.source, loaded, name, open)
     if found ~= nil then
@@ -368,7 +368,7 @@ end
 ---
 --- A session of the new grammar has no environment (`env` is nil): its program ([`refresh_program`]) holds no global an
 --- earlier text declared.
-local function refresh(checker: Checker, env: compiler.Env | nil)
+local function refresh(checker: Checker, env: compiler.Env?)
   if checker.grammar == "new" then
     refresh_program(checker)
     return
@@ -417,7 +417,7 @@ end
 
 --- What each other open document required at its last check, by name.
 local function opened_requires(checker: Checker, document: Document): {string:{string}}
-  local out: {string:{string}} = {}
+  local out: mut {string:{string}} = {}
   for name, other in pairs(checker.open) do
     local requires = other.requires
     if other ~= document and requires ~= nil then out[name] = requires end
@@ -429,7 +429,7 @@ end
 --- where that is not what it required before: at its last check, or, at
 --- its first, as staged.
 local function remember(checker: Checker, document: Document, sites: {plan.Site})
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, site in ipairs(sites) do names[#names + 1] = site.name end
   local before: {string} = {}
   local had = document.requires
@@ -461,10 +461,10 @@ end
 --- document's, or the working database's, as the fork's `search_module` answers it ([`source.served`]), as the stub it serves,
 --- or the binary's own `cosmic.*` modules. The modules the stage lists are read in the fork's Teal where they are, translated
 --- as a build translates them and never checked: what a `require` reads is their type.
-local function serve_of(checker: Checker, built: compiler): function(module: string): Driver.Source | nil
+local function serve_of(checker: Checker, built: compiler): function(module: string): Driver.Source?
   local open = check.open_files(checker)
   local carried = Pipeline.carried()
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     local listed = checker.source.modules[module]
     if listed == nil then
       local standard = carried(module)
@@ -518,10 +518,10 @@ end
 
 --- Checks `document` in `env`, as a build checks it; in the new grammar `env` is nil, and the session's program of the new
 --- checker ([`program_of`]) is the environment.
-local function checked_of(checker: Checker, built: compiler, env: compiler.Env | nil,
+local function checked_of(checker: Checker, built: compiler, env: compiler.Env?,
                           document: Document): Checked
   local none: {shape_specs.Splice} = {}
-  local found: {compiler.Error} = {}
+  local found: mut {compiler.Error} = {}
   local generated = document.name:match("%.tmpl$") ~= nil
   local text = document.text
   if generated then
@@ -596,7 +596,7 @@ local function checked_of(checker: Checker, built: compiler, env: compiler.Env |
   end
   local splices = resolution.splices
   local spliced = shape_specs.spliced(text, splices)
-  local result: compiler.Result | nil = nil
+  local result: compiler.Result? = nil
   if subject == nil or subject.kind == "decl" then
     result = built.check_string(spliced, fork, document.name, "tl")
   else
@@ -628,7 +628,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     return none
   end
   local built = compiler_of(checker)
-  local env: compiler.Env | nil = nil
+  local env: compiler.Env? = nil
   if checker.grammar ~= "new" then
     local _, made = prepared(checker)
     env = made
@@ -655,7 +655,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   -- What the check adds to `loaded` is dropped after it, its results'
   -- trees with it: a module's type stays in `modules`, which is what a
   -- later check reads, and a text read again is checked again.
-  local order: {string} = {}
+  local order: mut {string} = {}
   if env ~= nil then order = env.loaded_order end
   local before = #order
   local ok, outcome = pcall(checked_of, checker, built, env, document)
@@ -672,7 +672,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   local starts = lines.checker_starts(checked.text)
   local out: {string} = {}
   --- The diagnostic `message` at the checker's line `y` and column `x`.
-  local function add(y: integer, x: integer, message: string, code: string | nil)
+  local function add(y: integer, x: integer, message: string, code: string?)
     local line = math.min(math.max(y, 1), #starts)
     local at = math.min(assert(starts[line]) + math.max(x, 1) - 1, #checked.text + 1)
     local offset = splice.unspliced(checked.splices, at)
@@ -694,7 +694,7 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     add(refusal.line, refusal.column, refusal.message, nil)
   end
   for _, e in ipairs(checked.errors) do
-    local code: string | nil = e.code
+    local code: string? = e.code
     if code == nil then code = e.tag end
     add(e.y, e.x, importer.said(e, document.name, checked.source, checked.refused, importer_hints(checker)), code)
   end

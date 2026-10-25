@@ -17,7 +17,7 @@ end
 
 --- The lines of `text`, each without its trailing spaces.
 local function lines(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("([^\n]*)\n") do
     out[#out + 1] = (line:gsub("%s+$", ""))
   end
@@ -242,7 +242,7 @@ local function test_a_stub_of_every_statement_drops_bodies_alone()
 end
 
 --- The module `text` read as a source, and read as its stub, each in a program of its own: where they differ.
-local function difference_of(text: string, stubbed_text?: string): string | nil
+local function difference_of(text: string, stubbed_text?: string): string?
   local chunk, why = Node.parse(text, "m.tl")
   local made = Stub.made((assert(chunk, why)))
   local from = Programs.run(text)

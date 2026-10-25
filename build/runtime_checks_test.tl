@@ -95,7 +95,7 @@ local function compiled(checks: boolean, file?: string): string
   local built = assert(teal.load(true))
   local env = assert(built.new_env({ defaults = teal.defaults(checks) }))
   local result = built.check_string(source, env, file or "snippet", "tl")
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for _, list in ipairs({ result.syntax_errors, result.type_errors }) do
     for _, each in ipairs(list) do
       problems[#problems + 1] = each.y .. ":" .. each.x .. ": " .. each.msg
@@ -120,7 +120,7 @@ local record Fixture
   call_box: function(any): any
   lookup: function({string:string}, string): string
   both: function(boolean): boolean, string
-  maybe: function({string:string}, string): string | nil
+  maybe: function({string:string}, string): string?
   same: function<T>(T): T
   anything: function(any): any
   set_name: function(Box, any)
@@ -150,12 +150,12 @@ end
 
 --- The violations met while `fn` ran.
 local function during(fn: function()): {worker.Violation}
-  local before: {string:integer} = {}
+  local before: mut {string:integer} = {}
   for _, violation in ipairs(worker.violations()) do
     before[violation.kind .. violation.at .. violation.target .. violation.actual] = violation.count
   end
   fn()
-  local found: {worker.Violation} = {}
+  local found: mut {worker.Violation} = {}
   for _, violation in ipairs(worker.violations()) do
     local key = violation.kind .. violation.at .. violation.target .. violation.actual
     if violation.count > (before[key] or 0) then found[#found + 1] = violation end
@@ -247,7 +247,7 @@ local function test_what_has_no_kind_is_unchecked_and_the_lines_stay()
   assert(not with:find("p;snippet:%d+;anything;"), "`any` was checked")
   assert(with:find("\"r;snippet:%d+;table\""), "a record returned was not checked as a table")
   local function lines(text: string): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     for each in (text .. "\n"):gmatch("([^\n]*)\n") do out[#out + 1] = each end
     return out
   end
@@ -340,7 +340,7 @@ local function test_a_late_violation_still_names_its_caller()
   local fixture = checked()
   for _ = 1, 25 do fixture.call_greet(nil) end
   local late = during(function() fixture.call_greet_again(nil) end)
-  local parameter: worker.Violation | nil = nil
+  local parameter: worker.Violation? = nil
   for _, each in ipairs(late) do
     if each.kind == "parameter" then parameter = each end
   end
@@ -381,7 +381,7 @@ end
 local function test_a_malformed_spec_is_no_failure_of_the_test()
   checked()
   local before = met()
-  local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, any...): any...
+  local hook = (_G as {string:any}).__cosmic_tc as function(integer, string, ...: any): any...
   for _, spec in ipairs({ "p;snippet:1;f;no equals", "x;snippet:1", "" }) do
     local first, second = hook(2, spec, "a", "b")
     assert(first == "a" and second == "b", spec)

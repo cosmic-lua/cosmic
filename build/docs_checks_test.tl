@@ -30,7 +30,7 @@ end
 local function row(module: string, symbol: string, kind: string, signature: string,
                    text: string): Row
   -- A member is written under the module's record: `Thing.add` is `add`.
-  local member = kind == "function" and "Thing." .. symbol or symbol
+  local member = if kind == "function" then "Thing." .. symbol else symbol end
   return { module = module, symbol = symbol, source_symbol = member, kind = kind,
     signature = signature, text = text, exported = true }
 end
@@ -43,7 +43,7 @@ local function projection(rows: {Row}): Sqlite.Handle
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, item in ipairs(rows) do
     if not seen[item.module] then
       seen[item.module] = true
@@ -56,7 +56,7 @@ local function projection(rows: {Row}): Sqlite.Handle
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
       { { text = item.module }, { text = item.symbol }, { text = item.source_symbol },
-        { integer = item.exported and 1 or 0 }, { text = item.kind },
+        { integer = if item.exported then 1 else 0 end }, { text = item.kind },
         { text = item.signature }, { text = item.text },
         { text = item.module:gsub("%.", "/") .. ".tl" } }))
   end
@@ -76,7 +76,7 @@ end
 
 --- The lines `found` holds that mention `word`.
 local function mentioning(found: {string}, word: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(found) do
     if line:find(word, 1, true) ~= nil then out[#out + 1] = line end
   end

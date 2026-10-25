@@ -37,7 +37,7 @@ local function fetch(script: {string}, opts?: Http.Options): Http.Response, stri
   opts = opts or {}
   opts.script = script
   local response = assert(Http.open(url, opts))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
@@ -298,7 +298,7 @@ end
 
 -- A pattern no two nearby offsets share, so a byte out of place shows.
 local function big(size: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, size // 8 do
     parts[i] = string.format("%07x\n", i)
   end
@@ -313,7 +313,7 @@ local function test_a_body_over_the_pause_threshold_arrives_whole()
   local first = assert(Http.open(url, { script = { reply("200 OK", "", data) } }))
   local second = assert(Http.open(url, { script = { reply("200 OK", "", data) } }))
   for _, response in ipairs({ second, first }) do
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while true do
       local chunk, trouble = response:read(1 << 20)
       if chunk == nil then
@@ -348,7 +348,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   opts = nil
   collectgarbage()
   collectgarbage()
-  local churn: {string} = {}
+  local churn: mut {string} = {}
   for i = 1, 4 do
     churn[i] = string.rep(string.char(65 + i), size)
   end
@@ -766,7 +766,7 @@ end
 local function test_the_raw_handle_close_returns_no_values()
   -- The raw module is handed only to cosmic.http's own loader, as the
   -- store's searcher's second answer; asking the searcher by hand gets it.
-  local raw: {string: function(string, {string: any}): any, string} | nil = nil
+  local raw: {string: function(string, {string: any}): any, string}? = nil
   for _, searcher in ipairs(package.searchers as {function(string): any, any}) do
     local loader, extra = searcher("cosmic.http")
     if type(loader) == "function" and type(extra) == "table" and
@@ -934,7 +934,7 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
   for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
-    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", algorithm == "sha256" and 64 or 128) }) do
+    for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { script = { reply("200 OK", "", "body") } }
       if algorithm == "sha256" then options.sha256 = expected else options.sha512 = expected end
       local result = Http.download_result(url, path, options)
@@ -975,7 +975,7 @@ local function test_download_result_write_and_sync_failures_abort_without_classi
   assert(Fs.write(path, "old"))
   local real_write, real_sync = sys.write, sys.fsync
   local reason = "HTTP 503: sha256 mismatch: want x, got y"
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return nil, reason, 0
   end
   local written = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
@@ -1040,10 +1040,10 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
   assert(Fs.write(path, "old"))
   local hashing = Stream.hashing
   local reason = "sha512 mismatch: digest engine failed"
-  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
+  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing?, string
     local writer, why = hashing(algorithm)
     if writer == nil then return nil, why end
-    writer.digest = function(_self: Stream.Hashing): string | nil, string
+    writer.digest = function(_self: Stream.Hashing): string?, string
       return nil, reason
     end
     return writer, ""
@@ -1059,7 +1059,7 @@ end
 local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
   local open = Http.open
   local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
-  Http.open = function(_url: string, _opts?: Http.Options): Http.Response | nil, string
+  Http.open = function(_url: string, _opts?: Http.Options): Http.Response?, string
     return nil, reason
   end
   local result = Http.download_result(url, tmp .. "/got")
@@ -1096,9 +1096,9 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
         return false
       end,
     })
-    local expected: Http.DownloadKind = mismatch and "digest_mismatch" or "downloaded"
+    local expected: Http.DownloadKind = if mismatch then "digest_mismatch" else "downloaded" end
     assert(result.kind == expected, result.reason)
-    assert(Fs.read(path) == (mismatch and "inner" or "outer"))
+    assert(Fs.read(path) == (if mismatch then "inner" else "outer" end))
     assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
   end
 end

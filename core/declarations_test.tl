@@ -83,10 +83,10 @@ end
 --- function; each metamethod the same way; and, for a userdata record
 --- nested in it, the same again under its name.
 local record Surface
-  fields: {string: boolean}
-  metamethods: {string: boolean}
+  fields: mut {string: boolean}
+  metamethods: mut {string: boolean}
   userdata: boolean
-  nested: {string: Surface}
+  nested: mut {string: Surface}
 end
 
 local function surface_of(def: ast.TypeNode): Surface
@@ -133,14 +133,14 @@ end
 --- Where each of `actual`'s members disagrees with `fields`, as lines
 --- naming `where`.
 local function compare(where: string, fields: {string: boolean}, actual: {string: any},
-                       problems: {string})
+                       problems: mut {string})
   for name, is_function in pairs(fields) do
     local value = actual[name]
     if value == nil then
       problems[#problems + 1] = where .. name .. " is declared but not registered"
     elseif (type(value) == "function") ~= is_function then
       problems[#problems + 1] = where .. name .. " is declared as a " ..
-        (is_function and "function" or "value") .. " but registered as a " .. type(value)
+        (if is_function then "function" else "value" end) .. " but registered as a " .. type(value)
     end
   end
   for name in pairs(actual) do
@@ -168,9 +168,9 @@ end
 local function disagreements(module: string, source: string, raw: any,
                              instances: {string: any}): {string}
   local surface = declared(source, module .. ".d.tl")
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   compare(module .. ".", surface.fields, members(raw), problems)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name, nested in pairs(surface.nested) do
     if nested.userdata then names[#names + 1] = name end
   end
@@ -192,8 +192,8 @@ local function disagreements(module: string, source: string, raw: any,
     else
       local mt = members(getmetatable(instance))
       local index = mt.__index
-      local methods: {string: any} = {}
-      local metamethods: {string: any} = {}
+      local methods: mut {string: any} = {}
+      local metamethods: mut {string: any} = {}
       if index == mt then
         -- One table for both, as `mt.__index = mt` makes it: a name
         -- with a leading `__` is a metamethod, any other a method.
@@ -344,7 +344,7 @@ local function raw_module(name: string): any
     assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
     return open("cosmic.internal." .. name)
   end
-  local wrapper: string | nil = nil
+  local wrapper: string? = nil
   for candidate, declaration in pairs(wrappers) do
     if declaration == name and (wrapper == nil or candidate < wrapper) then
       wrapper = candidate
@@ -358,7 +358,7 @@ local function raw_module(name: string): any
   if joined == nil then return raw end
   -- The wrapper is handed the fields of all its raw modules in one
   -- table: leave this one's own, the fields of no other.
-  local own: {string: any} = {}
+  local own: mut {string: any} = {}
   for key, value in pairs(raw as {string: any}) do -- cast: a raw value is a table of fields
     own[key] = value
   end
@@ -375,7 +375,7 @@ end
 --- The raw modules whose declaration the build derives from a header
 --- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
 --- name, and the target that derives it.
-local derived <const>: {string: gen_syscalls.Target} = {}
+local derived <const>: mut {string: gen_syscalls.Target} = {}
 for _, derivation in ipairs(gen_syscalls.targets) do
   local name = derivation.path:match("^cosmic%.internal%.(.+)$")
   if name ~= nil then derived[name] = derivation.target end
@@ -394,8 +394,8 @@ end
 --- Every declaration under cosmic/internal, and each the build derives
 --- from a header, is what the running core registers.
 local function test_every_declaration_is_what_the_core_registers()
-  local problems: {string} = {}
-  local names: {string} = {}
+  local problems: mut {string} = {}
+  local names: mut {string} = {}
   for _, entry in ipairs((assert(Fs.list("cosmic/internal")))) do
     local name = entry:match("^(.+)%.d%.tl$")
     if name ~= nil then names[#names + 1] = name end
@@ -423,12 +423,12 @@ end
 --- `cosmic.internal.` prefix, in the order listed; or nil and why when the table is not all
 --- entries of the shape this reads -- a macro, a comment, an entry
 --- spelled otherwise -- rather than answer part of it.
-local function raw_modules_in(source: string): {string: {string}} | nil, string
+local function raw_modules_in(source: string): {string: {string}}?, string
   local body = source:match("%} raw_modules%[%] = {\n(.-)\n};")
   if body == nil then
     return nil, "core/store.c declares no raw_modules table this test can read"
   end
-  local out: {string: {string}} = {}
+  local out: mut {string: {string}} = {}
   local read = 0
   local entry = '{"([%w_.]+)",%s*"cosmic%.internal%.([%w_]+)",%s*[%w_]+%s*},'
   for wrapper, raw in body:gmatch(entry) do
@@ -531,7 +531,7 @@ return m
 
 --- Makes a thing whose metatable holds `methods` and `metamethods`.
 local function thing(methods: {string: any}, metamethods: {string: any}): any
-  local mt: {string: any} = { __index = methods, __name = "thing", __gc = nothing }
+  local mt: mut {string: any} = { __index = methods, __name = "thing", __gc = nothing }
   for key, value in pairs(metamethods) do mt[key] = value end
   local stand_in: any = {}
   return setmetatable(stand_in, mt as metatable<any>) -- cast: a stand-in userdata

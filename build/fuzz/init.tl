@@ -55,7 +55,7 @@ local Test = require("cosmic.test")
 --- ended by the test runner's deadline instead.
 local extra: any = select(2, ...)
 local type Arm = function(count?: integer)
-local arm: Arm | nil
+local arm: Arm?
 if type(extra) == "table" then
   arm = (extra as Budget).budget
 end
@@ -163,7 +163,7 @@ local type Draw = shrink.Draw
 --- A value outside the range asked for is clamped to its lower end, and
 --- a draw past the end of `values` is its lower end, so any list of
 --- integers replays to some input.
-local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
+local function replaying(values: {integer}, draws: mut {Draw}): Fuzz.Source
   local replay = { at = 0 }
   local src: Fuzz.Source = {}
   src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
@@ -180,7 +180,7 @@ local function replaying(values: {integer}, draws: {Draw}): Fuzz.Source
 end
 
 --- A source drawing from `rng` that records what it hands out.
-local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
+local function recording(rng: Rand.Source, draws: mut {Draw}): Fuzz.Source
   local src: Fuzz.Source = {}
   src.int = function(_self: Fuzz.Source, min: integer, max: integer): integer
     local v = rng:int(min, max)
@@ -207,7 +207,7 @@ end
 --- `run` is counting them; nil otherwise, so shrinking and replay count
 --- nothing.
 local record Counting
-  reached: {string: boolean} | nil
+  mut reached: {string: boolean}?
 end
 
 local counting: Counting = {}
@@ -227,7 +227,7 @@ end
 local function attempt(check: function(string): boolean, string, input: string,
                        budget: integer): boolean, string
   if arm then
-    arm((read_hook()) ~= nil and budget * CHECKED_BUDGET_FACTOR or budget)
+    arm(if (read_hook()) ~= nil then budget * CHECKED_BUDGET_FACTOR else budget end)
   end
   local ok, held, why = pcall(check, input)
   if arm then arm() end
@@ -281,11 +281,11 @@ end
 --- Checks every `.input` file in the property's corpus, in name order,
 --- raising a report on the first that fails; each is written to `kept`
 --- first, as a drawn input is. Returns how many were checked.
-local function check_corpus(p: Fuzz.Property, budget: integer, kept: string | nil): integer
+local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): integer
   local dir = corpus_of(p)
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
-  local names: {string} | nil
+  local names: {string}?
   if there then names, trouble = Fs.list(dir) end
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
@@ -310,15 +310,15 @@ end
 --- The line `run` prints of how many inputs reached each label, in
 --- name order, or nil when no label was reached and none is required.
 local function label_counts(counts: {string: integer}, required: {string},
-                            iters: integer): string | nil
-  local names: {string} = {}
+                            iters: integer): string?
+  local names: mut {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
   for _, name in ipairs(required or {}) do
     if counts[name] == nil then names[#names + 1] = name end
   end
   if #names == 0 then return nil end
   table.sort(names)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, name in ipairs(names) do
     parts[i] = ("%s %d"):format(name, counts[name] or 0)
   end
@@ -336,13 +336,13 @@ end
 --- property's slug and the seed of the source that drew it, as a report
 --- prints them. Nil when neither is set; raises when one is set to
 --- anything else, so a typo is never a silent full run.
-local function named_case(p: Fuzz.Property): string | nil, integer | nil
+local function named_case(p: Fuzz.Property): string?, integer?
   local text = p.case or Env.get_or("FUZZ_CASE", "")
   if text == "" then return nil, nil end
   local raw = text
   local name = text:match("^(.-):%-?%d+$")
   local digits = text:match(":(%-?%d+)$")
-  local n: integer | nil = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+  local n: integer? = digits ~= nil and math.tointeger(tonumber(digits)) or nil
   if name == nil or not name:match("^[%w%-]+$") or n == nil then
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
@@ -372,7 +372,7 @@ local function run(p: Fuzz.Property): integer
   end
   if case_name ~= nil then iters, whole = 1, false end
   local budget = p.budget or DEFAULT_BUDGET
-  local kept: string | nil
+  local kept: string?
   local dir = p.dir
   if dir ~= nil then
     kept = dir .. "/" .. slug(p.name) .. ".input"
@@ -381,7 +381,7 @@ local function run(p: Fuzz.Property): integer
   end
   local replayed = 0
   if case_name == nil then replayed = check_corpus(p, budget, kept) end
-  local counts: {string: integer} = {}
+  local counts: mut {string: integer} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
     local draws: {Draw} = {}
@@ -417,7 +417,7 @@ local function run(p: Fuzz.Property): integer
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
             format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
-              kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+              if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
               reproduce), 0)
       end
       local function fails(values: {integer}): boolean, {Draw}
@@ -446,7 +446,7 @@ local function run(p: Fuzz.Property): integer
         "  once fixed, keep it as a regression case: %s"):
           format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
             plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
-            kept ~= nil and ("kept at " .. kept) or "not kept: the property names no dir",
+            if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
             kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
               ("write the input above to " .. keep)), 0)
@@ -459,11 +459,11 @@ local function run(p: Fuzz.Property): integer
   if iters == 0 and replayed == 0 then
     Test.passed_unchecked("fuzz properties drew no input (FUZZ_ITERS=0, no corpus)")
   end
-  local named: {string} = {}
-  local is_named: {string: boolean} = {}
+  local named: mut {string} = {}
+  local is_named: mut {string: boolean} = {}
   for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
   local shares = p.shares or {}
-  local shared: {string} = {}
+  local shared: mut {string} = {}
   for name in pairs(shares) do shared[#shared + 1] = name end
   table.sort(shared)
   for _, name in ipairs(shared) do
@@ -547,7 +547,7 @@ end
 
 --- Up to `max` arbitrary bytes, each after a `more` draw.
 function Fuzz.bytes(src: Fuzz.Source, max: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, max) do out[#out + 1] = string.char(src:int(0, 255)) end
   return table.concat(out)
 end
@@ -598,14 +598,14 @@ end
 --- a structure (entries, say) and whose check builds from it: shrinking
 --- then works on the structure's draws, not on bytes a writer made.
 function Fuzz.pack(fields: {string}): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i, f in ipairs(fields) do parts[i] = string.pack("<s4", f) end
   return table.concat(parts)
 end
 
 --- The fields `pack` packed into `input`.
 function Fuzz.unpack(input: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while at <= #input do
     local f: string

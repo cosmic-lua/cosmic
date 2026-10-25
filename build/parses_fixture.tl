@@ -15,14 +15,14 @@ function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
   return table.concat(lines, "\n")
 end
 
 --- Every row of every parse table of the working database `db`.
 function parses_fixture.rows(db: Sqlite.Handle): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(analysis_schema.tables) do
     local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
     out[#out + 1] = name .. " " .. #rows

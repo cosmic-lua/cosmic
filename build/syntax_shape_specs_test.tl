@@ -25,7 +25,7 @@ local STANDARD <const>: {string: string} = {
 
 --- A build of the project `files` (name to text).
 local function build_of(files: {string: string}): Driver.Build
-  local entries: {{string}} = {}
+  local entries: mut {{string}} = {}
   for name, text in pairs(files) do
     entries[#entries + 1] = { name, text }
   end
@@ -46,7 +46,7 @@ end
 
 --- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
 --- `files` (name to text).
-local function resolved(files: {string: string}): string | nil, string
+local function resolved(files: {string: string}): string?, string
   return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"])
 end
 
@@ -61,11 +61,11 @@ local function with_record(declaration: string, call?: string): string
   }, "\n")
 end
 
-local function of_record(declaration: string, call?: string): string | nil, string
+local function of_record(declaration: string, call?: string): string?, string
   return resolved({ ["main.tl"] = with_record(declaration, call) })
 end
 
-local function has(source: string | nil, why: string, want: string)
+local function has(source: string?, why: string, want: string)
   assert(source ~= nil, why)
   local flat = source:gsub("%s+", "")
   assert(flat:find((want:gsub("%s+", "")), 1, true) ~= nil, ("the source does not hold %s:\n%s"):format(want, source))

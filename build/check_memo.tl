@@ -22,7 +22,7 @@ local record check_memo
   --- unused and begins the run's transaction. Answers whether it could.
   prepare: function(db: Sqlite.Handle, kind: string): boolean, string
   --- The text kept under `key` for `kind`, marked used; nil on a miss.
-  get: function(db: Sqlite.Handle, kind: string, key: string): string | nil
+  get: function(db: Sqlite.Handle, kind: string, key: string): string?
   --- Keeps `value` under `key` for `kind`, marked used.
   put: function(db: Sqlite.Handle, kind: string, key: string, value: string)
   --- Drops the rows of `kind` that this run did not use and commits.
@@ -54,7 +54,7 @@ function check_memo.prepare(db: Sqlite.Handle, kind: string): boolean, string
   return Sqlite.run(db, "BEGIN")
 end
 
-function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string | nil
+function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
   local rows, _ = Sqlite.rows(db, "SELECT value FROM check_memo WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
   local row = rows ~= nil and rows[1] or nil
@@ -82,7 +82,7 @@ function check_memo.key(salt: string, dialect: string, bytes: string): string
 end
 
 function check_memo.salt(root: string, files: {string}, version: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, file in ipairs(files) do
     local text, _ = Fs.read(root .. "/" .. file)
     parts[#parts + 1] = Hash.hex_sha256(text or "")
@@ -95,9 +95,9 @@ local ESCAPES <const>: {string: string} = { ["\\"] = "\\\\", ["\t"] = "\\t", ["\
 local UNESCAPES <const>: {string: string} = { ["\\"] = "\\", t = "\t", n = "\n", r = "\r" }
 
 function check_memo.encode(rows: {{string}}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, row in ipairs(rows) do
-    local fields: {string} = {}
+    local fields: mut {string} = {}
     for i, field in ipairs(row) do
       fields[i] = (field:gsub("[\\\t\n\r]", ESCAPES))
     end
@@ -107,12 +107,12 @@ function check_memo.encode(rows: {{string}}): string
 end
 
 function check_memo.decode(text: string): {{string}}
-  local rows: {{string}} = {}
+  local rows: mut {{string}} = {}
   if text == "" then
     return rows
   end
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    local fields: {string} = {}
+    local fields: mut {string} = {}
     for field in (line .. "\t"):gmatch("(.-)\t") do
       fields[#fields + 1] = (field:gsub("\\(.)", UNESCAPES))
     end

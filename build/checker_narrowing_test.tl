@@ -35,7 +35,7 @@ end
 
 local record Node
   kind: string
-  tk?: string
+  mut tk?: string
   op?: {string:string}
   e1?: Node
   e2?: Node
@@ -44,7 +44,7 @@ local record Node
 end
 
 local record Host
-  type_of: function(Place, any): Type | nil
+  type_of: function(Place, any): Type?
   is_a: function(Type, Type): boolean
   unite: function(any, Type, Type): Type
   intersect: function(any, Type, Type): Type
@@ -59,22 +59,22 @@ local record Narrowing
   truthy: Guard
   local_place: function(string): Place
   field_place: function(string, string): Place
-  place_of: function(Node): Place | nil
-  target_of: function(Node): Place | nil
-  places: function(Guard | nil): {Place}
-  forget: function(Guard | nil, function(Place): boolean): Guard | nil
+  place_of: function(Node): Place?
+  target_of: function(Node): Place?
+  places: function(Guard?): {Place}
+  forget: function(Guard?, function(Place): boolean): Guard?
   type_is: function(any, Place, Type): Guard
   value_is: function(any, Place, Type): Guard
-  negate: function(any, Guard | nil): Guard | nil
-  both: function(any, Guard | nil, Guard | nil): Guard | nil
-  either: function(any, Guard | nil, Guard | nil): Guard
-  any_of: function(any, Guard | nil, Guard | nil): Guard
-  none_of: function(any, {Node}, integer): Guard | nil
-  evaluate: function(Host, Guard | nil): {string:Guard}
+  negate: function(any, Guard?): Guard?
+  both: function(any, Guard?, Guard?): Guard?
+  either: function(any, Guard?, Guard?): Guard
+  any_of: function(any, Guard?, Guard?): Guard
+  none_of: function(any, {Node}, integer): Guard?
+  evaluate: function(Host, Guard?): {string:Guard}
 end
 
-local built = { value = nil as compiler | nil }
-local narrowing = { value = nil as Narrowing | nil }
+local built = { value = nil as compiler? }
+local narrowing = { value = nil as Narrowing? }
 
 --- The carried compiler, and [`checker/narrowing.tl`] compiled by it and
 --- loaded.
@@ -93,7 +93,7 @@ local function setup(): compiler, Narrowing
   local environment: {string:any} = {
     assert = assert, ipairs = ipairs, pairs = pairs, require = require, table = table,
     string = string, io = { stderr = { write = function() end } },
-    os = { getenv = function(_name: string): string | nil return nil end },
+    os = { getenv = function(_name: string): string? return nil end },
   }
   local chunk = assert(load(code, "@checker/narrowing.tl", "t", environment as table))
   local loaded: any = chunk()
@@ -123,7 +123,7 @@ local nothing <const> = ty("nil")
 
 local function name_of(t: Type): string
   if t.typename == "union" then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, m in ipairs(t.members or {}) do
       names[#names + 1] = name_of(m)
     end
@@ -142,8 +142,8 @@ end
 --- What the stand-in host answers, and what it was asked to report.
 local record World
   types: {string:Type}
-  warned: {string}
-  refused: {string}
+  warned: mut {string}
+  refused: mut {string}
 end
 
 local function host_of(world: World): Host
@@ -156,7 +156,7 @@ local function host_of(world: World): Host
     return false
   end
   local function pick(t: Type, keep: function(Type): boolean): Type
-    local kept: {Type} = {}
+    local kept: mut {Type} = {}
     for _, m in ipairs(members_of(t)) do
       if keep(m) then
         kept[#kept + 1] = m
@@ -168,7 +168,7 @@ local function host_of(world: World): Host
     return #kept == 1 and kept[1] or { typename = "union", members = kept }
   end
   return {
-    type_of = function(place: Place, _w: any): Type | nil
+    type_of = function(place: Place, _w: any): Type?
       return world.types[place.key]
     end,
     is_a = function(t1: Type, t2: Type): boolean
@@ -180,7 +180,7 @@ local function host_of(world: World): Host
       return true
     end,
     unite = function(_w: any, t1: Type, t2: Type): Type
-      local all: {Type} = {}
+      local all: mut {Type} = {}
       for _, m in ipairs(members_of(t1)) do
         all[#all + 1] = m
       end
@@ -214,13 +214,13 @@ local here <const> = { f = "probe.tl", y = 1, x = 1 }
 
 --- The facts `guard` holds when the places have `types`: each as
 --- `key = fact name of type`, sorted.
-local function facts(guard: Guard | nil, types: {string:Type}): {string}, World
+local function facts(guard: Guard?, types: {string:Type}): {string}, World
   setup()
   local world: World = { types = types, warned = {}, refused = {} }
   local held = module().evaluate(host_of(world), guard)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for key, f in pairs(held) do
-    lines[#lines + 1] = key .. " " .. f.fact .. " " .. name_of(assert(f.typ)) .. (f.no_infer and " (widened)" or "")
+    lines[#lines + 1] = key .. " " .. f.fact .. " " .. name_of(assert(f.typ)) .. (if f.no_infer then " (widened)" else "" end)
   end
   table.sort(lines)
   return lines, world
@@ -534,7 +534,7 @@ local function errors_in(source: string, skipped: integer): {string}
   local ok, raised = pcall(function(): {string}
     local result = compiled.check_string(source, env, "probe.tl", "tl")
     assert(#result.syntax_errors == 0, "does not parse: " .. source)
-    local found: {string} = {}
+    local found: mut {string} = {}
     for _, e in ipairs(result.type_errors) do
       found[#found + 1] = tostring(e.y - skipped) .. ": " .. e.msg
     end
@@ -566,7 +566,7 @@ end
 
 --- The notes of the errors in `source`, in order: `also` of each, or "-".
 local function notes_in(source: string): {string}
-  local notes: {string} = {}
+  local notes: mut {string} = {}
   for _, e in ipairs(errors_of_source(source)) do
     notes[#notes + 1] = e.also or "-"
   end

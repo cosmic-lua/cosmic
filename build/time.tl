@@ -73,7 +73,7 @@ local record verb
     --- The wall clock, in nanoseconds since 1970.
     now: function(): integer
     --- The host's zone, or nil and why.
-    local_zone: function(): Time.Zone | nil, string
+    local_zone: function(): Time.Zone?, string
   end
 end
 
@@ -102,8 +102,8 @@ local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 --- option; these forms are set aside under a name no option has and put
 --- back.
 local function protect(argv: {string}): {string}, {string:string}
-  local out: {string} = {}
-  local kept: {string:string} = {}
+  local out: mut {string} = {}
+  local kept: mut {string:string} = {}
   local slot = 1
   local ended = false
   while argv[slot] ~= nil do
@@ -125,7 +125,7 @@ local function protect(argv: {string}): {string}, {string:string}
 end
 
 --- The words and options `argv` holds, or nil and why.
-local function arguments(argv: {string}): Flags.Parsed | nil, string
+local function arguments(argv: {string}): Flags.Parsed?, string
   local safe, kept = protect(argv)
   local parsed, trouble = Flags.parse(safe, 2, spec)
   if parsed == nil then return nil, trouble end
@@ -148,7 +148,7 @@ local function record_of(seen: Seen): {string:any}
   return {
     epoch = seen.ns // NS,
     rfc3339 = Time.format_rfc3339(seen.ns, seen.zone),
-    zone = seen.zone.name == "Etc/UTC" and "UTC" or seen.zone.name,
+    zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end,
     offset = c.offset,
     abbreviation = c.abbreviation,
     dst = c.dst,
@@ -172,7 +172,7 @@ local function epoch_text(ns: integer): string
     local trimmed = ("%09d"):format(fraction):gsub("0+$", "")
     text = text .. "." .. trimmed
   end
-  return (negative and "-" or "") .. text
+  return (if negative then "-" else "" end) .. text
 end
 
 -- TODO: [`fraction_ns`], the range bounds below and [`epoch_text`]'s
@@ -207,8 +207,8 @@ local function plain(why: string): string
 end
 
 --- [`verb.parse_input`] less the forms' names in its failures.
-local function read_input(text: string, zone: Time.Zone | nil,
-                          how: Time.Disambiguation): verb.Moment | nil, string
+local function read_input(text: string, zone: Time.Zone?,
+                          how: Time.Disambiguation): verb.Moment?, string
   if text:sub(1, 1) == "@" then
     local sign, whole, dot, frac = text:match("^@([+-]?)(%d+)(%.?)(%d*)$")
     if whole == nil or #whole > 10 or #frac > 9 or (dot == "." and frac == "") then
@@ -216,7 +216,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
         "(the calendar ends in 2262) and 9 of fraction"
     end
     local s = math.tointeger(tonumber(whole))
-    local n = frac == "" and 0 or fraction_ns(frac)
+    local n = if frac == "" then 0 else fraction_ns(frac) end
     if sign == "-" then
       s = -s
       if n > 0 then s, n = s - 1, NS - n end
@@ -257,7 +257,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
     return { ns = ns }, ""
   end
   -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
-  local zoned, why: Time.Zoned | nil, string
+  local zoned, why: Time.Zoned?, string
   local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
   if minutes ~= nil then
     zoned, why = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
@@ -265,7 +265,7 @@ local function read_input(text: string, zone: Time.Zone | nil,
       -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
       why = why:gsub("byte (%d+)", function(n: string): string
         local at = math.tointeger(n) or 0
-        return "byte " .. (at >= 17 and at - 3 or at)
+        return "byte " .. (if at >= 17 then at - 3 else at end)
       end)
     end
   else
@@ -290,7 +290,7 @@ end
 --- names the forms, then the fault. The zone returned is nil for the
 --- last three, which name none. Any text answers a moment or a failure.
 --- Raises for a `zone` no function of [`cosmic.time`] made.
-function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment | nil, string
+function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment?, string
   local zoned, why = read_input(text, zone, how or "compatible")
   if zoned == nil then return nil, INPUT_FORMS .. ": " .. why end
   return zoned, ""
@@ -319,7 +319,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     out = bare.out,
     err = bare.err,
     now = Time.now_ns,
-    local_zone = function(): Time.Zone | nil, string
+    local_zone = function(): Time.Zone?, string
       return Time.local_zone()
     end,
   }
@@ -335,14 +335,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if sub == nil then return refuse("name now, convert, between or add") end
   local allowed = takes[sub]
   if allowed == nil then return refuse("no subcommand " .. sub) end
-  local is_allowed: {string:boolean} = {}
+  local is_allowed: mut {string:boolean} = {}
   for _, name in ipairs(allowed) do is_allowed[name] = true end
   for _, name in ipairs(parsed.given) do
     if not is_allowed[name] then return refuse(name .. " is not an option of " .. sub) end
   end
   if #parsed.words - 1 ~= arity[sub] then
     return refuse(("%s takes %d word%s, not %d"):format(sub, arity[sub],
-      arity[sub] == 1 and "" or "s", #parsed.words - 1))
+      if arity[sub] == 1 then "" else "s" end, #parsed.words - 1))
   end
   local as_json = parsed.set["--json"] or false
   local format = parsed.values["--format"] or "rfc3339"
@@ -363,7 +363,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   -- The host's zone once asked for, which is asked for once.
   local host: {Time.Zone} = {}
-  local function local_zone(): Time.Zone | nil
+  local function local_zone(): Time.Zone?
     if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
@@ -376,7 +376,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   --- The zone an option names, the host's when it is not given; nil after
   --- a complaint.
-  local function zone_of(name: string): Time.Zone | nil
+  local function zone_of(name: string): Time.Zone?
     local text = parsed.values[name]
     if text == nil then return local_zone() end
     if text == "" then
@@ -405,7 +405,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return written(shown(seen, format, digits) .. "\n")
   end
   --- What a time argument names: nil after a complaint.
-  local function read_time(text: string, zone: Time.Zone): verb.Moment | nil
+  local function read_time(text: string, zone: Time.Zone): verb.Moment?
     local zoned, why = verb.parse_input(text, zone, disambiguation)
     if zoned == nil then
       complain(("%q: %s"):format(text, why))
@@ -446,7 +446,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
-      overflow = parsed.set["--clamp"] and "clamp" or "reject", disambiguation = disambiguation,
+      overflow = if parsed.set["--clamp"] then "clamp" else "reject" end, disambiguation = disambiguation,
     })
     if moved == nil then
       complain((plain(moved_why):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
@@ -457,7 +457,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   local second = read_time(parsed.words[3], calendar)
   if second == nil then return bare.refused end
-  local modes: {string} = {}
+  local modes: mut {string} = {}
   for _, name in ipairs({ "--days", "--months", "--seconds" }) do
     if parsed.set[name] then modes[#modes + 1] = name end
   end
@@ -479,7 +479,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     value = whole
   else
     local span = Time.between(first.ns, second.ns, calendar)
-    value = unit == "months" and (span.years or 0) * 12 + (span.months or 0) or Time.format_duration(span)
+    value = if unit == "months" then (span.years or 0) * 12 + (span.months or 0) else Time.format_duration(span) end
   end
   if as_json then
     local encoded, why = Json.encode_any({

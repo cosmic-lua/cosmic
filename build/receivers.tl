@@ -63,35 +63,35 @@ local record receivers
     typename: string
     typeid: integer
     --- A nominal's type declaration, once resolved.
-    found: Type | nil
+    found: Type?
     --- A nominal's resolved definition, when it has no declaration.
-    resolved: Type | nil
+    resolved: Type?
     --- A typedecl's definition.
-    def: Type | nil
-    is_alias: boolean | nil
+    def: Type?
+    is_alias: boolean?
     --- A generic's type under its type arguments.
-    t: Type | nil
-    tuple: {Type} | nil
-    fields: {string: Type} | nil
-    field_order: {string} | nil
+    t: Type?
+    tuple: {Type}?
+    fields: {string: Type}?
+    field_order: {string}?
     --- A record's or interface's interfaces, every one it inherits
     --- from included, once the checker has expanded them.
-    interface_list: {Type} | nil
+    interface_list: {Type}?
     --- A function's parameters and results, tuples.
-    args: Type | nil
-    rets: Type | nil
+    args: Type?
+    rets: Type?
     --- A tuple whose last member repeats (`...: T`).
-    is_va: boolean | nil
+    is_va: boolean?
     --- A function's count of required parameters.
-    min_arity: integer | nil
+    min_arity: integer?
     --- Whether a function takes its record as `self` (`R:f`).
-    is_method: boolean | nil
+    is_method: boolean?
     --- Where the checker met the type: a function's own definition,
     --- or a field's declaration.
-    y: integer | nil
-    x: integer | nil
+    y: integer?
+    x: integer?
     --- A union's alternatives.
-    types: {Type} | nil
+    types: {Type}?
   end
 
   record Owner
@@ -109,7 +109,7 @@ local position = receivers.position
 
 --- The record or interface a type is, looking through declarations,
 --- nominals, generics and a one-value tuple; nil for any other type.
-local function record_of(t: receivers.Type | nil): receivers.Type | nil
+local function record_of(t: receivers.Type?): receivers.Type?
   local at = t
   for _ = 1, 8 do
     if at == nil then
@@ -142,7 +142,7 @@ end
 --- an interface that extends another carries its fields too. nil when
 --- no interface of `t` has the field.
 local function declaring(t: receivers.Type, name: string,
-                         seen: {receivers.Type: boolean}): receivers.Type | nil
+                         seen: mut {receivers.Type: boolean}): receivers.Type?
   local list = t.interface_list
   if list == nil or seen[t] then
     return nil
@@ -232,7 +232,7 @@ end
 --- checker holds it in `env` (`"cosmic.log"`, `"Logger"`); nil when
 --- `env` has not loaded the module or it declares no such record.
 function receivers.record_named(env: compiler.Env, module: string,
-                                path: string): receivers.Type | nil
+                                path: string): receivers.Type?
   local at = record_of(env.modules[module] as receivers.Type) -- cast: tl's type object
   for name in path:gmatch("[^.]+") do
     local fields = at ~= nil and at.fields or nil
@@ -257,7 +257,7 @@ end
 --- other module's own may be nested in, and a use of its field is a use
 --- of the nested record's.
 local function walk_owners(state: receivers.State, module: string, t: receivers.Type,
-                           path: string, seen: {integer: boolean})
+                           path: string, seen: mut {integer: boolean})
   local found = record_of(t)
   if found == nil or found.typeid == nil or seen[found.typeid] then
     return
@@ -297,7 +297,7 @@ function receivers.references(state: receivers.State, env: compiler.Env,
       walk_owners(state, name, t as receivers.Type, "", {}) -- cast: tl's type object
     end
   end
-  local out: {receivers.Reference} = {}
+  local out: mut {receivers.Reference} = {}
   local types, owners = state.types, state.owners
   -- A chunk that holds no value of a known record has nothing to walk
   -- for.

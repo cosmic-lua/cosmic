@@ -83,7 +83,7 @@ end
 
 --- A count a stand-in keeps.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A `docker` that records each call's cwd, argv (one bracketed word
@@ -204,7 +204,7 @@ local function test_publish_stops_at_a_docker_failure(tmp: string)
     local outcome = Images.publish(env, out)
     local code, trouble = outcome.code, outcome.trouble
     assert(Fs.close(out))
-    local label = command == "login" and "login ghcr.io" or command
+    local label = if command == "login" then "login ghcr.io" else command end
     assert(code == 5 and trouble == "docker " .. label .. ": exit 5", trouble)
     local _, ran = read(assert(env["FAKE_LOG"])):gsub("argv ", "")
     assert(ran == calls, "ran on past the failure")

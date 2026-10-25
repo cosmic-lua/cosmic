@@ -8,30 +8,26 @@ local Stream = require("cosmic.stream")
 
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
-local record Chunked is Stream.Reader
+local class Chunked is Stream.Reader
   text: string
-  at: integer
+  mut at: integer
   size: integer
   last: string
-  read: function(Chunked, max_bytes?: integer): string | nil, string
-  close: function(Chunked): boolean, string
-end
 
-local chunked_mt: metatable<Chunked> = { __index = Chunked }
+  function read(self, _max_bytes?: integer): string?, string
+    if self.at > #self.text then return nil, self.last end
+    local chunk = self.text:sub(self.at, self.at + self.size - 1)
+    self.at = self.at + self.size
+    return chunk, ""
+  end
 
-function Chunked:read(_max_bytes?: integer): string | nil, string
-  if self.at > #self.text then return nil, self.last end
-  local chunk = self.text:sub(self.at, self.at + self.size - 1)
-  self.at = self.at + self.size
-  return chunk, ""
-end
-
-function Chunked:close(): boolean, string
-  return true, ""
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 local function chunked(text: string, size: integer, last?: string): Stream.Reader
-  local r: Chunked = setmetatable({ text = text, at = 1, size = size, last = last or "" }, chunked_mt)
+  local r: Chunked = { text = text, at = 1, size = size, last = last or "" }
   return r
 end
 
@@ -39,12 +35,12 @@ end
 --- and the failure that ended them, or "".
 local function tokens(text: string, size?: integer, opts?: Json.ReaderOptions): {string}, string
   local r = Json.reader(chunked(text, size or #text + 1), opts)
-  local out: {string} = {}
+  local out: mut {string} = {}
   while true do
     local t, err = r:next()
     if t == nil then return out, err end
     local value = t.value
-    out[#out + 1] = t.kind .. (value ~= nil and "=" .. tostring(value) or "") .. "@" .. assert(Json.pointer(r:steps()))
+    out[#out + 1] = t.kind .. (if value ~= nil then "=" .. tostring(value) else "" end) .. "@" .. assert(Json.pointer(r:steps()))
   end
 end
 
@@ -146,7 +142,7 @@ local function test_value_reads_one_whole_value()
     local r = Json.reader(chunked(text, size), { null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(assert(r:next()).kind == "array")
-    local ids: {integer} = {}
+    local ids: mut {integer} = {}
     while r:peek() == "object" do
       local row = assert(r:value()) as {string: any}
       ids[#ids + 1] = row.id as integer
@@ -192,7 +188,7 @@ end
 
 local function test_a_failing_stream_fails_the_reader()
   local r = Json.reader(chunked("[1, 2", 2, "disk on fire"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   local err: string
   while true do
     local t, why = r:next()
@@ -242,7 +238,7 @@ end
 --- the stream was split.
 local function test_the_offset_stays_where_it_failed()
   local text = '[\r\n{"a":\r\n[1,\r\n2]}\r\n, x]'
-  local offsets: {integer: boolean} = {}
+  local offsets: mut {integer: boolean} = {}
   for size = 1, 8 do
     local r = Json.reader(chunked(text, size))
     while r:next() ~= nil do end
@@ -669,7 +665,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
   -- Read with a peek before each token, an empty key and a refusal stand.
   for _, text in ipairs({ "{a:1,\u{a0}:2}", "{\u{a0}:2}" }) do
     local r = Json.reader(Stream.from_string(text), JSON5)
-    local kinds: {string} = {}
+    local kinds: mut {string} = {}
     while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
     assert(#kinds >= 4 and assert(Json.decode(text, { json5 = true })), text)
   end
@@ -707,7 +703,7 @@ local function test_an_n_waits_for_its_next_byte()
   local chunks = { "[", "n", "", "", "an", "]" }
   local at = { value = 0 }
   local source: Stream.Reader = {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       at.value = at.value + 1
       return chunks[at.value], ""
     end,

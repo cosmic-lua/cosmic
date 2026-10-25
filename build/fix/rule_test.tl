@@ -25,7 +25,7 @@ local built = assert(teal.load())
 --- @param body function(): (any...)
 local function with_rule(probe: Rule, body: function(): (any...))
   local registered = rule.rules
-  local saved: {Rule} = {}
+  local saved: mut {Rule} = {}
   for i, r in ipairs(registered) do
     saved[i] = r
   end

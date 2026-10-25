@@ -32,7 +32,7 @@ end
 local record Printed
   tag: string
   commit: string
-  sha256: string | nil
+  sha256: string?
 end
 local PRINTED <const> = Shape.record({ tag = Shape.string, commit = Shape.string,
   sha256 = Shape.optional(Shape.string) })
@@ -59,21 +59,21 @@ end
 
 --- What git matching-refs answers for tags of these commits.
 local function refs(...: string): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/next-' .. commit .. '"}' end
   return ok("[" .. table.concat(items, ",") .. "]")
 end
 
 --- A page of main's history: these commits, newest first.
 local function history(...: string): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for i, commit in ipairs({ ... }) do items[i] = '{"sha":"' .. commit .. '"}' end
   return ok("[" .. table.concat(items, ",") .. "]")
 end
 
 --- The replies that find the newest of the three, then `rest`.
 local function newest_then(...: string): {string}
-  local script: {string} = {
+  local script: mut {string} = {
     refs(newest, older, oldest),
     history(newest, older, oldest),
     ok(entry(newest, "2026-10-18T10:00:00Z")),
@@ -90,9 +90,9 @@ local function source(commit: string, d?: string): string
 end
 
 local function run(words: {string}, script: {string}, env?: {string:string}, api?: string): Ran
-  local argv: {string} = { "release" }
+  local argv: mut {string} = { "release" }
   for i, word in ipairs(words) do argv[i + 1] = word end
-  local scripts: {{string}} = {}
+  local scripts: mut {{string}} = {}
   for i, one in ipairs(script) do scripts[i] = { one } end
   local out: {string} = {}
   local err: {string} = {}
@@ -168,11 +168,11 @@ local function test_a_prefix_two_releases_share_is_refused_naming_both()
 end
 
 local function test_a_prefix_naming_too_many_tags_is_refused()
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 11 do many[i] = string.format("1234567%033x", i) end
   failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "11 tags start with next-1234567")
   -- Ten are each asked for, none with a release.
-  local ten: {string} = { refs(table.unpack(many, 1, 10)) }
+  local ten: mut {string} = { refs(table.unpack(many, 1, 10)) }
   for i = 2, 11 do ten[i] = reply("404 Not Found", "{}") end
   failed(run({ "--commit", "1234567" }, ten), "no release matches, among the tags")
 end
@@ -228,10 +228,10 @@ end
 --- commit; a commit the next repeats (history that grew between the two
 --- requests) is asked for once.
 local function test_history_is_read_past_a_page_without_a_tag()
-  local untagged: {string} = {}
+  local untagged: mut {string} = {}
   for i = 1, 99 do untagged[i] = string.format("%040x", i) end
   untagged[100] = older
-  local blank: {string} = {}
+  local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", 1000 + i) end
   local ran = run({ "--list" }, {
     refs(newest, older, oldest),
@@ -249,7 +249,7 @@ end
 --- The read ends once every tagged commit has been passed, mid-page:
 --- the script holds no next page. With no tags it reads no history.
 local function test_history_ends_once_every_tag_is_passed()
-  local page: {string} = { older }
+  local page: mut {string} = { older }
   for i = 2, 100 do page[i] = string.format("%040x", i) end
   local ran = run({ "--list" }, { refs(older), history(table.unpack(page)), ok(entry(older, "2026-10-17T10:00:00Z")) })
   assert(ran.code == 0, ran.err)
@@ -262,9 +262,9 @@ end
 --- Past 100 full pages with a tag not yet passed, it fails rather than
 --- answer in part.
 local function test_history_past_100_pages_fails()
-  local blank: {string} = {}
+  local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", i) end
-  local script: {string} = { refs(newest) }
+  local script: mut {string} = { refs(newest) }
   for i = 2, 101 do script[i] = history(table.unpack(blank)) end
   failed(run({}, script), "main's history runs past 100 pages")
 end
@@ -351,7 +351,7 @@ local function test_list_prints_the_matches_newest_first()
   assert(empty.out == "[]\n", empty.out)
   local json = run({ "--list", "--json", "-n", "1" }, newest_then())
   assert(json.code == 0, json.err)
-  local decoded, why: {Printed} | nil, string = Shape.decode_into(json.out, Shape.list(PRINTED))
+  local decoded, why: {Printed}?, string = Shape.decode_into(json.out, Shape.list(PRINTED))
   assert(decoded ~= nil, why)
   assert(#decoded == 1, json.out)
   local first = assert(decoded[1])
@@ -361,7 +361,7 @@ end
 local function test_json_prints_the_verified_release()
   local ran = run({ "--json" }, newest_then(sums(), source(newest)))
   assert(ran.code == 0, ran.err)
-  local decoded, why: Printed | nil, string = Shape.decode_into(ran.out, PRINTED)
+  local decoded, why: Printed?, string = Shape.decode_into(ran.out, PRINTED)
   assert(decoded ~= nil, why)
   assert(decoded.sha256 == digest and decoded.commit == newest, ran.out)
 end

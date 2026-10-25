@@ -274,14 +274,14 @@ end
 --- An ELF header of `class` (1 or 2) and `data` (1 little, 2 big endian)
 --- whose one program header is a PT_INTERP naming `interpreter`, or a
 --- PT_LOAD where it is nil.
-local function elf(class: integer, data: integer, interpreter: string | nil): string
-  local e = data == 1 and "<" or ">"
+local function elf(class: integer, data: integer, interpreter: string?): string
+  local e = if data == 1 then "<" else ">" end
   local wide = class == 2
-  local header_size = wide and 64 or 52
-  local entry_size = wide and 56 or 32
-  local name = interpreter ~= nil and (interpreter .. "\0") or ""
+  local header_size = if wide then 64 else 52 end
+  local entry_size = if wide then 56 else 32 end
+  local name = if interpreter ~= nil then (interpreter .. "\0") else "" end
   local ident = "\127ELF" .. string.char(class, data, 1, 0) .. string.rep("\0", 8)
-  local kind = interpreter ~= nil and 3 or 1
+  local kind = if interpreter ~= nil then 3 else 1 end
   local at = header_size + entry_size
   local header: string
   local entry: string
@@ -328,7 +328,7 @@ local function test_merge_writes_a_path_once_and_joins_its_spellings()
     { path = "rel/./x/", letters = "r" }, { path = "./", letters = "w" }, { path = "/", letters = "x" },
     { path = "//", letters = "r" },
   } })
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   for _, grant in ipairs(assert(out.grants)) do seen[grant.path] = grant.letters end
   assert(seen["/a/b"] == "rx" and seen["rel/x"] == "r" and seen["."] == "w", "paths")
   assert(seen["/"] == "rx" and #assert(out.grants) == 4)
@@ -364,7 +364,7 @@ local function test_user_id_takes_a_pool_from_the_top_of_what_a_namespace_maps()
 end
 
 local function test_user_id_differs_for_serials_a_pool_apart_less_than_its_size()
-  local seen: {integer:boolean} = {}
+  local seen: mut {integer:boolean} = {}
   for serial = 100, 100 + 4095 do
     local id = assert(Sandbox.user_id(FULL, FULL, serial))
     assert(not seen[id], "serial " .. serial .. " repeats " .. id)

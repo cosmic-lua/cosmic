@@ -25,7 +25,7 @@ local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean
 end
 
 local function numbers(set: {integer: boolean}): string
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for line in pairs(set) do
     out[#out + 1] = line
   end

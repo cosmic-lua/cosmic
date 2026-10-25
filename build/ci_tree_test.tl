@@ -77,8 +77,8 @@ local sets_what_it_reads: {string:{string:boolean}} = {
 --- The names of variables a suite forgets that `text`, a source,
 --- names, less `allowed`.
 local function forgotten(names: RunNames, text: string, allowed: {string:boolean}): {string}
-  local found: {string} = {}
-  local seen: {string:boolean} = {}
+  local found: mut {string} = {}
+  local seen: mut {string:boolean} = {}
   for name in text:gmatch("[%u%d_]+") do
     -- CI is a word of prose too often to tell a read of it.
     if name ~= "CI" and not seen[name] and not allowed[name] and names_the_run(names, name) then
@@ -107,7 +107,7 @@ end
 --- checks for, is left out.
 local function test_no_tree_source_reads_what_a_suite_forgets()
   local names = run_names()
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
     for _, path in ipairs((assert(Fs.walk(dir)))) do
       local relative = dir .. "/" .. path
@@ -128,13 +128,13 @@ end
 --- cosmic_ci.orchestration's `darwin_modules` reads it: one path a
 --- line, with what a `#` starts and blank lines left out.
 local function test_the_darwin_list_names_test_modules_of_the_tree()
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for line in (assert(Fs.read("ci/darwin-tests.txt"))):gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
   end
   assert(#modules > 0, "the darwin list names no module")
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, module in ipairs(modules) do
     assert(not seen[module], module .. ": listed twice")
     seen[module] = true

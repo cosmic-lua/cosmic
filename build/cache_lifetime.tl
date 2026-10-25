@@ -97,7 +97,7 @@ end
 
 --- What `path` is, without following a link; nil where there is nothing,
 --- or nothing that can be looked at.
-local function look(path: string): sys.Stat | nil
+local function look(path: string): sys.Stat?
   local st, _ = sys.lstat(path)
   return st
 end
@@ -121,7 +121,7 @@ local function age(path: string, now: integer): Age
     return "odd"
   end
   if st.kind ~= "file" or st.mtime > now then return "odd" end
-  return now - st.mtime > kept_s and "stale" or "recent"
+  return if now - st.mtime > kept_s then "stale" else "recent" end
 end
 
 --- Whether `directory` holds anything a build writes, which only a

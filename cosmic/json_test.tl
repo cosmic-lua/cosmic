@@ -249,7 +249,7 @@ local function test_duplicate_keys_are_refused()
       "json: duplicate key at line 1, column 16 (pointer \"/a\")", "an unquoted key")
   assert(decode_failure("{a: 1, 'a': 3}", { json5 = true }) ==
       "json: duplicate key at line 1, column 8 (pointer \"/a\")", "a single-quoted key")
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 40 do many[#many + 1] = ('"k%d": %d'):format(i, i) end
   many[#many + 1] = '"k7": 0'
   many[#many + 1] = '"k3": 0'
@@ -258,7 +258,7 @@ local function test_duplicate_keys_are_refused()
   assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d (pointer \"/k7\")"):format(at - 6),
     "an object too large to compare pair by pair names the first repeat in the text")
   for _, size in ipairs({ 8, 9, 64, 65 }) do
-    local members: {string} = {}
+    local members: mut {string} = {}
     for i = 1, size - 1 do members[#members + 1] = ('"k%d": {"x": %d}'):format(i, i) end
     members[2] = '"k2": {"x": 1, "x": 2}'
     members[#members + 1] = '"k1": 0'
@@ -268,9 +268,9 @@ local function test_duplicate_keys_are_refused()
     -- Scalars but for one value nested too deep, after a null and
     -- before the repeated key: the nesting is named, and nothing held
     -- for the null is left behind.
-    local flat: {string} = {}
+    local flat: mut {string} = {}
     for i = 1, size - 2 do
-      flat[#flat + 1] = ('"k%d": %s'):format(i, i == 3 and "null" or tostring(i))
+      flat[#flat + 1] = ('"k%d": %s'):format(i, if i == 3 then "null" else tostring(i) end)
     end
     flat[#flat + 1] = '"deep": [[1]]'
     flat[#flat + 1] = '"k1": 0'
@@ -282,7 +282,7 @@ local function test_duplicate_keys_are_refused()
   -- An object looked up as it is built holds a null member's key until
   -- it is whole, so a key twice after a null is found, and the null's
   -- key is absent after.
-  local large: {string} = {}
+  local large: mut {string} = {}
   for i = 1, 70 do large[#large + 1] = ('"k%d": %d'):format(i, i) end
   large[5] = '"k5": null'
   local whole = decoded("{" .. table.concat(large, ", ") .. "}") as {string: any}
@@ -292,8 +292,8 @@ local function test_duplicate_keys_are_refused()
     "a key twice after a null member")
   -- Large objects holding nulls inside large objects, decoded whole.
   local inner = "{" .. table.concat(large, ", ", 1, 70) .. "}"
-  local outer: {string} = {}
-  for i = 1, 70 do outer[#outer + 1] = ('"o%d": %s'):format(i, i % 2 == 0 and "null" or inner) end
+  local outer: mut {string} = {}
+  for i = 1, 70 do outer[#outer + 1] = ('"o%d": %s'):format(i, if i % 2 == 0 then "null" else inner end) end
   local within = decoded("{" .. table.concat(outer, ", ") .. "}") as {string: {string: any}}
   assert(within.o2 == nil and within.o1.k5 == nil and within.o1.k6 == 6, "every held null let go")
   for _, v in pairs(within.o1) do assert(type(v) == "number", "only the values the text holds") end
@@ -386,7 +386,7 @@ local function test_depth_limits()
   assert(encoded(root) ~= "", "64 levels encode by default")
   t[1] = {}
   assert(encode_failure(root):match("^json: cannot encode a value nested deeper than 64 levels"), "65 do not")
-  local cycle: {any} = {}
+  local cycle: mut {any} = {}
   cycle[1] = cycle
   assert(encode_failure(cycle, { max_depth = 5 }):match("contain itself"), "a cycle fails")
   assert(not pcall(Json.decode, "1", { max_depth = 0 }), "a limit below 1 raises")
@@ -446,12 +446,12 @@ local function test_sorted_is_byte_order()
 end
 
 local function test_a_large_document_round_trips()
-  local list: {any} = {}
+  local list: mut {any} = {}
   for i = 1, 5000 do list[i] = 0 end
   local text = encoded(list)
   local back = decoded(text) as {integer}
   assert(#back == 5000 and back[5000] == 0, "every element")
-  local big: {string: any} = {}
+  local big: mut {string: any} = {}
   for i = 1, 2000 do big["key" .. i] = Json.array({ i, tostring(i), i + 0.5 }) end
   assert(same(decoded(encoded(big)), big), "a wide object round-trips whole")
 end
@@ -470,13 +470,13 @@ local alphabet = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\0", "\31", 
   "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80", "{", "]", ":", "," }
 
 local function random_string(pick: function(integer, integer): integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, pick(0, 8) do parts[i] = alphabet[pick(1, #alphabet)] end
   return table.concat(parts)
 end
 
 local function random_value(pick: function(integer, integer): integer, depth: integer): any
-  local kind = pick(1, depth > 3 and 5 or 7)
+  local kind = pick(1, if depth > 3 then 5 else 7 end)
   if kind == 1 then return pick(0, 1) == 1 end
   if kind == 2 then return pick(-1000000, 1000000) * pick(1, 1 << 40) end
   if kind == 3 then return pick(-1000000, 1000000) / pick(1, 1000) + 0.5 end
@@ -487,7 +487,7 @@ local function random_value(pick: function(integer, integer): integer, depth: in
     for i = 1, pick(0, 4) do list[i] = random_value(pick, depth + 1) end
     return list
   end
-  local obj: {string: any} = {}
+  local obj: mut {string: any} = {}
   for _ = 1, pick(0, 4) do
     obj[random_string(pick)] = random_value(pick, depth + 1)
   end
@@ -519,7 +519,7 @@ local function test_any_bytes_are_answered()
       local at = pick(1, #base)
       text = base:sub(1, at - 1) .. string.char(pick(0, 255)) .. base:sub(at + 1)
     else
-      local bytes: {string} = {}
+      local bytes: mut {string} = {}
       for j = 1, pick(0, 12) do bytes[j] = string.char(pick(0, 255)) end
       text = table.concat(bytes)
     end
@@ -749,7 +749,7 @@ local function test_members_lists_what_a_walk_visits()
   -- A marked array that holds a key no array has is mixed, as `encode`
   -- refuses it, and only a request for gaps lists a gap's keys.
   for _, stray in ipairs({ "x", 0, -1, 1.5, true } as {any}) do
-    local odd: {any: any} = Json.array({ 1 }) as {any: any}
+    local odd: mut {any: any} = Json.array({ 1 }) as {any: any}
     odd[stray] = 2
     local m = Json.members(odd)
     assert(m.layout == "mixed" and #m.keys == 0 and m.extent == 0, tostring(stray))
@@ -757,7 +757,7 @@ local function test_members_lists_what_a_walk_visits()
   assert(#Json.members(decoded("[1, null, 3]") as {any: any}).keys == 0, "no gap keys unless asked")
   assert(#Json.members(decoded("[1, null, 3]") as {any: any}, true).keys == 2)
   -- `rawlen` of this table is 3, and its keys are as many, but 5 lies past it.
-  local bordered: {any: any} = { 1, 2, 3 }
+  local bordered: mut {any: any} = { 1, 2, 3 }
   bordered[2] = nil
   bordered[5] = 5
   assert(Json.layout(bordered) == "hole", "a border is not the extent")

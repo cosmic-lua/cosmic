@@ -12,7 +12,7 @@ Test.policy{}
 local built = assert(teal.load(true))
 
 --- A declaration as one line.
-local function described(found: PolicyRules.Declared | nil): string
+local function described(found: PolicyRules.Declared?): string
   if found == nil then
     return "none"
   end
@@ -96,7 +96,7 @@ local CASES: {Case} = {
 
 local function test_both_analyzers_apply_the_rules_alike_to_each_policy()
   local accepted, refused = 0, 0
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(CASES) do
     local source = 'local Test = require("cosmic.test")\n' .. case.body .. "\nlocal function test_a() end\n"
     local old, old_why = analyzer.analyze(built, source, "p_test.tl")

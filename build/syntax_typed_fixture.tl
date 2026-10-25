@@ -94,7 +94,7 @@ local built = teal.lazy()
 function Fixture.fork(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   teal.serve_standard(built)
   local env = assert(built.new_env({ defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" } }))
-  local names: {string} = {}
+  local names: mut {string} = {}
   for module in pairs(modules or {}) do
     names[#names + 1] = module
   end
@@ -112,7 +112,7 @@ function Fixture.fork(source: string, modules?: {string: string}, given?: Rules.
   assert(checked is ast.Node, "the compiler answered no syntax tree")
   local problems = Contracts.check("x.tl", checked, state, Contracts.quiet_records(env), Contracts.binding_tables(env), given,
     result.type)
-  local uses: {Fixture.Use} = {}
+  local uses: mut {Fixture.Use} = {}
   for _, r in ipairs(receivers.references(state, env, checked)) do
     uses[#uses + 1] = { module = r.module, member = r.member, line = r.line }
   end
@@ -139,20 +139,20 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
       bindings[derivation.path] = Translate.translate(text, derivation.path .. ".tl").text
     end
   end
-  local all: {string: string} = {}
+  local all: mut {string: string} = {}
   for module, text in pairs(modules or {}) do
     all[module] = text
   end
   for module, text in pairs(bindings) do
     all[module] = text
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for module in pairs(all) do
     names[#names + 1] = module
   end
   table.sort(names)
-  local translated: {string: string} = {}
-  local key: {string} = {}
+  local translated: mut {string: string} = {}
+  local key: mut {string} = {}
   for _, module in ipairs(names) do
     -- A binding of C is held translated: it is the same for every program, and translating each one for each was most
     -- of what reading a program cost.
@@ -172,7 +172,7 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   counter[1] = counter[1] + 1
   local module = "t" .. tostring(counter[1])
   local run = held.run(Translate.translate(source, module .. ".tl").text, module, given_modules)
-  local types: {integer: Types.Type} = {}
+  local types: mut {integer: Types.Type} = {}
   for id, t in pairs(run.lowered.types) do
     types[id] = t
   end
@@ -187,7 +187,7 @@ end
 
 function Fixture.port(source: string, modules?: {string: string}, given?: Rules.Exemptions): Fixture.Said
   local subject = Fixture.subject(source, modules)
-  local uses: {Fixture.Use} = {}
+  local uses: mut {Fixture.Use} = {}
   for _, r in ipairs(Receivers.references(subject)) do
     uses[#uses + 1] = { module = r.module, member = r.member, line = r.line }
   end

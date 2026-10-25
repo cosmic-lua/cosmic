@@ -145,11 +145,11 @@ end
 --- The delimiter an option names. Raises, naming the caller of the
 --- reader that calls this, when it is not one byte or is a quote or a
 --- line break.
-local function delimiter_of(opts: Csv.Options | nil): string
+local function delimiter_of(opts: Csv.Options?): string
   local delimiter: any = opts ~= nil and opts.delimiter or ","
   if not (delimiter is string) or #delimiter ~= 1 then
     error("csv: the delimiter is one byte, not " ..
-        (delimiter is string and "a string of length " .. #delimiter or "a " .. type(delimiter)), 3)
+        (if delimiter is string then "a string of length " .. #delimiter else "a " .. type(delimiter) end), 3)
   end
   if delimiter == '"' or delimiter == "\r" or delimiter == "\n" then
     error("csv: the delimiter cannot be a quote or a line break", 3)
@@ -163,11 +163,11 @@ local function at(line: integer, column: integer): string
 end
 
 --- The records of `text` and the line each began on, or nil and why.
-local function read(text: string, delimiter: string): Scan | nil, string
-  local records: {{string}} = {}
-  local lines: {integer} = {}
+local function read(text: string, delimiter: string): Scan?, string
+  local records: mut {{string}} = {}
+  local lines: mut {integer} = {}
   local size = #text
-  local pos = text:sub(1, 3) == BOM and 4 or 1
+  local pos = if text:sub(1, 3) == BOM then 4 else 1 end
   local line = 1
   local line_start = pos
   local delimiter_byte = delimiter:byte()
@@ -179,18 +179,18 @@ local function read(text: string, delimiter: string): Scan | nil, string
       -- `table` reads by the header's width.
       records[#records + 1] = {}
       lines[#records] = line
-      pos = pos + (first == 10 and 1 or 2)
+      pos = pos + (if first == 10 then 1 else 2 end)
       line = line + 1
       line_start = pos
     else
-      local fields: {string} = {}
+      local fields: mut {string} = {}
       lines[#records + 1] = line
       local ended = false
       local broke = false
       while not ended do
         if text:byte(pos) == 34 then
           local opened = pos
-          local parts: {string} = {}
+          local parts: mut {string} = {}
           local from = pos + 1
           local close: integer
           while true do
@@ -265,12 +265,12 @@ end
 
 --- The records of `text` with the line each began on, blank lines left
 --- out: the one home of that rule, for `parse` and `records`.
-local function located(text: string, delimiter: string): {Csv.Record} | nil, string
+local function located(text: string, delimiter: string): {Csv.Record}?, string
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
   end
-  local found: {Csv.Record} = {}
+  local found: mut {Csv.Record} = {}
   for number, record in ipairs(scan.records) do
     if #record > 0 then
       found[#found + 1] = { fields = record, line = scan.lines[number] }
@@ -287,12 +287,12 @@ end
 --- header. Blank lines are left out of the records. For each record's
 --- line, which counts the lines inside quoted fields, use [`Csv.records`].
 --- Text with no records is `{}`.
-function Csv.parse(text: string, opts?: Csv.Options): {{string}} | nil, string
+function Csv.parse(text: string, opts?: Csv.Options): {{string}}?, string
   local found, trouble = located(text, delimiter_of(opts))
   if found == nil then
     return nil, trouble
   end
-  local records: {{string}} = {}
+  local records: mut {{string}} = {}
   for index, record in ipairs(found) do
     records[index] = record.fields
   end
@@ -308,7 +308,7 @@ end
 ---
 ---     local found = assert(Csv.records('id,name\n1\n2,Bob\n'))
 ---     assert(#found[2].fields == 1 and found[3].line == 3)
-function Csv.records(text: string, opts?: Csv.Options): {Csv.Record} | nil, string
+function Csv.records(text: string, opts?: Csv.Options): {Csv.Record}?, string
   return located(text, delimiter_of(opts))
 end
 
@@ -322,13 +322,13 @@ end
 ---     local names = Csv.column_names({ "a", "A", "" }, { "rowid" })
 ---     assert(table.concat(names, ",") == "a,A_2,_")
 function Csv.column_names(header: {string}, reserved?: {string}): {string}
-  local taken: {string:boolean} = {}
+  local taken: mut {string:boolean} = {}
   for _, name in ipairs(reserved or {}) do
     taken[name:lower()] = true
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for index, field in ipairs(header) do
-    local name = field == "" and "_" or (field:gsub("\0", "_"))
+    local name = if field == "" then "_" else (field:gsub("\0", "_")) end
     local candidate = name
     local number = 1
     while taken[candidate:lower()] do
@@ -349,7 +349,7 @@ end
 --- header's, naming the line it began on and both counts; raises for a
 --- delimiter `parse` does. Text with no records has no columns, and a
 --- header alone has columns and no rows.
-function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
+function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   local delimiter = delimiter_of(opts)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
@@ -360,8 +360,8 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
   while records[first] ~= nil and #records[first] == 0 do
     first = first + 1
   end
-  local rows: {{string:string}} = {}
-  local began: {integer} = {}
+  local rows: mut {{string:string}} = {}
+  local began: mut {integer} = {}
   if records[first] == nil then
     return { columns = {}, rows = rows, lines = began }, ""
   end
@@ -381,10 +381,10 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table | nil, string
       end
     elseif #record ~= #names then
       return refuse(at(lines[number], 1) .. ": the record has " .. #record ..
-          (#record == 1 and " field" or " fields") .. ", the header " .. #names)
+          (if #record == 1 then " field" else " fields" end) .. ", the header " .. #names)
     end
     if #record > 0 then
-      local row: {string:string} = {}
+      local row: mut {string:string} = {}
       for index, name in ipairs(names) do
         row[name] = record[index]
       end
@@ -443,7 +443,7 @@ local counts = { loads = 0 }
 --- the UTF-8 byte order mark. A `path` is
 --- read more than once, so it names a regular file that stays as it is
 --- while it loads, not a pipe.
-function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.Loaded | nil, string
+function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.Loaded?, string
   if (source.path == nil) == (source.text == nil) then
     error("csv: load reads a path or a text, one of them", 2)
   end
@@ -484,7 +484,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if delimiter ~= "," then
     -- SQLite's CSV table reads a quoted one-byte value; a single quote
     -- goes in double quotes.
-    parameter = parameter .. ", delimiter=" .. (delimiter == "'" and '"\'"' or "'" .. delimiter .. "'")
+    parameter = parameter .. ", delimiter=" .. (if delimiter == "'" then '"\'"' else "'" .. delimiter .. "'" end)
   end
   ok, trouble = handle:exec("CREATE VIRTUAL TABLE " .. scratch .. " USING csv(" .. parameter .. ")")
   if not ok then
@@ -515,7 +515,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
     end
   end
   local names = Csv.column_names(keys, reserved)
-  local declared, cells: {string}, {string} = {}, {}
+  local declared, cells: mut {string}, mut {string} = {}, {}
   for index, column in ipairs(names) do
     declared[index] = identifier(column)
     local cell = identifier("c" .. (index - 1))
@@ -555,14 +555,14 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   end
   local copied = handle:changes()
   if json ~= nil then
-    local order: {integer} = {}
+    local order: mut {integer} = {}
     for index in ipairs(keys) do
       order[index] = index
     end
     table.sort(order, function(a: integer, b: integer): boolean
       return keys[a] < keys[b]
     end)
-    local members: {string} = {}
+    local members: mut {string} = {}
     for _, index in ipairs(order) do
       members[#members + 1] = literal(keys[index]) .. ", " .. identifier(names[index])
     end

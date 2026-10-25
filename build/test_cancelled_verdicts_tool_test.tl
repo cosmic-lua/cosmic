@@ -29,7 +29,7 @@ local function snapshot(path: string, query: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, query))
   assert(db:close())
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "|") end
   return table.concat(out, "\n")
 end
@@ -65,7 +65,7 @@ local function test_d_unstarted() assert(true) end
   local function run(name: string, words: {string}, passes: boolean): string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))
-    local args: {string} = { "test", "--jobs", "1" }
+    local args: mut {string} = { "test", "--jobs", "1" }
     for _, word in ipairs(words) do args[#args + 1] = word end
     local start = this_program.program(args, { cwd = root, env = env, stdout = fd, stderr = fd })
     local result = assert(Child.run(start.argv, start.options))
@@ -79,7 +79,7 @@ local function test_d_unstarted() assert(true) end
   local records = build_dir(root) .. "/build.db"
   local key = snapshot(cache, "SELECT key FROM " .. declared .. " WHERE test = 'work_test test_b_observed_failure'")
   assert(key ~= "")
-  local histories: {string:string} = {}
+  local histories: mut {string:string} = {}
   for _, name in ipairs({ "runs", "test_runs", "coverage", "coverage_by_test" }) do
     histories[name] = snapshot(records, "SELECT * FROM " .. name .. " ORDER BY 1")
   end

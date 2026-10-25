@@ -18,7 +18,7 @@ end
 
 --- The move a command line gets, or nil.
 local function moved_by(argv: {string}, options: {string:boolean | Flags.Option},
-                        home: string | nil, named?: string): tree_root.Move | nil
+                        home: string?, named?: string): tree_root.Move?
   return tree_root.move(argv, options, home, named).move
 end
 
@@ -45,7 +45,7 @@ end
 
 --- The root `cosmic todos` would run at from `dir`, or nil where it runs
 --- in `dir` itself.
-local function rooted(dir: string, home: string | nil, named?: string): string | nil
+local function rooted(dir: string, home: string?, named?: string): string?
   local here = assert(sys.getcwd())
   assert(sys.chdir(dir))
   local moved = moved_by({ "todos" }, {}, home, named)

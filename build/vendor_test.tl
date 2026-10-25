@@ -323,7 +323,7 @@ end
 --- The download is held to every digest the PIN gives, whoever serves it, and trusts every root: a fetch without
 --- them would take a vendored archive from a host on its word.
 local record Seen
-  options?: Http.Options
+  mut options?: Http.Options
 end
 
 local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)

@@ -40,7 +40,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
@@ -66,7 +66,7 @@ end
 --- root.
 local function test_a_user_is_refused_unless_given_with_its_group_and_unveil(tmp: string)
   local probe = probe_in(tmp)
-  local user = sys.getuid() == 65533 and 65531 or 65533
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
   for _, sandbox in ipairs({
       { unveil = { reads = { probe }, writes = {} }, user = 0, group = user },
       { unveil = { reads = { probe }, writes = {} }, user = user },
@@ -114,7 +114,7 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
     Test.skip("a platform with a sandbox answers this where a test requires one")
   end
   local probe = probe_in(tmp)
-  local user = sys.getuid() == 65533 and 65531 or 65533
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
   local sandboxes: {raw_process.Sandbox} = {
     { offline = true },
     { unveil = { reads = { probe } }, offline = true },

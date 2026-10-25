@@ -45,7 +45,7 @@ local function invoke_words(root: string, output: string, words: {string}): Chil
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   env.TMPDIR = Fs.dirname(output)
-  local argv: {string} = { "test" }
+  local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -315,9 +315,9 @@ local function test_unrelated()
   assert(true)
 end
 ]]))
-    local argument = selector == "." and "." or
-      selector == "./" and "./" or
-      selector == "absolute" and root or root .. "/"
+    local argument = if selector == "." then "." elseif
+      selector == "./" then "./" else
+      selector == "absolute" and root end or root .. "/"
     local output = tmp .. "/" .. selector .. ".out"
     local result = invoke(root, output, argument)
     assert(result.ok, assert(Fs.read(output)))
@@ -384,7 +384,7 @@ end
 ]]))
     return root
   end
-  local seen: {string:integer} = {}
+  local seen: mut {string:integer} = {}
   local failed = 0
   for index = 1, 2 do
     local at = tmp .. "/share-" .. tostring(index)
@@ -408,7 +408,7 @@ end
     end
   end
   assert(failed == 1, "the failing test failed " .. tostring(failed) .. " shares")
-  local ids: {string} = {}
+  local ids: mut {string} = {}
   for id, count in pairs(seen) do
     assert(count == 1, id .. " ran in " .. tostring(count) .. " shares")
     ids[#ids + 1] = id

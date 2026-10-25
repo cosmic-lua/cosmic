@@ -93,7 +93,7 @@ local MIN_WORDS = 6
 --- Some are left out on purpose: a project's `command` builds an argv
 --- rather than finding one, and its `touch` makes a missing file, which
 --- Fs.set_mtime does not.
-local COMMANDS: {string: boolean} = {}
+local COMMANDS: mut {string: boolean} = {}
 for name in ([[
   awk base64 basename cat chmod chown cmp cp curl cut date diff
   dirname du env expand fsync ftruncate getconf getentropy getenv getpid
@@ -110,7 +110,7 @@ end
 --- else: [`cosmic.removed`] lists names the runtime withholds.
 local EXAMPLES_ONLY: {string: boolean} = { ["cosmic.removed"] = true }
 
-local STOP: {string: boolean} = {}
+local STOP: mut {string: boolean} = {}
 for word in ("the and for with that this when not from are was its into " ..
     "only never every any all one each which what whose than"):gmatch("%S+") do
   STOP[word] = true
@@ -119,7 +119,7 @@ end
 --- A doc comment's distinct words of three letters or more, lowercased,
 --- without the commonest, and how many there are.
 local function words(text: string): {string: boolean}, integer
-  local set: {string: boolean} = {}
+  local set: mut {string: boolean} = {}
   local count = 0
   for word in text:lower():gmatch("[%a_][%w_]*") do
     if #word > 2 and not STOP[word] and not set[word] then
@@ -164,13 +164,13 @@ end
 --- @param known {near.Known} The library's symbols
 --- @return near.Index
 function near.index(known: {near.Known}): near.Index
-  local named: {string: integer} = {}
-  local named_in: {string: {string: integer}} = {}
-  local their_counts: {integer: integer} = {}
-  local using: {string: {integer}} = {}
-  local qualified: {integer: string} = {}
-  local coded: {integer: string} = {}
-  local comparable: {integer: boolean} = {}
+  local named: mut {string: integer} = {}
+  local named_in: mut {string: {string: integer}} = {}
+  local their_counts: mut {integer: integer} = {}
+  local using: mut {string: {integer}} = {}
+  local qualified: mut {integer: string} = {}
+  local coded: mut {integer: string} = {}
+  local comparable: mut {integer: boolean} = {}
   for index, other in ipairs(known) do
     -- A raw binding's name (sys.mkdir) is what its wrapper stands in
     -- for, so it takes nothing.
@@ -221,13 +221,13 @@ function near.notes(module: string, candidates: {near.Candidate},
   local named_all, named_in = made.named, made.named_in[module]
   local their_counts, using = made.their_counts, made.using
   local qualified, coded, comparable = made.qualified, made.coded, made.comparable
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, mine in ipairs(candidates) do
     local name = last_name(mine.source_symbol)
     local lower = mine.text:lower()
     local my_words, my_count = words(mine.text)
-    local shared: {integer: integer} = {}
-    local order: {integer} = {}
+    local shared: mut {integer: integer} = {}
+    local order: mut {integer} = {}
     if my_count >= MIN_WORDS then
       for word in pairs(my_words) do
         for _, index in ipairs(using[word] or {}) do
@@ -241,7 +241,7 @@ function near.notes(module: string, candidates: {near.Candidate},
       (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0
     -- A pair that shares no words can only be noted as a command's
     -- stand-in, so only then is every library function looked at.
-    local scan: {integer} = order
+    local scan: mut {integer} = order
     if commands then
       scan = {}
       for index = 1, #known do scan[index] = index end
@@ -253,7 +253,7 @@ function near.notes(module: string, candidates: {near.Candidate},
       if comparable[index] then
         local same = other.module == module and
           (other.source_symbol == mine.source_symbol or other.symbol == name)
-        local why: string | nil = nil
+        local why: string? = nil
         if same then
           why = nil
         elseif commands and other.module ~= module and stands_in(other, name) then
@@ -279,9 +279,9 @@ end
 --- Every exported public standard-library symbol `databases` document,
 --- each once: the first database to answer for a module answers for it.
 --- A database built before the `docs` table existed answers nothing.
-function near.known(databases: {Sqlite.Handle}): {near.Known} | nil, string
-  local out: {near.Known} = {}
-  local owner: {string: integer} = {}
+function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
+  local out: mut {near.Known} = {}
+  local owner: mut {string: integer} = {}
   for index, db in ipairs(databases) do
     local tables, tables_trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")

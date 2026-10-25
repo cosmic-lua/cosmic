@@ -87,7 +87,7 @@ local record Analyzer
   record Analysis
     tests: {string}
     --- The chunk's `Test.policy { ... }` declaration, or nil for none.
-    inputs: PolicyRules.Declared | nil
+    inputs: PolicyRules.Declared?
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a plain name (`return Fs`): what a reference
     --- through an alias of this module resolves against. `""` otherwise.
@@ -101,11 +101,11 @@ local record Analyzer
 
   --- The facts of `chunk`, the tree of `source` named `name`, whose names `scoped` resolved ([`Node.scope`]): nil and
   --- why where its `policy` declaration is one the build cannot read.
-  analysis_of: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string, name: string): Analysis | nil, string
+  analysis_of: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string, name: string): Analysis?, string
 
   --- The facts of the text `source`, a file named `name`; nil and why where it does not parse or its policy is
   --- refused.
-  analyze: function(source: string, name: string): Analysis | nil, string
+  analyze: function(source: string, name: string): Analysis?, string
 
   --- A chunk's doc entries, as [`Analyzer.analysis_of`] gives them but for the module entry's signature, and no more
   --- of its analysis.
@@ -135,7 +135,7 @@ end
 
 --- The first name of the path of a `function Owner.name()` statement, or "" for any other statement or path.
 local function owner_of(stat: Ast.Stat): string
-  if stat is Ast.Function and #stat.path == 2 then
+  if (stat.kind == "Function") and #stat.path == 2 then
     return nth(stat.path, 1).text
   end
   return ""
@@ -143,7 +143,7 @@ end
 
 --- The last name of the path of a `function Owner.name()` statement, or "" for any other statement or path.
 local function member_of(stat: Ast.Stat): string
-  if stat is Ast.Function and #stat.path == 2 then
+  if (stat.kind == "Function") and #stat.path == 2 then
     return nth(stat.path, 2).text
   end
   return ""
@@ -167,10 +167,10 @@ end
 --- leaf reads as its own text, a `..` concatenation reads as both sides joined the same way, and anything else (a
 --- call, a variable) contributes nothing. A message built entirely from such a case reduces to `""`, which nothing is
 --- cataloged for.
-local function static_text(chunk: Ast.Chunk, node: Ast.Node | nil): string
+local function static_text(chunk: Ast.Chunk, node: Ast.Node?): string
   if node == nil then
     return ""
-  elseif node is Ast.String then
+  elseif (node.kind == "String") then
     -- The text as written between the quotes, an escape left as the source spells it, as the fork's analyzer read it.
     local written = first_token(chunk, node).text
     if node.long then
@@ -179,7 +179,7 @@ local function static_text(chunk: Ast.Chunk, node: Ast.Node | nil): string
       return body or node.value
     end
     return written:sub(2, -2)
-  elseif node is Ast.Binary and node.op == ".." then
+  elseif (node.kind == "Binary") and node.op == ".." then
     return static_text(chunk, node.left) .. static_text(chunk, node.right)
   end
   return ""
@@ -200,7 +200,7 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
       any = true
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, c in ipairs(run) do
     if c.text:sub(1, 3) == "---" or not any then
       parts[#parts + 1] = comment_body(c)
@@ -210,7 +210,7 @@ local function doc_bodies(run: {Lexer.Comment}): {string}
 end
 
 --- The text of the doc comment the parser attached to a declaration, one line per comment line, leaders stripped.
-local function doc_text(doc: {Lexer.Comment} | nil): string
+local function doc_text(doc: {Lexer.Comment}?): string
   if doc == nil then
     return ""
   end
@@ -226,7 +226,7 @@ end
 --- ending right above a record or a type is the module's as well as that declaration's, when it opens the file;
 --- above a function it is the function's alone.
 local function takes_a_doc_comment(stat: Ast.Stat): boolean
-  return stat is Ast.LocalFunction or stat is Ast.Function
+  return (stat.kind == "LocalFunction") or (stat.kind == "Function")
 end
 
 --- The module's own documentation: the run of comment lines that opens the file, read off the first token, which
@@ -246,7 +246,7 @@ local function module_doc(chunk: Ast.Chunk): string, integer
       nth(comments, last).y == line_of(chunk, first_stat) - 1 then
     return "", 1
   end
-  local run: {Lexer.Comment} = {}
+  local run: mut {Lexer.Comment} = {}
   for index = 1, last do
     run[#run + 1] = nth(comments, index)
   end
@@ -269,7 +269,7 @@ end
 
 --- The name a path of names spells, `Thing.Box`.
 local function dotted(path: {Ast.Name}, count: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, count do
     parts[i] = nth(path, i).text
   end
@@ -279,9 +279,9 @@ end
 --- A declared function's own name: a `local function`'s name alone, or a `function`'s path joined by `.` the way it
 --- was declared, e.g. `"Sqlite.run"`.
 local function symbol_of(stat: Ast.Stat): string
-  if stat is Ast.LocalFunction then
+  if (stat.kind == "LocalFunction") then
     return stat.name.name
-  elseif stat is Ast.Function then
+  elseif (stat.kind == "Function") then
     return dotted(stat.path, #stat.path)
   end
   return ""
@@ -295,7 +295,7 @@ local function head_text(chunk: Ast.Chunk, lines: {string}, first: integer, body
   local tokens = chunk.tokens
   local start = Node.base(body).first
   local opener, last = token_at(tokens, first), token_at(tokens, start - 1)
-  local head: {integer: string} = {}
+  local head: mut {integer: string} = {}
   for line_no = opener.y, last.yend do
     head[line_no] = lines[line_no] or ""
   end
@@ -308,7 +308,7 @@ local function head_text(chunk: Ast.Chunk, lines: {string}, first: integer, body
       end
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = opener.y, last.yend do
     local line = head[line_no] or ""
     local from = 1
@@ -328,9 +328,9 @@ end
 
 --- The head of a function declaration `stat`.
 local function function_signature(chunk: Ast.Chunk, lines: {string}, stat: Ast.Stat): string
-  if stat is Ast.LocalFunction then
+  if (stat.kind == "LocalFunction") then
     return head_text(chunk, lines, Node.base(stat).first, stat.fn.body)
-  elseif stat is Ast.Function then
+  elseif (stat.kind == "Function") then
     return head_text(chunk, lines, Node.base(stat).first, stat.fn.body)
   end
   return ""
@@ -338,7 +338,7 @@ end
 
 --- Whether `node` is a function: a declaration or a literal, whose returns are its own.
 local function function_nodes(node: Ast.Node): boolean
-  return node is Ast.LocalFunction or node is Ast.Function or node is Ast.FunctionLit or node is Ast.Method
+  return (node.kind == "LocalFunction") or (node.kind == "Function") or (node.kind == "FunctionLit") or (node.kind == "Method")
 end
 
 --- The `return` statements in `body` that are `body`'s own: in its blocks, however deep, but not in a function
@@ -346,7 +346,7 @@ end
 local function returns_of(body: Ast.Block): {Ast.Return}
   local out: {Ast.Return} = {}
   Node.walk_until(body, function(node: Ast.Node): boolean
-    if node is Ast.Return then
+    if (node.kind == "Return") then
       out[#out + 1] = node
     end
     return not function_nodes(node)
@@ -356,13 +356,13 @@ end
 
 --- The message of a `return nil, $MSG` (`which` "nil"), `return false, $MSG` ("false") or `return refuse($MSG)`
 --- ("refuse") statement, or nil where `stat` is none.
-local function failure_message(stat: Ast.Return, which: string): Ast.Exp | nil
+local function failure_message(stat: Ast.Return, which: string): Ast.Exp?
   local values = stat.values
   if which == "refuse" then
     local call = values[1]
-    if #values == 1 and call is Ast.Call and #call.args == 1 then
+    if #values == 1 and (call.kind == "Call") and #call.args == 1 then
       local callee = call.callee
-      if callee is Ast.Name and callee.text == "refuse" then
+      if (callee.kind == "Name") and callee.text == "refuse" then
         return call.args[1]
       end
     end
@@ -372,7 +372,7 @@ local function failure_message(stat: Ast.Return, which: string): Ast.Exp | nil
   if #values ~= 2 then
     return nil
   end
-  if (which == "nil" and head is Ast.Nil) or (which == "false" and head is Ast.Boolean and not head.value) then
+  if (which == "nil" and (head.kind == "Nil")) or (which == "false" and (head.kind == "Boolean") and not head.value) then
     return values[2]
   end
   return nil
@@ -382,7 +382,7 @@ end
 --- and `return false, ...` (an effect) alike, then `return refuse(...)`. Searches the whole body, nested blocks
 --- included, but never crosses into a function declared inside it.
 local function catalog_in_body(chunk: Ast.Chunk, body: Ast.Block, symbol: string): {Analyzer.CatalogEntry}
-  local out: {Analyzer.CatalogEntry} = {}
+  local out: mut {Analyzer.CatalogEntry} = {}
   local returns = returns_of(body)
   for _, which in ipairs({ "nil", "false", "refuse" }) do
     for _, stat in ipairs(returns) do
@@ -411,11 +411,11 @@ local function catalog_of(chunk: Ast.Chunk): {Analyzer.CatalogEntry}
     end
   end
   for _, stat in ipairs(chunk.body.stats) do
-    if stat is Ast.LocalFunction or stat is Ast.Function then
+    if (stat.kind == "LocalFunction") or (stat.kind == "Function") then
       add(symbol_of(stat), stat.fn.body)
-    elseif stat is Ast.Class then
+    elseif (stat.kind == "Class") then
       for _, member in ipairs(stat.members) do
-        if member is Ast.Method then
+        if (member.kind == "Method") then
           add(stat.name.name .. ":" .. member.name.name, member.body)
         end
       end
@@ -430,7 +430,7 @@ end
 
 --- The sorted values of an enum.
 local function enum_values(values: {Ast.EnumValue}): {Ast.EnumValue}
-  local out: {Ast.EnumValue} = {}
+  local out: mut {Ast.EnumValue} = {}
   for _, value in ipairs(values) do
     out[#out + 1] = value
   end
@@ -447,7 +447,7 @@ local function field_signature(chunk: Ast.Chunk, lines: {string}, member: Ast.Me
   local tokens = chunk.tokens
   local base = Node.base(member)
   local start = base.first
-  if member is Ast.FieldDecl then
+  if (member.kind == "FieldDecl") then
     start = Node.base(member.type).first
   end
   local first, last = token_at(tokens, start), token_at(tokens, base.last)
@@ -455,7 +455,7 @@ local function field_signature(chunk: Ast.Chunk, lines: {string}, member: Ast.Me
     return line_at(lines, first.y)
   end
   -- Where a comment starts on each line the type spans.
-  local comment_at: {integer: integer} = {}
+  local comment_at: mut {integer: integer} = {}
   for at = start + 1, base.last do
     for _, comment in ipairs(tokens.comments[at] or {}) do
       if comment_at[comment.y] == nil then
@@ -463,7 +463,7 @@ local function field_signature(chunk: Ast.Chunk, lines: {string}, member: Ast.Me
       end
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = first.y, last.yend do
     local line = lines[line_no] or ""
     local to = #line
@@ -481,11 +481,11 @@ end
 
 --- The kind a type declaration is documented as.
 local function type_kind(node: Ast.Node): string
-  if node is Ast.Record or node is Ast.Class then
+  if (node.kind == "Record") or (node.kind == "Class") then
     return "record"
-  elseif node is Ast.Interface then
+  elseif (node.kind == "Interface") then
     return "interface"
-  elseif node is Ast.Enum then
+  elseif (node.kind == "Enum") then
     return "enum"
   end
   return "type"
@@ -496,21 +496,21 @@ local type_docs: function(chunk: Ast.Chunk, lines: {string}, symbol: string, dec
 
 --- Adds the entries for the members of one record, interface or class under `symbol`, in the order given: the fields
 --- and nested types in declaration order, then the metamethods (fields named `__x`), then the methods.
-local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, members: {Ast.Member}, out: {Entry})
+local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, members: {Ast.Member}, out: mut {Entry})
   for pass = 1, 3 do
     for _, member in ipairs(members) do
       local nested = Node.declared(member)
       local line = line_of(chunk, member)
-      if member is Ast.FieldDecl then
+      if (member.kind == "FieldDecl") then
         local meta = member.name.name:sub(1, 2) == "__"
-        if pass == (meta and 2 or 1) then
+        if pass == (if meta then 2 else 1 end) then
           local name = symbol .. "." .. member.name.name
           out[#out + 1] = { symbol = name, source_symbol = name, exported = false,
-            kind = meta and "metamethod" or "field", signature = field_signature(chunk, lines, member),
+            kind = if meta then "metamethod" else "field" end, signature = field_signature(chunk, lines, member),
             text = doc_text(member.doc), line = first_token(chunk, member.type).y }
         end
-      elseif pass == 1 and nested ~= nil and (member is Ast.Record or member is Ast.Interface or member is Ast.Class or
-          member is Ast.Enum) then
+      elseif pass == 1 and nested ~= nil and ((member.kind == "Record") or (member.kind == "Interface") or (member.kind == "Class") or
+          (member.kind == "Enum")) then
         local name = symbol .. "." .. nested.name.name
         out[#out + 1] = { symbol = name, source_symbol = name, exported = false, kind = type_kind(member),
           signature = line_at(lines, line), text = doc_text(nested.name.doc), line = line }
@@ -519,17 +519,17 @@ local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, m
         local name = symbol .. "." .. nested.name.name
         out[#out + 1] = { symbol = name, source_symbol = name, exported = false, kind = "field",
           signature = field_signature(chunk, lines, member), text = doc_text(nested.name.doc), line = line }
-      elseif member is Ast.Method then
+      elseif (member.kind == "Method") then
         -- TODO: drop the metamethod half of this branch (`__x` is a method of a class), once the tree writes the
         -- `__close` of a metatable as the metamethod field the new checker takes: the translator writes it as a
         -- method today, which the checker refuses (`class_metamethod`, doc/plans/new-checker-types.md).
         --
         -- A method named `__x` is a metamethod, as the field of that name is.
         local meta = member.name.name:sub(1, 2) == "__"
-        if pass == (meta and 2 or 3) then
-          local name = symbol .. (meta and "." or ":") .. member.name.name
+        if pass == (if meta then 2 else 3 end) then
+          local name = symbol .. (if meta then "." else ":" end) .. member.name.name
           out[#out + 1] = { symbol = name, source_symbol = name, exported = false,
-            kind = meta and "metamethod" or "method",
+            kind = if meta then "metamethod" else "method" end,
             signature = head_text(chunk, lines, Node.base(member).first, member.body), text = doc_text(member.doc),
             line = line }
         end
@@ -540,19 +540,19 @@ end
 
 --- Adds the entries for one record, interface, class or enum body under `symbol`: one per member, with a nested type
 --- recursing under its own name.
-type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: Ast.Node, out: {Entry})
-  if decl is Ast.Enum then
+type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: Ast.Node, out: mut {Entry})
+  if (decl.kind == "Enum") then
     local line = line_of(chunk, decl)
     for _, value in ipairs(enum_values(decl.values)) do
       local full = symbol .. "." .. value.value
       out[#out + 1] = { symbol = full, source_symbol = full, exported = false, kind = "value",
         signature = string.format("%q", value.value), text = doc_text(value.doc), line = line }
     end
-  elseif decl is Ast.Record then
+  elseif (decl.kind == "Record") then
     members_docs(chunk, lines, symbol, decl.members, out)
-  elseif decl is Ast.Interface then
+  elseif (decl.kind == "Interface") then
     members_docs(chunk, lines, symbol, decl.members, out)
-  elseif decl is Ast.Class then
+  elseif (decl.kind == "Class") then
     members_docs(chunk, lines, symbol, decl.members, out)
   end
 end
@@ -569,7 +569,7 @@ end
 --- documented; a bare `local x = ...` is not. A worked example ([`examples_of`]) is left out too: it documents
 --- another module's symbol, not this one's.
 local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
-  local out: {Entry} = {}
+  local out: mut {Entry} = {}
   local opening, opening_line = module_doc(chunk)
   if #opening > 0 then
     out[#out + 1] = { symbol = "", source_symbol = "", exported = true, kind = "module", signature = "",
@@ -578,17 +578,17 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
   for index, stat in ipairs(chunk.body.stats) do
     local line = line_of(chunk, stat)
     local declared = Node.declared(stat)
-    if (stat is Ast.LocalFunction or stat is Ast.Function) and not is_example_function(stat) then
+    if ((stat.kind == "LocalFunction") or (stat.kind == "Function")) and not is_example_function(stat) then
       local symbol = symbol_of(stat)
-      local doc: {Lexer.Comment} | nil = nil
-      if stat is Ast.LocalFunction then
+      local doc: {Lexer.Comment}? = nil
+      if (stat.kind == "LocalFunction") then
         doc = stat.name.doc
       else
         doc = stat.doc
       end
       out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false, kind = "function",
         signature = function_signature(chunk, lines, stat), text = doc_text(doc), line = line }
-    elseif declared ~= nil and not (stat is Ast.Import) then
+    elseif declared ~= nil and not ((stat.kind == "Import")) then
       local name = declared.name
       local kind = type_kind(stat)
       out[#out + 1] = { symbol = name.name, source_symbol = name.name, exported = false, kind = kind,
@@ -596,7 +596,7 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
       if kind ~= "type" then
         type_docs(chunk, lines, name.name, stat, out)
       end
-    elseif stat is Ast.Local and #stat.bindings > 0 then
+    elseif (stat.kind == "Local") and #stat.bindings > 0 then
       local first = nth(stat.bindings, 1)
       local text = doc_text(first.doc)
       -- The run above the file's first `local` is the module's (see [`module_doc`]), never that value's.
@@ -615,11 +615,11 @@ end
 --- What the canonical addressing and the reachability make of the entries, kept apart from them: an entry is never
 --- changed after it is made, and [`settle`] makes the entries the analysis answers.
 local record Marks
-  exported: {Entry: boolean}
-  symbol: {Entry: string}
+  exported: mut {Entry: boolean}
+  symbol: mut {Entry: string}
   --- The entry an entry takes its kind, signature, text and line from: a callable implementation lends them to the
   --- field row it implements.
-  lent: {Entry: Entry}
+  lent: mut {Entry: Entry}
 end
 
 local function new_marks(): Marks
@@ -648,9 +648,9 @@ local function surface_of(chunk: Ast.Chunk, marks: Marks, export: string, entrie
     return ""
   end
   for _, stat in ipairs(chunk.body.stats) do
-    if stat is Ast.Local and #stat.bindings == 1 and nth(stat.bindings, 1).name == export then
+    if (stat.kind == "Local") and #stat.bindings == 1 and nth(stat.bindings, 1).name == export then
       local written = stat.types[1]
-      if written ~= nil and written is Ast.TypeName and #written.path == 1 then
+      if written ~= nil and (written.kind == "TypeName") and #written.path == 1 then
         local type_name = nth(written.path, 1)
         for _, entry in ipairs(entries) do
           if entry.source_symbol == type_name and shown(marks, entry).kind == "record" then
@@ -679,7 +679,7 @@ local function mark_reachable_types(entries: {Entry}, marks: Marks, surface: str
       end
     end
   end
-  local searched: {Entry: boolean} = {}
+  local searched: mut {Entry: boolean} = {}
   local joined = true
   while joined do
     joined = false
@@ -710,8 +710,8 @@ local function mark_reachable_types(entries: {Entry}, marks: Marks, surface: str
 end
 
 --- The name of an expression when it is a plain name.
-local function name_of(exp: Ast.Exp | nil): string | nil
-  if exp ~= nil and exp is Ast.Name then
+local function name_of(exp: Ast.Exp?): string?
+  if exp ~= nil and (exp.kind == "Name") then
     return exp.text
   end
   return nil
@@ -721,10 +721,10 @@ end
 --- implementation detail: both [`Fs.read`] and a renamed `Public.read` are the canonical member `read`. Declarations
 --- outside that returned surface stay indexed under their source spelling and are explicitly private.
 local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chunk, export: string,
-                                 returned: Ast.Exp | nil): {Entry}
+                                 returned: Ast.Exp?): {Entry}
   local dot = export .. "."
   local colon = export .. ":"
-  local by_source: {string: {Entry}} = {}
+  local by_source: mut {string: {Entry}} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source_symbol
     local bucket = by_source[source]
@@ -756,9 +756,9 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
   -- declaration value currently in it, or "" when an expression is not one of the supported direct values. Assigning
   -- that binding into an export member copies the identity at that point; later reassignment of the local cannot
   -- retroactively change it.
-  local values: {string: string} = {}
-  local members: {string: string} = {}
-  local function value_of(exp: Ast.Exp | nil): string
+  local values: mut {string: string} = {}
+  local members: mut {string: string} = {}
+  local function value_of(exp: Ast.Exp?): string
     local name = name_of(exp)
     if name ~= nil then
       return values[name] or ""
@@ -766,41 +766,41 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
     return ""
   end
   for _, stat in ipairs(chunk.body.stats) do
-    if stat is Ast.LocalFunction then
+    if (stat.kind == "LocalFunction") then
       values[stat.name.name] = stat.name.name
-    elseif stat is Ast.Local then
+    elseif (stat.kind == "Local") then
       for index, binding in ipairs(stat.bindings) do
         values[binding.name] = value_of(stat.values[index])
       end
     elseif export ~= "" and owner_of(stat) == export then
       local public_source = export .. "." .. member_of(stat)
       members[public_source] = public_source
-    elseif stat is Ast.Assign then
-      local rhs_values: {string} = {}
+    elseif (stat.kind == "Assign") then
+      local rhs_values: mut {string} = {}
       for index in ipairs(stat.targets) do
         rhs_values[index] = value_of(stat.values[index])
       end
       for index, lhs in ipairs(stat.targets) do
-        if lhs is Ast.Field and name_of(lhs.object) == export and export ~= "" then
+        if (lhs.kind == "Field") and name_of(lhs.object) == export and export ~= "" then
           members[export .. "." .. lhs.name] = nth(rhs_values, index)
-        elseif lhs is Ast.Name then
+        elseif (lhs.kind == "Name") then
           values[lhs.text] = nth(rhs_values, index)
         end
       end
     end
   end
-  if export == "" and returned ~= nil and returned is Ast.Table then
+  if export == "" and returned ~= nil and (returned.kind == "Table") then
     for _, field in ipairs(returned.items) do
-      local key: string | nil = nil
-      if field is Ast.Named then
+      local key: string? = nil
+      if (field.kind == "Named") then
         key = field.name
-      elseif field is Ast.Keyed then
+      elseif (field.kind == "Keyed") then
         local written = field.key
-        if written is Ast.String then
+        if (written.kind == "String") then
           key = written.value
         end
       end
-      if key ~= nil and not (field is Ast.Positional) then
+      if key ~= nil and not ((field.kind == "Positional")) then
         local value_name = name_of(field.value)
         if value_name ~= nil then
           members[key] = values[value_name] or ""
@@ -809,18 +809,18 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
     end
   end
 
-  local out: {Entry} = {}
+  local out: mut {Entry} = {}
   for _, entry in ipairs(entries) do
     out[#out + 1] = entry
   end
-  local public_sources: {string} = {}
+  local public_sources: mut {string} = {}
   for public_source in pairs(members) do
     public_sources[#public_sources + 1] = public_source
   end
   table.sort(public_sources)
   for _, public_source in ipairs(public_sources) do
     local implementation_name = members[public_source] or ""
-    local implementation: Entry | nil = nil
+    local implementation: Entry? = nil
     if implementation_name ~= "" then
       local implementations = by_source[implementation_name]
       if implementations ~= nil and #implementations > 0 then
@@ -828,7 +828,7 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
       end
     end
     local candidates = by_source[public_source] or {}
-    local public: Entry | nil = nil
+    local public: Entry? = nil
     -- A declared record field is the stable surface row. When a callable implementation is known it lends this row
     -- its docs and location; every overwritten callable declaration remains inspectable but private.
     for _, candidate in ipairs(candidates) do
@@ -866,8 +866,8 @@ end
 
 --- The entries the analysis answers: `entries` with what `marks` settled, and with `module_signature` for the row of the
 --- module itself where there is one.
-local function settle(entries: {Entry}, marks: Marks, module_signature: string | nil): {Entry}
-  local out: {Entry} = {}
+local function settle(entries: {Entry}, marks: Marks, module_signature: string?): {Entry}
+  local out: mut {Entry} = {}
   for _, entry in ipairs(entries) do
     local from = shown(marks, entry)
     local signature = from.signature
@@ -885,7 +885,7 @@ end
 --- comment-only line belongs to whatever sits after it, not to this statement, so it is trimmed rather than shown as
 --- part of the example.
 local function block_text(lines: {string}, y: integer, x: integer, until_y: integer, until_x: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = y, until_y do
     local line = lines[line_no] or ""
     local from = 1
@@ -909,16 +909,16 @@ end
 --- is a word in a string or a comment) and the first name of each type it writes (`Release` in `x: Release`, `Fs` in
 --- [`Fs.Stat`]). A type's name is not scoped, since a local rarely shadows a type, and the path a function declares
 --- is no use of its owner.
-local function uses_of(scoped: Scopes.Scoped, root: Ast.Node, used: {string: boolean})
+local function uses_of(scoped: Scopes.Scoped, root: Ast.Node, used: mut {string: boolean})
   local base = Node.base(root)
   local skipped: {integer: boolean} = {}
   Node.walk(root, function(node: Ast.Node)
-    if node is Ast.Function then
+    if (node.kind == "Function") then
       for _, name in ipairs(node.path) do
         skipped[Node.base(name).id] = true
       end
-    elseif node is Ast.Name and skipped[Node.base(node).id] == nil then
-      local var: Scopes.Var | nil = nil
+    elseif (node.kind == "Name") and skipped[Node.base(node).id] == nil then
+      local var: Scopes.Var? = nil
       local binding = node.binding
       if binding ~= nil then
         var = scoped.vars[binding]
@@ -926,7 +926,7 @@ local function uses_of(scoped: Scopes.Scoped, root: Ast.Node, used: {string: boo
       if var == nil or var.declared < base.first or var.declared > base.last then
         used[node.text] = true
       end
-    elseif node is Ast.TypeName then
+    elseif (node.kind == "TypeName") then
       used[nth(node.path, 1)] = true
     end
   end)
@@ -956,15 +956,15 @@ local record Required
 end
 
 local record Preamble
-  requires: {Required}
-  calls: {string}
-  call_nodes: {Ast.Stat}
-  helpers: {Helper}
+  requires: mut {Required}
+  calls: mut {string}
+  call_nodes: mut {Ast.Stat}
+  helpers: mut {Helper}
 end
 
 --- `code`, a statement's text cut at the next statement's start, less the comment lines above that next statement.
 local function own_text(code: string): string
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   for line in String.lines(code) do
     kept[#kept + 1] = line
   end
@@ -980,7 +980,7 @@ local function preamble_of(chunk: Ast.Chunk, lines: {string}): Preamble
   for index, stat in ipairs(stats) do
     local until_y, until_x = next_place(chunk, stats, index, #lines)
     local opener = first_token(chunk, stat)
-    if stat is Ast.Local then
+    if (stat.kind == "Local") then
       local code = own_text(block_text(lines, opener.y, opener.x, until_y, until_x))
       local name = code:match("^local%s+([%w_]+)%s*=%s*require%s*%(")
       if name ~= nil then
@@ -988,11 +988,11 @@ local function preamble_of(chunk: Ast.Chunk, lines: {string}): Preamble
       end
     end
     local declared = Node.declared(stat)
-    if stat is Ast.LocalFunction or stat is Ast.Local or (declared ~= nil and declared.scope == "local") then
-      local names: {string} = {}
-      if stat is Ast.LocalFunction then
+    if (stat.kind == "LocalFunction") or (stat.kind == "Local") or (declared ~= nil and declared.scope == "local") then
+      local names: mut {string} = {}
+      if (stat.kind == "LocalFunction") then
         names[1] = stat.name.name
-      elseif stat is Ast.Local then
+      elseif (stat.kind == "Local") then
         for _, binding in ipairs(stat.bindings) do
           names[#names + 1] = binding.name
         end
@@ -1017,7 +1017,7 @@ local function preamble_of(chunk: Ast.Chunk, lines: {string}): Preamble
         local _, breaks = code:gsub("\n", "\n")
         out.helpers[#out.helpers + 1] = { names = names, code = code, lines = breaks + 1, node = stat }
       end
-    elseif stat is Ast.CallStat then
+    elseif (stat.kind == "CallStat") then
       out.calls[#out.calls + 1] = own_text(block_text(lines, opener.y, opener.x, until_y, until_x))
       out.call_nodes[#out.call_nodes + 1] = stat
     end
@@ -1044,8 +1044,8 @@ local function preamble_text(scoped: Scopes.Scoped, pre: Preamble, body_node: As
   end
   -- Helpers the body names, and those they name in turn, until no more is asked for. One too long to carry is left
   -- out, and so is what only it names.
-  local carried: {boolean} = {}
-  local refused: {boolean} = {}
+  local carried: mut {boolean} = {}
+  local refused: mut {boolean} = {}
   local total = 0
   local changed = true
   while changed do
@@ -1067,13 +1067,13 @@ local function preamble_text(scoped: Scopes.Scoped, pre: Preamble, body_node: As
       end
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, required in ipairs(pre.requires) do
     if used[required.name] == true then
       out[#out + 1] = required.code
     end
   end
-  local helpers: {string} = {}
+  local helpers: mut {string} = {}
   for at, helper in ipairs(pre.helpers) do
     if carried[at] == true then
       helpers[#helpers + 1] = helper.code
@@ -1102,11 +1102,11 @@ end
 --- [`docs_of`] reads one: what the example is for in the comment, how in the code below it. Which symbol it
 --- demonstrates is decided when [`build.docs`] reads it, by matching this text and source against a symbol's name.
 local function examples_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, lines: {string}): {Analyzer.ExampleEntry}
-  local out: {Analyzer.ExampleEntry} = {}
+  local out: mut {Analyzer.ExampleEntry} = {}
   local stats = chunk.body.stats
   local pre = preamble_of(chunk, lines)
   for index, stat in ipairs(stats) do
-    if stat is Ast.Function and is_example_function(stat) then
+    if (stat.kind == "Function") and is_example_function(stat) then
       local until_y, until_x = next_place(chunk, stats, index, #lines)
       local opener = first_token(chunk, stat)
       local body = own_text(block_text(lines, opener.y, opener.x, until_y, until_x))
@@ -1122,7 +1122,7 @@ end
 --- unknown receiver types produce no edge rather than one guessed from spelling.
 local function references_of(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Analyzer.Reference}, {Lexical.Binding}
   local seen: {string: boolean} = {}
-  local out: {Analyzer.Reference} = {}
+  local out: mut {Analyzer.Reference} = {}
   local bindings = Lexical.walk(chunk, scoped, function(module: string, name: string, line: integer)
     local id = module .. "\n" .. name .. "\n" .. tostring(line)
     if seen[id] == nil then
@@ -1147,13 +1147,13 @@ end
 --- left out: which binding a type declared under it reads depends on where, and a reader of the rows knows only the
 --- type's module. So is one declared with a type of its own (`local B: T = require("m")`), whose `B.X` is `T`'s.
 local function bound_of(bindings: {Lexical.Binding}): {Analyzer.Bound}
-  local count: {string: integer} = {}
+  local count: mut {string: integer} = {}
   for _, each in ipairs(bindings) do
     if each.top then
       count[each.name] = (count[each.name] or 0) + 1
     end
   end
-  local out: {Analyzer.Bound} = {}
+  local out: mut {Analyzer.Bound} = {}
   for _, each in ipairs(bindings) do
     if each.top and each.module ~= "" and not each.annotated and count[each.name] == 1 then
       out[#out + 1] = { name = each.name, module = each.module }
@@ -1163,27 +1163,27 @@ local function bound_of(bindings: {Lexical.Binding}): {Analyzer.Bound}
 end
 
 --- Whether `node` is `require("cosmic.test")`.
-local function requires_test(node: Ast.Exp | nil): boolean
-  if node ~= nil and node is Ast.Call then
+local function requires_test(node: Ast.Exp?): boolean
+  if node ~= nil and (node.kind == "Call") then
     local callee, first = node.callee, node.args[1]
-    return callee is Ast.Name and callee.text == "require" and first ~= nil and first is Ast.String and
+    return (callee.kind == "Name") and callee.text == "require" and first ~= nil and (first.kind == "String") and
       first.value == "cosmic.test"
   end
   return false
 end
 
 --- Whether `node` names [`Test.policy`] through one of `names`, the locals a chunk binds `require("cosmic.test")` to.
-local function names_policy(node: Ast.Node | nil, names: {string: boolean}): boolean
-  if node ~= nil and node is Ast.Field and node.name == "policy" then
+local function names_policy(node: Ast.Node?, names: {string: boolean}): boolean
+  if node ~= nil and (node.kind == "Field") and node.name == "policy" then
     local object = node.object
-    return object is Ast.Name and names[object.text] == true
+    return (object.kind == "Name") and names[object.text] == true
   end
   return false
 end
 
 --- `node` as a string written plainly, or nil and why, naming `path`.
-local function plain_string(chunk: Ast.Chunk, node: Ast.Exp, path: string): string | nil, string
-  if not (node is Ast.String) then
+local function plain_string(chunk: Ast.Chunk, node: Ast.Exp, path: string): string?, string
+  if not ((node.kind == "String")) then
     return nil, path .. " takes a string written out as a literal"
   end
   -- The literal as written, which is what the token holds: an escape the running module decodes would read otherwise
@@ -1197,12 +1197,12 @@ end
 
 --- The name an entry of a table literal is written with, in `name = ...` or `["name"] = ...`, or nil for an entry with
 --- none.
-local function entry_name(item: Ast.Item): string | nil
-  if item is Ast.Named then
+local function entry_name(item: Ast.Item): string?
+  if (item.kind == "Named") then
     return item.name
-  elseif item is Ast.Keyed then
+  elseif (item.kind == "Keyed") then
     local key = item.key
-    if key is Ast.String then
+    if (key.kind == "String") then
       return key.value
     end
   end
@@ -1210,13 +1210,13 @@ local function entry_name(item: Ast.Item): string | nil
 end
 
 --- The string literals of a list written out as a literal, or nil and why.
-local function string_list(chunk: Ast.Chunk, node: Ast.Exp, path: string): {string} | nil, string
-  if not (node is Ast.Table) then
+local function string_list(chunk: Ast.Chunk, node: Ast.Exp, path: string): {string}?, string
+  if not ((node.kind == "Table")) then
     return nil, path .. " takes a list of string literals, written out"
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, item in ipairs(node.items) do
-    if not (item is Ast.Positional) then
+    if not ((item.kind == "Positional")) then
       return nil, path .. " lists string literals only"
     end
     local text, why = plain_string(chunk, item.value, path)
@@ -1229,11 +1229,11 @@ local function string_list(chunk: Ast.Chunk, node: Ast.Exp, path: string): {stri
 end
 
 --- The names and string literals of a table written out as a literal, or nil and why.
-local function string_map(chunk: Ast.Chunk, node: Ast.Exp, path: string): {string: string} | nil, string
-  if not (node is Ast.Table) then
+local function string_map(chunk: Ast.Chunk, node: Ast.Exp, path: string): {string: string}?, string
+  if not ((node.kind == "Table")) then
     return nil, path .. " takes a table, written out"
   end
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, item in ipairs(node.items) do
     local name = entry_name(item)
     if name == nil then
@@ -1249,31 +1249,31 @@ local function string_map(chunk: Ast.Chunk, node: Ast.Exp, path: string): {strin
 end
 
 --- A `policy` table literal as [`PolicyRules.PolicyData`], or nil and why.
-local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.PolicyData | nil, string
-  local profiles: {string} | nil
-  local isolate: {string} | nil
-  local promises: {string} | nil
-  local connect: {string} | nil
-  local loopback: {string} | nil
-  local env: {string} | nil
-  local requires: {string} | nil
-  local set_env: {string: string} | nil
-  local set_env_digests: {string: string} | nil
-  local grants: {{string: string}} | nil
-  local limits: {string: integer} | nil
-  local tmp: boolean | nil
-  local user: integer | nil
-  local group: integer | nil
-  local database: string | nil
-  local seen: {string: boolean} = {}
+local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.PolicyData?, string
+  local profiles: {string}?
+  local isolate: {string}?
+  local promises: {string}?
+  local connect: {string}?
+  local loopback: {string}?
+  local env: {string}?
+  local requires: {string}?
+  local set_env: {string: string}?
+  local set_env_digests: {string: string}?
+  local grants: {{string: string}}?
+  local limits: {string: integer}?
+  local tmp: boolean?
+  local user: integer?
+  local group: integer?
+  local database: string?
+  local seen: mut {string: boolean} = {}
   for _, item in ipairs(node.items) do
     local field = entry_name(item)
-    local takes: string | nil = nil
+    local takes: string? = nil
     if field ~= nil then
       takes = PolicyRules.kind_of(field)
     end
     if field == nil or takes == nil then
-      return nil, (field ~= nil and ("has no field " .. field) or "has an entry with no name") ..
+      return nil, (if field ~= nil then ("has no field " .. field) else "has an entry with no name" end) ..
         "; it has " .. PolicyRules.field_list()
     end
     if seen[field] == true then
@@ -1283,7 +1283,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
     local given = item.value
     local why = ""
     if takes == "flag" then
-      if given is Ast.Boolean then
+      if (given.kind == "Boolean") then
         tmp = given.value
       else
         why = field .. " takes true or false"
@@ -1313,8 +1313,8 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         set_env_digests, why = string_map(chunk, given, field)
       end
     elseif takes == "id" then
-      local number: integer | nil = nil
-      if given is Ast.Integer then
+      local number: integer? = nil
+      if (given.kind == "Integer") then
         number = given.value
       end
       if number == nil then
@@ -1325,16 +1325,16 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         group = number
       end
     elseif takes == "limits" then
-      local found_limits: {string: integer} = {}
+      local found_limits: mut {string: integer} = {}
       limits = found_limits
-      if not (given is Ast.Table) then
+      if not ((given.kind == "Table")) then
         why = "limits takes a table, written out"
       else
         for _, entry in ipairs(given.items) do
           local name = entry_name(entry)
           local value = entry.value
-          local number: integer | nil = nil
-          if value is Ast.Integer then
+          local number: integer? = nil
+          if (value.kind == "Integer") then
             number = value.value
           end
           if name == nil or number == nil or
@@ -1346,15 +1346,15 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         end
       end
     else
-      local found_grants: {{string: string}} = {}
+      local found_grants: mut {{string: string}} = {}
       grants = found_grants
-      if not (given is Ast.Table) then
+      if not ((given.kind == "Table")) then
         why = "grants takes a list of grants"
       else
         for i, entry in ipairs(given.items) do
           local at = "grants[" .. tostring(i) .. "]"
           local value = entry.value
-          if not (entry is Ast.Positional) or not (value is Ast.Table) then
+          if not ((entry.kind == "Positional")) or not ((value.kind == "Table")) then
             why = at .. " takes a table"
             break
           end
@@ -1386,7 +1386,7 @@ end
 --- level, once, on a name a top-level `local` binds `require("cosmic.test")` to, with one table literal: `policy`
 --- reached any other way -- inside a function, under another name, handed a value computed -- is refused. The policy
 --- is held to the rules its own fields are ([`Test.needs_of`]'s), and read as the declaration it stands for.
-local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared | nil, string
+local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared?, string
   local tokens = chunk.tokens
   --- The line a call's arguments start on: where a call is placed.
   local function args_line(call: Ast.Call): integer
@@ -1395,20 +1395,20 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared |
   local function at(line: integer): string
     return name .. ":" .. tostring(line) .. ": test.policy: "
   end
-  local names: {string: boolean} = {}
-  local found: Ast.Call | nil = nil
+  local names: mut {string: boolean} = {}
+  local found: Ast.Call? = nil
   local found_line = 0
-  local callees: {integer: boolean} = {}
+  local callees: mut {integer: boolean} = {}
   for _, stat in ipairs(chunk.body.stats) do
-    if stat is Ast.Local then
+    if (stat.kind == "Local") then
       for i, binding in ipairs(stat.bindings) do
         if requires_test(stat.values[i]) then
           names[binding.name] = true
         end
       end
-    elseif stat is Ast.CallStat then
+    elseif (stat.kind == "CallStat") then
       local call = stat.call
-      if call is Ast.Call and names_policy(call.callee, names) then
+      if (call.kind == "Call") and names_policy(call.callee, names) then
         if found ~= nil then
           return nil, at(args_line(call)) .. "a module declares its policy once; line " .. tostring(found_line) ..
             " did already"
@@ -1422,7 +1422,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared |
   -- `policy` reached any other way than that one statement.
   local elsewhere: {Ast.Field} = {}
   Node.walk(chunk.body, function(node: Ast.Node)
-    if #elsewhere == 0 and node is Ast.Field and names_policy(node, names) and callees[Node.base(node).id] == nil then
+    if #elsewhere == 0 and (node.kind == "Field") and names_policy(node, names) and callees[Node.base(node).id] == nil then
       elsewhere[1] = node
     end
   end)
@@ -1434,7 +1434,7 @@ local function inputs_of(chunk: Ast.Chunk, name: string): PolicyRules.Declared |
     return nil, ""
   end
   local value = found.args[1]
-  if #found.args ~= 1 or not (value is Ast.Table) then
+  if #found.args ~= 1 or not ((value.kind == "Table")) then
     return nil, at(found_line) .. "hand it one table written out as a literal: Test.policy { grants = { ... } }"
   end
   local data, why = policy_data(chunk, value)
@@ -1474,24 +1474,24 @@ end
 --- What a chunk's own statement list says: its `test_*` functions, in order, whether it ends in a `return`, the name
 --- returned, and the value returned.
 local record Facts
-  tests: {string}
-  has_return: boolean
-  export: string
-  returned: Ast.Exp | nil
+  tests: mut {string}
+  mut has_return: boolean
+  mut export: string
+  mut returned: Ast.Exp?
 end
 
 local function facts_of(chunk: Ast.Chunk): Facts
   local out: Facts = { tests = {}, has_return = false, export = "", returned = nil }
   for _, stat in ipairs(chunk.body.stats) do
-    if stat is Ast.LocalFunction then
+    if (stat.kind == "LocalFunction") then
       if stat.name.name:match("^test_") ~= nil then
         out.tests[#out.tests + 1] = stat.name.name
       end
-    elseif stat is Ast.Return then
+    elseif (stat.kind == "Return") then
       out.has_return = true
       out.returned = stat.values[1]
       local returned = out.returned
-      if returned ~= nil and returned is Ast.Name then
+      if returned ~= nil and (returned.kind == "Name") then
         out.export = returned.text
       end
     end
@@ -1508,7 +1508,7 @@ function Analyzer.docs(chunk: Ast.Chunk, source: string): {Entry}
 end
 
 function Analyzer.analysis_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string,
-                              name: string): Analyzer.Analysis | nil, string
+                              name: string): Analyzer.Analysis?, string
   local facts = facts_of(chunk)
   local references, bindings = references_of(chunk, scoped)
   local declared, inputs_trouble = inputs_of(chunk, name)
@@ -1528,7 +1528,7 @@ function Analyzer.analysis_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: s
   -- TODO: record it for a module with no doc comment of its own too, which has no row to hold it, so no lookup finds
   -- its members by the module's name: that wants a row of kind `module` with no text, once `cosmic docs`' index and
   -- build.docs_checks' rendered-docs checks take one.
-  local module_signature: string | nil = nil
+  local module_signature: string? = nil
   if surface ~= export then
     module_signature = "local " .. export .. ": " .. surface
   end
@@ -1539,7 +1539,7 @@ function Analyzer.analysis_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: s
   }, ""
 end
 
-function Analyzer.analyze(source: string, name: string): Analyzer.Analysis | nil, string
+function Analyzer.analyze(source: string, name: string): Analyzer.Analysis?, string
   local chunk, trouble = Node.parse(source, name)
   if chunk == nil then
     return nil, trouble

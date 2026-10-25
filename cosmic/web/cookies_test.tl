@@ -21,7 +21,7 @@ local function test_parse_strips_quotes_and_skips_malformed_pieces()
 end
 
 local function test_parse_reads_at_most_100_cookies_and_8_kib()
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 150 do parts[i] = "c" .. i .. "=v" end
   local got = Cookies.parse(table.concat(parts, "; "))
   local n = 0

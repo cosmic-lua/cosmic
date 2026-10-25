@@ -42,28 +42,28 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   local sources: docs.Sources
   if binary_only then
     local handles = require("cosmic.store").databases()
-    local public: {boolean} = {}
+    local public: mut {boolean} = {}
     for i = 1, #handles do public[i] = true end
     sources = { handles = handles, public = public, opened = {} }
   else
     sources = docs.databases()
   end
   local view, view_trouble = docs.view(sources.handles, sources.public)
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   if view == nil then
     for _, verb in ipairs(verbs) do
       out[verb] = "(cosmic.cli: " .. view_trouble .. ")\n"
     end
     return out
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
   local found, trouble = docs.named_all(view, names)
   for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
-    local text: string | nil = nil
+    local text: string? = nil
     if found ~= nil then
       for _, entry in ipairs(found) do
         if entry.symbol == symbol then
@@ -72,7 +72,7 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
         end
       end
     end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     if found == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. trouble .. ")"
     elseif text == nil then
@@ -99,7 +99,7 @@ local help_programs = "A file run, `--standalone` and `-e` are not verbs of that
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
-  local quoted: {string} = {}
+  local quoted: mut {string} = {}
   for _, name in ipairs(names) do
     quoted[#quoted + 1] = "`" .. name .. "`"
   end
@@ -113,7 +113,7 @@ end
 --- `text` broken into lines of at most `width` characters at its spaces
 --- (a word longer than that keeps its own line), with no line ending.
 local function wrapped(text: string, width: integer): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local line = ""
   for word in text:gmatch("%S+") do
     if line == "" then
@@ -159,12 +159,12 @@ those up is the author's judgement, not the tool's.]]
 --- @param verb the verb's name
 --- @param spec the verb's spec, or nil for a verb that has none (a file
 ---   run, `--standalone`, `-e`, `--version`)
-local function spec_notes(verb: string, spec: verb_spec.Spec | nil): string
+local function spec_notes(verb: string, spec: verb_spec.Spec?): string
   if spec == nil then
     return wrapped("Prints only what its program prints, and exits with what it returns, " ..
         "as `cosmic help exit` says.", help_width)
   end
-  local paragraphs: {string} = {}
+  local paragraphs: mut {string} = {}
   if verb == "fix" then
     paragraphs[1] = fix_layout
   end
@@ -190,9 +190,9 @@ end
 --- share, then how each bare verb exits.
 --- @param specs every verb's spec, in help's order
 local function exit_help(specs: {verb_spec.Spec}): string
-  local bare: {string} = {}
-  local failing: {string} = {}
-  local sentences: {string} = {}
+  local bare: mut {string} = {}
+  local failing: mut {string} = {}
+  local sentences: mut {string} = {}
   for _, spec in ipairs(specs) do
     if spec.bare then
       bare[#bare + 1] = spec.name
@@ -213,7 +213,7 @@ end
 --- @param specs every verb's spec, the `help` verb's included
 --- @param docs the verb's own text if already read ([`verb_help`])
 local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): string
-  local spec: verb_spec.Spec | nil = nil
+  local spec: verb_spec.Spec? = nil
   for _, candidate in ipairs(specs) do
     if candidate.name == verb then spec = candidate end
   end
@@ -238,13 +238,13 @@ local function usage_line(verb: string): string
   for spelled, name in pairs(as_option) do
     if name == verb then typed = spelled end
   end
-  local words: {string} = { "cosmic" }
+  local words: mut {string} = { "cosmic" }
   if typed ~= "" then words[#words + 1] = typed end
   local command = require("cosmic.cli").verbs[verb]
   local usage = command.usage
   if usage == nil then
     local spec = command.spec
-    usage = spec ~= nil and next(spec) ~= nil and "[options]" or ""
+    usage = if spec ~= nil and next(spec) ~= nil then "[options]" else "" end
   end
   if usage ~= "" then words[#words + 1] = usage end
   return table.concat(words, " ")
@@ -303,7 +303,7 @@ local function index_help(): string
 end
 
 --- The directory a path sits in, absolute.
-local function directory_of(path: string): string | nil, string
+local function directory_of(path: string): string?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(path)
   if resolved == nil then
@@ -317,7 +317,7 @@ end
 --- builds the project as `test` and `build` do and the file reaches
 --- the rest of it; the file's own directory otherwise, so a file
 --- anywhere else runs on its own.
-local function root_of(file: string): string | nil, string
+local function root_of(file: string): string?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
@@ -333,7 +333,7 @@ end
 --- The module a file is, as its path relative to the root says: a
 --- directory's `init.tl` is the directory's, as the build's `inputs`
 --- view (build/work.tl) names it.
-local function module_of(root: string, file: string): string | nil, string
+local function module_of(root: string, file: string): string?, string
   local Fs = require("cosmic.fs")
   local String = require("cosmic.string")
   local resolved, trouble = Fs.absolute(file)
@@ -442,7 +442,7 @@ local function run(file: string, argv: {string}): integer
   local database = build_paths.under(handle.dir).projection
 
   -- The new checker reads the tree in this process, so no pool is started for it.
-  local result: importer.Result | nil = nil
+  local result: importer.Result? = nil
   local compile_trouble = ""
   if grammar == "new" then
     result, compile_trouble = importer.compile_for(handle, built, tool, name, shared_compiles.for_build(), nil, grammar)
@@ -489,7 +489,7 @@ local function run(file: string, argv: {string}): integer
   end
 
   local standalone = require("build.standalone")
-  local arguments: {string} = {}
+  local arguments: mut {string} = {}
   arguments[0] = file
   local slot = 2
   while argv[slot] ~= nil do
@@ -575,7 +575,7 @@ local function evaluate(argv: {string}): integer
     log:complain(tostring(trouble))
     return 1
   end
-  local arguments: {string} = {}
+  local arguments: mut {string} = {}
   local slot = 3
   while argv[slot] ~= nil do
     arguments[#arguments + 1] = argv[slot]
@@ -586,13 +586,13 @@ end
 
 --- `help` is dispatch's own spec (below): it prints the specs of every other
 --- verb, so it is declared here and set once `help` exists.
-local help_spec: verb_spec.Spec | nil
+local help_spec: verb_spec.Spec?
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
 --- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
-local function help(argv: {string}, asked: string | nil): integer
+local function help(argv: {string}, asked: string?): integer
   local Cli = require("cosmic.cli")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
@@ -680,7 +680,7 @@ help_spec = {
 --- module of that verb alone, or nil for a word that names none. A bare
 --- verb ([`Spec.bare`]) prints no summary, its output being data:
 --- build/json.tl says why.
-local function spec_of(word: string): verb_spec.Spec | nil
+local function spec_of(word: string): verb_spec.Spec?
   local verb_list = require("build.verb_list")
   if word == "help" then
     return help_spec
@@ -723,7 +723,7 @@ local function help_texts(): {string: string}
   local verb_list = require("build.verb_list")
   local specs = verb_list.specs()
   specs[#specs + 1] = help_spec
-  local out: {string: string} = { [""] = index_help(), exit = exit_help(specs) }
+  local out: mut {string: string} = { [""] = index_help(), exit = exit_help(specs) }
   local texts = verb_help(Cli.order)
   for _, verb in ipairs(Cli.order) do
     out[verb] = verb_text(verb, specs, texts[verb])
@@ -759,7 +759,7 @@ function Dispatch.main(argv: {string}): integer
   -- policy's run of this program is given (cosmic.child), whose user may
   -- have no build directory to write.
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") == "1" then
-    local shifted: {string} = { "--standalone" }
+    local shifted: mut {string} = { "--standalone" }
     local slot = 1
     while argv[slot] ~= nil do
       shifted[slot + 1] = argv[slot]

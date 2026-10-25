@@ -9,7 +9,7 @@ local Sqlite = require("cosmic.sqlite")
 --- rows by `;`.
 local function quoted(handle: Sqlite.Handle, sql: string): string
   local rows = assert(Sqlite.text_rows(handle, sql))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for index, row in ipairs(rows) do
     out[index] = table.concat(row:texts(), "|")
   end

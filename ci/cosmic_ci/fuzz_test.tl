@@ -17,22 +17,22 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 --- A number a closure shares with the test that made it.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 --- A yes or no a closure shares with the test that made it.
 local record Flag
-  value: boolean
+  mut value: boolean
 end
 
 --- The result of a wait run under `pcall`.
 local record Waited
-  result?: Child.Result
+  mut result?: Child.Result
 end
 
 --- A descriptor, once one is opened, that a closure shares with the test that made it.
 local record Slot
-  value?: integer
+  mut value?: integer
 end
 
 local function write(path: string, data: string, mode?: integer)
@@ -89,10 +89,10 @@ end
 
 --- Outputs where a line's length, its end, or a chunk's edge counts.
 local function outputs(): {string}
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 40 do many[#many + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do many[#many + 1] = "report " .. tostring(i) .. "\n" end
-  local wide: {string} = {}
+  local wide: mut {string} = {}
   for i = 1, 45 do wide[#wide + 1] = tostring(i) .. string.rep("w", 70000) end
   return {
     "", "\n", "\n\n", "a", "a\n", "a\n\nb", "\nb",
@@ -122,7 +122,7 @@ local function test_failure_matches_the_shell_it_replaced()
 end
 
 local function test_failure_bounds_what_it_lists()
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 40 do parts[#parts + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do parts[#parts + 1] = "report " .. tostring(i) .. "\n" end
   local text = Fuzz.failure(pieces(table.concat(parts), 5), "1")
@@ -157,7 +157,7 @@ local function test_tail_matches_the_shell_it_replaced(tmp: string)
   for n, output in ipairs(outputs()) do
     write(tmp .. "/fuzz.out", output)
     local tail = assert(Fuzz.tail(tmp .. "/fuzz.out"))
-    local got = table.concat(tail, "\n") .. (#tail > 0 and "\n" or "")
+    local got = table.concat(tail, "\n") .. (if #tail > 0 then "\n" else "" end)
     local want = expected("tail", n)
     assert(got == want, "output " .. tostring(n) .. "'s tail differs:\n" ..
         got .. "\nfrom:\n" .. want)
@@ -443,7 +443,7 @@ local function test_a_sink_constructor_failure_closes_the_output_descriptor(tmp:
   local seams = Seams.calls()
   local original_open, original_tee = seams.fs_open_write, seams.stream_tee
   local opened: Slot = {}
-  seams.fs_open_write = function(path: string, mode?: integer): integer | nil, string
+  seams.fs_open_write = function(path: string, mode?: integer): integer?, string
     local fd, why = original_open(path, mode)
     if path == temp .. "/fuzz.out" then opened.value = fd end
     return fd, why
@@ -471,9 +471,9 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
   local original = seams.child_start
   local ended: Flag = { value = false }
   local closed: Flag = { value = false }
-  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started | nil, string
+  seams.child_start = function(_argv: {string}, _opts?: Child.Options): Seams.Started?, string
     local fake: Seams.Started = {
-      try_wait = function(): Child.TryWait | nil, string
+      try_wait = function(): Child.TryWait?, string
         if ended.value then
           return { finished = true, result = { ok = false, code = 17, signal = nil, timed_out = false,
             stdout = nil, stderr = nil, captured = {}, truncated = false } }, ""

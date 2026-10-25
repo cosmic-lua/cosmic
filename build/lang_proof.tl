@@ -107,7 +107,7 @@ local record LangProof
 end
 
 local function lines_of(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
     out[#out + 1] = line
   end
@@ -121,7 +121,7 @@ end
 
 --- The union `name` of the members the words of `body` name, if every one is a record with a clause.
 local function union_of(held: LangProof.Tags, name: string, body: string)
-  local tests: {LangProof.Tag} = {}
+  local tests: mut {LangProof.Tag} = {}
   local whole = true
   for member in body:gmatch("[A-Za-z]+") do
     local sub = held[member]
@@ -155,7 +155,7 @@ local function tags_of(text: string): LangProof.Tags
     end
   end
   -- A union may go on over lines that end in `|`.
-  local pending: string | nil = nil
+  local pending: string? = nil
   local body = ""
   for _, line in ipairs(lines) do
     local name, rest = line:match("^  type ([A-Za-z]+) = (.*)$")
@@ -187,7 +187,7 @@ local function tag_test(operand: string, simple: boolean, tests: {LangProof.Tag}
   if simple then
     subject = operand
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, t in ipairs(tests) do
     if t.field == "atom" then
       parts[#parts + 1] = subject .. ".atom == true"
@@ -238,13 +238,13 @@ end
 
 --- The edit that writes the test `node` of a record `tags` tells apart as its tag test, or nil.
 local function test_edit(text: string, chunk: Ast.Chunk, node: Ast.IsTest, tags: {string: LangProof.Tags},
-                         own: string, qualifier: {string: string}, alias: {string: {string}}): Edit | nil
+                         own: string, qualifier: {string: string}, alias: {string: {string}}): Edit?
   local tested = node.type
-  if not (tested is Ast.TypeName) then
+  if not ((tested.kind == "TypeName")) then
     return nil
   end
   local member = member_of(tested.path, own, qualifier, alias)
-  local tests: {LangProof.Tag} | nil = nil
+  local tests: {LangProof.Tag}? = nil
   local table_of = tags[member.module]
   if table_of ~= nil then
     tests = table_of[member.name]
@@ -265,8 +265,8 @@ end
 function LangProof.rewrite(text: string, name: string, tags: {string: LangProof.Tags}): LangProof.Edited
   local parsed = Parser.parse(Lexer.lex(text, name), name, "tl")
   local chunk = parsed.chunk
-  local qualifier: {string: string} = {}
-  local alias: {string: {string}} = {}
+  local qualifier: mut {string: string} = {}
+  local alias: mut {string: {string}} = {}
   for q, m in text:gmatch("local ([A-Za-z_]+) = require%(\"lang%.(%a+)\"%)") do
     if m ~= nil then
       qualifier[q] = m
@@ -285,11 +285,11 @@ function LangProof.rewrite(text: string, name: string, tags: {string: LangProof.
     own = "types"
     qualifier["Types"] = "types"
   end
-  local edits: {Edit} = {}
+  local edits: mut {Edit} = {}
   -- Every node, the walk's own list growing as it goes.
   local nodes: {Ast.Node} = { chunk.body }
   for _, node in ipairs(nodes) do
-    if node is Ast.IsTest then
+    if (node.kind == "IsTest") then
       local edit = test_edit(text, chunk, node, tags, own, qualifier, alias)
       if edit ~= nil then
         edits[#edits + 1] = edit
@@ -318,7 +318,7 @@ end
 
 --- The names `text` requires of lang/.
 local function lang_requires(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for name in text:gmatch("require%(\"lang%.([%w_]+)\"%)") do
     out[#out + 1] = name
   end
@@ -327,19 +327,19 @@ end
 
 --- `text`, a translated test module, with a final `return` of its tests by name.
 local function exporting(text: string): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, line in ipairs(lines_of(text)) do
     local test = line:match("^local function (test_[%w_]*)%(")
     if test ~= nil then
       names[#names + 1] = test .. " = " .. test
     end
   end
-  local end_of_line = text:sub(-1) == "\n" and "" or "\n"
+  local end_of_line = if text:sub(-1) == "\n" then "" else "\n" end
   return text .. end_of_line .. "return { " .. table.concat(names, ", ") .. " }\n"
 end
 
 function LangProof.prepare(root: string, out: string, only: {string}): LangProof.Prepared
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(root .. "/lang")))) do
     local stem = name:match("^(.*)%.tl$")
     if stem ~= nil then
@@ -349,9 +349,9 @@ function LangProof.prepare(root: string, out: string, only: {string}): LangProof
   table.sort(names, function(a: string, b: string): boolean
     return a < b
   end)
-  local wanted: {string: boolean} = {}
+  local wanted: mut {string: boolean} = {}
   -- The stems asked for, then what each requires, the list growing as it is read.
-  local reach: {string} = {}
+  local reach: mut {string} = {}
   for _, stem in ipairs(only) do
     reach[#reach + 1] = stem
   end
@@ -371,7 +371,7 @@ function LangProof.prepare(root: string, out: string, only: {string}): LangProof
   end
   local tags = LangProof.tags((assert(Fs.read(root .. "/lang/ast.tl"))), (assert(Fs.read(root .. "/lang/types.tl"))))
   assert(Fs.mkdirs(out .. "/src/lang"))
-  local written: {string} = {}
+  local written: mut {string} = {}
   local rewritten = 0
   for _, stem in ipairs(names) do
     if wanted[stem] == true then
@@ -396,7 +396,7 @@ end
 
 function LangProof.build(out: string, files: {string}): LangProof.Built
   assert(Fs.mkdirs(out .. "/lua"))
-  local argv: {string} = {
+  local argv: mut {string} = {
     "compile", "--grammar", "new", "--errors", "--root", out .. "/src", "-o", out .. "/lua",
   }
   for index, stem in ipairs(files) do
@@ -411,7 +411,7 @@ function LangProof.build(out: string, files: {string}): LangProof.Built
 end
 
 function LangProof.differing(files: {string}, a: string, b: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, stem in ipairs(files) do
     local one, _ = Fs.read(a .. "/" .. stem .. ".lua")
     local other, _ = Fs.read(b .. "/" .. stem .. ".lua")
@@ -423,7 +423,7 @@ function LangProof.differing(files: {string}, a: string, b: string): {string}
 end
 
 function LangProof.listed(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
     local name = line:match("^%s*(.-)%s*$") or ""
     -- The bridge of the new checker (core/bridge_new.lua) names a file by its source path, [`lang/codegen.tl`]; either spelling is read.
@@ -439,16 +439,16 @@ function LangProof.listed(text: string): {string}
 end
 
 function LangProof.judged(differ: {string}, declared: {string}, written: {string}, present: boolean): {string}
-  local out: {string} = {}
-  local differs: {string: boolean} = {}
+  local out: mut {string} = {}
+  local differs: mut {string: boolean} = {}
   for _, name in ipairs(differ) do
     differs[name] = true
   end
-  local listed: {string: boolean} = {}
+  local listed: mut {string: boolean} = {}
   for _, name in ipairs(declared) do
     listed[name] = true
   end
-  local known: {string: boolean} = {}
+  local known: mut {string: boolean} = {}
   for _, stem in ipairs(written) do
     known[stem .. ".lua"] = true
   end
@@ -479,7 +479,7 @@ end
 --- Compiles what `prepare` wrote with the release `seed` (`<seed> compile --grammar new`), into `<out>/seed`.
 local function seeded(out: string, files: {string}, seed: string): LangProof.Built
   assert(Fs.mkdirs(out .. "/seed"))
-  local argv: {string} = { seed, "compile", "--grammar", "new", "--errors", "--root", out .. "/src", "-o", out .. "/seed" }
+  local argv: mut {string} = { seed, "compile", "--grammar", "new", "--errors", "--root", out .. "/src", "-o", out .. "/seed" }
   for _, stem in ipairs(files) do
     argv[#argv + 1] = out .. "/src/lang/" .. stem .. ".tl"
   end
@@ -527,7 +527,7 @@ local function run(out: string, stem: string): Ran
   local request: function(string): any = require
   local loaded = request("lang." .. stem)
   assert(loaded is {string: function(string)}, stem .. " exports no tests")
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(loaded) do
     names[#names + 1] = name
   end
@@ -609,10 +609,10 @@ function LangProof.main(argv: {string}): integer
       print("FAIL " .. failure)
     end
     print(stem .. ": " .. tostring(ran.passed) .. " passed, " .. tostring(#ran.failures) .. " failed")
-    return #ran.failures == 0 and 0 or 1
+    return if #ran.failures == 0 then 0 else 1 end
   end
-  local only: {string} = {}
-  local seed: string | nil = nil
+  local only: mut {string} = {}
+  local seed: string? = nil
   local index = 3
   while argv[index] ~= nil do
     if argv[index] == "--seed" then
@@ -637,7 +637,7 @@ function LangProof.main(argv: {string}): integer
   if built.code ~= 0 then
     return 1
   end
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for _, stem in ipairs(only) do
     named[stem] = true
   end
@@ -657,7 +657,7 @@ function LangProof.main(argv: {string}): integer
   if seed ~= nil then
     failed = failed + compare_with_seed(out, files, seed, #only == 0)
   end
-  return failed == 0 and 0 or 1
+  return if failed == 0 then 0 else 1 end
 end
 
 return LangProof

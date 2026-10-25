@@ -83,7 +83,7 @@ end
 --- long as its timeout, or until a guard catches a signal.
 local function test_a_connection_to_a_full_backlog_times_out_or_is_interrupted()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
-  local held: {Net.Conn} = {}
+  local held: mut {Net.Conn} = {}
   local why = ""
   for _ = 1, 16 do
     local conn, trouble = Net.connect(server.address, { timeout_ns = Clock.ms(50) })
@@ -140,7 +140,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   assert(ticks_at_end.value > 0, "no other task ran while a connection waited")
   local port = assert(server.address.port)
   assert(server:close())
-  local refused = { value = nil as Net.Conn | nil }
+  local refused = { value = nil as Net.Conn? }
   Poll.run(function()
     refused.value, why.value = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
   end)

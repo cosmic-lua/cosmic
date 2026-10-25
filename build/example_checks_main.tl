@@ -30,6 +30,6 @@ return function(_argv: {string}): integer
   for _, line in ipairs(found) do
     print(line)
   end
-  print(("examples: %d finding%s"):format(#found, #found == 1 and "" or "s"))
-  return #found == 0 and 0 or 1
+  print(("examples: %d finding%s"):format(#found, if #found == 1 then "" else "s" end))
+  return if #found == 0 then 0 else 1 end
 end

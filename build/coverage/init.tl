@@ -20,14 +20,14 @@ local record coverage
 
   --- The executable lines of `source`, a module's own Teal, read by the fork's tree: what [`coverage.lines_of`] counts.
   --- nil and why on a parse failure.
-  executable: function(built: compiler, source: string, name: string): {integer: boolean} | nil, string
+  executable: function(built: compiler, source: string, name: string): {integer: boolean}?, string
 
   --- The executable lines of `source`, a file in the new grammar, read by the new syntax tree
   --- ([`build.coverage.syntax_lines`]).
-  syntax_executable: function(source: string, name: string): {integer: boolean} | nil, string
+  syntax_executable: function(source: string, name: string): {integer: boolean}?, string
 end
 
-function coverage.executable(built: compiler, source: string, name: string): {integer: boolean} | nil, string
+function coverage.executable(built: compiler, source: string, name: string): {integer: boolean}?, string
   local found, why = lines.executable(built, source, name)
   if found == nil then
     return nil, why
@@ -35,7 +35,7 @@ function coverage.executable(built: compiler, source: string, name: string): {in
   return found, ""
 end
 
-function coverage.syntax_executable(source: string, name: string): {integer: boolean} | nil, string
+function coverage.syntax_executable(source: string, name: string): {integer: boolean}?, string
   local found, why = syntax_lines.executable(source, name)
   if found == nil then
     return nil, why
@@ -64,8 +64,8 @@ end
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
 function coverage.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
-                           hits: Coverage.Hits, grammar?: GrammarMode.Mode): coverage.LineHits | nil, string
-  local executable: {integer: boolean} | nil
+                           hits: Coverage.Hits, grammar?: GrammarMode.Mode): coverage.LineHits?, string
+  local executable: {integer: boolean}?
   local trouble: string
   if grammar == "new" then
     executable, trouble = syntax_lines.executable_cached(db, m.source_hash, m.source, m.file, true)

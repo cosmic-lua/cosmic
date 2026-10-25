@@ -34,7 +34,7 @@ function Example.find_result()
       return 0
     end
     print(result.reason)
-    return result.kind == "not_executable" and 126 or 127
+    return if result.kind == "not_executable" then 126 else 127 end
   end
   assert(status("blocked") == 126)
   assert(status("missing") == 127)

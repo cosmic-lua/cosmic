@@ -112,10 +112,10 @@ local record links
   --- What `rewrite` made of a file: its new text, and each span it linked
   --- as `file:line: link: ...`, the file as named.
   record Rewritten
-    source: string
-    linked: {string}
+    mut source: string
+    mut linked: mut {string}
     --- Whether a Markdown file's block of definitions changes.
-    redefined: boolean
+    mut redefined: boolean
   end
 
   --- How [`check_by`] and [`rewrite_by`] read a file named `name`, of `kind`
@@ -182,16 +182,16 @@ end
 
 --- The path from the directory `from` to `to`, both from the root.
 local function relative_path(from: string, to: string): string
-  local from_parts: {string} = {}
+  local from_parts: mut {string} = {}
   for part in from:gmatch("[^/]+") do from_parts[#from_parts + 1] = part end
-  local to_parts: {string} = {}
+  local to_parts: mut {string} = {}
   for part in to:gmatch("[^/]+") do to_parts[#to_parts + 1] = part end
   local common = 0
   while common < #from_parts and common < #to_parts - 1 and
       from_parts[common + 1] == to_parts[common + 1] do
     common = common + 1
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _ = common + 1, #from_parts do out[#out + 1] = ".." end
   for index = common + 1, #to_parts do out[#out + 1] = to_parts[index] end
   return table.concat(out, "/")
@@ -210,7 +210,7 @@ end
 --- declares its symbol. Nil when it is, and for any other definition,
 --- whose target is checked as a path.
 local function misdefined(resolver: link_resolve.Resolver, absolute: string, link: link_text.Link,
-                          declared: function(): link_text.Declared): string | nil
+                          declared: function(): link_text.Declared): string?
   local named = link_text.shortcut_target(link.label or "")
   if named == nil or link.target:match("^%a[%w+.-]*:") ~= nil then
     return nil
@@ -224,7 +224,7 @@ local function misdefined(resolver: link_resolve.Resolver, absolute: string, lin
   if got ~= nil and got.kind == "file" and got.path == expected then
     return nil
   end
-  local what = meant.kind == "symbol" and "declared in " or "the file "
+  local what = if meant.kind == "symbol" then "declared in " else "the file " end
   return "the definition of " .. named .. " names " .. link.target .. ", but " .. named ..
     " is " .. what .. expected
 end
@@ -255,7 +255,7 @@ function links.check_by(reader: links.Reader, resolver: link_resolve.Resolver, f
   if facts ~= nil and facts.source ~= source then
     facts = nil
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   if not link_text.may_link(source) then
     return out
   end
@@ -263,7 +263,7 @@ function links.check_by(reader: links.Reader, resolver: link_resolve.Resolver, f
     link_resolve.holds(resolver, absolute, source)
   end
   -- What the file declares, once a link asked for it.
-  local own: {Known} = {}
+  local own: mut {Known} = {}
   if facts ~= nil and facts.known ~= nil then own[1] = facts.known end
   local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, source, file)
   for _, link in ipairs(link_text.in_blocks(blocks)) do
@@ -297,7 +297,7 @@ local definition_line = "^%[(`+[^`]+`+)%]:[ \t]+(%S+)[ \t]*$"
 --- its end (`definition_line`, each label a code span), trailing blank
 --- lines and all; the block is "" when there is none.
 local function split_definitions(text: string): string, string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(text) do lines[#lines + 1] = line end
   if lines[#lines] == "" then lines[#lines] = nil end
   local last = #lines
@@ -342,7 +342,7 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
     facts = nil
   end
   -- What the file declares is read once a span could name something.
-  local held: {Known} = {}
+  local held: mut {Known} = {}
   if facts ~= nil and facts.known ~= nil then held[1] = facts.known end
   local function known(): Known
     local found = held[1]
@@ -359,13 +359,13 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
     body, managed = split_definitions(source)
   end
   -- Each bracket to put in, by the byte it goes before.
-  local inserts: {integer: string} = {}
-  local by_label: {string: {{integer}}} = {}
-  local label_target: {string: string} = {}
-  local refused: {string: boolean} = {}
+  local inserts: mut {integer: string} = {}
+  local by_label: mut {string: {{integer}}} = {}
+  local label_target: mut {string: string} = {}
+  local refused: mut {string: boolean} = {}
   local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, body, file)
   for _, block in ipairs(blocks) do
-    local defined: {string: boolean} = {}
+    local defined: mut {string: boolean} = {}
     if block.text:find("]:", 1, true) ~= nil then
       for _, link in ipairs(link_text.parse(block.text)) do
         if link.form == "definition" then defined[link_text.label_key(link.label or "")] = true end
@@ -373,13 +373,13 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
     end
     local starts = block.starts or {}
     local spans = link_text.plain_spans(block.text)
-    local block_lines: {string} = {}
+    local block_lines: mut {string} = {}
     if kind == "c" and #spans > 0 then
       for line in String.lines(block.text) do block_lines[#block_lines + 1] = line end
     end
     for _, span in ipairs(spans) do
       local key = link_text.label_key(span.written)
-      local at = (starts[span.line] or 0) > 0 and starts[span.line] + span.column - 1 or 0
+      local at = if (starts[span.line] or 0) > 0 then starts[span.line] + span.column - 1 else 0 end
       -- A C header's `---` and `--` lines are the Teal declaration of
       -- its bindings ([`build.gen_syscalls`]): their names are that
       -- declaration's, not the header's, so their spans stay as written.
@@ -420,17 +420,17 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
         inserts[pair[2]] = nil
       end
     end
-    local kept: {string} = {}
+    local kept: mut {string} = {}
     for _, line in ipairs(out.linked) do
       local written = line:match(": link: (`+[^`]+`+) would link to ")
       if written == nil or not refused[link_text.label_key(written)] then kept[#kept + 1] = line end
     end
     out.linked = kept
   end
-  local positions: {integer} = {}
+  local positions: mut {integer} = {}
   for at in pairs(inserts) do positions[#positions + 1] = at end
   table.sort(positions)
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local from = 1
   for _, at in ipairs(positions) do
     pieces[#pieces + 1] = body:sub(from, at - 1)
@@ -449,14 +449,14 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
   -- to set right, and is kept while a link uses it.
   local root = resolver.context.root
   local here = Fs.dirname(absolute):sub(#root + 2)
-  local wanted: {string: string} = {}
-  local labels: {string: string} = {}
-  local human: {string: boolean} = {}
-  local had: {string: link_text.Link} = {}
+  local wanted: mut {string: string} = {}
+  local labels: mut {string: string} = {}
+  local human: mut {string: boolean} = {}
+  local had: mut {string: link_text.Link} = {}
   for _, link in ipairs(link_text.parse(managed)) do
     if link.form == "definition" then had[link_text.label_key(link.label or "")] = link end
   end
-  local shortcuts: {link_text.Link} = {}
+  local shortcuts: mut {link_text.Link} = {}
   for _, link in ipairs(link_text.parse(linked)) do
     if link.form == "definition" then
       human[link_text.label_key(link.label or "")] = true
@@ -478,10 +478,10 @@ function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver,
       end
     end
   end
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(wanted) do keys[#keys + 1] = key end
   table.sort(keys)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, key in ipairs(keys) do
     lines[#lines + 1] = "[" .. labels[key] .. "]: " .. wanted[key]
   end
@@ -500,7 +500,7 @@ end
 
 --- The rows of `view` that `cosmic docs` shows, each from the database
 --- that owns its module, held in memory.
-local function index_of(view: docs.View): symbol_index.Index | nil, string
+local function index_of(view: docs.View): symbol_index.Index?, string
   local out = symbol_index.new()
   for module in pairs(view.owners) do symbol_index.module(out, module) end
   for index, db in ipairs(view.databases) do
@@ -534,12 +534,12 @@ end
 --- one: a file with no link to a symbol reads no database. `unbuilt`
 --- says why the view lacks the project's own code, or nil. A name is
 --- answered from the view's rows held in memory ([`build.symbol_index`]).
-function links.context(root: string, open: function(): docs.View | nil, string,
-                       unbuilt: function(): string | nil): link_resolve.Context
+function links.context(root: string, open: function(): docs.View?, string,
+                       unbuilt: function(): string?): link_resolve.Context
   -- The index once built, or why it could not be; neither until asked.
   local ready_index: {symbol_index.Index} = {}
   local failure: {string} = {}
-  local function ready(): symbol_index.Index | nil, string
+  local function ready(): symbol_index.Index?, string
     if ready_index[1] ~= nil then return ready_index[1], "" end
     if failure[1] ~= nil then return nil, failure[1] end
     local opened, why = open()
@@ -555,12 +555,12 @@ function links.context(root: string, open: function(): docs.View | nil, string,
     ready_index[1] = indexed
     return indexed, ""
   end
-  local function named(query: string): {link_resolve.Symbol} | nil, string
+  local function named(query: string): {link_resolve.Symbol}?, string
     local index, why = ready()
     if index == nil then return nil, why end
     return symbol_index.named(index, query), ""
   end
-  local function member(module: string, name: string): {link_resolve.Symbol} | nil, string
+  local function member(module: string, name: string): {link_resolve.Symbol}?, string
     local index, why = ready()
     if index == nil then return nil, why end
     return symbol_index.member(index, module, name), ""

@@ -38,49 +38,49 @@ end
 local record TypeNode
   y: integer
   x: integer
-  yend: integer | nil
-  xend: integer | nil
+  yend: integer?
+  xend: integer?
   --- The id tl's parser gave the type, which the checker keeps: a
   --- record's is the one its checked values' types carry.
-  typeid: integer | nil
+  typeid: integer?
   --- The type's own shape, e.g. `"integer"`, `"map"`, `"function"`,
   --- `"nominal"`, `"record"`, `"tuple"`.
   typename: string
   --- A tuple type's members: a function's argument or return types, and
   --- the type list a `local` declaration carries after its names.
-  tuple: {TypeNode} | nil
+  tuple: {TypeNode}?
   --- A tuple whose last member repeats (`...: T`, or `T...` in a
   --- function's results).
-  is_va: boolean | nil
+  is_va: boolean?
   --- A union's alternatives.
-  types: {TypeNode} | nil
+  types: {TypeNode}?
   --- A `"nominal"`: the name it refers to, one entry per dotted part
   --- ([`Zip.Reader`] is `{"Zip", "Reader"}`).
-  names: {string} | nil
+  names: {string}?
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
   --- it is an alias (`local type X = Y`) rather than a definition.
-  def: TypeNode | nil
-  is_alias: boolean | nil
+  def: TypeNode?
+  is_alias: boolean?
   --- A `"generic"`: the type under the type arguments.
-  t: TypeNode | nil
+  t: TypeNode?
   --- A `"record"` or `"interface"`: its fields by name, the order the
   --- source declared them in, and the comments tl attached to each --
   --- one comment list per declaration of the name, so a field declared
   --- once has exactly one.
-  fields: {string: TypeNode} | nil
-  field_order: {string} | nil
-  field_comments: {string: {{compiler.Comment}}} | nil
+  fields: {string: TypeNode}?
+  field_order: {string}?
+  field_comments: {string: {{compiler.Comment}}}?
   --- A `"record"`'s metamethods by name and in source order, the
   --- comments tl attached to each (as `field_comments` holds a field's),
   --- and whether its values are userdata.
-  meta_fields: {string: TypeNode} | nil
-  meta_field_order: {string} | nil
-  meta_field_comments: {string: {{compiler.Comment}}} | nil
-  is_userdata: boolean | nil
+  meta_fields: {string: TypeNode}?
+  meta_field_order: {string}?
+  meta_field_comments: {string: {{compiler.Comment}}}?
+  is_userdata: boolean?
   --- An `"enum"`: its values, and the comments attached to each.
-  enumset: {string: boolean} | nil
-  value_comments: {string: {compiler.Comment}} | nil
+  enumset: {string: boolean}?
+  value_comments: {string: {compiler.Comment}}?
 end
 
 --- One node of a real (post-lex, post-parse) tl AST.
@@ -109,140 +109,140 @@ local record Node is {Node}
   --- expression_list) stopped only by an enclosing block's own
   --- terminator three lines later. Absent on a plain leaf ("op",
   --- "variable", "identifier", "string").
-  yend: integer | nil
-  xend: integer | nil
+  yend: integer?
+  xend: integer?
   --- The raw token text this node opened on. Semantic identity for a
   --- "variable"/"identifier"/"string" leaf (its actual name or literal
   --- text); on every other kind here it is just whichever token
   --- happened to start it, incidental to the node's real shape. An
   --- "op" node has none at all.
-  tk: string | nil
+  tk: string?
 
   -- "string": the literal payload behind `tk`'s quoted/bracketed text.
-  conststr: string | nil
-  is_longstring: boolean | nil
+  conststr: string?
+  is_longstring: boolean?
 
   -- "op": a binary/unary operator, an index (`.`/`[]`), or a call
   -- (`op.op == "@funcall"`/`"@method"`). Unary ops have no `e2`.
-  e1: Node | nil
-  e2: Node | nil
-  op: OpInfo | nil
+  e1: Node?
+  e2: Node?
+  op: OpInfo?
 
   -- "if": one `if_block` per `if`/`elseif` branch, source order.
-  if_blocks: {Node} | nil
+  if_blocks: {Node}?
   -- "if_block": this branch's 1-based position within its `if_blocks`.
-  if_block_n: integer | nil
+  if_block_n: integer?
   --- The enclosing "if" statement this "if_block" belongs to -- a REAL
   --- cycle (this node reachable from itself), not a copy or shared
   --- literal. A generic walk over [`Node`] needs an identity-keyed
   --- visited set to terminate.
-  if_parent: Node | nil
+  if_parent: Node?
   --- "if_block": the branch's condition expression.
-  exp: Node | nil
+  exp: Node?
   --- "if_block": the branch's body, a "statements" node.
-  body: Node | nil
+  body: Node?
 
   --- "return" and "local_declaration" alike: the RHS expression list.
   --- Named once here because tl's parser uses the same field name for
   --- both, not because "local_declaration" is one of this module's
   --- covered kinds.
-  exps: Node | nil
+  exps: Node?
 
   --- "local_function": the declared name, an "identifier" node whose
   --- own `tk` is the function's name. [`build.analyzer.analysis_of`] reads
   --- it to find every top-level `test_*` function.
-  name: Node | nil
+  name: Node?
 
   --- "identifier": the Lua 5.4 variable attribute this name was
   --- declared with, `"const"` or `"close"`, as tl's parser reads it off
   --- the `<const>`/`<close>` that follows the name and BEFORE any type
   --- annotation. Structured here, so writing one back out is a question
   --- about this field rather than about the spacing of three tokens.
-  attribute: string | nil
+  attribute: string?
 
   -- "local_declaration", "global_declaration" and "assignment": the
   -- names being bound, a "variable_list" node.
-  vars: Node | nil
+  vars: Node?
   --- "local_declaration" and "global_declaration": the type list
   --- written after the names, whose own position is the `:` that opens
   --- it. Empty when the declaration carries no annotation at all.
-  decltuple: TypeNode | nil
+  decltuple: TypeNode?
 
   -- "local_function", "global_function", "record_function", a
   -- "function" literal, and a "macroexp".
-  args: Node | nil
+  args: Node?
   --- "local_macroexp": its definition, a "macroexp" node, whose `args`
   --- are its parameters and `exp` the one expression it returns.
-  macrodef: Node | nil
-  rets: TypeNode | nil
+  macrodef: Node?
+  rets: TypeNode?
   --- The same nodes, declared `: never`: the return list is that one
   --- word, and `rets` holds no types.
-  never: boolean | nil
+  never: boolean?
   --- The same nodes, written with no return list at all (no `:`): a
   --- "function" literal so written takes its return types from its
   --- context.
-  rets_omitted: boolean | nil
+  rets_omitted: boolean?
   --- Comments tl's parser attached to a statement directly. The
   --- renderer reads comments off the token stream instead, uniformly,
   --- so it never has to ask which kinds carry this and which do not.
-  comments: {compiler.Comment} | nil
+  comments: {compiler.Comment}?
 
   -- "argument": the declared type, and whether a `?` followed the name.
-  argtype: TypeNode | nil
-  opt: boolean | nil
+  argtype: TypeNode?
+  opt: boolean?
 
   -- "cast": the type after an `as` or an `is`.
-  casttype: TypeNode | nil
+  casttype: TypeNode?
 
   -- "newtype": the record, enum, or type alias being declared.
-  newtype: TypeNode | nil
+  newtype: TypeNode?
 
   -- "local_type" and "global_type": the name it binds, and what it
   -- binds to -- a "newtype" node for a declaration or alias, any other
   -- expression for a `local type x = require(...)`, none for a `global
   -- type x` that declares only the name; also a "literal_table_item"'s
   -- value.
-  var: Node | nil
-  value: Node | nil
+  var: Node?
+  value: Node?
 
   -- "literal_table_item": the key, and how the source spelled it --
   -- "implicit" (no key at all), "short" (`k = v`), or "long"
   -- (`[k] = v`).
-  key: Node | nil
-  key_parsed: string | nil
+  key: Node?
+  key_parsed: string?
 
   -- "record_function": what the function hangs off, and whether it was
   -- declared with a `:` rather than a `.`.
-  fn_owner: Node | nil
-  is_method: boolean | nil
+  fn_owner: Node?
+  is_method: boolean?
   --- "identifier", inside a method's argument list: the implicit `self`
   --- the parser inserts at the `(`'s own position, which the source
   --- never wrote.
-  is_self: boolean | nil
+  is_self: boolean?
 
   --- "global_function": set when the source wrote `function f` with no
   --- `global` in front, which tl reads as the same kind of node.
-  implicit_global_function: boolean | nil
+  implicit_global_function: boolean?
 
   -- "pragma": the name and value written after `--#pragma`.
-  pkey: string | nil
-  pvalue: string | nil
+  pkey: string?
+  pvalue: string?
 
   --- A statement: whether a `;` followed it, written or inserted by the
   --- parser to settle a call's reading.
-  semicolon: boolean | nil
+  semicolon: boolean?
   --- The "statements" node at the top of a file: the `#!` line it opens
   --- with, without its line break.
-  hashbang: string | nil
+  hashbang: string?
 
   -- "goto" and "label": the name jumped to, or declared.
-  label: string | nil
+  label: string?
 
   -- "fornum": the numeric loop's bounds. `step` is absent when the
   -- source wrote none.
-  from: Node | nil
-  to: Node | nil
-  step: Node | nil
+  from: Node?
+  to: Node?
+  step: Node?
 end
 
 --- One parse's result: the AST root plus the token stream it came
@@ -261,7 +261,7 @@ end
 --- Line `y` of `source`, without its newline: nil before the first and
 --- past the last one. [`build.teal`] keeps a copy, which goes with its
 --- hint layer at the switch (its TODO).
-local function line_at(source: string, y: integer): string | nil
+local function line_at(source: string, y: integer): string?
   if y < 1 then
     return nil
   end
@@ -274,7 +274,7 @@ local function line_at(source: string, y: integer): string | nil
     start = newline + 1
   end
   local stop = source:find("\n", start, true)
-  return source:sub(start, stop ~= nil and stop - 1 or #source)
+  return source:sub(start, if stop ~= nil then stop - 1 else #source end)
 end
 
 --- What to write for a type declared under a dotted name, which the
@@ -285,7 +285,7 @@ end
 --- that requires it. nil for any other refusal, for a line `e` names
 --- that declares no dotted name, and for an outer name `source` binds
 --- to a `require`, whose record is another module's to declare in.
-local function dotted_declaration(source: string, e: compiler.Error): string | nil
+local function dotted_declaration(source: string, e: compiler.Error): string?
   local unscoped = e.code == "declaration_scope" and e.key == "record"
   if not unscoped and e.code ~= "syntax_error" then
     return nil
@@ -305,7 +305,7 @@ local function dotted_declaration(source: string, e: compiler.Error): string | n
       source:find("local%s+type%s+" .. outer .. "%s*=%s*require") ~= nil then
     return nil
   end
-  local declared = kind == "type" and "type " .. inner .. " = ..." or kind .. " " .. inner .. " ... end"
+  local declared = if kind == "type" then "type " .. inner .. " = ..." else kind .. " " .. inner .. " ... end" end
   return "declare `" .. declared .. "` inside `local record " .. outer ..
     " ... end`: it is then " .. outer .. "." .. inner ..
     ", here and in every module that requires this one"
@@ -336,7 +336,7 @@ end
 
 --- The type text of a parameter whose `:` starts `rest`, up to the `,` or
 --- `)` that ends it outside any brackets; nil when none does on the line.
-local function type_text(rest: string): string | nil
+local function type_text(rest: string): string?
   local depth = 0
   local _, colon = rest:find("^%s*:%s*")
   if colon == nil then
@@ -372,7 +372,7 @@ end
 --- name are on different lines. [`parse`] gives it, since the build
 --- parses every file before it checks one, and so does [`build.teal`]'s
 --- `replacement`, for what is checked unparsed (`cosmic --standalone`).
-local function vararg_name_hint(source: string, e: compiler.Error): string | nil
+local function vararg_name_hint(source: string, e: compiler.Error): string?
   local x = e.x
   local line = line_at(source, e.y)
   if line == nil or x < 1 then
@@ -414,7 +414,7 @@ end
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`
 --- @return Parsed|nil The AST root plus the token stream, or nil on failure
 --- @return string Error message on failure, "" on success
-local function parse(built: compiler, source: string, name: string): Parsed | nil, string
+local function parse(built: compiler, source: string, name: string): Parsed?, string
   local tokens, lex_errs = built.lex(source, name)
   local lexed = lex_errs[1]
   if lexed ~= nil then
@@ -424,7 +424,7 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   -- (`metatable<R<K>>`) to `>` in place, and reads that one token
   -- twice: put the lexer's spelling back, which is the source's, so a
   -- token still spans what the source wrote.
-  local shifts: {compiler.Token} = {}
+  local shifts: mut {compiler.Token} = {}
   for _, t in ipairs(tokens) do
     if t.tk == ">>" then
       shifts[#shifts + 1] = t
@@ -439,7 +439,7 @@ local function parse(built: compiler, source: string, name: string): Parsed | ni
   if e ~= nil then
     local hint = dotted_declaration(source, e) or vararg_name_hint(source, e)
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg) ..
-      (hint ~= nil and " -- " .. hint or "")
+      (if hint ~= nil then " -- " .. hint else "" end)
   end
   -- cast: parse_program erases its AST to `any`
   return { node = ast as Node, tokens = tokens }, ""
@@ -450,8 +450,8 @@ local record NodeModule
   type TypeNode = TypeNode
   type Node = Node
   type Parsed = Parsed
-  parse: function(built: compiler, source: string, name: string): Parsed | nil, string
-  vararg_name_hint: function(source: string, e: compiler.Error): string | nil
+  parse: function(built: compiler, source: string, name: string): Parsed?, string
+  vararg_name_hint: function(source: string, e: compiler.Error): string?
 end
 
 local M: NodeModule = {

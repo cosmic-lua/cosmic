@@ -72,7 +72,7 @@ end
 --- drops what else asks it to connect: a public address whose connect
 --- hangs. `held` gets a closer for the listener and each connection the
 --- queue took.
-local function stuck_port(held: {function()}): integer
+local function stuck_port(held: mut {function()}): integer
   local stuck = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
   held[#held + 1] = function() local _, _ = stuck:close() end
   local taken = 0
@@ -106,7 +106,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = public })
-    local hung = { value = nil as string | nil }
+    local hung = { value = nil as string? }
     local hanging = Poll.spawn(function()
       local _, why = connect("127.0.0.1", stuck, wait)
       hung.value = why
@@ -183,7 +183,7 @@ local function test_a_lookup_through_an_ended_name_servers_connector_tells_lost(
     local relay = Relay.start({
       http = http, grants = { "api.test:443" }, log = function(_: string) end,
       resolve = { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } },
-      connector = function(_: string, _: integer, _: integer): Net.Conn | nil, string
+      connector = function(_: string, _: integer, _: integer): Net.Conn?, string
         return nil, "nothing is connected here"
       end,
       lost = function(why: string) told[#told + 1] = why end,
@@ -213,7 +213,7 @@ local TYPE_A <const> = 1
 
 --- The name and type a query asks, and where its question ends.
 local function question(query: string): string, integer, integer
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
@@ -326,7 +326,7 @@ end
 ]]
 
 --- Reads exactly `count` bytes of `conn`, or nil at its end.
-local function read_exact(conn: Net.Conn, count: integer): string | nil
+local function read_exact(conn: Net.Conn, count: integer): string?
   local out = ""
   while #out < count do
     local data, _ = conn:read(count - #out)
@@ -343,7 +343,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
   require_native_connector()
   local script = tmp .. "/relay.tl"
   assert(Fs.write(script, SCRIPT))
-  local queries: {string} = {}
+  local queries: mut {string} = {}
   local datagrams = { value = 0 }
   local lines: {string} = {}
   Poll.run(function()
@@ -382,7 +382,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     local started = this_program.program({ "--standalone", script, tostring(port) },
       { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local child <close> = assert(Child.start(started.argv, started.options))
-    local result: Child.Result | nil
+    local result: Child.Result?
     while result == nil do
       local state = assert(child:try_wait())
       if state.finished then

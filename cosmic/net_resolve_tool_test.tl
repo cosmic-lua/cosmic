@@ -44,7 +44,7 @@ end
 
 --- The name and type a query asks, or nil for a message that is none.
 local function question(query: string): string, integer, integer
-  local labels: {string} = {}
+  local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
@@ -61,7 +61,7 @@ end
 local function response(query: string, reply: Reply, question_end: integer): string
   local id = string.unpack(">I2", query)
   local records = reply.records
-  local parts: {string} = {
+  local parts: mut {string} = {
     string.pack(">I2I2I2I2I2I2", id, 0x8180 | reply.rcode, 1, #records, 0, 0),
     query:sub(13, question_end),
   }
@@ -112,7 +112,7 @@ end
 --- against a server that answers each query as `serve` says, and the
 --- "type name" of each query the server saw.
 local function lookup(tmp: string, name: string, timeout_ms: integer,
-                      serve: function(string, integer): Reply | nil,
+                      serve: function(string, integer): Reply?,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, guarded and GUARDED or SCRIPT))
@@ -121,8 +121,8 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local seen: {string} = {}
-  local result: Child.Result | nil
+  local seen: mut {string} = {}
+  local result: Child.Result?
   while result == nil do
     local state = assert(child:try_wait())
     if state.finished then
@@ -145,7 +145,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
   end
   local finished = assert(result)
   assert(finished.code == 0, tostring(finished.code) .. " " .. tostring(finished.stderr))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in ((finished.stdout or "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   table.sort(seen)
   return lines, seen
@@ -196,7 +196,7 @@ local function test_a_failing_server_is_a_failure_not_an_answer(tmp: string)
 end
 
 local function test_a_server_that_never_answers_times_out(tmp: string)
-  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply | nil return nil end)
+  local lines, seen = lookup(tmp, "silent.example.test", 400, function(): Reply? return nil end)
   assert(lines[1] == "error " .. Poll.TIMEOUT, lines[1])
   assert(#seen >= 1, "the server was never asked")
 end
@@ -210,6 +210,6 @@ local function test_one_family_failing_leaves_the_addresses_of_the_other(tmp: st
 end
 
 local function test_a_caught_signal_ends_a_lookup_that_waits(tmp: string)
-  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply | nil return nil end, true)
+  local lines = lookup(tmp, "stalled.example.test", 20000, function(): Reply? return nil end, true)
   assert(lines[1] == "error interrupted", lines[1])
 end

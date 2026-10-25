@@ -63,7 +63,7 @@ local function test_a_direct_relay_without_a_token_does_not_start(tmp: string)
   local script = tmp .. "/relay.tl"
   assert(Fs.write(script, SCRIPT))
   local loopback = assert(RelayStart.loopback_listeners())
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
   Poll.run(function()
     local relay <close> = relay_started(script, fds)
@@ -103,7 +103,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     local granted, ungranted = assert(server.address.port), assert(other.address.port)
     local loopback = assert(RelayStart.loopback_listeners())
     local port = loopback.port
-    local fds: {integer:integer} = {}
+    local fds: mut {integer:integer} = {}
     for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
     local relay <close> = relay_started(script, fds)
     -- The relay holds the port now; this process's hold goes.

@@ -11,7 +11,7 @@ local Sqlite = require("cosmic.sqlite")
 -- output, collecting every update's output plus finish's, and returns
 -- it with the error `finish` gives, if any.
 local function drive(stream: Compress.Stream, data: string, size?: integer): string, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local step = size or #data
   if step < 1 then step = 1 end
   local pos = 1
@@ -197,7 +197,7 @@ end
 --- Every piece of `packed` fed through `dec`, `size` bytes at a time,
 --- counting what comes out rather than keeping it: the bytes out, or
 --- nil and why not.
-local function count_out(dec: Compress.Stream, packed: string, size: integer): integer | nil, string
+local function count_out(dec: Compress.Stream, packed: string, size: integer): integer?, string
   local total = 0
   for pos = 1, #packed, size do
     local piece = packed:sub(pos, pos + size - 1)
@@ -220,7 +220,7 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   local size = 100 << 20
   for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do
     local enc = assert(Compress.deflater(format, 9))
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     local zeros = string.rep("\0", 1 << 20)
     for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
     parts[#parts + 1] = assert(enc:finish())
@@ -375,7 +375,7 @@ local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder(
 -- asserting no call returns more than `max_bytes` bytes. Returns the whole
 -- output, and what `finish` alone gave.
 local function drain(stream: Compress.Stream, data: string, max_bytes: integer): string, string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local out = assert(stream:update(data, max_bytes))
   while true do
     assert(#out <= max_bytes, #out .. " bytes from one update, limit " .. max_bytes)
@@ -390,7 +390,7 @@ end
 
 local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
   local zeros = string.rep("\0", 8 << 20)
-  local cases: {Bomb} = {
+  local cases: mut {Bomb} = {
     { packed = xz_bomb, make = xz_decoder },
     { packed = bz2_bomb, make = bz2_decoder },
   }
@@ -447,11 +447,11 @@ local function test_finish_refuses_while_output_is_pending()
 end
 
 local function test_every_success_carries_an_empty_error()
-  local constructors: {function(): Compress.Stream | nil, string} = {
-    function(): Compress.Stream | nil, string return Compress.inflater("gzip") end,
-    function(): Compress.Stream | nil, string return Compress.deflater("gzip") end,
-    function(): Compress.Stream | nil, string return Compress.xz_decoder() end,
-    function(): Compress.Stream | nil, string return Compress.bz2_decoder() end,
+  local constructors: {function(): Compress.Stream?, string} = {
+    function(): Compress.Stream?, string return Compress.inflater("gzip") end,
+    function(): Compress.Stream?, string return Compress.deflater("gzip") end,
+    function(): Compress.Stream?, string return Compress.xz_decoder() end,
+    function(): Compress.Stream?, string return Compress.bz2_decoder() end,
   }
   for _, construct in ipairs(constructors) do
     local s, trouble = construct()
@@ -487,12 +487,12 @@ local function every_kind(): {Kind}
 end
 
 local record Holder
-  s: Compress.Stream
+  mut s: Compress.Stream
 end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved = { value = nil as Compress.Stream | nil }
+    local saved = { value = nil as Compress.Stream? }
     local holder: Holder = setmetatable({} as Holder, {
       __gc = function(self: Holder) saved.value = self.s end,
     } as metatable<Holder>)

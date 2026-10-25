@@ -15,7 +15,7 @@ local type compiler = require("build.compiler")
 -- with, reads it.
 Test.policy{ env = { "FUZZ_SEED" } }
 
-local built = { value = nil as compiler | nil }
+local built = { value = nil as compiler? }
 
 --- The tree's checker, loaded once.
 local function checker(): compiler
@@ -42,7 +42,7 @@ end
 local function test_two_runs_give_the_same_text()
   local source = programs.drawn("total", 1, 4)
   local function run(): string
-    local lines: {verdicts.Line} = {}
+    local lines: mut {verdicts.Line} = {}
     for n, text in ipairs(source) do
       for _, line in ipairs(verdicts.program_lines(checker(), "p" .. n .. ".tl", text)) do
         lines[#lines + 1] = line
@@ -113,7 +113,7 @@ local function test_a_declaration_file_is_served_and_not_checked(tmp: string)
 end
 
 local function test_a_raise_of_the_checker_is_a_line()
-  local stub: {string:any} = {}
+  local stub: mut {string:any} = {}
   for key, value in pairs(checker() as {string:any}) do
     stub[key] = value
   end
@@ -132,8 +132,8 @@ local function test_the_environment_is_the_builds_less_its_database()
     assert(tostring((ours.defaults as {string:any})[field]) == tostring((theirs.defaults as {string:any})[field]),
       field .. " differs")
   end
-  local ours_names: {string} = {}
-  local their_names: {string} = {}
+  local ours_names: mut {string} = {}
+  local their_names: mut {string} = {}
   for name in pairs(ours.globals) do ours_names[#ours_names + 1] = name end
   for name in pairs(theirs.globals) do their_names[#their_names + 1] = name end
   table.sort(ours_names)

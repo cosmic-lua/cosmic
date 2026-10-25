@@ -33,7 +33,7 @@ local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
-local function write_fixture(case: string, files: {string:string}): string | nil, string
+local function write_fixture(case: string, files: {string:string}): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
     return nil, trouble
@@ -54,7 +54,7 @@ end
 
 --- Builds the fixture project at `root` and returns the `requires` of
 --- whichever compiled module has import path `path`.
-local function requires_of_fixture(root: string, path: string): {string} | nil, string
+local function requires_of_fixture(root: string, path: string): {string}?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -79,7 +79,7 @@ end
 
 --- Stages and compiles one fixture run. Reopening the same root keeps its
 --- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -98,10 +98,10 @@ end
 --- Observes the real derive and compile through an empty shared cache.
 --- Offers must survive a later failure, and no operation may follow finish.
 local record SharedTrace
-  finished: integer
-  offered: integer
-  kept: {string}
-  flushed: {string}
+  mut finished: integer
+  mut offered: integer
+  kept: mut {string}
+  flushed: mut {string}
 end
 
 local function traced_cache(): importer.Shared, SharedTrace
@@ -118,7 +118,7 @@ local function traced_cache(): importer.Shared, SharedTrace
       active()
       return {}
     end,
-    parse = function(_analyzer: string, _hash: string, _mapped: boolean): importer.Shared.Parse | nil
+    parse = function(_analyzer: string, _hash: string, _mapped: boolean): importer.Shared.Parse?
       active()
       return nil
     end,
@@ -126,7 +126,7 @@ local function traced_cache(): importer.Shared, SharedTrace
       active()
       trace.offered = trace.offered + 1
     end,
-    look = function(_module: importer.Module, _own: boolean): importer.Shared.Compile | nil
+    look = function(_module: importer.Module, _own: boolean): importer.Shared.Compile?
       active()
       return nil
     end,
@@ -147,8 +147,8 @@ local function test_compile_consumes_shared_cache_on_success_and_failure()
   for _, failing in ipairs({ false, true }) do
     local root = assert(write_fixture("cache-compile", {
       ["a.tl"] = "return { value = 1 }\n",
-      ["z.tl"] = failing and "local value: string = 1\nreturn value\n" or
-        "return { value = 2 }\n",
+      ["z.tl"] = if failing then "local value: string = 1\nreturn value\n" else
+        "return { value = 2 }\n" end,
     }))
     local handle = assert(work.open(root))
     assert(work.stage(handle, false))
@@ -194,7 +194,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     local shared, trace = traced_cache()
     local selected = { value = false }
     local result, trouble = importer.compile_tree(handle, built,
-      function(recorded: identity.Identities): string | nil, string
+      function(recorded: identity.Identities): string?, string
         selected.value = true
         assert(trace.finished == 0 and trace.offered == 1,
           "identity selected before derivation completed")
@@ -331,7 +331,7 @@ local function asked_of(root: string, sql: string): {{string}}
   local handle = assert(work.open(root))
   local rows = assert(Sqlite.text_rows(handle.db, sql))
   work.close(handle)
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
   return out
 end
@@ -347,7 +347,7 @@ local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them
     ["other.tl"] = "return { value = 2 }\n",
   }))
   local function keys_of(result: importer.Result): {string:string}
-    local out: {string:string} = {}
+    local out: mut {string:string} = {}
     for _, m in ipairs(result.modules) do
       out[m.path] = (m.key or "") .. " " .. (m.graph_key or "")
     end
@@ -924,7 +924,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, row in ipairs(rows) do
     got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
   end
@@ -934,7 +934,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   local view = assert(docs.view({ shipped }))
   for _, query in ipairs({ "Shapes.Box.area", "Box.area", "area" }) do
     local uses = assert(docs.uses(view, query))
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, use in ipairs(uses) do
       lines[#lines + 1] = use.from_file .. ":" .. use.line
     end
@@ -1136,7 +1136,7 @@ local function test_uses_of_an_inherited_field_name_its_interface()
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, row in ipairs(rows) do
     got[#got + 1] = row:text(3) .. " " .. row:text(1) .. " " .. row:text(2)
   end
@@ -1305,7 +1305,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   assert(work.stage(handle, false))
   local result, compile_trouble = importer.compile(handle, built, "importer-test")
   assert(result ~= nil, tostring(compile_trouble))
-  local lua: string | nil = nil
+  local lua: string? = nil
   for _, m in ipairs(result.modules) do
     if m.path == "lines" then
       lua = m.lua
@@ -1313,7 +1313,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   end
   work.close(handle)
   assert(lua ~= nil, "lines did not compile")
-  local generated: {string} = {}
+  local generated: mut {string} = {}
   for line in String.lines(lua) do
     generated[#generated + 1] = line
   end
@@ -1824,7 +1824,7 @@ local function test_a_reused_compile_is_the_one_a_fresh_compile_makes()
   for _, checks in ipairs({ false, true }) do
     local before: {string:string} = { ["lim.tl"] = lim, ["mid.tl"] = mid, ["user.tl"] = user }
     local root = write_tree_files("reused-" .. tostring(checks), before)
-    local function compile_with_checks(at: string): importer.Result | nil, string
+    local function compile_with_checks(at: string): importer.Result?, string
       local handle = assert(work.open(at))
       assert(work.stage(handle, false))
       local result, trouble = importer.compile(handle, built, "declaration-cache-test", false, nil, nil, checks)
@@ -1985,7 +1985,7 @@ end
 
 --- The file of the tree's module `name`, as the build finds it: nil
 --- where the tree has none.
-local function tree_file_of(name: string): string | nil
+local function tree_file_of(name: string): string?
   local base = name:gsub("%.", "/")
   for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
     if Fs.exists(candidate) then return candidate end
@@ -1995,12 +1995,12 @@ end
 
 --- A module requiring each of `uses`, by name.
 local function module_requiring(uses: {string}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for index, used in ipairs(uses) do
     lines[#lines + 1] = "local m" .. index .. " = require(\"" .. used .. "\")"
   end
   lines[#lines + 1] = "local record M\n  uses: {any}\nend"
-  local names: {string} = {}
+  local names: mut {string} = {}
   for index = 1, #uses do names[#names + 1] = "m" .. index end
   lines[#lines + 1] = "M.uses = { " .. table.concat(names, ", ") .. " }"
   lines[#lines + 1] = "return M"
@@ -2096,7 +2096,7 @@ end
 --- identities: every compile and parse is made again.
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   local original = identities_of(root)
   seen[original[1]] = "the original tree"
   for _, path in ipairs({ "build/compilation.tl", "build/derivation.tl", "build/teal.tl", "build/teal_helper.tl", "build/shape_specs.tl",
@@ -2165,7 +2165,7 @@ end
 local function test_the_compiler_modules_are_closed_under_require()
   local ast = require("build.ast")
   local modules = assert(identity.compiler_modules(Store.requires))
-  local covered: {string:boolean} = {}
+  local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
     assert(covered[name] or name:match("^cosmic%.") ~= nil,
@@ -2201,9 +2201,9 @@ local function test_the_compiler_modules_are_closed_under_require()
       "keys carry the mode in the tool string",
   }
   assert(not covered["build.importer"], "cache coordination and diagnostics entered compiler identity")
-  local used: {string:boolean} = {}
-  local missing: {string} = {}
-  local checked: {string} = { "build.importer" }
+  local used: mut {string:boolean} = {}
+  local missing: mut {string} = {}
+  local checked: mut {string} = { "build.importer" }
   for _, name in ipairs(modules) do checked[#checked + 1] = name end
   for _, name in ipairs(checked) do
     local file = tree_file_of(name)
@@ -2248,7 +2248,7 @@ end
 --- here until it is one or the other.
 local function test_the_writer_modules_are_closed_under_require()
   local modules = assert(identity.writer_modules(Store.requires))
-  local covered: {string:boolean} = {}
+  local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
       "build.roots", "build.tree", "build.bind", "build.symbols",
@@ -2256,7 +2256,7 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(covered[name], name .. " is not in the writer's identity: " ..
         table.concat(modules, ", "))
   end
-  local roots_require: {string:boolean} = {}
+  local roots_require: mut {string:boolean} = {}
   for _, root in ipairs({ "build.writer", "build.identity" }) do
     for _, name in ipairs((assert(Store.requires(root)))) do roots_require[name] = true end
   end
@@ -2266,13 +2266,13 @@ local function test_the_writer_modules_are_closed_under_require()
         "but neither build.writer nor build.identity requires it")
     assert(not covered[name], name .. " is left out of the writer's identity, but is in it")
   end
-  local compiler: {string:boolean} = {}
+  local compiler: mut {string:boolean} = {}
   for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
     compiler[name] = true
   end
   --- What build.writer's closure reaches that neither identity holds,
   --- and why no projection's bytes turn on it.
-  local neither: {string:string} = {
+  local neither: mut {string:string} = {
     ["build.work"] = "stages rows and owns transactions and history",
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
@@ -2285,8 +2285,8 @@ local function test_the_writer_modules_are_closed_under_require()
   }
   --- What [`build.writer`] reaches, without going on from the modules named in `stop`.
   local function reach(stop: {string:boolean}): {string:boolean}
-    local seen: {string:boolean} = {}
-    local pending: {string} = { "build.writer" }
+    local seen: mut {string:boolean} = {}
+    local pending: mut {string} = { "build.writer" }
     while #pending > 0 do
       local name = table.remove(pending)
       if seen[name] == nil then
@@ -2306,14 +2306,14 @@ local function test_the_writer_modules_are_closed_under_require()
   -- default compile turns on them.
   local through_pipeline = reach({ ["build.pipeline"] = true })
   neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
-  local only_pipeline: {string:boolean} = {}
+  local only_pipeline: mut {string:boolean} = {}
   for name in pairs(reached) do
     if through_pipeline[name] == nil then
       only_pipeline[name] = true
     end
   end
-  local unclassified: {string} = {}
-  local used: {string:boolean} = {}
+  local unclassified: mut {string} = {}
+  local used: mut {string:boolean} = {}
   for name in pairs(reached) do
     if neither[name] ~= nil then
       used[name] = true
@@ -2347,7 +2347,7 @@ end
 local function test_the_analyzer_modules_are_closed_under_require()
   local ast = require("build.ast")
   local modules = assert(importer.analyzer_modules())
-  local listed: {string:boolean} = {}
+  local listed: mut {string:boolean} = {}
   for _, name in ipairs(modules) do listed[name] = true end
   assert(listed["build.derivation"] and listed["build.ast.match"] and
       listed["cosmic.string"], table.concat(modules, ", "))
@@ -2365,7 +2365,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
   assert(not listed["build.work"] and not listed["build.caches"] and
       not listed["build.zig"], table.concat(modules, ", "))
   local file_of = tree_file_of
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for _, name in ipairs(modules) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
@@ -2453,7 +2453,7 @@ local function test_an_unjudged_refused_compile_is_not_shared()
   work.close(handle)
   assert(result ~= nil, trouble)
   local cache = assert(shared_compiles.open(path))
-  local shared: {string:boolean} = {}
+  local shared: mut {string:boolean} = {}
   for _, m in ipairs(result.modules) do
     local found, look_trouble = shared_compiles.look(cache,
       shared_compiles.key(assert(m.key), true, m.generated))
@@ -2585,7 +2585,7 @@ local function test_the_reference_sweep_reads_compiled_once()
   local plan = assert(Sqlite.text_rows(handle.db,
     "EXPLAIN QUERY PLAN " .. importer.prune_references))
   work.close(handle)
-  local details: {string} = {}
+  local details: mut {string} = {}
   for _, row in ipairs(plan) do
     details[#details + 1] = row:text(4)
   end
@@ -2631,7 +2631,7 @@ end
 --- than a function may hold, after declarations the generated Lua writes
 --- in fewer lines than the Teal.
 local function test_a_lua_refusal_is_said_at_the_teal_line()
-  local locals: {string} = {}
+  local locals: mut {string} = {}
   for i = 1, 201 do
     locals[#locals + 1] = "local v" .. i .. " = " .. i .. " print(v" .. i .. ")\n"
   end
@@ -2657,8 +2657,8 @@ end
 --- A shared record must not bring code generation into a position or
 --- input-declaration reader's import closure.
 local function test_the_module_shape_does_not_reach_compilation()
-  local seen: {string:boolean} = {}
-  local pending: {string} = { "build.positions", "build.test_inputs" }
+  local seen: mut {string:boolean} = {}
+  local pending: mut {string} = { "build.positions", "build.test_inputs" }
   while #pending > 0 do
     local name = table.remove(pending)
     if not seen[name] then

@@ -58,7 +58,7 @@ local DAMAGING <const>: {string: boolean} = {
 
 --- The globals of the fork's environment, which a program may use.
 local function fork_globals(): {string: Scopes.Global}
-  local out: {string: Scopes.Global} = {}
+  local out: mut {string: Scopes.Global} = {}
   for name in pairs(verdicts.environment(built).globals) do
     -- The checker keeps names of its own in the table of globals: `@is_va` and `...`.
     if name:match("^[%a_][%w_]*$") then
@@ -76,7 +76,7 @@ local DECLARED <const> = fork_globals()
 
 --- What the fork finds in `text`, as `kind y name` lines, or why it cannot be compared.
 local function fork_findings(text: string): {string}, string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(verdicts.program_lines(built, "p.tl", text)) do
     if line.code:match("^syntax") or line.code == "raised" then
       return out, "the fork finds no tree"
@@ -100,7 +100,7 @@ local function builder_findings(text: string): {string}, string
       return {}, "the tree is damaged by " .. e.code
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(Scopes.build(parsed.chunk, "p.tl", DECLARED).errors) do
     local name = e.msg:match("`(.-)`")
     if e.code == "shadows" then
@@ -130,14 +130,14 @@ local function difference(text: string): string, boolean
   if why_mine ~= "" then
     return "", false
   end
-  local unreliable: {string: boolean} = {}
+  local unreliable: mut {string: boolean} = {}
   for _, finding in ipairs(theirs) do
     if finding:match("^unknown") then
       unreliable[name_of(finding)] = true
     end
   end
   local function counted(list: {string}): {string: integer}
-    local out: {string: integer} = {}
+    local out: mut {string: integer} = {}
     for _, finding in ipairs(list) do
       if not unreliable[name_of(finding)] then
         out[finding] = (out[finding] or 0) + 1
@@ -146,7 +146,7 @@ local function difference(text: string): string, boolean
     return out
   end
   local a, b = counted(theirs), counted(mine)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for finding, n in pairs(a) do
     if b[finding] ~= n then
       lines[#lines + 1] = "fork " .. finding .. " x" .. n .. ", builder x" .. (b[finding] or 0)
@@ -176,7 +176,7 @@ local function agree(label: string, texts: {string}, least: integer)
 end
 
 local function corpus(dir: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local files = assert(Fs.walk(dir))
   table.sort(files)
   for _, file in ipairs(files) do
@@ -203,7 +203,7 @@ local function test_the_globals_of_the_fork_are_the_ones_the_declaration_files_d
   -- `any` and `thread` are primitive types of the scope builder, and `userdata` marks a record: the fork's names for them are
   -- no global of the new checker's.
   local primitive: {string: boolean} = { any = true, thread = true, userdata = true }
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   for name in pairs(DECLARED) do
     if mine[name] == nil and primitive[name] ~= true then
       missing[#missing + 1] = name
@@ -230,7 +230,7 @@ end
 
 local function test_the_builder_agrees_with_the_fork_on_programs_that_bind_names_in_every_way()
   local rng = Rand.new(11)
-  local texts: {string} = {}
+  local texts: mut {string} = {}
   for i = 1, 150 do
     texts[i] = Programs.generate(function(min: integer, max: integer): integer
       return rng:int(min, max)

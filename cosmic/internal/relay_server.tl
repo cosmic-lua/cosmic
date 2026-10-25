@@ -130,7 +130,7 @@ local record Relay
   --- ("Connection refused", [`Poll.TIMEOUT`], ...). The sandbox's is
   --- the native connector ([`Net.connector`]), reached through
   --- [`Relay.handed`], which connects nothing but numeric endpoints.
-  type Connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  type Connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
 
   --- How long each wait may last, in nanoseconds; a nil field takes its
   --- default.
@@ -311,7 +311,7 @@ local function lower(text: string): string
 end
 
 --- A decimal `port`, or nil.
-local function number_of(text: string): integer | nil
+local function number_of(text: string): integer?
   if not text:find("^[1-9]%d*$") or #text > 5 then return nil end
   local port = math.tointeger(tonumber(text))
   if port == nil or port < 1 or port > 65535 then return nil end
@@ -338,8 +338,8 @@ end
 --- A grant a policy validated ([`cosmic.relay.grant`]) has none; a relay
 --- started on its own configuration may be given one.
 local function name_grants(grants: {string}): {NameGrant}, {string}
-  local names: {NameGrant} = {}
-  local notes: {string} = {}
+  local names: mut {NameGrant} = {}
+  local notes: mut {string} = {}
   for _, grant in ipairs(grants) do
     local parsed, why = Grant.parse(grant)
     if parsed == nil then
@@ -381,7 +381,7 @@ end
 --- @param handed Relay.Handed The connector
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  local given: Net.Connector | nil = nil
+  local given: Net.Connector? = nil
   if type(handed) == "table" then given = handed.connector end
   if given == nil then
     error("relay: handed needs a connector", 2)
@@ -401,7 +401,7 @@ function Relay.handed(handed: Relay.Handed): Relay.Connector
     end
     return why
   end
-  return function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+  return function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
     if connector:ended() then return nil, ended() end
     -- A connect raises only for arguments it refuses, which this module's
     -- own are not.
@@ -446,35 +446,35 @@ local record Running
   log: function(line: string)
   --- The SHA-256 of the spec's token, or nil where it has none.
   token_digest?: string
-  stopping: boolean
+  mut stopping: boolean
   --- Connections that have not authenticated yet, where there is a token.
-  pending: integer
-  open: integer
-  accepted: integer
-  refused: integer
-  next_id: integer
+  mut pending: integer
+  mut open: integer
+  mut accepted: integer
+  mut refused: integer
+  mut next_id: integer
   --- The connections open, by id, to be closed at stop.
-  live: {integer: {Net.Conn}}
-  tasks: {integer: Poll.Task}
-  acceptors: {Poll.Task}
+  live: mut {integer: {Net.Conn}}
+  tasks: mut {integer: Poll.Task}
+  acceptors: mut {Poll.Task}
   --- The lookups in progress, each a task of its own that `stop` cancels,
   --- so a connection waiting for a name does not hold the stop back.
-  lookups: {Poll.Task: boolean}
+  lookups: mut {Poll.Task: boolean}
   --- Whether `spec.lost` has been told the name servers' connector ended.
-  told_lost: boolean
+  mut told_lost: boolean
 end
 
 --- One connection's request and what has been decided of it.
 local record Request
   id: integer
   --- "connect" or "socks5".
-  protocol: string
+  mut protocol: string
   client: Net.Conn
-  host: string
-  kind: Wire.Kind
-  port: integer
+  mut host: string
+  mut kind: Wire.Kind
+  mut port: integer
   --- The bytes the program sent after its request.
-  leftover: string
+  mut leftover: string
 end
 
 --- Why a connection is refused, and what the program is told.
@@ -505,7 +505,7 @@ end
 
 --- The password of a Basic `Proxy-Authorization` value, or nil and why not
 --- (a reason that holds none of the value).
-local function basic_password(authorization: string | nil): string | nil, string
+local function basic_password(authorization: string?): string?, string
   if authorization == nil then return nil, "no Proxy-Authorization" end
   local scheme, rest = authorization:match("^(%S+)%s+(.*)$")
   if scheme == nil or lower(scheme) ~= "basic" then
@@ -533,7 +533,7 @@ local function connect_failure(address: string, why: string): Refusal
 end
 
 --- `conn`'s read within `deadline`: the bytes, or nil and why ("" at the end).
-local function read_before(conn: Net.Conn, deadline: integer, most: integer): string | nil, string
+local function read_before(conn: Net.Conn, deadline: integer, most: integer): string?, string
   local left = deadline - Clock.monotonic_ns()
   if left <= 0 then return nil, Poll.TIMEOUT end
   conn:set_timeout(left)
@@ -585,7 +585,7 @@ local function read_connect(run: Running, conn: Net.Conn, first: string, deadlin
     if data == nil then
       if why == Poll.TIMEOUT then
         return { status = "refused", consumed = 0, http_status = 408,
-          reason = ("%s not received within %s"):format(run.token_digest ~= nil and "request and credential" or "request",
+          reason = ("%s not received within %s"):format(if run.token_digest ~= nil then "request and credential" else "request" end,
             span(limit)) }, ""
       end
       return { status = "refused", consumed = 0, http_status = 0, reason = "the program closed before its request was whole" }, ""
@@ -635,7 +635,7 @@ local function read_socks(run: Running, conn: Net.Conn, authenticated: function(
   end
   local function timed_out(): Socks
     return early(("%s not received within %s"):format(
-      authing and "greeting and credential" or "request", span(limit)),
+      if authing then "greeting and credential" else "request" end, span(limit)),
       "ttl_expired", false)
   end
   local greeting = Wire.socks_greeting_reader(run.token_digest ~= nil)
@@ -751,8 +751,8 @@ end
 --- What a lookup in a task of its own answered, which it hands back in a
 --- table.
 local record Looked
-  found: {Net.Resolved} | nil
-  why: string | nil
+  mut found: {Net.Resolved}?
+  mut why: string?
 end
 
 --- Resolves `name` once, and every address the checks allow, in order.
@@ -761,12 +761,12 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   if kind ~= "name" then
     return { addresses = { name } }
   end
-  local answers: {Address.Answer} = {}
+  local answers: mut {Address.Answer} = {}
   local resolved_once = trusted and assert(run.spec.upstream).addresses or nil
   if resolved_once ~= nil then
     -- The upstream's addresses, which its starter resolved: no lookup.
     for i, address in ipairs(resolved_once) do
-      answers[i] = { address = address, family = address:find(":", 1, true) and "ipv6" or "ipv4" }
+      answers[i] = { address = address, family = if address:find(":", 1, true) then "ipv6" else "ipv4" end }
     end
   else
     -- A numeric host, as an upstream proxy's may be, answers itself.
@@ -836,7 +836,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
   if chosen == nil then
     return { addresses = {}, refused = refusal(("%s: %s"):format(shown, trouble), 403, "not_allowed") }
   end
-  local addresses: {string} = {}
+  local addresses: mut {string} = {}
   for i, answer in ipairs(chosen) do addresses[i] = answer.address end
   return { addresses = addresses }
 end
@@ -858,8 +858,8 @@ end
 --- status of the last.
 local function connect_any(run: Running, addresses: {string}, port: integer, deadline: integer,
                            label: string, name: string): Connected
-  local failures: {string} = {}
-  local last: Refusal | nil
+  local failures: mut {string} = {}
+  local last: Refusal?
   for i, address in ipairs(addresses) do
     local left = i == 1 and run.timeouts.connect or deadline - Clock.monotonic_ns()
     if left <= 0 then
@@ -881,7 +881,7 @@ end
 --- The part of a CONNECT through an upstream the relay reads: its status
 --- line and head, cut to `most` bytes. Nil and why when it is no
 --- success; else the bytes after the head.
-local function upstream_connect(conn: Net.Conn, request: string, deadline: integer, ns: integer): string | nil, string
+local function upstream_connect(conn: Net.Conn, request: string, deadline: integer, ns: integer): string?, string
   if not send(conn, request, ns) then
     return nil, "the upstream proxy closed before it was asked"
   end
@@ -957,7 +957,7 @@ end
 --- `first` is what `far` sent already, and `sniff` the check on what
 --- the client sends first. Answers why it ended.
 local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Conn, first: string,
-                      sniff: Sniff | nil): string
+                      sniff: Sniff?): string
   local idle = run.timeouts.idle
   local flow = { ended = "", stamp = Clock.monotonic_ns() }
   local function end_with(why: string)
@@ -968,7 +968,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     end
   end
   --- Pumps `from` to `to`; `check` is the sniff, for the client's side.
-  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff | nil, name: string)
+  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string)
     -- The check stands until the hello is judged.
     local sniffed = { check = check }
     local function pass(data: string): boolean
@@ -1068,9 +1068,9 @@ end
 --- Where one connection stands in the relay's counts.
 local record Slot
   --- Whether it is in the count of connections not yet authenticated.
-  pre_auth: boolean
+  mut pre_auth: boolean
   --- Whether it is in the counts of open and accepted connections.
-  admitted: boolean
+  mut admitted: boolean
 end
 
 --- Moves the connection of `slot` into the counts of open and accepted
@@ -1091,18 +1091,18 @@ end
 --- "" when it is counted already; nil where it is counted once it has
 --- authenticated.
 local function serve_connection(run: Running, protocol: string, client: Net.Conn, id: integer, slot: Slot,
-                                over: string | nil)
+                                over: string?)
   local req: Request = { id = id, protocol = protocol, client = client, host = "", kind = "name", port = 0, leftover = "" }
   -- Why the connection is refused outright, "" when it is counted already,
   -- nil until it has authenticated.
   local admission = { over = over }
   local function reject(why: Refusal, replied: boolean)
     run.refused = run.refused + 1
-    local at = req.host ~= "" and (" " .. target(req.host, req.port)) or ""
+    local at = if req.host ~= "" then (" " .. target(req.host, req.port)) else "" end
     run.log(("#%d %s%s: refused: %s"):format(id, protocol, at, why.reason))
     if replied then
       if protocol == "connect" then
-        local phrase = why.http == 407 and "Proxy Authentication Required" or why.reason
+        local phrase = if why.http == 407 then "Proxy Authentication Required" else why.reason end
         local _ = send(client, Wire.connect_refusal(why.http, phrase), run.timeouts.head)
       else
         local _ = send(client, Wire.socks_reply(why.socks), run.timeouts.head)
@@ -1126,14 +1126,14 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       return
     end
     sniffed = data
-    protocol = sniffed:byte(1) == 5 and "socks5" or "connect"
+    protocol = if sniffed:byte(1) == 5 then "socks5" else "connect" end
     req.protocol = protocol
   end
   if protocol == "connect" then
     local head, rest = read_connect(run, client, sniffed, reading_until)
     if head.status == "refused" then
       local status = assert(head.http_status)
-      reject(refusal(assert(head.reason), status == 0 and 400 or status, "failure"), status ~= 0)
+      reject(refusal(assert(head.reason), if status == 0 then 400 else status end, "failure"), status ~= 0)
       return
     end
     if run.token_digest ~= nil then
@@ -1223,7 +1223,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     run.live[id] = { client, conn }
     local authorization = up.authorization
     local ask = ("CONNECT %s HTTP/1.1\r\nHost: %s\r\n%s\r\n"):format(shown, shown,
-      authorization ~= nil and ("Proxy-Authorization: " .. authorization .. "\r\n") or "")
+      if authorization ~= nil then ("Proxy-Authorization: " .. authorization .. "\r\n") else "" end)
     local rest, bad = upstream_connect(conn, ask, deadline, run.timeouts.connect)
     if rest == nil then
       local _, _ = conn:close()
@@ -1271,7 +1271,7 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
         run.next_id = run.next_id + 1
         local id = run.next_id
         local slot: Slot = { pre_auth = false, admitted = false }
-        local over: string | nil
+        local over: string?
         if run.token_digest ~= nil then
           slot.pre_auth = true
           run.pending = run.pending + 1
@@ -1340,7 +1340,7 @@ local function checked_upstream(up: Relay.Upstream)
 end
 
 --- `given`, or `default` where it is nil; raises where it is no integer from 1.
-local function chosen(given: integer | nil, default: integer, name: string): integer
+local function chosen(given: integer?, default: integer, name: string): integer
   if given == nil then return default end
   if math.type(given) ~= "integer" or given < 1 then
     error(("relay: %s must be an integer from 1"):format(name), 3)
@@ -1414,7 +1414,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     total = chosen(given_limits.total, DEFAULT_LIMITS.total, "limits.total"),
     pre_auth = chosen(given_limits.pre_auth, DEFAULT_LIMITS.pre_auth, "limits.pre_auth"),
   }
-  local tls: {integer: boolean} = {}
+  local tls: mut {integer: boolean} = {}
   for _, port in ipairs(spec.tls_ports or DEFAULT_TLS_PORTS) do
     if math.type(port) ~= "integer" or port < 1 or port > 65535 then
       error("relay: spec.tls_ports must hold ports from 1 to 65535", 2)
@@ -1452,7 +1452,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
       "not apply to what it reaches; names are still matched against the grants, and the proxy's own " ..
       "address is the one the caller's https_proxy names, so the relay connects to it without the program being granted it"):format(target(up.host, up.port)))
   end
-  local function listen(listener: Net.Listener | nil, protocol: string)
+  local function listen(listener: Net.Listener?, protocol: string)
     if listener ~= nil then
       run.acceptors[#run.acceptors + 1] = Poll.spawn(function()
         accept_loop(run, listener, protocol)
@@ -1474,7 +1474,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
     wait = function(_: Relay.Serving)
       for _, task in ipairs(run.acceptors) do local _, _ = task:join() end
       while true do
-        local pending: Poll.Task | nil = nil
+        local pending: Poll.Task? = nil
         for _, task in pairs(run.tasks) do
           pending = task
           break

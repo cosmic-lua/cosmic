@@ -37,16 +37,16 @@ end
 
 local FORMS <const>: {string: function(n: integer): string} = {
   ["a chain of operators"] = function(n: integer): string
-    local terms: {string} = {}
+    local terms: mut {string} = {}
     for i = 1, n * 50 do
       terms[i] = "a"
     end
     return "local a: integer = 1\nlocal b: integer = " .. table.concat(terms, " + ") .. "\n"
   end,
   ["a record of many fields read and given"] = function(n: integer): string
-    local out: {string} = { "local record R\n" }
-    local given: {string} = {}
-    local reads: {string} = {}
+    local out: mut {string} = { "local record R\n" }
+    local given: mut {string} = {}
+    local reads: mut {string} = {}
     for i = 1, n * 30 do
       out[#out + 1] = "  f" .. i .. ": integer\n"
       given[i] = "f" .. i .. " = " .. i
@@ -56,15 +56,15 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["a literal of many items"] = function(n: integer): string
-    local items: {string} = {}
+    local items: mut {string} = {}
     for i = 1, n * 100 do
       items[i] = tostring(i)
     end
     return "local xs: {integer} = { " .. table.concat(items, ", ") .. " }\nlocal ys = { " .. table.concat(items, ", ") .. " }\n"
   end,
   ["a union of many tagged records read by a shared field"] = function(n: integer): string
-    local out: {string} = {}
-    local members: {string} = {}
+    local out: mut {string} = {}
+    local members: mut {string} = {}
     for i = 1, n * 8 do
       out[#out + 1] = "local enum K" .. i .. " \"k" .. i .. "\" end\nlocal record R" .. i .. "\n  kind: K" .. i ..
         "\n  value: integer\nend\n"
@@ -78,15 +78,15 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["an if expression of many arms"] = function(n: integer): string
-    local arms: {string} = {}
+    local arms: mut {string} = {}
     for i = 1, n * 50 do
-      arms[i] = (i == 1 and "if" or "elseif") .. " b then " .. i
+      arms[i] = (if i == 1 then "if" else "elseif" end) .. " b then " .. i
     end
     return "local b: boolean = true\nlocal x: integer = " .. table.concat(arms, " ") .. " else 0 end\n"
   end,
   ["a function of many parameters called with all of them"] = function(n: integer): string
-    local params: {string} = {}
-    local args: {string} = {}
+    local params: mut {string} = {}
+    local args: mut {string} = {}
     for i = 1, n * 30 do
       params[i] = "p" .. i .. ": integer"
       args[i] = tostring(i)

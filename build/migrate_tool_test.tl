@@ -107,7 +107,7 @@ local function test_what_is_left_is_listed_with_its_place_and_the_run_exits_1(tm
 end
 
 local function test_a_long_list_of_findings_is_cut_and_its_rest_counted(tmp: string)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i = 1, 205 do
     lines[#lines + 1] = "local n" .. i .. ": string = " .. i
   end

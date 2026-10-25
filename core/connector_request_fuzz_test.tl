@@ -84,7 +84,7 @@ local function expected(request: string, listener: integer): {integer: boolean},
     if index ~= 1 or port ~= listener then return { [sys.EPERM] = true }, false, "outside" end
     return { [0] = true }, true, "table"
   end
-  local length = family == 4 and 4 or family == 6 and 16 or 0
+  local length = if family == 4 then 4 elseif family == 6 then 16 else 0 end
   if length == 0 or port > 65535 or not zero(length + 1) then
     return { [sys.EINVAL] = true }, false, "malformed"
   end
@@ -132,9 +132,9 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
     name = "connector requests are answered once with their own tag",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local list: {string} = {}
+      local list: mut {string} = {}
       while Fuzz.more(src, #list, 12) do list[#list + 1] = gen_request(src) end
-      local cuts: {string} = {}
+      local cuts: mut {string} = {}
       while Fuzz.more(src, #cuts, 8) do cuts[#cuts + 1] = string.pack(">I2", src:int(1, 40)) end
       return Fuzz.pack({ table.concat(list), table.concat(cuts) })
     end,
@@ -147,9 +147,9 @@ local function test_every_request_is_answered_once_with_its_own_tag(tmp: string)
       if #fields ~= 2 or #fields[1] % 36 ~= 0 or #fields[2] % 2 ~= 0 then
         return false, "a malformed input"
       end
-      local waiting: {integer: {integer: boolean}} = {}
-      local passes: {integer: boolean} = {}
-      local stream: {string} = {}
+      local waiting: mut {integer: {integer: boolean}} = {}
+      local passes: mut {integer: boolean} = {}
+      local stream: mut {string} = {}
       local count = 0
       for at = 1, #fields[1], 36 do
         local request = fields[1]:sub(at, at + 35)

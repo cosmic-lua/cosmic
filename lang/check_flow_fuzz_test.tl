@@ -57,7 +57,7 @@ local function check_program(input: string): boolean, string
   local source = Translate.translate(adapt.adapted(input) or input, "fuzz.tl").text
   local x = execute(source)
   if not x.ran then
-    Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
+    Fuzz.label(if #x.run.before > 0 then "not a program" else "refused" end)
     return true, ""
   end
   Fuzz.label("accepted")
@@ -118,28 +118,28 @@ end
 --- test that ended the block) says are not nil, a bias towards the reads the checker must decide, not a claim that they are
 --- accepted.
 local record Scope
-  vars: {string}
-  focus: {string}
+  vars: mut {string}
+  mut focus: mut {string}
   --- Paths a test showed not nil that an assignment of their record has replaced since: a read of one, bare, is a read
   --- the checker must refuse, and a program that takes it can fault.
-  stale: {string}
+  stale: mut {string}
 end
 
 local record Gen
   src: Fuzz.Source
-  lines: {string}
-  id: integer
-  fuel: integer
-  depth: integer
+  lines: mut {string}
+  mut id: integer
+  mut fuel: integer
+  mut depth: integer
   --- Whether a `break` and a `continue` leave a loop of the function being drawn.
-  in_loop: boolean
+  mut in_loop: boolean
   --- Whether the program holds records `r` and `s` of fixed optional fields, whose paths (`r.a`, `s.leaf.n`) the
   --- statements test and read as they do the locals, and which an assignment of `r` or `s` replaces.
   fixed: boolean
 end
 
 local function copy(list: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, s in ipairs(list) do
     out[i] = s
   end
@@ -179,7 +179,7 @@ end
 
 --- A local to test: one no guard names, so that a test is not a dead one, which is refused.
 local function tested(g: Gen, scope: Scope): string
-  local open: {string} = {}
+  local open: mut {string} = {}
   for _, v in ipairs(scope.vars) do
     if not has(scope.focus, v) then
       open[#open + 1] = v
@@ -206,8 +206,8 @@ end
 --- A test of up to `depth` levels: its text, and the locals it says are not nil when it holds. A bare local is a test
 --- only at the top, since `and` and `or` of an optional and a boolean are refused; `avoid` are the locals the test it
 --- is part of has tested.
-local function cond(g: Gen, scope: Scope, depth: integer, avoid: {string}, top: boolean): string, {string}
-  local k = depth <= 0 and 0 or g.src:int(0, 6)
+local function cond(g: Gen, scope: Scope, depth: integer, avoid: mut {string}, top: boolean): string, {string}
+  local k = if depth <= 0 then 0 else g.src:int(0, 6) end
   if k <= 3 then
     local v = tested(g, scope)
     for _ = 1, 3 do
@@ -216,7 +216,7 @@ local function cond(g: Gen, scope: Scope, depth: integer, avoid: {string}, top: 
       end
     end
     avoid[#avoid + 1] = v
-    local form = g.src:int(0, top and 5 or 3)
+    local form = g.src:int(0, if top then 5 else 3 end)
     if form <= 1 then
       return v .. " ~= nil", { v }
     elseif form == 2 then
@@ -248,7 +248,7 @@ local gen_block: function(g: Gen, scope: Scope, n: integer)
 
 --- Draws `n` statements in the scope `scope`, which the statements add to.
 local function gen_statement(g: Gen, scope: Scope)
-  local k = g.src:int(0, g.depth >= 3 and 7 or 13)
+  local k = g.src:int(0, if g.depth >= 3 then 7 else 13 end)
   -- Over fixed fields a quarter of the statements replace a record, since what they are for is a test of a path that a
   -- replacement then ends.
   if g.fixed and g.depth > 0 and g.src:int(0, 3) == 0 then
@@ -271,7 +271,7 @@ local function gen_statement(g: Gen, scope: Scope)
       else
         add(g, v .. " = " .. Fuzz.pick(g.src, { "maybe()", "nil", "1" }))
       end
-      local kept: {string} = {}
+      local kept: mut {string} = {}
       for _, f in ipairs(scope.focus) do
         if f ~= v and f:sub(1, #drops) ~= drops then
           kept[#kept + 1] = f
@@ -357,7 +357,7 @@ local function gen_statement(g: Gen, scope: Scope)
     gen_block(g, nested(scope), g.src:int(1, 4))
     g.depth = g.depth - 1
     g.in_loop = saved
-    add(g, kind == 2 and "until " .. counter .. " >= 2" or "end")
+    add(g, if kind == 2 then "until " .. counter .. " >= 2" else "end" end)
   elseif k == 11 then
     local f = fresh(g, "f")
     local body = operand(g, scope)
@@ -478,7 +478,7 @@ local function check_locals(source: string): boolean, string
   local x = execute(source)
   if not x.ran then
     local first = x.run.errors[1]
-    Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
+    Fuzz.label(if #x.run.before > 0 then "not a program" else "refused" end)
     if first ~= nil then
       Fuzz.label("refused for " .. first.code)
     end
@@ -490,7 +490,7 @@ local function check_locals(source: string): boolean, string
   end
   local fault = x.fault
   if fault == nil or fault:find("assertion failed", 1, true) then
-    Fuzz.label(fault == nil and "ran" or "stopped by assert")
+    Fuzz.label(if fault == nil then "ran" else "stopped by assert" end)
     for _, c in ipairs(LOCAL_CONSTRUCTS) do
       if source:find(c[2]) then
         Fuzz.label("ran with " .. c[1])
@@ -807,7 +807,7 @@ local function check_shapes(source: string): boolean, string
   local x = execute(source)
   if not x.ran then
     local first = x.run.errors[1]
-    Fuzz.label(#x.run.before > 0 and "not a program" or "refused")
+    Fuzz.label(if #x.run.before > 0 then "not a program" else "refused" end)
     if first ~= nil then
       Fuzz.label("refused for " .. first.code)
     end

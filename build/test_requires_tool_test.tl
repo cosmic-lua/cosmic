@@ -120,7 +120,7 @@ local function test_c() assert(true) end
     -- The module that applies runs once and then stands (a held run is keyed
     -- apart, and runs); the other has no verdict to stand on.
     if i <= 2 then
-      assert(out:find("3 tests passed in 2 modules; " .. (i == 1 and "1 ran, 0 stood" or "0 ran, 1 stood") .. ", ",
+      assert(out:find("3 tests passed in 2 modules; " .. (if i == 1 then "1 ran, 0 stood" else "0 ran, 1 stood" end) .. ", ",
         1, true), out)
     end
     assert(out:find(", 2 n/a (this platform has none of what they check), ", 1, true), out)
@@ -184,7 +184,7 @@ local function test_b() assert(true) end
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
   local modes: {{string:string}} = { { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }
   for _, held in ipairs(modes) do
-    local extra: {string:string} = { COSMIC_TEST_PLATFORM = "other", COSMIC_TEST_LEG = "linux-test",
+    local extra: mut {string:string} = { COSMIC_TEST_PLATFORM = "other", COSMIC_TEST_LEG = "linux-test",
       COSMIC_TEST_PROMISES = "sandbox,nest" }
     for name, value in pairs(held) do extra[name] = value end
     local out, code = run(root, extra)

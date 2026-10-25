@@ -57,7 +57,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return "if a then b() " .. ("elseif c then d() "):rep(n * 25) .. "end"
   end,
   ["a record"] = function(n: integer): string
-    local fields: {string} = {}
+    local fields: mut {string} = {}
     for i = 1, n * 25 do fields[i] = "f" .. i .. ": integer\n" end
     return "local record R\n" .. table.concat(fields) .. "end"
   end,

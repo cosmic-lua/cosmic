@@ -19,7 +19,7 @@ local in_declaration <const> = "in local declaration: probe: "
 --- every type error, joined.
 local function said(built: compiler, expression: string): string
   local _, result = built.gen("local probe: boolean = " .. expression .. "\n", nil, nil, "tl")
-  local messages: {string} = {}
+  local messages: mut {string} = {}
   for _, e in ipairs(result.type_errors) do
     messages[#messages + 1] = e.msg
   end
@@ -294,21 +294,21 @@ end
 local function dump(built: compiler): string
   local env = assert(built.new_env({}))
   local globals = env.globals as {string:{any:any}}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(globals) do
     if name:sub(1, 1) ~= "@" and name ~= "..." then
       names[#names + 1] = name
     end
   end
   table.sort(names)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, name in ipairs(names) do
     lines[#lines + 1] = name .. " => " .. printed(built, name)
     local declared = globals[name]["t"] as {any:any}
     local definition = declared and declared["def"] as {any:any}
     local fields = definition and definition["fields"] as {string:any}
     if fields then
-      local keys: {string} = {}
+      local keys: mut {string} = {}
       for key in pairs(fields) do
         keys[#keys + 1] = key
       end

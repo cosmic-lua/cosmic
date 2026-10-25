@@ -40,7 +40,7 @@ end
 end
 
 --- The environment of a run: nothing shared, every test run.
-local function run_environment(sandbox: string | nil): {string:string}
+local function run_environment(sandbox: string?): {string:string}
   local env = this_program.environment()
   env.COSMIC_VERDICT_CACHE = "0"
   env.COSMIC_TEST_ALL = nil

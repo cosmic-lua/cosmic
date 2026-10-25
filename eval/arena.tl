@@ -30,7 +30,7 @@ end
 --- `cosmic fix --check` the grader runs, so it is written for `fix` to
 --- link no span naming the task's own module, whatever that module
 --- declares ([`eval/arena_test.tl`]).
-function Arena.task_text(eval: string, task: string): string | nil, string
+function Arena.task_text(eval: string, task: string): string?, string
   if task:find("/", 1, true) then
     return nil, "no task eval/task/" .. task .. ".md"
   end
@@ -49,7 +49,7 @@ end
 --- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
 --- answering the arena's absolute path. `dir` must not exist yet, and
 --- must be outside the repository eval/ sits in, links resolved.
-function Arena.lay(eval: string, task: string, binary: string, dir: string): string | nil, string
+function Arena.lay(eval: string, task: string, binary: string, dir: string): string?, string
   local task_text, task_trouble = Arena.task_text(eval, task)
   if task_text == nil then
     return nil, task_trouble
@@ -103,7 +103,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if physical == nil then
     return nil, ptrouble
   end
-  dir = (physical == "/" and "" or physical) .. rest .. "/" .. name
+  dir = (if physical == "/" then "" else physical end) .. rest .. "/" .. name
   if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
@@ -117,13 +117,13 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   if physical == nil then
     return nil, ptrouble
   end
-  dir = (physical == "/" and "" or physical) .. "/" .. name
+  dir = (if physical == "/" then "" else physical end) .. "/" .. name
   if Fs.within(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local new, ntrouble, errno = sys.mkdir(dir)
   if not new then
-    return nil, errno == sys.EEXIST and "destination must be new: " .. dir or dir .. ": " .. ntrouble
+    return nil, if errno == sys.EEXIST then "destination must be new: " .. dir else dir .. ": " .. ntrouble end
   end
   local binary_bytes, btrouble = Fs.read(binary)
   if binary_bytes == nil then
@@ -141,7 +141,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     end
   end
   -- These records are for the evaluator, not the solver.
-  local hashes: {string} = {}
+  local hashes: mut {string} = {}
   for _, file in ipairs(files) do
     local wrote, wtrouble = Fs.write(dir .. "/" .. file[1], file[2])
     if not wrote then

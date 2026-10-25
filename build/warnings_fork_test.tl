@@ -88,7 +88,7 @@ local function fork_warnings(source: string): {string}
   local env = assert(built.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   local result = built.check_string(source, env, "case.tl", "tl")
-  local out: {string} = {}
+  local out: mut {string} = {}
   local found: {compiler.Error} = result.warnings
   for _, w in ipairs(found) do
     local kind = tostring(w.tag)
@@ -103,7 +103,7 @@ end
 local function new_warnings(source: string): {string}
   local run = Programs.run(Translate.translate(source, "case.tl").text)
   assert(#run.before == 0, table.concat(run.before, " "))
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, w in ipairs(run.result.warnings) do
     out[#out + 1] = key(w.kind, w.msg, w.y)
   end
@@ -112,11 +112,11 @@ local function new_warnings(source: string): {string}
 end
 
 local function difference(a: {string}, b: {string}): {string}
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, x in ipairs(b) do
     seen[x] = true
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, x in ipairs(a) do
     if seen[x] ~= true then
       out[#out + 1] = x

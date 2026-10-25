@@ -25,7 +25,7 @@ end
 local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
   local before = next_descriptor(tmp)
   local refused_count = 0
-  local pair = { value = nil as {integer} | nil }
+  local pair = { value = nil as {integer}? }
   local function work(): any
     pair.value = assert(process.connector_pair())
     return true

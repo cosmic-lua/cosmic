@@ -76,7 +76,7 @@ function ErrorRender.line(file: string, problem: Driver.Problem): string
 end
 
 --- The name an error about an unresolved name is about: the name read, or the module `require`d. nil for any other error.
-local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem): string | nil
+local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem): string?
   if problem.code ~= "unknown_variable" and problem.code ~= "require_unknown" then
     return nil
   end
@@ -110,7 +110,7 @@ local function docs_pointer(result: Driver.Outcome, problem: Driver.Problem, hin
 end
 
 --- The worked example that teaches the form a problem is about, by the query that finds it: nil for a problem of no form.
-local function example_query(problem: Driver.Problem): string | nil
+local function example_query(problem: Driver.Problem): string?
   if problem.code == "arity" or problem.code == "overload_none" then
     return ErrorRender.queries.arguments
   elseif problem.code == "field_unknown" then
@@ -139,9 +139,9 @@ end
 
 function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {string}
   local file = result.source.filename
-  local out: {string} = {}
-  local first: {string: integer} = {}
-  local repeats: {integer: integer} = {}
+  local out: mut {string} = {}
+  local first: mut {string: integer} = {}
+  local repeats: mut {integer: integer} = {}
   local groups: {{Driver.Problem}} = { result.errors, result.warnings }
   for _, group in ipairs(groups) do
     for _, problem in ipairs(group) do
@@ -159,7 +159,7 @@ function ErrorRender.lines(result: Driver.Outcome, hints?: ErrorRender.Hints): {
       end
     end
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for at, text in ipairs(out) do
     local more = repeats[at]
     if more ~= nil then

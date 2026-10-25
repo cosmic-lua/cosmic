@@ -14,7 +14,7 @@ local Types = require("lang.types")
 Test.policy{}
 
 local function gen_draws(src: Fuzz.Source): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 120) do
     out[#out + 1] = tostring(src:int(0, 99))
   end
@@ -33,7 +33,7 @@ end
 
 --- A store that has made types of its own first, so that its ids are not another store's.
 local function crowded(origin: Types.Store, draws: {integer}): Types.Store
-  local store = Types.new(function(module: string, name: string): string | nil
+  local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
     return decl ~= nil and Types.encode_declaration(decl) or nil
   end)
@@ -47,33 +47,33 @@ local function crowded(origin: Types.Store, draws: {integer}): Types.Store
 end
 
 -- The labels a type reaches, so that a property that needs a form finds out when none is drawn.
-local function label_all(t: Types.Type, seen: {integer: boolean})
+local function label_all(t: Types.Type, seen: mut {integer: boolean})
   if seen[t.id] then
     return
   end
   seen[t.id] = true
   Fuzz.label(t.tag)
-  if t is Types.Union then
-    Fuzz.label(t.nilable and "optional" or "union")
+  if (t.tag == "union") then
+    Fuzz.label(if t.nilable then "optional" else "union" end)
     for _, m in ipairs(t.members) do
       label_all(m, seen)
     end
-  elseif t is Types.Array then
-    Fuzz.label(t.mut and "mut" or "view")
+  elseif (t.tag == "array") then
+    Fuzz.label(if t.mut then "mut" else "view" end)
     label_all(t.element, seen)
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     label_all(t.key, seen)
     label_all(t.value, seen)
-  elseif t is Types.Named then
-    Fuzz.label(#t.args > 0 and "generic use" or "plain use")
+  elseif (t.tag == "named") then
+    Fuzz.label(if #t.args > 0 then "generic use" else "plain use" end)
     if #t.args == 2 and t.args[1] == t.args[2] then
       Fuzz.label("shared parts")
     end
     for _, a in ipairs(t.args) do
       label_all(a, seen)
     end
-  elseif t is Types.Fn then
-    Fuzz.label(#t.tparams > 0 and "generic function" or "plain function")
+  elseif (t.tag == "fn") then
+    Fuzz.label(if #t.tparams > 0 then "generic function" else "plain function" end)
     if #t.rets == 0 then
       Fuzz.label("never returns")
     elseif #t.rets > 1 then
@@ -84,7 +84,7 @@ local function label_all(t: Types.Type, seen: {integer: boolean})
       Fuzz.label("rest")
     end
     for _, p in ipairs(t.params) do
-      Fuzz.label(p.omittable and "omittable" or "required")
+      Fuzz.label(if p.omittable then "omittable" else "required" end)
       label_all(p.type, seen)
     end
     for _, alt in ipairs(t.rets) do
@@ -98,7 +98,7 @@ local function label_all(t: Types.Type, seen: {integer: boolean})
         label_all(tail, seen)
       end
       for _, item in ipairs(alt.items) do
-        if item is Types.Union then
+        if (item.tag == "union") then
           for _, member in ipairs(item.members) do
             if member.tag == "fn" then
               Fuzz.label("functions returned as a union")
@@ -122,10 +122,10 @@ end
 --- Why a union is not in normal form, or "".
 local function union_not_normal(t: Types.Union): string
   local members = t.members
-  if #members < (t.nilable and 1 or 2) then
+  if #members < (if t.nilable then 1 else 2 end) then
     return "too few members: " .. Types.display(t)
   end
-  local tags: {string: boolean} = {}
+  local tags: mut {string: boolean} = {}
   local enum = false
   local previous = ""
   for _, m in ipairs(members) do
@@ -133,7 +133,7 @@ local function union_not_normal(t: Types.Union): string
     if m.tag == "union" or m.tag == "nil" or m.tag == "never" or m.tag == "any" or m.tag == "invalid" then
       return "a " .. m.tag .. " is a member of " .. Types.display(t)
     end
-    if m is Types.Named and m.decl.kind == "enum" then
+    if (m.tag == "named") and m.decl.kind == "enum" then
       enum = true
     end
     local d = Types.digest(m)
@@ -158,25 +158,25 @@ local function union_not_normal(t: Types.Union): string
 end
 
 --- Why `t`, or a type inside it, is not in normal form, or "".
-local function not_normal(t: Types.Type, seen: {integer: boolean}): string
+local function not_normal(t: Types.Type, seen: mut {integer: boolean}): string
   if seen[t.id] then
     return ""
   end
   seen[t.id] = true
-  local parts: {Types.Type} = {}
-  if t is Types.Union then
+  local parts: mut {Types.Type} = {}
+  if (t.tag == "union") then
     local why = union_not_normal(t)
     if why ~= "" then
       return why
     end
     parts = t.members
-  elseif t is Types.Array then
+  elseif (t.tag == "array") then
     parts = { t.element }
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     parts = { t.key, t.value }
-  elseif t is Types.Named then
+  elseif (t.tag == "named") then
     parts = t.args
-  elseif t is Types.Fn then
+  elseif (t.tag == "fn") then
     for _, alt in ipairs(t.rets) do
       for _, item in ipairs(alt.items) do
         if item.tag == "never" then
@@ -189,7 +189,7 @@ local function not_normal(t: Types.Type, seen: {integer: boolean}): string
       local param_type = p.type
       -- `any` absorbs the nil, so an omittable `any` is `any`.
       local optional = param_type.tag == "nil" or param_type.tag == "any" or param_type.tag == "invalid" or
-        (param_type is Types.Union and param_type.nilable)
+        ((param_type.tag == "union") and param_type.nilable)
       if p.omittable and not optional then
         return "an omittable parameter that is not optional in " .. Types.display(t)
       end
@@ -209,7 +209,7 @@ end
 
 --- Every type a function type holds.
 local function fn_parts(t: Types.Fn): {Types.Type}
-  local parts: {Types.Type} = {}
+  local parts: mut {Types.Type} = {}
   for _, tp in ipairs(t.tparams) do
     local bound = tp.bound
     if bound ~= nil then
@@ -241,22 +241,22 @@ end
 
 --- `t`'s `open` and `has_mut`, worked out again from its parts.
 local function flags(t: Types.Type): integer, boolean
-  if t is Types.Var then
+  if (t.tag == "var") then
     return t.depth + 1, false
   end
   local parts: {Types.Type} = {}
   local own_mut = false
-  if t is Types.Named then
+  if (t.tag == "named") then
     parts = t.args
-  elseif t is Types.Array then
+  elseif (t.tag == "array") then
     parts = { t.element }
     own_mut = t.mut
-  elseif t is Types.Map then
+  elseif (t.tag == "map") then
     parts = { t.key, t.value }
     own_mut = t.mut
-  elseif t is Types.Union then
+  elseif (t.tag == "union") then
     parts = t.members
-  elseif t is Types.Fn then
+  elseif (t.tag == "fn") then
     parts = fn_parts(t)
   end
   local open, changes = 0, own_mut
@@ -265,14 +265,14 @@ local function flags(t: Types.Type): integer, boolean
     open = math.max(open, o)
     changes = changes or m
   end
-  if t is Types.Fn and #t.tparams > 0 then
+  if (t.tag == "fn") and #t.tparams > 0 then
     open = math.max(0, open - 1)
   end
   -- A view does not reach through a named type or a function.
-  return open, changes and not (t is Types.Named or t is Types.Fn)
+  return open, changes and not ((t.tag == "named") or (t.tag == "fn"))
 end
 
-local function flags_wrong(t: Types.Type, seen: {integer: boolean}): string
+local function flags_wrong(t: Types.Type, seen: mut {integer: boolean}): string
   if seen[t.id] then
     return ""
   end
@@ -326,10 +326,10 @@ end
 
 --- The types that the draws `from` the `at`th number build, a few of them.
 local function several(w: World, draws: {integer}): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   local count = 2 + (draws[1] or 0) % 5
   for i = 1, count do
-    local slice: {integer} = {}
+    local slice: mut {integer} = {}
     for j = (i - 1) * 11 + 2, #draws do
       slice[#slice + 1] = draws[j]
     end
@@ -339,7 +339,7 @@ local function several(w: World, draws: {integer}): {Types.Type}
 end
 
 local function reversed(list: {Types.Type}): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   for i = #list, 1, -1 do
     out[#out + 1] = list[i]
   end
@@ -348,13 +348,13 @@ end
 
 --- The list rotated by `by`, and then every other member first.
 local function shuffled(list: {Types.Type}, by: integer): {Types.Type}
-  local out: {Types.Type} = {}
+  local out: mut {Types.Type} = {}
   local n = #list
   for i = 0, n - 1 do
     out[i + 1] = list[(i + by) % n + 1]
   end
-  local odd: {Types.Type} = {}
-  local even: {Types.Type} = {}
+  local odd: mut {Types.Type} = {}
+  local even: mut {Types.Type} = {}
   for i, t in ipairs(out) do
     if i % 2 == 0 then
       even[#even + 1] = t
@@ -399,8 +399,8 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
       end
       -- Grouped: the union of the halves, and a union with the members repeated.
       local half = #members // 2
-      local left: {Types.Type} = {}
-      local right: {Types.Type} = {}
+      local left: mut {Types.Type} = {}
+      local right: mut {Types.Type} = {}
       for i, m in ipairs(members) do
         if i <= half then
           left[#left + 1] = m
@@ -420,7 +420,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
       if not ok then
         return false, reason
       end
-      local doubled: {Types.Type} = {}
+      local doubled: mut {Types.Type} = {}
       for _, m in ipairs(members) do
         doubled[#doubled + 1] = m
       end
@@ -433,7 +433,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
       end
       -- Another store makes the members in another order after other types, and has the same text.
       local other = crowded(w.store, draws)
-      local there: {Types.Type} = {}
+      local there: mut {Types.Type} = {}
       for i, m in ipairs(reversed(members)) do
         local t, why_not = other:decode(Types.encode(m))
         if t == nil then
@@ -449,7 +449,7 @@ local function test_a_union_does_not_depend_on_the_order_grouping_or_store_of_it
         return false, "another store displays " .. Types.display(there_union) .. ", not " .. Types.display(base)
       end
       label_all(base, {})
-      Fuzz.label(#members >= 4 and "many members" or "few members")
+      Fuzz.label(if #members >= 4 then "many members" else "few members" end)
       return true, ""
     end,
     requires = { "union", "optional", "many members", "named", "fn" },
@@ -537,7 +537,7 @@ end
 
 --- The text of a random type with a few bytes changed, deleted, inserted or duplicated.
 local function gen_mutated_text(src: Fuzz.Source): string
-  local draws: {integer} = {}
+  local draws: mut {integer} = {}
   while Fuzz.more(src, #draws, 60) do
     draws[#draws + 1] = src:int(0, 99)
   end
@@ -554,7 +554,7 @@ local function test_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_fo
     check = function(input: string): boolean, string
       -- A store with no declaration, which loads them from the fixture's as the text meets them.
       local origin = world()
-      local fresh = Types.new(function(module: string, name: string): string | nil
+      local fresh = Types.new(function(module: string, name: string): string?
         local decl = origin.store:find(module, name)
         return decl ~= nil and Types.encode_declaration(decl) or nil
       end)

@@ -15,7 +15,7 @@ local function process_table(): raw_process
   error("cosmic.child has no process table")
 end
 
-local function assert_terminal_refusal(child: Child.Handle | nil, trouble: string, slot: string)
+local function assert_terminal_refusal(child: Child.Handle?, trouble: string, slot: string)
   assert(child == nil)
   assert(trouble:find("terminal " .. slot, 1, true), trouble)
 end

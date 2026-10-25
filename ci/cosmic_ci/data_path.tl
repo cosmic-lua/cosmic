@@ -11,7 +11,7 @@ end
 
 --- The path of `cosmic_ci/<name>` beside `script` when it is there,
 --- else below the working directory.
-function DataPath.beside(script: string | nil, name: string): string
+function DataPath.beside(script: string?, name: string): string
   if script ~= nil then
     local beside = Fs.dirname(script) .. "/cosmic_ci/" .. name
     if Predicate.exists(beside) then return beside end
@@ -22,7 +22,7 @@ end
 --- [`DataPath.beside`] the running script.
 function DataPath.of(name: string): string
   -- A test's worker has no `arg` table to index.
-  local indexed, script = pcall(function(): string | nil return arg[0] end)
+  local indexed, script = pcall(function(): string? return arg[0] end)
   if indexed and script is string then return DataPath.beside(script, name) end
   return DataPath.beside(nil, name)
 end

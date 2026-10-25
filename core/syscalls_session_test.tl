@@ -44,7 +44,7 @@ end
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
@@ -56,7 +56,7 @@ local function spawn_fds(started: this_program.Program): {integer:integer}
 end
 
 --- The setsid program where this host has one, or nil.
-local function setsid_program(): string | nil
+local function setsid_program(): string?
   for _, path in ipairs({ "/usr/bin/setsid", "/bin/setsid", "/usr/sbin/setsid" }) do
     if sys.stat(path) ~= nil then return path end
   end
@@ -66,14 +66,14 @@ end
 --- Runs `chunk`, with `...` after it, in this program, in a session of
 --- its own (`setsid`), in `tmp`: what it printed, or nil where the host
 --- has no setsid program.
-local function in_own_session(tmp: string, chunk: string, ...: string): string | nil
+local function in_own_session(tmp: string, chunk: string, ...: string): string?
   local setsid = setsid_program()
   if setsid == nil then return nil end
   local report = create(tmp .. "/session")
-  local args: {string} = { "-e", chunk }
+  local args: mut {string} = { "-e", chunk }
   for _, word in ipairs({ ... }) do args[#args + 1] = word end
   local started = this_program.program(args)
-  local argv: {string} = { setsid }
+  local argv: mut {string} = { setsid }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
     false, spawn_fds(started)))
@@ -123,7 +123,7 @@ local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string
   if sys.stat("/proc/self/autogroup") == nil then Test.skip("this kernel has no autogroup") end
   if setsid_program() == nil then Test.skip("this host has no setsid program") end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local reads: {string} = { probe }
+  local reads: mut {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end
   end

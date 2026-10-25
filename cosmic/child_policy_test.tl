@@ -54,7 +54,7 @@ end
 
 --- A grant of the program itself, which a child needs to run at all.
 local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
-  local grants: {Sandbox.Grant} = { { path = program, letters = "rx" } }
+  local grants: mut {Sandbox.Grant} = { { path = program, letters = "rx" } }
   for _, grant in ipairs(more or {}) do grants[#grants + 1] = grant end
   return grants
 end
@@ -139,7 +139,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local passed = sys.getenv("TMPDIR")
   assert(passed ~= nil, "the test has no TMPDIR to pass through")
-  local hidden: string | nil
+  local hidden: string?
   for name in pairs(sys.environ()) do
     if name ~= "TMPDIR" and hidden == nil then hidden = name end
   end
@@ -183,7 +183,7 @@ end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
 local function sandbox_directories(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-sandbox%-") then found[#found + 1] = name end
   end

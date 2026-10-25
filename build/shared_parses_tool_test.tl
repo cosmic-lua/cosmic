@@ -91,7 +91,7 @@ print(42)
 --- A checkout of the project at `root`, with `changed` written over it
 --- (a file to "" is left out).
 local function checkout(root: string, changed?: {string:string})
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(project) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do

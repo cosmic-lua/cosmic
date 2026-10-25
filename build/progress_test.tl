@@ -6,7 +6,7 @@ Test.policy{}
 
 --- A phase over `lines`, which reads the time from `now`, where stderr is
 --- a terminal or not.
-local function phase_on(terminal: boolean, lines: {string}, now: function(): integer): progress.Phase
+local function phase_on(terminal: boolean, lines: mut {string}, now: function(): integer): progress.Phase
   return progress.phase("test", "running", "test", {
     say = function(verb: string, detail: string) table.insert(lines, verb .. ": " .. detail) end,
     terminal = terminal,

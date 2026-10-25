@@ -26,7 +26,7 @@ local record fixture
   end
 end
 
-function fixture.read(path: string): fixture.Artifact | nil, string
+function fixture.read(path: string): fixture.Artifact?, string
   local bytes, read_trouble = Fs.read(path)
   if bytes == nil then return nil, read_trouble end
   if #bytes < 48 or bytes:sub(-48, -41) ~= "CosmicT1" then
@@ -51,7 +51,7 @@ function fixture.read(path: string): fixture.Artifact | nil, string
       32 + count * entry_length > manifest_length then
     return nil, path .. ": portable manifest fields differ"
   end
-  local entries: {fixture.Entry} = {}
+  local entries: mut {fixture.Entry} = {}
   for _ = 1, count do
     local target: integer
     local configuration: integer
@@ -81,7 +81,7 @@ function fixture.read(path: string): fixture.Artifact | nil, string
 end
 
 function fixture.entry(artifact: fixture.Artifact, target: integer,
-                       configuration: integer): fixture.Entry | nil
+                       configuration: integer): fixture.Entry?
   for _, entry in ipairs(artifact.entries) do
     if entry.target == target and entry.configuration == configuration then
       return entry
@@ -90,7 +90,7 @@ function fixture.entry(artifact: fixture.Artifact, target: integer,
   return nil
 end
 
-function fixture.change_byte(bytes: string, offset: integer): string | nil, string
+function fixture.change_byte(bytes: string, offset: integer): string?, string
   local at = offset + 1
   local byte = bytes:byte(at)
   if byte == nil then return nil, "byte offset is outside the artifact" end
@@ -114,7 +114,7 @@ function fixture.load_by_target(records_path: string,
                                 make_path: function(string): string):
     fixture.Targets
   local records = assert(Fs.read(records_path))
-  local blobs: {string:string} = {}
+  local blobs: mut {string:string} = {}
   for line in records:gmatch("[^\n]+") do
     local target = line:match("^%d+\t%d+\t[^\t]+\t([^\t]+)\t")
     assert(target ~= nil, "invalid generated target record")

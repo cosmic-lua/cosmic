@@ -105,7 +105,7 @@ end
 --- The digest an executed-cosmic.sha256 manifest names: its text,
 --- trailing newlines aside, is exactly `<64 lowercase hex>  cosmic`.
 --- nil and why otherwise.
-function Prerelease.manifest_digest(text: string): string | nil, string
+function Prerelease.manifest_digest(text: string): string?, string
   local line = substituted(text)
   local digest = line:match("^([0-9a-f]+)  cosmic$")
   if digest == nil or #digest ~= 64 then
@@ -160,7 +160,7 @@ function Prerelease.complete_assets(names: {string}): boolean, string
   if #names ~= #ASSETS then
     return false, "the release holds " .. Plural.count(#names, "asset") .. ", not " .. tostring(#ASSETS)
   end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do seen[name] = true end
   for _, name in ipairs(ASSETS) do
     if seen[name] ~= true then return false, "the release holds no " .. name end
@@ -193,9 +193,9 @@ local RELEASE_ROW <const> = Shape.record_of("ReleaseRow")
 --- the scan would pass over unseen is one the publish would make again
 --- beside it.
 function Prerelease.draft_ids(page: string, tag: string): Prerelease.Drafts
-  local items, why: {any} | nil, string = Shape.decode_into(page, Shape.list(Shape.any))
+  local items, why: {any}?, string = Shape.decode_into(page, Shape.list(Shape.any))
   assert(items ~= nil, "a page of the releases list is no array: " .. why)
-  local ids: {integer} = {}
+  local ids: mut {integer} = {}
   local published = false
   for _, item in ipairs(items) do
     local release, trouble = RELEASE_ROW:into(item)
@@ -231,7 +231,7 @@ end
 --- `portable-product-*` that is itself a directory, not a link to one,
 --- as `find -mindepth 1 -maxdepth 1 -type d` finds them, sorted.
 local function product_directories(products: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(products)))) do
     if name:match("^portable%-product%-") then
       local path = products .. "/" .. name
@@ -258,7 +258,7 @@ function Prerelease.stage(s: Prerelease.Stage)
       "expected portable-product-" .. lane .. ", found " .. assert(found[i]))
   end
   local baseline = read(s.products .. "/portable-product-" .. baseline_lane .. "/cosmic")
-  local digest: string | nil = nil
+  local digest: string? = nil
   for _, lane in ipairs(LANES) do
     local product = s.products .. "/portable-product-" .. lane
     for _, name in ipairs({ "cosmic", "executed-cosmic.sha256", "expected-platforms" }) do
@@ -337,8 +337,8 @@ local RELEASE_ID <const> = Shape.record_of("ReleaseId")
 --- lead to making anything.
 local function release_ids(p: Prerelease.Publish): {integer}
   local tag = tag_of(p)
-  local ids: {integer} = {}
-  local taken: {integer:boolean} = {}
+  local ids: mut {integer} = {}
+  local taken: mut {integer:boolean} = {}
   local by_tag = "repos/" .. p.repository .. "/releases/tags/" .. tag
   local found, why = GithubApi.request(p.client, "GET", by_tag)
   assert(found ~= nil, why)
@@ -383,7 +383,7 @@ end
 local GIT_REF <const> = Shape.record_of("GitRef")
 
 --- The git object `object` (a ref's or a tag's `object` field) names.
-local function target(object: GitObject | nil, what: string): string, string
+local function target(object: GitObject?, what: string): string, string
   assert(object ~= nil, what .. " names no object")
   local sha, kind = object.sha, object.type
   assert(sha is string and kind is string, what .. " names no object")
@@ -514,8 +514,8 @@ end
 local function assets_of(release: ReleaseView): {string}, {string:integer}
   local assets = release.assets
   assert(assets ~= nil, "the release's assets are no array")
-  local names: {string} = {}
-  local ids: {string:integer} = {}
+  local names: mut {string} = {}
+  local ids: mut {string:integer} = {}
   -- TODO: an asset whose `state` is not "uploaded" is what a run that
   -- died mid-upload leaves: delete it (`DELETE releases/assets/ID`) and
   -- upload it again. Until then a re-run fails on it (it is listed as an
@@ -592,7 +592,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   local tag = tag_of(p)
   local digest = Hash.hex_sha256(read(p.release .. "/cosmic"))
   local ids = release_ids(p)
-  assert(#ids <= 1, Plural.count(#ids, "release") .. (#ids == 1 and " is" or " are") .. " tagged " .. tag)
+  assert(#ids <= 1, Plural.count(#ids, "release") .. (if #ids == 1 then " is" else " are" end) .. " tagged " .. tag)
   local release: integer
   if #ids == 1 then
     release = assert(ids[1])
@@ -625,7 +625,7 @@ function Prerelease.publish(p: Prerelease.Publish): string
   assert(upload_url is string, tag .. " names no upload URL")
   -- Resume an interrupted draft by accepting only identical existing
   -- assets. source.json may name an earlier successful run for this SHA.
-  local existing: {string:boolean} = {}
+  local existing: mut {string:boolean} = {}
   local names, asset_ids = assets_of(state)
   for _, name in ipairs(names) do
     assert(Prerelease.known_asset(name), tag .. " holds an unexpected asset: " .. name)

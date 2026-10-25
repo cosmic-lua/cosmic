@@ -572,7 +572,7 @@ end
 
 --- What a session has said, line by line.
 local record Said
-  said: string
+  mut said: string
 end
 
 --- A session finds no module in a database that another tool's code

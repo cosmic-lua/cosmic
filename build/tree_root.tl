@@ -46,7 +46,7 @@ local record tree_root
   --- What `move` decides.
   record Answer
     --- The move, or nil where the verb runs where it was started.
-    move: Move | nil
+    move: Move?
     --- Why the command line is refused (`COSMIC_TREE` names no
     --- directory), or empty.
     refused: string
@@ -77,7 +77,7 @@ end
 -- for the build to record the directories it walked, less the trees of
 -- their own within it (`ci/`, [`build.identity.is_foreign_tree`]), and to climb
 -- on that record.
-local function staged(root: string, path: string): boolean | nil, string
+local function staged(root: string, path: string): boolean?, string
   local file = build_paths.resolve(root).working
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, open_trouble end
@@ -97,7 +97,7 @@ end
 --- read, so `dir` is left a root of its own for that reason.
 --- @param dir an absolute directory
 --- @param home the home directory, resolved, or nil for none
-local function above(dir: string, home: string | nil): string | nil, string
+local function above(dir: string, home: string?): string?, string
   if established(dir) then return nil, "" end
   local here = dir
   while true do
@@ -129,7 +129,7 @@ local paths <const>: {string:string} = {
 --- `word` read from the directory `from`, unnormalized.
 local function joined_to(from: string, word: string): string
   if word:sub(1, 1) == "/" then return word end
-  return (from == "/" and "" or from) .. "/" .. word
+  return (if from == "/" then "" else from end) .. "/" .. word
 end
 
 --- `word`, read from `from`, as a path from `root`: absolute where it is
@@ -147,13 +147,13 @@ end
 --- @param home the home directory, or nil for none, where the climb ends
 --- @param named `COSMIC_TREE`, or nil: the root, `.` for the working directory
 function tree_root.move(argv: {string},
-                        options: {string:boolean | Flags.Option}, home: string | nil,
+                        options: {string:boolean | Flags.Option}, home: string?,
                         named?: string): tree_root.Answer
   local kind = paths[argv[1]]
   if kind == nil then return { refused = "", note = "" } end
   local from, _ = Fs.absolute(".")
   if from == nil then return { refused = "", note = "" } end
-  local root: string | nil
+  local root: string?
   local note = ""
   if named ~= nil and named ~= "" then
     root = narrow.lexical(joined_to(from, named))
@@ -166,7 +166,7 @@ function tree_root.move(argv: {string},
   else
     -- The home directory as `from` is spelled: resolved, else as given
     -- less its trailing slashes.
-    local resolved: string | nil = nil
+    local resolved: string? = nil
     if home ~= nil and home ~= "" then
       local real, _ = Fs.absolute(home)
       resolved = real or narrow.lexical(home)
@@ -175,7 +175,7 @@ function tree_root.move(argv: {string},
   end
   if root == nil then return { refused = "", note = note } end
 
-  local line: {string} = {}
+  local line: mut {string} = {}
   for slot, word in ipairs(argv) do line[slot] = word end
   local seen = 0
   local slot = 2

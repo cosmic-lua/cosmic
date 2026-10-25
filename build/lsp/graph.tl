@@ -36,15 +36,15 @@ end
 --- database lists but a declaration, which a build's `collect` leaves
 --- out, each with no requires, made once a stage.
 local record Held
-  files: {string:source.Module} | nil
-  modules: {Module}
+  mut files: {string:source.Module}?
+  mut modules: {Module}
 end
 
 local held: Held = { files = nil, modules = {} }
 
 local function listed(src: source.View): {Module}
   if held.files == src.files then return held.modules end
-  local out: {Module} = {}
+  local out: mut {Module} = {}
   for file, m in pairs(src.files) do
     if m.kind ~= "decl" and m.kind ~= "vendor" then
       out[#out + 1] = module_of(m.path, file, m.kind, {})
@@ -71,7 +71,7 @@ end
 --- `requires`, an open document its last check's (`opened`, by file),
 --- every other the stage's.
 local function edges_of(src: source.View, subject: Module, opened: {string:{string}}): {string:{string}}
-  local out: {string:{string}} = {}
+  local out: mut {string:{string}} = {}
   for file, m in pairs(src.files) do
     if m.kind ~= "decl" and m.kind ~= "vendor" then
       out[m.path] = opened[file] or src.requires[m.source_hash] or {}
@@ -84,7 +84,7 @@ end
 --- Every module that reaches `target` through `edges`: `target` too
 --- where it reaches itself.
 local function reaching(edges: {string:{string}}, target: string): {string:boolean}
-  local into: {string:{string}} = {}
+  local into: mut {string:{string}} = {}
   for from, names in pairs(edges) do
     for _, name in ipairs(names) do
       local list = into[name]
@@ -95,8 +95,8 @@ local function reaching(edges: {string:{string}}, target: string): {string:boole
       list[#list + 1] = from
     end
   end
-  local seen: {string:boolean} = {}
-  local stack: {string} = { target }
+  local seen: mut {string:boolean} = {}
+  local stack: mut {string} = { target }
   while #stack > 0 do
     local at = table.remove(stack)
     for _, from in ipairs(into[at] or {}) do
@@ -115,15 +115,15 @@ end
 --- [`compilation.ordered`] over every module, in the build's order, by
 --- import path ([`compilation.collect`]).
 local function cycle(src: source.View, subject: Module, requires: {Require},
-                     opened: {string:{string}}): Refusal | nil
+                     opened: {string:{string}}): Refusal?
   local edges = edges_of(src, subject, opened)
   local back = reaching(edges, subject.path)
   for _, at in ipairs(requires) do
     if back[at.name] == true then
-      local names: {string} = {}
+      local names: mut {string} = {}
       for name in pairs(edges) do names[#names + 1] = name end
       table.sort(names)
-      local members: {Module} = {}
+      local members: mut {Module} = {}
       for _, name in ipairs(names) do
         local named = edges[name]
         if named ~= nil then members[#members + 1] = module_of(name, name, "module", named) end
@@ -146,7 +146,7 @@ function graph.dependents(src: source.View, file: string, opened: {string:{strin
   local target = subject.path
   local back = reaching(edges_of(src, module_of(target, file, subject.kind,
     opened[file] or src.requires[subject.source_hash] or {}), opened), target)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for other, requires in pairs(opened) do
     local found = src.files[other]
     local reaches = found ~= nil and found.path ~= target and back[found.path] == true
@@ -167,12 +167,12 @@ end
 --- what each other open document required at its last check, by file.
 function graph.refusals(src: source.View, file: string, path: string, kind: string,
                         requires: {Require}, opened: {string:{string}}): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   local others = listed(src)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, at in ipairs(requires) do names[#names + 1] = at.name end
   local subject = module_of(path, file, kind, names)
-  local modules: {Module} = {}
+  local modules: mut {Module} = {}
   for _, m in ipairs(others) do
     if m.file ~= file then modules[#modules + 1] = m end
   end
@@ -181,7 +181,7 @@ function graph.refusals(src: source.View, file: string, path: string, kind: stri
   local own_tree = source.own_tree(src)
   -- The build's check answers only the first require it refuses: where
   -- it refuses any, each is asked alone.
-  local all: {string} = {}
+  local all: mut {string} = {}
   for _, at in ipairs(requires) do all[#all + 1] = at.name end
   checked.requires = all
   local fine, _ = positions.check(modules, own_tree, carried)

@@ -32,7 +32,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
   local family = parsed.words[2]
   if not (family is maintenance.Family) then return refuse("give compiles or verdicts") end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for i = 3, #parsed.words do
     local path = parsed.words[i]
     if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) then
@@ -44,7 +44,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse("compiles takes one path; verdicts takes one or more")
   end
   local whole = parsed.set["--whole"] == true
-  local since: integer | nil
+  local since: integer?
   local raw_since = parsed.values["--since-ns"]
   if raw_since ~= nil then
     if not raw_since:match("^%d+$") then return refuse("since-ns must be a nonnegative integer") end
@@ -79,7 +79,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     output = assert(Json.encode(report)) .. "\n"
   else
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, file in ipairs(report.files) do
       local line = file.path .. ": " .. file.state
       local kept, removed = file.kept, file.removed
@@ -101,7 +101,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     output = table.concat(lines, "\n") .. "\n"
   end
   if not bare.delivered(complain, to.out(output)) then return 1 end
-  return complete and 0 or 1
+  return if complete then 0 else 1 end
 end
 
 verb.spec = {

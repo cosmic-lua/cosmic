@@ -52,7 +52,7 @@ local function test_a_strict_namespace_start_refuses_explicitly_before_exec(tmp:
 end
 
 local function test_a_mapped_user_start_refuses_explicitly_before_exec(tmp: string)
-  local user = sys.getuid() == 1 and 2 or 1
+  local user = if sys.getuid() == 1 then 2 else 1 end
   start(tmp, { strict = true, offline = true, unveil = { reads = {}, writes = {} },
     promises = { "nest" }, user = user, group = user },
     "this sandbox's user, mount, pid or network namespace was refused", true)
@@ -61,7 +61,7 @@ end
 local function test_an_idmapped_bind_refuses_explicitly_before_exec(tmp: string)
   local path = tmp .. "/mapped"
   assert(Fs.mkdirs(path))
-  local user = sys.getuid() == 1 and 2 or 1
+  local user = if sys.getuid() == 1 then 2 else 1 end
   start(tmp, { strict = true, offline = true,
     unveil = { reads = {}, writes = {}, binds = { { path = path, at = "/mapped", idmap = true } } },
     promises = { "nest" }, user = user, group = user }, "an idmapped mount of")

@@ -23,7 +23,7 @@ local library <const> = 15
 --- A deterministic source of choices, so that a failure names the same edit
 --- on every run: `choose(n)` is in 1 to `n`.
 local record Chooser
-  state: integer
+  mut state: integer
 end
 
 local function choose(chooser: Chooser, limit: integer): integer
@@ -119,7 +119,7 @@ local function walk(seed: integer, steps: integer)
   end
   for index = 1, count do
     -- Every module requires the first, which a comment there reaches them all through.
-    local held = index == 1 and 0 or 1
+    local held = if index == 1 then 0 else 1 end
     for other = 1, count do
       if choose(chooser, 4) == 1 then held = held | (1 << (other - 1)) end
     end

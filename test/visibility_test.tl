@@ -29,8 +29,8 @@ local function write_fixture(root: string, outside: boolean)
   assert(Fs.mkdirs(root .. "/case"))
   assert(Fs.write(root .. "/case/init.tl", entry_source))
   assert(Fs.write(root .. "/case/sibling.tl", sibling_source))
-  local user_path = outside and (root .. "/outsider.tl") or
-    (root .. "/case/insider.tl")
+  local user_path = if outside then (root .. "/outsider.tl") else
+    (root .. "/case/insider.tl") end
   assert(Fs.write(user_path, user_source))
 end
 
@@ -49,8 +49,8 @@ end
 local function write_unentered_fixture(root: string, inside: boolean)
   assert(Fs.mkdirs(root .. "/deep/dir"))
   assert(Fs.write(root .. "/deep/dir/x.tl", sibling_source))
-  local user_path = inside and (root .. "/deep/dir/user.tl") or
-    (root .. "/outsider.tl")
+  local user_path = if inside then (root .. "/deep/dir/user.tl") else
+    (root .. "/outsider.tl") end
   assert(Fs.write(user_path, "local x = require(\"deep.dir.x\")\nreturn x\n"))
 end
 

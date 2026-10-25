@@ -12,7 +12,7 @@ end
 --- it to take stays, but none climbs above "/". Absolute when `path` is.
 --- No link is followed, so it names what may not exist.
 function narrow.lexical(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
       if #parts > 0 and parts[#parts] ~= ".." then
@@ -28,14 +28,14 @@ function narrow.lexical(path: string): string
   if path:sub(1, 1) == "/" then
     return "/" .. joined
   end
-  return joined == "" and "." or joined
+  return if joined == "" then "." else joined end
 end
 
 --- Each word as a path relative to `root`: "." for the root itself, the
 --- rest after it for a path within it, and a path outside it or not
 --- there at all as written, with its "." and ".." resolved lexically.
 function narrow.paths(root: string, words: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, word in ipairs(words) do
     local path = narrow.lexical(word)
     local absolute, _ = Fs.absolute(word)

@@ -39,7 +39,7 @@ local record PipelineCheck
   --- since the name its ceilings are kept under is not its own.
   keyed: function(key: string, plain: boolean, file: string, digests: {string: string}, whole: string): string
   --- A digest of every ceiling of `digests` ([`PipelineCheck.keyed`]'s `whole`) and of whether the tree has none.
-  whole: function(digests: {string: string}, none: boolean | nil): string
+  whole: function(digests: {string: string}, none: boolean?): string
 
   --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` answers by position.
   --- `declared` and `checked` are the lines the checks of the tree answer ([`tree_checks.declared`], [`tree_checks.checked`]).
@@ -49,7 +49,7 @@ local record PipelineCheck
   compare: function(
     root: string,
     build_db: Sqlite.Handle,
-    memo: Sqlite.Handle | nil,
+    memo: Sqlite.Handle?,
     count: integer,
     row_at: function(index: integer): Row,
     declared: {string},
@@ -65,13 +65,13 @@ function PipelineCheck.keyed(key: string, plain: boolean, file: string, digests:
   return Hash.hex_sha256(key .. "\0" .. held)
 end
 
-function PipelineCheck.whole(digests: {string: string}, none: boolean | nil): string
-  local files: {string} = {}
+function PipelineCheck.whole(digests: {string: string}, none: boolean?): string
+  local files: mut {string} = {}
   for file in pairs(digests) do
     files[#files + 1] = file
   end
   table.sort(files, function(a: string, b: string): boolean return a < b end)
-  local parts: {string} = { none == true and "none" or "pinned" }
+  local parts: mut {string} = { if none == true then "none" else "pinned" end }
   for _, file in ipairs(files) do
     parts[#parts + 1] = file .. "=" .. (digests[file] or "")
   end
@@ -80,7 +80,7 @@ end
 
 --- The file a line that refuses a count over its ceiling ([`build.ceilings.over`]) is about, if the line is one about declarations
 --- or bodies.
-local function over_file(line: string): string | nil
+local function over_file(line: string): string?
   return line:match("^(%S+): %d+ errors? of %S+ in its %a+, pinned %d+;")
 end
 
@@ -97,7 +97,7 @@ end
 local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
   local over: {string: boolean} = {}
   local other: {string: string} = {}
-  local answers: {string: string} = {}
+  local answers: mut {string: string} = {}
   local pipeline, built_why = Pipeline.build(build_db, options)
   if pipeline == nil then
     return { over = over, other = other, answers = answers }, { "the pipeline: " .. built_why }
@@ -105,8 +105,8 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   local build = pipeline.build
   local index, ceilings = pipeline.index, pipeline.ceilings
   -- What the working database stages: the tree of `ci/` and the fork's `checker/` are none of its modules.
-  local rows_of: {string: {PipelineCheck.Row}} = {}
-  local names: {string} = {}
+  local rows_of: mut {string: {PipelineCheck.Row}} = {}
+  local names: mut {string} = {}
   for _, row in ipairs(rows) do
     if build:provides(row.module) then
       local list = rows_of[row.module]
@@ -169,7 +169,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       if code ~= "" then
         other[row.file] = code
       end
-      answers[row.key] = counted and "O" or code == "" and "N" or "R " .. code
+      answers[row.key] = if counted then "O" elseif code == "" then "N" else "R " .. code end
     end
   end
   -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
@@ -181,7 +181,7 @@ end
 function PipelineCheck.compare(
     root: string,
     build_db: Sqlite.Handle,
-    memo: Sqlite.Handle | nil,
+    memo: Sqlite.Handle?,
     count: integer,
     row_at: function(index: integer): PipelineCheck.Row,
     declared: {string},
@@ -193,7 +193,7 @@ function PipelineCheck.compare(
   end
   -- Only the counts of the checker are compared, which keep no type of a node.
   options.types = false
-  local refused: {string: boolean} = {}
+  local refused: mut {string: boolean} = {}
   for _, lines in ipairs({ declared, checked }) do
     for _, line in ipairs(lines) do
       local file = over_file(line)
@@ -204,7 +204,7 @@ function PipelineCheck.compare(
   end
   local digests = Pipeline.pinned(options.ceilings)
   local all = PipelineCheck.whole(digests, options.ceilings.none)
-  local rows: {PipelineCheck.Row} = {}
+  local rows: mut {PipelineCheck.Row} = {}
   for index = 1, count do
     local row = row_at(index)
     row.key = PipelineCheck.keyed(row.key, row.plain, row.file, digests, all)
@@ -213,11 +213,11 @@ function PipelineCheck.compare(
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "pipeline")
   end
-  local over: {string: boolean} = {}
-  local other: {string: string} = {}
-  local missed: {PipelineCheck.Row} = {}
+  local over: mut {string: boolean} = {}
+  local other: mut {string: string} = {}
+  local missed: mut {PipelineCheck.Row} = {}
   for _, row in ipairs(rows) do
-    local kept: string | nil = nil
+    local kept: string? = nil
     if memo ~= nil then
       kept = check_memo.get(memo, "pipeline", row.key)
     end
@@ -252,7 +252,7 @@ function PipelineCheck.compare(
   if memo ~= nil then
     check_memo.finish(memo, "pipeline")
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local compared = 0
   for _, row in ipairs(rows) do
     local by_pipeline = over[row.file]

@@ -23,12 +23,12 @@ local record Forked
   source: string
   --- The tests that gave it the compiler.
   origins: {string}
-  syntax: integer
-  types: integer
-  codes: {string}
+  mut syntax: integer
+  mut types: integer
+  codes: mut {string}
   --- What the fork said, error by error: the messages of its syntax errors and of its type errors, in its order.
-  syntax_messages: {string}
-  type_messages: {string}
+  syntax_messages: mut {string}
+  type_messages: mut {string}
 end
 
 local FORKED <const>: Shape.Typed<Forked> = Shape.record_of("Forked")
@@ -111,7 +111,7 @@ local function probed(text: string): string, {string}
   text = text:gsub("assert%(teal%.load%(true%)%)", "assert(PROBE.load())")
   text = text:gsub("Test%.policy%b{}", "do end")
   text = text:gsub("\nlocal function test_lazy_[%w_]+%(%).-\nend\n", "\n")
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in text:gmatch("\nlocal function (test_[%w_]+)%(") do
     names[#names + 1] = name
   end
@@ -122,7 +122,7 @@ end
 local function listed(dir: string): {string}
   local names = assert(Fs.list(dir))
   table.sort(names)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do
     if name:sub(-6) == ".input" then
       out[#out + 1] = dir .. "/" .. name
@@ -136,8 +136,8 @@ local CORPORA <const>: {string} = { "testdata/fuzz/checker-total", "testdata/fuz
 --- What the fork says of every program of the tests and the corpora, in that order.
 local function ask_fork(): {Forked}
   local real = assert(teal.load(true))
-  local rows: {Forked} = {}
-  local raised_by: {string} = {}
+  local rows: mut {Forked} = {}
+  local raised_by: mut {string} = {}
   for _, file in ipairs(TEST_FILES) do
     local text = assert(Fs.read(file))
     local source, names = probed(text)
@@ -145,7 +145,7 @@ local function ask_fork(): {Forked}
     assert(lua ~= nil, file .. " does not compile")
     local run = (assert(load(PROBE, "=probe", "t")))
     local found, raised = run(real, lua, names)
-    local made, trouble: {Forked} | nil, string = Shape.into(found, Shape.list(FORKED.spec))
+    local made, trouble: {Forked}?, string = Shape.into(found, Shape.list(FORKED.spec))
     assert(made ~= nil, trouble)
     for _, each in ipairs(made) do
       for i, origin in ipairs(each.origins) do
@@ -172,7 +172,7 @@ local function ask_fork(): {Forked}
       for _, e in ipairs(result.type_errors) do
         row.type_messages[#row.type_messages + 1] = e.msg
       end
-      local seen: {string: boolean} = {}
+      local seen: mut {string: boolean} = {}
       for _, group in ipairs({ result.syntax_errors, result.type_errors }) do
         for _, e in ipairs(group) do
           local code = tostring(e.code)
@@ -203,8 +203,8 @@ end
 --- The programs of `forked` once each, the places that gave a program the compiler (a test and a corpus input may be the
 --- same program) joined, and the timing tests' left out.
 local function distinct(forked: {Forked}): {Forked}
-  local merged: {Forked} = {}
-  local index: {string: integer} = {}
+  local merged: mut {Forked} = {}
+  local index: mut {string: integer} = {}
   for _, each in ipairs(forked) do
     if not timing_only(each) then
       local id = Verdicts.id(each.source)
@@ -215,7 +215,7 @@ local function distinct(forked: {Forked}): {Forked}
       else
         local first = merged[at_id]
         assert(first ~= nil)
-        local both: {string} = {}
+        local both: mut {string} = {}
         for _, origin in ipairs(first.origins) do
           both[#both + 1] = origin
         end
@@ -259,9 +259,9 @@ end
 --- added at the end where it has not, and the new checker's side of a row kept; and the messages no template of `refusals`
 --- reads, which the tool that reads the templates has missed.
 local function with_fork(rows: {Verdicts.Row}, forked: {Forked}, refusals: {ForkRefusals.Refusal}): {Verdicts.Row}, {string}
-  local out: {Verdicts.Row} = {}
-  local missed: {string} = {}
-  local at: {string: integer} = {}
+  local out: mut {Verdicts.Row} = {}
+  local missed: mut {string} = {}
+  local at: mut {string: integer} = {}
   for i, row in ipairs(rows) do
     out[i] = row
     at[row.id] = i
@@ -274,14 +274,14 @@ local function with_fork(rows: {Verdicts.Row}, forked: {Forked}, refusals: {Fork
       missed[#missed + 1] = message
     end
     local place = at[id]
-    local old: Verdicts.Row | nil = nil
+    local old: Verdicts.Row? = nil
     if place ~= nil then
       old = out[place]
     end
     local row: Verdicts.Row = {
       id = id, origins = table.concat(origins, "; "), source = each.source,
-      fork = each.syntax + each.types > 0 and "refused" or "accepted",
-      fork_stage = each.syntax > 0 and "syntax" or each.types > 0 and "type" or "",
+      fork = if each.syntax + each.types > 0 then "refused" else "accepted" end,
+      fork_stage = if each.syntax > 0 then "syntax" elseif each.types > 0 then "type" else "" end,
       fork_codes = table.concat(each.codes, " "), fork_templates = table.concat(ids, " "),
       new = "", new_stage = "", new_codes = "",
     }
@@ -315,8 +315,8 @@ local function main(fork: boolean)
     assert(#missed == 0, "the fork says what no template reads:\n" .. table.concat(missed, "\n"))
   end
   local judge = Verdicts.judge((assert(Fs.read("lang/prelude.d.tl"))), (assert(Fs.read("lang/stdlib.d.tl"))))
-  local judged: {Verdicts.Row} = {}
-  local counts: {string: integer} = {}
+  local judged: mut {Verdicts.Row} = {}
+  local counts: mut {string: integer} = {}
   for i, row in ipairs(rows) do
     local made = Verdicts.with_new(row, judge(row.source))
     judged[i] = made
@@ -325,7 +325,7 @@ local function main(fork: boolean)
   end
   assert(Fs.mkdirs("testdata/gate"))
   assert(Fs.write(TABLE, Verdicts.write_rows(judged)))
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(counts) do
     keys[#keys + 1] = key
   end

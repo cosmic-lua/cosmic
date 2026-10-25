@@ -30,7 +30,7 @@ local function is_blank(field: any, name: string): boolean
   return field is {string: any} and field.kind == nil and next(field) == nil
 end
 
-local function write_list(list: any, name: string, out: {string})
+local function write_list(list: any, name: string, out: mut {string})
   out[#out + 1] = "["
   if list is {any} then
     for i, item in ipairs(list) do
@@ -41,7 +41,7 @@ local function write_list(list: any, name: string, out: {string})
   out[#out + 1] = "]"
 end
 
-local function write_node(node: {string: any}, kind: string, out: {string})
+local function write_node(node: {string: any}, kind: string, out: mut {string})
   out[#out + 1] = "(" .. kind
   local names = Ast.fields[kind]
   local used = #out
@@ -61,7 +61,7 @@ local function write_node(node: {string: any}, kind: string, out: {string})
   out[#out + 1] = ")"
 end
 
-write = function(value: any, name: string, out: {string})
+write = function(value: any, name: string, out: mut {string})
   if value is string then
     out[#out + 1] = quoted(value)
   elseif value is boolean then

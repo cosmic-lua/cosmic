@@ -89,7 +89,7 @@ local function is_id(token: string): boolean
 end
 
 --- Deletes up to `limit` rows that expired at or before `now`.
-local function delete_expired(store: Backing, now: integer, limit: integer): integer | nil, string
+local function delete_expired(store: Backing, now: integer, limit: integer): integer?, string
   local ok, why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash IN (SELECT id_hash FROM %s WHERE expires <= ?1 LIMIT ?2)"):
       format(store.table, store.table), { { integer = now }, { integer = limit } })
   if not ok then return nil, "sessions: " .. why end
@@ -104,7 +104,7 @@ end
 --- @param limit integer | nil The most rows
 --- @return integer | nil The count
 --- @return string Why none, or ""
-function SessionSqlite.sweep(store: Session.Store, now: integer, limit?: integer): integer | nil, string
+function SessionSqlite.sweep(store: Session.Store, now: integer, limit?: integer): integer?, string
   local b = backing(store)
   return delete_expired(b, now, limit or b.sweep_limit)
 end
@@ -115,7 +115,7 @@ end
 --- @param subject string The user key given to `bind_subject`
 --- @return integer | nil The count
 --- @return string Why none, or ""
-function SessionSqlite.destroy_subject(store: Session.Store, subject: string): integer | nil, string
+function SessionSqlite.destroy_subject(store: Session.Store, subject: string): integer?, string
   local b = backing(store)
   local ok, why = Sqlite.run(b.db, ("DELETE FROM %s WHERE subject = ?1"):format(b.table),
     { { text = subject } })
@@ -148,14 +148,14 @@ local function immediate(db: Sqlite.Handle, work: function(): boolean, string): 
 end
 
 --- A new id.
-local function new_id(): string | nil, string
+local function new_id(): string?, string
   local bytes, why = Rand.entropy(ID_BYTES)
   if bytes == nil then return nil, "no entropy for a session id: " .. why end
   return Codec.base64url(bytes), ""
 end
 
 --- The row for `token` that has not expired, or nil.
-local function find(store: Backing, token: string, now: integer): Sqlite.Row | nil, string
+local function find(store: Backing, token: string, now: integer): Sqlite.Row?, string
   if not is_id(token) then return nil, "" end
   local rows, why = Sqlite.rows(store.db,
     ("SELECT data, created, expires, subject FROM %s WHERE id_hash = ?1 AND expires > ?2"):
@@ -165,13 +165,13 @@ local function find(store: Backing, token: string, now: integer): Sqlite.Row | n
 end
 
 --- The values a row's JSON holds; nil for text that is not an object.
-local function values_of(text: string): {string:any} | nil
+local function values_of(text: string): {string:any}?
   local value, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
   if value is {string:any} then return value end
   return nil
 end
 
-local function load_session(self: Session.Store, token: string, now: integer, _cookie: string): Session.Data | nil, string
+local function load_session(self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
   local store = backing(self)
   local row, why = find(store, token, now)
   if row == nil then return nil, why end
@@ -182,7 +182,7 @@ end
 
 --- Applies `changes` to `values`.
 local function apply(values: {string:any}, changes: Session.Changes): {string:any}
-  local out: {string:any} = {}
+  local out: mut {string:any} = {}
   if not changes.cleared then
     for key, value in pairs(values) do out[key] = value end
   end
@@ -192,11 +192,11 @@ local function apply(values: {string:any}, changes: Session.Changes): {string:an
 end
 
 local function save_session(self: Session.Store, previous: string, data: Session.Data,
-                            changes: Session.Changes, now: integer, _cookie: string): string | nil, string
+                            changes: Session.Changes, now: integer, _cookie: string): string?, string
   local store = backing(self)
   -- The id the session is saved under when it was given a new one.
   local minted: {string} = {}
-  local failure: string | nil = nil
+  local failure: string? = nil
   -- No yield between the first read and the commit: another request of
   -- this process cannot interleave, and another process meets SQLite's lock.
   -- The transaction begins IMMEDIATE, taking the write lock before the read:
@@ -219,7 +219,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     local text, encode_why = Json.encode_any(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
-    local subject_value: Sqlite.Value = subject ~= nil and { text = subject } or {}
+    local subject_value: Sqlite.Value = if subject ~= nil then { text = subject } else {} end
     if row ~= nil and not changes.regenerated then
       return Sqlite.run(store.db,
         ("UPDATE %s SET data = ?2, subject = ?3, touched = ?4, expires = ?5 WHERE id_hash = ?1"):
@@ -267,7 +267,7 @@ end
 --- @param opts SessionSqlite.Options | nil The table and sweep
 --- @return Session.Store | nil The store
 --- @return string Why none, or ""
-function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): Session.Store | nil, string
+function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): Session.Store?, string
   local o: SessionSqlite.Options = opts or {}
   local name = o.table or "web_sessions"
   if name:match("^[A-Za-z_][A-Za-z0-9_]*$") == nil then

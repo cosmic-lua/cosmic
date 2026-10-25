@@ -15,7 +15,7 @@ local Fs = require("cosmic.fs")
 
 local record NewGrammarProject
   --- Writes the files of the project under `root`, made if it is not there. true, or nil and why not.
-  write: function(root: string): boolean | nil, string
+  write: function(root: string): boolean?, string
 end
 
 local FILES <const>: {string: string} = {
@@ -173,7 +173,7 @@ return data
 ]==],
 }
 
-function NewGrammarProject.write(root: string): boolean | nil, string
+function NewGrammarProject.write(root: string): boolean?, string
   local rooted, rooted_why = Fs.mkdirs(root)
   if not rooted then return nil, rooted_why end
   for name, text in pairs(FILES) do

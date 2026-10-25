@@ -82,7 +82,7 @@ local skip_doc = doc({
 
 --- Writes one `doc/guides/fixture.md` into a fresh project root of its
 --- own, named after `case`.
-local function write_fixture(case: string, content: string): string | nil, string
+local function write_fixture(case: string, content: string): string?, string
   local root = assert(Fs.mkdtemp("cosmic-doctest-test-" .. case .. "-"))
   local made, trouble = Fs.mkdirs(root .. "/doc/guides")
   if not made then
@@ -95,7 +95,7 @@ local function write_fixture(case: string, content: string): string | nil, strin
   return root, ""
 end
 
-local function compile_fixture(root: string, given?: GrammarMode.Mode): importer.Result | nil, string
+local function compile_fixture(root: string, given?: GrammarMode.Mode): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -119,7 +119,7 @@ local function compile_fixture(root: string, given?: GrammarMode.Mode): importer
   return result
 end
 
-local function find_module(result: importer.Result, path: string): Module | nil
+local function find_module(result: importer.Result, path: string): Module?
   for _, m in ipairs(result.modules) do
     if m.path == path then
       return m
@@ -153,7 +153,7 @@ local function test_an_output_matching_example_actually_passes()
   assert(#m.tests == 1 and m.tests[1] == "test_1",
     "expected exactly test_1, got " .. table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
 end
@@ -181,7 +181,7 @@ local function test_a_tilde_fenced_example_actually_passes()
     "expected a long tilde-fenced example to be extracted as test_1, got " ..
       table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the tilde-fenced example to pass, got: " .. tostring(err))
 end
@@ -194,7 +194,7 @@ local function test_an_output_mismatching_example_fails_clearly()
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
   local mod = load_module(m)
-  local fn = mod.test_1 as function(any...): (any...)
+  local fn = mod.test_1 as function(...: any): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(not ok, "expected the mismatching example to fail")
   local message = tostring(err)

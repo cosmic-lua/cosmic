@@ -55,7 +55,7 @@ local function lua_strings(list: {string}): string
 end
 
 --- The Lua text of `list`, or `nil` where it is.
-local function strings_or_nil(list: {string} | nil): string
+local function strings_or_nil(list: {string}?): string
   if list == nil then
     return "nil"
   end
@@ -63,7 +63,7 @@ local function strings_or_nil(list: {string} | nil): string
 end
 
 --- The Lua text of `text`, or `nil` where it is.
-local function quoted_or_nil(text: string | nil): string
+local function quoted_or_nil(text: string?): string
   if text == nil then
     return "nil"
   end
@@ -83,7 +83,7 @@ function FactWraps.arguments(n: Check.Narrowed, at: string): string
 end
 
 function FactWraps.of(narrowed: {Check.Narrowed}, source: string, file: string): {integer: string}
-  local wraps: {integer: string} = {}
+  local wraps: mut {integer: string} = {}
   -- The reads are in source order: the line and the start of the line are carried from one to the next.
   local line, line_start, scanned = 1, 1, 1
   for _, n in ipairs(narrowed) do

@@ -44,7 +44,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   end
   --- A module named `name` holding one integer, set from each of `uses`.
   local function module_of(name: string, uses: {string}): string
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, used in ipairs(uses) do
       lines[#lines + 1] = "local " .. used .. " = require(\"build." .. used .. "\")"
     end
@@ -83,16 +83,16 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     "SELECT value FROM meta WHERE key = 'compiler'"))
   local binary: importer.Code = {
     compiler = compiled_by[1]:text(1),
-    requires = function(name: string): {string} | nil, string
+    requires = function(name: string): {string}?, string
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
       if rows == nil then return nil, trouble end
-      local names: {string} = {}
+      local names: mut {string} = {}
       for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
       return names, ""
     end,
-    source = function(name: string): string | nil, string
+    source = function(name: string): string?, string
       for _, table_name in ipairs({ "decls", "modules" }) do
         local rows, trouble = Sqlite.text_rows(out,
           "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
@@ -126,7 +126,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     if before_derive ~= nil then before_derive(again) end
     local before = importer.analyzer_identity((assert(importer.tree_code(again))))
     local meta = Store.meta
-    Store.meta = function(key: string): string | nil
+    Store.meta = function(key: string): string?
       if key == "boot_hash" then return nil end
       return meta(key)
     end

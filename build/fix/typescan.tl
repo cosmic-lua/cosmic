@@ -41,7 +41,7 @@ end
 --- @param tokens {compiler.Token} The token stream from the parse being rendered
 --- @return Scan
 local function new(tokens: {compiler.Token}): Scan
-  local at: {integer:integer} = {}
+  local at: mut {integer:integer} = {}
   for i, t in ipairs(tokens) do
     at[key(t.y, t.x)] = i
   end
@@ -55,7 +55,7 @@ end
 --- @param y integer
 --- @param x integer
 --- @return integer|nil
-local function index_at(s: Scan, y: integer, x: integer): integer | nil
+local function index_at(s: Scan, y: integer, x: integer): integer?
   return s.at[key(y, x)]
 end
 
@@ -169,7 +169,7 @@ local simple: {string:boolean} = {
 }
 
 local type_end: function(Scan, integer): integer
-local rets_end: function(Scan, integer, ? boolean): integer
+local rets_end: function(Scan, integer, arg3?: boolean): integer
 
 --- The end of one type with no `|` alternatives after it.
 local function single_end(s: Scan, i: integer): integer
@@ -338,7 +338,7 @@ end
 local record TypescanModule
   type Scan = Scan
   new: function(tokens: {compiler.Token}): Scan
-  index_at: function(s: Scan, y: integer, x: integer): integer | nil
+  index_at: function(s: Scan, y: integer, x: integer): integer?
   index_before: function(s: Scan, y: integer, x: integer): integer
   bounded_end: function(s: Scan, y: integer, x: integer): integer
   type_end: function(s: Scan, i: integer): integer

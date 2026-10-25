@@ -12,7 +12,7 @@ end
 
 --- What Lua says when it runs `find`, `match`, `gmatch` or `gsub` with `pattern` on `subject`: "" where it does not raise.
 local function pattern_error(pattern: string, subject: string): string
-  local said: {string} = {}
+  local said: mut {string} = {}
   local functions: {function(string, string): any} = {
     function(s: string, p: string): any return (s:find(p)) end,
     function(s: string, p: string): any return (s:match(p)) end,
@@ -57,7 +57,7 @@ local function at_widest(format: string): string
 end
 
 --- What a problem says, or "".
-local function message(problem: Literals.Problem | nil): string
+local function message(problem: Literals.Problem?): string
   return problem ~= nil and problem.msg or ""
 end
 
@@ -120,7 +120,7 @@ local function test_a_pattern_the_walk_takes_never_makes_lua_raise_whatever_the_
   local subjects: {string} = { "", "a", "aa", "aaa", "a.a", "a)a", "(", "[", "]", "^", "$", "a]", "a[a", "aaaa", "a-a", "a%a" }
   local taken, refused = 0, 0
   for _ = 1, 3000 do
-    local pieces: {string} = {}
+    local pieces: mut {string} = {}
     for i = 1, draw(6) do
       pieces[i] = parts[draw(#parts)]
     end
@@ -164,7 +164,7 @@ local function test_a_replacement_names_only_the_captures_the_pattern_has_and_es
     local ok, why = pcall(function(): string
       return (("abc"):gsub(pattern, replacement))
     end)
-    return ok and "" or tostring(why)
+    return if ok then "" else tostring(why) end
   end
   assert(replaces("%3", "(a)(b)") ~= "" and replaces("%1", "a") == "" and replaces("100%", "a") ~= "" and replaces("%a", "a") ~= "")
 end
@@ -177,13 +177,13 @@ local function test_a_format_the_walk_takes_is_the_one_lua_takes_and_the_other_w
     "e", "g", "p", "%%", "12", "3", "F" }
   local agreed, refused = 0, 0
   for _ = 1, 4000 do
-    local pieces: {string} = {}
+    local pieces: mut {string} = {}
     for i = 1, draw(7) do
       pieces[i] = parts[draw(#parts)]
     end
     local format = table.concat(pieces)
     local read = Literals.format(format)
-    local values: {any} = {}
+    local values: mut {any} = {}
     for i = 1, #read.kinds + 1 do
       values[i] = 1
     end
@@ -223,7 +223,7 @@ local function test_a_pack_format_the_walk_takes_is_the_one_lua_takes_and_the_ot
     "!", " ", "1", "2", "3", "4", "5", "8", "16", "17", "0", "y", "9", "12" }
   local refused = 0
   for _ = 1, 4000 do
-    local pieces: {string} = {}
+    local pieces: mut {string} = {}
     for i = 1, draw(6) do
       pieces[i] = parts[draw(#parts)]
     end
@@ -257,7 +257,7 @@ end
 
 --- The codes the literals of a call have, space separated.
 local function codes_of(fn: string, literals: {integer: string}, plain?: string): string
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for _, found in ipairs(Literals.check({ fn = fn, literals = literals, plain = plain or "none" })) do
     codes[#codes + 1] = found.code .. "@" .. tostring(found.place)
   end

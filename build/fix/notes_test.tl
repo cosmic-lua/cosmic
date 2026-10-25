@@ -162,7 +162,7 @@ local function test_the_kept_reading_is_the_new_checkers_in_the_new_mode()
     fix.read_off("build/paths.tl", result, mode, {}, ready, plurals)
     local candidates = ready["build/paths.tl"]
     local counted = plurals["build/paths.tl"]
-    return candidates ~= nil and #candidates or -1, counted ~= nil and #counted.sites or -1
+    return if candidates ~= nil then #candidates else -1 end, if counted ~= nil then #counted.sites else -1 end
   end
   local forked_candidates, forked_sites = kept("teal")
   assert(forked_candidates == 0 and forked_sites == 0, tostring(forked_candidates) .. " " .. tostring(forked_sites))

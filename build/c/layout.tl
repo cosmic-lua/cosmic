@@ -37,7 +37,7 @@ local lex = c_tokens.lex
 --- indentation or trailing blanks, since moving a comment moves its lines.
 local function meaning(t: Token): string
   if t.kind ~= "comment" then return t.text end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(t.text) do
     lines[#lines + 1] = (line:gsub("^[ \t]+", ""):gsub("[ \t]+$", ""))
   end
@@ -49,7 +49,7 @@ end
 --- they are not.
 function layout.same(a: string, b: string): boolean, string
   local function significant(s: string): {Token}
-    local out: {Token} = {}
+    local out: mut {Token} = {}
     for _, t in ipairs(lex(s)) do
       if t.kind ~= "space" and t.kind ~= "newline" then out[#out + 1] = t end
     end
@@ -74,13 +74,13 @@ local keywords: {string: boolean} = {
 
 --- A line of tokens, with what the layout needs to know of it.
 local record Line
-  tokens: {Token}
+  tokens: mut {Token}
   --- The tokens past the indentation that are neither space nor comment.
-  code: {Token}
+  code: mut {Token}
 end
 
 local function lines_of(tokens: {Token}): {Line}
-  local out: {Line} = {}
+  local out: mut {Line} = {}
   local current: Line = { tokens = {}, code = {} }
   for _, t in ipairs(tokens) do
     if t.kind == "newline" then
@@ -119,7 +119,7 @@ end
 --- rather than a block of statements. `cast` is what came before the `(`
 --- that `before` closes, when it is a `)`: `= (struct t){` is a compound
 --- literal's entries, `if (x) {` a block.
-local function opens_entries(before: Token | nil, before2: Token | nil, cast: Token | nil): boolean
+local function opens_entries(before: Token?, before2: Token?, cast: Token?): boolean
   if before == nil then return false end
   local t = before.text
   if t == ")" then
@@ -137,10 +137,10 @@ local function laid_out(source: string): string
   -- A definition's name, which takes a space before its parameters: at
   -- file scope, after a type, before a `(` whose close is followed by a
   -- body, a `;`, or an attribute.
-  local spaced: {Token: boolean} = {}
+  local spaced: mut {Token: boolean} = {}
   do
     local depth, parens = 0, 0
-    local prev, prev2: Token | nil, Token | nil
+    local prev, prev2: Token?, Token?
     for i, t in ipairs(tokens) do
       if t.kind == "punct" or t.kind == "word" or t.kind == "literal" then
         if t.text == "{" then
@@ -183,16 +183,16 @@ local function laid_out(source: string): string
     end
   end
 
-  local out: {string} = {}
-  local stack: {boolean} = {} -- true for a list of entries
+  local out: mut {string} = {}
+  local stack: mut {boolean} = {} -- true for a list of entries
   local parens = 0
   -- What came before each open parenthesis, and before the last closed.
-  local opened: {Token} = {}
-  local cast: Token | nil
+  local opened: mut {Token} = {}
+  local cast: Token?
   local ends = true
   local delta = 0
   local blanks = 0
-  local prev, prev2: Token | nil, Token | nil
+  local prev, prev2: Token?, Token?
   for _, line in ipairs(lines_of(tokens)) do
     local toks = line.tokens
     local first = 1
@@ -220,7 +220,7 @@ local function laid_out(source: string): string
       else
         at = math.max(width(indent) + delta, 0)
       end
-      local parts: {string} = { string.rep(" ", at) }
+      local parts: mut {string} = { string.rep(" ", at) }
       for k = first, #toks do
         local t = toks[k]
         local text = t.text
@@ -269,7 +269,7 @@ end
 
 --- `source`, a C file, laid out; or nil and why, when the layout would
 --- change more than whitespace or is not a fixed point.
-function layout.rendered(source: string): string | nil, string
+function layout.rendered(source: string): string?, string
   local out = laid_out(source)
   local same, difference = layout.same(source, out)
   if not same then

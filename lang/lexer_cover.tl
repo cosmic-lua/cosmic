@@ -15,7 +15,7 @@
 local Lexer = require("lang.lexer")
 
 local find = string.find
-local byte: function(string, integer): integer | nil = string.byte
+local byte: function(string, integer): integer? = string.byte
 
 local record Cover
   --- Whether `lexed` tiles `source`, or `false` and the first place it does
@@ -36,9 +36,9 @@ local record Lines
 end
 
 local function lines_of(source: string): Lines
-  local starts: {integer} = { 1 }
-  local columns: {integer} = {}
-  local wide: {integer} = {}
+  local starts: mut {integer} = { 1 }
+  local columns: mut {integer} = {}
+  local wide: mut {integer} = {}
   local n = 1
   local p = 1
   while true do
@@ -49,7 +49,7 @@ local function lines_of(source: string): Lines
       return { starts = starts, columns = columns, wide = wide }
     end
     local c, d = byte(source, q), byte(source, q + 1)
-    local next_p = (d == 10 or d == 13) and d ~= c and q + 2 or q + 1
+    local next_p = if (d == 10 or d == 13) and d ~= c then q + 2 else q + 1 end
     columns[n] = q - p + 1
     wide[n] = next_p - p
     p = next_p

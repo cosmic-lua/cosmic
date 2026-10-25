@@ -58,7 +58,7 @@ end
 
 --- What a run left of the directories it seals into, under TMPDIR.
 local function left_over(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list((assert(sys.getenv("TMPDIR"))))))) do
     if name:find("^sandbox%-") then found[#found + 1] = name end
   end
@@ -168,7 +168,7 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
   assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true),
     alone.code .. alone.err)
-  local names: {string} = { main }
+  local names: mut {string} = { main }
   for _, name in ipairs(Store.closure({ main })) do
     if name ~= main then names[#names + 1] = name end
   end

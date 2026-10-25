@@ -19,7 +19,7 @@ local built = assert(teal.load())
 
 --- The files of the sources of `index`, in order, as one line.
 local function files_of(index: Driver.Index): string
-  local files: {string} = {}
+  local files: mut {string} = {}
   for _, source in ipairs(index.sources) do
     files[#files + 1] = source.filename
   end
@@ -94,7 +94,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   local bindings = TreeProgram.bindings_of(".")
   assert(#bindings == 3)
   local typed = TreeProgram.build(TreeProgram.index(bindings, false, {}), globals)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, entry in ipairs(bindings) do
     names[#names + 1] = assert(entry[3])
     assert(typed.program.external[assert(entry[3])] ~= true)
@@ -102,7 +102,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
     assert(entry[1]:find("%.d%.tl$") ~= nil and entry[4]:find("^core/%w+%.h$") ~= nil, entry[1] .. " " .. entry[4])
   end
   -- a provider that answers one is a declaration too
-  local provided = TreeProgram.build(TreeProgram.index({}, false, {}), globals, false, nil, function(module: string): Driver.Source | nil
+  local provided = TreeProgram.build(TreeProgram.index({}, false, {}), globals, false, nil, function(module: string): Driver.Source?
     return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", false, {}) or nil
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
@@ -137,7 +137,7 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   assert(work.stage(handle, false))
   assert(importer.derive(handle, false, built))
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT file, path, source, origin FROM derived ORDER BY file"))
-  local derived: {{string}} = {}
+  local derived: mut {{string}} = {}
   for _, row in ipairs(rows) do
     if row:text(4) == "doctest" or row:text(4) == "template" then
       derived[#derived + 1] = { row:text(1), row:text(2), row:text(3) }

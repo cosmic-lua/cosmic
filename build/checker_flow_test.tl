@@ -30,8 +30,8 @@ local record Flow
   leaves_body: function(Node): boolean
 end
 
-local built = { value = nil as compiler | nil }
-local flow = { value = nil as Flow | nil }
+local built = { value = nil as compiler? }
+local flow = { value = nil as Flow? }
 
 --- The carried compiler, and [`checker/flow.tl`] compiled by it and loaded.
 local function setup(): compiler, Flow
@@ -62,7 +62,7 @@ local function check(source: string): Node, {string}
   local env = assert(compiled.new_env({ defaults = teal.defaults() }))
   local code, result = compiled.gen(source, env, nil, "tl")
   assert(code ~= nil, "the program did not parse: " .. source)
-  local messages: {string} = {}
+  local messages: mut {string} = {}
   for _, e in ipairs(result.type_errors) do
     messages[#messages + 1] = e.msg
   end
@@ -70,11 +70,11 @@ local function check(source: string): Node, {string}
 end
 
 --- The first node of `kind` in `node`, in source order.
-local function find(node: Node, kind: string): Node | nil
+local function find(node: Node, kind: string): Node?
   if node.kind == kind then
     return node
   end
-  local children: {Node} = {}
+  local children: mut {Node} = {}
   for _, child in ipairs(node) do
     children[#children + 1] = child
   end
@@ -120,7 +120,7 @@ end
 
 local function expect(want: boolean, cases: {string})
   for _, statement in ipairs(cases) do
-    assert(ends(statement) == want, (want and "does not end: " or "ends: ") .. statement)
+    assert(ends(statement) == want, (if want then "does not end: " else "ends: " end) .. statement)
   end
 end
 
@@ -246,7 +246,7 @@ local function test_return_and_a_call_that_never_returns_leave_and_break_and_got
   end
   -- Neither a `break` nor a `goto` leaves for good, though each ends its block.
   for _, statement in ipairs({ "while x do break end", "while x do goto continue\n::continue::\nend" }) do
-    local kind = statement:find("break", 1, true) and "break" or "goto"
+    local kind = if statement:find("break", 1, true) then "break" else "goto" end
     local ast = check(prelude .. "local function g()\n" .. statement .. "\nend")
     local jump = assert(find(ast[#ast].body, kind))
     assert(flow_module().ends(jump) and not flow_module().leaves(jump), kind)

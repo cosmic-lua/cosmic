@@ -151,7 +151,7 @@ end
 --- Where `root`'s build directory is, as [`cosmic.project`]'s
 --- `directory` names it and refuses it, or nil and why: a location whose
 --- `none` says why there is none where that is no configuration to fix.
-local function location(root: string, environment?: {string:string}): Location | nil, string
+local function location(root: string, environment?: {string:string}): Location?, string
   local found, trouble = project_directory(root, environment)
   if found == nil then return nil, trouble end
   if found.none ~= "" then
@@ -171,7 +171,7 @@ end
 --- `root` is no directory, COSMIC_BUILD_HOME is set but not absolute,
 --- the base or the directory is not this user's alone, there is no cache
 --- directory to put it in, or it would be inside `root`.
-function paths.directory(root: string, environment?: {string:string}): string | nil, string
+function paths.directory(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end
   if selected.none ~= "" then return nil, selected.none end
@@ -184,7 +184,7 @@ local directory_of = paths.directory
 --- cache directory, or one that would be inside `root`, as for a
 --- directory above the base), so the lookup answers as for a project
 --- never built. Any other trouble is answered as [`directory`] answers it.
-function paths.optional(root: string, environment?: {string:string}): string | nil, string
+function paths.optional(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end
   if selected.none ~= "" then return nil, "" end
@@ -198,7 +198,7 @@ end
 --- [`build.cache_lifetime`]'s pruning: it is written whole beside the
 --- rest, and a failure to record it, in a directory a sandbox holds
 --- read-only, is no failure to prepare.
-function paths.prepare(root: string, environment?: {string:string}): string | nil, string
+function paths.prepare(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end
   if selected.none ~= "" then return nil, selected.none end
@@ -246,7 +246,7 @@ end
 --- `[--prepare] <project-root>`, `--prepare` making it first ([`prepare`]).
 function paths.main(argv: {string}): integer
   local making = argv[1] == "--prepare"
-  local at = making and 2 or 1
+  local at = if making then 2 else 1 end
   local project = argv[at]
   if project == nil or argv[at + 1] ~= nil then
     local _, _ = put(Fs.stderr, "usage: build/paths.tl [--prepare] <project-root>\n")

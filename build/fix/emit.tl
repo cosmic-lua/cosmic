@@ -63,11 +63,11 @@ local String = require("cosmic.string")
 local type compiler = require("build.compiler")
 
 local record Emitter
-  parts: {string}
+  parts: mut {string}
   --- The source line the cursor sits on. It starts at 0, not 1, so the
   --- very first `advance` still counts as a move and a comment on line
   --- 1 is placed before whatever follows it rather than after.
-  line: integer
+  mut line: integer
   --- Whether source line `y` holds nothing but whitespace.
   blank: {integer:boolean}
   --- Source line `y`'s text.
@@ -84,7 +84,7 @@ local record Emitter
   --- into the middle of one.
   opens_line: {integer:boolean}
   --- The first comment not yet written out.
-  at: integer
+  mut at: integer
   --- Columns to move a preserved column by, the same `shift` the
   --- renderer applies everywhere else. An own-line comment not lined up
   --- with code keeps its own column, so it moves with the statement a
@@ -96,10 +96,10 @@ local record Emitter
   --- reads this to find the column it is actually being written at,
   --- which is not the column its enclosing statement was written at
   --- once the literal has started a line of its own.
-  indent: integer
+  mut indent: integer
   --- Whether that line still holds nothing but those spaces, which is
   --- what says the width above is finished growing.
-  bare: boolean
+  mut bare: boolean
 end
 
 --- How many newlines `text` carries. A long comment (`--[[ ... ]]`) and
@@ -125,23 +125,23 @@ end
 --- @param tokens {compiler.Token} The token stream from the same parse
 --- @return Emitter
 local function new(source: string, tokens: {compiler.Token}): Emitter
-  local blank: {integer:boolean} = {}
-  local wrote: {integer:string} = {}
+  local blank: mut {integer:boolean} = {}
+  local wrote: mut {integer:string} = {}
   local y = 1
   for line in String.lines(source) do
     blank[y] = line:match("^%s*$") ~= nil
     wrote[y] = line
     y = y + 1
   end
-  local comments: {compiler.Comment} = {}
+  local comments: mut {compiler.Comment} = {}
   -- tl's lexer hangs a comment on the token that FOLLOWS it, so a
   -- comment whose token sits on the line the comment ends on is one the
   -- source wrote code after; any other is the last thing on its line.
   -- The one token that is not code is the end of the file, which a
   -- comment the source left unterminated by a newline lands on: nothing
   -- follows it there, whatever line it was stamped at.
-  local code_after: {integer:boolean} = {}
-  local opens_line: {integer:boolean} = {}
+  local code_after: mut {integer:boolean} = {}
+  local opens_line: mut {integer:boolean} = {}
   for _, t in ipairs(tokens) do
     local carried = t.comments
     if carried ~= nil then
@@ -240,7 +240,7 @@ local function trailing(e: Emitter, y: integer)
     put(e, " " .. c.text)
     local closing = newlines(c.text)
     e.line = e.line + closing
-    after = closing > 0 and #(c.text:match("[^\n]*$") or "") + 1 or c.x + #c.text
+    after = if closing > 0 then #(c.text:match("[^\n]*$") or "") + 1 else c.x + #c.text end
     e.at = e.at + 1
   end
 end
@@ -307,7 +307,7 @@ local function gap(e: Emitter, y: integer, x: integer, pad: string): boolean, in
         -- line, and not code behind a long comment's `]]`, whose column
         -- says nothing of an indentation.
         local lined_up = c.x == x and (e.lines[y] or ""):sub(1, x - 1):match("^%s*$") ~= nil
-        local lead = opened and " " or lined_up and pad or indent_of(e, c.x)
+        local lead = if opened then " " else lined_up and pad end or indent_of(e, c.x)
         put(e, lead .. c.text)
         ended = ended + newlines(c.text)
         opened = true

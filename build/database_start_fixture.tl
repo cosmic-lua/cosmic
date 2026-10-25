@@ -74,8 +74,8 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   local _, _ = Fs.remove(path)
   local db = assert(Sqlite.open(path, { writable = true }))
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
-  local rows: {Module} = {}
-  local bytecode: {string:string} = {}
+  local rows: mut {Module} = {}
+  local bytecode: mut {string:string} = {}
   if made.library then
     local library, codes = closure(LIBRARY)
     for _, module in ipairs(library) do rows[#rows + 1] = module end
@@ -95,7 +95,7 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
         { text(module.name), text(required) }))
     end
   end
-  local meta: {{string}} = { { "runtime_basis", "fixture-basis" } }
+  local meta: mut {{string}} = { { "runtime_basis", "fixture-basis" } }
   local main = made.main
   if main ~= nil then meta[#meta + 1] = { "main", main } end
   local core = made.core
@@ -115,7 +115,7 @@ end
 
 --- The core to start bare, or nil where this process has none to relaunch
 --- (a host program, which a bare core is not).
-function database_start_fixture.core_path(): string | nil
+function database_start_fixture.core_path(): string?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   return relaunch.argv[1]
@@ -137,7 +137,7 @@ end
 
 --- The program's output as the lines `name<TAB>value` it prints.
 function database_start_fixture.fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end

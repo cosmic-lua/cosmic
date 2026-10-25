@@ -32,7 +32,7 @@ local VECTORS <const> = Shape.list(VECTOR.spec)
 
 local function vectors(): {Vector}
   local text = assert(Fs.read("testdata/host_features/vectors.json"))
-  local found, trouble: {Vector} | nil, string = Shape.decode_into(text, VECTORS)
+  local found, trouble: {Vector}?, string = Shape.decode_into(text, VECTORS)
   assert(found ~= nil, trouble)
   return found
 end
@@ -54,12 +54,12 @@ local function facts_of(vector: Vector, docker?: string): HostId.Facts
   return {
     sysname = vector.sysname,
     machine = vector.machine,
-    read = function(path: string): string | nil return files[path] end,
-    sysctl = function(name: string): string | nil
+    read = function(path: string): string? return files[path] end,
+    sysctl = function(name: string): string?
       local answer = (vector.sysctl or {})[name]
-      return answer ~= nil and answer .. "\n" or nil
+      return if answer ~= nil then answer .. "\n" else nil end
     end,
-    docker_version = function(): string | nil, string
+    docker_version = function(): string?, string
       if docker == nil then return nil, "Cannot connect" end
       return docker, ""
     end,
@@ -110,9 +110,9 @@ end
 local function test_a_host_with_no_files_is_still_named()
   local bare: HostId.Facts = {
     sysname = "", machine = "",
-    read = function(_path: string): string | nil return nil end,
-    sysctl = function(_name: string): string | nil return nil end,
-    docker_version = function(): string | nil, string return nil, "" end,
+    read = function(_path: string): string? return nil end,
+    sysctl = function(_name: string): string? return nil end,
+    docker_version = function(): string?, string return nil, "" end,
   }
   -- sha256 of nothing, 16 hex digits.
   assert(HostId.features(bare) == "e3b0c44298fc1c14", HostId.features(bare))
@@ -120,7 +120,7 @@ end
 
 --- How many recorded runs have been made, where `named` can count it.
 local record Runs
-  value: integer
+  mut value: integer
 end
 local runs: Runs = { value = 0 }
 
@@ -129,11 +129,11 @@ local runs: Runs = { value = 0 }
 --- output, and its status, run with `words` and `env` on the recorded
 --- host `host`, whose engine answers `docker`.
 local function named(tmp: string, host: string, words: {string}, env: {string:string}, docker?: string):
-    string | nil, string | nil, string, integer
+    string?, string?, string, integer
   runs.value = runs.value + 1
   local dir = tmp .. "/run-" .. tostring(runs.value)
   assert(Fs.mkdirs(dir))
-  local merged: {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
+  local merged: mut {string:string} = { GITHUB_ENV = dir .. "/env", GITHUB_OUTPUT = dir .. "/output" }
   for name, value in pairs(env) do merged[name] = value end
   local said: {string} = {}
   local code = HostId.leg_host_id(words, merged, facts_of(vector_named(host), docker),

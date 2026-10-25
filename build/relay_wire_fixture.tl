@@ -29,7 +29,7 @@ end
 
 --- A big-endian integer of `width` bytes.
 function relay_wire_fixture.be(value: integer, width: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i = width - 1, 0, -1 do
     out[#out + 1] = string.char((value >> (8 * i)) & 255)
   end
@@ -53,7 +53,7 @@ function relay_wire_fixture.hello(opts?: relay_wire_fixture.HelloOptions): strin
   local be = relay_wire_fixture.be
   opts = opts or {}
   local suites = opts.suites or 1
-  local exts: {string} = {}
+  local exts: mut {string} = {}
   local server_name = opts.server_name
   local name = opts.name
   if server_name ~= nil then
@@ -117,7 +117,7 @@ end
 --- [`cosmic.internal.relay_wire`] writes (lower case, `::` at most once).
 function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
-    local out: {integer} = {}
+    local out: mut {integer} = {}
     for piece in part:gmatch("[^:]+") do
       out[#out + 1] = math.tointeger(tonumber(piece, 16))
     end
@@ -126,7 +126,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   local gap = text:find("::", 1, true)
   local left = side(gap and text:sub(1, gap - 1) or text)
   local right = gap and side(text:sub(gap + 2)) or {}
-  local all: {integer} = {}
+  local all: mut {integer} = {}
   for _, g in ipairs(left) do
     all[#all + 1] = g
   end
@@ -136,7 +136,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   for _, g in ipairs(right) do
     all[#all + 1] = g
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, g in ipairs(all) do
     out[#out + 1] = relay_wire_fixture.be(g, 2)
   end

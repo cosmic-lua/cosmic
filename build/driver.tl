@@ -68,11 +68,11 @@ local record Driver
     pinned: string
     --- Made of the text after it is corrected and translated, before it is parsed, where given: the steps a source needs
     --- to be read in the new grammar that no translation makes ([`build.pipeline`]). It keeps the lines.
-    mend: Mend | nil
+    mend: Mend?
   end
 
   --- What answers for the module a `require` names: its source, or nil where it has none.
-  type Provider = function(module: string): Source | nil
+  type Provider = function(module: string): Source?
 
   --- Whether an expression can be neither false nor nil ([`Driver.Outcome.never_false`]).
   type Truthy = function(e: Ast.Exp): boolean
@@ -84,14 +84,14 @@ local record Driver
   --- text needs after it is translated ([`Driver.Source.mend`]).
   record Extra
     tests: boolean
-    mend: Mend | nil
+    mend: Mend?
   end
 
   --- What a caller knows of the file `file`, whose text is `text`.
   type Extras = function(file: string, text: string): Extra
 
   --- What reads the text of a `cosmic.*` module for [`Driver.standard`]: its source or its stub, nil where there is none.
-  type Reader = function(module: string): string | nil
+  type Reader = function(module: string): string?
 
   --- An error or a warning of a module.
   record Problem
@@ -121,16 +121,16 @@ local record Driver
     --- grammar alike. The translator writes an `if` expression only for a value that cannot be false, and a file written
     --- in the new grammar holds the same form; the generator is told what the rule knows, or it writes a function called
     --- on the spot where the fork writes `and`/`or`, and a file's Lua would depend on how the file came.
-    never_false: Truthy | nil
+    never_false: Truthy?
     chunk: Ast.Chunk
     scoped: Scopes.Scoped
     --- Whether the text did not parse: it is lowered as far as its tree goes, for the modules that require it, and a
     --- check counts nothing of it.
     broken: boolean
     --- What lowering made: nil until the module is lowered.
-    lowered: Declarations.Lowered | nil
+    lowered: Declarations.Lowered?
     --- What checking made: nil until the module is checked, and for a module that is not.
-    checked: Check.Checked | nil
+    checked: Check.Checked?
     --- The errors of each stage, in source order.
     syntax: {Problem}
     scope_errors: {Problem}
@@ -158,7 +158,7 @@ local record Driver
     globals: {Source}
     --- Called with the globals the sources declared, to take away the ones the host withholds and add the ones it
     --- provides.
-    adjust: function(globals: {string: Scopes.Global}) | nil
+    adjust: (function(globals: {string: Scopes.Global}))?
     --- The modules that are bindings of C, whose types the checker does not read: a type name of one is `invalid`.
     external: {string}
     --- Whether the checker keeps the type of each node: the `types` of a result. A run that reads none leaves it, and saves the
@@ -175,7 +175,7 @@ local record Driver
     --- Asks `provider` for a module after the providers added before it.
     provide: function(Build, provider: Provider)
     --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
-    parsed: function(Build, name: string): Outcome | nil
+    parsed: function(Build, name: string): Outcome?
     --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
     --- to tell.
     provides: function(Build, name: string): boolean
@@ -184,7 +184,7 @@ local record Driver
     --- The result for `name`, lowered with what it requires. With `bodies` its bodies are checked too. nil where no
     --- provider has it. Call it for the modules you want, after [`Driver.Build.lower`] of all of them, since the
     --- errors of a module's declarations include checks that waited for a module lowered later.
-    result: function(Build, name: string, bodies: boolean): Outcome | nil
+    result: function(Build, name: string, bodies: boolean): Outcome?
     --- The lines that refuse `result` against `ceilings`: its syntax errors, and for each stage the errors of a code above
     --- its ceiling, each with its place and fix and then the count and `pinned N`. None where the module is held. The stages
     --- are those of the tree's checks, over the same text: a module read in the new grammar is held to `[scoped]`,
@@ -198,7 +198,7 @@ local record Driver
     --- the build begins a new one: every module is lowered again, when it is next asked for, from the syntax tree it has
     --- already, and an outcome answered before is no longer the build's. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
-    replace: function(Build, name: string, text: string): Outcome | nil
+    replace: function(Build, name: string, text: string): Outcome?
     -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
     -- and read them back when a module requires it, once [`Declarations.Program`] can load a module from rows: its entries,
     -- aliases, statics and values have no text, and a store reads only declarations through [`Types.Loader`]. Measured over the
@@ -264,7 +264,7 @@ local record Driver
   stubs: function(texts: {string: string}): Provider
 
   --- The globals the `sources` declare, `adjust`ed: what a scope builder is given for a module.
-  globals: function(sources: {Source}, adjust: function(globals: {string: Scopes.Global}) | nil): {string: Scopes.Global}
+  globals: function(sources: {Source}, adjust: (function(globals: {string: Scopes.Global}))?): {string: Scopes.Global}
 
   --- A source as a build reads it, and no more: its text corrected, translated and mended where it says so, lexed and parsed.
   --- The readers of the syntax tree ([`build.syntax_derivation`]) take their tree from this, with the text it was parsed from.
@@ -278,7 +278,7 @@ local record Driver
 end
 
 local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, translate: boolean,
-                    checked: boolean, aliases: {string}, tests: boolean, pinned: string, mend: Driver.Mend | nil): Driver.Source
+                    checked: boolean, aliases: {string}, tests: boolean, pinned: string, mend: Driver.Mend?): Driver.Source
   return {
     module = module, filename = filename, text = text, dialect = dialect, translate = translate,
     checked = checked, tests = tests, aliases = aliases, pinned = pinned, mend = mend,
@@ -310,7 +310,7 @@ end
 local record Read
   source: Driver.Source
   text: string
-  never_false: Driver.Truthy | nil
+  never_false: Driver.Truthy?
   chunk: Ast.Chunk
   errors: {Parser.Error}
 end
@@ -326,7 +326,7 @@ end
 
 function Driver.parse(source: Driver.Source): Driver.Parsed
   local read = read_source(source)
-  local syntax: {Driver.Problem} = {}
+  local syntax: mut {Driver.Problem} = {}
   for _, e in ipairs(read.errors) do
     syntax[#syntax + 1] = {
       kind = "error", stage = "syntax", code = tostring(e.code), msg = e.msg, fix = e.fix, y = e.y, x = e.x, offset = e.offset,
@@ -336,9 +336,9 @@ function Driver.parse(source: Driver.Source): Driver.Parsed
   return { text = read.text, chunk = read.chunk, syntax = syntax }
 end
 
-function Driver.globals(sources: {Driver.Source}, adjust: function(globals: {string: Scopes.Global}) | nil):
+function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {string: Scopes.Global}))?):
     {string: Scopes.Global}
-  local out: {string: Scopes.Global} = {}
+  local out: mut {string: Scopes.Global} = {}
   for _, source in ipairs(sources) do
     for name, g in pairs(Scopes.declared(read_source(source).chunk)) do
       out[name] = g
@@ -394,14 +394,14 @@ function Driver.index(entries: {{string}}, translate: boolean, skip: function(pa
 end
 
 function Driver.files(index: Driver.Index): Driver.Provider
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     return index.by_module[module]
   end
 end
 
 function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: function(module: string): boolean):
     Driver.Provider
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     local found = read(module)
     if found == nil then
       return nil
@@ -417,7 +417,7 @@ function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: fu
     if NewDeclarations.edited(name) then
       edited = name
     end
-    local mend: Driver.Mend | nil = nil
+    local mend: Driver.Mend? = nil
     if translate == true and NewDeclarations.edited(edited) then
       mend = function(translated: string): string
         return NewDeclarations.apply(edited, translated)
@@ -428,7 +428,7 @@ function Driver.standard(read: Driver.Reader, translate?: boolean, declared?: fu
 end
 
 function Driver.stubs(texts: {string: string}): Driver.Provider
-  return function(module: string): Driver.Source | nil
+  return function(module: string): Driver.Source?
     local text = texts[module]
     if text == nil then
       return nil
@@ -439,14 +439,14 @@ end
 
 --- Whether a build has started.
 local record Flag
-  done: boolean
+  mut done: boolean
 end
 
 --- A module the build has read: its input, and whether it is lowered and checked.
 local record Entry
   result: Driver.Outcome
   input: Declarations.Input
-  lowered: boolean
+  mut lowered: boolean
   --- Whether it and everything it requires is lowered.
   closed: boolean
   checked: boolean
@@ -484,8 +484,8 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
 end
 
 --- `list` in source order: by offset, and where two are at one offset in the order they were found.
-local function in_order(list: {Driver.Problem}): {Driver.Problem}
-  local place: {Driver.Problem: integer} = {}
+local function in_order(list: mut {Driver.Problem}): {Driver.Problem}
+  local place: mut {Driver.Problem: integer} = {}
   for index, p in ipairs(list) do
     place[p] = index
   end
@@ -500,7 +500,7 @@ end
 
 --- The top-level `local function test_*` of a module: the offsets of their names, which a test module's runner calls.
 local function test_functions(scoped: Scopes.Scoped, tokens: Lexer.Tokens): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for _, v in ipairs(scoped.list) do
     if v.kind == "function" and v.top and v.name:sub(1, 5) == "test_" then
       local offset = tokens.offset[v.declared]
@@ -525,18 +525,18 @@ function Driver.new(options: Driver.Options): Driver.Build
   local build: Driver.Build = {
     program = program_of(options.external), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
     provide = function(_self: Driver.Build, _provider: Driver.Provider) end,
-    parsed = function(_self: Driver.Build, _name: string): Driver.Outcome | nil return nil end,
+    parsed = function(_self: Driver.Build, _name: string): Driver.Outcome? return nil end,
     provides = function(_self: Driver.Build, _name: string): boolean
       return false
     end,
     lower = function(_self: Driver.Build, _names: {string}) end,
-    result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome | nil
+    result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome?
       return nil
     end,
     held = function(_self: Driver.Build, _result: Driver.Outcome, _ceilings: Ceilings.Table): {string}
       return {}
     end,
-    replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome | nil
+    replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome?
       return nil
     end,
     retire = function(_self: Driver.Build, _name: string) end,
@@ -558,7 +558,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local retired: {string: boolean} = {}
   local scratches: {Driver.Build} = {}
 
-  local function find(module: string): Driver.Source | nil
+  local function find(module: string): Driver.Source?
     for _, provider in ipairs(providers) do
       local source = provider(module)
       if source ~= nil then
@@ -572,7 +572,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   local function entry_of(read: Read): Entry
     local source = read.source
     local scoped = Scopes.build(read.chunk, source.filename, globals)
-    local syntax: {Driver.Problem} = {}
+    local syntax: mut {Driver.Problem} = {}
     for _, e in ipairs(read.errors) do
       syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
     end
@@ -626,7 +626,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
     started_up.done = true
     local started = Clock.monotonic_ns()
-    local reads: {Read} = {}
+    local reads: mut {Read} = {}
     for _, source in ipairs(options.globals) do
       local read = read_source(source)
       reads[#reads + 1] = read
@@ -652,7 +652,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
   end
 
-  local function prepare(name: string): Entry | nil
+  local function prepare(name: string): Entry?
     start()
     local held = entries[name]
     if held ~= nil then
@@ -715,7 +715,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     return entries[name] ~= nil or retired[name] == true or find(name) ~= nil
   end
 
-  build.parsed = function(_self: Driver.Build, name: string): Driver.Outcome | nil
+  build.parsed = function(_self: Driver.Build, name: string): Driver.Outcome?
     local entry = prepare(name)
     if entry == nil then
       if retired[name] == true then
@@ -735,7 +735,7 @@ function Driver.new(options: Driver.Options): Driver.Build
   -- module (lang/declarations.tl): after the replacement of a module this program has met, every module is lowered again,
   -- the retired ones read from their sources and kept until their callers retire them. The splice of [`Shape.record_of`] does
   -- not meet the module here: it reads it in [`Driver.Build.scratch`], so that the replacement takes the first branch below.
-  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome | nil
+  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome?
     local held = prepare(name)
     if held == nil then
       return nil
@@ -773,7 +773,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
       return kept
     end
-    local names: {string: Entry} = {}
+    local names: mut {string: Entry} = {}
     for key, entry in pairs(entries) do
       names[key] = again(entry)
     end
@@ -858,7 +858,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     return held
   end
 
-  build.result = function(self: Driver.Build, name: string, bodies: boolean): Driver.Outcome | nil
+  build.result = function(self: Driver.Build, name: string, bodies: boolean): Driver.Outcome?
     local entry = prepare(name)
     if entry == nil then
       return nil
@@ -913,7 +913,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         end
       end
     end
-    local all: {Driver.Problem} = {}
+    local all: mut {Driver.Problem} = {}
     for _, list in ipairs({ result.syntax, result.scope_errors, result.declared, result.bodies }) do
       for _, p in ipairs(list) do
         all[#all + 1] = p
@@ -924,14 +924,14 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
 
   build.held = function(_self: Driver.Build, result: Driver.Outcome, ceilings: Ceilings.Table): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     local source = result.source
     local file = source.filename
     if source.pinned ~= "" then
       file = source.pinned
     end
     local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage, what: string)
-      local findings: {Ceilings.Finding} = {}
+      local findings: mut {Ceilings.Finding} = {}
       for _, p in ipairs(list) do
         findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
       end
@@ -943,7 +943,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     if result.broken then
       if source.translate then
         -- The text is the fork's Teal, and the errors of its translation are what `[translated]` counts.
-        local codes: {string} = {}
+        local codes: mut {string} = {}
         for _, p in ipairs(result.syntax) do
           codes[#codes + 1] = p.code
         end

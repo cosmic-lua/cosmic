@@ -53,7 +53,7 @@ local not_executable: {string: boolean} = {
 --- @return {integer: boolean} | nil Every executable line, or nil on a parse failure
 --- @return string Error message on failure
 function lines.executable(built: compiler, source: string,
-                          name: string): {integer: boolean} | nil, string
+                          name: string): {integer: boolean}?, string
   local parsed, trouble = ast.parse(built, source, name)
   if parsed == nil then
     return nil, trouble
@@ -97,14 +97,14 @@ local text = bind.text
 --- @return string Error message on failure
 function lines.executable_cached(db: Sqlite.Handle, built: compiler,
                                  source_hash: string, source: string,
-                                 name: string): {integer: boolean} | nil, string
+                                 name: string): {integer: boolean}?, string
   local cached, select_trouble = Sqlite.text_rows(db,
     "SELECT lines FROM executable WHERE source_hash = ?1", { text(source_hash) })
   if cached == nil then
     return nil, select_trouble
   end
   if #cached > 0 then
-    local out: {integer: boolean} = {}
+    local out: mut {integer: boolean} = {}
     for piece in cached[1]:text(1):gmatch("%d+") do
       local line = math.tointeger(tonumber(piece))
       if line ~= nil then out[line] = true end
@@ -116,12 +116,12 @@ function lines.executable_cached(db: Sqlite.Handle, built: compiler,
   if executable == nil then
     return nil, trouble
   end
-  local numbers: {integer} = {}
+  local numbers: mut {integer} = {}
   for line in pairs(executable) do
     numbers[#numbers + 1] = line
   end
   table.sort(numbers)
-  local joined: {string} = {}
+  local joined: mut {string} = {}
   for i, line in ipairs(numbers) do
     joined[i] = tostring(line)
   end

@@ -74,7 +74,7 @@ local REPORT <const> = Shape.record_of("Report")
 --- A report is bounded metadata, not cache contents. Truncation fails closed.
 local report_limit <const> = 4 * 1024 * 1024
 
-local function report(text: string, request: CacheTrim.Request): Report | nil, string
+local function report(text: string, request: CacheTrim.Request): Report?, string
   local paths = request.paths
   local value, why = REPORT:decode_into(text)
   if value == nil then return nil, why end
@@ -110,7 +110,7 @@ local function report(text: string, request: CacheTrim.Request): Report | nil, s
 end
 
 --- Normalize absent names too; resolve existing parents before comparing.
-local function spelling(path: string): string | nil, string
+local function spelling(path: string): string?, string
   local seams = Seams.calls()
   local resolved, trouble = seams.fs_absolute(path)
   if resolved ~= nil then return resolved, "" end
@@ -119,7 +119,7 @@ local function spelling(path: string): string | nil, string
   if exists ~= false then return nil, trouble end
   local parent, parent_trouble = spelling(Fs.dirname(path))
   if parent == nil then return nil, parent_trouble end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in (parent .. "/" .. Fs.basename(path)):gmatch("[^/]+") do
     if part == ".." then
       table.remove(parts)
@@ -164,7 +164,7 @@ function CacheTrim.snapshot_safe(live: string, restored: string): CacheTrim.Snap
 end
 
 local function remove_snapshot(path: string): string
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     local name = path .. suffix
     local exists, trouble = Seams.calls().fs_exists(name)
@@ -182,20 +182,20 @@ local function output(env: {string:string}, values: string): string
   local path = env["GITHUB_OUTPUT"] or ""
   if path == "" or values == "" then return "" end
   local ok, why = Seams.calls().fs_append(path, values)
-  return ok and "" or why
+  return if ok then "" else why end
 end
 
 --- What [`invoke`] answered, kept where the function that runs it under `pcall` can read it.
 local record Invoked
-  report?: Report
-  trouble: string
+  mut report?: Report
+  mut trouble: string
 end
 
 --- Runs the driver's trim of `request`'s files and reads its report.
 local function invoke(request: CacheTrim.Request): Invoked
   local start, why = Proc.relaunch()
   if start == nil then return { trouble = why } end
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   for _, word in ipairs(start.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "cache", "trim", request.family }) do argv[#argv + 1] = word end
   for _, path in ipairs(request.paths) do argv[#argv + 1] = path end
@@ -212,7 +212,7 @@ local function invoke(request: CacheTrim.Request): Invoked
   end
   argv[#argv + 1] = "--json"
   local env = Maps.with(Seams.calls().env_all(), start.env)
-  local fds: {integer:integer | string} = {}
+  local fds: mut {integer:integer | string} = {}
   for fd, given in pairs(start.fds) do fds[fd] = given end
   local result, trouble = Seams.calls().child_run(argv, { env = env, fds = fds,
     stdout = "capture", stderr = "capture", capture_limit = report_limit })
@@ -229,13 +229,13 @@ end
 
 --- What [`CacheTrim.run`] answers, kept where the function that runs it under `pcall` can read it.
 local record Done
-  lines: string
-  trouble: string
+  mut lines: string
+  mut trouble: string
 end
 
 --- The body of [`CacheTrim.run`] while `guard` holds the signals.
 local function trim(guard: Signal.Guard, request: CacheTrim.Request, env: {string:string}, verb: string): string, string
-  local value: Report | nil = nil
+  local value: Report? = nil
   local trouble = ""
   if #request.paths > 0 then
     local invoked: Invoked = { trouble = "" }
@@ -258,7 +258,7 @@ local function trim(guard: Signal.Guard, request: CacheTrim.Request, env: {strin
     if trouble == "" then return "", "" end
     return "", verb .. ": " .. trouble .. "\n"
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, file in ipairs(value.files) do
     local line = verb .. ": " .. file.path .. ": " .. file.state
     local kept = file.kept
@@ -325,7 +325,7 @@ function CacheTrim.run(request: CacheTrim.Request, env: {string:string}): CacheT
 end
 
 --- SINCE as nanoseconds, checked before multiplication can overflow.
-function CacheTrim.since(argv: {string}): integer | nil
+function CacheTrim.since(argv: {string}): integer?
   local since = math.tointeger(tonumber(argv[1] or ""))
   if since == nil or since < 0 or since > math.maxinteger // 1000000000 then return nil end
   return since * 1000000000

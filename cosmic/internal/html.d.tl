@@ -52,7 +52,7 @@ local record html
   -- The entries as `name=value` joined by `&`, each half escaped as by
   -- url_part but for the dot rule. nil and why for a pair that is not two
   -- strings; raises on a table that is no sequence.
-  url_query: function(entries: {{string}}): SafeUrlPart | nil, string
+  url_query: function(entries: {{string}}): SafeUrlPart?, string
   -- The string a SafeUrlPart holds. Raises on anything else.
   raw_url_part: function(x: SafeUrlPart): string
   -- The string as a URL if it is a relative reference with no scheme,

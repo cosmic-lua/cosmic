@@ -68,7 +68,7 @@ local record Testing
     --- An OPTIONS.
     options: function(self: Client, path: string, opts?: Types.TestOptions): Types.TestResponse
 
-    metamethod __close: function(Client)
+    __close: function(Client)
   end
 
   --- A client of an app served on the loopback: see [`Testing.with_server`].
@@ -87,24 +87,24 @@ local record Testing
     --- limit). A request sending a large body sets the connection's own
     --- timeout back to this after each look for the reply, so one set on
     --- `conn` directly does not last past it.
-    set_timeout: function(self: Loopback, wait_ns: integer | nil)
+    set_timeout: function(self: Loopback, wait_ns: integer?)
 
     --- One request over the connection; nil and why when the server's reply
     --- cannot be read.
     request: function(self: Loopback, method: string, path: string,
-        opts?: Types.TestOptions): Types.TestResponse | nil, string
+        opts?: Types.TestOptions): Types.TestResponse?, string
     --- A GET.
     get: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse | nil, string
+        opts?: Types.TestOptions): Types.TestResponse?, string
     --- A POST.
     post: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse | nil, string
+        opts?: Types.TestOptions): Types.TestResponse?, string
     --- A HEAD.
     head: function(self: Loopback, path: string,
-        opts?: Types.TestOptions): Types.TestResponse | nil, string
+        opts?: Types.TestOptions): Types.TestResponse?, string
     --- Sends `bytes` as they are and reads the reply: for a request no
     --- well-formed client would send.
-    raw: function(self: Loopback, bytes: string, method?: string): Types.TestResponse | nil, string
+    raw: function(self: Loopback, bytes: string, method?: string): Types.TestResponse?, string
   end
 end
 
@@ -114,7 +114,7 @@ local type Response = Types.TestResponse
 
 --- Every name of `table`, sorted.
 local function sorted_names<V>(table_: {string:V}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(table_) do names[#names + 1] = name end
   table.sort(names)
   return names
@@ -122,7 +122,7 @@ end
 
 --- The pairs of `values`, a name to a string or a list, in name order.
 local function pairs_of(values: {string: string | {string}}): {Url.Pair}
-  local out: {Url.Pair} = {}
+  local out: mut {Url.Pair} = {}
   for _, name in ipairs(sorted_names(values)) do
     local value = values[name]
     if value is string then
@@ -164,7 +164,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
     local extra = Url.encode_query(pairs_of(opts_query))
     if extra ~= "" then query = query == "" and extra or query .. "&" .. extra end
   end
-  local headers: {string:string} = { host = "testserver" }
+  local headers: mut {string:string} = { host = "testserver" }
   for name, value in pairs(opts.headers or {}) do headers[name:lower()] = value end
   local body = ""
   local form, json, raw = opts.form, opts.json, opts.body
@@ -184,7 +184,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
   if body ~= "" or method == "POST" or method == "PUT" or method == "PATCH" then
     headers["content-length"] = tostring(#body)
   end
-  return { target = base .. (query ~= "" and "?" .. query or ""), path = base, query = query,
+  return { target = base .. (if query ~= "" then "?" .. query else "" end), path = base, query = query,
     headers = headers, body = body }
 end
 
@@ -193,7 +193,7 @@ local REDIRECT <const>: {integer:boolean} = {
 }
 
 local function header_list(self: Response, name: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, line in ipairs(self.lines[name:lower()] or {}) do out[i] = line end
   return out
 end
@@ -202,7 +202,7 @@ local function text(self: Response): string
   return self.body
 end
 
-local function json(self: Response): any | nil, string
+local function json(self: Response): any?, string
   local value, why = Json.decode(self.body)
   if why ~= "" then return nil, why end
   return value, ""
@@ -213,8 +213,8 @@ local response_mt: metatable<Response> = { __index = response_methods }
 
 --- A response from `lines`, header lines as `{name, value}` in order.
 local function response_of(status: integer, lines: {{string}}, body: string): Response
-  local headers: {string:string} = {}
-  local by_name: {string:{string}} = {}
+  local headers: mut {string:string} = {}
+  local by_name: mut {string:{string}} = {}
   for _, line in ipairs(lines) do
     local name = line[1]:lower()
     headers[name] = headers[name] == nil and line[2] or headers[name] .. ", " .. line[2]
@@ -283,7 +283,7 @@ local function remember(client: Testing.Client, line: string, path: string)
   local name = parsed.name
   local cookie_path = parsed.path or default_path(path)
   local now = Clock.now_ns()
-  local expires: integer | nil = nil
+  local expires: integer? = nil
   local gone = false
   local max_age, expires_ns = parsed.max_age, parsed.expires_ns
   if max_age ~= nil then
@@ -309,7 +309,7 @@ end
 
 --- The header lines of `reply`, in name order: `{name, value}`.
 local function lines_of(reply: Reply): {{string}}
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   local headers = reply.headers or {}
   for _, name in ipairs(sorted_names(headers)) do
     local value = headers[name]
@@ -326,7 +326,7 @@ end
 local function send(client: Testing.Client, method: string, path: string, opts: Options): Response
   start(client)
   local prepared = prepare(method, path, opts)
-  local cookies: {string:string} = {}
+  local cookies: mut {string:string} = {}
   local now = Clock.now_ns()
   for name, value in pairs(client.jar) do
     local entry = client.attrs[name]
@@ -344,13 +344,13 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   end
   for name, value in pairs(opts.cookies or {}) do cookies[name] = value end
   if next(cookies) ~= nil then
-    local list: {string} = {}
+    local list: mut {string} = {}
     for _, name in ipairs(sorted_names(cookies)) do
       list[#list + 1] = name .. "=" .. cookies[name]
     end
     local sent = table.concat(list, "; ")
     local old = prepared.headers["cookie"]
-    prepared.headers["cookie"] = old ~= nil and old .. "; " .. sent or sent
+    prepared.headers["cookie"] = if old ~= nil then old .. "; " .. sent else sent end
   end
   local raw: Server.Request = {
     method = method, target = prepared.target, path = prepared.path, query = prepared.query,
@@ -372,9 +372,9 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     end
     local lines = lines_of(reply)
     local body = ""
-    local stream: Stream.Reader | nil = nil
+    local stream: Stream.Reader? = nil
     local given = reply.body
-    local length: integer | nil = nil
+    local length: integer? = nil
     if given is string then
       body = given
       length = #given
@@ -428,7 +428,7 @@ local function request(self: Testing.Client, method: string, path: string, opts?
         error("web: test client: the redirect to " .. target .. ": " .. why, 2)
       end
       local query = parts.query
-      target = parts.path .. (query ~= nil and "?" .. query or "")
+      target = parts.path .. (if query ~= nil then "?" .. query else "" end)
     end
     local switch = res.status ~= 307 and res.status ~= 308 and method ~= "HEAD"
     if switch then
@@ -504,7 +504,7 @@ local function fill(lb: Testing.Loopback): boolean, string
 end
 
 --- The next line, without its CRLF; nil and why where the connection ends.
-local function next_line(lb: Testing.Loopback): string | nil, string
+local function next_line(lb: Testing.Loopback): string?, string
   while true do
     local at = lb.buf:find("\r\n", 1, true)
     if at ~= nil then
@@ -518,7 +518,7 @@ local function next_line(lb: Testing.Loopback): string | nil, string
 end
 
 --- The next `n` bytes.
-local function take(lb: Testing.Loopback, n: integer): string | nil, string
+local function take(lb: Testing.Loopback, n: integer): string?, string
   while #lb.buf < n do
     local ok, why = fill(lb)
     if not ok then return nil, why ~= "" and why or "the connection ended within a body" end
@@ -529,14 +529,14 @@ local function take(lb: Testing.Loopback, n: integer): string | nil, string
 end
 
 --- The reply to a request of `method`, read off the connection.
-local function read_reply(lb: Testing.Loopback, method: string): Response | nil, string
+local function read_reply(lb: Testing.Loopback, method: string): Response?, string
   local status_line, why = next_line(lb)
   if status_line == nil then return nil, why end
   local code = status_line:match("^HTTP/1%.[01] (%d%d%d)")
   if code == nil then return nil, "not a status line: " .. status_line end
   local status = math.tointeger(tonumber(code))
-  local lines: {{string}} = {}
-  local headers: {string:string} = {}
+  local lines: mut {{string}} = {}
+  local headers: mut {string:string} = {}
   while true do
     local line, line_why = next_line(lb)
     if line == nil then return nil, line_why end
@@ -550,7 +550,7 @@ local function read_reply(lb: Testing.Loopback, method: string): Response | nil,
   local body = ""
   if method ~= "HEAD" and not bodiless(status) then
     if (headers["transfer-encoding"] or ""):lower() == "chunked" then
-      local pieces: {string} = {}
+      local pieces: mut {string} = {}
       while true do
         local size_line, size_why = next_line(lb)
         if size_line == nil then return nil, size_why end
@@ -640,7 +640,7 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
   return ""
 end
 
-local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): Response | nil, string
+local function loopback_raw(self: Testing.Loopback, bytes: string, method?: string): Response?, string
   local write_why = send_until_answered(self, bytes)
   -- A write that timed out met a server that stopped reading: waiting as
   -- long again for a reply would only double the failure's time.
@@ -651,23 +651,23 @@ local function loopback_raw(self: Testing.Loopback, bytes: string, method?: stri
 end
 
 local function loopback_request(self: Testing.Loopback, method: string, path: string,
-                                opts?: Options): Response | nil, string
+                                opts?: Options): Response?, string
   local prepared = prepare(method, path, opts or {})
   prepared.headers["host"] = self.host
-  local head: {string} = { ("%s %s HTTP/1.1"):format(method, prepared.target) }
+  local head: mut {string} = { ("%s %s HTTP/1.1"):format(method, prepared.target) }
   for _, name in ipairs(sorted_names(prepared.headers)) do
     head[#head + 1] = name .. ": " .. prepared.headers[name]
   end
   return loopback_raw(self, table.concat(head, "\r\n") .. "\r\n\r\n" .. prepared.body, method)
 end
 
-local function loopback_verb(method: string): function(Testing.Loopback, string, Options | nil): Response | nil, string
-  return function(self: Testing.Loopback, path: string, opts?: Options): Response | nil, string
+local function loopback_verb(method: string): function(Testing.Loopback, string, Options?): Response?, string
+  return function(self: Testing.Loopback, path: string, opts?: Options): Response?, string
     return self:request(method, path, opts)
   end
 end
 
-local function loopback_set_timeout(self: Testing.Loopback, wait_ns: integer | nil)
+local function loopback_set_timeout(self: Testing.Loopback, wait_ns: integer?)
   self.conn:set_timeout(wait_ns)
   self.timeout_ns = wait_ns
 end

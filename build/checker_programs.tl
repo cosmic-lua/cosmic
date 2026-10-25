@@ -19,54 +19,54 @@ local Rand = require("cosmic.rand")
 --- for `recs`: a bias towards uses that the checker must decide, not a
 --- claim that they are accepted.
 local record Vis
-  ints: {string}
-  recs: {string}
-  procs: {string}
-  funs: {string}
-  focus: {string}
-  rfocus: {string}
+  ints: mut {string}
+  recs: mut {string}
+  procs: mut {string}
+  funs: mut {string}
+  focus: mut {string}
+  rfocus: mut {string}
   --- The locals of `ints` declared outside the function being drawn, which
   --- it may read and not assign.
   outer: {string}
   --- The globals declared of type `integer | nil` (`G`, in a program
   --- that draws shapes), which any function may assign.
-  globals: {string}
+  mut globals: {string}
   in_loop: boolean
-  cont: string | nil
+  cont: string?
   ret: string
 end
 
 local record Gen
   src: Fuzz.Source
-  lines: {string}
-  id: integer
-  fuel: integer
-  depth: integer
+  lines: mut {string}
+  mut id: integer
+  mut fuel: integer
+  mut depth: integer
   --- A program of this kind never uses a place its guards do not name, nor
   --- clears one it tests, so most are accepted and exercise the constructs.
-  calm: boolean
+  mut calm: boolean
   --- A loop that has a label takes a `goto` to it first.
-  want_goto: boolean
+  mut want_goto: boolean
   --- The labels a `goto` has been drawn for: a label nothing continues to
   --- is refused, so one is written only for them.
-  jumped: {string:boolean}
+  jumped: mut {string:boolean}
   --- Depth of the function bodies the draw is inside.
-  fn: integer
+  mut fn: integer
   --- Whether the program holds a function that assigns a local declared
   --- outside it, which the checker must refuse.
-  captures: boolean
+  mut captures: boolean
   --- A program of this kind declares a global, metamethods and closers
   --- that write, and draws the shapes of `shape` beside the statements
   --- of any other: narrowing tests of strings, new bindings of a name whose
   --- fields are narrowed, writes through `_G`, loops that read a fact and
   --- drop it. A shape clears a place to test the checker and is mostly
   --- refused, so the rest of such a program is mostly calm.
-  shapes: boolean
+  mut shapes: boolean
   --- How many shapes the program may draw still, and how many it has.
   --- Each is mostly refused, as it is meant to be, and a program that
   --- draws many is refused for one the checker was right to.
-  budget: integer
-  drawn: integer
+  mut budget: integer
+  mut drawn: integer
 end
 
 --- A guard drawn: its text, and the places it says are not nil when it
@@ -124,7 +124,7 @@ local function header(seed: integer): string
 end
 
 local function dup(list: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, s in ipairs(list) do
     out[i] = s
   end
@@ -189,7 +189,7 @@ end
 --- A place to write: a field, or a local the function being drawn declares
 --- (a function may not assign one it does not).
 local function target(g: Gen, v: Vis): string
-  local choices: {string} = {}
+  local choices: mut {string} = {}
   for _, p in ipairs(places(v)) do
     if not has(v.outer, p) then choices[#choices + 1] = p end
   end
@@ -317,7 +317,7 @@ end
 --- A test of up to `depth` levels. An `or` tells nothing when it holds, and
 --- when it does not hold, what both sides tell.
 local function cond(g: Gen, v: Vis, depth: integer): Cond
-  local k = depth <= 0 and 0 or g.src:int(0, 5)
+  local k = if depth <= 0 then 0 else g.src:int(0, 5) end
   if k <= 2 then return atom(g, v) end
   if k == 3 then
     local a, b = cond(g, v, depth - 1), cond(g, v, depth - 1)
@@ -367,7 +367,7 @@ end
 
 --- A loop body: the statements, then the label a `goto` skips to, when one
 --- was drawn.
-local function loop_body(g: Gen, v: Vis, depth: integer, label: string | nil, facts?: Cond)
+local function loop_body(g: Gen, v: Vis, depth: integer, label: string?, facts?: Cond)
   local inner = nest(v)
   inner.in_loop = true
   inner.cont = label
@@ -464,7 +464,7 @@ local function declare(g: Gen, v: Vis)
     local p = Fuzz.pick(g.src, v.ints)
     -- Mostly of a local a test around the point narrowed, in the scope that
     -- declared it or a scope inside.
-    local tested: {string} = {}
+    local tested: mut {string} = {}
     for _, f in ipairs(v.focus) do
       if not f:find(".", 1, true) and not has(v.globals, f) then tested[#tested + 1] = f end
     end
@@ -517,7 +517,7 @@ local function if_chain(g: Gen, v: Vis, depth: integer, min_arms?: integer)
   local first = cond(g, v, 2)
   add(g, "if " .. first.text .. " then")
   block(g, v, depth - 1, 4, first)
-  local seen: {Cond} = { first }
+  local seen: mut {Cond} = { first }
   local arms = 0
   while g.fuel > 0 and (arms < (min_arms or 0) or Fuzz.more(g.src, arms, 2)) do
     arms = arms + 1
@@ -620,10 +620,10 @@ end
 --- made after it is dropped at the call for another reason).
 local function drop_plan(g: Gen, v: Vis, p: string, hoist: boolean): Plan
   local pre: {string} = {}
-  local body: {string} = {}
+  local body: mut {string} = {}
   local k = g.src:int(0, 11)
   -- A `<close>` local is a way to clear that has its own bias.
-  if g.src:int(0, 2) == 0 then k = is_field(p) and 7 or 8 end
+  if g.src:int(0, 2) == 0 then k = if is_field(p) then 7 else 8 end end
   local name = fresh(g, "d")
   if is_field(p) then
     local base, field = p:sub(1, 1), p:sub(3)
@@ -657,7 +657,7 @@ local function drop_plan(g: Gen, v: Vis, p: string, hoist: boolean): Plan
       body = { "_G[\"" .. p .. "\"] = nil" }
     elseif k == 4 then
       -- An alias of `_G`, as the record it is or as a map.
-      local cast = g.src:int(0, 1) == 0 and "" or " as {string:any}"
+      local cast = if g.src:int(0, 1) == 0 then "" else " as {string:any}" end
       body = { "local " .. name .. " = _G" .. cast, name .. "." .. p .. " = nil" }
     elseif k == 5 then
       body = { "local " .. name .. ": string = \"" .. p .. "\"", "(_G as {string:any})[" .. name .. "] = nil" }
@@ -743,7 +743,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
   -- A function that clears the place, declared before the test: one declared
   -- inside the branch is dropped at a call for another reason
   -- (build/checker_narrowing_test.tl pins that limit).
-  local helper: string | nil = nil
+  local helper: string? = nil
   if g.src:int(0, 1) == 0 then
     helper = fresh(g, "p")
     add(g, "local function " .. helper .. "() " .. cleared(g, v, p) .. " = " .. Fuzz.pick(g.src, { "nil", "maybe()", "1" }) .. " end")
@@ -775,7 +775,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     -- What follows the test is held to it from here on.
     learn(v, { p }, NONE)
   end
-  local drops = g.src:int(helper ~= nil and 1 or 0, 2)
+  local drops = g.src:int(if helper ~= nil then 1 else 0 end, 2)
   for _ = 1, drops do
     if helper ~= nil and g.src:int(0, 3) > 0 then
       add(g, helper .. "()")
@@ -794,7 +794,7 @@ local function guarded_use(g: Gen, v: Vis, depth: integer)
     inner.focus = {}
     wrote = true
   end
-  local uses = wrote and 0 or g.src:int(1, 2)
+  local uses = if wrote then 0 else g.src:int(1, 2) end
   for _ = 1, uses do
     add(g, "st.sink = st.sink + " .. Fuzz.pick(g.src, { p .. " + 1", p, "(" .. p .. " or 0)", p .. " * 2" }))
   end
@@ -825,7 +825,7 @@ local function loop(g: Gen, v: Vis, depth: integer, kind?: integer, labelled?: b
   if k == 5 then k = 1 end
   if k == 6 then k = 2 end
   local i = fresh(g, "i")
-  local label: string | nil = nil
+  local label: string? = nil
   if labelled or g.src:int(0, 2) > 0 then label = fresh(g, "next") end
   if k == 0 then
     local c = cond(g, v, 1)
@@ -937,7 +937,7 @@ end
 --- after it reads the field of: the other record's field is nil, where the
 --- one tested was not.
 local function rebind(g: Gen, v: Vis)
-  local p = Fuzz.pick(g.src, g.src:int(0, 1) == 0 and { "r.a", "s.b" } or FIELDS)
+  local p = Fuzz.pick(g.src, if g.src:int(0, 1) == 0 then { "r.a", "s.b" } else FIELDS end)
   local base, other = p:sub(1, 1), "s"
   if base == "s" then other = "r" end
   local close = true
@@ -951,7 +951,7 @@ local function rebind(g: Gen, v: Vis)
     close = false
   end
   if close then g.depth = g.depth + 1 end
-  local use = "st.sink = st.sink + " .. (g.src:int(0, 2) == 0 and "(" .. p .. " or 0)" or p .. " + 1")
+  local use = "st.sink = st.sink + " .. (if g.src:int(0, 2) == 0 then "(" .. p .. " or 0)" else p .. " + 1" end)
   local k = g.src:int(0, 7)
   if k <= 1 then
     add(g, "local " .. base .. " = " .. other)
@@ -992,7 +992,7 @@ end
 --- start from the tests around it in the other loops, so this is where the
 --- loop's own handling of a fact held from before it is drawn.
 local function loop_drop(g: Gen, v: Vis)
-  local pool: {string} = {}
+  local pool: mut {string} = {}
   for _, c in ipairs(places(v)) do
     if not has(v.outer, c) then pool[#pool + 1] = c end
   end
@@ -1048,7 +1048,7 @@ local function loop_drop(g: Gen, v: Vis)
   end
   if g.shapes and g.src:int(0, 3) == 0 then
     -- A `break` that leaves the block of a `<close>` local runs its `__close`.
-    local who = has(v.globals, p) and "g" or is_field(p) and p:sub(1, 1) or "r"
+    local who = if has(v.globals, p) then "g" else is_field(p) and p:sub(1, 1) end or "r"
     add(g, "if " .. i .. " >= 2 then")
     g.depth = g.depth + 1
     for _, line in ipairs(close_lines(g, who, "break")) do
@@ -1142,14 +1142,14 @@ local function shape(g: Gen, v: Vis, depth: integer)
     end
     return
   end
-  return test_drop_use(g, v, g.src:int(0, 2) > 0 and "G" or Fuzz.pick(g.src, places(v)))
+  return test_drop_use(g, v, if g.src:int(0, 2) > 0 then "G" else Fuzz.pick(g.src, places(v)) end)
 end
 
 stmt = function(g: Gen, v: Vis, depth: integer)
   if g.shapes and g.drawn < g.budget then
     -- Mostly where the program runs it: a block or a function may not.
     local top = g.depth == 0 and g.fn == 0
-    if g.src:int(0, top and 1 or 5) == 0 then
+    if g.src:int(0, if top then 1 else 5 end) == 0 then
       g.drawn = g.drawn + 1
       return shape(g, v, depth)
     end
@@ -1373,7 +1373,7 @@ function programs.drawn(kind: string, seed: integer, iters: integer): {string}
   else
     error("checker programs: " .. kind .. " is neither total nor sound", 2)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local seeds = Rand.new(seed)
   for i = 1, iters do
     local rng = Rand.new(seeds:int(math.mininteger, math.maxinteger))

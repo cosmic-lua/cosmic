@@ -6,7 +6,7 @@ local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
 --- SQLite's `json(text)`, or nil and its failure.
-local function minified(db: Sqlite.Handle, text: string): string | nil, string
+local function minified(db: Sqlite.Handle, text: string): string?, string
   local rows, failure = Sqlite.text_rows(db, "SELECT json(?1)", { { text = text } })
   if rows == nil then return nil, failure end
   return rows[1]:text(1)

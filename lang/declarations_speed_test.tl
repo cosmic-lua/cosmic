@@ -26,8 +26,8 @@ end
 
 local FORMS <const>: {string: function(n: integer): string} = {
   ["a union of tagged records"] = function(n: integer): string
-    local out: {string} = {}
-    local members: {string} = {}
+    local out: mut {string} = {}
+    local members: mut {string} = {}
     for i = 1, n * 20 do
       out[#out + 1] = "local enum K" .. i .. " \"k" .. i .. "\" end\nlocal record R" .. i .. "\n  kind: K" .. i ..
         "\n  value: integer\nend\n"
@@ -37,8 +37,8 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["a record that lists an interface of many parents"] = function(n: integer): string
-    local out: {string} = {}
-    local parents: {string} = {}
+    local out: mut {string} = {}
+    local parents: mut {string} = {}
     for i = 1, n * 20 do
       out[#out + 1] = "local interface I" .. i .. "\n  f" .. i .. ": integer\nend\n"
       parents[i] = "I" .. i
@@ -52,7 +52,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["a record of many fields"] = function(n: integer): string
-    local out: {string} = { "local record R\n" }
+    local out: mut {string} = { "local record R\n" }
     for i = 1, n * 50 do
       out[#out + 1] = "  f" .. i .. ": {string: integer}\n"
     end
@@ -60,7 +60,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return table.concat(out)
   end,
   ["aliases that name each other"] = function(n: integer): string
-    local out: {string} = { "local type A0 = integer\n" }
+    local out: mut {string} = { "local type A0 = integer\n" }
     for i = 1, n * 20 do
       out[#out + 1] = "local type A" .. i .. " = {A" .. (i - 1) .. "}\n"
     end

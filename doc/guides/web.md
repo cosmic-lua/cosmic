@@ -53,7 +53,7 @@ do
   local tally = { refused = 0 }
   local header = "{{type Page from site.page}}{{use htmx}}\n"
   local function reason(markup: string, plain?: boolean): string
-    local source, why = Template.compile((plain == true and "{{type Page from site.page}}\n" or header) .. markup, "page.tmpl")
+    local source, why = Template.compile((if plain == true then "{{type Page from site.page}}\n" else header end) .. markup, "page.tmpl")
     assert(source == nil, markup)
     tally["refused"] = (tally["refused"] or 0) + 1
     return why
@@ -100,7 +100,7 @@ local record data
   end
   record Panel
     title: string
-    error: string | nil
+    error: string?
     rows: Html.SafeHtml
   end
   record Page
@@ -216,56 +216,50 @@ thread, so a plain table is consistent.
 
 local data = require("pages.data")
 
-local record Store
+local class Store
   --- Tasks in the order they were added.
-  tasks: {data.Task}
+  tasks: mut {data.Task}
   --- The id the next task takes.
-  next_id: integer
-  --- Adds a task and answers it.
-  add: function(self: Store, title: string): data.Task
-  --- The task with `id`, or nil.
-  get: function(self: Store, id: integer): data.Task | nil
-  --- Flips a task's `done`; the task, or nil.
-  toggle: function(self: Store, id: integer): data.Task | nil
-  --- Removes a task; whether there was one.
-  remove: function(self: Store, id: integer): boolean
-end
+  mut next_id: integer
 
-local store_mt: metatable<Store> = { __index = Store }
+  --- Adds a task and answers it.
+  function add(self, title: string): data.Task
+    local task: data.Task = { id = self.next_id, title = title, done = false }
+    self.next_id = self.next_id + 1
+    self.tasks[#self.tasks + 1] = task
+    return task
+  end
+
+  --- The task with `id`, or nil.
+  function get(self, id: integer): data.Task?
+    for _, task in ipairs(self.tasks) do
+      if task.id == id then return task end
+    end
+    return nil
+  end
+
+  --- Flips a task's `done`; the task, or nil.
+  function toggle(self, id: integer): data.Task?
+    local task = self:get(id)
+    if task ~= nil then task.done = not task.done end
+    return task
+  end
+
+  --- Removes a task; whether there was one.
+  function remove(self, id: integer): boolean
+    for at, task in ipairs(self.tasks) do
+      if task.id == id then
+        table.remove(self.tasks, at)
+        return true
+      end
+    end
+    return false
+  end
+end
 
 --- A store with no tasks.
 function Store.new(): Store
-  return setmetatable({ tasks = {}, next_id = 1 }, store_mt)
-end
-
-function Store:add(title: string): data.Task
-  local task: data.Task = { id = self.next_id, title = title, done = false }
-  self.next_id = self.next_id + 1
-  self.tasks[#self.tasks + 1] = task
-  return task
-end
-
-function Store:get(id: integer): data.Task | nil
-  for _, task in ipairs(self.tasks) do
-    if task.id == id then return task end
-  end
-  return nil
-end
-
-function Store:toggle(id: integer): data.Task | nil
-  local task = self:get(id)
-  if task ~= nil then task.done = not task.done end
-  return task
-end
-
-function Store:remove(id: integer): boolean
-  for at, task in ipairs(self.tasks) do
-    if task.id == id then
-      table.remove(self.tasks, at)
-      return true
-    end
-  end
-  return false
+  return { tasks = {}, next_id = 1 }
 end
 
 return Store
@@ -317,7 +311,7 @@ function Site.routes(store: Store): {Web.Route}
   end
 
   --- The task a request's `:id` names, or nil.
-  local function named(req: Web.Request): integer | nil
+  local function named(req: Web.Request): integer?
     return math.tointeger(tonumber(req.params.id))
   end
 
@@ -367,7 +361,7 @@ do
         end
         local query = req:query()
         local loud = query ~= nil and #query.pairs > 0
-        return Web.text("hello " .. assert(req.params["name"]) .. (loud and "!" or ""))
+        return Web.text("hello " .. assert(req.params["name"]) .. (if loud then "!" else "" end))
       end, { name = "hello" }),
       Web.post("/jump", function(req: Web.Request): Web.Response
         return Web.redirect(Web.safe_next(req:header("referer"), "/"))

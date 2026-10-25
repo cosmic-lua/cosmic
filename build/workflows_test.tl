@@ -34,7 +34,7 @@ local READ <const>: Json.DecodeOptions = { json5 = true, hash_comments = true }
 --- first line that is neither blank nor a comment opens with `{` or
 --- `[` ([`flow.is_flow`]).
 local function flow_files(paths: {string}): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, path in ipairs(paths) do
     local text = (assert(Fs.read(path)))
     if flow.is_flow(text) then out[path] = text end
@@ -45,7 +45,7 @@ end
 --- The flow-style workflows: each file under DIR in flow style, with its
 --- text.
 local function flow_workflows(): {string: string}
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(DIR)))) do
     if name:match("%.ya?ml$") then paths[#paths + 1] = DIR .. "/" .. name end
   end
@@ -55,7 +55,7 @@ end
 --- Every local action's metadata file: each `action.yml` or
 --- `action.yaml` under ACTIONS, at any depth.
 local function action_paths(): {string}
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   if not Fs.is_dir(ACTIONS) then return paths end
   for _, relative in ipairs((assert(Fs.walk(ACTIONS)))) do
     local name = relative:match("[^/]+$")
@@ -127,7 +127,7 @@ end
 --- The expressions in an action's text: each `${{ ... }}`, and each
 --- step's `if`, which is one whole without them.
 local function expressions(text: string, action: {string: any}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for expression in text:gmatch("%${{(.-)}}") do out[#out + 1] = expression end
   local runs = action.runs
   local steps = runs is {string: any} and runs.steps or nil
@@ -145,7 +145,7 @@ end
 --- The inputs `expression` reads, as `inputs.<name>` or
 --- `inputs['<name>']`.
 local function inputs_read(expression: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for name in expression:gmatch("inputs%.([%w_%-]+)") do out[#out + 1] = name end
   for name in expression:gmatch("inputs%[%s*['\"]([^'\"]+)['\"]%s*%]") do out[#out + 1] = name end
   return out
@@ -185,7 +185,7 @@ end
 
 --- Each decoded flow-style workflow, by path.
 local function decoded_workflows(): {string: {string: any}}
-  local out: {string: {string: any}} = {}
+  local out: mut {string: {string: any}} = {}
   for path, text in pairs(flow_workflows()) do
     out[path] = assert(Json.decode_object(text, READ))
   end
@@ -211,12 +211,12 @@ local FULL_RUN <const> = "needs.scope.outputs.scope != 'light'"
 --- all of them, a combination of its own, which no later entry is
 --- added to. With no dimension, each entry is a combination.
 local function expand(matrix: {string: any}, scope: string): {{string: string}}
-  local dims: {string} = {}
+  local dims: mut {string} = {}
   for key in pairs(matrix) do
     if key ~= "include" and key ~= "exclude" then dims[#dims + 1] = key end
   end
   table.sort(dims)
-  local combos: {{string: string}} = {}
+  local combos: mut {{string: string}} = {}
   if #dims > 0 then combos = { {} } end
   for _, dim in ipairs(dims) do
     local value = matrix[dim]
@@ -225,10 +225,10 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
       assert(condition == FULL_RUN, "matrix " .. dim .. " is chosen other than by the scope: " .. value)
       value = assert(Json.decode(scope == "full" and full or light))
     end
-    local next_combos: {{string: string}} = {}
+    local next_combos: mut {{string: string}} = {}
     for _, combo in ipairs(combos) do
       for _, v in ipairs(value as {string}) do
-        local c: {string: string} = {}
+        local c: mut {string: string} = {}
         for k, x in pairs(combo) do c[k] = x end
         c[dim] = v
         next_combos[#next_combos + 1] = c
@@ -239,7 +239,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
   -- GitHub's docs: "All include combinations are processed after
   -- exclude", so an entry never takes back an excluded combination,
   -- and an exclusion holds back none an entry creates.
-  local kept: {{string: string}} = {}
+  local kept: mut {{string: string}} = {}
   for _, combo in ipairs(combos) do
     local excluded = false
     for _, entry in ipairs(matrix.exclude as {{string: string}} or {}) do
@@ -255,7 +255,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
   combos = kept
   -- An original combination's dimensions are never overwritten, so
   -- each still holds its own.
-  local created: {{string: string}} = {}
+  local created: mut {{string: string}} = {}
   for _, entry in ipairs(matrix.include as {{string: string}} or {}) do
     local added = false
     for _, combo in ipairs(combos) do
@@ -269,7 +269,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
       end
     end
     if not added then
-      local c: {string: string} = {}
+      local c: mut {string: string} = {}
       for k, v in pairs(entry) do c[k] = v end
       created[#created + 1] = c
     end
@@ -294,9 +294,9 @@ local function test_a_matrix_expands_as_githubs_docs_say()
       { fruit = "banana" }, { fruit = "banana", animal = "cat" },
     },
   }, "full")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, combo in ipairs(got) do
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for k, v in pairs(combo) do parts[#parts + 1] = k .. "=" .. v end
     table.sort(parts)
     lines[#lines + 1] = table.concat(parts, ",")
@@ -332,7 +332,7 @@ end
 --- The platform legs by job name ([`LEG_NAME`]), on a run of `scope`.
 local function platform_legs(scope: string): {string: {string: string}}
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
-  local out: {string: {string: string}} = {}
+  local out: mut {string: {string: string}} = {}
   for _, leg in ipairs(legs_of((ci.jobs as {string: {string: any}}).platform, scope)) do
     local name = leg_name(leg)
     assert(out[name] == nil, "two legs named " .. name)
@@ -349,7 +349,7 @@ end
 local function test_a_branch_push_runs_no_alpine_leg()
   local full, light = platform_legs("full"), platform_legs("light")
   local function names(legs: {string: {string: string}}): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for name in pairs(legs) do out[#out + 1] = name end
     table.sort(out)
     return table.concat(out, " ")
@@ -374,7 +374,7 @@ local function test_a_branch_push_runs_no_alpine_leg()
       alpine.image:find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil and
       alpine.prepare:find("^adduser ") ~= nil and alpine.shell == "leg-shell {0}",
     "alpine-x86_64's values: " .. tostring(alpine.image) .. " " .. tostring(alpine.prepare))
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(alpine) do keys[#keys + 1] = key end
   for name, leg in pairs(full) do
     for _, key in ipairs(keys) do assert(leg[key] ~= nil, name .. " has no " .. key) end
@@ -488,7 +488,7 @@ local SCRIPTS <const> = ".github/scripts"
 --- job's `working-directory` -- would otherwise find a script there all
 --- the same.
 local function normal(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
       if #parts == 0 then error(path .. " climbs out of the checkout", 0) end
@@ -505,7 +505,7 @@ end
 --- turn (a job's `defaults`, then its workflow's; a composite action's
 --- steps take none), else the checkout's root.
 local function directory(step: {string: any}, holders: {{string: any}}): string
-  local all: {{string: any}} = { step }
+  local all: mut {{string: any}} = { step }
   for _, holder in ipairs(holders) do all[#all + 1] = holder end
   for _, holder in ipairs(all) do
     local here = holder["working-directory"]
@@ -521,11 +521,11 @@ end
 --- What an `actions/checkout` step brings in: nil for the whole tree,
 --- else the paths its `sparse-checkout` names, without their slashes at
 --- either end.
-local function checked_out(step: {string: any}): {string} | nil
+local function checked_out(step: {string: any}): {string}?
   local with = step.with
   local sparse = with is {string: any} and with["sparse-checkout"] or nil
   if not sparse is string then return nil end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for line in sparse:gmatch("[^\n]+") do
     paths[#paths + 1] = (line:gsub("^%s*/?", ""):gsub("/?%s*$", ""))
   end
@@ -534,7 +534,7 @@ end
 
 --- Whether a checkout of `sparse` (nil for the whole tree) holds `path`:
 --- it is, or lies under, a path `sparse` names.
-local function holds(sparse: {string} | nil, path: string): boolean
+local function holds(sparse: {string}?, path: string): boolean
   if sparse == nil then return true end
   for _, prefix in ipairs(sparse) do
     if path == prefix or String.starts_with(path, prefix .. "/") then return true end
@@ -544,7 +544,7 @@ end
 
 --- The metadata file of the local action in `dir`, its `action.yml` or
 --- `action.yaml`, or nil when it has neither.
-local function action_file(dir: string): string | nil
+local function action_file(dir: string): string?
   for _, name in ipairs({ "action.yml", "action.yaml" }) do
     local st = Fs.stat(dir .. "/" .. name)
     if st ~= nil and st.kind == "file" then return dir .. "/" .. name end
@@ -554,10 +554,10 @@ end
 
 --- What a job's steps have checked out so far, and what they ran.
 local record Walk
-  checkout: boolean
-  sparse?: {string}
-  scripts: {string}
-  actions: {string: boolean}
+  mut checkout: boolean
+  mut sparse?: {string}
+  scripts: mut {string}
+  actions: mut {string: boolean}
 end
 
 --- Checks `steps` in order against what `walk` has checked out, as
@@ -616,7 +616,7 @@ local function walk_steps(where: string, steps: {{string: any}}, holders: {{stri
         walk.scripts[#walk.scripts + 1] = script
       end
     end
-    local texts: {string} = {}
+    local texts: mut {string} = {}
     if run is string then texts[1] = run end
     local env = step.env
     if env is {string: any} then
@@ -668,8 +668,8 @@ end
 --- each file there is one some step or its script names. So are the local actions
 --- under ACTIONS: each is one some workflow uses.
 local function test_the_workflows_run_the_scripts_there_are()
-  local named: {string: boolean} = {}
-  local used: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
+  local used: mut {string: boolean} = {}
   for path, workflow in pairs(decoded_workflows()) do
     local scripts, actions = scripts_run(path, workflow)
     for _, script in ipairs(scripts) do
@@ -682,7 +682,7 @@ local function test_the_workflows_run_the_scripts_there_are()
   -- A wrapper may compile or run another file here. Follow its literal
   -- checkout-root names as dependencies, including files that no step
   -- names directly; dynamic script dependencies still need a declaration.
-  local pending: {string} = {}
+  local pending: mut {string} = {}
   for script in pairs(named) do pending[#pending + 1] = script end
   local at = 1
   while at <= #pending do
@@ -829,8 +829,8 @@ end
 --- names it -- the platform job's legs and fuzz.yml's -- so moving one
 --- leaves none of them on the old one.
 local function test_each_image_has_one_digest_everywhere()
-  local seen: {string: string} = {}
-  local where: {string: string} = {}
+  local seen: mut {string: string} = {}
+  local where: mut {string: string} = {}
   local count = 0
   for path, text in pairs(flow_workflows()) do
     for image, digest in text:gmatch("(ghcr%.io/[%w%-_./]+)@sha256:(%x+)") do
@@ -915,7 +915,7 @@ local VERDICTS_COMMIT <const> = "${{ runner.temp }}/verdicts-commit"
 --- The steps that name, restore, trim and save a leg's test verdicts,
 --- by id or by what they run or cache.
 local function verdict_steps(steps: {{string: any}}): {string: integer}
-  local at: {string: integer} = {}
+  local at: mut {string: integer} = {}
   for i, step in ipairs(steps) do
     local id = step.id as string
     local run = step.run as string or ""
@@ -953,7 +953,7 @@ local function test_every_leg_keeps_its_verdicts()
       tostring(env.COSMIC_CI_DECLARED_KEYS))
   local steps = jobs.platform.steps as {{string: any}}
   local at = verdict_steps(steps)
-  local back: integer | nil
+  local back: integer?
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then back = i end
     local id = step.id
@@ -982,7 +982,7 @@ end
 
 --- A job's `env` and each of its steps' that has one.
 local function envs_of(job: {string: any}): {{string: string}}
-  local out: {{string: string}} = {}
+  local out: mut {{string: string}} = {}
   if job.env ~= nil then out[#out + 1] = job.env as {string: string} end
   for _, step in ipairs(job.steps as {{string: any}} or {}) do
     if step.env ~= nil then out[#out + 1] = step.env as {string: string} end
@@ -1016,8 +1016,8 @@ end
 --- Holds each cache save of `steps`, a job's, to main's saves (below),
 --- and counts them.
 local function main_saves(steps: {{string: any}}): integer
-  local restores: {string: {string: any}} = {}
-  local trims: {string: string} = {}
+  local restores: mut {string: {string: any}} = {}
+  local trims: mut {string: string} = {}
   local saves = 0
   for _, step in ipairs(steps) do
     local uses = step.uses as string or ""
@@ -1149,7 +1149,7 @@ end
 --- The cache saves among `steps`, by the key each saves under: the
 --- verdicts are saved by content, and named under the commit.
 local function saves_of(steps: {{string: any}}): {string: {string: any}}
-  local out: {string: {string: any}} = {}
+  local out: mut {string: {string: any}} = {}
   for _, step in ipairs(steps) do
     if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil then
       local key = (step.with as {string: string}).key
@@ -1163,8 +1163,8 @@ end
 --- The save among `steps` of `path` under a key that names no commit,
 --- and the one that names it under the commit, from `<path>-commit`, if
 --- any.
-local function save_of(steps: {{string: any}}, path: string): {string: any} | nil, {string: any} | nil
-  local plain, commit: {string: any} | nil, {string: any} | nil
+local function save_of(steps: {{string: any}}, path: string): {string: any}?, {string: any}?
+  local plain, commit: {string: any}?, {string: any}?
   for key, step in pairs(saves_of(steps)) do
     local from = (step.with as {string: string}).path
     if from == path .. "-commit" and
@@ -1231,14 +1231,14 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
   local jobs = ci.jobs as {string: {string: any}}
   for job, leg in pairs({ platform = "${{ matrix.name }}", checked = "linux-x86_64" }) do
     local steps = jobs[job].steps as {{string: any}}
-    local names: {string: any} | nil
+    local names: {string: any}?
     for _, step in ipairs(steps) do
       if step.id == "names" then names = step end
     end
     assert(names ~= nil and names.uses == CACHE_NAMES and
         (names.with as {string: string}).leg == leg,
       job .. " names a branch's compiles by another leg: " .. tostring(names and names.with))
-    local found_restore: {string: string} | nil
+    local found_restore: {string: string}?
     for _, step in ipairs(steps) do
       if step.id == "compiles-restore" then found_restore = step.with as {string: string} end
     end
@@ -1255,7 +1255,7 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
     "main's prefix takes a branch's entries")
 
   local steps = jobs.platform.steps as {{string: any}}
-  local branch: {{string: any}} = {}
+  local branch: mut {{string: any}} = {}
   for key, step in pairs(saves_of(steps)) do
     if branch_compiles(key) then branch[#branch + 1] = step end
   end
@@ -1276,7 +1276,7 @@ local function test_a_branch_saves_compiles_for_its_later_pushes()
 
   -- The copy of what was restored: made after the restore and before
   -- the boot, where the trim reads it, outside the path saved.
-  local _, restored, copy, boot: integer, integer | nil, integer | nil, integer | nil
+  local _, restored, copy, boot: integer, integer?, integer?, integer?
   for i, step in ipairs(steps) do
     if step.id == "compiles-restore" then restored = i end
     if step.name == "build release Cosmic" then boot = i end
@@ -1352,7 +1352,7 @@ local function test_a_main_push_reuses_the_queue_run()
   assert((seed.permissions as {string: string}).actions == "read", "seed cannot read the queue's run")
 
   local function legs(job: {string: any}): {string: string}
-    local out: {string: string} = {}
+    local out: mut {string: string} = {}
     for _, leg in ipairs(legs_of(job, "full")) do out[leg.name] = leg.runner end
     return out
   end
@@ -1370,7 +1370,7 @@ local function test_a_main_push_reuses_the_queue_run()
   end
   assert(count == 5, "legs: " .. count)
   -- Only the checked job's seed relays no product.
-  local marked: {string: any} = {}
+  local marked: mut {string: any} = {}
   for _, leg in ipairs(((seed.strategy as {string: any}).matrix as {string: any}).include as {{string: any}}) do
     marked[leg.name as string] = leg.checked
   end
@@ -1378,7 +1378,7 @@ local function test_a_main_push_reuses_the_queue_run()
     assert(marked[name] == (name == checked_name or nil), "seed's " .. name .. " is marked checked: " .. tostring(marked[name]))
   end
   -- The lookup asks for every leg's seed, and the checked job's.
-  local named: {string} = {}
+  local named: mut {string} = {}
   for _, leg in ipairs(legs_of(platform, "full")) do
     named[#named + 1] = leg.name
   end
@@ -1387,8 +1387,8 @@ local function test_a_main_push_reuses_the_queue_run()
     "reuse asks for other legs' seeds: " .. tostring((find.env as {string: string}).LEGS))
 
   local steps = seed.steps as {{string: any}}
-  local downloads: {string: boolean} = {}
-  local uploads: {string: boolean} = {}
+  local downloads: mut {string: boolean} = {}
+  local uploads: mut {string: boolean} = {}
   for _, step in ipairs(steps) do
     local uses = step.uses as string or ""
     local with = step.with as {string: string}
@@ -1397,7 +1397,7 @@ local function test_a_main_push_reuses_the_queue_run()
     -- The zig outputs' download is held apart, below.
     if artifact and with.name ~= "seed-zig-${{ matrix.name }}" then
       local product = with.name == "portable-product-${{ matrix.name }}"
-      assert(step["if"] == (product and "!matrix.checked" or nil),
+      assert(step["if"] == (if product then "!matrix.checked" else nil end),
         "seed relays a product on the checked job's leg, or skips its seed there: " .. tostring(step["if"]))
     end
     if uses:find("actions/download-artifact@", 1, true) ~= nil then
@@ -1434,7 +1434,7 @@ local function test_a_main_push_reuses_the_queue_run()
       "[A-Za-z0-9._-]+-verdicts-${{ matrix.name }}-[0-9a-f]{16}-[0-9a-f]+)$' " ..
       "\"$RUNNER_TEMP/seed.keys\" >> \"$GITHUB_OUTPUT\" || :",
     "seed reads other keys: " .. tostring(keys.run))
-  local theirs_saved: {string: boolean} = {}
+  local theirs_saved: mut {string: boolean} = {}
   for _, step in pairs(saves_of(platform.steps as {{string: any}})) do
     theirs_saved[(step.with as {string: string}).path] = true
   end
@@ -1456,8 +1456,8 @@ local function test_a_main_push_reuses_the_queue_run()
   -- failure: a lookup by the prefix of their core and vendor part, a
   -- leg's restore's first, then, where it found none, the queue leg's
   -- artifact of them, the tar laid out with its modes, and the save.
-  local zig_steps: {{string: any}} = {}
-  local relay: integer | nil
+  local zig_steps: mut {{string: any}} = {}
+  local relay: integer?
   for i, step in ipairs(steps) do
     local with = step.with as {string: string}
     if with ~= nil and with.name == "portable-product-${{ matrix.name }}" and
@@ -1567,7 +1567,7 @@ local function test_the_queue_keeps_what_main_would_save()
       env.ZIG_BUILD_RESTORED == "${{ steps." .. restore .. ".outputs.cache-matched-key }}",
     "the zig outputs are seeded under another key than main saves them under, or held to another entry: " ..
       tostring(env.ZIG_BUILD_KEY))
-  local found_zrestore: {string: any} | nil
+  local found_zrestore: {string: any}?
   for _, step in ipairs(steps) do
     if step.id == restore then found_zrestore = step end
   end
@@ -1588,11 +1588,11 @@ local function test_the_queue_keeps_what_main_would_save()
     1, true) ~= nil, "the driver check's marker does not hold the key main saves it under: " .. writes)
   local _, trimmed = step_running(steps, "driver.tl verdicts-trim")
   local _, compiled = step_running(steps, "driver.tl compiles-trim")
-  local found_back: integer | nil
+  local found_back: integer?
   for i, step in ipairs(steps) do
     if step.name == "move the tree back to where it was checked out" then found_back = i end
   end
-  local found_gone: integer | nil
+  local found_gone: integer?
   for i, step in ipairs(steps) do
     if step.name == "remove the leg's container" then found_gone = i end
   end
@@ -1610,7 +1610,7 @@ local function test_the_queue_keeps_what_main_would_save()
       zwith.name == "seed-zig-${{ matrix.name }}" and zwith.path == "${{ runner.temp }}/seed-zig" and
       zwith["if-no-files-found"] == "ignore",
     "the zig outputs are uploaded other than apart from the seed, and failing nothing: " .. tostring(zwith.name))
-  local found_download: {string: string} | nil
+  local found_download: {string: string}?
   for _, step in ipairs(jobs.seed.steps as {{string: any}}) do
     local w = step.with as {string: string}
     if w ~= nil and w.name == "seed-${{ matrix.name }}" then found_download = w end
@@ -1640,11 +1640,11 @@ local function test_the_queue_keeps_what_main_would_save()
   assert(cenv.ZIG_BUILD_KEY == nil and save_of(csteps, "${{ runner.temp }}/zig-build") == nil,
     "the checked job keeps zig outputs, which linux-x86_64's leg saves under the same key")
   local _, ctrim = step_running(csteps, "driver.tl verdicts-trim")
-  local found_removed: integer | nil
+  local found_removed: integer?
   for i, step in ipairs(csteps) do
     if step.name == "remove the leg's container" then found_removed = i end
   end
-  local found_cback: integer | nil
+  local found_cback: integer?
   for i, step in ipairs(csteps) do
     if step.name == "move the tree back to where it was checked out" then found_cback = i end
   end
@@ -1715,7 +1715,7 @@ local function linux_x86_64_leg(platform: {string: any}): {string: string}
 end
 
 --- The step of `steps` named `name`, or none.
-local function step_named(steps: {{string: any}}, name: string): {string: any} | nil
+local function step_named(steps: {{string: any}}, name: string): {string: any}?
   for _, step in ipairs(steps) do
     if step["name"] == name then return step end
   end
@@ -1768,7 +1768,7 @@ local VERDICT_STEPS <const>: {string} = { "name the leg's host", "find the tree'
 
 --- `lists`' strings, in one list.
 local function joined(lists: {{string}}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, list in ipairs(lists) do
     for _, name in ipairs(list) do out[#out + 1] = name end
   end
@@ -1783,7 +1783,7 @@ end
 --- the verdicts may only look the entry up (`lookup-only`), which the
 --- leg's does not.
 local function held_to_the_leg(where: string, job: {string: any}, platform: {string: any}, names: {string},
-                               wanted: function(name: string, theirs: string | nil): string | nil)
+                               wanted: function(name: string, theirs: string?): string?)
   local leg = linux_x86_64_leg(platform)
   local theirs, ours = steps_in(platform), steps_in(job)
   for _, step_name in ipairs(names) do
@@ -1796,13 +1796,13 @@ local function held_to_the_leg(where: string, job: {string: any}, platform: {str
     end
     local script = their["run"]
     if script is string then
-      local own = step_name == "name the leg's host" and "linux-x86_64-checked" or nil
+      local own = if step_name == "name the leg's host" then "linux-x86_64-checked" else nil end
       same_as_leg(leg, at .. "'s script", our["run"], as_leg(leg, script, own))
     end
     local looked = step_name == "restore test verdicts" and table_or_none(our["with"])["lookup-only"] == true
-    same_table_as_leg(leg, at .. "'s with", our["with"], their["with"], looked and "lookup-only" or nil)
+    same_table_as_leg(leg, at .. "'s with", our["with"], their["with"], if looked then "lookup-only" else nil end)
     same_table_as_leg(leg, at .. "'s env", our["env"], their["env"])
-    local condition: string | nil = nil
+    local condition: string? = nil
     local raw = their["if"]
     if raw is string and not raw:find("matrix.", 1, true) then condition = raw end
     same_as_leg(leg, at .. "'s if", our["if"], wanted(step_name, condition))
@@ -1812,7 +1812,7 @@ end
 --- The phases a job of the checked family runs, in order, as
 --- `cosmic-driver cosmic_ci/driver.tl platform <phase>`.
 local function phases_of(job: {string: any}): string
-  local ran: {string} = {}
+  local ran: mut {string} = {}
   for _, step in ipairs(steps_in(job)) do
     local phase = text_of(step["run"]):match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)$")
     if phase ~= nil then ran[#ran + 1] = phase end
@@ -1890,9 +1890,9 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
     ["move the tree back to where it was checked out"] = true,
   }
   held_to_the_leg("checked", checked, platform, joined({ SETUP_STEPS, VERDICT_STEPS }),
-    function(step_name: string, theirs: string | nil): string | nil
+    function(step_name: string, theirs: string?): string?
       if BOTH[step_name] then return theirs end
-      return theirs and FULL .. " && " .. theirs or FULL
+      return if theirs then FULL .. " && " .. theirs else FULL end
     end)
   local steps = steps_in(checked)
   assert(phases_of(checked) == "boot checked-build checked performance-checked",
@@ -1935,7 +1935,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   -- A light run runs the steps the driver's check needs, and nothing of
   -- the checked suite's: every other step's `if` names the full scope, or
   -- what a step skipped on a light run leaves unmet.
-  local light <const>: {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
+  local light <const>: mut {string: boolean} = { ["bootstrap the pinned CI driver"] = true,
     ["summarize worker operations"] = true,
     ["type-check the bootstrap's scripts on the pinned driver"] = true,
     ["describe the leg's container"] = true, ["remove the leg's container"] = true,
@@ -1944,7 +1944,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
     [CHECKOUT] = true }
   for key in pairs(BOTH) do light[key] = true end
   local unmet <const> = { FULL, "github.event_name == 'merge_group'", "steps.verdicts-trim.outputs.digest != ''" }
-  local only_light: {string} = {}
+  local only_light: mut {string} = {}
   for _, step in ipairs(steps) do
     local called = text_of(step["name"])
     if called == "" then called = text_of(step["uses"]) end
@@ -1957,7 +1957,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
         for _, text in ipairs(unmet) do held = held or conjunct == text end
       end
       assert(held == not light[called], "the checked job runs " .. called ..
-          (held and " only on a full run: " or " on a light run: ") .. condition)
+          (if held then " only on a full run: " else " on a light run: " end) .. condition)
     end
   end
   assert(table.concat(only_light, ", ") == "name linux-x86_64's host, find a passing CI driver check, " ..
@@ -2004,7 +2004,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
   same_table_as_leg(leg, "the marker's lookup", lookup["with"],
     { path = table_in(their_lookup, "with")["path"], key = want, ["lookup-only"] = true })
   local _, named = step_running(steps, "GITHUB_ENV=/dev/null cosmic-driver cosmic_ci/driver.tl leg-host-id")
-  local found_looked: integer | nil
+  local found_looked: integer?
   for i, step in ipairs(steps) do
     if step == lookup then found_looked = i end
   end
@@ -2073,7 +2073,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   assert(minutes ~= nil and minutes * 60 >= bound + 600 and minutes < 45,
     "a share's job holds " .. tostring(minutes) .. " minutes for its build and a bound of " .. tostring(bound) .. " s")
   held_to_the_leg("checked-shard", shard, platform, joined({ SETUP_STEPS, VERDICT_STEPS }),
-    function(_: string, theirs: string | nil): string | nil
+    function(_: string, theirs: string?): string?
       return theirs
     end)
   assert(phases_of(shard) == "boot checked-build checked", "a share runs " .. phases_of(shard))
@@ -2096,8 +2096,8 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local trimmed = assert(steps[trim_at])
   assert(trimmed["if"] == "always() && steps.driver.outcome == 'success'" and trimmed["id"] == "verdicts-trim",
     "a share trims its verdicts only on some runs: " .. tostring(trimmed["if"]))
-  local keep: {string: any} | nil
-  local kept_at: integer | nil
+  local keep: {string: any}?
+  local kept_at: integer?
   for i, step in ipairs(steps) do
     if text_of(step["uses"]):find("actions/upload-artifact@", 1, true) ~= nil and
         text_of(table_or_none(step["with"])["path"]):find("${{ runner.temp }}/verdicts/", 1, true) == 1 then
@@ -2143,7 +2143,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(narrowing["name"] == "linux-x86_64-checked-narrowing", tostring(narrowing["name"]))
   assert(phases_of(narrowing) == "boot checked-narrowing", "the checked narrowing runs " .. phases_of(narrowing))
   held_to_the_leg("checked-narrowing", narrowing, platform, joined({ { "name the leg's host" }, SETUP_STEPS }),
-    function(_: string, theirs: string | nil): string | nil
+    function(_: string, theirs: string?): string?
       return theirs
     end)
   for _, step in ipairs(steps_in(narrowing)) do
@@ -2169,7 +2169,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(fenv["COSMIC_CI_FORMAT"] == "run", "the format check is skipped")
   assert(phases_of(format) == "boot format", "the format check runs " .. phases_of(format))
   held_to_the_leg("format", format, platform, joined({ { "find the tree's base on main" }, SETUP_STEPS }),
-    function(step_name: string, theirs: string | nil): string | nil
+    function(step_name: string, theirs: string?): string?
       -- The scheduled run checks the whole tree, to leave the memo.
       if step_name == "find the tree's base on main" then
         return "github.event_name != 'schedule'"
@@ -2192,8 +2192,8 @@ local function test_the_format_check_starts_from_the_scheduled_runs_memo()
   local path <const> = "${{ runner.temp }}/check-memo"
   local key <const> = "check-memo-v1-${{ github.run_id }}-${{ github.run_attempt }}"
   local check, checked_at = step_with_id(steps, "format")
-  local restored_at, saved_at: integer | nil, integer | nil
-  local restore, save: {string: any} | nil, {string: any} | nil
+  local restored_at, saved_at: integer?, integer?
+  local restore, save: {string: any}?, {string: any}?
   for i, step in ipairs(steps) do
     local uses = text_of(step["uses"])
     local with = table_or_none(step["with"])
@@ -2260,7 +2260,7 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local _, moved = step_running(steps, "driver.tl place-tree")
   assert(found < listed and listed < moved,
     "the format job names what changed before it finds the base, or with its tree moved")
-  local checkout: {string: any} | nil = nil
+  local checkout: {string: any}? = nil
   for _, step in ipairs(steps) do
     if step.uses == CHECKOUT then checkout = step end
   end
@@ -2297,8 +2297,8 @@ local function test_a_job_moves_its_tree_once_and_puts_it_back_once()
     for job_name, job in pairs(workflow.jobs as {string: {string: any}}) do
       local where = path .. " " .. job_name
       local steps = job.steps as {{string: any}} or {}
-      local moves: {integer} = {}
-      local backs: {integer} = {}
+      local moves: mut {integer} = {}
+      local backs: mut {integer} = {}
       local last_driver = 0
       for i, step in ipairs(steps) do
         local run = step.run
@@ -2373,7 +2373,7 @@ local function test_a_failed_queue_job_has_the_run_cancelled_by_a_job_of_its_own
     "cancel stops before the legs may")
   for name, job in pairs(jobs) do
     local needs = job.needs
-    local list: {string} = needs is string and { needs } or (needs as {string} or {})
+    local list: {string} = if needs is string then { needs } else (needs as {string} or {}) end
     for _, need in ipairs(list) do
       assert(need ~= "cancel", name .. " waits on the job that cancels the run")
     end
@@ -2418,7 +2418,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
         write.run == "mkdir -p \"$RUNNER_TEMP/verdicts-commit\" && echo \"" .. key ..
         "\" > \"$RUNNER_TEMP/verdicts-commit/key\"",
       name .. " names another entry than the one it saves, or elsewhere: " .. tostring(write.run))
-    local found_saved: integer | nil
+    local found_saved: integer?
     for i, step in ipairs(steps) do
       if step == plain then found_saved = i end
     end
@@ -2467,7 +2467,7 @@ local function test_a_branch_restores_the_verdicts_of_its_base()
   local plain, twin = save_of(steps, VERDICTS)
   assert(twin ~= nil and twin["if"] == "steps.keys.outputs.verdicts-sha != ''",
     "seed names no verdicts under the commit")
-  local found_plain, found_twin: integer | nil, integer | nil
+  local found_plain, found_twin: integer?, integer?
   for i, step in ipairs(steps) do
     if step == plain then found_plain = i end
     if step == twin then found_twin = i end
@@ -2577,8 +2577,8 @@ end
 local function test_a_leg_trims_its_verdicts_before_it_saves_them()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local jobs = ci.jobs as {string: {string: any}}
-  local at: {string: integer} = {}
-  local trim: {string: any} | nil
+  local at: mut {string: integer} = {}
+  local trim: {string: any}?
   for i, step in ipairs(jobs.platform.steps as {{string: any}}) do
     local run = step.run
     if step.id ~= nil then at[step.id as string] = i end
@@ -2628,8 +2628,8 @@ local function test_a_leg_prunes_its_zig_outputs_before_it_saves_them()
   local prune, at = step_running(steps, "driver.tl zig-prune")
   local _, assembled = step_running(steps, "driver.tl platform assemble")
   local stage, staged = step_running(steps, "driver.tl queue-stage")
-  local found_saved: integer | nil
-  local found_upload: {string: any} | nil
+  local found_saved: integer?
+  local found_upload: {string: any}?
   for i, step in ipairs(steps) do
     local path = step.with ~= nil and (step.with as {string: string}).path or nil
     if (step.uses as string or ""):find("actions/cache/save@", 1, true) ~= nil and
@@ -2919,7 +2919,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   local call = math.tointeger(tonumber(script:match('whole%(env, "CALL_SECONDS", (%d+)%)')))
   assert(call ~= nil, "queue_seed.tl's call budget moved")
   local QUEUE <const> = "github.event_name == 'merge_group'"
-  local names: {string: string} = {}
+  local names: mut {string: string} = {}
   for _, case in ipairs({
       -- A queue run's legs run whole, so a leg's job is named by the leg
       -- alone there ([`LEG_NAME`]).
@@ -2934,8 +2934,8 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
     assert(job.name == case.job_name, where .. "'s name: " .. tostring(job.name))
     assert((job.permissions as {string: string}).actions == "read", where .. " cannot read the run ahead")
     local steps = job.steps as {{string: any}}
-    local at: {string: integer} = {}
-    local keep: {string: any} | nil
+    local at: mut {string: integer} = {}
+    local keep: {string: any}?
     for i, step in ipairs(steps) do
       local id = step.id as string
       if id ~= nil then at[id] = i end
@@ -2991,7 +2991,7 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
       where .. " waits too long for the run ahead: " .. tostring(env.WITHIN_SECONDS))
     assert((env.READY_SECONDS or "") == case.ready, where .. " takes its job ahead to keep them at another time")
     -- A job that has begun names its suite's step, the other none.
-    local suite_step: string | nil = nil
+    local suite_step: string? = nil
     if case.begun then suite_step = steps[at[case.suite]].name as string end
     assert(env.SUITE_STEP == suite_step,
       where .. " waits on a job ahead by another step than its suite: " .. tostring(env.SUITE_STEP))
@@ -3027,8 +3027,8 @@ end
 local function test_a_queue_leg_takes_the_driver_check_of_the_run_ahead()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local steps = ((ci.jobs as {string: {string: any}}).platform).steps as {{string: any}}
-  local at: {string: integer} = {}
-  local keep, upload: {string: any} | nil, {string: any} | nil
+  local at: mut {string: integer} = {}
+  local keep, upload: {string: any}?, {string: any}?
   for i, step in ipairs(steps) do
     if step.id ~= nil then at[step.id as string] = i end
     if step.name == "keep the CI driver check for the run behind in the queue" then
@@ -3120,7 +3120,7 @@ local type Value = string | boolean
 --- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string): Value
   local inner = assert(text:match("^%${{ (.*) }}$"), "not an expression: " .. text)
-  local tokens: {string} = {}
+  local tokens: mut {string} = {}
   local at = 1
   while at <= #inner do
     local space = inner:match("^%s+", at)
@@ -3231,7 +3231,7 @@ local function portable_suite_legs(event: string, ref: string): string
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local env = ((ci.jobs as {string: {string: any}}).platform.env) as {string: string}
   local value = assert(env.COSMIC_CI_PORTABLE_SUITE, "the legs set no COSMIC_CI_PORTABLE_SUITE")
-  local out: {string} = {}
+  local out: mut {string} = {}
   for name, leg in pairs(platform_legs("full")) do
     local answer = evaluate(value, leg, event, ref)
     assert(answer == "run" or answer == "skip", name .. "'s COSMIC_CI_PORTABLE_SUITE on " ..
@@ -3274,8 +3274,8 @@ end
 local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ran()
   local ci = decoded_workflows()[DIR .. "/ci.yml"] as {string: any}
   local platform = (ci.jobs as {string: {string: any}}).platform
-  local seen: {string: boolean} = {}
-  local at: {string: integer} = {}
+  local seen: mut {string: boolean} = {}
+  local at: mut {string: integer} = {}
   for i, step in ipairs(platform.steps as {{string: any}}) do
     local run = step.run as string or ""
     local phase = run:match("^cosmic%-driver cosmic_ci/driver%.tl platform ([%w-]+)")
@@ -3283,7 +3283,7 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
     local with = step.with as {string: string}
     local upload = with ~= nil and with.name == "portable-product-${{ matrix.name }}"
     if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
-      local key = upload and "upload" or phase
+      local key = if upload then "upload" else phase end
       assert(step["if"] == FULL, key .. " runs on another condition than a full run's: " ..
           tostring(step["if"]))
       assert(not assert(Json.encode(step)):find("PORTABLE_SUITE", 1, true), key .. " turns on the portable suite's switch")
@@ -3426,9 +3426,9 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local text = assert(Fs.read("ci/cosmic_ci/capabilities.json"))
   local loaded, why = CAPABILITIES:decode_into(text)
   assert(loaded ~= nil, why)
-  local promised: {string: boolean} = {}
+  local promised: mut {string: boolean} = {}
   for name in pairs(loaded.legs) do promised[name] = true end
-  local ran: {string: boolean} = {}
+  local ran: mut {string: boolean} = {}
   for _, scope in ipairs({ "light", "full" }) do
     for name in pairs(platform_legs(scope)) do ran[name] = true end
   end

@@ -65,7 +65,7 @@ function symbol_index.new(): symbol_index.Index
 end
 
 --- Adds `row` to the list `map` keeps under `key`.
-local function put(map: {string: {symbol_index.Row}}, key: string, row: symbol_index.Row)
+local function put(map: mut {string: {symbol_index.Row}}, key: string, row: symbol_index.Row)
   local list = map[key]
   if list == nil then
     list = {}
@@ -81,7 +81,7 @@ local function before(a: symbol_index.Row, b: symbol_index.Row): boolean
 end
 
 --- Keeps `row` under `key` in `map` unless a row read before it is there.
-local function keep_first(map: {string: symbol_index.Row}, key: string, row: symbol_index.Row)
+local function keep_first(map: mut {string: symbol_index.Row}, key: string, row: symbol_index.Row)
   local held = map[key]
   if held == nil or before(row, held) then map[key] = row end
 end
@@ -156,8 +156,8 @@ end
 
 --- The rows of `lists`, in order, each module and symbol once.
 local function once_each(lists: {{symbol_index.Row}}): {symbol_index.Row}
-  local out: {symbol_index.Row} = {}
-  local seen: {string: boolean} = {}
+  local out: mut {symbol_index.Row} = {}
+  local seen: mut {string: boolean} = {}
   for _, list in ipairs(lists) do
     for _, row in ipairs(list) do
       local full = row.module .. "\n" .. row.symbol
@@ -172,7 +172,7 @@ end
 
 --- `rows` as the symbols a link names.
 local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
-  local out: {link_resolve.Symbol} = {}
+  local out: mut {link_resolve.Symbol} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = row.module, symbol = row.symbol, file = row.file }
   end
@@ -184,11 +184,11 @@ end
 --- database that declares any, in its order.
 local function members_under(index: symbol_index.Index, target: symbol_index.Row): {symbol_index.Row}
   local rows = index.under[target.module .. "\n" .. target.source_symbol] or {}
-  local first: integer | nil = nil
+  local first: integer? = nil
   for _, row in ipairs(rows) do
     if first == nil or row.database < first then first = row.database end
   end
-  local out: {symbol_index.Row} = {}
+  local out: mut {symbol_index.Row} = {}
   for _, row in ipairs(rows) do
     if row.database == first then out[#out + 1] = row end
   end
@@ -200,16 +200,16 @@ end
 --- through them.
 local function source_of(index: symbol_index.Index): alias_members.Source<symbol_index.Row>
   return {
-    declared = function(module: string, name: string): symbol_index.Row | nil, string
+    declared = function(module: string, name: string): symbol_index.Row?, string
       return index.types[module .. "\n" .. name]
     end,
-    exported = function(module: string, name: string): symbol_index.Row | nil, string
+    exported = function(module: string, name: string): symbol_index.Row?, string
       return index.exported[module .. "\n" .. name]
     end,
-    bound = function(module: string, name: string): string | nil, string
+    bound = function(module: string, name: string): string?, string
       return index.bound[module .. "\n" .. name]
     end,
-    under = function(target: symbol_index.Row): {symbol_index.Row} | nil, string
+    under = function(target: symbol_index.Row): {symbol_index.Row}?, string
       return members_under(index, target)
     end,
     as_member = function(owner: symbol_index.Row, member: symbol_index.Row,
@@ -275,7 +275,7 @@ function symbol_index.named(index: symbol_index.Index, query: string): {link_res
   if #once_each(lists) == 0 and index.modules[query] and index.first[query] ~= nil then
     lists[#lists + 1] = { index.first[query] }
   end
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   local at = 1
   while true do
     local dot = query:find(".", at, true)

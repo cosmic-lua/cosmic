@@ -155,8 +155,8 @@ local function escaped(text: string): string
 end
 
 --- The lines of one list of a checker answer.
-local function add_list(out: {verdicts.Line}, file: string, list_name: string,
-                        list: {compiler.Error} | nil, only: string | nil)
+local function add_list(out: mut {verdicts.Line}, file: string, list_name: string,
+                        list: {compiler.Error}?, only: string?)
   -- A source that did not parse comes back without the lists the checker
   -- never reached.
   for _, e in ipairs(list or {}) do
@@ -172,14 +172,14 @@ end
 
 --- The lines of one checker answer.
 local function collect(out: {verdicts.Line}, file: string, result: compiler.Result,
-                       only: string | nil)
+                       only: string?)
   add_list(out, file, "syntax", result.syntax_errors, only)
   add_list(out, file, "type", result.type_errors, only)
   add_list(out, file, "warning", result.warnings, only)
 end
 
 --- A raise of the checker, as a line.
-local function raised(out: {verdicts.Line}, file: string, why: any)
+local function raised(out: mut {verdicts.Line}, file: string, why: any)
   local message = tostring(why):gsub("0x%x+", "0xADDR")
   out[#out + 1] = { file = file, code = "raised", y = 0, x = 0, message = message }
 end
@@ -206,7 +206,7 @@ end
 --- Points `built` at the modules under `root` and the binary's own
 --- `cosmic.*` modules ([`build.teal`]'s `standard_text`), and nothing else.
 local function serving(built: compiler, root: string)
-  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  built.search_module = function(name: string, _search_all: boolean): string?, compiler.Handle?
     for _, relative in ipairs(candidates(name)) do
       local text, _ = Fs.read(root .. "/" .. relative)
       if text ~= nil then
@@ -222,7 +222,7 @@ local function serving(built: compiler, root: string)
 end
 
 --- The name a file is required by, nil for one nothing requires.
-local function module_name(relative: string): string | nil
+local function module_name(relative: string): string?
   if relative:find("%.d%.tl$") ~= nil then
     return nil
   end
@@ -231,7 +231,7 @@ local function module_name(relative: string): string | nil
 end
 
 function verdicts.tree_order(root: string, names: {string}): {string}
-  local by_module: {string:string} = {}
+  local by_module: mut {string:string} = {}
   for _, relative in ipairs(names) do
     local name = module_name(relative)
     if name ~= nil then
@@ -304,12 +304,12 @@ local function before(a: verdicts.Line, b: verdicts.Line): boolean
 end
 
 function verdicts.render(lines: {verdicts.Line}): string
-  local sorted: {verdicts.Line} = {}
+  local sorted: mut {verdicts.Line} = {}
   for i, line in ipairs(lines) do
     sorted[i] = line
   end
   table.sort(sorted, before)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, line in ipairs(sorted) do
     out[i] = table.concat({ escaped(line.file), line.code, tostring(line.y), tostring(line.x),
       escaped(line.message) }, "\t") .. "\n"
@@ -318,14 +318,14 @@ function verdicts.render(lines: {verdicts.Line}): string
 end
 
 function verdicts.tree_names(root: string, skip: {string}): {string}
-  local skipped: {string:boolean} = { o = true, ci = true }
+  local skipped: mut {string:boolean} = { o = true, ci = true }
   for _, name in ipairs(skip) do
     skipped[name] = true
   end
   local found = assert(Fs.walk(root, function(_path: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or skipped[name] == true)
   end))
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, relative in ipairs(found) do
     if relative:find("%.tl$") ~= nil and relative:find("%.d%.tl$") == nil then
       names[#names + 1] = relative
@@ -340,7 +340,7 @@ local function files_of(path: string): {string}
   local directory, _ = Fs.is_dir(path)
   if directory == true then
     local found = assert(Fs.walk(path))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, relative in ipairs(found) do
       out[#out + 1] = (path:gsub("/+$", "")) .. "/" .. relative
     end
@@ -378,10 +378,10 @@ function verdicts.main(argv: {string}): integer
     return dump(argv)
   end
   local built = assert(teal.load(true))
-  local lines: {verdicts.Line} = {}
+  local lines: mut {verdicts.Line} = {}
   if command == "tree" then
     local root = "."
-    local skip: {string} = {}
+    local skip: mut {string} = {}
     local fresh = false
     local stride = 1
     local i = 2
@@ -405,7 +405,7 @@ function verdicts.main(argv: {string}): integer
       end
       i = i + 2
     end
-    local names: {string} = {}
+    local names: mut {string} = {}
     for n, name in ipairs(verdicts.tree_names(root, skip)) do
       if (n - 1) % stride == 0 then
         names[#names + 1] = name

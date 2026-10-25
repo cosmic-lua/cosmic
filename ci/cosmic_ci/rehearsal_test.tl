@@ -50,7 +50,7 @@ local function test_the_failures_of_a_run_are_named_once_each_by_test_or_file()
 end
 
 local function test_a_failure_the_list_lacks_and_an_entry_that_did_not_fail_are_both_told()
-  local allowed: {string: string} = {
+  local allowed: mut {string: string} = {
     ["build/x_test.tl test_a"] = "a", ["cosmic/removed_example.tl method_in_record"] = "b", ["core/boot.c:report"] = "c",
     ["cosmic/json.tl code"] = "d",
   }

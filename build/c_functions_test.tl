@@ -72,7 +72,7 @@ end
 
 --- A file of `count` blank lines with `at` set.
 local function source(count: integer, at: {integer: string}): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i = 1, count do lines[i] = at[i] or "" end
   return lines
 end

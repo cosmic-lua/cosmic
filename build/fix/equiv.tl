@@ -100,8 +100,8 @@ local function keys_of(a: {any:any}, b: {any:any}): {any}
     end
     return not (coordinate[k] and math.type(a[k]) == "integer" and math.type(b[k]) == "integer")
   end
-  local seen: {any:boolean} = {}
-  local out: {any} = {}
+  local seen: mut {any:boolean} = {}
+  local out: mut {any} = {}
   for k in pairs(a) do
     if compared(k) then
       seen[k] = true
@@ -159,7 +159,7 @@ end
 --- @param tokens {compiler.Token}
 --- @return {string}
 local function comments(tokens: {compiler.Token}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, t in ipairs(tokens) do
     local carried = t.comments
     if carried ~= nil then

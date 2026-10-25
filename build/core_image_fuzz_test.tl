@@ -53,7 +53,7 @@ end
 --- An ELF file's header, first program header and first four section
 --- headers' fields, as {1-based offset, width}.
 local function elf_fields(bytes: string): {{integer}}
-  local fields: {{integer}} = { { 33, 8 }, { 41, 8 }, { 55, 2 }, { 57, 2 }, { 59, 2 },
+  local fields: mut {{integer}} = { { 33, 8 }, { 41, 8 }, { 55, 2 }, { 57, 2 }, { 59, 2 },
     { 61, 2 }, { 63, 2 }, { 73, 8 }, { 97, 8 } }
   local shoff = #bytes >= 48 and (string.unpack("<i8", bytes, 41)) or 0
   for index = 0, 3 do
@@ -125,7 +125,7 @@ end
 --- entry size, and the first entries' offsets and lengths.
 local function manifest_fields(bytes: string): {{integer}}
   local at = #bytes - 4096 + 1
-  local fields: {{integer}} = { { at + 16, 8 }, { at + 24, 4 }, { at + 28, 4 } }
+  local fields: mut {{integer}} = { { at + 16, 8 }, { at + 24, 4 }, { at + 28, 4 } }
   for entry = 0, 1 do
     fields[#fields + 1] = { at + 32 + entry * 56 + 8, 8 }
     fields[#fields + 1] = { at + 32 + entry * 56 + 16, 8 }

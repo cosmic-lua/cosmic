@@ -75,22 +75,22 @@ end
 --- they come in, spread every module's tests across them, and differ
 --- in size by one at most.
 local function test_the_shares_deal_each_test_once()
-  local ids: {string} = {}
+  local ids: mut {string} = {}
   for module = 1, 5 do
     for name = 1, module * 3 do
       ids[#ids + 1] = string.format("m%d test_%02d", module, name)
     end
   end
-  local reversed: {string} = {}
+  local reversed: mut {string} = {}
   for i = #ids, 1, -1 do reversed[#reversed + 1] = ids[i] end
   for count = 1, 4 do
-    local held: {string:integer} = {}
-    local sizes: {integer} = {}
+    local held: mut {string:integer} = {}
+    local sizes: mut {integer} = {}
     for index = 1, count do
       local dealt = test.dealt(ids, { index = index, count = count })
       local again = test.dealt(reversed, { index = index, count = count })
       local size = 0
-      local modules: {string:boolean} = {}
+      local modules: mut {string:boolean} = {}
       for id in pairs(dealt) do
         assert(again[id], id .. " is dealt by the order the ids came in")
         held[id] = (held[id] or 0) + 1
@@ -159,7 +159,7 @@ local function test_a_refused_name_is_shown_the_nearest_names_first()
     "test_row" })
   assert(table.concat(near, " ") == "test_rows_escaped test_row test_a test_b",
     table.concat(near, " "))
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 12 do many[i] = string.format("test_%02d", i) end
   near = test.nearest("test_12x", many)
   assert(#near == 10 and near[1] == "test_12" and near[2] == "test_10", near[2])
@@ -212,14 +212,14 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     "cosmic.sqlite", "cosmic.sys", "build.test", "build.test_state" }
   -- Each module's bytecode names what it requires, as a require by
   -- value leaves the name among its constants ([`test_key.value_imports`]).
-  local named_in: {string:string} = {}
+  local named_in: mut {string:string} = {}
   for _, row in ipairs(imports) do
     named_in[row[1]] = (named_in[row[1]] or "") .. " " .. row[2]
   end
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
-      { text = name == "cmd.cosmic.main" and "main" or "module" },
+      { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) }, { blob = bytecode .. (named_in[name] or "") } }))
   end
   for _, list in ipairs({ worker.loads, key_code, others }) do
@@ -227,7 +227,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   -- A digest to each module the harness holds, and none else.
   local function each_named(modules: {string:string}, names: {string})
-    local named: {string:boolean} = {}
+    local named: mut {string:boolean} = {}
     for _, name in ipairs(names) do
       named[name] = true
       assert(modules[name] ~= nil, name .. " has no digest of its own")
@@ -248,8 +248,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
         moved = true
       end
     end
-    return (moved and "harness" or "") ..
-      (edited.store_salt ~= before.store_salt and "store" or "")
+    return (if moved then "harness" else "" end) ..
+      (if edited.store_salt ~= before.store_salt then "store" else "" end)
   end
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
@@ -294,12 +294,12 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   assert(moves("build.writer", "return 'a key'\n", "other bytecode") == "")
   assert(moves("build.test_report", "return 'a key'\n", "other bytecode") == "")
   -- The harness's modules are named, and those it runs apart.
-  local named: {string:boolean} = {}
+  local named: mut {string:boolean} = {}
   for _, name in ipairs(before.names) do named[name] = true end
   assert(named["build.caches"] and named["build.zig_caches"] and named["build.test_key"] and
       named["build.test"] == nil and named["build.test_state"] == nil and
       not named["build.harness_epoch"] and not named["build.test_report"])
-  local runs: {string:boolean} = {}
+  local runs: mut {string:boolean} = {}
   for _, name in ipairs(before.runs) do runs[name] = true end
   assert(runs["build.test_sandbox"] and runs["build.test_policy"] and runs["build.test_worker"] and
       not runs["build.test_key"])
@@ -334,7 +334,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   local function add(name: string)
     local source = sources[name] or "return 1\n"
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, ?)", { { text = name },
-      { text = name == "cmd.cosmic.main" and "main" or "module" },
+      { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) },
       { blob = string.dump(assert(load(source)), true) } }))
   end
@@ -355,7 +355,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   end
   local found = assert(test_key.harness(db))
   db:close()
-  local named: {string:boolean} = {}
+  local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   assert(named["build.artifact"] and named["cosmic.sqlite"] and named["cosmic.child"])
   assert(not named["cosmic.stream"] and not named["cosmic.time"])

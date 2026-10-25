@@ -35,7 +35,7 @@ end
 local function pieces_of(pieces: {string}): Stream.Reader
   local at = { value = 0 }
   return {
-    read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, _max?: integer): string?, string
       at.value = at.value + 1
       return pieces[at.value], ""
     end,
@@ -130,7 +130,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
       local sent = { value = false }
       return Web.stream({
-        read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+        read = function(_self: Stream.Reader, _max?: integer): string?, string
           if not sent.value then
             sent.value = true
             return "data: hello\n\n", ""
@@ -142,7 +142,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
         close = function(_self: Stream.Reader): boolean, string return true, "" end,
       }, "text/event-stream")
     end) },
-    lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+    lifespan = function(_app: Web.App): Web.Shutdown?, string
       events[#events + 1] = "lifespan start"
       return function() events[#events + 1] = "lifespan stop" end, ""
     end,
@@ -177,7 +177,7 @@ end
 
 local function test_a_lifespan_that_fails_stops_serve_before_it_listens()
   local listened = { value = false }
-  local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+  local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown?, string
     return nil, "no database"
   end }
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) },
@@ -226,7 +226,7 @@ end
 local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
   local app = Web.app{ routes = { Web.get("/forever", function(_req: Web.Request): Web.Response
     return Web.stream({
-      read = function(_self: Stream.Reader, _max?: integer): string | nil, string
+      read = function(_self: Stream.Reader, _max?: integer): string?, string
         assert(Poll.delay(Clock.ms(5)))
         return "x", ""
       end,

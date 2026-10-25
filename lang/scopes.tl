@@ -265,7 +265,7 @@ local record Unknown
   what: string
   --- The nearest name there is, and the place of its declaration, "" where it is a declared global.
   guess: string
-  guess_at: Scopes.Place | nil
+  guess_at: Scopes.Place?
 end
 
 -- A type name that no declaration holds yet, waiting for the scope it is in to end.
@@ -277,55 +277,55 @@ local record Pending
 end
 
 local record State
-  tokens: Lexer.Tokens
-  filename: string
-  declared: {string: Scopes.Global}
+  mut tokens: Lexer.Tokens
+  mut filename: string
+  mut declared: {string: Scopes.Global}
   --- For each name, its bindings in scope, the innermost last.
-  visible: {string: {Scopes.Var}}
+  mut visible: mut {string: {Scopes.Var}}
   --- The names declared in the open scopes, innermost last; `marks` holds how
   --- many there were when each scope opened and `ends` the token it ends at.
-  names: {string}
-  marks: {integer}
-  ends: {integer}
-  frames: {Frame}
+  mut names: mut {string}
+  mut marks: mut {integer}
+  mut ends: mut {integer}
+  mut frames: mut {Frame}
   --- The loop a loop is inside and how deep it is, by the id of its node.
-  loop_parent: {integer: integer}
-  loop_level: {integer: integer}
-  vars: {integer: Scopes.Var}
-  list: {Scopes.Var}
-  resolved: {integer: integer}
-  globals: {string: {integer}}
-  global_writes: {string: {integer}}
-  errors: {Scopes.Error}
-  unknown: {Unknown}
+  mut loop_parent: mut {integer: integer}
+  mut loop_level: mut {integer: integer}
+  mut vars: mut {integer: Scopes.Var}
+  mut list: mut {Scopes.Var}
+  mut resolved: mut {integer: integer}
+  mut globals: {string: {integer}}
+  mut global_writes: {string: {integer}}
+  mut errors: mut {Scopes.Error}
+  mut unknown: mut {Unknown}
   --- How many nearest-name searches have been made; they stop at `GUESSES`.
-  guessed: integer
+  mut guessed: integer
   --- The names of the parameters a narrowing return may name, with the id of the binding, 0 for a function type's.
-  params: {string: integer} | nil
+  mut params: {string: integer}?
   --- Where the assignment being walked ends.
-  assign_end: integer
+  mut assign_end: integer
   --- When each variable was assigned: the token its statement ends at, and the loop.
-  write_end: {Scopes.Var: {integer}}
-  write_loop: {Scopes.Var: {integer}}
+  mut write_end: mut {Scopes.Var: {integer}}
+  mut write_loop: mut {Scopes.Var: {integer}}
   --- The variables with a capture, to settle at the end.
-  captured: {Scopes.Var}
+  mut captured: mut {Scopes.Var}
   --- Where each function ends, and the loop of the function around it that it is made inside.
-  made: {integer: integer}
-  entry_of: {integer: integer}
+  mut made: mut {integer: integer}
+  mut entry_of: mut {integer: integer}
   --- The nodes of an expression whose left side is being walked down.
-  spine: {Ast.Exp}
-  top: integer
+  mut spine: {Ast.Exp}
+  mut top: integer
   --- The sorted names of the declared globals, when a search wants them.
-  global_names: {string} | nil
+  mut global_names: {string}?
   --- The `local function` whose type parameters and parameters are being declared: they do not shadow its name.
-  own: Scopes.Var | nil
+  mut own: Scopes.Var?
   --- The deepest scope a type name may wait in: a function's signature waits outside the function.
-  floor: integer
+  mut floor: integer
   --- Whether a type name met now may be declared later in an enclosing scope: it is inside a
   --- function's signature, a type declaration or a function type.
-  defer: boolean
+  mut defer: boolean
   --- The type names met so far that no declaration holds, to look for in the scope that ends.
-  pending: {Pending}
+  mut pending: mut {Pending}
 end
 
 -- The most nearest-name searches a run makes: a run of many unknown names does not cost a scan of the scope for each.
@@ -432,7 +432,7 @@ local function leave_loop(id: integer)
   frame().loop = S.loop_parent[id]
 end
 
-local function lookup(name: string): Scopes.Var | nil
+local function lookup(name: string): Scopes.Var?
   local stack = S.visible[name]
   if stack == nil then
     return nil
@@ -448,16 +448,16 @@ local function distance(a: string, b: string, limit: integer): integer
   if la - lb > limit or lb - la > limit then
     return limit + 1
   end
-  local previous: {integer} = {}
+  local previous: mut {integer} = {}
   for j = 0, lb do
     previous[j] = j
   end
   for i = 1, la do
-    local row: {integer} = { [0] = i }
+    local row: mut {integer} = { [0] = i }
     local least = i
     local ca = a:byte(i)
     for j = 1, lb do
-      local cost = ca == b:byte(j) and 0 or 1
+      local cost = if ca == b:byte(j) then 0 else 1 end
       local best = previous[j - 1] + cost
       local up = previous[j] + 1
       if up < best then best = up end
@@ -511,7 +511,7 @@ local function global_names(): {string}
   if held ~= nil then
     return held
   end
-  local made: {string} = {}
+  local made: mut {string} = {}
   for each in pairs(S.declared) do
     made[#made + 1] = each
   end
@@ -526,15 +526,15 @@ end
 -- The name nearest to `name` among those in scope, the declared globals and, for a type, the
 -- primitives, with the place it is declared (nil for a global or a primitive); "" where
 -- none is near.
-local function nearest(name: string, types: boolean): string, Scopes.Place | nil
+local function nearest(name: string, types: boolean): string, Scopes.Place?
   if S.guessed >= GUESSES then
     return "", nil
   end
   S.guessed = S.guessed + 1
   local limit = allowed(name)
   local best, best_distance = "", limit + 1
-  local best_at: Scopes.Place | nil = nil
-  local seen: {string: boolean} = {}
+  local best_at: Scopes.Place? = nil
+  local seen: mut {string: boolean} = {}
   for i = #S.names, 1, -1 do
     local other = S.names[i]
     if not seen[other] then
@@ -584,15 +584,15 @@ local TYPE_KINDS <const>: {Scopes.Kind: boolean} = {
 -- `word` with its indefinite article.
 local function with_article(word: string): string
   local first = word:sub(1, 1)
-  return (first == "a" or first == "e" or first == "i" or first == "o") and "an " .. word or "a " .. word
+  return if (first == "a" or first == "e" or first == "i" or first == "o") then "an " .. word else "a " .. word end
 end
 
 -- The error for a declaration of `name` that hides `prior`, or a declared global where there is none.
-local function shadowed(token: integer, name: string, kind: Scopes.Kind, prior: Scopes.Var | nil)
+local function shadowed(token: integer, name: string, kind: Scopes.Kind, prior: Scopes.Var?)
   local word = KIND_WORDS[kind]
   if prior == nil then
     local declared = S.declared[name]
-    local what = declared ~= nil and declared.space == "type" and "type" or "global"
+    local what = if declared ~= nil and declared.space == "type" then "type" else "global" end
     report("shadows", token, word .. " " .. quoted(name) .. " shadows the " .. what .. " " .. quoted(name),
       "rename it: it would hide the declared " .. what .. " " .. quoted(name) .. " for the rest of its scope. " ..
         "To keep the " .. what .. " under its name in a local, write `local " .. name .. " = " .. name .. "`")
@@ -626,7 +626,7 @@ end
 -- the end of the open scope. `check` is whether it can shadow, `copy` the name it
 -- copies in `local x = x`.
 local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, check: boolean,
-                       copy: Ast.Name | nil, is_global: boolean): Scopes.Var
+                       copy: Ast.Name?, is_global: boolean): Scopes.Var
   local name = binding.name
   local token = binding.first
   local f = frame()
@@ -683,7 +683,7 @@ end
 
 -- Uses ------------------------------------------------------------------------
 
-local function add_global(table_of: {string: {integer}}, name: string, id: integer)
+local function add_global(table_of: mut {string: {integer}}, name: string, id: integer)
   local held = table_of[name]
   if held == nil then
     held = {}
@@ -704,7 +704,7 @@ local function use_name(n: Ast.Name, write: boolean)
     if declared == nil then
       local guess, at = nearest(name, false)
       S.unknown[#S.unknown + 1] = {
-        token = token, name = name, what = write and "assigned" or "variable", guess = guess, guess_at = at,
+        token = token, name = name, what = if write then "assigned" else "variable" end, guess = guess, guess_at = at,
       }
     elseif declared.space == "type" then
       report("not_a_value", token, quoted(name) .. " is a type declared by a declaration file and has no value",
@@ -880,7 +880,7 @@ local function narrows(n: Ast.Narrows)
   if bound == nil then
     report("unknown_parameter", n.first, "the narrowing return names " .. quoted(n.param) ..
         ", which is no parameter of this function",
-      "write the name of a parameter before `is`: `" .. (n.asserts and "asserts " or "") .. "v is T` for a parameter `v`")
+      "write the name of a parameter before `is`: `" .. (if n.asserts then "asserts " else "" end) .. "v is T` for a parameter `v`")
     return
   end
   if bound > 0 then
@@ -889,7 +889,7 @@ local function narrows(n: Ast.Narrows)
   ty(n.type)
 end
 
-local function walk_rets(r: Ast.Rets | nil, params: {string: integer})
+local function walk_rets(r: Ast.Rets?, params: {string: integer})
   if r == nil then
     return
   end
@@ -900,7 +900,7 @@ local function walk_rets(r: Ast.Rets | nil, params: {string: integer})
     local list = lists[i]
     for j = 1, #list do
       local item = list[j]
-      if item is Ast.Narrows then
+      if (item.kind == "Narrows") then
         narrows(item)
       else
         ty(item)
@@ -925,26 +925,26 @@ end
 
 ty = function(t: Ast.Type)
   local kind = base_of(t).kind
-  if kind == "TypeName" and t is Ast.TypeName then
+  if kind == "TypeName" and (t.kind == "TypeName") then
     use_type(t)
     walk_types(t.args)
-  elseif kind == "TypeArray" and t is Ast.TypeArray then
+  elseif kind == "TypeArray" and (t.kind == "TypeArray") then
     ty(t.element)
-  elseif kind == "TypeMap" and t is Ast.TypeMap then
+  elseif kind == "TypeMap" and (t.kind == "TypeMap") then
     ty(t.key)
     ty(t.value)
-  elseif kind == "TypeUnion" and t is Ast.TypeUnion then
+  elseif kind == "TypeUnion" and (t.kind == "TypeUnion") then
     walk_types(t.members)
-  elseif kind == "TypeOptional" and t is Ast.TypeOptional then
+  elseif kind == "TypeOptional" and (t.kind == "TypeOptional") then
     ty(t.inner)
-  elseif kind == "TypeMut" and t is Ast.TypeMut then
+  elseif kind == "TypeMut" and (t.kind == "TypeMut") then
     ty(t.inner)
-  elseif kind == "TypeFunction" and t is Ast.TypeFunction then
+  elseif kind == "TypeFunction" and (t.kind == "TypeFunction") then
     local deferring = S.defer
     S.defer = true
     open(t.last)
     walk_typeparams(t.typeparams)
-    local named: {string: integer} = {}
+    local named: mut {string: integer} = {}
     for _, p in ipairs(t.params) do
       ty(p.type)
       local name = p.name
@@ -961,8 +961,8 @@ end
 -- Walks a function: its parameters, return list and body. `typeparams` are declared by the
 -- construct that holds it, in a scope around `id`'s. `implicit` is the function statement
 -- whose refused colon form gives it a `self`.
-local function walk_function(id: integer, last: integer, params: {Ast.Param}, rets: Ast.Rets | nil,
-                             body: Ast.Block, implicit: Ast.Function | nil)
+local function walk_function(id: integer, last: integer, params: {Ast.Param}, rets: Ast.Rets?,
+                             body: Ast.Block, implicit: Ast.Function?)
   push_frame(id, last)
   open(last)
   local deferring = S.defer
@@ -970,7 +970,7 @@ local function walk_function(id: integer, last: integer, params: {Ast.Param}, re
   -- The names of the signature are looked for outside the function, not among its parameters and locals.
   local floor = S.floor
   S.floor = #S.marks - 1
-  local named: {string: integer} = {}
+  local named: mut {string: integer} = {}
   for _, p in ipairs(params) do
     local t = p.type
     if t ~= nil then
@@ -1009,7 +1009,7 @@ local function walk_block(b: Ast.Block)
   close()
 end
 
-local function walk_fn(fn: Ast.Fn, typeparams: {Ast.TypeParam}, implicit: Ast.Function | nil)
+local function walk_fn(fn: Ast.Fn, typeparams: {Ast.TypeParam}, implicit: Ast.Function?)
   -- Type parameters are visible in the signature and the body.
   open(fn.last)
   -- A constraint may name a type declared later, as the types of the signature may.
@@ -1025,11 +1025,11 @@ local function walk_items(items: {Ast.Item})
   for i = 1, #items do
     local item = items[i]
     local kind = base_of(item).kind
-    if kind == "Positional" and item is Ast.Positional then
+    if kind == "Positional" and (item.kind == "Positional") then
       exp(item.value)
-    elseif kind == "Named" and item is Ast.Named then
+    elseif kind == "Named" and (item.kind == "Named") then
       exp(item.value)
-    elseif kind == "Keyed" and item is Ast.Keyed then
+    elseif kind == "Keyed" and (item.kind == "Keyed") then
       exp(item.key)
       exp(item.value)
     end
@@ -1045,17 +1045,17 @@ end
 -- The expression `e` when it is not one of the kinds that has a left side the walk goes down.
 local function leaf(e: Ast.Exp)
   local kind = base_of(e).kind
-  if kind == "Name" and e is Ast.Name then
+  if kind == "Name" and (e.kind == "Name") then
     use_name(e, false)
-  elseif kind == "Paren" and e is Ast.Paren then
+  elseif kind == "Paren" and (e.kind == "Paren") then
     exp(e.inner)
-  elseif kind == "FunctionLit" and e is Ast.FunctionLit then
+  elseif kind == "FunctionLit" and (e.kind == "FunctionLit") then
     walk_fn(e.fn, {}, nil)
-  elseif kind == "Table" and e is Ast.Table then
+  elseif kind == "Table" and (e.kind == "Table") then
     walk_items(e.items)
-  elseif kind == "Unary" and e is Ast.Unary then
+  elseif kind == "Unary" and (e.kind == "Unary") then
     exp(e.operand)
-  elseif kind == "IfExp" and e is Ast.IfExp then
+  elseif kind == "IfExp" and (e.kind == "IfExp") then
     for _, arm in ipairs(e.arms) do
       exp(arm.cond)
       exp(arm.value)
@@ -1067,15 +1067,15 @@ end
 -- The rest of an expression whose left side has been walked.
 local function finish(e: Ast.Exp)
   local kind = base_of(e).kind
-  if kind == "Binary" and e is Ast.Binary then
+  if kind == "Binary" and (e.kind == "Binary") then
     exp(e.right)
-  elseif kind == "Call" and e is Ast.Call then
+  elseif kind == "Call" and (e.kind == "Call") then
     walk_exps(e.args)
-  elseif kind == "MethodCall" and e is Ast.MethodCall then
+  elseif kind == "MethodCall" and (e.kind == "MethodCall") then
     walk_exps(e.args)
-  elseif kind == "Index" and e is Ast.Index then
+  elseif kind == "Index" and (e.kind == "Index") then
     exp(e.key)
-  elseif (kind == "IsTest" and e is Ast.IsTest) or (kind == "Cast" and e is Ast.Cast) then
+  elseif (kind == "IsTest" and (e.kind == "IsTest")) or (kind == "Cast" and (e.kind == "Cast")) then
     ty(e.type)
   end
 end
@@ -1088,19 +1088,19 @@ exp = function(e: Ast.Exp)
   while true do
     local kind = base_of(cur).kind
     local nxt: Ast.Exp = nil
-    if kind == "Binary" and cur is Ast.Binary then
+    if kind == "Binary" and (cur.kind == "Binary") then
       nxt = cur.left
-    elseif kind == "Call" and cur is Ast.Call then
+    elseif kind == "Call" and (cur.kind == "Call") then
       nxt = cur.callee
-    elseif kind == "Field" and cur is Ast.Field then
+    elseif kind == "Field" and (cur.kind == "Field") then
       nxt = cur.object
-    elseif kind == "Index" and cur is Ast.Index then
+    elseif kind == "Index" and (cur.kind == "Index") then
       nxt = cur.object
-    elseif kind == "MethodCall" and cur is Ast.MethodCall then
+    elseif kind == "MethodCall" and (cur.kind == "MethodCall") then
       nxt = cur.object
-    elseif kind == "IsTest" and cur is Ast.IsTest then
+    elseif kind == "IsTest" and (cur.kind == "IsTest") then
       nxt = cur.value
-    elseif kind == "Cast" and cur is Ast.Cast then
+    elseif kind == "Cast" and (cur.kind == "Cast") then
       nxt = cur.value
     end
     if nxt == nil then
@@ -1121,13 +1121,13 @@ exp = function(e: Ast.Exp)
 end
 
 -- The `require("module")` a call is, with `require` not shadowed: the module, else "".
-local function required(e: Ast.Exp | nil): string
-  if e ~= nil and e is Ast.Call then
+local function required(e: Ast.Exp?): string
+  if e ~= nil and (e.kind == "Call") then
     local callee = e.callee
     local args = e.args
-    if callee is Ast.Name and callee.text == "require" and callee.binding == nil and #args == 1 then
+    if (callee.kind == "Name") and callee.text == "require" and callee.binding == nil and #args == 1 then
       local first = args[1]
-      if first is Ast.String then
+      if (first.kind == "String") then
         return first.value
       end
     end
@@ -1136,18 +1136,18 @@ local function required(e: Ast.Exp | nil): string
 end
 
 -- The text `a.b.c` of a name or a chain of fields on one, nil for any other expression.
-local function dotted(e: Ast.Exp | nil): string | nil, Ast.Name | nil
-  local parts: {string} = {}
+local function dotted(e: Ast.Exp?): string?, Ast.Name?
+  local parts: mut {string} = {}
   local head: Ast.Name = nil
   local cur = e
-  while cur ~= nil and cur is Ast.Field do
+  while cur ~= nil and (cur.kind == "Field") do
     parts[#parts + 1] = cur.name
     cur = cur.object
     if #parts > 8 then
       return nil
     end
   end
-  if cur ~= nil and cur is Ast.Name and #parts > 0 then
+  if cur ~= nil and (cur.kind == "Name") and #parts > 0 then
     head = cur
     parts[#parts + 1] = cur.text
     local n = #parts
@@ -1168,8 +1168,8 @@ local function stat_local(s: Ast.Local)
   for i = 1, #bindings do
     local b = bindings[i]
     local value = values[i]
-    local copy: Ast.Name | nil = nil
-    if value ~= nil and value is Ast.Name and value.text == b.name then
+    local copy: Ast.Name? = nil
+    if value ~= nil and (value.kind == "Name") and value.text == b.name then
       copy = value
     end
     local v = declare(b, "local", s.last + 1, true, copy, is_global)
@@ -1190,7 +1190,7 @@ local function stat_assign(s: Ast.Assign)
   local targets = s.targets
   for i = 1, #targets do
     local target = targets[i]
-    if target is Ast.Name then
+    if (target.kind == "Name") then
       -- Set here: a target before this one may hold a function with assignments of its own.
       S.assign_end = s.last
       use_name(target, true)
@@ -1207,35 +1207,35 @@ local KINDS <const>: {string: Scopes.Kind} = {
 typedecl = function(d: Ast.Node, nested: boolean)
   local kind = base_of(d).kind
   local name: Ast.Binding = nil
-  local scope: Ast.Scope | nil = nil
+  local scope: Ast.Scope? = nil
   local typeparams: {Ast.TypeParam} = {}
   local supers: {Ast.TypeName} = {}
-  local array: Ast.Type | nil = nil
+  local array: Ast.Type? = nil
   local members: {Ast.Member} = {}
-  local aliased: Ast.Type | nil = nil
-  if kind == "Record" and d is Ast.Record then
+  local aliased: Ast.Type? = nil
+  if kind == "Record" and (d.kind == "Record") then
     name, scope, typeparams, supers, array, members = d.name, d.scope, d.typeparams, d.supers, d.array, d.members
-  elseif kind == "Interface" and d is Ast.Interface then
+  elseif kind == "Interface" and (d.kind == "Interface") then
     name, scope, typeparams, supers, members = d.name, d.scope, d.typeparams, d.supers, d.members
-  elseif kind == "Class" and d is Ast.Class then
+  elseif kind == "Class" and (d.kind == "Class") then
     name, scope, typeparams, supers, members = d.name, d.scope, d.typeparams, d.supers, d.members
-  elseif kind == "Enum" and d is Ast.Enum then
+  elseif kind == "Enum" and (d.kind == "Enum") then
     name, scope = d.name, d.scope
-  elseif kind == "Alias" and d is Ast.TypeAlias then
+  elseif kind == "Alias" and (d.kind == "Alias") then
     name, scope, typeparams, aliased = d.name, d.scope, d.typeparams, d.type
-  elseif kind == "Import" and d is Ast.Import then
+  elseif kind == "Import" and (d.kind == "Import") then
     name, scope = d.name, d.scope
   else
     return
   end
   -- An alias does not see its own name, so that `type Node = Node` inside a record names the `Node`
   -- around it; the name is declared once its type is walked.
-  local v: Scopes.Var | nil = nil
+  local v: Scopes.Var? = nil
   if kind ~= "Alias" then
     v = declare(name, KINDS[kind], name.first, not nested, nil, scope == "global")
     v.nested = nested
   end
-  if kind == "Import" and d is Ast.Import and v ~= nil then
+  if kind == "Import" and (d.kind == "Import") and v ~= nil then
     v.module = d.module
   end
   if kind == "Enum" or kind == "Import" then
@@ -1255,9 +1255,9 @@ typedecl = function(d: Ast.Node, nested: boolean)
   for i = 1, #members do
     local m = members[i]
     local mkind = base_of(m).kind
-    if mkind == "FieldDecl" and m is Ast.FieldDecl then
+    if mkind == "FieldDecl" and (m.kind == "FieldDecl") then
       ty(m.type)
-    elseif mkind == "Method" and m is Ast.Method then
+    elseif mkind == "Method" and (m.kind == "Method") then
       walk_function(m.id, m.last, m.params, m.rets, m.body, nil)
     elseif KINDS[mkind] ~= nil then
       typedecl(m, true)
@@ -1298,7 +1298,7 @@ local function stat_match(s: Ast.Match)
   for _, arm in ipairs(s.arms) do
     open(arm.body.close)
     for _, p in ipairs(arm.pats) do
-      if p is Ast.PatBind then
+      if (p.kind == "PatBind") then
         declare(p.name, "pattern", p.name.first, true, nil, false)
       end
     end
@@ -1338,43 +1338,43 @@ end
 
 stat = function(s: Ast.Stat)
   local kind = base_of(s).kind
-  if kind == "Local" and s is Ast.Local then
+  if kind == "Local" and (s.kind == "Local") then
     stat_local(s)
-  elseif kind == "Assign" and s is Ast.Assign then
+  elseif kind == "Assign" and (s.kind == "Assign") then
     stat_assign(s)
-  elseif kind == "CallStat" and s is Ast.CallStat then
+  elseif kind == "CallStat" and (s.kind == "CallStat") then
     exp(s.call)
-  elseif kind == "LocalFunction" and s is Ast.LocalFunction then
+  elseif kind == "LocalFunction" and (s.kind == "LocalFunction") then
     local own = declare(s.name, "function", s.name.first, true, nil, false)
     own.fn = s.fn.id
     S.own = own
     walk_fn(s.fn, s.typeparams, nil)
     S.own = nil
-  elseif kind == "Function" and s is Ast.Function then
+  elseif kind == "Function" and (s.kind == "Function") then
     stat_function(s)
-  elseif kind == "Return" and s is Ast.Return then
+  elseif kind == "Return" and (s.kind == "Return") then
     walk_exps(s.values)
-  elseif kind == "Do" and s is Ast.Do then
+  elseif kind == "Do" and (s.kind == "Do") then
     walk_block(s.body)
-  elseif kind == "If" and s is Ast.If then
+  elseif kind == "If" and (s.kind == "If") then
     stat_if(s)
-  elseif kind == "While" and s is Ast.While then
+  elseif kind == "While" and (s.kind == "While") then
     enter_loop(s.id)
     exp(s.cond)
     walk_block(s.body)
     leave_loop(s.id)
-  elseif kind == "Repeat" and s is Ast.Repeat then
+  elseif kind == "Repeat" and (s.kind == "Repeat") then
     enter_loop(s.id)
     open(s.last)
     stats(s.body.stats)
     exp(s.cond)
     close()
     leave_loop(s.id)
-  elseif kind == "ForNum" and s is Ast.ForNum then
+  elseif kind == "ForNum" and (s.kind == "ForNum") then
     stat_for_num(s)
-  elseif kind == "ForIn" and s is Ast.ForIn then
+  elseif kind == "ForIn" and (s.kind == "ForIn") then
     stat_for_in(s)
-  elseif kind == "Match" and s is Ast.Match then
+  elseif kind == "Match" and (s.kind == "Match") then
     stat_match(s)
   elseif KINDS[kind] ~= nil then
     typedecl(s, false)
@@ -1402,7 +1402,7 @@ local function settle(v: Scopes.Var)
   -- The loops inside the scope of `v` that hold an assignment, and so any function made in one of them.
   local level, parent = S.loop_level, S.loop_parent
   local floor = level[v.loop] or 0
-  local holding: {integer: boolean} = {}
+  local holding: mut {integer: boolean} = {}
   for i = 1, #loops do
     local loop = loops[i]
     while loop ~= 0 and level[loop] > floor and not holding[loop] do
@@ -1429,7 +1429,7 @@ local function unknown_errors()
     return
   end
   -- The bindings by token, of the names that are unknown somewhere, to find the one declared after a use.
-  local by_name: {string: {Scopes.Var}} = {}
+  local by_name: mut {string: {Scopes.Var}} = {}
   for _, u in ipairs(S.unknown) do
     if u.what ~= "type" then
       by_name[u.name] = {}
@@ -1448,7 +1448,7 @@ local function unknown_errors()
   end
   for _, u in ipairs(S.unknown) do
     local name = u.name
-    local later: Scopes.Var | nil = nil
+    local later: Scopes.Var? = nil
     if u.what ~= "type" then
       -- The first declaration after the use, then the next few: one whose scope holds the use.
       local held = by_name[name] or {}
@@ -1472,12 +1472,12 @@ local function unknown_errors()
     local hint = ""
     if u.guess ~= "" then
       local at = u.guess_at
-      hint = "if you meant " .. quoted(u.guess) .. (at ~= nil and " (declared at " .. at.y .. ":" .. at.x .. ")" or
-        ", which is declared for every program") .. ", write that; otherwise "
+      hint = "if you meant " .. quoted(u.guess) .. (if at ~= nil then " (declared at " .. at.y .. ":" .. at.x .. ")" else
+        ", which is declared for every program" end) .. ", write that; otherwise "
     end
     local msg: string
     local fix: string
-    local other: Scopes.Place | nil = nil
+    local other: Scopes.Place? = nil
     local code: Scopes.Code = "unknown_variable"
     if u.what == "type" then
       code = "unknown_type"
@@ -1519,7 +1519,7 @@ function Scopes.build(chunk: Ast.Chunk, name: string, declared: {string: Scopes.
     settle(v)
   end
   unknown_errors()
-  local order: {Scopes.Error: integer} = {}
+  local order: mut {Scopes.Error: integer} = {}
   local errors = S.errors
   for i, e in ipairs(errors) do
     order[e] = i
@@ -1540,7 +1540,7 @@ end
 
 function Scopes.declared(chunk: Ast.Chunk): {string: Scopes.Global}
   local scoped = Scopes.build(chunk, "", {})
-  local out: {string: Scopes.Global} = {}
+  local out: mut {string: Scopes.Global} = {}
   for _, v in ipairs(scoped.list) do
     if v.exported then
       out[v.name] = { space = v.space, const = v.attr == "const" }
@@ -1550,7 +1550,7 @@ function Scopes.declared(chunk: Ast.Chunk): {string: Scopes.Global}
 end
 
 function Scopes.in_scope(scoped: Scopes.Scoped, at: integer): {string: Scopes.Var}
-  local out: {string: Scopes.Var} = {}
+  local out: mut {string: Scopes.Var} = {}
   for _, v in ipairs(scoped.list) do
     if v.from <= at and at <= v.to then
       local held = out[v.name]

@@ -13,9 +13,9 @@ local Grammar = require("build.compile_grammar")
 Test.policy{}
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local type IsColor = function(string): boolean
@@ -26,7 +26,7 @@ local where: {string} = {}
 
 --- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
 local function run(words: {string}): Ran
-  local argv: {string} = { "compile", "--root", where[1] or "" }
+  local argv: mut {string} = { "compile", "--root", where[1] or "" }
   local at = 4
   local named = false
   for _, word in ipairs(words) do named = named or word == "--grammar" end
@@ -62,7 +62,7 @@ end
 
 --- The module `name` of the files written to `dir`, run with a `require` that finds the others there.
 local function module_of_dir(dir: string, name: string): any
-  local env: {string: any} = {}
+  local env: mut {string: any} = {}
   local made: {string: any} = {}
   env["require"] = function(wanted: string): any
     if made[wanted] == nil then
@@ -82,7 +82,7 @@ local function test_a_type_error_is_reported_and_the_lua_is_written_line_for_lin
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("typed.tl:3:", 1, true) and ran.err:find("(not_assignable)", 1, true), ran.err)
   assert(ran.err:find("1 type error", 1, true) and ran.err:find("written anyway", 1, true), ran.err)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (ran.out .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
   assert(lines[1] == "local count = 1" and lines[3] == "local s = count" and lines[4] == "return s", ran.out)
   assert(value_of(ran.out) == 1)
@@ -205,7 +205,7 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
   local main = file(tmp, "main.tl",
     "local Box = require(\"pkg.lib\")\nlocal b: Box = { n = \"text\" }\nreturn b\n")
   for _, order in ipairs({ { lib, main }, { main, lib } }) do
-    local words: {string} = { "--errors", "-o", tmp .. "/out" }
+    local words: mut {string} = { "--errors", "-o", tmp .. "/out" }
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)

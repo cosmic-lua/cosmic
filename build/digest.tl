@@ -46,7 +46,7 @@ end
 
 --- An incremental SHA-256, whose digest equals `sha256` over the whole
 --- of what was fed to it; or nil and why when it cannot start.
-function digest.sha256_hasher(): digest.Hasher | nil, string
+function digest.sha256_hasher(): digest.Hasher?, string
   return hasher_of("sha256")
 end
 

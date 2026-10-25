@@ -146,7 +146,7 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
         tostring(stale_lines) .. " stale-rebuild lines, want 1")
     local settled_lines = count_occurrences(err,
       "the tool's database was built by other code than its own; building it again")
-    local want = settles and 1 or 0
+    local want = if settles then 1 else 0 end
     assert(settled_lines == want, name .. ": " .. stage .. ": built its " ..
         "database again " .. tostring(settled_lines) .. " times, want " ..
         tostring(want))

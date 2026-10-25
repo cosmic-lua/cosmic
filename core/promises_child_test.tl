@@ -150,7 +150,7 @@ local function test_no_socket_is_made_but_a_socketpair(tmp: string)
   local said = assert(Fs.read(tmp .. "/plain"))
   local own = assert(Fs.read("/proc/self/status")):match("\nSeccomp:%s*(%d+)") == "2"
   assert((said:find("not permitted", 1, true) ~= nil) == own,
-    (own and "the worker's own filter holds what it starts: " or "unfiltered: ") .. said)
+    (if own then "the worker's own filter holds what it starts: " else "unfiltered: " end) .. said)
 end
 
 --- Whether this process has CAP_SYS_RESOURCE in its permitted set, which
@@ -182,7 +182,7 @@ end
 
 --- How many seccomp filters `probe` reports when started with `sandbox`:
 --- nil when the start is refused.
-local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox): integer | nil
+local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox): integer?
   local path = tmp .. "/filters"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid = process.spawn(probe, { probe, "status-field Seccomp_filters" }, nil, nil, nil,

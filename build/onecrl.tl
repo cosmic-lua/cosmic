@@ -74,7 +74,7 @@ local FEED <const> = Shape.record({
 })
 
 --- `text`'s base64 as bytes, or nil when it is none, or empty.
-local function bytes(text: string | nil): string | nil
+local function bytes(text: string?): string?
   if text == nil or text == "" then
     return nil
   end
@@ -87,7 +87,7 @@ end
 
 --- The timestamp of the state the changeset `text` is of, as its JSON
 --- writes it, or nil when it names none.
-function onecrl.timestamp(text: string): string | nil
+function onecrl.timestamp(text: string): string?
   return text:match('"timestamp"%s*:%s*(%d+)%s*,%s*"changes"')
 end
 
@@ -95,12 +95,12 @@ end
 --- change of an issuer and a serial number, or of a subject and a key's
 --- hash. A change marked `enabled: false` revokes nothing. Nil and why
 --- when `text` is no changeset, or a change names neither pair whole.
-function onecrl.parse(text: string): {onecrl.Entry} | nil, string
-  local feed, trouble: Feed | nil, string = Shape.decode_into(text, FEED)
+function onecrl.parse(text: string): {onecrl.Entry}?, string
+  local feed, trouble: Feed?, string = Shape.decode_into(text, FEED)
   if feed == nil then
     return nil, "not a OneCRL changeset: " .. trouble
   end
-  local found: {onecrl.Entry} = {}
+  local found: mut {onecrl.Entry} = {}
   for i, change in ipairs(feed.changes) do
     if change.enabled ~= false then
       local issuer, serial = bytes(change.issuerName), bytes(change.serialNumber)

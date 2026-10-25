@@ -9,8 +9,8 @@ local generate = require("build.doctest.generate")
 local type Block = markdown.Block
 local type Modifiers = markdown.Modifiers
 
-local function mods(continued: boolean, file: string | nil,
-                    skip: string | nil): Modifiers
+local function mods(continued: boolean, file: string?,
+                    skip: string?): Modifiers
   return { continue = continued, file = file, skip = skip }
 end
 
@@ -201,7 +201,7 @@ end
 --- A doc's `policy` line becomes its module's top-level declaration,
 --- which the build reads as a test module's; a second is refused.
 local function test_a_docs_policy_becomes_its_declaration()
-  local blocks: {Block} = {
+  local blocks: mut {Block} = {
     { lang = "policy", modifiers = no_mods, content = "env = { \"A\" }", line = 3 },
     block("teal", "local x = 1", no_mods),
   }

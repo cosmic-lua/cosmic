@@ -84,7 +84,7 @@ local function test_build_prints_the_path_of_each_program(tmp: string)
     env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
   assert(built.code == 0, built.stdout .. built.stderr)
   local bin = build_dir(tmp) .. "/bin"
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in built.stdout:gmatch("[^\n]+") do
     lines[#lines + 1] = line
   end
@@ -98,7 +98,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local path = tmp .. "/carried.db"
   assert(Fs.write(path, database))
 
-  local meta: {string:string} = {}
+  local meta: mut {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT key, value FROM meta")) do
     meta[row:text(1)] = row:text(2)
   end
@@ -108,7 +108,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(meta["runtime_basis"] ~= nil and meta["runtime_basis"] ~= "",
     "a portable database carries the runtime basis")
 
-  local modules: {string:string} = {}
+  local modules: mut {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT path, kind FROM modules")) do
     modules[row:text(1)] = row:text(2)
   end
@@ -370,7 +370,7 @@ end
   local r = run_program(build_dir(tmp) .. "/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   -- Its report is one line and nothing beneath it.
-  local reported: {string} = {}
+  local reported: mut {string} = {}
   for line in assert(r.stderr):gmatch("[^\n]+") do
     if line:sub(1, 8) == "cosmic: " then
       reported[#reported + 1] = line

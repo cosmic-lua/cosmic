@@ -46,7 +46,7 @@ end
 --- @param nonce string | nil The request's nonce, base64url
 --- @return string The header value
 function Csp.format(p: Csp.Policy, nonce?: string): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(p.directives) do
     if type(name) ~= "string" or not name:find(DIRECTIVE) then
       error(("csp: %q is not a directive name"):format(tostring(name)), 2)
@@ -54,9 +54,9 @@ function Csp.format(p: Csp.Policy, nonce?: string): string
     names[#names + 1] = name
   end
   table.sort(names)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(names) do
-    local parts: {string} = { name }
+    local parts: mut {string} = { name }
     for _, source in ipairs(p.directives[name]) do
       if source == "{nonce}" then
         if nonce == nil or nonce == "" then

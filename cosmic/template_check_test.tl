@@ -167,7 +167,7 @@ return util
 
 --- Builds the project of `files` (paths to text) in the directory `case`
 --- of `tmp`: the Lua of every module (by path), or nil and what refused.
-local function build(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string} | nil, string
+local function build(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string}?, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   for name, text in pairs(files) do
@@ -199,7 +199,7 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
   if #result.refused > 0 then
     return nil, table.concat(result.refused, "\n")
   end
-  local lua: {string: string} = {}
+  local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
     lua[m.path] = m.lua
   end
@@ -207,7 +207,7 @@ local function build(tmp: string, case: string, files: {string: string}, mode?: 
 end
 
 --- Builds `template` as the module `page`, beside `data` and `fmt`.
-local function project(tmp: string, case: string, template: string, mode?: GrammarMode.Mode): {string: string} | nil, string
+local function project(tmp: string, case: string, template: string, mode?: GrammarMode.Mode): {string: string}?, string
   if (mode or grammar) == "new" then
     return build(tmp, case, { ["data.tl"] = DATA, ["fmt.tl"] = FMT, ["util/string.tl"] = UTIL, ["multi.tl"] = MULTI,
       ["page.tmpl"] = template }, mode)
@@ -265,7 +265,7 @@ local function renders(tmp: string, case: string, template: string, pages: {{str
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
   assert(mod is Loaded, "page exports no render")
-  local outs: {string} = {}
+  local outs: mut {string} = {}
   for _, page in ipairs(pages) do
     local out = mod.render(page)
     if out is Html.SafeHtml then
@@ -384,7 +384,7 @@ local function test_a_json_slot_renders_attribute_safe_json_for_either_quote(tmp
   local page: {string: any} = { j = json }
   local text = Html.raw_json(json)
   for _, quote in ipairs({ '"', "'" }) do
-    local out = render(tmp, "json-" .. (quote == '"' and "dq" or "sq"), USE ..
+    local out = render(tmp, "json-" .. (if quote == '"' then "dq" else "sq" end), USE ..
         "<a hx-vals=" .. quote .. "{{.j}}" .. quote .. " hx-headers=" .. quote .. "{{.j}}" .. quote .. ">", page)
     local value = out:match("hx%-vals=" .. quote .. "([^" .. quote .. "]*)" .. quote)
     assert(value ~= nil and not value:find("[<>]") and not value:find(quote, 1, true), out)
@@ -490,7 +490,7 @@ local function test_guards_on_nested_prefixes_build_and_render(tmp: string)
   local function shown(case: string, template: string, pages: {{string: any}}): {string}
     return renders(tmp, case, HEAD .. template, pages)
   end
-  local function trimmed(out: string | nil): string
+  local function trimmed(out: string?): string
     return (assert(out):gsub("^%s+", ""))
   end
   local full = { nest = { b = { c = "B", e = { x = "X" } }, c = "C", s = "S" } }
@@ -525,9 +525,9 @@ end
 --- A chain of many arms builds: it is flat, so what the checker nests grows
 --- with none of them.
 local function test_a_chain_of_three_hundred_arms_builds_and_renders(tmp: string)
-  local arms: {string} = { "{{if .flag}}F" }
+  local arms: mut {string} = { "{{if .flag}}F" }
   for arm = 1, 300 do
-    arms[#arms + 1] = (arm % 2 == 0 and "{{else if .error}}e" or "{{else if .owner}}o") .. arm
+    arms[#arms + 1] = (if arm % 2 == 0 then "{{else if .error}}e" else "{{else if .owner}}o" end) .. arm
   end
   arms[#arms + 1] = "{{else}}none{{end}}"
   local template = HEAD .. table.concat(arms)
@@ -548,7 +548,7 @@ end
 local function test_a_field_named_like_a_word_of_the_language_is_reached(tmp: string)
   local names = { "end", "type", "record", "enum", "global", "is", "as", "where", "function", "interface",
     "local", "nil", "self", "_", "d", "parts", "render", "table" }
-  local actions: {string} = {}
+  local actions: mut {string} = {}
   for _, name in ipairs(names) do
     actions[#actions + 1] = "{{." .. name .. "}}"
   end
@@ -836,7 +836,7 @@ end
 
 local function test_a_binding_named_like_a_generated_name_or_a_module_builds_and_renders(tmp: string)
   local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "fmt", "data", "end", "table" }
-  local body: {string} = {}
+  local body: mut {string} = {}
   for _, name in ipairs(names) do
     body[#body + 1] = "{{range $i, $" .. name .. " := .items}}{{$" .. name .. ".name | fmt.upper}}{{$i}}{{end}}"
   end

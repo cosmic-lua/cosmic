@@ -29,9 +29,9 @@ local type Parsed = ast_node.Parsed
 local ALL_PATTERN_SRC = "require($M)"
 
 local record PatternMemo
-  compiled: boolean
-  pattern: Node | nil
-  err: string | nil
+  mut compiled: boolean
+  mut pattern: Node?
+  mut err: string?
 end
 
 local all_pattern: PatternMemo = { compiled = false }
@@ -40,7 +40,7 @@ local all_pattern: PatternMemo = { compiled = false }
 --- success or failure.
 --- @param built compiler The loaded compiler capsule ([`build.teal.load()`])
 --- @return Node | nil, string
-local function get_all_pattern(built: compiler): Node | nil, string
+local function get_all_pattern(built: compiler): Node?, string
   if not all_pattern.compiled then
     all_pattern.pattern, all_pattern.err = ast_match.compile_pattern(built, ALL_PATTERN_SRC)
     all_pattern.compiled = true
@@ -68,14 +68,14 @@ end
 --- @param parsed Parsed A file's own parse ([`build.ast.node.parse`])
 --- @return {Site} | nil Every required module, in source order
 --- @return string error When the module's own pattern failed to compile
-local function require_sites(built: compiler, parsed: Parsed): {Site} | nil, string
+local function require_sites(built: compiler, parsed: Parsed): {Site}?, string
   local pattern, err = get_all_pattern(built)
   if pattern == nil then
     return nil, err
   end
   -- Only a node of the pattern's own kind can match it: the rest are
   -- passed over without the generic match, most of a walk's cost.
-  local hits: {Node} = {}
+  local hits: mut {Node} = {}
   local caps_of: {Node: {string: Node}} = {}
   ast_walk.walk(parsed.node, function(n: Node)
     if n.kind == pattern.kind then
@@ -91,8 +91,8 @@ local function require_sites(built: compiler, parsed: Parsed): {Site} | nil, str
     local ps, qs = ast_walk.span_start(p, memo), ast_walk.span_start(q, memo)
     return ps.y < qs.y or (ps.y == qs.y and ps.x < qs.x)
   end)
-  local seen: {string: boolean} = {}
-  local out: {Site} = {}
+  local seen: mut {string: boolean} = {}
+  local out: mut {Site} = {}
   for _, hit in ipairs(hits) do
     local mod_node = assert(caps_of[hit])["_M"]
     if mod_node ~= nil then
@@ -115,20 +115,20 @@ end
 --- @param parsed Parsed A file's own parse ([`build.ast.node.parse`])
 --- @return {string} | nil Every required module name, in source order
 --- @return string error When the module's own pattern failed to compile
-local function all_requires(built: compiler, parsed: Parsed): {string} | nil, string
+local function all_requires(built: compiler, parsed: Parsed): {string}?, string
   local sites, err = require_sites(built, parsed)
   if sites == nil then
     return nil, err
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, site in ipairs(sites) do out[#out + 1] = site.name end
   return out
 end
 
 local record RequiresModule
   type Site = Site
-  require_sites: function(built: compiler, parsed: Parsed): {Site} | nil, string
-  all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string
+  require_sites: function(built: compiler, parsed: Parsed): {Site}?, string
+  all_requires: function(built: compiler, parsed: Parsed): {string}?, string
 end
 
 local M: RequiresModule = {

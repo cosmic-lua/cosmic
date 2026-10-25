@@ -7,7 +7,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 local function source(path: string, body: string, environment?: boolean)
   assert(Fs.mkdirs(path .. "/build"))
-  assert(Fs.write(path .. "/build/paths.tl", (environment == true and 'local Env = require("cosmic.env")\n' or "") .. [[
+  assert(Fs.write(path .. "/build/paths.tl", (if environment == true then 'local Env = require("cosmic.env")\n' else "" end) .. [[
 local Fs = require("cosmic.fs")
 local record Paths end
 function Paths.main(_argv: {string}): integer

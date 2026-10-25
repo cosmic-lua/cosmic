@@ -48,8 +48,8 @@ end
 --- `G` and names the label at `L` (`-` where it names none), or `label L`
 --- for a label no continue names.
 local function shown(e: compiler.Error): string
-  local function place(y: integer | nil, x: integer | nil): string
-    return y ~= nil and tostring(y) .. ":" .. tostring(x) or "-"
+  local function place(y: integer?, x: integer?): string
+    return if y ~= nil then tostring(y) .. ":" .. tostring(x) else "-" end
   end
   local goto_y = e.goto_y
   if goto_y == nil then
@@ -62,7 +62,7 @@ end
 --- every one to carry its code, the label's name and the place the error
 --- is reported at.
 local function refusals(source: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(type_errors(source)) do
     if e.code == "goto_not_continue" then
       local variable = e.variable
@@ -78,7 +78,7 @@ end
 local function accepts(body: string)
   local source = program(body)
   local errors = type_errors(source)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, e in ipairs(errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. tostring(e.code) .. " " .. e.msg
   end
@@ -242,7 +242,7 @@ local function test_a_repeat_continue_may_not_jump_past_a_local_its_until_sees()
     for _, e in ipairs(type_errors(kind_source)) do
       if e.code == "goto_not_continue" and e.local_y ~= nil then refused = refused + 1 end
     end
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, e in ipairs(type_errors(kind_source)) do lines[#lines + 1] = e.msg end
     assert(refused == 1, table.concat(lines, "; ") .. "\n" .. kind_source)
   end

@@ -19,7 +19,7 @@ end
 --- @return Types.Route The route
 function Route.route(methods: string | {string}, pattern: string, handler: Types.Handler,
                      opts?: Types.RouteOptions): Types.Route
-  local list: {string} = {}
+  local list: mut {string} = {}
   if methods is string then
     list[1] = methods
   else

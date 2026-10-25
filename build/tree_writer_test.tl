@@ -134,7 +134,7 @@ end
 
 --- The rows of `counts` as `row=n` words, in order.
 local function show(counts: {string: integer}): string
-  local words: {string} = {}
+  local words: mut {string} = {}
   for row, n in pairs(counts) do
     words[#words + 1] = row .. "=" .. tostring(n)
   end
@@ -178,17 +178,17 @@ end
 local function test_a_guide_has_its_examples_translated_and_its_prose_kept()
   local made = TreeWriter.guide(GUIDE, "g.md")
   assert(#made.errors == 0, table.concat(made.errors, "\n"))
-  local before: {string} = {}
+  local before: mut {string} = {}
   for line in GUIDE:gmatch("([^\n]*)\n") do
     before[#before + 1] = line
   end
-  local after: {string} = {}
+  local after: mut {string} = {}
   for line in made.text:gmatch("([^\n]*)\n") do
     after[#after + 1] = line
   end
   -- Nothing moves in a guide with no class, so the guide is compared line by line, and only the example lines differ.
   assert(#before == #after and #before > 30, tostring(#before) .. " lines before, " .. tostring(#after) .. " after")
-  local differing: {integer} = {}
+  local differing: mut {integer} = {}
   for i = 1, #before do
     if before[i] ~= after[i] then
       differing[#differing + 1] = i

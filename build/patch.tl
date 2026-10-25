@@ -85,7 +85,7 @@ local record Line
 end
 
 --- The `key: value` line at `at` in `text`, or nil when it is not one.
-local function header(text: string, at: integer, key: string): Line | nil
+local function header(text: string, at: integer, key: string): Line?
   local eol = text:find("\n", at, true)
   if eol == nil then
     return nil
@@ -100,12 +100,12 @@ end
 
 --- The first line from `at` on that is exactly `fence` and `word`, or nil.
 local function fence_line(text: string, at: integer, fence: string,
-                          word: string): Line | nil
+                          word: string): Line?
   local wanted = fence .. " " .. word
   local from = at
   while from <= #text do
     local eol = text:find("\n", from, true)
-    local last = eol == nil and #text or eol - 1
+    local last = if eol == nil then #text else eol - 1 end
     if text:sub(from, last) == wanted then
       return { value = wanted, start = from, after = last + 2 }
     end
@@ -120,7 +120,7 @@ end
 --- Parses the record `text`, named `name` in what it says of it. What
 --- it takes as a record decides the TODOs build.todo_scan keeps of one,
 --- so a change to that bumps build/work.tl's `version`.
-function Patch.parse(text: string, name: string): Patch.Record | nil, string
+function Patch.parse(text: string, name: string): Patch.Record?, string
   local at = 1
   local fence = "---"
   if text:sub(1, 7) == "fence: " then
@@ -170,7 +170,7 @@ end
 --- `source` with the record's one match replaced, or nil and why when it
 --- matches other than once. `name` names the record.
 function Patch.apply(source: string, record: Patch.Record,
-                     name: string): string | nil, string
+                     name: string): string?, string
   local first = source:find(record.find, 1, true)
   local matches = 0
   local at = first
@@ -201,9 +201,9 @@ end
 --- vendored tree's directories and regular files, in path order, and its
 --- records, in name order.
 local record Inputs
-  dirs: {string}
-  files: {Input}
-  records: {Input}
+  dirs: mut {string}
+  files: mut {Input}
+  records: mut {Input}
 end
 
 --- Appends to `inputs` everything under `dir`, which is `relative` under
@@ -245,7 +245,7 @@ end
 --- Reads what `name`'s patched tree under `root` is made of: the records
 --- are every `.txt` in `patch/<name>/`, none when there is no such
 --- directory.
-local function read_inputs(root: string, name: string): Inputs | nil, string
+local function read_inputs(root: string, name: string): Inputs?, string
   local inputs: Inputs = { dirs = {}, files = {}, records = {} }
   local read, trouble = read_dir(root .. "/vendor/" .. name, "", inputs)
   if not read then
@@ -341,8 +341,8 @@ local dir_mode <const> = 0x1ed
 
 --- `inputs` with its records applied, or nil and why, naming the record
 --- that failed.
-local function patched(inputs: Inputs): Tree | nil, string
-  local contents: {string:string} = {}
+local function patched(inputs: Inputs): Tree?, string
+  local contents: mut {string:string} = {}
   for _, file in ipairs(inputs.files) do
     contents[file.path] = file.data
   end
@@ -361,7 +361,7 @@ local function patched(inputs: Inputs): Tree | nil, string
     end
     contents[parsed.file] = applied
   end
-  local files: {Input} = {}
+  local files: mut {Input} = {}
   for _, file in ipairs(inputs.files) do
     files[#files + 1] = { path = file.path, mode = file.mode, data = contents[file.path] or file.data }
   end
@@ -387,7 +387,7 @@ end
 --- Writes `tree` into `out`, which must not exist, and syncs every file
 --- and directory it wrote. Modes are set outright, whatever the umask.
 local function write_tree(tree: Tree, out: string): boolean, string
-  local dirs: {string} = { out }
+  local dirs: mut {string} = { out }
   for _, dir in ipairs(tree.dirs) do
     dirs[#dirs + 1] = out .. "/" .. dir
   end
@@ -438,7 +438,7 @@ end
 --- patching is in it but through what they write, so an edit to either
 --- that writes the same bytes names the same tree.
 local function key_of(tree: Tree): string
-  local lines: {string} = { "dirs " .. tostring(tree.dir_mode) .. "\n" }
+  local lines: mut {string} = { "dirs " .. tostring(tree.dir_mode) .. "\n" }
   for _, dir in ipairs(tree.dirs) do
     lines[#lines + 1] = "dir " .. dir .. "\n"
   end
@@ -459,7 +459,7 @@ end
 -- when every tree changes at once); remove the ones older than the newest of each
 -- name, or those no active build names, as zig leaves its
 -- own cache to be deleted whole.
-function Patch.prepare(root: string, name: string, cache: string): string | nil, string
+function Patch.prepare(root: string, name: string, cache: string): string?, string
   local inputs, trouble = read_inputs(root, name)
   if inputs == nil then
     return nil, trouble
@@ -589,12 +589,12 @@ end
 
 --- Every vendored tree's name under `root`: each `vendor/<name>` with a
 --- PIN, in name order.
-function Patch.names(root: string): {string} | nil, string
+function Patch.names(root: string): {string}?, string
   local entries, trouble = Fs.list(root .. "/vendor")
   if entries == nil then
     return nil, trouble
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs(entries) do
     local pinned, _ = Fs.exists(root .. "/vendor/" .. name .. "/PIN")
     if pinned == true then
@@ -629,7 +629,7 @@ function Patch.main(argv: {string}): integer
     log:complain(trouble)
     return 1
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, name in ipairs(names) do
     local dir, prepare_trouble = Patch.prepare(root, name, cache)
     if dir == nil then

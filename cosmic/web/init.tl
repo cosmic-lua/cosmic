@@ -58,6 +58,7 @@ local Testing = require("cosmic.web.testing")
 local Typed = require("cosmic.web.typed")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Json = require("cosmic.json")
 local Types = require("cosmic.web.types")
 
 local record Web
@@ -133,7 +134,7 @@ local record Web
   html: function(body: Html.SafeHtml, opts?: Types.ResponseOptions): Types.Response
   --- Makes `value` a JSON body, `nosniff`; a value that cannot be encoded raises,
   --- and the exception layer answers 500: see [`Response.json`].
-  json: function(value: any, opts?: Types.ResponseOptions): Types.Response
+  json: function(value: Json.Value, opts?: Types.ResponseOptions): Types.Response
   --- Makes `body` a plain-text body: see [`Response.text`].
   text: function(body: string, opts?: Types.ResponseOptions): Types.Response
   --- Redirects, 303 unless told, to a local path or an http(s) URL; any other
@@ -141,7 +142,7 @@ local record Web
   --- see [`Response.redirect`].
   redirect: function(location: string, opts?: Types.ResponseOptions): Types.Response
   --- Takes a redirect target a client sent where it is a local path, else a default: see [`Response.safe_next`].
-  safe_next: function(input: string | nil, default: string): string
+  safe_next: function(input: string?, default: string): string
   --- Whether a text is a path on this origin: see [`Response.local_path`].
   local_path: function(target: string): boolean
   --- Answers with no body, 204 unless told: see [`Response.empty`].
@@ -156,7 +157,7 @@ local record Web
   --- `return Web.abort(404)`: see [`Response.abort`].
   abort: function(status: integer, detail?: string, extra?: {string:any}): Types.Response
   --- Reads the first value of a response header, in any case: see [`Response.header`].
-  header: function(res: Types.Response, name: string): string | nil
+  header: function(res: Types.Response, name: string): string?
   --- Replaces a response header, whatever case it was set in; raises for
   --- `Set-Cookie`, which [`Web.add_header`] appends to: see [`Response.set_header`].
   set_header: function(res: Types.Response, name: string, value: string)
@@ -284,7 +285,7 @@ Web.with_server = Testing.with_server
 --- @param opts RouterOptions | nil The trailing-slash policy
 --- @return Types.Router The router
 function Web.router(routes: {Types.Route}, opts?: Types.RouterOptions): Types.Router
-  local policy: Types.TrailingSlash | nil = nil
+  local policy: Types.TrailingSlash? = nil
   if opts ~= nil then policy = opts.trailing_slash end
   return Router.build(routes, function(_req: Types.Request): Types.Response
     error("web: a router built by Web.router has no app to answer with", 0)

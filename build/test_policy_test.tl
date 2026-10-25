@@ -21,14 +21,14 @@ end
 --- that are run.
 local function plan_of(reads: {string}, writes: {string}, at: {string:string},
                        runs: {string}): test_sandbox.Plan
-  local running: {string:boolean} = {}
+  local running: mut {string:boolean} = {}
   for _, path in ipairs(runs) do running[path] = true end
   return { sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = {}, over = 0, trouble = "", runs = running, own_scratch = false, why_shared = "" }
 end
 
 --- The grant of `policy` at `path`, or nil.
-local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Grant | nil
+local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Grant?
   for _, grant in ipairs(policy.grants or {}) do
     if grant.path == path then return grant end
   end

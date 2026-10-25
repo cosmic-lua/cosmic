@@ -30,7 +30,7 @@ local function near(src: Fuzz.Source): string
 end
 
 local function gen_http(src: Fuzz.Source): string
-  local headers: {string} = {}
+  local headers: mut {string} = {}
   local kind = src:int(0, 4)
   if kind == 0 then
     headers[1] = "Proxy-Authorization: Basic " .. Codec.base64("u:" .. near(src))
@@ -67,7 +67,7 @@ local function gen(src: Fuzz.Source): string
   else
     text = gen_socks(src)
   end
-  return Fuzz.mutate(src, text, src:int(0, 4) == 0 and 2 or 0)
+  return Fuzz.mutate(src, text, if src:int(0, 4) == 0 then 2 else 0 end)
 end
 
 local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
@@ -88,13 +88,13 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         local server = Relay.start({
           http = http, socks = socks, grants = { "127.0.0.1:80" }, token = TOKEN,
           timeouts = { auth = Clock.ms(300) }, log = function(_: string) end,
-          connector = function(): Net.Conn | nil, string
+          connector = function(): Net.Conn?, string
             asked.value = asked.value + 1
             return nil, "Connection refused"
           end,
         })
         local first = input:sub(1, 1)
-        Fuzz.label(first == "H" and "http" or "socks")
+        Fuzz.label(if first == "H" then "http" else "socks" end)
         local conn = assert(Net.connect(first == "H" and http.address or socks.address,
           { timeout_ns = Clock.seconds(5) }))
         conn:set_timeout(Clock.seconds(5))

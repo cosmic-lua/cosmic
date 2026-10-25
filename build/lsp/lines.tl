@@ -22,8 +22,8 @@ local type Position = protocol.Position
 
 --- The lines of `text` ([`lines.Split`]).
 function lines.lines_of(text: string): Split
-  local starts: {integer} = {}
-  local texts: {string} = {}
+  local starts: mut {integer} = {}
+  local texts: mut {string} = {}
   local at = 1
   while true do
     local stop = text:find("[\r\n]", at)
@@ -80,7 +80,7 @@ end
 --- Where each line of `text` starts as the checker counts lines, which is
 --- at "\n" alone: its columns are bytes.
 function lines.checker_starts(text: string): {integer}
-  local out: {integer} = { 1 }
+  local out: mut {integer} = { 1 }
   local at = text:find("\n", 1, true)
   while at ~= nil do
     out[#out + 1] = at + 1

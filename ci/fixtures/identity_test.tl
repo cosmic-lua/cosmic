@@ -102,7 +102,7 @@ local function host_target_field(fixture_dir: string, work: string,
                                  diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
   local arch = host_uname(work, diagnostics, "-m", "arch")
-  local found: string | nil = nil
+  local found: string? = nil
   for line in Fixture.read(fixture_dir .. "/targets.tsv"):gmatch("[^\n]+") do
     local name, uname_os, uname_arch = line:match(
       "^%d+\t%d+\t[^\t]+\t([^\t]+)\t([^\t]+)\t([^\t]+)$")

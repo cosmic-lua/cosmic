@@ -28,7 +28,7 @@ local function collation(name: string): string return "collation " .. name end
 --- SQLite folds it.
 local function documented(): {string:boolean}
   local text = "\n" .. assert(Fs.read(GUIDE))
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   local from, to = 0, #text + 1
   for heading_at, heading in text:gmatch("()\n## ([^\n]*)") do
     if from > 0 and to > #text then to = heading_at as integer end
@@ -53,7 +53,7 @@ local function answered(): {string:boolean}
   for _, name in ipairs(LAZY_TABLES) do
     assert(Sqlite.text_rows(handle, "SELECT * FROM " .. name .. "('[]')"))
   end
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   for _, sql in ipairs({ "SELECT name FROM pragma_function_list",
       "SELECT name FROM pragma_module_list" }) do
     local rows = assert(Sqlite.text_rows(handle, sql))
@@ -70,7 +70,7 @@ end
 
 --- The names in `want` that `have` lacks, sorted, one to a line.
 local function missing(want: {string:boolean}, have: {string:boolean}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for name in pairs(want) do
     if not have[name] then out[#out + 1] = name end
   end

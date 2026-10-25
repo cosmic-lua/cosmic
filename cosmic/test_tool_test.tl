@@ -65,7 +65,7 @@ local function test_policy_hands_the_runner_its_needs(tmp: string)
     "  runner.loaded = true",
     "  say(try(function() T.policy { } end))",
   }, "\n"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(#lines == 8, said)
   assert(lines[1] == "false policy takes a table, got number", said)

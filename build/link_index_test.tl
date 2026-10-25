@@ -31,7 +31,7 @@ end
 
 --- The rows of `sql` over `db`, each row's cells joined by spaces.
 local function rows(db: Sqlite.Handle, sql: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs((assert(Sqlite.text_rows(db, sql)))) do
     out[#out + 1] = table.concat(row:texts(), " ")
   end
@@ -116,9 +116,9 @@ local function test_uses_lists_links_to_a_symbol_and_a_file(dir: string)
   local db = linking_tree(dir)
   local view = assert(docs.view({ db }))
   local function listed(query: string): {string}
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, use in ipairs((assert(docs.uses(view, query)))) do
-      out[#out + 1] = use.from_file .. ":" .. use.line .. (use.link and " link " or " ") ..
+      out[#out + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link " else " " end) ..
         use.module .. " " .. use.symbol .. " " .. use.path .. "#" .. use.anchor
     end
     return out
@@ -356,9 +356,9 @@ end
 --- as `file:line`.
 local function places(out: string, query: string): {string}
   local db = assert(Sqlite.open(out))
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(assert(docs.view({ db })), query)))) do
-    found[#found + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+    found[#found + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
   end
   assert(db:close())
   return found
@@ -694,7 +694,7 @@ local function library(dir: string, identity: string, with_write: boolean): link
       "--- Opens.", "function raw.open(): integer", "  return 0", "end", "", "return raw"),
   })
   return { identity = identity,
-    databases = function(): {Sqlite.Handle} | nil, string return { db } end }
+    databases = function(): {Sqlite.Handle}?, string return { db } end }
 end
 
 --- A project whose module and README link to the standard library.
@@ -739,9 +739,9 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
       })
   local handles = assert(stdlib.databases())
   local view = assert(docs.view({ db, handles[1] }, { false, true }))
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
-    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (use.link and " link" or "")
+    listed[#listed + 1] = use.from_file .. ":" .. use.line .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))
@@ -779,7 +779,7 @@ local function test_a_projects_links_through_required_modules_are_rows(tmp: stri
       "return Archive"),
   })
   local streams: link_index.Library = { identity = "docs streams",
-    databases = function(): {Sqlite.Handle} | nil, string return { stdlib } end }
+    databases = function(): {Sqlite.Handle}?, string return { stdlib } end }
   local root = assert(Fs.absolute(tmp)) .. "/project"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet.tl", source(
@@ -849,7 +849,7 @@ local function test_the_librarys_docs_sign_a_projects_projection(tmp: string)
   assert(work.stage(handle, false))
   local plain = assert(importer.compile(handle, built, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
-    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+    databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
   assert(writer.signature(handle, plain, "a writer", refusing) ==
       writer.signature(handle, plain, "a writer", one))
   assert(writer.write_result(handle, out, plain, nil, refusing))
@@ -869,7 +869,7 @@ local function test_cosmics_own_tree_reads_no_library(tmp: string)
   assert(work.stage(handle, true))
   local result = assert(importer.compile(handle, built, "link-index-test"))
   local refusing: link_index.Library = { identity = "docs three",
-    databases = function(): {Sqlite.Handle} | nil, string return nil, "not read" end }
+    databases = function(): {Sqlite.Handle}?, string return nil, "not read" end }
   assert(writer.signature(handle, result, "a writer", refusing) ==
       writer.signature(handle, result, "a writer", library(tmp, "docs one", true)))
   local out = build_dir(root) .. "/cosmic.db"

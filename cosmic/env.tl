@@ -7,7 +7,7 @@ end
 
 --- One variable, or nil when it is not set; this is the os.getenv
 --- operation, C's `getenv`.
-function Env.get(name: string): string | nil
+function Env.get(name: string): string?
   return sys.getenv(name)
 end
 

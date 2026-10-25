@@ -46,7 +46,7 @@ local record worker
     size: function(): integer
     --- A path of the pool's own scratch directory, which exists while
     --- workers do. Nil and why where there is none.
-    path: function(name: string): string | nil, string
+    path: function(name: string): string?, string
     --- Has each of the first `count` workers serve `phase` on `job`, a
     --- file this module reads, as the worker numbered from 1 that it is of
     --- `count`, and waits for them all. Each answer is "" for a worker
@@ -73,7 +73,7 @@ end
 
 --- A new file at `path` with `statements` run on it, kept apart from
 --- anything that reads it until it is closed.
-local function created(path: string, statements: {string}): Sqlite.Handle | nil, string
+local function created(path: string, statements: {string}): Sqlite.Handle?, string
   local db, trouble = Sqlite.open(path, { writable = true })
   if db == nil then return nil, trouble end
   local ok, why = make(db, { "PRAGMA synchronous = OFF" })
@@ -87,7 +87,7 @@ end
 
 --- The results a worker wrote at `path`, or nil where it left none: a
 --- worker that was lost before its first result.
-local function opened(path: string): Sqlite.Handle | nil
+local function opened(path: string): Sqlite.Handle?
   local db, _ = Sqlite.open(path)
   return db
 end
@@ -97,15 +97,15 @@ end
 --- Deals `fresh` to `count` shards of about the same size in source,
 --- the largest first, each source to the lightest shard so far.
 local function dealt(fresh: {Fresh}, count: integer): {integer}
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   for at = 1, #fresh do order[at] = at end
   table.sort(order, function(a: integer, b: integer): boolean
     if #fresh[a].source ~= #fresh[b].source then return #fresh[a].source > #fresh[b].source end
     return a < b
   end)
-  local busy: {integer} = {}
+  local busy: mut {integer} = {}
   for shard = 1, count do busy[shard] = 0 end
-  local shard_of: {integer} = {}
+  local shard_of: mut {integer} = {}
   for _, at in ipairs(order) do
     local best = 1
     for shard = 2, count do
@@ -121,7 +121,7 @@ end
 --- sources of `fresh`, each marked with the shard `shard_of` deals it
 --- to. Answers the job's path, or nil and why.
 local function parse_job(pool: worker.Pool, fresh: {Fresh},
-                         shard_of: {integer}): string | nil, string
+                         shard_of: {integer}): string?, string
   local job, job_trouble = pool.path("parse")
   if job == nil then return nil, job_trouble end
   local jobs, create_trouble = created(job, {
@@ -136,7 +136,7 @@ local function parse_job(pool: worker.Pool, fresh: {Fresh},
       "INSERT INTO sources (ordinal, shard, source_hash, file, source, mapped) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
       { integer(at), integer(shard_of[at]), text(one.source_hash), text(one.file),
-        text(one.source), integer(one.mapped and 1 or 0) })
+        text(one.source), integer(if one.mapped then 1 else 0 end) })
     if not ok then
       local _, _ = jobs:close()
       return nil, why
@@ -166,7 +166,7 @@ end
 --- @param built the compiler a source that no worker parsed is parsed with
 function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
                       all: {Fresh}, tally: derivation.Parses,
-                      made: {derivation.Source}, broken?: {derivation.Broken}): boolean, string
+                      made: mut {derivation.Source}, broken?: {derivation.Broken}): boolean, string
   local here = 0
   while here < #all and pool.warming() > 0 do
     local ok, why = derivation.parse_fresh(db, built, { all[here + 1] }, tally, made, broken)
@@ -187,7 +187,7 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
   local job, widths: string, {string:integer} = made_job, made_widths
 
   local _ = pool.run("parse", job, count)
-  local read: {integer:Sqlite.Handle} = {}
+  local read: mut {integer:Sqlite.Handle} = {}
   for shard = 1, count do read[shard] = opened(results_of(job, shard)) end
   local function close_results()
     for shard = 1, count do
@@ -210,7 +210,7 @@ function worker.parse(pool: worker.Pool, db: Sqlite.Handle, built: compiler,
         local packed = rows[1]:kind(1) == "blob" and rows[1]:blob(1) or nil
         local unpacked = packed ~= nil and derivation.unpacked_parse(packed, widths) or nil
         if unpacked ~= nil then
-          local requires: {string} = {}
+          local requires: mut {string} = {}
           for _, row in ipairs(names) do requires[#requires + 1] = row:text(1) end
           local put, _ = derivation.put_parse(db, one.source_hash, requires, unpacked)
           taken = put
@@ -245,7 +245,7 @@ local function serve_parse(built: compiler, job: string, index: integer): string
     { integer(index) })
   local _, _ = jobs:close()
   if rows == nil then return rows_trouble end
-  local fresh: {Fresh} = {}
+  local fresh: mut {Fresh} = {}
   for _, row in ipairs(rows) do
     fresh[#fresh + 1] = { source_hash = row:text(1), file = row:text(2), source = row:text(3), mapped = row:text(4) == "1" }
   end
@@ -317,9 +317,9 @@ end
 ---   and the build compiles it all itself
 function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
                         order: {Module}, wanted: {string:boolean}, own_tree: boolean,
-                        judged: boolean): importer.Ahead | nil, string
-  local items: {shards.Item} = {}
-  local by_path: {string:Module} = {}
+                        judged: boolean): importer.Ahead?, string
+  local items: mut {shards.Item} = {}
+  local by_path: mut {string:Module} = {}
   for _, m in ipairs(order) do
     items[#items + 1] = { path = m.path, requires = m.requires, size = #m.source }
     by_path[m.path] = m
@@ -370,13 +370,13 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
       { text(row:text(1)), text(row:text(2)), text(row:text(3)) })
     if not ok then return fail(why) end
   end
-  for name, value in pairs({ root = root, own_tree = own_tree and "1" or "0",
-      judged = judged and "1" or "0" }) do
+  for name, value in pairs({ root = root, own_tree = if own_tree then "1" else "0" end,
+      judged = if judged then "1" else "0" end }) do
     local ok, why = Sqlite.run(writing, "INSERT INTO meta (name, value) VALUES (?1, ?2)",
       { text(name), text(value) })
     if not ok then return fail(why) end
   end
-  local shard_of: {string:integer} = {}
+  local shard_of: mut {string:integer} = {}
   for shard, paths in ipairs(plan) do
     for seq, path in ipairs(paths) do
       local m = by_path[path]
@@ -386,9 +386,9 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
         "INSERT INTO modules (shard, seq, path, file, kind, generated, tests, stubbed, stub, " ..
           "pruned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         { integer(shard), integer(seq), text(m.path), text(m.file), text(m.kind),
-          integer(m.generated and 1 or 0), text(table.concat(m.tests, "\n")),
-          integer(stub ~= nil and 1 or 0), text(stub ~= nil and stub.text or ""),
-          integer(stub ~= nil and stub.pruned and 1 or 0) })
+          integer(if m.generated then 1 else 0 end), text(table.concat(m.tests, "\n")),
+          integer(if stub ~= nil then 1 else 0 end), text(stub ~= nil and stub.text or ""),
+          integer(if stub ~= nil and stub.pruned then 1 else 0 end) })
       if not ok then return fail(why) end
     end
   end
@@ -398,10 +398,10 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
   if not closed then return nil, close_trouble end
 
   local _ = pool.run("compile", job, count)
-  local read: {integer:Sqlite.Handle} = {}
+  local read: mut {integer:Sqlite.Handle} = {}
   for shard = 1, count do read[shard] = opened(results_of(job, shard)) end
   local ahead: importer.Ahead = {
-    take = function(path: string): compilation.Generated | nil
+    take = function(path: string): compilation.Generated?
       local results = read[shard_of[path] or 0]
       if results == nil then return nil end
       local rows, _ = Sqlite.rows(results,
@@ -413,7 +413,7 @@ function worker.compile(pool: worker.Pool, db: Sqlite.Handle, root: string,
       local lua = rows[1]:kind(2) == "blob" and rows[1]:blob(2) or nil
       local bytecode = rows[1]:kind(3) == "blob" and rows[1]:blob(3) or nil
       if lua == nil or bytecode == nil then return nil end
-      local references: {receivers.Reference} = {}
+      local references: mut {receivers.Reference} = {}
       for _, row in ipairs(refs) do
         references[#references + 1] = {
           module = row:kind(1) == "text" and row:text(1) or "",
@@ -451,7 +451,7 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
   end
   local meta, meta_trouble = Sqlite.text_rows(jobs, "SELECT name, value FROM meta")
   if meta == nil then return close_with(meta_trouble) end
-  local settings: {string:string} = {}
+  local settings: mut {string:string} = {}
   for _, row in ipairs(meta) do settings[row:text(1)] = row:text(2) end
   local rows, rows_trouble = Sqlite.text_rows(jobs,
     "SELECT m.path, m.file, m.kind, m.generated, m.tests, i.source, m.stubbed, m.stub, " ..
@@ -478,13 +478,13 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
     return close_with(why)
   end
   for _, row in ipairs(modules) do
-    local tests: {string} = {}
+    local tests: mut {string} = {}
     for name in row:text(5):gmatch("[^\n]+") do tests[#tests + 1] = name end
     local m: Module = {
       path = row:text(1), file = row:text(2), kind = row:text(3), source = row:text(6), source_hash = "",
       requires = {}, tests = tests, has_top_level_return = false, generated = row:text(4) == "1",
       key = "", graph_key = "", lua = "",
-      stub = row:text(7) == "1" and { text = row:text(8), pruned = row:text(9) == "1" } or nil,
+      stub = if row:text(7) == "1" then { text = row:text(8), pruned = row:text(9) == "1" } else nil end,
     }
     local generated, generate_trouble = compilation.generate(m, built, env, typed, own_tree, judged,
       function(_file: string, _source: string, _checked: compiler.Result): string
@@ -495,7 +495,7 @@ local function serve_compile(built: compiler, job: string, index: integer): stri
     if not begun then return stop(begin_trouble) end
     local ok, why = Sqlite.run(kept,
       "INSERT INTO made (path, refused, lua, bytecode) VALUES (?1, ?2, ?3, ?4)",
-      { text(m.path), integer(generated.refused and 1 or 0), blob(generated.lua),
+      { text(m.path), integer(if generated.refused then 1 else 0 end), blob(generated.lua),
         blob(generated.bytecode) })
     for ordinal, reference in ipairs(generated.references) do
       if ok then
@@ -553,7 +553,7 @@ function worker.serve(built?: compiler, more?: {string:function(compiler, string
         said = tostring(answer)
       end
     end
-    local reply = said == "" and "ok" or "fail\t" .. (said:gsub("\n", " / "))
+    local reply = if said == "" then "ok" else "fail\t" .. (said:gsub("\n", " / ")) end
     local sent, _ = output:write(reply .. "\n")
     if not sent then return 1 end
   end

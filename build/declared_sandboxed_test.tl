@@ -38,7 +38,7 @@ local checkout, environment, says = fixture.checkout, fixture.environment, fixtu
 local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: string)
   local function environments(cache: string): {string:string}, {string:string}
     local unenforced = environment(cache)
-    local sandboxed: {string:string} = {}
+    local sandboxed: mut {string:string} = {}
     for name, value in pairs(unenforced) do sandboxed[name] = value end
     sandboxed.COSMIC_TEST_SANDBOX = nil
     sandboxed.UNDECLARED = nil

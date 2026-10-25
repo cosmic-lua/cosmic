@@ -16,7 +16,7 @@ local NAMES <const> = { "a", "dir/file.txt", "a b", " lead", "trail ", "*star", 
 local SIZES <const>: {integer} = { 16, 20, 28, 32, 48, 64 }
 
 local function gen_entries(src: Fuzz.Source): string
-  local fields: {string} = { tostring(Fuzz.pick(src, SIZES)) }
+  local fields: mut {string} = { tostring(Fuzz.pick(src, SIZES)) }
   while Fuzz.more(src, #fields - 1, 6) do
     fields[#fields + 1] = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES)
   end
@@ -33,19 +33,19 @@ local function test_a_formatted_line_reads_back(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local size = math.tointeger(tonumber(fields[1]) as number) as integer
-      local lines: {string} = {}
-      local names: {string} = {}
-      local digests: {string} = {}
+      local lines: mut {string} = {}
+      local names: mut {string} = {}
+      local digests: mut {string} = {}
       for i = 2, #fields do
         if fields[i] ~= "" then
           local digest = Codec.hex(string.rep(string.char((i * 37) % 256), size))
           names[#names + 1], digests[#digests + 1] = fields[i], digest
           lines[#lines + 1] = hash.format_line(digest, fields[i])
-          Fuzz.label(fields[i]:find("[\\\n\r]") and "escaped name" or "plain name")
+          Fuzz.label(if fields[i]:find("[\\\n\r]") then "escaped name" else "plain name" end)
         end
       end
       if #lines > 1 then Fuzz.label("several lines") end
-      local ok, sums = pcall(hash.parse_sums, table.concat(lines, "\n") .. (#lines > 0 and "\n" or ""), size)
+      local ok, sums = pcall(hash.parse_sums, table.concat(lines, "\n") .. (if #lines > 0 then "\n" else "" end), size)
       if not ok then return false, "raised: " .. tostring(sums) end
       local got = sums as hash.Sums
       if #got.bad ~= 0 then
@@ -80,13 +80,13 @@ local TOKENS <const> = { HEX, "\n", " ", "  ", "*", "\\", "\\n", "\\\\", "#", "a
 
 local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
       parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
     return table.concat(parts)
   end
-  return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), src:int(0, 1) == 0 and 0 or 4)
+  return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), if src:int(0, 1) == 0 then 0 else 4 end)
 end
 
 -- Any bytes are a sums file, never a raise; each entry has a digest of

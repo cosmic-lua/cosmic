@@ -62,7 +62,7 @@ end
 --- and a `function f()` with no local `f` in scope there (with one, it
 --- assigns to it, and is no declaration).
 function globals.found(parsed: ast.Parsed): {globals.Place}
-  local found: {globals.Place} = {}
+  local found: mut {globals.Place} = {}
   if not has_candidate(parsed.tokens) then
     return found
   end

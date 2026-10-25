@@ -44,7 +44,7 @@ local record Rewrite
   --- `$NAME` syntax: a capture stands for the bytes it matched, comments included. Splicing runs back to front so
   --- that offsets stay valid. `keep` limits the hits replaced. nil and why where `source` does not parse.
   rewrite: function(source: string, name: string, pattern: Match.Pattern, replacement: string,
-                    keep?: function(Ast.Node): boolean): Result | nil, string
+                    keep?: function(Ast.Node): boolean): Result?, string
 end
 
 function Rewrite.find_all(pattern: Match.Pattern, chunk: Ast.Chunk): {Match.Hit}
@@ -63,7 +63,7 @@ end
 --- The 1-based byte offset of the start of each line of `source`; a line break is `\n`, `\r`, `\r\n` or `\n\r`, as the
 --- lexer reads it.
 local function line_starts(source: string): {integer}
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   local pos = 1
   while true do
     local at = source:find("[\r\n]", pos)
@@ -96,7 +96,7 @@ end
 
 --- The bytes of the next whole identifier `name` in `text` at or after `init`: a capture name that prefixes another
 --- (`_X` in `_XS`) is not an occurrence of it.
-local function find_name(text: string, name: string, init: integer): integer | nil, integer | nil
+local function find_name(text: string, name: string, init: integer): integer?, integer?
   local pos = init
   while pos <= #text + 1 do
     local a, b = text:find(name, pos, true)
@@ -115,7 +115,7 @@ end
 
 --- `text` with each whole-identifier `name` replaced by `value`, as literal bytes.
 local function substitute(text: string, name: string, value: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local pos = 1
   while true do
     local a, b = find_name(text, name, pos)
@@ -132,7 +132,7 @@ end
 
 --- The byte ranges of the captures the template reuses: the source a rewrite carries forward.
 local function kept_ranges(chunk: Ast.Chunk, caps: {string: Match.Capture}, template: string): {Span}
-  local kept: {Span} = {}
+  local kept: mut {Span} = {}
   for name, capture in pairs(caps) do
     if find_name(template, name, 1) ~= nil and not empty(capture) then
       kept[#kept + 1] = capture_span(chunk, capture)
@@ -143,7 +143,7 @@ end
 
 --- The comments in the bytes `a` to `b` that no kept range covers, as written: those a rewrite there would delete.
 local function dropped_comments(chunk: Ast.Chunk, a: integer, b: integer, kept: {Span}): {string}
-  local dropped: {string} = {}
+  local dropped: mut {string} = {}
   local comments_at = chunk.tokens.comments
   for token = 1, #chunk.tokens.kind do
     for _, comment in ipairs(comments_at[token] or {}) do
@@ -179,13 +179,13 @@ local function line_range(chunk: Ast.Chunk, starts: {integer}, length: integer, 
 end
 
 function Rewrite.rewrite(source: string, name: string, pattern: Match.Pattern, replacement: string,
-                         keep?: function(Ast.Node): boolean): Rewrite.Result | nil, string
+                         keep?: function(Ast.Node): boolean): Rewrite.Result?, string
   local chunk, why = Node.parse(source, name)
   if chunk == nil then
     return nil, why
   end
   local template = Match.desugar(replacement)
-  local hits: {Match.Hit} = {}
+  local hits: mut {Match.Hit} = {}
   for _, hit in ipairs(Rewrite.find_all(pattern, chunk)) do
     if keep == nil or keep(hit.node) then
       hits[#hits + 1] = hit
@@ -194,14 +194,14 @@ function Rewrite.rewrite(source: string, name: string, pattern: Match.Pattern, r
   local parents = Node.parents(chunk)
   local starts = line_starts(source)
   local out = source
-  local refused: {Rewrite.Refusal} = {}
-  local edits: {Match.Hit} = {}
+  local refused: mut {Rewrite.Refusal} = {}
+  local edits: mut {Match.Hit} = {}
   for i = #hits, 1, -1 do
     local hit = hits[i]
     local parent = parents[Node.base(hit.node).id]
     local whole = Node.range(chunk, hit.node)
     local a, b = whole.first, whole.last
-    if template == "" and parent ~= nil and parent is Ast.CallStat then
+    if template == "" and parent ~= nil and (parent.kind == "CallStat") then
       a, b = line_range(chunk, starts, #source, parent)
     end
     local dropped = dropped_comments(chunk, a, b, kept_ranges(chunk, hit.caps, template))

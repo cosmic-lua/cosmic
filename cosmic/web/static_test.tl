@@ -135,7 +135,7 @@ end
 
 local function test_gzip_is_refused_by_q_zero_and_taken_from_a_star()
   local client = client_of()
-  local function encoding(value: string): string | nil
+  local function encoding(value: string): string?
     return client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = value } }).headers["content-encoding"]
   end
   assert(encoding("gzip;q=0") == nil and encoding("gzip; q=0.0, *") == nil)

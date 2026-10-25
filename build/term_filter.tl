@@ -141,24 +141,24 @@ end
 
 --- What a filter holds as it reads.
 local record Reading
-  state: integer
+  mut state: integer
   --- The UTF-8 character begun and not yet complete: its bytes so far, how
   --- many continuation bytes it still needs, and the range its next
   --- continuation byte must be in (the first one's narrows for the forms
   --- that would be overlong, surrogate, past U+10FFFF or a C1 control).
-  held: string
-  needed: integer
-  low: integer
-  high: integer
+  mut held: string
+  mut needed: integer
+  mut low: integer
+  mut high: integer
   --- The CSI being read: its private prefix ("" or one of `<=>?`) and the
   --- parameter bytes so far, and the one string's kind being dropped.
-  prefix: string
-  parameters: string
-  ends_at_bel: boolean
-  out: {string}
-  answers: {string}
-  attributes_set: boolean
-  region_set: boolean
+  mut prefix: string
+  mut parameters: string
+  mut ends_at_bel: boolean
+  mut out: mut {string}
+  mut answers: mut {string}
+  mut attributes_set: boolean
+  mut region_set: boolean
 end
 
 --- A filter at the start of the program's output.
@@ -166,7 +166,7 @@ function TermFilter.new(): Filter
   local st: Reading = { state = GROUND, held = "", needed = 0, low = 0x80, high = 0xbf,
     prefix = "", parameters = "", ends_at_bel = false, out = {}, answers = {},
     attributes_set = false, region_set = false }
-  local modes: {integer:boolean} = {}
+  local modes: mut {integer:boolean} = {}
   for number, default in pairs(MODE_DEFAULTS) do modes[number] = default end
 
   local ground: function(integer)
@@ -211,7 +211,7 @@ function TermFilter.new(): Filter
       if pass then st.out[#st.out + 1] = "\27[" .. p .. f end
     elseif pre == "?" and (f == "h" or f == "l") then
       if p == "" or count_parameters(p) > MOST_MODES or find(p, "^[%d;]+$") == nil then return end
-      local listed: {integer} = {}
+      local listed: mut {integer} = {}
       for digits in (p .. ";"):gmatch("([^;]*);") do
         local number = digits ~= "" and #digits <= 4 and math.tointeger(tonumber(digits)) or nil
         if number == nil or MODE_DEFAULTS[number] == nil then return end
@@ -374,16 +374,16 @@ function TermFilter.new(): Filter
   end
 
   local function restore(_self: Filter): string
-    local resets: {string} = {}
+    local resets: mut {string} = {}
     if st.attributes_set then resets[#resets + 1] = "\27[0m" end
     -- DECSTBM homes the cursor, so the cursor is saved around it.
     if st.region_set then resets[#resets + 1] = "\0277\27[r\0278" end
-    local numbers: {integer} = {}
+    local numbers: mut {integer} = {}
     for number in pairs(modes) do numbers[#numbers + 1] = number end
     table.sort(numbers)
     for _, number in ipairs(numbers) do
       if modes[number] ~= MODE_DEFAULTS[number] then
-        resets[#resets + 1] = "\27[?" .. number .. (MODE_DEFAULTS[number] and "h" or "l")
+        resets[#resets + 1] = "\27[?" .. number .. (if MODE_DEFAULTS[number] then "h" else "l" end)
         modes[number] = MODE_DEFAULTS[number]
       end
     end

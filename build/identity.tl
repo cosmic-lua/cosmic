@@ -219,7 +219,7 @@ local static_path_limit <const> = 255
 --- or nil when it can: too big, a name that needs escaping in every URL
 --- and tag the app writes (a control byte, `\`, `%`, `?` or `#`), or a
 --- path too long. The reason leads with the file's own path.
-function identity.static_refusal(file: string, size: integer): string | nil
+function identity.static_refusal(file: string, size: integer): string?
   local name = file:sub(8)
   if size > static_limit then
     return ("%s: %d MiB is past the %d MiB limit for an embedded asset; serve it from disk " ..
@@ -301,7 +301,7 @@ function identity.is_tool(file: string, own_tree: boolean): boolean
 end
 
 --- The hash over some of the rows of `tool`, in path order.
-function identity.hash_over(db: Sqlite.Handle, where: string): string | nil, string
+function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
       "ORDER BY path)))) FROM tool WHERE " .. where)
@@ -330,7 +330,7 @@ end
 --- into the binary, which is how a binary knows what it was built from,
 --- so a project reads them rather than computing any. Returns the
 --- fingerprint written; [`identity.recorded_boot_hash`] reads it back.
-function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint | nil, string
+function identity.record_fingerprint(db: Sqlite.Handle): identity.Fingerprint?, string
   local boot, boot_trouble = identity.hash_over(db, "1")
   if boot == nil then
     return nil, boot_trouble
@@ -364,7 +364,7 @@ end
 --- accurate), not to restage anything itself. `nil, ""` when the
 --- database holds no such row yet: a fresh build directory, or one nothing has
 --- staged for.
-function identity.recorded_boot_hash(db: Sqlite.Handle): string | nil, string
+function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'boot_hash'")
   if rows == nil then
@@ -395,19 +395,19 @@ local pins <const> =
 --- What a module of the tree in the working database requires, as
 --- `requires` holds of its source: the walk [`identity.compiler_modules`] and
 --- [`identity.writer_modules`] take over it.
-local function requires_in(db: Sqlite.Handle): function(string): {string} | nil, string
+local function requires_in(db: Sqlite.Handle): function(string): {string}?, string
   -- Every module's names are read at the first walk's first step: a query
   -- for each of the some three hundred modules a walk reaches took a tenth
   -- of a second a build.
   local held: {{string:{string}}} = {}
-  return function(name: string): {string} | nil, string
+  return function(name: string): {string}?, string
     local all = held[1]
     if all == nil then
       local rows, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
       if rows == nil then return nil, rows_trouble end
-      local read: {string:{string}} = {}
+      local read: mut {string:{string}} = {}
       for _, row in ipairs(rows) do
         local list = read[row:text(1)]
         if list == nil then
@@ -420,7 +420,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string} | nil,
       all = read
     end
     local found = all[name]
-    local required: {string} = {}
+    local required: mut {string} = {}
     if found ~= nil then
       for i, item in ipairs(found) do required[i] = item end
     end
@@ -430,9 +430,9 @@ end
 
 --- The hash of the source hash of each of `names` the tree holds, by
 --- path, then `extra`, an SQL expression.
-local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string | nil, string
-  local slots: {string} = {}
-  local values: {Sqlite.Value} = {}
+local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
+  local slots: mut {string} = {}
+  local values: mut {Sqlite.Value} = {}
   for index, name in ipairs(names) do
     slots[#slots + 1] = "?" .. index
     values[#values + 1] = text(name)
@@ -474,9 +474,9 @@ local compiler_roots: {string} = {
 --- submodules), whose output [`build.derivation`] stores. Every root is
 --- followed without exceptions; the importer coordinates these
 --- operations from outside their closure.
-function identity.compiler_modules(requires: function(string): {string} | nil, string): {string} | nil, string
-  local reached: {string:boolean} = {}
-  local stack: {string} = {}
+function identity.compiler_modules(requires: function(string): {string}?, string): {string}?, string
+  local reached: mut {string:boolean} = {}
+  local stack: mut {string} = {}
   for _, name in ipairs(compiler_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
@@ -487,7 +487,7 @@ function identity.compiler_modules(requires: function(string): {string} | nil, s
       for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(reached) do
     if name:sub(1, 6) == "build." or name == "cosmic.template" or
         name:sub(1, 16) == "cosmic.template." then
@@ -540,7 +540,7 @@ end
 --- importer_test's `test_the_compiler_modules_are_closed_under_require`
 --- checks the closed semantic boundary and classifies the coordinator's
 --- imports outside it.
-function identity.compiler_identity(db: Sqlite.Handle): string | nil, string
+function identity.compiler_identity(db: Sqlite.Handle): string?, string
   local names, trouble = identity.compiler_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -580,11 +580,11 @@ local writer_left_out <const>: {string:string} = {
 --- that `writer_left_out` names. build/importer_test.tl's
 --- `test_the_writer_modules_are_closed_under_require` holds that list
 --- to the roots' requires.
-function identity.writer_modules(requires: function(string): {string} | nil, string): {string} | nil, string
-  local roots: {string:boolean} = {}
+function identity.writer_modules(requires: function(string): {string}?, string): {string}?, string
+  local roots: mut {string:boolean} = {}
   for _, name in ipairs(writer_roots) do roots[name] = true end
-  local reached: {string:boolean} = {}
-  local stack: {string} = {}
+  local reached: mut {string:boolean} = {}
+  local stack: mut {string} = {}
   for _, name in ipairs(writer_roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
@@ -599,7 +599,7 @@ function identity.writer_modules(requires: function(string): {string} | nil, str
       end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(reached) do names[#names + 1] = name end
   table.sort(names)
   return names, ""
@@ -608,7 +608,7 @@ end
 --- What `writer_left_out` names, for build/importer_test.tl to hold
 --- the roots' requires to.
 function identity.writer_left_out(): {string:string}
-  local copy: {string:string} = {}
+  local copy: mut {string:string} = {}
   for name, why in pairs(writer_left_out) do copy[name] = why end
   return copy
 end
@@ -621,7 +621,7 @@ end
 --- An edit to a module outside it -- build.positions, build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
-local function writer_identity(db: Sqlite.Handle): string | nil, string
+local function writer_identity(db: Sqlite.Handle): string?, string
   local names, trouble = identity.writer_modules(requires_in(db))
   if names == nil then
     return nil, trouble
@@ -636,7 +636,7 @@ end
 --- ([`build.importer.derive`]) first: on a fresh working database the
 --- closure would otherwise stop at its roots, and keys
 --- made under that identity would match no later build's.
-function identity.record_identities(db: Sqlite.Handle): identity.Identities | nil, string
+function identity.record_identities(db: Sqlite.Handle): identity.Identities?, string
   local compiler, compiler_trouble = identity.compiler_identity(db)
   if compiler == nil then
     return nil, compiler_trouble

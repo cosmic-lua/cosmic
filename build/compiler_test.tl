@@ -43,7 +43,7 @@ local parts: {{string}} = {
 --- Makes `built` find the checker's other files by name in `texts`, as
 --- the bridge makes its stage one do, and nothing else.
 local function serving(built: compiler, texts: {string:string})
-  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  built.search_module = function(name: string, _search_all: boolean): string?, compiler.Handle?
     local text = texts[name]
     if text == nil then
       return nil, nil
@@ -63,7 +63,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   -- this compile takes about 24 s on the checked core, past the runner's
   -- 30 on a loaded host; without them, about 9 s.
   local built = assert(teal.load(true))
-  local texts: {string:string} = {}
+  local texts: mut {string:string} = {}
   for _, part in ipairs(parts) do
     texts[part[1]] = assert(Fs.read(part[2]))
   end
@@ -87,7 +87,7 @@ local function test_the_compiler_compiles_itself_to_itself()
   assert(#result.type_errors == known, "the checker's source has " ..
       tostring(#result.type_errors) .. " type errors, not " .. tostring(known) ..
       ": update `known` if a change to the source fixed or added one")
-  local modules: {{string}} = {}
+  local modules: mut {{string}} = {}
   for index, part in ipairs(parts) do
     local module_code, module_result = compile(texts[part[1]])
     assert(#module_result.type_errors == 0, part[2] .. " has " ..
@@ -103,7 +103,7 @@ end
 --- `checker/` without a line in `parts` would be carried and never held to
 --- the fixed point above.
 local function test_every_checker_file_is_compiled()
-  local named: {string:boolean} = { ["tl.tl"] = true }
+  local named: mut {string:boolean} = { ["tl.tl"] = true }
   for _, part in ipairs(parts) do
     named[part[2]:gsub("^checker/", "")] = true
   end

@@ -38,7 +38,7 @@ local record Hovered
 end
 
 local record HoverSent
-  result: Hovered | nil
+  result: Hovered?
 end
 
 local HOVER_SENT <const>: Shape.Typed<HoverSent> = Shape.record_of("HoverSent")
@@ -62,7 +62,7 @@ local function fs_docs(root: string): Sqlite.Handle
 end
 
 --- The markdown of the hover `ran` answered request `id` with, or nil.
-local function hovered(ran: Ran, id: integer): string | nil
+local function hovered(ran: Ran, id: integer): string?
   local shown = assert(HOVER_SENT:decode_into(answer(ran, id)))
   local result = shown.result
   if result == nil then return nil end
@@ -71,8 +71,8 @@ end
 
 --- What the loopback test's two tasks leave each other.
 local record Exchange
-  code: integer
-  sent: string
+  mut code: integer
+  mut sent: string
 end
 
 local function test_a_type_error_is_published_where_it_is()
@@ -252,7 +252,7 @@ local function test_each_wrong_message_has_its_code()
     "{not json",
   })
   assert(failed(answer(ran, 2)) == -32602, "params that do not fit")
-  local codes: {integer} = {}
+  local codes: mut {integer} = {}
   for _, body in ipairs(ran.sent) do
     local sent = sent_of(body)
     local why = sent.error
@@ -389,7 +389,7 @@ local function test_a_message_with_no_method_is_never_answered()
   }
   local before = served(root, responses)
   assert(#before.sent == 0, table.concat(before.sent, "\n"))
-  local messages: {string} = { initialize(root) }
+  local messages: mut {string} = { initialize(root) }
   for _, response in ipairs(responses) do messages[#messages + 1] = response end
   local after = served(root, messages)
   assert(#after.sent == 1, table.concat(after.sent, "\n"))

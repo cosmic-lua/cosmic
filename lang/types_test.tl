@@ -26,14 +26,14 @@ local function shown(t: Types.Type): string
 end
 
 local function a_union(t: Types.Type): Types.Union
-  if t is Types.Union then
+  if (t.tag == "union") then
     return t
   end
   error("not a union: " .. shown(t), 2)
 end
 
 local function a_fn(t: Types.Type): Types.Fn
-  if t is Types.Fn then
+  if (t.tag == "fn") then
     return t
   end
   error("not a function: " .. shown(t), 2)
@@ -53,7 +53,7 @@ end
 
 --- A loader that answers from the declarations of `store`.
 local function loading_from(store: Types.Store): Types.Loader
-  return function(module: string, name: string): string | nil
+  return function(module: string, name: string): string?
     local decl = store:find(module, name)
     return decl ~= nil and Types.encode_declaration(decl) or nil
   end
@@ -110,7 +110,7 @@ local function test_a_union_displays_in_the_order_that_reads_best_whatever_the_o
   local s = w.store
   local members = { named(w, "Node"), s.string, s:array(s.integer), s.integer, s:atom("true") }
   same(shown(s:union(members)), "integer | string | true | Node | {integer}")
-  local reversed: {Types.Type} = {}
+  local reversed: mut {Types.Type} = {}
   for i = #members, 1, -1 do
     reversed[#reversed + 1] = members[i]
   end
@@ -359,7 +359,7 @@ local function test_a_union_is_the_same_whatever_the_order_it_is_made_in_and_the
   end
   local first = Types.encode(a.store:union(members(a)))
   local reversed = members(b)
-  local flipped: {Types.Type} = {}
+  local flipped: mut {Types.Type} = {}
   for i = #reversed, 1, -1 do
     flipped[#flipped + 1] = reversed[i]
   end
@@ -567,7 +567,7 @@ local function test_a_declaration_used_as_a_value_is_a_type_of_its_own_in_text_a
   local second = Types.new(loading_from(s))
   local decl = w.fixture.decls["File"]
   local instance, value = s:named(decl), s:named(decl, {}, true)
-  assert(instance ~= value and value is Types.Named and value.value and instance is Types.Named and not instance.value)
+  assert(instance ~= value and (value.tag == "named") and value.value and (instance.tag == "named") and not instance.value)
   assert(s:named(decl, {}, true) == value and s:named(decl, nil, false) == instance, "each is interned")
   assert(Types.digest(instance) ~= Types.digest(value))
   same(shown(value), "File (declaration)")
@@ -575,7 +575,7 @@ local function test_a_declaration_used_as_a_value_is_a_type_of_its_own_in_text_a
   same(Types.encode(value), '(val "m" "File")')
   assert(s:decode('(val "m" "File")') == value and s:decode('(ref "m" "File")') == instance)
   local there, why = second:decode('(val "m" "File")')
-  assert(there ~= nil and there is Types.Named and there.value, why)
+  assert(there ~= nil and (there.tag == "named") and there.value, why)
   same(Types.encode(there), '(val "m" "File")')
   local both = a_union(s:union({ instance, value }))
   assert(#both.members == 2, "a declaration and its value do not collapse into one")
@@ -658,12 +658,12 @@ local function test_a_path_the_store_and_the_loader_lack_is_an_unknown_declarati
   local t, why = s:decode('(ref "m" "Gone")')
   assert(t == nil and why:find("no declaration m Gone", 1, true) ~= nil, why)
   local asked: {string} = {}
-  local loading = Types.new(function(module: string, name: string): string | nil
+  local loading = Types.new(function(module: string, name: string): string?
     asked[#asked + 1] = module .. " " .. name
     return nil
   end)
   assert(loading:decode('(array (ref "m" "Gone"))') == nil and asked[1] == "m Gone")
-  local wrong = Types.new(function(_module: string, _name: string): string | nil
+  local wrong = Types.new(function(_module: string, _name: string): string?
     return '(decl record "m" "Other" (tparams) (supers) (fields) (elements) (methods) (values))'
   end)
   local got, reason = wrong:decode('(ref "m" "Gone")')
@@ -689,7 +689,7 @@ end
 
 --- A loader that answers the declarations of a fixture, and one that answers `text` for every path.
 local function loading_text(text: string): Types.Loader
-  return function(_module: string, _name: string): string | nil
+  return function(_module: string, _name: string): string?
     return text
   end
 end
@@ -739,7 +739,7 @@ end
 
 local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused_not_overflowed()
   local asked = { count = 0 }
-  local s = Types.new(function(module: string, name: string): string | nil
+  local s = Types.new(function(module: string, name: string): string?
     asked.count = asked.count + 1
     local n = math.tointeger(tonumber(name:sub(2)))
     if n == nil then
@@ -755,7 +755,7 @@ local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused
 end
 
 local function test_a_loader_that_raises_is_a_refusal_that_says_whose_it_is()
-  local s = Types.new(function(_module: string, _name: string): string | nil
+  local s = Types.new(function(_module: string, _name: string): string?
     error("the cache is gone")
   end)
   local t, why = s:decode('(ref "m" "R")')
@@ -1018,9 +1018,9 @@ local function test_a_type_variable_is_never_written_as_a_type_that_has_its_name
 end
 
 local function test_a_refused_decode_gives_back_the_uses_a_loader_settled()
-  local holder: {Types.Store} = {}
-  local wide: {Types.Decl} = {}
-  local s = Types.new(function(_module: string, _name: string): string | nil
+  local holder: mut {Types.Store} = {}
+  local wide: mut {Types.Decl} = {}
+  local s = Types.new(function(_module: string, _name: string): string?
     -- The loader re-enters the store, and the decode it serves is refused after it.
     holder[1]:define(wide[1], { tparams = { { name = "T" } }, supers = {}, fields = {}, methods = {}, values = {} })
     return nil
@@ -1037,10 +1037,10 @@ local function test_a_refused_decode_gives_back_the_uses_a_loader_settled()
 end
 
 local function test_what_a_loader_made_in_a_refused_decode_is_dead_and_its_id_is_not_another_type_s()
-  local holder: {Types.Store} = {}
+  local holder: mut {Types.Store} = {}
   local kept: {Types.Type} = {}
   local decls: {Types.Decl} = {}
-  local s = Types.new(function(_module: string, _name: string): string | nil
+  local s = Types.new(function(_module: string, _name: string): string?
     local inside = holder[1]
     kept[1] = inside:map(inside.string, inside.integer)
     decls[1] = inside:declare("record", "m", { "Kept" })

@@ -10,7 +10,7 @@ local tree_checks = require("build.tree_checks")
 --- exports it refuses, as `<file>:<line>: <module>.<member>`, and the
 --- allowances it finds stale, by name.
 local function judged(db: Sqlite.Handle, excused: {string: string}): {string}, {string}
-  local refused, stale: {string}, {string} = {}, {}
+  local refused, stale: mut {string}, mut {string} = {}, {}
   for _, line in ipairs(tree_checks.exports(db, excused)) do
     local export = line:match("^(%S+:%d+: %S+): nothing outside")
     local allowance = line:match("^(%S+): allowed, but")
@@ -33,7 +33,7 @@ end
 --- A tree of one private module, `build/thing.tl`, whose exports are
 --- used as `callers` says: each entry a file's path and its source.
 local function tree(callers: {string: string}): {string: string}
-  local files: {string: string} = {
+  local files: mut {string: string} = {
     ["build/thing.tl"] = source(
       "local record thing",
       "  record Box",

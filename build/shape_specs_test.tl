@@ -31,7 +31,7 @@ local built = assert(teal.load(true))
 
 --- Compiles a fixture project of `files` (name -> source) and answers
 --- the Lua of its module `path`, or what the compile refused.
-local function compiled(case: string, files: {string: string}, path: string): string | nil, string
+local function compiled(case: string, files: {string: string}, path: string): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-shape-specs-" .. case .. "-")
   if root == nil then
     return nil, trouble
@@ -77,7 +77,7 @@ local function with_record(declaration: string, call?: string): string
 end
 
 --- The compile of a module whose record `R` is `declaration`'s.
-local function of_record(case: string, declaration: string, call?: string): string | nil, string
+local function of_record(case: string, declaration: string, call?: string): string?, string
   return compiled(case, { ["main.tl"] = with_record(declaration, call) }, "main")
 end
 

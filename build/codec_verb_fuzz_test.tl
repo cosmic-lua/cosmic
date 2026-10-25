@@ -18,7 +18,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 1) == 0 then
     return Fuzz.bytes(src, 64)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 64) do
     local at = src:int(1, #TEXT)
     out[#out + 1] = TEXT:sub(at, at)
@@ -77,7 +77,7 @@ local function test_decoding_is_total_and_exact(tmp: string)
     for _, lenient in ipairs({ false, true }) do
       if not (name == "hex" and lenient) then
         Fuzz.run({
-          name = name .. (lenient and " lenient" or "") .. " verb decoder total",
+          name = name .. (if lenient then " lenient" else "" end) .. " verb decoder total",
           dir = tmp,
           gen = function(src: Fuzz.Source): string
             local text = gen_text(src)
@@ -123,7 +123,7 @@ end
 --- Draws a cutting of the input: chunk sizes, empty ones included, one
 --- byte each so that shrinking can cut any of them.
 local function gen_cuts(src: Fuzz.Source): string
-  local sizes: {string} = {}
+  local sizes: mut {string} = {}
   while Fuzz.more(src, #sizes, 24) do
     sizes[#sizes + 1] = string.char(src:int(0, 9))
   end
@@ -132,9 +132,9 @@ end
 
 --- What decoding `text` answers in chunks whose sizes are the bytes of
 --- `cuts`, then a byte at a time: the bytes, or nil and the reason.
-local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts: string): string | nil, string
+local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts: string): string?, string
   local coder = codec.decoding(name, lenient)
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at, k = 1, 0
   while at <= #text do
     k = k + 1
@@ -155,7 +155,7 @@ local function test_chunked_decoding_answers_as_the_whole_text_does(tmp: string)
     for _, lenient in ipairs({ false, true }) do
       if not (name == "hex" and lenient) then
         Fuzz.run({
-          name = name .. (lenient and " lenient" or "") .. " verb chunked decode",
+          name = name .. (if lenient then " lenient" else "" end) .. " verb chunked decode",
           dir = tmp,
           gen = function(src: Fuzz.Source): string
             local text = gen_text(src)
@@ -175,7 +175,7 @@ local function test_chunked_decoding_answers_as_the_whole_text_does(tmp: string)
               return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
                 fields[1], fields[2], tostring(got), why, tostring(want), want_why)
             end
-            Fuzz.label(want == nil and "refused" or "accepted")
+            Fuzz.label(if want == nil then "refused" else "accepted" end)
             return true, ""
           end,
           requires = { "refused", "accepted" },

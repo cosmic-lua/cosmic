@@ -447,8 +447,8 @@ local CASES <const>: {Case} = {
 }
 
 local function test_each_case_has_its_error_with_place_message_and_fix()
-  local seen: {string: boolean} = {}
-  local problems: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local problems: mut {string} = {}
   for i, case in ipairs(CASES) do
     local r = Programs.run(case.source, case.modules)
     local label = "case " .. i .. " " .. case.code
@@ -456,7 +456,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
     if #r.before > 0 then
       problems[#problems + 1] = label .. ": the source has " .. table.concat(r.before, " ")
     elseif Programs.codes(r) ~= (case.codes or case.code) then
-      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (r.errors[1] ~= nil and " (" .. r.errors[1].msg .. ")" or "")
+      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end)
     else
       local e = r.errors[#r.errors]
       for _, each in ipairs(r.errors) do
@@ -483,7 +483,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
 end
 
 local function test_every_code_has_a_row_with_a_rule_a_reason_and_a_fix_and_the_catalog_names_each_once()
-  local owned: {string: boolean} = {}
+  local owned: mut {string: boolean} = {}
   for _, row in ipairs(Check.catalog) do
     assert(not owned[row.code], row.code .. " is in the catalog twice")
     owned[row.code] = true
@@ -685,15 +685,15 @@ local MODULES <const>: {string: string} = {
 }
 
 local function test_programs_that_follow_the_rules_check_clean()
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(STANDING) do
     names[#names + 1] = name
   end
   table.sort(names)
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for _, name in ipairs(names) do
     local r = Programs.run(STANDING[name], MODULES)
-    local found: {string} = {}
+    local found: mut {string} = {}
     for _, e in ipairs(r.errors) do
       found[#found + 1] = e.y .. ":" .. e.x .. " " .. e.code .. " " .. e.msg
     end
@@ -711,7 +711,7 @@ end
 
 --- The display of the type of each variable `names` lists (space separated) in `r`.
 local function shown(r: Programs.Run, names: {string}): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, name in ipairs(names) do
     out[name] = Types.display(Programs.var(r, name))
   end
@@ -874,13 +874,13 @@ local v = print
 end
 
 local function test_a_chain_of_any_length_is_checked_without_recursion()
-  local terms: {string} = {}
+  local terms: mut {string} = {}
   for i = 1, 30000 do
     terms[i] = "a"
   end
   local r = Programs.run("local a: integer = 1\nlocal b: integer = " .. table.concat(terms, " + ") .. "\n")
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.before[1] or ""))
-  local hops: {string} = {}
+  local hops: mut {string} = {}
   for i = 1, 30000 do
     hops[i] = ".next"
   end
@@ -1090,7 +1090,7 @@ local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_take
   local step = "local type Step = function(): integer\n"
   local function four(last: string): string
     return step .. "local function four(): (Step, nil, nil, " .. last .. ")\n  return function(): integer return 1 end, nil, nil, " ..
-      (last == "nil" and "nil" or "3") .. "\nend\nfor x in four() do\n  print(x)\nend\n"
+      (if last == "nil" then "nil" else "3" end) .. "\nend\nfor x in four() do\n  print(x)\nend\n"
   end
   local said: {string} = {
     -- three expressions are an iterator, a state and a control value
@@ -1207,7 +1207,7 @@ local function test_a_literal_of_the_string_library_is_read_only_where_the_call_
 end
 
 local function test_type_is_compared_with_the_eight_names_it_answers_and_is_tests_a_place_not_a_value()
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, name in ipairs({ "nil", "boolean", "number", "string", "table", "function", "thread", "userdata" }) do
     said[#said + 1] = codes_of("local x: integer | string = 1\nlocal y = type(x) == \"" .. name .. "\"\nprint(y)\n")
   end
@@ -1335,7 +1335,7 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
     "not_assignable", "pattern_malformed", "not_assignable", "not_assignable", "not_assignable", "not_assignable", "", "",
   }
   assert(#said == #want)
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for i, each in ipairs(want) do
     if said[i] ~= each then
       wrong[#wrong + 1] = tostring(i) .. ": " .. said[i] .. " (wanted " .. each .. ")"

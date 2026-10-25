@@ -25,9 +25,9 @@ local types = require("cosmic.template.types")
 --- the offset that line started at. One cursor, advanced in place, so
 --- each helper keeps to the two result slots a fallible function has.
 local record Cursor
-  pos: integer
-  line: integer
-  start: integer
+  mut pos: integer
+  mut line: integer
+  mut start: integer
 end
 
 --- Whether byte `b` is the whitespace trim markers and actions skip.
@@ -82,9 +82,9 @@ end
 
 --- Reads the string whose opening `"` is at `cur`, moving `cur` past its
 --- closing one: its value, or nil and the reason it is refused.
-local function quoted(src: string, cur: Cursor, name: string): string | nil, string
+local function quoted(src: string, cur: Cursor, name: string): string?, string
   local col = cur.pos - cur.start + 1
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = cur.pos + 1
   while true do
     local stop = src:find('[\\"\n]', at)
@@ -115,8 +115,8 @@ end
 --- action ended in `-}}`; nil and the reason, as `name:line:col: ...`,
 --- when a string in it is malformed or it never closes (at `line` and
 --- `col`, its `{{`).
-local function words(src: string, cur: Cursor, tokens: {types.Token}, name: string, open_line: integer,
-                     open_col: integer): boolean | nil, string
+local function words(src: string, cur: Cursor, tokens: mut {types.Token}, name: string, open_line: integer,
+                     open_col: integer): boolean?, string
   local n = #src
   while cur.pos <= n do
     local b = src:byte(cur.pos)
@@ -178,15 +178,15 @@ end
 --- @param name string The template's name, for messages
 --- @return types.Lexed|nil The items and the line count
 --- @return string The reason, as `name:line:col: ...`, on failure
-function Lex.lex(src: string, name: string): types.Lexed | nil, string
-  local items: {types.Item} = {}
+function Lex.lex(src: string, name: string): types.Lexed?, string
+  local items: mut {types.Item} = {}
   local cur: Cursor = { pos = 1, line = 1, start = 1 }
   local n = #src
   local trim_next = false
   while cur.pos <= n do
     local open = src:find("{{", cur.pos, true)
     local stop = open or n + 1
-    local last: types.Item | nil = nil
+    local last: types.Item? = nil
     if stop > cur.pos then
       local text = src:sub(cur.pos, stop - 1)
       local skip = trim_next and leading(text) or 0
@@ -212,7 +212,7 @@ function Lex.lex(src: string, name: string): types.Lexed | nil, string
         items[#items] = nil
       end
     end
-    advance(src, cur, open + (dash and 3 or 2))
+    advance(src, cur, open + (if dash then 3 else 2 end))
     local tokens: {types.Token} = {}
     local trimmed, why = words(src, cur, tokens, name, line, col)
     if trimmed == nil then

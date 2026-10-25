@@ -118,7 +118,7 @@ end
 
 local function test_destroy_subject_signs_a_user_out_everywhere()
   local store, db = open()
-  local mine: {string} = {}
+  local mine: mut {string} = {}
   for i = 1, 3 do
     local id = create(store, { n = i })
     local data = assert(store:load(id, 500, "session"))

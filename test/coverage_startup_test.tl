@@ -19,7 +19,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- whether the name was visible and whether the first and second
 --- windows each hold that line.
 local function windows(tmp: string, startup: boolean): string
-  local dir = tmp .. (startup and "/startup" or "/plain")
+  local dir = tmp .. (if startup then "/startup" else "/plain" end)
   assert(Fs.mkdirs(dir))
   assert(Fs.write(dir .. "/windows.tl", [[
 local Coverage = require("cosmic.coverage")
@@ -42,7 +42,7 @@ return function(): integer
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_COVERAGE_STARTUP = startup and "1" or nil
+  env.COSMIC_COVERAGE_STARTUP = if startup then "1" else nil end
   local started = this_program.program({ "windows.tl" },
     { env = env, cwd = dir, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })

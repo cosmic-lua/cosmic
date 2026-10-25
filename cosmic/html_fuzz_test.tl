@@ -23,7 +23,7 @@ local TOKENS <const> = { "<", ">", "&", '"', "'", " ", "=", "`", "/", "\0", "\n"
 --- A string of tokens and arbitrary bytes, drawn with [`Fuzz.more`] so
 --- shrinking can cut any piece.
 local function gen_text(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 16) do
     parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
   end
@@ -39,7 +39,7 @@ end
 
 --- Whether an `&` of `text` begins none of the five entities.
 local function has_stray_ampersand(text: string): boolean
-  local rest = text:gsub("&(#?%w+);", function(name: string): string | nil
+  local rest = text:gsub("&(#?%w+);", function(name: string): string?
     if ENTITIES[name] then return "" end
     return nil
   end)
@@ -105,16 +105,16 @@ local function test_concat_is_the_join_of_its_parts(tmp: string)
     name = "html concat",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 8) do
-        parts[#parts + 1] = (src:int(0, 1) == 0 and "e" or "t") .. gen_text(src)
+        parts[#parts + 1] = (if src:int(0, 1) == 0 then "e" else "t" end) .. gen_text(src)
       end
       return Fuzz.pack(parts)
     end,
     requires = { "escaped part", "trusted part", "no parts" },
     check = function(input: string): boolean, string
-      local made: {Html.SafeHtml} = {}
-      local expected: {string} = {}
+      local made: mut {Html.SafeHtml} = {}
+      local expected: mut {string} = {}
       for index, part in ipairs(Fuzz.unpack(input)) do
         local text = part:sub(2)
         if part:sub(1, 1) == "e" then
@@ -143,7 +143,7 @@ local URL_TOKENS <const> = { "http", "https", "HTTPS", "mailto", "javascript", "
 local SCHEMES <const> = { "http", "HTTPS", "mailto", "javascript", "data", "ftp", "x-y.z+1", "1a", "%6A" }
 
 local function gen_url(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   -- Half the inputs start as a scheme and a colon, so the allowlist is reached.
   if src:int(0, 1) == 0 then
     parts[1] = Fuzz.pick(src, SCHEMES) .. ":"
@@ -158,7 +158,7 @@ local ALLOWED_SCHEMES <const>: {string: boolean} = { http = true, https = true, 
 
 --- The scheme of `text` as a browser's parser would see it, from the
 --- start: a letter, then letters, digits, `+`, `-` or `.`, then `:`.
-local function scheme_of(text: string): string | nil
+local function scheme_of(text: string): string?
   local name = text:match("^(%a[%w+.%-]*):")
   return name ~= nil and name:lower() or nil
 end
@@ -218,7 +218,7 @@ local PART_TOKENS <const> = { ".", "..", "%", "%2e", "%41", "/", "?", "#", "&", 
 local function gen_part(src: Fuzz.Source): string
   -- A whole dot segment is a case of its own, drawn often enough to be reached.
   if src:int(0, 7) == 0 then return Fuzz.pick(src, { ".", ".." }) end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 6) do
     parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, PART_TOKENS)
   end
@@ -243,7 +243,7 @@ local function test_url_part_writes_only_unreserved_bytes_and_escapes(tmp: strin
       end
       if input == "." or input == ".." then
         Fuzz.label("dot segment")
-        if out ~= (input == "." and "%252E" or "%252E%252E") then
+        if out ~= (if input == "." then "%252E" else "%252E%252E" end) then
           return false, "a dot segment became " .. out
         end
         return true, ""

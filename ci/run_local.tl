@@ -16,16 +16,16 @@ local record Local
   --- fixed, so [`Local.calls`] hands out this record, which the run reads each call from. This file runs
   --- standalone on the pinned library and cannot require a module of its own project to hold them.
   record Calls
-    child_run: function(argv: {string}, options?: Child.Options): Child.Result | nil, string
+    child_run: function(argv: {string}, options?: Child.Options): Child.Result?, string
     env_all: function(): {string:string}
     fs_put: function(fd: integer, bytes: string): boolean, string
-    fs_read: function(path: string): string | nil, string
-    proc_user: function(name: string): Proc.User | nil, string
+    fs_read: function(path: string): string?, string
+    proc_user: function(name: string): Proc.User?, string
     signal_close: function(guard: Signal.Guard): boolean, string
-    signal_guard: function(): Signal.Guard | nil, string
+    signal_guard: function(): Signal.Guard?, string
     sys_getuid: function(): integer
-    sys_mkdtemp: function(template: string): string | nil, string, integer
-    sys_pread: function(fd: integer, count: integer, offset: integer): string | nil, string, integer
+    sys_mkdtemp: function(template: string): string?, string, integer
+    sys_pread: function(fd: integer, count: integer, offset: integer): string?, string, integer
   end
   --- The calls in force: the library's, until a test assigns its own to a field and puts the library's back.
   calls: function(): Calls
@@ -55,24 +55,24 @@ end
 
 --- The private copy of the core a dropped user runs: its directory and the descriptor that names it.
 local record Runtime
-  path: string
-  fd: integer
+  mut path: string
+  mut fd: integer
 end
 
 --- What [`execute`] leaves open or made, which [`Local.run`] lets go of when `execute` ends, however it ends.
 local record Held
   runtime: Runtime
-  open: {integer}
+  open: mut {integer}
 end
 
 --- What [`execute`] answered, kept where the function that runs it under `pcall` can read it.
 local record Ended
-  status: integer
+  mut status: integer
 end
 
 --- What the snapshot of the checkout is, kept where the function that makes it under `pcall` can read it.
 local record Snapshot
-  commit: string
+  mut commit: string
 end
 
 --- Registers the descriptor `fd` with `held`, to be closed by [`close_held`] or, if `execute` ends first, by
@@ -134,7 +134,7 @@ local function dropped_user(values: {string:string}): string
 end
 
 --- Adds the entries of `from` to `into`.
-local function fill(into: {string:string}, from: {string:string})
+local function fill(into: mut {string:string}, from: {string:string})
   for name, value in pairs(from) do into[name] = value end
 end
 
@@ -145,7 +145,7 @@ end
 local function successful(result: Child.Result, program: string)
   local signal = result.signal
   assert(result.ok, program .. ": " .. (result.stderr or "") ..
-      (signal and "signal " .. tostring(signal) or "exit " .. tostring(result.code)))
+      (if signal then "signal " .. tostring(signal) else "exit " .. tostring(result.code) end))
 end
 
 local function present(path: string): boolean
@@ -166,7 +166,7 @@ local function resolved(path: string): string
   local base, leaf = resolved(parent), Fs.basename(path)
   if leaf == "." then return base end
   if leaf == ".." then return Fs.dirname(base) end
-  return (base == "/" and "" or base) .. "/" .. leaf
+  return (if base == "/" then "" else base end) .. "/" .. leaf
 end
 
 local function owned_root(path: string)
@@ -179,10 +179,10 @@ local function execute(argv: {string}, program: string, held: Held): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = current.env_all()
   local relaunch = assert(Proc.relaunch())
-  local resolver_argv: {string} = {}
-  local resolver_env: {string:string} = {}
+  local resolver_argv: mut {string} = {}
+  local resolver_env: mut {string:string} = {}
   fill(resolver_env, caller_env)
-  local resolver_fds: {integer:integer | string} = {}
+  local resolver_fds: mut {integer:integer | string} = {}
   for _, word in ipairs(relaunch.argv) do resolver_argv[#resolver_argv + 1] = word end
   for name, value in pairs(relaunch.env) do resolver_env[name] = value end
   for number, fd in pairs(relaunch.fds) do resolver_fds[number] = fd end
@@ -208,7 +208,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
   else
     error("unsupported host: " .. platform.sysname .. " " .. platform.machine)
   end
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   fill(env, caller_env)
   local uid = current.sys_getuid()
   local cache = fallback_value(env, "XDG_CACHE_HOME", (env["HOME"] or "") .. "/.cache") .. "/cosmic"
@@ -234,7 +234,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
   assert(state ~= "/" and not Fs.within(state, root) and not Fs.within(root, state),
     "state must be outside and not contain the checkout")
   local candidate, project = state .. "/candidate", state .. "/ci"
-  local credentials: Child.Credentials | nil = nil
+  local credentials: Child.Credentials? = nil
   local user = ""
   if uid == 0 then
     user = dropped_user(env)
@@ -251,10 +251,10 @@ local function execute(argv: {string}, program: string, held: Held): integer
   -- Its retained descriptor must name the executing copy: startup checks
   -- both its digest against the artifact and its physical inode.
   local runtime: Runtime = held.runtime
-  local core_slot: integer | nil = nil
+  local core_slot: integer? = nil
   if credentials then
     runtime.path = assert(current.sys_mkdtemp("/tmp/cosmic-local-runtime.XXXXXX"))
-    local source: integer | nil = nil
+    local source: integer? = nil
     local from: integer
     if relaunch.env["COSMIC_PORTABLE_CORE_FD"] then
       core_slot = assert(math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])))
@@ -288,7 +288,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
   end
   -- Every invocation gets new tables; Proc.relaunch is cached.
   local function probe(code: string, values?: {string:string}, input?: string): Child.Result
-    local words: {string} = {}
+    local words: mut {string} = {}
     for at, word in ipairs(relaunch.argv) do
       if at == 1 and runtime.fd >= 0 then
         words[#words + 1] = runtime.path .. "/core"
@@ -298,10 +298,10 @@ local function execute(argv: {string}, program: string, held: Held): integer
     end
     words[#words + 1] = "-e"
     words[#words + 1] = code
-    local child_env: {string:string} = {}
+    local child_env: mut {string:string} = {}
     fill(child_env, values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
-    local fds: {integer:integer} = {}
+    local fds: mut {integer:integer} = {}
     for destination, given in pairs(relaunch.fds) do
       if destination == core_slot then
         fds[destination] = runtime.fd
@@ -317,7 +317,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
     local answer, why = current.child_run(words, options)
     return (assert(answer, why))
   end
-  local chown: string | nil = nil
+  local chown: string? = nil
   if credentials then
     chown = assert(Proc.find("chown"))
     successful(probe("local s=require('cosmic.sys'); assert(s.getuid()==" ..
@@ -402,7 +402,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
       "; for _,n in ipairs(assert(F.list(p))) do assert(F.remove_tree(p..'/'..n)) end; " ..
       "local s=" .. string.format("%q", root .. "/ci") ..
       "; for _,n in ipairs(assert(F.list(s))) do if n~='o' then assert(F.copy_tree(s..'/'..n,p..'/'..n)) end end", env), "CI copy")
-  local phases: {string} = {}
+  local phases: mut {string} = {}
   for _, word in ipairs(argv) do
     phases[#phases + 1] = word
   end
@@ -424,7 +424,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
       local index_dir = assert(current.sys_mkdtemp(fallback_value(caller_env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-index.XXXXXX"))
       local taken: Snapshot = { commit = "" }
       local worked, raised = pcall(function()
-        local values: {string:string} = {}
+        local values: mut {string:string} = {}
         fill(values, caller_env)
         local index_file = index_dir .. "/index"
         values["GIT_INDEX_FILE"] = index_file
@@ -464,7 +464,7 @@ local function execute(argv: {string}, program: string, held: Held): integer
     local path = state .. "/logs/" .. phase .. ".log"
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
     local log = hold(held, (assert(fd, path .. ": " .. tostring(open_why))))
-    local values: {string:string} = {}
+    local values: mut {string:string} = {}
     fill(values, env)
     values["GITHUB_WORKSPACE"], values["RUNNER_TEMP"] = candidate, state .. "/runner"
     values["GITHUB_RUN_ID"], values["GITHUB_RUN_ATTEMPT"], values["COSMIC_WORKER"] = "local", "1", "local"

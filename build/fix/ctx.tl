@@ -56,7 +56,7 @@ local record Open
   step: integer
   --- The column a line inside it starts at instead: a parameter list's
   --- first parameter's, when that follows the `(`.
-  align: integer | nil
+  align: integer?
   --- Whether it holds one expression and no list of them (a
   --- parenthesized expression, an index), so no line inside it starts
   --- an entry apart from the one before.
@@ -72,24 +72,24 @@ local record Ctx
   scan: typescan.Scan
   --- Columns to move a continuation line by: the statement's rendered
   --- indentation minus the one it was read at.
-  shift: integer
+  mut shift: integer
   --- The indentation, in COLUMNS, of the statement being rendered: two
   --- for each block it sits inside, and the same number again for the
   --- closing keyword of a block it opens, so the two line up. A column
   --- rather than a count of blocks because a block does not always open
   --- on the grid -- a function literal on a continuation line opens
   --- wherever that line sits, and its body is indented from there.
-  margin: integer
+  mut margin: integer
   --- `span_start`, remembered as the position the renderer asks for
   --- once per join a node sits beside.
-  memo: {Node: ast.Position}
+  memo: mut {Node: ast.Position}
   --- Every subtree's start found along the way, so no subtree is walked
   --- twice and the starts of a whole file cost one walk of it.
   spans: {Node: {integer}}
   --- Constructs this renderer will not write. A refusal is named rather
   --- than guessed at: writing something else and calling it the same
   --- program is the one outcome a source rewriter may never have.
-  refused: {string}
+  refused: mut {string}
   --- A block of statements, rendered. Assigned by [`build.fix.render`],
   --- because an expression may hold a function literal whose body is
   --- statements again.
@@ -103,20 +103,20 @@ local record Ctx
   --- where its last token was written.
   parted: {Node}
   continues: {Node:boolean}
-  constructs: {Node}
-  ends: {Node:Ending}
+  constructs: mut {Node}
+  ends: mut {Node:Ending}
   --- The `;` tokens, by index, that a node opens on (a block's, an
   --- empty `return` list's): one is the node's own and stays.
-  owned: {integer:boolean}
+  owned: mut {integer:boolean}
   --- The brackets open in the statement being written, innermost
   --- last; the indentation a line continuing it outside them takes past
   --- the statement's (`header`); and what the next lead is to: the
   --- start of an entry of the innermost bracket (`starting`), or its
   --- closing bracket (`closing`).
-  opens: {Open}
+  opens: mut {Open}
   header: integer
-  starting: boolean
-  closing: boolean
+  mut starting: boolean
+  mut closing: boolean
   --- The tokens, by index, of each binary operator written at the
   --- start of a line, which [`build.fix.breaks`] moves to the end of
   --- the line before.
@@ -125,7 +125,7 @@ local record Ctx
   --- placed with, or nil when it held none: a comment before the
   --- block's closing keyword moves as that statement moved
   --- ([`lead_to_closer`]).
-  body_shift: integer | nil
+  mut body_shift: integer?
 end
 
 --- Where `node`'s own subtree starts, remembered across calls.
@@ -161,7 +161,7 @@ local function continuation(ctx: Ctx): string
   end
   ctx.starting = false
   ctx.closing = false
-  return string.rep(" ", width < 0 and 0 or width)
+  return string.rep(" ", if width < 0 then 0 else width end)
 end
 
 --- What to lead with at line `y`: the continuation's indentation when
@@ -311,7 +311,7 @@ end
 --- first moved by `ctx.shift` columns, but those `held` keeps as they
 --- are.
 local function reindent(ctx: Ctx, text: string, y1: integer, held: {integer:boolean}): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local y = y1
   for line in String.lines(text) do
     if y == y1 or held[y] then

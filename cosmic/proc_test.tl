@@ -56,7 +56,7 @@ local function test_find_takes_an_empty_entry_as_the_working_directory(dir: stri
   assert(Fs.write(dir .. "/tool", "#!/bin/sh\n", 0x1ed))
   local before = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local nowhere, elsewhere = dir .. "/nowhere", dir .. "/elsewhere"
   for _, path in ipairs({ "", ":", nowhere .. ":", nowhere .. "::" .. elsewhere }) do
     answers[#answers + 1] = tostring((Proc.find("tool", path)))

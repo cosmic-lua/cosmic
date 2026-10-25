@@ -17,7 +17,7 @@ local Example = {}
 function Example.serve()
   local app = Web.app{
     routes = { Web.get("/", function(_req: Web.Request): Web.Response return Web.text("hello\n") end) },
-    lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+    lifespan = function(_app: Web.App): Web.Shutdown?, string
       print("lifespan: open")
       return function() print("lifespan: closed") end, ""
     end,

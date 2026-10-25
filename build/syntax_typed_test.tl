@@ -16,10 +16,10 @@ end
 
 --- A use whose text starts with `^` is one the fork cannot find ([`Receivers.Reference`]'s `top`).
 local function row(refs: {string}, extra?: Extra): Typed.Row
-  local out: {Receivers.Reference} = {}
+  local out: mut {Receivers.Reference} = {}
   for _, text in ipairs(refs) do
     local module, member, line = text:match("^%^?(%S+) (%S+) (%d+)$")
-    local beyond: boolean | nil = nil
+    local beyond: boolean? = nil
     if text:sub(1, 1) == "^" then
       beyond = true
     end
@@ -161,7 +161,7 @@ local function test_the_exemptions_the_two_sides_need_are_compared_over_the_tree
   local file = assert(key:match("^([^:]*):"))
   local fork: Typed.Fork = { files = { [file] = fork_file({}) } }
   local port = row({})
-  local entries: {string} = {}
+  local entries: mut {string} = {}
   for name, held in pairs({ exempt = own.exempt, parsing = own.parsing, casts = own.casts, modes = own.modes }) do
     for k in pairs(held) do
       if k:sub(1, #file + 1) == file .. ":" then

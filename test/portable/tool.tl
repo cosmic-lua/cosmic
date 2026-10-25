@@ -44,12 +44,12 @@ local function corrupt_ranges(argv: {string}): integer
   assert(source ~= nil and out ~= nil and selected ~= nil,
     "usage: tool.tl corrupt-ranges ARTIFACT OUT SELECTED_OFFSET")
   local read_artifact = assert(fixture.read(source))
-  local listing: {string} = {}
+  local listing: mut {string} = {}
   for index, one in ipairs(read_artifact.entries) do
     local path = out .. "/corrupt-range-" .. index
     local corrupt = assert(fixture.change_byte(read_artifact.bytes, one.offset))
     assert(Fs.write(path, corrupt, 0x1ed))
-    local kind = one.offset == selected and "selected" or "nonselected"
+    local kind = if one.offset == selected then "selected" else "nonselected" end
     listing[#listing + 1] = path .. " " .. kind .. "\n"
   end
   assert(Fs.write(out .. "/corrupt-ranges", table.concat(listing)))
@@ -92,8 +92,8 @@ local function verify_verdicts(argv: {string}): integer
     "SELECT key FROM verdicts ORDER BY key"))
   assert(db:close())
   local content = assert(Fs.read(counter))
-  local lines: {string} = {}
-  local distinct: {string:boolean} = {}
+  local lines: mut {string} = {}
+  local distinct: mut {string:boolean} = {}
   for line in content:gmatch("([^\n]+)\n?") do
     lines[#lines + 1] = line
     distinct[line] = true
@@ -129,7 +129,7 @@ local function prepare_databases(argv: {string}): integer
 
   local db = assert(Sqlite.open(argv[1]))
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
-  local keys: {string:boolean} = {}
+  local keys: mut {string:boolean} = {}
   for _, row in ipairs(rows) do keys[row:text(1)] = true end
   local images = assert(Sqlite.text_rows(db,
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'"))
@@ -171,7 +171,7 @@ local function prepare_artifacts(argv: {string}): integer
   assert(Fs.write(root .. "/runtime.old.prefix-length",
     tostring(old.prefix_length) .. "\n"))
 
-  local target_names: {integer:string} = {}
+  local target_names: mut {integer:string} = {}
   local records = assert(Fs.read(targets_path))
   for line in records:gmatch("[^\n]+") do
     local id, name = line:match("^(%d+)\t%d+\t[^\t]+\t([^\t]+)\t")
@@ -180,7 +180,7 @@ local function prepare_artifacts(argv: {string}): integer
   end
   for _, selected in ipairs(old.entries) do
     if selected.configuration == 1 then
-      local other: fixture.Entry | nil = nil
+      local other: fixture.Entry? = nil
       for _, candidate in ipairs(old.entries) do
         if candidate.target ~= selected.target then
           other = candidate
@@ -233,7 +233,7 @@ local function product_extract(argv: {string}): integer
       targets_path ~= nil and cores ~= nil,
     "usage: tool.tl product-extract PROGRAM PREFIX MANIFEST TARGETS CORES APPLICATION...")
   local records = assert(Fs.read(targets_path))
-  local targets: {Target} = {}
+  local targets: mut {Target} = {}
   for line in records:gmatch("[^\n]+") do
     local id, configuration, kind, name =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t")
@@ -428,14 +428,14 @@ return function(argv: {string}): integer
   local handler = command ~= nil and subcommands[command] or nil
   if handler == nil then
     local _, _ = Fs.put(Fs.stderr, "usage: tool.tl SUBCOMMAND ARGS...\n")
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(subcommands) do names[#names + 1] = name end
     table.sort(names)
     local _, _ = Fs.put(Fs.stderr, "subcommands: " .. table.concat(names, ", ") .. "\n")
     return 2
   end
   -- Reindex argv[2:] down to [1:].
-  local rest: {string} = {}
+  local rest: mut {string} = {}
   local at = 1
   while argv[at + 1] ~= nil do
     rest[at] = argv[at + 1]

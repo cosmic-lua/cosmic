@@ -71,7 +71,7 @@ local record compile_grammar
     declaration: boolean
     --- The Lua; nil for a declaration file, for a file with a syntax error, and where the generator refused
     --- a construct (`trouble` says which).
-    code: string | nil
+    code: string?
     --- The lexer's and the parser's errors.
     syntax_errors: {Problem}
     --- Every other error, in source order.
@@ -84,7 +84,7 @@ local record compile_grammar
   record Emitted
     --- The Lua; nil for a module with no bodies checked (a declaration file) and where the generator refused a
     --- construct (`trouble` says which).
-    code: string | nil
+    code: string?
     --- Why the generator wrote no Lua for a module that was checked: its refusals, one to a line, the first
     --- 20 and how many more there are. "" where it wrote some.
     trouble: string
@@ -132,8 +132,8 @@ local KINDS <const>: {string: string} = {
 }
 
 --- The word a test for the type `t` is written by, nil where the syntax says it.
-local function kind_of(t: Types.Type): string | nil
-  if t is Types.Fn then
+local function kind_of(t: Types.Type): string?
+  if (t.tag == "fn") then
     return "function"
   end
   return KINDS[t.tag]
@@ -142,13 +142,13 @@ end
 --- What the checker concluded of the type names of `result`, for the generator, and the tests of it the Lua cannot tell.
 local function type_facts(program: Declarations.Program, result: Driver.Outcome, lowered: Declarations.Lowered,
                           counted?: boolean): {integer: string}, {string}
-  local kinds: {integer: string} = {}
-  local refused: {string} = {}
+  local kinds: mut {integer: string} = {}
+  local refused: mut {string} = {}
   local library = program.globals["table"]
   -- Every node, the walk's own list growing as it goes.
   local nodes: {Ast.Node} = { result.chunk.body }
   for _, node in ipairs(nodes) do
-    if node is Ast.TypeName then
+    if (node.kind == "TypeName") then
       local t = lowered.types[node.id]
       if t ~= nil then
         local word = kind_of(t)
@@ -156,16 +156,16 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
           kinds[node.id] = word
         end
       end
-    elseif node is Ast.IsTest then
+    elseif (node.kind == "IsTest") then
       local t = lowered.types[node.type.id]
-      local why: string | nil
-      if t is Types.Named and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
+      local why: string?
+      if (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
         local tested = node.type
         if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
-            tested is Ast.TypeName then
+            (tested.kind == "TypeName") then
           -- The test of a record is the test for a table, as the fork writes it: the checker reports it (`is_on_record`) and
           -- the ceilings of `[checked]` count it, so the tests the tree has are the ones this writes and no more.
-          kinds[tested.id] = t.decl.kind == "userdata" and "userdata" or "table"
+          kinds[tested.id] = if t.decl.kind == "userdata" then "userdata" else "table" end
         elseif t.decl.kind ~= "class" then
           why = "a " .. t.decl.kind .. " has no run-time tag to test"
         elseif t.decl.module ~= result.module then
@@ -193,17 +193,17 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
   if checked == nil or lowered == nil then
     return { code = nil, trouble = "" }
   end
-  local classes: {integer: string} = {}
+  local classes: mut {integer: string} = {}
   for id, decl in pairs(checked.literals) do
     classes[id] = decl.name
   end
   local kinds, refusals = type_facts(build.program, result, lowered, counted)
-  local wraps: {integer: string} | nil = nil
+  local wraps: {integer: string}? = nil
   if facts == true then
     wraps = FactWraps.of(checked.narrowed, result.text, result.source.filename)
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds, served == true)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, e in ipairs(generated.errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix
   end
@@ -226,13 +226,13 @@ end
 -- ([`Driver.Options`]'s `external` is read when the build is made): the files that name `cosmic.` are parsed here and again by
 -- the build.
 local function bindings_of(sources: {compile_grammar.Source}, provided: {string: boolean}): {string}
-  local out: {string} = {}
-  local seen: {string: boolean} = {}
+  local out: mut {string} = {}
+  local seen: mut {string: boolean} = {}
   for _, source in ipairs(sources) do
     -- Only a file that names one can require one: the others are not parsed here.
     if source.text:find("cosmic.", 1, true) ~= nil then
       local parsed = Parser.parse(Lexer.lex(source.text, source.relative), source.relative,
-        source.declaration and "decl" or "tl")
+        if source.declaration then "decl" else "tl" end)
       for _, r in ipairs(parsed.chunk.requires) do
         if r.module:sub(1, 7) == "cosmic." and provided[r.module] ~= true and seen[r.module] ~= true then
           seen[r.module] = true
@@ -246,11 +246,11 @@ end
 
 function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: boolean): {compile_grammar.Compiled}
   -- The declaration files given declare the globals of every file; a source is the module its path names.
-  local globals: {Driver.Source} = {}
-  local given: {Driver.Source} = {}
-  local names: {string} = {}
-  local by_module: {string: Driver.Source} = {}
-  local provided: {string: boolean} = {}
+  local globals: mut {Driver.Source} = {}
+  local given: mut {Driver.Source} = {}
+  local names: mut {string} = {}
+  local by_module: mut {string: Driver.Source} = {}
+  local provided: mut {string: boolean} = {}
   for index, source in ipairs(sources) do
     local module = Declarations.module_of(source.relative)
     provided[module] = true
@@ -266,24 +266,24 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
     by_module[module] = made
   end
   local build = Driver.new({ globals = globals, adjust = nil, external = bindings_of(sources, provided), types = false })
-  build:provide(function(module: string): Driver.Source | nil
+  build:provide(function(module: string): Driver.Source?
     return by_module[module]
   end)
 
-  local results: {Driver.Outcome} = {}
-  local syntax_errors: {{compile_grammar.Problem}} = {}
+  local results: mut {Driver.Outcome} = {}
+  local syntax_errors: mut {{compile_grammar.Problem}} = {}
   local refused = false
   for index, source in ipairs(given) do
     local outcome = assert(build:parsed(source.module), source.module .. " is a source given")
     results[index] = outcome
-    local found: {compile_grammar.Problem} = {}
+    local found: mut {compile_grammar.Problem} = {}
     for _, p in ipairs(outcome.syntax) do
       found[#found + 1] = reported(p)
     end
     syntax_errors[index] = found
     refused = refused or #found > 0
   end
-  local made: {compile_grammar.Compiled} = {}
+  local made: mut {compile_grammar.Compiled} = {}
   if refused then
     for index, source in ipairs(sources) do
       made[index] = {
@@ -299,11 +299,11 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   build:lower(names)
   for index, source in ipairs(sources) do
     local result = assert(build:result(assert(names[index]), true))
-    local errors: {compile_grammar.Problem} = {}
+    local errors: mut {compile_grammar.Problem} = {}
     for _, p in ipairs(result.errors) do
       errors[#errors + 1] = reported(p)
     end
-    local code: string | nil = nil
+    local code: string? = nil
     local trouble = ""
     if not source.declaration then
       local emitted = compile_grammar.emit(build, result, facts)

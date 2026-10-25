@@ -26,35 +26,35 @@ end
 
 --- What one pass over the tree finds.
 local record Found
-  names: {Ast.Name}
-  types: {Ast.TypeName}
-  bindings: {Ast.Binding}
+  names: mut {Ast.Name}
+  types: mut {Ast.TypeName}
+  bindings: mut {Ast.Binding}
   --- The ids of the names a function statement path holds that are no uses.
-  members: {integer: boolean}
+  members: mut {integer: boolean}
   --- The ids of the function statements written with a colon.
-  colons: {Ast.Function}
-  functions: {integer: boolean}
+  colons: mut {Ast.Function}
+  functions: mut {integer: boolean}
 end
 
 local function survey(chunk: Ast.Chunk): Found
   local found: Found = { names = {}, types = {}, bindings = {}, members = {}, colons = {}, functions = { [chunk.id] = true } }
   local parents: {integer: Ast.Node} = {}
-  local stack: {Ast.Node} = { chunk }
+  local stack: mut {Ast.Node} = { chunk }
   while #stack > 0 do
     local node = stack[#stack]
     stack[#stack] = nil
     local kind = base_of(node).kind
-    if node is Ast.Name then
+    if (node.kind == "Name") then
       found.names[#found.names + 1] = node
-    elseif node is Ast.TypeName then
+    elseif (node.kind == "TypeName") then
       found.types[#found.types + 1] = node
-    elseif node is Ast.Binding then
+    elseif (node.kind == "Binding") then
       local parent = parents[node.id]
       local parent_kind = parent ~= nil and base_of(parent).kind or ""
       if parent_kind ~= "FieldDecl" and parent_kind ~= "Method" and node.name ~= "" then
         found.bindings[#found.bindings + 1] = node
       end
-    elseif node is Ast.Function then
+    elseif (node.kind == "Function") then
       local path = node.path
       for i, name in ipairs(path) do
         if #path ~= 2 or i > 1 then
@@ -97,7 +97,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
       return false, "the binding `" .. b.name .. "` at token " .. b.first .. " has no variable of its name and place"
     end
   end
-  local by_name: {string: {Scopes.Var}} = {}
+  local by_name: mut {string: {Scopes.Var}} = {}
   for _, v in ipairs(scoped.list) do
     if vars[v.id] ~= v then
       return false, "the variable `" .. v.name .. "` is not under its id"
@@ -117,8 +117,8 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
     by_name[v.name] = held
   end
   -- Which variable each use is listed under, and whether it is a read.
-  local listed_under: {integer: integer} = {}
-  local is_read: {integer: boolean} = {}
+  local listed_under: mut {integer: integer} = {}
+  local is_read: mut {integer: boolean} = {}
   local listed = 0
   for _, v in ipairs(scoped.list) do
     for _, id in ipairs(v.reads) do
@@ -140,7 +140,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   for _, n in ipairs(found.names) do
     if not found.members[n.id] then
       local at = n.first
-      local best: Scopes.Var | nil = nil
+      local best: Scopes.Var? = nil
       for _, v in ipairs(by_name[n.text] or {}) do
         if v.from <= at and at <= v.to and (best == nil or v.from > best.from or (v.from == best.from and v.declared > best.declared)) then
           best = v
@@ -197,7 +197,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
   end
   local at = 0
   local errors = scoped.errors
-  local by_offset: {integer: integer} = {}
+  local by_offset: mut {integer: integer} = {}
   if #errors > 0 then
     for i, offset in ipairs(tokens.offset) do
       by_offset[offset] = i

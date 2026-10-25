@@ -26,7 +26,7 @@ end
 
 --- The messages and codes of the type errors for `source`, one string.
 local function shown(source: string): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(type_errors(source)) do
     out[#out + 1] = tostring(e.code) .. " " .. e.y .. ":" .. e.x .. " " .. e.msg
   end
@@ -131,7 +131,7 @@ local function test_a_stub_keeps_the_keyword_and_types_the_same()
   assert(stubbed:find("readonly id: integer", 1, true) ~= nil, stubbed)
   local program = 'local R = require("ro")\nlocal r: R = { id = 1, n = 2 }\nr.id = 3\nr.n = 4\nreturn r\n'
   local function check(text: string): (string, compiler.Result)
-    built.search_module = function(name: string, _all: boolean): string | nil, compiler.Handle | nil
+    built.search_module = function(name: string, _all: boolean): string?, compiler.Handle?
       if name ~= "ro" then
         return nil
       end
@@ -140,7 +140,7 @@ local function test_a_stub_keeps_the_keyword_and_types_the_same()
     local env = assert(built.new_env({ defaults = teal.defaults() }))
     teal.strip(env)
     local result = built.check_string(program, env, "app.tl", "tl")
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, e in ipairs(result.type_errors) do
       out[#out + 1] = tostring(e.code) .. " " .. e.y .. ":" .. e.x .. " " .. e.msg
     end

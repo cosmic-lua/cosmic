@@ -344,7 +344,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   local view = assert(docs.view({ db }))
   local found = assert(docs.uses(view, "greet.hello"))
   assert(db:close())
-  local links: {string} = {}
+  local links: mut {string} = {}
   for _, use in ipairs(found) do
     if use.link then links[#links + 1] = use.from_file .. ":" .. use.line end
   end
@@ -396,9 +396,9 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     assert(work.stage(handle, false))
     local result = assert(importer.compile(handle, built, "closure-store-test"))
     assert(writer.write_result(handle, tmp .. "/whole.db", result))
-    local by_path: {string:importer.Module} = {}
+    local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
-    local declarations: {string:string} = {}
+    local declarations: mut {string:string} = {}
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT path, file FROM inputs WHERE kind = 'decl'"))
     for _, row in ipairs(rows) do
@@ -406,7 +406,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     end
     assert(work.close(handle))
     local basis = assert(closure_store.basis(tmp .. "/whole.db"))
-    local out: {string:string} = {}
+    local out: mut {string:string} = {}
     for _, path in ipairs({ "wrap_test", "greet_test" }) do
       local names = test_inputs.modules(assert(by_path[path]), by_path, declarations)
       out[path] = closure_store.address(basis, names, "salt")

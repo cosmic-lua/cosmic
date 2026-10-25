@@ -75,7 +75,7 @@ end
 --- The asset path a fingerprinted `rel` stands for, with its digits:
 --- "css/app.3f9a1c8e2b.css" is "css/app.css" and "3f9a1c8e2b"; nil for a
 --- name that is not one.
-local function unfingerprint(rel: string): Parts | nil
+local function unfingerprint(rel: string): Parts?
   local dir, name = rel:match("^(.-)([^/]+)$")
   local stem, digits, ext = name:match("^(.+)%.(" .. HEX10 .. ")(%.[^.]+)$")
   if stem == nil then
@@ -112,8 +112,8 @@ end
 
 --- The path under the mount, "css/app.css", or nil for a request that
 --- names no file; "" for the mount's root.
-local function relative(req: Types.Request): string | nil
-  local parts: {string} = {}
+local function relative(req: Types.Request): string?
+  local parts: mut {string} = {}
   for i = depth(req.mount_path) + 1, #req.segments do
     local segment = req.segments[i]
     if not servable(segment) then return nil end
@@ -126,9 +126,9 @@ end
 
 --- Whether `Accept-Encoding` `header` takes gzip: the token, or `*`, with
 --- a q-value other than 0; an explicit gzip beats `*`.
-local function takes_gzip(header: string | nil): boolean
+local function takes_gzip(header: string?): boolean
   if header == nil then return false end
-  local star: boolean | nil = nil
+  local star: boolean? = nil
   for item in (header .. ","):gmatch("([^,]*),") do
     local token, rest = item:match("^%s*([^;%s]*)(.*)$")
     if token ~= nil then
@@ -145,7 +145,7 @@ end
 
 --- Whether an `If-Range` header (an entity tag or a date) holds for a
 --- representation with strong `etag`: only an equal strong tag does.
-local function if_range_holds(header: string | nil, etag: string): boolean
+local function if_range_holds(header: string?, etag: string): boolean
   if header == nil then return true end
   return header == etag
 end
@@ -157,7 +157,7 @@ local function stale(): Types.Response
 end
 
 --- Sets `opts.headers` on `res`, over what it holds.
-local function with_headers(res: Types.Response, extra: {string:string} | nil): Types.Response
+local function with_headers(res: Types.Response, extra: {string:string}?): Types.Response
   for name, value in pairs(extra or {}) do Response.set_header(res, name, value) end
   return res
 end
@@ -165,7 +165,7 @@ end
 --- The headers every answer about `asset` carries.
 local function validators(asset: Assets.Asset, etag: string, control: string,
                           encoded: boolean): {string: string | {string}}
-  local headers: {string: string | {string}} = {
+  local headers: mut {string: string | {string}} = {
     ["Content-Type"] = asset.type, ["ETag"] = etag, ["Cache-Control"] = control,
     ["X-Content-Type-Options"] = "nosniff",
   }
@@ -197,7 +197,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
   --- The asset `rel` names, whether by its fingerprint, and what is
   --- wrong when there is none: "stale" for a fingerprint of other content,
   --- "none" for a path no file has.
-  local function find(rel: string): Assets.Asset | nil, boolean, string
+  local function find(rel: string): Assets.Asset?, boolean, string
     local asset, _ = source:get(rel)
     if asset ~= nil then return asset, false, "" end
     local parts = unfingerprint(rel)
@@ -223,7 +223,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
     local by_digest: boolean
     local trouble: string
     if o.html and (rel == "" or req.trailing) then
-      asset, by_digest, trouble = find(rel == "" and "index.html" or rel .. "/index.html")
+      asset, by_digest, trouble = find(if rel == "" then "index.html" else rel .. "/index.html" end)
     elseif rel == "" then
       return missing(req)
     else
@@ -256,7 +256,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       not_modified = Server.none_match(none_match, etag)
     elseif asset.mtime > 0 then
       local since = req:header("if-modified-since")
-      local stamp: integer | nil = nil
+      local stamp: integer? = nil
       if since ~= nil then
         local parsed, _ = Time.parse_http(since)
         stamp = parsed
@@ -308,14 +308,14 @@ end
 --- @param path string The asset's path, "css/app.css"
 --- @return string | nil The URL
 --- @return string Why there is none
-function StaticFiles.url(source: Assets.Source, prefix: string, path: string): string | nil, string
+function StaticFiles.url(source: Assets.Source, prefix: string, path: string): string?, string
   local asset, why = source:get(path)
   if asset == nil then return nil, why end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in fingerprinted(path, asset.sha256):gmatch("[^/]+") do
     parts[#parts + 1] = Url.escape(part)
   end
-  return (prefix == "/" and "" or prefix) .. "/" .. table.concat(parts, "/"), ""
+  return (if prefix == "/" then "" else prefix end) .. "/" .. table.concat(parts, "/"), ""
 end
 
 --- The route for `prefix` serving `opts.source`: [`Web.mount_handler`]
@@ -334,7 +334,7 @@ function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Ro
     gzip = opts and opts.gzip,
   }
   return Route.mount_handler(prefix, StaticFiles.handler(o), { name = "static",
-    reverse = function(full: string, params: {string:string}): string | nil, string
+    reverse = function(full: string, params: {string:string}): string?, string
       local path = params.path
       if path == nil then return nil, "static: url_for needs a 'path' parameter" end
       return StaticFiles.url(source, full, path)

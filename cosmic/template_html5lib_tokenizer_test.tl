@@ -46,21 +46,21 @@ end
 --- gathered for the next token, the tag, attribute and comment being read,
 --- and the name of the last start tag.
 local record Machine
-  state: string
-  chars: string
-  last_tag: string
-  tag_kind: string
-  tag_name: string
-  tag_self: boolean
-  tag_attrs: {string: string}
-  attr_name: string
-  attr_value: string
-  attr_dup: boolean
-  has_attr: boolean
-  comment: string
-  temp: string
-  target: string
-  pi_data: string
+  mut state: string
+  mut chars: string
+  mut last_tag: string
+  mut tag_kind: string
+  mut tag_name: string
+  mut tag_self: boolean
+  mut tag_attrs: mut {string: string}
+  mut attr_name: string
+  mut attr_value: string
+  mut attr_dup: boolean
+  mut has_attr: boolean
+  mut comment: string
+  mut temp: string
+  mut target: string
+  mut pi_data: string
 end
 
 local function is_alpha(c: string): boolean
@@ -74,16 +74,16 @@ end
 --- The canonical text of a tag token: its name, its attributes in name
 --- order and whether it closes itself.
 local function tag_text(kind: string, name: string, attrs: {string: string}, self: boolean): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for k in pairs(attrs) do
     names[#names + 1] = k
   end
   table.sort(names)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, k in ipairs(names) do
     parts[#parts + 1] = k .. "=" .. attrs[k]
   end
-  return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (self and ":/" or "")
+  return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (if self then ":/" else "" end)
 end
 
 --- The tokens, and the state at every cut, that the HTML standard's
@@ -96,10 +96,10 @@ end
 --- its `>`, which every one of the standard's doctype states ends at.
 local function tokenize(input: string, initial: string, last_tag: string): Run
   local n = #input
-  local tokens: {string} = {}
-  local states: {string} = {}
-  local attr_at: {string} = {}
-  local tails: {string} = {}
+  local tokens: mut {string} = {}
+  local states: mut {string} = {}
+  local attr_at: mut {string} = {}
+  local tails: mut {string} = {}
   local m: Machine = {
     state = initial, chars = "", last_tag = last_tag,
     tag_kind = "S", tag_name = "", tag_self = false, tag_attrs = {},
@@ -258,7 +258,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       end
     elseif s == "script_double_escape_start" then
       if is_space(c) or c == "/" or c == ">" then
-        m.state = m.temp == "script" and "script_double_escaped" or "script_escaped"
+        m.state = if m.temp == "script" then "script_double_escaped" else "script_escaped" end
         m.chars = m.chars .. c
       elseif is_alpha(c) then
         m.temp = m.temp .. c:lower()
@@ -303,7 +303,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
       end
     elseif s == "script_double_escape_end" then
       if is_space(c) or c == "/" or c == ">" then
-        m.state = m.temp == "script" and "script_escaped" or "script_double_escaped"
+        m.state = if m.temp == "script" then "script_escaped" else "script_double_escaped" end
         m.chars = m.chars .. c
       elseif is_alpha(c) then
         m.temp = m.temp .. c:lower()
@@ -399,7 +399,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
         return true
       end
     elseif s == "value_dq" or s == "value_sq" then
-      if c == (s == "value_dq" and '"' or "'") then
+      if c == (if s == "value_dq" then '"' else "'" end) then
         m.state = "after_value"
       else
         m.attr_value = m.attr_value .. c
@@ -764,10 +764,10 @@ local MARKUP_CLOSERS <const>: {string} = { "", ">", "\">", "'>", "-->" }
 --- plain text (an `html` template must end there), or nil if none of the
 --- ones tried does. What follows a slot cannot change where the slot
 --- stands, so any that compiles will do, and one is found with no slot.
-local function closer_for(wrapper: string, input: string): string | nil
+local function closer_for(wrapper: string, input: string): string?
   local tag = wrapper:match("^<(%a+)>$")
   for _, base in ipairs(MARKUP_CLOSERS) do
-    for _, tail in ipairs({ "", tag and ("</" .. tag .. ">") or "" }) do
+    for _, tail in ipairs({ "", if tag then ("</" .. tag .. ">") else "" end }) do
       local closer = base .. tail
       if Template.compile(HEAD .. wrapper .. input .. closer, "t.tmpl") ~= nil then
         return closer
@@ -779,18 +779,18 @@ end
 
 --- What the checks reached, so the test can hold a floor under them.
 local record Reach
-  cases: integer
-  unclosed: integer
-  closers: integer
-  validated: integer
-  positions: integer
-  accepted: {string: integer}
-  failures: {string}
+  mut cases: integer
+  mut unclosed: integer
+  mut closers: integer
+  mut validated: integer
+  mut positions: integer
+  accepted: mut {string: integer}
+  failures: mut {string}
 end
 
 --- The tokens a case expects, as `tokenize` writes them.
 local function expected_tokens(output: {any}): {string}
-  local tokens: {string} = {}
+  local tokens: mut {string} = {}
   local chars = ""
   for _, raw in ipairs(output) do
     local item = raw as {any}
@@ -803,7 +803,7 @@ local function expected_tokens(output: {any}): {string}
         chars = ""
       end
       if kind == "StartTag" then
-        local attrs: {string: string} = {}
+        local attrs: mut {string: string} = {}
         for k, v in pairs(item[3] as {string: any}) do
           attrs[k] = v as string
         end
@@ -838,7 +838,7 @@ local function same_tokens(a: {string}, b: {string}): boolean
 end
 
 local function check_case(
-    description: string, input: string, initial: string, last_tag: string | nil,
+    description: string, input: string, initial: string, last_tag: string?,
     output: {any}, reach: Reach)
   local state = STATES[initial]
   if state == nil or input:find("{{", 1, true) or input:find("[&%z\r]") then
@@ -949,7 +949,7 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   end
   assert(#reach.failures == 0, #reach.failures .. " failures:\n" ..
       table.concat(reach.failures, "\n", 1, math.min(#reach.failures, 30)))
-  local summary: {string} = {}
+  local summary: mut {string} = {}
   for key, count in pairs(reach.accepted) do
     summary[#summary + 1] = key .. "=" .. count
   end

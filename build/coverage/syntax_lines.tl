@@ -17,13 +17,13 @@ local record Lines
   --
   -- TODO: count a record, enum or alias statement whose name is used as a value, once this reads the checker's type
   -- report and not the tree alone: the percentage is deflated until then, never inflated.
-  executable: function(source: string, name: string, translated?: boolean): {integer: boolean} | nil, string
+  executable: function(source: string, name: string, translated?: boolean): {integer: boolean}?, string
 
   --- [`Lines.executable`]'s answer for `source`, read from the `executable` table of `db` (the cache [`build.work`]'s
   --- schema documents next to `parsed`) when it has a row for `source_hash`, else computed and stored. A parse failure
   --- is returned as [`Lines.executable`] returns it and nothing is written: only a parse is a function of the hash.
   executable_cached: function(db: Sqlite.Handle, source_hash: string, source: string,
-                              name: string, translated?: boolean): {integer: boolean} | nil, string
+                              name: string, translated?: boolean): {integer: boolean}?, string
 end
 
 local text = bind.text
@@ -37,7 +37,7 @@ local text = bind.text
 -- translator stands for the source until the table is cleared, so a denominator may be that of an older translation. It
 -- waits on the switch, which deletes the translation (doc/plans/strict-teal.md, "the switch").
 local function keyed(source_hash: string, translated: boolean): string
-  return (translated and "translated:" or "syntax:") .. source_hash
+  return (if translated then "translated:" else "syntax:" end) .. source_hash
 end
 
 --- The kinds of statement that declare a type.
@@ -45,7 +45,7 @@ local function declares_type(stat: Ast.Stat): boolean
   return Node.declared(stat) ~= nil
 end
 
-function Lines.executable(source: string, name: string, translated?: boolean): {integer: boolean} | nil, string
+function Lines.executable(source: string, name: string, translated?: boolean): {integer: boolean}?, string
   local text_read = source
   if translated == true then
     text_read = Translate.translate(source, name).text
@@ -60,7 +60,7 @@ function Lines.executable(source: string, name: string, translated?: boolean): {
   end
   local out: {integer: boolean} = {}
   Node.walk(chunk, function(node: Ast.Node)
-    if node is Ast.Block then
+    if (node.kind == "Block") then
       for _, stat in ipairs(node.stats) do
         if not declares_type(stat) then
           local base = Node.base(stat)
@@ -68,7 +68,7 @@ function Lines.executable(source: string, name: string, translated?: boolean): {
           -- Lua attributes a closure to the line its body ends on, and a `local function` is nothing but that closure:
           -- its own first line never runs. (`function M.f` is pinned to its first line by the assignment Lua fixes
           -- there.)
-          if stat is Ast.LocalFunction then
+          if (stat.kind == "LocalFunction") then
             y = Lexer.yend(chunk.tokens, base.last)
           end
           out[y] = true
@@ -80,7 +80,7 @@ function Lines.executable(source: string, name: string, translated?: boolean): {
 end
 
 function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source: string,
-                                 name: string, translated?: boolean): {integer: boolean} | nil, string
+                                 name: string, translated?: boolean): {integer: boolean}?, string
   local key = keyed(source_hash, translated == true)
   local cached, select_trouble = Sqlite.text_rows(db,
     "SELECT lines FROM executable WHERE source_hash = ?1", { text(key) })
@@ -88,7 +88,7 @@ function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source:
     return nil, select_trouble
   end
   if #cached > 0 then
-    local out: {integer: boolean} = {}
+    local out: mut {integer: boolean} = {}
     for piece in cached[1]:text(1):gmatch("%d+") do
       local line = math.tointeger(tonumber(piece))
       if line ~= nil then out[line] = true end
@@ -99,12 +99,12 @@ function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source:
   if executable == nil then
     return nil, trouble
   end
-  local numbers: {integer} = {}
+  local numbers: mut {integer} = {}
   for line in pairs(executable) do
     numbers[#numbers + 1] = line
   end
   table.sort(numbers)
-  local joined: {string} = {}
+  local joined: mut {string} = {}
   for i, line in ipairs(numbers) do
     joined[i] = tostring(line)
   end

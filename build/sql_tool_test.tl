@@ -33,7 +33,7 @@ local function test_a_pipe_is_a_table_and_a_file_beside_it_joins(tmp: string)
     "SELECT who, sum(balance) FROM owners JOIN bal USING (id) GROUP BY who ORDER BY who" },
     '{"id": 1, "balance": 5}\n{"id": 1, "balance": 7}\n{"id": 2, "balance": 1}\n')
   assert(ran.code == 0, ran.err)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in ran.out:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(lines[1] == "who\tsum(balance)" and lines[2] == "ann\t12" and lines[3] == "bob\t1", ran.out)
   assert(#lines == 3, ran.out)

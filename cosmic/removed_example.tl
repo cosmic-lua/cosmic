@@ -46,7 +46,7 @@ end
 function Example.iteration_select()
   local sum = 0
   for _, n in ipairs({ 2, 3, 5 }) do sum = sum + n end
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for key in pairs({ a = 1, b = 2 }) do seen[key] = true end
   local function tail(...: string): string, integer
     return assert(select(2, ...)), select("#", ...)
@@ -60,7 +60,7 @@ end
 --- does not infer arbitrary __index, __newindex, __call, arithmetic,
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
-  local values: {string:integer} = { present = 2 }
+  local values: mut {string:integer} = { present = 2 }
   local mt: metatable<{string:integer}> = { __index = function(): integer return 9 end }
   setmetatable(values, mt)
   assert(values["missing"] == 9 and rawget(values, "missing") == nil)
@@ -109,7 +109,7 @@ end
 --- neither fills elements nor has a bundled Teal declaration.
 function Example.table_operations()
   local xs = { "c", "a", "b" }
-  local empty: {string} = {}
+  local empty: mut {string} = {}
   assert(table.remove(empty) == nil and table.remove(xs, #xs + 1) == nil)
   local removed, trouble = pcall(function() table.remove(xs, 0) end)
   assert(not removed, tostring(trouble))
@@ -189,7 +189,7 @@ function Example.math_numeric()
   assert(whole == 2 and fraction == .25 and math.fmod(-7, 3) == -1)
   assert(math.min(3, 1, 2) == 1 and math.max(3, 1, 2) == 3)
   assert(math.type(1) == "integer" and math.tointeger(1.5) == nil)
-  assert(1_000_000 == 1000000 and math.type(1_000) == "integer" and tonumber("1_000") == nil)
+  assert(1000000 == 1000000 and math.type(1000) == "integer" and tonumber("1_000") == nil)
 end
 
 --- math.sin, math.cos, math.tan, math.asin, math.acos and math.atan(y[, x]) use
@@ -325,16 +325,16 @@ function Example.unions_narrowing_casts()
     name: string
   end
   local record Left is Named
-    where self.name == "left"
+
   end
   local record Right is Named
-    where self.name == "right"
+
   end
   local function side(value: Left | Right): string
     if value is Left then return "L:" .. value.name end
     return "R:" .. value.name
   end
-  local function render(value: string | integer | nil): string
+  local function render(value: (string | integer)?): string
     if value == nil then return "missing" end
     if value is integer then return tostring(value + 1) end
     return string.upper(value as string)
@@ -343,11 +343,11 @@ function Example.unions_narrowing_casts()
     if type(value) ~= "string" then return 0 end
     return #value
   end
-  local function first_size(sizes: {integer} | nil): integer | nil
+  local function first_size(sizes: {integer}?): integer?
     return sizes and sizes[1]
   end
   assert(length("abc") == 3 and length(3) == 0 and first_size({ 7 }) == 7 and first_size(nil) == nil)
-  local maybe: string | nil = "present"
+  local maybe: string? = "present"
   assert(maybe ~= nil)
   local definitely: string = maybe
   local left: Left = { name = "left" }

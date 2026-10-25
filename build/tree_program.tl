@@ -70,7 +70,7 @@ local record TreeProgram
   --- Resolves the calls of [`Shape.record_of`] of the module `module` (the file `file`) of `build` ([`build.syntax_shape_specs`]),
   --- reading the module in the build's scratch build ([`Driver.Build.scratch`]), and reads the module again with them. nil and
   --- why where a call cannot be resolved; true where the module was read again and false where it has no such call.
-  splice: function(build: Driver.Build, module: string, file: string): boolean | nil, string
+  splice: function(build: Driver.Build, module: string, file: string): boolean?, string
 
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
@@ -83,7 +83,7 @@ local record TreeProgram
   --- The global sources and what is done to the globals they declare, from the texts themselves: the prelude and `stdlib`
   --- (nil for none). The withheld names are taken away, and `_G` is answered by the checker itself. A project outside
   --- cosmic's tree has the texts of the tool that builds it ([`build.checker_declarations`]).
-  globals: function(prelude: string | nil, stdlib: string | nil): Globals
+  globals: function(prelude: string?, stdlib: string?): Globals
 
   --- The same globals from the files of the tree at `root`, [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`]: a source for
   --- each that is there, none for one that is not.
@@ -97,7 +97,7 @@ local record TreeProgram
   --- The Teal the build writes from the doc guides (`doc/guides/*.md`, [`build.doctest`]) and the templates (`*.tmpl`,
   --- [`cosmic.template`]) under `root`, as the entries [`TreeProgram.index`] takes: the file each is written from, as the
   --- name of the text, the module it is, and nothing else. nil and why where one is refused.
-  derived_of: function(root: string): {{string}} | nil, string
+  derived_of: function(root: string): {{string}}?, string
 
 
   --- A build over `index` with the global sources and adjustment [`TreeProgram.tree_globals`] answered: the modules of `stubs`,
@@ -126,7 +126,7 @@ local function skipped_in_own_tree(file: string): boolean
 end
 
 --- The text of the file `file` among `entries`.
-local function text_of(entries: {{string}}, file: string): string | nil
+local function text_of(entries: {{string}}, file: string): string?
   for _, entry in ipairs(entries) do
     if entry[1] == file then
       return entry[2]
@@ -148,10 +148,10 @@ end
 --- What is done to the translation of the file `file`, whose text is `text`: its `where` clauses are blanked where it needs
 --- it, each test of a record they told apart is written as the tag test they were, and the lines it spells for the fork that
 --- the new checker reads otherwise are replaced ([`build.new_declarations`]). nil for a file that needs none.
-local function mended(file: string, text: string, tags: {string: LangProof.Tags}): Driver.Mend | nil
+local function mended(file: string, text: string, tags: {string: LangProof.Tags}): Driver.Mend?
   local blank = BLANKED[file] == true
   local mentions = text:find("lang.ast\"", 1, true) ~= nil or text:find("lang.types\"", 1, true) ~= nil
-  local declared: Driver.Mend | nil = nil
+  local declared: Driver.Mend? = nil
   if NewDeclarations.edited(file) then
     declared = function(translated: string): string
       return NewDeclarations.apply(file, translated, true)
@@ -209,7 +209,7 @@ function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: 
     skip = skipped_in_own_tree
   end
   return Driver.index(entries, true, skip, function(file: string, text: string): Driver.Extra
-    local mend: Driver.Mend | nil = nil
+    local mend: Driver.Mend? = nil
     if steps then
       mend = mended(file, text, tags)
     end
@@ -217,7 +217,7 @@ function TreeProgram.index(entries: {{string}}, steps: boolean, kinds: {string: 
   end)
 end
 
-function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean | nil, string
+function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean?, string
   local read = build:parsed(module)
   if read == nil then
     return nil, file .. ": the new checker's build has no module " .. module
@@ -249,7 +249,7 @@ end
 --- retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
 --- left out ([`Driver.Build.lower`] lowers it as it is needed) is not followed.
 local function ordered(index: Driver.Index, modules: {string}): {string}
-  local wanted: {string: boolean} = {}
+  local wanted: mut {string: boolean} = {}
   for _, module in ipairs(modules) do
     wanted[module] = true
   end
@@ -279,7 +279,7 @@ end
 
 function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
                             each: function(module: string)): {string}
-  local refused: {string} = {}
+  local refused: mut {string} = {}
   -- The garbage of a module is freed as the next is read, and not when the heap has doubled: the memory the default
   -- collector waits to free is the resident set the process keeps. A collector already in this mode is left in it.
   local previous = collectgarbage("generational")
@@ -310,8 +310,8 @@ function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {
 end
 
 function TreeProgram.joined(files: {{string}}, written: {{string}}): TreeProgram.Joined
-  local out: {{string}} = {}
-  local derived: {string: boolean} = {}
+  local out: mut {{string}} = {}
+  local derived: mut {string: boolean} = {}
   for _, entry in ipairs(files) do
     out[#out + 1] = entry
   end
@@ -322,8 +322,8 @@ function TreeProgram.joined(files: {{string}}, written: {{string}}): TreeProgram
   return { files = out, derived = derived }
 end
 
-local function globals_of(prelude: string | nil, stdlib: string | nil): TreeProgram.Globals
-  local sources: {Driver.Source} = {}
+local function globals_of(prelude: string?, stdlib: string?): TreeProgram.Globals
+  local sources: mut {Driver.Source} = {}
   if prelude ~= nil then
     sources[#sources + 1] = Driver.declarations(CheckerDeclarations.prelude_module(), CheckerDeclarations.prelude_file(), prelude,
       false, {})
@@ -332,7 +332,7 @@ local function globals_of(prelude: string | nil, stdlib: string | nil): TreeProg
     sources[#sources + 1] = Driver.declarations(CheckerDeclarations.stdlib_module(), CheckerDeclarations.stdlib_file(), stdlib,
       false, {})
   end
-  return { sources = sources, adjust = function(globals: {string: Scopes.Global})
+  return { sources = sources, adjust = function(globals: mut {string: Scopes.Global})
     for _, name in ipairs(teal.withheld) do
       globals[name] = nil
     end
@@ -340,7 +340,7 @@ local function globals_of(prelude: string | nil, stdlib: string | nil): TreeProg
   end }
 end
 
-function TreeProgram.globals(prelude: string | nil, stdlib: string | nil): TreeProgram.Globals
+function TreeProgram.globals(prelude: string?, stdlib: string?): TreeProgram.Globals
   return globals_of(prelude, stdlib)
 end
 
@@ -356,7 +356,7 @@ end
 -- `mut`, so a literal of such a record that leaves the field out (literal_missing) and a write to a stand-in's field
 -- (field_fixed) are refused, and the [checked] ceilings of the files that use the bindings hold those counts.
 function TreeProgram.bindings_of(root: string): {{string}}
-  local out: {{string}} = {}
+  local out: mut {{string}} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do
     local header, _ = Fs.read(root .. "/" .. derivation.target.header)
     if header ~= nil then
@@ -383,8 +383,8 @@ local function template_module(file: string): string
   return (stem:gsub("/", "."))
 end
 
-function TreeProgram.derived_of(root: string): {{string}} | nil, string
-  local out: {{string}} = {}
+function TreeProgram.derived_of(root: string): {{string}}?, string
+  local out: mut {{string}} = {}
   local guides, _ = Fs.list(root .. "/doc/guides")
   for _, name in ipairs(guides or {}) do
     local file = "doc/guides/" .. name
@@ -426,7 +426,7 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
                            stubs?: {string: Driver.Source}, standard?: Driver.Provider): Driver.Build
   -- A binding of C is typed when the tree has the header its declaration is derived from, and is left untyped (`external`)
   -- where it does not.
-  local external: {string} = {}
+  local external: mut {string} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do
     if index.by_module[derivation.path] == nil and (standard == nil or standard(derivation.path) == nil) then
       external[#external + 1] = derivation.path
@@ -435,7 +435,7 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
   local build = Driver.new({ globals = globals.sources, adjust = globals.adjust, external = external, types = types == true })
   if stubs ~= nil then
     -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
-    build:provide(function(module: string): Driver.Source | nil
+    build:provide(function(module: string): Driver.Source?
       return stubs[module]
     end)
   end

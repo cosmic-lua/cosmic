@@ -14,7 +14,7 @@ local NONE <const>: ForkRefusals.Notes = { extra = {}, skipped = {} }
 
 --- The templates of the calls and hand-offs in `source`, in order, each as `kind template`.
 local function templates(source: string, notes?: ForkRefusals.Notes): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, site in ipairs(ForkRefusals.sites(ForkRefusals.tokens(source), notes or NONE)) do
     out[#out + 1] = site.kind .. " " .. site.template
   end
@@ -29,7 +29,7 @@ end
 
 local function test_the_tokens_drop_comments_and_decode_strings()
   local tokens = ForkRefusals.tokens("-- a\nlocal a = \"x\\ny\" --[[ b\nc ]] .. 'it''s' [==[z]==]\nb()")
-  local texts: {string} = {}
+  local texts: mut {string} = {}
   for _, token in ipairs(tokens) do
     texts[#texts + 1] = token.kind .. ":" .. token.text
   end
@@ -83,7 +83,7 @@ local function test_a_message_in_a_choice_is_told_until_its_lines_are_named()
   local made = ForkRefusals.collect(ForkRefusals.sites(ForkRefusals.tokens(source), NONE))
   assert(#made.refusals == 0 and #made.trouble == 1, tostring(#made.trouble))
   local named = ForkRefusals.sites(ForkRefusals.tokens(source), { extra = { [2] = true, [3] = true }, skipped = {} })
-  local got: {string} = {}
+  local got: mut {string} = {}
   for _, site in ipairs(named) do
     got[#got + 1] = site.template
   end
@@ -95,7 +95,7 @@ end
 
 local function test_a_template_is_each_message_once_with_every_place_it_is_spelled()
   local source = "fail(ps, i, \"one\")\nfail(ps, i, \"two\")\nreturn nil, \"one\""
-  local sites: {ForkRefusals.Site} = {}
+  local sites: mut {ForkRefusals.Site} = {}
   for _, site in ipairs(ForkRefusals.sites(ForkRefusals.tokens(source), NONE)) do
     sites[#sites + 1] = { file = "f.tl", line = site.line, head = site.head, kind = site.kind, template = site.template }
   end
@@ -179,7 +179,7 @@ local function test_a_difference_between_the_source_and_the_list_is_told()
   local made = (assert(ForkRefusals.read()))
   local list = listed()
   -- a template lost, a template changed, a place moved
-  local fewer: {Verdicts.Refusal} = {}
+  local fewer: mut {Verdicts.Refusal} = {}
   for i, each in ipairs(list) do
     if i > 1 then
       fewer[#fewer + 1] = each
@@ -188,7 +188,7 @@ local function test_a_difference_between_the_source_and_the_list_is_told()
   assert(difference(made.refusals, fewer):find("287 templates and the list 286", 1, true) ~= nil)
   local first = list[1]
   assert(first ~= nil)
-  local changed: {Verdicts.Refusal} = { { id = first.id, kind = first.kind, template = first.template .. "!", sites = first.sites,
+  local changed: mut {Verdicts.Refusal} = { { id = first.id, kind = first.kind, template = first.template .. "!", sites = first.sites,
     reason = "", why = "" } }
   for i, each in ipairs(list) do
     if i > 1 then
@@ -196,7 +196,7 @@ local function test_a_difference_between_the_source_and_the_list_is_told()
     end
   end
   assert(difference(made.refusals, changed):find("template 1 is", 1, true) ~= nil)
-  local moved: {Verdicts.Refusal} = { { id = first.id, kind = first.kind, template = first.template, sites = first.sites .. " x:1",
+  local moved: mut {Verdicts.Refusal} = { { id = first.id, kind = first.kind, template = first.template, sites = first.sites .. " x:1",
     reason = "", why = "" } }
   for i, each in ipairs(list) do
     if i > 1 then
@@ -208,7 +208,7 @@ end
 
 --- The lines of the fork's source that the list names as places a message is spelled, for `file`.
 local function named_lines(file: string): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for _, each in ipairs(listed()) do
     for place in each.sites:gmatch("%S+") do
       local at, line = place:match("^(.*):(%d+)$")
@@ -224,7 +224,7 @@ end
 local function test_every_line_of_the_fork_that_calls_a_report_with_a_string_is_a_place_in_the_list()
   -- found by the text of each line and not by the tokens the tool reads, so that a call the tool misses is seen
   local named = named_lines("checker/tl.tl")
-  local missing: {string} = {}
+  local missing: mut {string} = {}
   local seen = 0
   local line_no = 0
   for line in (assert(Fs.read("checker/tl.tl")) .. "\n"):gmatch("(.-)\n") do

@@ -197,7 +197,7 @@ local function test_the_layout_names_each_path_under_the_directory(tmp: string)
   local root, home = project(tmp)
   local layout = paths.resolve(root, { COSMIC_BUILD_HOME = home })
   assert(layout.directory == paths.required(root, { COSMIC_BUILD_HOME = home }))
-  local seen: {string: string} = {}
+  local seen: mut {string: string} = {}
   for field, path in pairs(layout as {string: string}) do
     if field ~= "directory" then
       assert(path:sub(1, #layout.directory + 1) == layout.directory .. "/",

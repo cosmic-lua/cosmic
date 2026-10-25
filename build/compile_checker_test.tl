@@ -16,12 +16,12 @@ Test.policy{ grants = { { path = "checker/", letters = "r" } } }
 
 --- The seed's call: the glob `checker/*.tl`, a declaration file among it.
 local function test_the_glob_of_the_checker_gives_the_carried_compiler(tmp: string)
-  local sources: {string} = {}
+  local sources: mut {string} = {}
   for _, name in ipairs((assert(Fs.list("checker")))) do
     if name:find("%.tl$") ~= nil then sources[#sources + 1] = "checker/" .. name end
   end
   table.sort(sources)
-  local argv: {string} = { "compile", "-o", tmp .. "/out" }
+  local argv: mut {string} = { "compile", "-o", tmp .. "/out" }
   for index, path in ipairs(sources) do argv[index + 3] = path end
   local complaints: {string} = {}
   local code = compile.run(argv, {
@@ -43,7 +43,7 @@ local function test_the_glob_of_the_checker_gives_the_carried_compiler(tmp: stri
   local function lua(name: string): string
     return (assert(Fs.read(tmp .. "/out/" .. name .. ".lua")))
   end
-  local modules: {{string}} = {}
+  local modules: mut {{string}} = {}
   for index, name in ipairs({ "captures", "facts", "flow", "narrowing" }) do
     modules[index] = { "checker." .. name, lua(name), "checker/" .. name .. ".tl" }
   end

@@ -17,10 +17,10 @@ Test.policy{
 }
 
 --- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
-local function relaunching(relaunch: Proc.Relaunch | nil, fn: function())
+local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   local real = Proc.relaunch
-  Proc.relaunch = function(): Proc.Relaunch | nil, string
-    return relaunch, relaunch == nil and "no artifact" or ""
+  Proc.relaunch = function(): Proc.Relaunch?, string
+    return relaunch, if relaunch == nil then "no artifact" else "" end
   end
   local ok, trouble = pcall(function(): string
     fn()

@@ -76,14 +76,14 @@ end
 --- What a child said: its lines, `name=value`, by name, and how it ended.
 local record Said
   code: integer
-  lines: {string:string}
+  lines: mut {string:string}
   raw: string
 end
 
 --- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
 --- what it printed. Skips the test where the child reports `skip=` and
 --- why, which it does where this host's kernel gives no Landlock.
-local function in_child(chunk: string): Said | nil
+local function in_child(chunk: string): Said?
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
     env = this_program.environment(), stdout = "capture", stderr = "stdout",
     timeout_ns = Clock.seconds(60) })
@@ -370,7 +370,7 @@ local REFUSED <const>: {{string}} = {
 local function test_every_refusal_holds_nothing(tmp: string)
   assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
     lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. i, case[1])
   end

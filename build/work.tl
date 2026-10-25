@@ -64,10 +64,10 @@ local record work
   --- another schema that it did not make again: [`work.try_open`] makes
   --- none, and [`work.try_open_remaking`] none another run may be using.
   record Opening
-    handle: Handle | nil
+    handle: Handle?
     --- The schema the file was found of, where it was not this module's:
     --- the open read nothing else of it and left it where it was.
-    other_schema: string | nil
+    other_schema: string?
   end
 
   --- What one staging pass found and what it had to read.
@@ -573,7 +573,7 @@ end
 --- after `notice_ns`. The handle keeps the long wait for every statement
 --- after ([`work.begin`]'s transactions among them). Unless `wait`, it
 --- waits for no other run: where one holds the lock it answers "busy".
-local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): Took | nil, string
+local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
   if not wait then
     db:busy_timeout(0)
     local tried = db:exec_result("BEGIN IMMEDIATE")
@@ -614,7 +614,7 @@ end
 --- no shared memory, which write-ahead mode needs, leaves the file in
 --- rollback mode, where its readers wait on a writer as they always
 --- did. Unless `wait`, it waits for no other run, answering "busy".
-local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took | nil, string
+local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
   while true do
     local result = Sqlite.text_rows_result(db, "PRAGMA journal_mode = WAL")
     if result.rows ~= nil then return "done", "" end
@@ -639,7 +639,7 @@ end
 --- a transaction a statement, each a no-op, and waits, if it must, at the
 --- run's own [`begin_waiting`]. Unless `wait`, it waits for no other
 --- run, answering "busy".
-local function create(db: Sqlite.Handle, path: string, wait: boolean): Took | nil, string
+local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
   local tables, count_trouble = Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master")
   if tables == nil then
     return nil, count_trouble
@@ -675,7 +675,7 @@ end
 
 --- The schema `db` records in `meta`, or nil where it records none: a
 --- fresh file, or one whose run never stamped it.
-local function schema_of(db: Sqlite.Handle): string | nil, string
+local function schema_of(db: Sqlite.Handle): string?, string
   local tables, table_trouble = Sqlite.text_rows(db,
     "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
   if tables == nil then return nil, table_trouble end
@@ -719,8 +719,8 @@ end
 --- else of it. Unless `wait`, it waits for no other run, for neither
 --- lock ([`work.try_open`]). `locked` says the rebuild lock is held for
 --- the open already: by this process, or a parent that handed it on.
-local function opened(root: string, dir: string | nil, wait: boolean,
-                      remake: boolean, locked: boolean): work.Opening | nil, string
+local function opened(root: string, dir: string?, wait: boolean,
+                      remake: boolean, locked: boolean): work.Opening?, string
   local out: string
   if dir == nil then
     local found, directory_trouble = build_paths.prepare(root)
@@ -912,7 +912,7 @@ end
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes, waiting for another run that
 --- holds its write lock, as a build does ([`opened`]).
-function work.open(root: string, dir?: string): work.Handle | nil, string
+function work.open(root: string, dir?: string): work.Handle?, string
   local found, trouble = opened(root, dir, true, true, false)
   if found == nil then return nil, trouble end
   local handle = found.handle
@@ -928,7 +928,7 @@ end
 --- read meanwhile, never waited for. A file of another schema it neither
 --- reads nor removes, whoever holds the lock: it answers no handle, and
 --- the schema it found (`other_schema`).
-function work.try_open(root: string): work.Opening | nil, string
+function work.try_open(root: string): work.Opening?, string
   return opened(root, nil, false, false, false)
 end
 
@@ -939,7 +939,7 @@ end
 --- answers no handle and the schema it found. The check a verb that only
 --- reads makes of the tool ([`reboot.stale_exit`]) opens it so: where the
 --- locks are free it is a writer's.
-function work.try_open_remaking(root: string): work.Opening | nil, string
+function work.try_open_remaking(root: string): work.Opening?, string
   return opened(root, nil, false, true, false)
 end
 
@@ -984,7 +984,7 @@ end
 --- The schema the working database `db` records, where it records one
 --- other than this module's; nil where it records this module's, or none.
 --- It reads `meta` alone. Nil and why where that read fails.
-function work.other_schema(db: Sqlite.Handle): string | nil, string
+function work.other_schema(db: Sqlite.Handle): string?, string
   local found, trouble = schema_of(db)
   if found == nil or found == version then return nil, trouble end
   return found, ""
@@ -1083,20 +1083,20 @@ end
 local record Known
   size: integer
   --- nil for a row staged before its file settled, which no stat matches.
-  mtime_ns: integer | nil
-  ctime_ns: integer | nil
+  mtime_ns: integer?
+  ctime_ns: integer?
   ino: integer
   dev: integer
 end
 
 local function known_in(db: Sqlite.Handle,
-                        table_name: string): {string:Known} | nil, string
+                        table_name: string): {string:Known}?, string
   local statement, trouble = db:prepare(
     "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL, ctime_ns, ctime_ns IS NULL FROM " .. table_name)
   if statement == nil then
     return nil, trouble
   end
-  local out: {string:Known} = {}
+  local out: mut {string:Known} = {}
   while true do
     local state, failure = statement:step()
     if state == nil then
@@ -1147,7 +1147,7 @@ local settle_ns = Clock.seconds(2)
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
 --- what the walk no longer finds.
-local function moved(known: {string:Known}, file: string, st: sys.Stat,
+local function moved(known: mut {string:Known}, file: string, st: sys.Stat,
                      mtime_ns: integer): boolean
   local was = known[file]
   known[file] = nil
@@ -1162,7 +1162,7 @@ end
 --- Whether the tool's recorded files or discovery directories moved. The
 --- same walk that stages inputs records its directories, so a new input
 --- invalidates the fast path without listing an unchanged tree again.
-function work.tool_moved(handle: work.Handle): boolean | nil, string
+function work.tool_moved(handle: work.Handle): boolean?, string
   for _, table_name in ipairs({ "tool", "tool_discovery" }) do
     local known, trouble = known_in(handle.db, table_name)
     if known == nil then return nil, trouble end
@@ -1274,7 +1274,7 @@ end
 --- case-insensitive disk), and a link that leads out of the project, which
 --- would make the executable depend on files outside the checkout.
 local function static_refusal(root: string, real_root: string, file: string, size: integer,
-                              seen: {string:string}): string | nil
+                              seen: mut {string:string}): string?
   local refusal = identity.static_refusal(file, size)
   if refusal ~= nil then return refusal end
   local lowered = file:lower()
@@ -1298,7 +1298,7 @@ end
 --- database, the one of the tool it writes, over the `tool` rows the
 --- stage wrote ([`identity.record_fingerprint`]'s `boot`). A stage
 --- records it as `staged_by` ([`work.other_code`]).
-local function running_tool(db: Sqlite.Handle): string | nil, string
+local function running_tool(db: Sqlite.Handle): string?, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash ~= nil then
     return boot_hash, ""
@@ -1313,8 +1313,8 @@ local find_links: function(handle: work.Handle, texts: {string:string}): boolean
 --- What the links a walk meets teach it: the ancestors of the root, found
 --- when the first link asks, and the first link that leads above the root.
 local record Walking
-  ancestors: {string:boolean} | nil
-  above: string
+  mut ancestors: {string:boolean}?
+  mut above: string
 end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
@@ -1330,7 +1330,7 @@ end
 --- ([`link_files.skipper`]): what only that walk reaches (doc/'s prose,
 --- `.claude/`) is staged into `linked` alone.
 --- @param own_tree whether `root` is cosmic's own tree
-function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
+function work.stage(handle: work.Handle, own_tree: boolean): work.Staged?, string
   local db = handle.db
   local root = handle.root
   -- A link is taken for what it leads to, so a project whose modules
@@ -1347,7 +1347,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- stat'd, so a tree with none costs nothing more.
   -- Capture before listing: a concurrent addition after the list must not
   -- be hidden by a newer directory stat recorded after the walk.
-  local discovery: {string:sys.Stat} = {}
+  local discovery: mut {string:sys.Stat} = {}
   if own_tree then
     local st, trouble = Fs.stat(root)
     if st == nil then return nil, trouble end
@@ -1382,7 +1382,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if kind ~= "link" then
       return false
     end
-    local known: {string:boolean} = walking.ancestors or {}
+    local known: mut {string:boolean} = walking.ancestors or {}
     if walking.ancestors == nil then
       walking.ancestors = known
       local path = root
@@ -1423,7 +1423,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     return nil, walking.above
   end
   local files: {string} = walked
-  local known: {string:{string:Known}} = {}
+  local known: mut {string:{string:Known}} = {}
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
     local rows, trouble = known_in(db, table_name)
     if rows == nil then
@@ -1431,7 +1431,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     known[table_name] = rows
   end
-  local put: {string:Sqlite.Statement} = {}
+  local put: mut {string:Sqlite.Statement} = {}
   for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo" }) do
     local statement, trouble = db:prepare(puts[name])
     if statement == nil then
@@ -1444,10 +1444,10 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
-  local real_root: string | nil = nil
+  local real_root: string? = nil
   local static_seen: {string:string} = {}
   -- The text of each file of `linked` read here, by path.
-  local texts: {string:string} = {}
+  local texts: mut {string:string} = {}
 
   for _, file in ipairs(files) do
     local only = links_only[file] == true
@@ -1557,7 +1557,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     for path, st in pairs(discovery) do
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-      local ctime_ns = st.ctime_ns ~= nil and Clock.seconds(st.ctime) + st.ctime_ns or nil
+      local ctime_ns = if st.ctime_ns ~= nil then Clock.seconds(st.ctime) + st.ctime_ns else nil end
       local settled = ctime_ns ~= nil and math.max(mtime_ns, ctime_ns) < now - settle_ns
       local saved, why = discovery_put:bind_text(1, path)
       if saved then saved, why = discovery_put:bind_integer(2, st.size) end
@@ -1629,7 +1629,7 @@ end
 --- none of a database another code staged: what that code wrote, and
 --- what its parses and compiles keyed, may mean other than this code
 --- takes it to. Nil and why where the read fails.
-function work.other_code(db: Sqlite.Handle): string | nil, string
+function work.other_code(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'staged_by'")
   if rows == nil then
     return nil, trouble
@@ -1676,7 +1676,7 @@ end
 --- database: it names its code by the boot hash of the tool it writes
 --- ([`identity.record_fingerprint`]'s `boot`), which it keeps as
 --- `links_boot` too, so that tool goes on from the boot's rows.
-local function links_finder(db: Sqlite.Handle): string | nil, string
+local function links_finder(db: Sqlite.Handle): string?, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil then
     local fingerprint, trouble = identity.hash_over(db, "1")
@@ -1695,13 +1695,13 @@ local function links_finder(db: Sqlite.Handle): string | nil, string
   if last == nil then
     return nil, last_trouble
   end
-  local recorded: {string:string} = {}
+  local recorded: mut {string:string} = {}
   for _, row in ipairs(last) do recorded[row:text(1)] = row:text(2) end
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
     return recorded["links_by"]
   end
-  local reached: {string:boolean} = {}
-  local stack: {string} = { "build.link_files" }
+  local reached: mut {string:boolean} = {}
+  local stack: mut {string} = { "build.link_files" }
   while #stack > 0 do
     local name = table.remove(stack)
     if not reached[name] then
@@ -1713,10 +1713,10 @@ local function links_finder(db: Sqlite.Handle): string | nil, string
       for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(reached) do names[#names + 1] = name end
   table.sort(names)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local source, _ = Store.source(name)
     parts[#parts + 1] = name .. "\n" .. (source or "")
@@ -1800,7 +1800,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
             "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
           { text(sha256), text(kind), { integer = ordinal }, { integer = link.line },
             { integer = link.column }, text(link.form), text(link.text), text(link.target),
-            { integer = entry.own and 1 or 0 } })
+            { integer = if entry.own then 1 else 0 end } })
         if not ok then
           return false, path .. ": " .. trouble
         end
@@ -1822,12 +1822,12 @@ end
 --- holds it, by zone name: its path under `dir`. A zone that is a link
 --- to another (as a system zoneinfo's aliases are) is read as the zone
 --- it leads to, under its own name.
-function work.read_zoneinfo(dir: string): {string:string} | nil, string
+function work.read_zoneinfo(dir: string): {string:string}?, string
   local names, trouble = Fs.walk_following(dir)
   if names == nil then
     return nil, trouble
   end
-  local zones: {string:string} = {}
+  local zones: mut {string:string} = {}
   for _, name in ipairs(names) do
     local data, read_trouble = Fs.read(dir .. "/" .. name)
     if data == nil then
@@ -1840,13 +1840,13 @@ end
 
 --- Every zone the database `db` carries in its `zoneinfo` table, by
 --- name: none when it has no such table.
-function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
+function work.zoneinfo_of(db: Sqlite.Handle): {string:string}?, string
   local tables, trouble = Sqlite.text_rows(db,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'zoneinfo'")
   if tables == nil then
     return nil, trouble
   end
-  local zones: {string:string} = {}
+  local zones: mut {string:string} = {}
   if tables[1]:text(1) == "0" then
     return zones, ""
   end
@@ -1869,7 +1869,7 @@ function work.write_zones(db: Sqlite.Handle, zones: {string:string}): boolean, s
   if not cleared then
     return false, trouble
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(zones) do
     names[#names + 1] = name
   end
@@ -1899,8 +1899,8 @@ local web_files: {{string}} = {
 
 --- The files of `web_assets` read from the trees under `vendor` (a
 --- checkout's `vendor/` directory), each hashed here, in name order.
-function work.read_web_assets(vendor: string): {work.WebAsset} | nil, string
-  local assets: {work.WebAsset} = {}
+function work.read_web_assets(vendor: string): {work.WebAsset}?, string
+  local assets: mut {work.WebAsset} = {}
   for _, file in ipairs(web_files) do
     local pin, pin_trouble = Fs.read(vendor .. "/" .. file[2] .. "/PIN")
     if pin == nil then
@@ -1926,13 +1926,13 @@ end
 
 --- Every row of the `web_assets` table `db` holds, by name: none when it
 --- has no such table.
-function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset} | nil, string
+function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset}?, string
   local tables, trouble = Sqlite.text_rows(db,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'web_assets'")
   if tables == nil then
     return nil, trouble
   end
-  local assets: {work.WebAsset} = {}
+  local assets: mut {work.WebAsset} = {}
   if tables[1]:text(1) == "0" then
     return assets, ""
   end

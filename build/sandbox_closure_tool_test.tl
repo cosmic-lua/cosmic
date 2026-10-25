@@ -38,7 +38,7 @@ end
 
 --- What a run left of the directories it seals into, under TMPDIR.
 local function left_over(): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, name in ipairs((assert(Fs.list((assert(sys.getenv("TMPDIR"))))))) do
     if name:find("^sandbox%-") then found[#found + 1] = name end
   end

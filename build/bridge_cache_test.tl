@@ -134,11 +134,11 @@ local record Fixture
   --- The seed directory.
   tl: string
   cache: string
-  runs: integer
+  mut runs: integer
   --- Whether `boot` writes the seed from the tree's checker first, as a
   --- release that agrees with it would; a case about a seed that does not
   --- agree clears it and writes its own.
-  seeded: boolean
+  mut seeded: boolean
 end
 
 local function put(path: string, text: string)
@@ -175,8 +175,8 @@ end
 
 local record Boot
   status: integer
-  compiler: integer
-  modules: integer
+  mut compiler: integer
+  mut modules: integer
 end
 
 --- Writes the seed a release that agrees with `f`'s checker would: the
@@ -199,7 +199,7 @@ local function start(f: Fixture, variables?: {string:string}): Child.Result, str
   f.runs = f.runs + 1
   local counts = f.tmp .. "/counts-" .. f.runs
   assert(Fs.mkdirs(counts))
-  local env: {string:string} = {}
+  local env: mut {string:string} = {}
   for name, value in pairs(Env.all()) do env[name] = value end
   env.COSMIC_BUILD_CACHE = f.cache
   env.COUNT_DIR = counts
@@ -331,7 +331,7 @@ local function test_any_input_that_changes_is_a_miss(tmp: string)
     local after = boot(f)
     assert(after.modules == loaded, change.name .. ": a module was taken from a stale row")
     assert((after.compiler == 1) == change.compiler_row_stands, change.name .. ": the compiler's row " ..
-        (change.compiler_row_stands and "stood" or "missed"))
+        (if change.compiler_row_stands then "stood" else "missed" end))
   end
   local f = fixture(tmp, "unrelated")
   boot(f)
@@ -531,7 +531,7 @@ local function test_the_bridge_makes_the_table_the_formats_name(tmp: string)
   local function schema(db: Sqlite.Handle): string
     local found = assert(Sqlite.text_rows(db,
       "SELECT sql FROM sqlite_schema WHERE name LIKE 'bridge_v%' ORDER BY name"))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for _, row in ipairs(found) do out[#out + 1] = row:text(1):gsub("%s+", "") end
     return table.concat(out, ";")
   end

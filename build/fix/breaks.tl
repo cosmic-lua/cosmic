@@ -92,7 +92,7 @@ local record Break
   closer: boolean
   --- For a binary operator opening its line: the operator, which moves
   --- to the end of the line before rather than any break being made.
-  moves: string | nil
+  moves: string?
 end
 
 --- A construct to open up: the breaks it wants, and where it starts
@@ -105,8 +105,8 @@ end
 
 local record Pass
   c: Ctx
-  breaks: {integer:Break}
-  moves: {Break}
+  breaks: mut {integer:Break}
+  moves: mut {Break}
 end
 
 local function offset(p: Pass, y: integer, x: integer): integer
@@ -124,7 +124,7 @@ end
 --- The last code token before (`y`, `x`), passing over `;`s when
 --- `drop` is set, if it ends on line `y`: nil when nothing but comments
 --- and `;`s stands in front of (`y`, `x`) on its line.
-local function sharing(p: Pass, y: integer, x: integer, drop: boolean): compiler.Token | nil
+local function sharing(p: Pass, y: integer, x: integer, drop: boolean): compiler.Token?
   local scan = p.c.scan
   local j = typescan.index_before(scan, y, x)
   while drop and droppable(p, j) do
@@ -161,10 +161,10 @@ end
 
 --- The bodies of block construct `n` and the places its closing
 --- keywords sit, or nil when `n` opens no block this pass lays out.
-local function shape(n: Node): {Node} | nil, {ast.Position} | nil
+local function shape(n: Node): {Node}?, {ast.Position}?
   local kind = n.kind
-  local bodies: {Node} = {}
-  local closers: {ast.Position} = {}
+  local bodies: mut {Node} = {}
+  local closers: mut {ast.Position} = {}
   if kind == "if" then
     for i, b in ipairs(n.if_blocks or {}) do
       if i > 1 then
@@ -236,7 +236,7 @@ end
 
 --- How block construct `n` is to be opened up, or nil when it is to be
 --- left as it is.
-local function construct(p: Pass, n: Node): Opening | nil
+local function construct(p: Pass, n: Node): Opening?
   local ending = p.c.ends[n]
   if ending == nil or (not ending.inline and not continues(p.c, n)) then
     -- Each statement and closing keyword already opens its line.
@@ -246,7 +246,7 @@ local function construct(p: Pass, n: Node): Opening | nil
   if bodies == nil or closers == nil then
     return nil
   end
-  local firsts: {ast.Position} = {}
+  local firsts: mut {ast.Position} = {}
   for _, body in ipairs(bodies) do
     local first = body[1]
     if first ~= nil then
@@ -267,7 +267,7 @@ local function construct(p: Pass, n: Node): Opening | nil
   if inline and fits_one_line(n, bodies, ending) then
     return nil
   end
-  local wants: {Break} = {}
+  local wants: mut {Break} = {}
   for _, at in ipairs(firsts) do
     wants[#wants + 1] = wanted(p, at.y, at.x, false, false)
   end
@@ -276,8 +276,8 @@ local function construct(p: Pass, n: Node): Opening | nil
   end
   -- A `repeat` ends with its condition, which may hold constructs of
   -- its own, so it reaches to the end of the line it ends on.
-  local reach = n.kind == "repeat" and { y = ending.line, x = math.maxinteger } or
-    closers[#closers]
+  local reach = if n.kind == "repeat" then { y = ending.line, x = math.maxinteger } else
+    closers[#closers] end
   return { wants = wants, first = stmt.start(p.c, n), last = reach }
 end
 
@@ -316,7 +316,7 @@ local function open_line(p: Pass, out: string, b: Break, t: compiler.Token): str
     -- The run holds code only as `;`s; a `--` comment cannot stand in
     -- front of code on its line, and a long one holds no `;` the scan
     -- would stop at, since it is no token.
-    local kept: {string} = {}
+    local kept: mut {string} = {}
     local i = typescan.index_before(p.c.scan, b.y, b.x)
     local cut = b.at
     while droppable(p, i) do
@@ -349,8 +349,8 @@ end
 
 --- The source with every break `p` holds written in.
 local function written(p: Pass): string
-  local edits: {Break} = {}
-  local after: {Break:compiler.Token} = {}
+  local edits: mut {Break} = {}
+  local after: mut {Break:compiler.Token} = {}
   for _, b in ipairs(p.moves) do
     edits[#edits + 1] = b
     after[b] = p.c.scan.tokens[assert(typescan.index_at(p.c.scan, b.y, b.x)) - 1]
@@ -404,7 +404,7 @@ local function broken(c: Ctx): string
   -- A construct held by another that opens up this pass waits for the
   -- next: it is judged too wide otherwise, at the column it had behind
   -- the one around it.
-  local openings: {Opening} = {}
+  local openings: mut {Opening} = {}
   for _, n in ipairs(c.constructs) do
     local opening = construct(p, n)
     if opening ~= nil then

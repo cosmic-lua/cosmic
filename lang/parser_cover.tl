@@ -28,9 +28,9 @@ local TERMINATORS <const>: {string: boolean} = { ["end"] = true, ["else"] = true
 
 local record Walk
   chunk: Ast.Chunk
-  count: integer
-  problem: string
-  ids: {integer: boolean}
+  mut count: integer
+  mut problem: string
+  ids: mut {integer: boolean}
 end
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -68,7 +68,7 @@ local function walk(node: Ast.Node, parent: Ast.Base, state: Walk)
     walk(child, b, state)
     previous[1] = math.max(previous[1], c.last)
   end)
-  if b.kind == "Block" and node is Ast.Block then
+  if b.kind == "Block" and (node.kind == "Block") then
     local expected = node.first
     for _, stat in ipairs(node.stats) do
       local s = base_of(stat)

@@ -116,7 +116,7 @@ local function test_lists_bind_as_arrays_for_carray()
   }
   for _, case in ipairs(cases) do
     local rows = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { case.value }))
-    local got: {string} = {}
+    local got: mut {string} = {}
     for _, row in ipairs(rows) do got[#got + 1] = row:text(1) end
     assert(table.concat(got, " ") == case.text, table.concat(got, " "))
   end

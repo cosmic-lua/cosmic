@@ -47,7 +47,7 @@ end
 --- @param value any A field value, or an array element
 --- @return Node|nil The value itself, when it is a real node (its own `kind` is a string)
 --- @return {any}|nil Its elements, when it is a bare array of nodes instead
-local function classify(value: any): Node | nil, {any} | nil
+local function classify(value: any): Node?, {any}?
   if not (value is Node) then
     return nil, nil
   end
@@ -76,7 +76,7 @@ end
 
 --- Adds `v` to `into`: itself when it is a node, its nodes when it is
 --- a bare array of them.
-local function add(into: {Node}, v: any)
+local function add(into: mut {Node}, v: any)
   local child, rest = classify(v)
   if child then
     into[#into + 1] = child
@@ -102,7 +102,7 @@ end
 --- @param passed? {Node} Filled with the nodes passed by
 --- @return {Node} The children, in no promised order
 local function children(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  local out: {Node} = {}
+  local out: mut {Node} = {}
   for _, v in ipairs(array_of(node)) do
     local child, rest = classify(v)
     if child then
@@ -130,7 +130,7 @@ end
 --- @param node Node
 --- @param skipped? {string: boolean} Field names not followed
 --- @param visit function(Node) Called once per child
-local function each_child_node(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+local function each_child_node(node: Node, skipped: {string: boolean}?, visit: function(Node))
   for _, v in ipairs(array_of(node)) do
     local child = classify(v)
     if child then visit(child) end
@@ -197,7 +197,7 @@ end
 --- @param memo? {Node: {integer}} Starts already found, and where to keep new ones
 --- @return integer The 1-based line
 --- @return integer The 1-based column
-local function span_start(node: Node, memo?: {Node: {integer}}): integer, integer
+local function span_start(node: Node, memo?: mut {Node: {integer}}): integer, integer
   local seen: {Node: boolean} = {}
   local compute: function(Node): integer, integer
   -- The earlier of (`by`, `bx`) and where child field `value` starts.
@@ -299,7 +299,7 @@ local function span_end(node: Node, tokens: {compiler.Token}): integer, integer
     end
     return by, bx
   end
-  local function compute(n: Node, seen: {Node: boolean}): integer, integer
+  local function compute(n: Node, seen: mut {Node: boolean}): integer, integer
     local by, bx = n.y, n.x
     local tk = n.tk
     if tk is string then
@@ -344,7 +344,7 @@ local record WalkModule
   end
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  each_child_node: function(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+  each_child_node: function(node: Node, skipped: {string: boolean}?, visit: function(Node))
   span_start: function(node: Node, memo?: {Node: {integer}}): Position
   span_end: function(node: Node, tokens: {compiler.Token}): Position
 end

@@ -22,8 +22,8 @@ end
 local forks: {compiler} = {}
 
 --- The Lua `grammar` ("teal" for the fork, "new") writes of `source`, or nil and the refusal.
-local function lua_of(tmp: string, source: string, grammar: GrammarMode.Mode): string | nil, string
-  local fork: compiler | nil = nil
+local function lua_of(tmp: string, source: string, grammar: GrammarMode.Mode): string?, string
+  local fork: compiler? = nil
   if grammar == "teal" then
     if forks[1] == nil then
       forks[1] = assert(teal.load(true))

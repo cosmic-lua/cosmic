@@ -14,19 +14,19 @@ local json_query = require("build.json_query")
 --- names, among them ones a path must quote, and arrays and objects
 --- nested a few deep.
 local function gen_doc(src: Fuzz.Source, depth: integer): string
-  local kind = src:int(0, depth >= 3 and 0 or 5)
+  local kind = src:int(0, if depth >= 3 then 0 else 5 end)
   if kind == 0 then
     return Fuzz.pick(src, { "1", '"s"', "true", "null", "2.5", '"x = y"' })
   elseif kind <= 2 then
-    local parts: {string} = {}
-    while Fuzz.more(src, #parts, depth == 0 and 6 or 4) do
+    local parts: mut {string} = {}
+    while Fuzz.more(src, #parts, if depth == 0 then 6 else 4 end) do
       parts[#parts + 1] = gen_doc(src, depth + 1)
     end
     return "[" .. table.concat(parts, ",") .. "]"
   end
   local names: {string} = { "a", "b", "1", "a b", "it's", "k = v", "" }
-  local parts: {string} = {}
-  local used: {string:boolean} = {}
+  local parts: mut {string} = {}
+  local used: mut {string:boolean} = {}
   while Fuzz.more(src, #parts, 4) do
     local name = Fuzz.pick(src, names)
     if not used[name] then
@@ -44,7 +44,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
     name = "json flatten read back",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      return Fuzz.pack({ gen_doc(src, 0), src:int(0, 1) == 0 and "nulls" or "holes" })
+      return Fuzz.pack({ gen_doc(src, 0), if src:int(0, 1) == 0 then "nulls" else "holes" end })
     end,
     requires = { "leaves", "empty container", "quoted" },
     check = function(packed: string): boolean, string
@@ -55,9 +55,9 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
       if not ok then return false, "raised: " .. tostring(leaves) end
       if leaves == nil then return false, "failed: " .. err end
       local every = assert(Json.select(doc, (assert(Json.query("$..*")))))
-      local selectable: {string:boolean} = { ["$"] = true }
+      local selectable: mut {string:boolean} = { ["$"] = true }
       for _, hit in ipairs(every) do selectable[assert(Json.path(hit.steps))] = true end
-      local seen: {string:boolean} = {}
+      local seen: mut {string:boolean} = {}
       for _, leaf in ipairs(leaves as {Json.Match}) do
         Fuzz.label("leaves")
         local normal = assert(Json.path(leaf.steps))

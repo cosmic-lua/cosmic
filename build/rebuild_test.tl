@@ -92,7 +92,7 @@ end
 --- spells (`mut`, `name?: T`) and the rows of its docs are staged, where the fork's parser refuses the file, naming it.
 local function test_a_stage_reads_the_sources_with_the_checker_it_is_asked_for(tmp: string)
   local source = "--- A box.\nlocal record Box\n  --- How wide.\n  mut width: integer\n  --- A label.\n  label?: string\nend\nreturn Box\n"
-  local function staged(name: string, grammar: GrammarMode.Mode): string | nil, string
+  local function staged(name: string, grammar: GrammarMode.Mode): string?, string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root))
     assert(work.close((assert(work.open(root)))))
@@ -106,7 +106,7 @@ local function test_a_stage_reads_the_sources_with_the_checker_it_is_asked_for(t
     assert(db:close())
     local symbols = ""
     for slot, row in ipairs(rows) do
-      symbols = symbols .. (slot > 1 and "," or "") .. row:text(1)
+      symbols = symbols .. (if slot > 1 then "," else "" end) .. row:text(1)
     end
     return symbols, ""
   end

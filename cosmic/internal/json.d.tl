@@ -35,7 +35,7 @@ local record json
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): any | nil, string
+                   prefix?: string, opened?: integer): any?, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
@@ -51,12 +51,12 @@ local record json
   format: function(text: string, max_depth?: integer, json5?: boolean,
                    lone_surrogates?: boolean, hash_comments?: boolean,
                    duplicate_keys?: boolean, pretty?: boolean,
-                   canonical?: boolean): string | nil, string
+                   canonical?: boolean): string?, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at pointer "/users/2/name"`. Keys are
   -- sorted by their bytes; `pretty` lays it out two spaces a level. Raises
   -- when `max_depth` is outside 1 to `depth_limit`.
-  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string | nil, string
+  encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}

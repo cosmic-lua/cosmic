@@ -63,7 +63,7 @@ local function test_a_type_only_edge_is_no_part_of_the_closure()
   local type_only = { ["lib.helper"] = { ["lib.deep"] = true, ["lib.declared"] = true } }
   assert(table.concat(test_inputs.modules(m, by_path, staged, type_only), " ") ==
       "lib.helper lib.thing_test")
-  local files: {string} = {}
+  local files: mut {string} = {}
   for file in pairs(test_inputs.effective(m, by_path, staged, type_only).files) do
     files[#files + 1] = file
   end
@@ -87,7 +87,7 @@ end
 local function test_the_default_inputs_are_the_closure_and_the_pinned_environment()
   local m, by_path = tree()
   local effective = test_inputs.effective(m, by_path, staged)
-  local files: {string} = {}
+  local files: mut {string} = {}
   for file in pairs(effective.files) do files[#files + 1] = file end
   table.sort(files)
   assert(table.concat(files, " ") ==
@@ -207,7 +207,7 @@ end
 --- none, an empty list and none; the literal's order and its duplicates
 --- are kept; and a value is quoted, so no two declarations share a text.
 local function test_canonical_text_names_one_declaration()
-  local function of(needs: declared_inputs.Needs | nil): string
+  local function of(needs: declared_inputs.Needs?): string
     return test_inputs.canonical(test_inputs.as_declared(needs))
   end
   assert(test_inputs.canonical(nil) == "" and of(nil) == "")
@@ -236,11 +236,11 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   local m, by_path = tree(declaring({ lua = true }))
   for _, name in ipairs(test_inputs.lua_loads) do
     by_path[name] = module(name, name:gsub("%.", "/") .. ".tl",
-      name == "build.dispatch" and { "build.importer", "build.exit_status" } or {})
+      if name == "build.dispatch" then { "build.importer", "build.exit_status" } else {} end)
   end
   by_path["build.importer"] = module("build.importer", "build/importer.tl", {})
   local names = test_inputs.modules(m, by_path, staged)
-  local held: {string:boolean} = {}
+  local held: mut {string:boolean} = {}
   for _, name in ipairs(names) do held[name] = true end
   for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
   assert(not held["build.importer"], "what dispatch requires lazily is out")
@@ -268,13 +268,13 @@ local function test_only_a_standalone_closure_holds_what_standalone_loads()
         by_path[name] = module(name, name:gsub("%.", "/") .. ".tl", {})
       end
     end
-    local needed: {string} = {}
+    local needed: mut {string} = {}
     for _, name in ipairs(test_inputs.standalone_loads) do
       if name ~= "build.standalone" then needed[#needed + 1] = name end
     end
     by_path["build.standalone"].requires = needed
     if standalone then m.requires[#m.requires + 1] = "build.standalone" end
-    local held: {string:boolean} = {}
+    local held: mut {string:boolean} = {}
     for _, name in ipairs(test_inputs.modules(m, by_path, staged)) do held[name] = true end
     return held, test_inputs.effective(m, by_path, staged)
   end
@@ -287,7 +287,7 @@ local function test_only_a_standalone_closure_holds_what_standalone_loads()
   end
   assert(not chunk_effective.files["build/teal.tl"] and both_effective.files["build/teal.tl"])
   -- No module is on both ways' lists: each is held by the narrowest.
-  local on_e: {string:boolean} = {}
+  local on_e: mut {string:boolean} = {}
   for _, name in ipairs(test_inputs.lua_loads) do on_e[name] = true end
   for _, name in ipairs(test_inputs.standalone_loads) do assert(not on_e[name], name) end
 end

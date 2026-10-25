@@ -57,7 +57,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     error("session: the cookie store needs one to five keys", 2)
   end
   -- A copy, so changing the caller's list later changes no key in use.
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for i = 1, #supplied do
     local key = supplied[i]
     if type(key) ~= "string" then
@@ -76,13 +76,13 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
 
   local store: Session.Store = { revocable = false }
 
-  store.load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data | nil, string
+  store.load = function(_: Session.Store, token: string, now: integer, cookie: string): Session.Data?, string
     if #token > max_bytes then return nil, "" end
     local payload, sent = token:match("^([^.]+)%.([^.]+)$")
     if payload == nil then return nil, "" end
     local given, _ = Codec.unbase64url(sent)
     if given == nil then return nil, "" end
-    local verified: integer | nil = nil
+    local verified: integer? = nil
     for i, key in ipairs(keys) do
       -- Every key is tried, so the time taken does not say which matched.
       if Hash.equal(mac(key, cookie, payload), given) and verified == nil then verified = i end
@@ -102,7 +102,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   end
 
   store.save = function(_: Session.Store, _previous: string, data: Session.Data,
-                        _changes: Session.Changes, _now: integer, cookie: string): string | nil, string
+                        _changes: Session.Changes, _now: integer, cookie: string): string?, string
     local values: {string:any} = data.values
     local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values },
       { max_depth = DEPTH })

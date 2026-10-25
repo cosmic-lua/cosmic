@@ -44,7 +44,7 @@ local record Receivers
 end
 
 function Receivers.references(subject: Report.Subject): {Receivers.Reference}
-  local out: {Receivers.Reference} = {}
+  local out: mut {Receivers.Reference} = {}
   local seen: {string: boolean} = {}
   local targets: {integer: boolean} = {}
   local program = subject.program
@@ -111,7 +111,7 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     local id = owner.module .. "\n" .. member .. "\n" .. tostring(line)
     if seen[id] ~= true then
       seen[id] = true
-      local beyond: boolean | nil = nil
+      local beyond: boolean? = nil
       if top then
         beyond = true
       end
@@ -119,16 +119,16 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     end
   end
   Node.walk(subject.chunk, function(node: Ast.Node)
-    if node is Ast.Assign then
+    if (node.kind == "Assign") then
       for _, target in ipairs(node.targets) do
         targets[Node.base(target).id] = true
       end
     elseif targets[Node.base(node).id] then
       return
-    elseif node is Ast.Field then
+    elseif (node.kind == "Field") then
       -- The name is the last token of `x.f`.
       use(node.object, node.name, Report.line(subject, Node.base(node).last), false)
-    elseif node is Ast.MethodCall then
+    elseif (node.kind == "MethodCall") then
       -- The name follows the colon, which follows the object.
       use(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2), true)
     end
@@ -148,19 +148,19 @@ end
 function Receivers.blind(subject: Report.Subject): {integer}
   local lines: {integer: boolean} = {}
   Node.walk(subject.chunk, function(node: Ast.Node)
-    if node is Ast.Field then
+    if (node.kind == "Field") then
       local t = subject.types[Node.base(node.object).id]
       if t ~= nil and t.tag == "invalid" then
         lines[Report.line(subject, Node.base(node).last)] = true
       end
-    elseif node is Ast.MethodCall then
+    elseif (node.kind == "MethodCall") then
       local t = subject.types[Node.base(node.object).id]
       if t ~= nil and t.tag == "invalid" then
         lines[Report.line(subject, Node.base(node.object).last + 2)] = true
       end
     end
   end)
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for line in pairs(lines) do
     out[#out + 1] = line
   end
@@ -178,13 +178,13 @@ function Receivers.known(subject: Report.Subject, wanted: {string: boolean}): {s
     end
   end
   Node.walk(subject.chunk, function(node: Ast.Node)
-    if node is Ast.Field then
+    if (node.kind == "Field") then
       note(node.object, node.name, Report.line(subject, Node.base(node).last))
-    elseif node is Ast.MethodCall then
+    elseif (node.kind == "MethodCall") then
       note(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2))
     end
   end)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for at in pairs(found) do
     out[#out + 1] = at
   end

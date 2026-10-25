@@ -15,10 +15,10 @@ local function write(dir: string, files: {string: string})
 end
 
 --- The key of `dir`/main.c searching `include` and then `later` (directories of `dir`), with the command's `extra` words.
-local function key_of(dir: string, extra?: {string}, dirs?: {string}): string | nil
-  local searched: {string} = {}
+local function key_of(dir: string, extra?: {string}, dirs?: {string}): string?
+  local searched: mut {string} = {}
   for _, d in ipairs(dirs or { "inc" }) do searched[#searched + 1] = dir .. "/" .. d end
-  local words: {string} = { "cc", "-c", "main.c" }
+  local words: mut {string} = { "cc", "-c", "main.c" }
   for _, w in ipairs(extra or {}) do words[#words + 1] = w end
   return inputs.key(inputs.reader(searched, words), dir .. "/main.c", words, "zig-1")
 end

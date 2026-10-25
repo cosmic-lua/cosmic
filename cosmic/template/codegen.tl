@@ -74,7 +74,7 @@ local types = require("cosmic.template.types")
 
 --- The names generated code uses or that read as syntax, which a required
 --- module is never named.
-local RESERVED <const>: {string: boolean} = {}
+local RESERVED <const>: mut {string: boolean} = {}
 for _, word in ipairs({
     "parts", "render", "d", "v", "T", "_", "_Module", "_module", "_one", "_text", "_rtext", "_ftext", "_attr", "_url", "_lurl", "_part", "_json", "_sel", "record", "enum", "type", "global",
     "interface", "is", "as", "where", "self", "macroexp",
@@ -114,22 +114,22 @@ end
 --- on, the modules and helpers needed, whether a stage needs `_one`, and
 --- the name counter.
 local record Gen
-  pieces: {string}
-  line: integer
-  started: boolean
+  pieces: mut {string}
+  mut line: integer
+  mut started: boolean
   mode: types.Mode
   imports: Imports
-  html: string
-  helpers: {types.Slot: boolean}
-  staged: boolean
-  dots: integer
+  mut html: string
+  helpers: mut {types.Slot: boolean}
+  mut staged: boolean
+  mut dots: integer
   --- What `$` names.
   root: Dot
   --- The template's variables in scope, by name without the `$`.
-  vars: {string: Dot}
+  vars: mut {string: Dot}
   --- The local an `{{if}}` has bound a field path to, by the path as
   --- written in the source (`d.error`), while the arm it guards is written.
-  bound: {string: string}
+  bound: mut {string: string}
 end
 
 --- The start of a statement that adds to the output.
@@ -229,7 +229,7 @@ end
 --- Writes `code` as the next statement of the line, and answers where in
 --- the pieces it went, for a header that is finished after its body.
 local function put(g: Gen, code: string): integer
-  g.pieces[#g.pieces + 1] = (g.started and " " or "") .. code
+  g.pieces[#g.pieces + 1] = (if g.started then " " else "" end) .. code
   g.started = true
   return #g.pieces
 end
@@ -354,7 +354,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
   else
     -- A field path an arm tests is bound to a local before it is tested:
     -- the test narrows the local, and the arm reads it.
-    local function bindable(pipeline: types.Pipeline | nil): string | nil
+    local function bindable(pipeline: types.Pipeline?): string?
       if pipeline == nil or #pipeline.stages > 0 or #pipeline.path == 0 then
         return nil
       end
@@ -375,23 +375,23 @@ local function block(g: Gen, node: types.Node, dot: Dot)
       to_line(g, arm.line)
       local pipeline = arm.pipeline
       local written = pipeline ~= nil and bindable(pipeline) or nil
-      local lead = at == 1 and flat and "repeat " or ""
+      local lead = if at == 1 and flat then "repeat " else "" end
       if pipeline == nil then
         put(g, flat and closing or "else")
-        closing = flat and "" or "end"
+        closing = if flat then "" else "end" end
       else
         local tested = value(g, pipeline, dot)
         if written ~= nil then
           local name = new_dot(g).name
-          put(g, closing .. (closing ~= "" and " " or "") .. lead .. "do local " .. name .. " = " .. tested ..
+          put(g, closing .. (if closing ~= "" then " " else "" end) .. lead .. "do local " .. name .. " = " .. tested ..
               " if " .. name .. " then")
           g.bound[written] = name
-          closing = flat and "break end end" or "end end"
+          closing = if flat then "break end end" else "end end" end
         elseif flat then
-          put(g, closing .. (closing ~= "" and " " or "") .. lead .. "if " .. tested .. " then")
+          put(g, closing .. (if closing ~= "" then " " else "" end) .. lead .. "if " .. tested .. " then")
           closing = "break end"
         else
-          put(g, (at == 1 and "if " or "elseif ") .. tested .. " then")
+          put(g, (if at == 1 then "if " else "elseif " end) .. tested .. " then")
           closing = "end"
         end
       end
@@ -402,7 +402,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     end
     to_line(g, node.close_line)
     if flat then
-      put(g, closing .. (closing ~= "" and " " or "") .. "until true")
+      put(g, closing .. (if closing ~= "" then " " else "" end) .. "until true")
     else
       put(g, closing)
     end
@@ -489,9 +489,9 @@ function Codegen.generate(template: types.Template, new_grammar?: boolean): stri
   end
   emit(g, template.body, g.root)
 
-  local head: {string} = {}
+  local head: mut {string} = {}
   for _, path in ipairs(g.imports.order) do
-    head[#head + 1] = (g.imports.as_value[path] and "local " or "local type ") .. g.imports.alias_of[path] ..
+    head[#head + 1] = (if g.imports.as_value[path] then "local " else "local type " end) .. g.imports.alias_of[path] ..
       " = require(\"" .. path .. "\")"
   end
   if g.staged then
@@ -502,8 +502,8 @@ function Codegen.generate(template: types.Template, new_grammar?: boolean): stri
       head[#head + 1] = helper(g, ctx)
     end
   end
-  local result = template.mode == "html" and g.html .. ".SafeHtml" or "string"
-  head[#head + 1] = "local function render(" .. (g.root.used and "d" or "_") .. ": " .. type_alias .. "." ..
+  local result = if template.mode == "html" then g.html .. ".SafeHtml" else "string" end
+  head[#head + 1] = "local function render(" .. (if g.root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
     template.type_name .. "): " .. result
   local parts = "local parts: {string} = {}"
   local ending = " end return {render = render}"
@@ -516,8 +516,8 @@ function Codegen.generate(template: types.Template, new_grammar?: boolean): stri
   head[#head + 1] = parts
 
   to_line(g, template.lines)
-  put(g, "return " .. (template.mode == "html" and g.html .. ".trust(table.concat(parts))" or
-    "table.concat(parts)") .. ending)
+  put(g, "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
+    "table.concat(parts)" end) .. ending)
   return string.rep("\n", template.line - 1) .. table.concat(head, " ") .. " " ..
     table.concat(g.pieces) .. "\n"
 end

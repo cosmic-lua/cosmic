@@ -90,7 +90,7 @@ end
 
 --- A copy of `grants` with `more` after them.
 local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: {Sandbox.Grant} = {}
+  local out: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(grants) do out[#out + 1] = grant end
   for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
   return out
@@ -98,7 +98,7 @@ end
 
 --- The pids /proc lists, from `ls /proc`'s lines.
 local function pids(listing: string): {integer}
-  local found: {integer} = {}
+  local found: mut {integer} = {}
   for line in listing:gmatch("[^\n]+") do
     local number = tonumber(line)
     if number ~= nil then found[#found + 1] = math.tointeger(number) end
@@ -108,14 +108,14 @@ end
 
 --- The mount at `point` in a /proc/self/mountinfo `text`: its options, its
 --- file system's type and that file system's own options, or nil.
-local function mount_at(text: string, point: string): {string} | nil
+local function mount_at(text: string, point: string): {string}?
   for line in text:gmatch("[^\n]+") do
     local left, right = line:match("^(.-) %- (.*)$")
     if left ~= nil then
-      local fields: {string} = {}
+      local fields: mut {string} = {}
       for word in left:gmatch("%S+") do fields[#fields + 1] = word end
       if fields[5] == point then
-        local rest: {string} = {}
+        local rest: mut {string} = {}
         for word in right:gmatch("%S+") do rest[#rest + 1] = word end
         return { fields[6], rest[1], rest[3] }
       end
@@ -430,7 +430,7 @@ local type Searcher = function(string): any, any
 
 --- The Landlock ABI of this kernel, nil where there is none: from the raw
 --- table the store's searcher hands [`cosmic.child`]'s loader.
-local function landlock_abi(): integer | nil, string, integer
+local function landlock_abi(): integer?, string, integer
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then

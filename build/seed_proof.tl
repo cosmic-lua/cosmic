@@ -39,7 +39,7 @@ local record SeedProof
 
   --- What [`SeedProof.boot`] ran.
   record Booted
-    code: integer | nil
+    code: integer?
     stdout: string
     --- The bridge's account of its steps ([`core/bridge_new.lua`]'s `COSMIC_BRIDGE_TRACE`), one line each.
     trace: {string}
@@ -60,11 +60,11 @@ local record SeedProof
 
   --- The modules among the files of `dump` (`<module>.lua`, what the bridge compiled) whose Lua is not among the Lua of the
   --- pipeline kept in the compile cache `cache` (a `compiled_v2` table), and how many files `dump` holds.
-  unequal: function(dump: string, cache: string): Compared | nil, string
+  unequal: function(dump: string, cache: string): Compared?, string
 
   --- Boots `tree` with the raw core `core` (a path), the seed in `seed` and the variables `env`, with the command line
   --- `args` that [`build.boot`] is given after the seed. `tree` holds core/bridge.lua, which loads the new bridge.
-  boot: function(core: string, tree: string, seed: string, args: {string}, env: {string: string}): Booted | nil, string
+  boot: function(core: string, tree: string, seed: string, args: {string}, env: {string: string}): Booted?, string
 
   --- The command line of [`build/seed_proof_main.tl`].
   main: function(argv: {string}): integer
@@ -136,8 +136,8 @@ return {
 
 --- The bridge's lines that say a step (`bridge: <seconds> s ...`), and the rest of `text`.
 local function split_trace(text: string): {string}, string
-  local trace: {string} = {}
-  local rest: {string} = {}
+  local trace: mut {string} = {}
+  local rest: mut {string} = {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if line:find("^bridge: ") ~= nil then
       trace[#trace + 1] = line
@@ -153,7 +153,7 @@ function SeedProof.carry(root: string, tree: string): boolean, string
   if names == nil then
     return false, names_why
   end
-  local files: {string} = { "build/seed.txt", "lang/SEED_DIFFERS" }
+  local files: mut {string} = { "build/seed.txt", "lang/SEED_DIFFERS" }
   for _, name in ipairs(names) do
     if name:match("%.h$") ~= nil then
       files[#files + 1] = "core/" .. name
@@ -176,7 +176,7 @@ function SeedProof.carry(root: string, tree: string): boolean, string
   return true, ""
 end
 
-function SeedProof.unequal(dump: string, cache: string): SeedProof.Compared | nil, string
+function SeedProof.unequal(dump: string, cache: string): SeedProof.Compared?, string
   local db, open_why = Sqlite.open(cache, { immutable = true })
   if db == nil then
     return nil, open_why
@@ -185,7 +185,7 @@ function SeedProof.unequal(dump: string, cache: string): SeedProof.Compared | ni
   if rows == nil then
     return nil, rows_why
   end
-  local kept: {string: boolean} = {}
+  local kept: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     kept[Hash.hex_sha256(row:text(1))] = true
   end
@@ -193,7 +193,7 @@ function SeedProof.unequal(dump: string, cache: string): SeedProof.Compared | ni
   if files == nil then
     return nil, files_why
   end
-  local differ: {string} = {}
+  local differ: mut {string} = {}
   for _, file in ipairs(files) do
     local text, _ = Fs.read(dump .. "/" .. file)
     if text == nil or kept[Hash.hex_sha256(text)] ~= true then
@@ -207,19 +207,19 @@ function SeedProof.shim(): string
   return SHIM
 end
 
-local function listed(root: string): {string} | nil, string
+local function listed(root: string): {string}?, string
   local text, why = Fs.read(root .. "/build/seed.txt")
   if text == nil then
     return nil, why
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     out[#out + 1] = line
   end
   return out, ""
 end
 
-local function translate(root: string, paths: {string}, out: string): TreeWriter.Report | nil, string
+local function translate(root: string, paths: {string}, out: string): TreeWriter.Report?, string
   local allowance, why = TreeWriter.allowance(root)
   if allowance == nil then
     return nil, why
@@ -232,8 +232,8 @@ local function output_of(file: string): string
   return (file:match("([^/]*)%.tl$") or file) .. ".lua"
 end
 
-local function compile(tree: string, files: {string}, out: string): {string: string} | nil, string
-  local sources: {CompileGrammar.Source} = {}
+local function compile(tree: string, files: {string}, out: string): {string: string}?, string
+  local sources: mut {CompileGrammar.Source} = {}
   for _, file in ipairs(files) do
     local text, why = Fs.read(tree .. "/" .. file)
     if text == nil then
@@ -242,15 +242,15 @@ local function compile(tree: string, files: {string}, out: string): {string: str
     sources[#sources + 1] = { path = file, relative = file, text = text, declaration = false }
   end
   local made = CompileGrammar.compile(sources)
-  local lua: {string: string} = {}
-  local problems: {string} = {}
+  local lua: mut {string: string} = {}
+  local problems: mut {string} = {}
   for index, compiled in ipairs(made) do
     local file = assert(files[index])
     for _, p in ipairs(compiled.syntax_errors) do
       problems[#problems + 1] = file .. ":" .. tostring(p.y) .. ":" .. tostring(p.x) .. ": " .. p.msg
     end
     if compiled.code == nil then
-      problems[#problems + 1] = file .. ": no Lua" .. (compiled.trouble ~= "" and (": " .. compiled.trouble) or "")
+      problems[#problems + 1] = file .. ": no Lua" .. (if compiled.trouble ~= "" then (": " .. compiled.trouble) else "" end)
     else
       lua[file] = compiled.code
     end
@@ -271,8 +271,8 @@ end
 --- The same files compiled by the cosmic `cosmic` (a path) in the grammar `grammar` (`new`, or `teal` for the fork's own
 --- files), as `build.zig`'s seed step runs it from `tree`. The Lua by file.
 local function compile_with(cosmic: string, grammar: string, tree: string, files: {string}, out: string):
-    {string: string} | nil, string
-  local argv: {string} = { cosmic, "compile" }
+    {string: string}?, string
+  local argv: mut {string} = { cosmic, "compile" }
   if grammar ~= "teal" then
     argv[#argv + 1] = "--grammar"
     argv[#argv + 1] = grammar
@@ -289,7 +289,7 @@ local function compile_with(cosmic: string, grammar: string, tree: string, files
   if ran.code ~= 0 then
     return nil, "compile with " .. cosmic .. " failed: " .. (ran.stderr or "")
   end
-  local lua: {string: string} = {}
+  local lua: mut {string: string} = {}
   for _, file in ipairs(files) do
     -- A declaration file has no Lua.
     if file:match("%.d%.tl$") == nil then
@@ -305,7 +305,7 @@ end
 
 --- Of `files`, the ones whose text differs between `a` and `b` (by file), in the order given.
 local function differing(files: {string}, a: {string: string}, b: {string: string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     if a[file] ~= b[file] then
       out[#out + 1] = file
@@ -315,9 +315,9 @@ local function differing(files: {string}, a: {string: string}, b: {string: strin
 end
 
 function SeedProof.boot(core: string, tree: string, seed: string, args: {string}, env: {string: string}):
-    SeedProof.Booted | nil, string
+    SeedProof.Booted?, string
   local started = Clock.monotonic_ns()
-  local argv: {string} = { core, "--boot", tree, seed }
+  local argv: mut {string} = { core, "--boot", tree, seed }
   for _, word in ipairs(args) do
     argv[#argv + 1] = word
   end
@@ -337,7 +337,7 @@ end
 
 --- Runs `argv` in `cwd` with the environment `env` (this process's own where nil) and answers its end, nil and why if it
 --- did not start. The program is found on the path of this process.
-local function run(argv: {string}, cwd: string | nil, env: {string: string} | nil): Child.Result | nil, string
+local function run(argv: {string}, cwd: string?, env: {string: string}?): Child.Result?, string
   local program, found_why = Proc.find(assert(argv[1]))
   if program == nil then
     return nil, found_why
@@ -360,7 +360,7 @@ end
 
 --- The last `count` lines of `text`.
 local function tail(text: string, count: integer): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
@@ -370,7 +370,7 @@ end
 
 --- What a boot found: the bridge's steps and the end.
 local function report(booted: SeedProof.Booted): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, line in ipairs(booted.trace) do
     lines[#lines + 1] = "  " .. line
   end
@@ -400,7 +400,7 @@ local function closure_check(root: string, dir: string, seed: string, core: stri
   end
   print("3. the bridge, cold, up to build.boot: " .. took(started))
   say(report(booted))
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   local loaded = false
   for _, line in ipairs(booted.trace) do
     loaded = loaded or line:find("build.boot loaded", 1, true) ~= nil
@@ -423,13 +423,13 @@ local record Host
 end
 
 --- The host this runs on, nil and why for one with no core.
-local function host_of(): Host | nil, string
+local function host_of(): Host?, string
   local ran, why = run({ "uname", "-sm" }, nil, nil)
   if ran == nil then
     return nil, why
   end
   local kernel, machine = (ran.stdout or ""):match("^(%S+)%s+(%S+)")
-  local target: string | nil = nil
+  local target: string? = nil
   if kernel == "Linux" and machine == "x86_64" then
     target = "x86_64-linux-musl"
   elseif kernel == "Linux" and (machine == "aarch64" or machine == "arm64") then
@@ -491,7 +491,7 @@ local function tool_check(root: string, dir: string, core: string, cosmic: strin
   elseif listed_fork.code ~= 0 then
     return { "listing the fork's files: " .. (listed_fork.stderr or "") }
   end
-  local fork_files: {string} = {}
+  local fork_files: mut {string} = {}
   for line in (listed_fork.stdout or ""):gmatch("[^\n]+") do
     fork_files[#fork_files + 1] = line
   end
@@ -514,7 +514,7 @@ local function tool_check(root: string, dir: string, core: string, cosmic: strin
   assert(Fs.mkdirs(working .. "/core/" .. host))
   assert(Fs.write(working .. "/core/" .. host .. "/cosmic-core", (assert(Fs.read(core))), 0x1ed))
   assert(Fs.write(working .. "/targets.tsv", found.records))
-  local env: {string: string} = {
+  local env: mut {string: string} = {
     PATH = Env.get_or("PATH", "/usr/bin:/bin"), HOME = Env.get_or("HOME", "/root"),
     COSMIC_GRAMMAR = "new", COSMIC_SEED_NEW = dir .. "/seed_copy", COSMIC_BRIDGE_TRACE = "1",
     COSMIC_BUILD_CACHE = dir .. "/cache.db", COSMIC_BUILD_HOME = working,
@@ -532,7 +532,7 @@ local function tool_check(root: string, dir: string, core: string, cosmic: strin
   if staged.code ~= 0 then
     return { "--stage failed" }
   end
-  local failures: {string} = {}
+  local failures: mut {string} = {}
   local bridged = false
   for _, line in ipairs(staged.trace) do
     bridged = bridged or line:find("stage two: ", 1, true) ~= nil
@@ -600,7 +600,7 @@ function SeedProof.main(argv: {string}): integer
   if given:sub(1, 1) ~= "/" then
     dir = root .. "/" .. given
   end
-  local seed_cosmic: string | nil = nil
+  local seed_cosmic: string? = nil
   local tool = false
   local index = 3
   while argv[index] ~= nil do
@@ -682,7 +682,7 @@ function SeedProof.main(argv: {string}): integer
   for _, failure in ipairs(failures) do
     print("FAIL " .. failure)
   end
-  return #failures == 0 and 0 or 1
+  return if #failures == 0 then 0 else 1 end
 end
 
 return SeedProof

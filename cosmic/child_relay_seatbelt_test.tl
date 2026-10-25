@@ -215,7 +215,7 @@ end
 
 --- An echo server for `listener`, answering "echo:" and the four bytes each
 --- connection sends, as a task of the run, and counting the connections.
-local function echoing(listener: Net.Listener, count: {integer}): Poll.Task
+local function echoing(listener: Net.Listener, count: mut {integer}): Poll.Task
   return Poll.spawn(function()
     while true do
       local conn = listener:accept()
@@ -242,7 +242,7 @@ local function denials(): string
     "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
   if result == nil then return "" end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
   return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
 end
@@ -264,7 +264,7 @@ end
 
 --- The lines `name<TAB>value` of a program's output, by name.
 local function fields(output: string): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
     if name ~= nil then out[name] = value end
@@ -289,7 +289,7 @@ local function flows(tmp: string): Flows
   local database = sealed_client(tmp)
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
-  local seen = { value = nil as Flows | nil }
+  local seen = { value = nil as Flows? }
   Poll.run(function()
     local first = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -622,7 +622,7 @@ end
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   macos_only()
-  local address: string | nil
+  local address: string?
   for _, entry in ipairs((assert(sys.getifaddrs()))) do
     if entry.family == "ipv4" and not entry.loopback and not entry.address:find("^169%.254%.") then
       address = entry.address

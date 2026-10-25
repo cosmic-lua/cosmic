@@ -281,7 +281,7 @@ local REFUSALS <const>: {{string}} = {
 }
 
 local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(REFUSALS) do
     local why = refused(HEAD .. case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -496,7 +496,7 @@ local HTMX_CLASSES <const>: {{string}} = {
 
 --- The helpers `out` calls for the slots in its body, in order.
 local function helpers_called(out: string): {string}
-  local calls: {string} = {}
+  local calls: mut {string} = {}
   for name in out:gmatch("parts%[#parts %+ 1%] = (_[a-z]+)%(v%)") do
     calls[#calls + 1] = name
   end
@@ -747,7 +747,7 @@ local function test_a_project_dialect_replaces_the_registry()
     plain = {},
   }
   local options: Template.Options = { dialects = { alpine = alpine }, new_grammar = nil }
-  local function compile(src: string): string | nil, string
+  local function compile(src: string): string?, string
     return Template.compile("{{type T from m.t}}{{use alpine}}\n" .. src, "t.tmpl", options)
   end
   local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
@@ -825,7 +825,7 @@ local SYNTAX <const>: {{string}} = {
 }
 
 local function test_a_template_that_does_not_parse_is_refused_where_it_goes_wrong()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(SYNTAX) do
     local why = refused(case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -848,7 +848,7 @@ local function test_the_module_has_the_templates_lines()
     "{{else}}\nL12\n{{end}}\n{{range .c}}{{- .d -}}\nL15\n  {{end}}\n{{with .e}}\n L18\n{{end}}\nL20"
   local out = compiled(src)
   assert(newlines(out) == newlines(src) + 1, "lines: " .. newlines(out) .. " for " .. newlines(src))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
@@ -1064,7 +1064,7 @@ local function test_a_string_action_keeps_the_templates_lines()
   local src = TEXT .. "L2 {{\n  \"{{\"\n}} L4\n{{- \"x\" -}}\n\nL6"
   local out = compiled(src)
   assert(newlines(out) == newlines(src) + 1, out)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
@@ -1092,7 +1092,7 @@ local STRINGS <const>: {{string}} = {
 }
 
 local function test_a_string_action_that_is_malformed_or_not_alone_is_refused_where_it_goes_wrong()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(STRINGS) do
     local why = refused(case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -1159,7 +1159,7 @@ local NOSCRIPT_MARKUP <const>: {string} = {
 --- action. No cut goes beside a brace of the literal text, which would run
 --- into an action's own.
 local function cuts(src: string): {string}
-  local literal: {boolean} = {}
+  local literal: mut {boolean} = {}
   local at = 1
   while at <= #src do
     local open, close = src:find("{{.-}}", at)
@@ -1168,7 +1168,7 @@ local function cuts(src: string): {string}
     end
     at = (close or #src) + 1
   end
-  local out: {string} = { src }
+  local out: mut {string} = { src }
   for i = 1, #src do
     if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then
       local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
@@ -1180,7 +1180,7 @@ local function cuts(src: string): {string}
 end
 
 local function test_markup_in_noscript_that_scripting_off_reads_differently_refuses_a_later_slot()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, src in ipairs(NOSCRIPT_MARKUP) do
     for _, cut in ipairs(cuts(src)) do
       local out, why = Template.compile(HEAD .. cut, "t.tmpl")
@@ -1212,7 +1212,7 @@ local NOSCRIPT_PLAIN <const>: {string} = {
 }
 
 local function test_markup_in_noscript_that_ends_in_text_keeps_the_slots_after_it()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, src in ipairs(NOSCRIPT_PLAIN) do
     for _, cut in ipairs(cuts(src)) do
       local out, why = Template.compile(HEAD .. cut, "t.tmpl")
@@ -1248,7 +1248,7 @@ end
 -- the classic parser, which is in select again after `</template>`. A slot
 -- after such a tag is refused, as is one in the same text cut into runs.
 local function test_raw_text_in_select_or_frameset_is_refused()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, src in ipairs({
       '<select><title><option onclick="{{.x}}"></title></select>',
       '<select><title><script>{{.x}}</script></title></select>',
@@ -1350,7 +1350,7 @@ local APART <const>: {{string}} = {
 }
 
 local function test_text_that_reads_differently_after_each_arm_of_a_block_is_refused()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(APART) do
     local why = refused(HEAD .. case[1])
     local want = "t.tmpl:" .. case[2] .. ":" .. case[3] .. ": "
@@ -1401,7 +1401,7 @@ local function test_a_range_else_keeps_the_templates_lines()
   local src = "{{type T from m.t}}{{mode text}}\n{{range .a}}\nL3 {{.x}}\n{{else}}\nL5 {{.y}}\n{{end}}\nL7"
   local out = compiled(src)
   assert(newlines(out) == newlines(src) + 1, out)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
@@ -1516,7 +1516,7 @@ local function test_bindings_keep_the_templates_lines()
   local src = "{{type T from m.t}}{{mode text}}\n{{range $i,\n  $x := .a}}\nL4 {{$i}}\n{{else}}\nL6 {{$.y}}\n{{end}}\nL8"
   local out = compiled(src)
   assert(newlines(out) == newlines(src) + 1, out)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
@@ -1565,7 +1565,7 @@ local VARIABLE_REFUSALS <const>: {{string}} = {
 }
 
 local function test_a_variable_out_of_scope_or_misspelled_is_refused_where_it_stands()
-  local wrong: {string} = {}
+  local wrong: mut {string} = {}
   for _, case in ipairs(VARIABLE_REFUSALS) do
     local out, why = Template.compile(case[1], "t.tmpl")
     if case[4] == "" then

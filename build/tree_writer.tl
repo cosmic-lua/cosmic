@@ -91,9 +91,9 @@ local record TreeWriter
     again: boolean
     --- What translates, where not [`lang.translate`]: a test plants one that drifts or loses a comment to see the writer
     --- report it.
-    translator: Translator | nil
+    translator: Translator?
     --- Write the translation alone, without the steps the pipeline takes after it ([`TreeProgram.read`]).
-    raw: boolean | nil
+    raw: boolean?
   end
 
   --- What [`TreeWriter.guide`] answers.
@@ -111,7 +111,7 @@ local record TreeWriter
 
   --- The allow-list of the tree at `root`: the files the owner decided to let keep errors (the tour, a guide's example of a
   --- generic method) and the `[translated]` ceilings.
-  allowance: function(root: string): Allowance | nil, string
+  allowance: function(root: string): Allowance?, string
 
   --- Whether the allow-list lets `path` keep errors of these `codes` (a count for each).
   permits: function(allowance: Allowance, path: string, codes: {string: integer}): boolean
@@ -122,14 +122,14 @@ local record TreeWriter
 
   --- The files of the tree at `root` this writes: the `.tl` and `.d.tl` files git tracks (a walk of the tree where
   --- `root` is no checkout), [`TreeWriter.selected`].
-  tracked: function(root: string): {string} | nil, string
+  tracked: function(root: string): {string}?, string
 
   --- `text`, a guide called `name`, with the Teal of its examples translated. A guide whose fences do not parse is
   --- answered as it is with the reason as its one error.
   guide: function(text: string, name: string, translator?: Translator): Guide
 
   --- Translates the files `paths` of the tree at `root` and writes them below `out`.
-  write: function(root: string, paths: {string}, out: string, options: Options): Report | nil, string
+  write: function(root: string, paths: {string}, out: string, options: Options): Report?, string
 
   --- The lines that say what `report` found.
   summary: function(report: Report): {string}
@@ -157,7 +157,7 @@ local function kept(path: string): boolean
   return false
 end
 
-function TreeWriter.allowance(root: string): TreeWriter.Allowance | nil, string
+function TreeWriter.allowance(root: string): TreeWriter.Allowance?, string
   local ceilings, why = Ceilings.read(root)
   if ceilings == nil then
     return nil, why
@@ -181,7 +181,7 @@ end
 
 --- The lines of `text` as [`String.lines`] gives them: joined by `"\n"` they are `text` again.
 local function lines_of(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in String.lines(text) do
     out[#out + 1] = line
   end
@@ -194,7 +194,7 @@ local BOUNDARY <const> = "-- tree_writer: end of block"
 
 --- The blocks of a guide that are translated together: an example, or one block that stands alone.
 local record Group
-  blocks: {Doctest.Block}
+  blocks: mut {Doctest.Block}
   --- A skipped block, left as written where it does not translate.
   skipped: boolean
 end
@@ -206,8 +206,8 @@ end
 
 --- The groups of the Teal blocks of `blocks`, as the example check forms its examples ([`build.doctest.generate`]).
 local function groups_of(blocks: {Doctest.Block}): {Group}
-  local out: {Group} = {}
-  local current: Group | nil = nil
+  local out: mut {Group} = {}
+  local current: Group? = nil
   for _, block in ipairs(blocks) do
     if block.lang == "text" or block.lang == "output" then
       current = nil
@@ -250,7 +250,7 @@ local function height(content: string): integer
 end
 
 --- Adds `from` to `into`, row by row.
-local function add_counts(into: {string: integer}, from: {string: integer})
+local function add_counts(into: mut {string: integer}, from: {string: integer})
   for row, n in pairs(from) do
     into[row] = (into[row] or 0) + n
   end
@@ -266,11 +266,11 @@ function TreeWriter.guide(text: string, name: string, translator?: TreeWriter.Tr
     return made
   end
   -- The new content of each block that changes, by the line of its first content line.
-  local replaced: {integer: {string}} = {}
-  local taken: {integer: integer} = {}
+  local replaced: mut {integer: {string}} = {}
+  local taken: mut {integer: integer} = {}
   for _, group in ipairs(groups_of(blocks)) do
     local first = assert(group.blocks[1])
-    local contents: {string} = {}
+    local contents: mut {string} = {}
     for i, block in ipairs(group.blocks) do
       contents[i] = block.content
     end
@@ -308,7 +308,7 @@ function TreeWriter.guide(text: string, name: string, translator?: TreeWriter.Tr
     end
   end
   local lines = lines_of(text)
-  local out: {string} = {}
+  local out: mut {string} = {}
   local at = 1
   while at <= #lines do
     local new = replaced[at]
@@ -327,7 +327,7 @@ function TreeWriter.guide(text: string, name: string, translator?: TreeWriter.Tr
 end
 
 function TreeWriter.selected(paths: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, path in ipairs(paths) do
     if path:sub(1, 7) ~= "vendor/" and (path:match("%.tl$") ~= nil or path:match("^doc/guides/[^/]+%.md$") ~= nil) then
       out[#out + 1] = path
@@ -339,7 +339,7 @@ function TreeWriter.selected(paths: {string}): {string}
   return out
 end
 
-function TreeWriter.tracked(root: string): {string} | nil, string
+function TreeWriter.tracked(root: string): {string}?, string
   local git, _ = Proc.find("git")
   local listed: {string} = {}
   local from_git = false
@@ -382,8 +382,8 @@ local NEW_GRAMMAR <const>: {string: boolean} = {
 
 --- `text`, the file `path`, translated: a guide through [`TreeWriter.guide`], a file already in the new grammar as it is, any
 --- other file as a module, with the steps of [`TreeProgram.read`] where `tags` are given.
-local function translated(path: string, text: string, translator: TreeWriter.Translator | nil,
-                          tags: {string: LangProof.Tags} | nil): Done
+local function translated(path: string, text: string, translator: TreeWriter.Translator?,
+                          tags: {string: LangProof.Tags}?): Done
   if NEW_GRAMMAR[path] == true then
     return { text = text, errors = {}, codes = {}, counts = {}, hazards = {}, left = 0 }
   end
@@ -401,20 +401,20 @@ local function translated(path: string, text: string, translator: TreeWriter.Tra
     result = translate(text, path)
     final = result.text
   end
-  local errors: {string} = {}
-  local codes: {string: integer} = {}
+  local errors: mut {string} = {}
+  local codes: mut {string: integer} = {}
   for _, e in ipairs(result.errors) do
     errors[#errors + 1] = path .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. ")"
     codes[e.code] = (codes[e.code] or 0) + 1
   end
-  local hazards: {string} = {}
+  local hazards: mut {string} = {}
   for _, h in ipairs(result.hazards) do
     hazards[#hazards + 1] = path .. ":" .. tostring(h.y) .. ": " .. h.class .. ":" .. h.method .. " (" .. h.kind .. ") " .. h.name
   end
   return { text = final, errors = errors, codes = codes, counts = result.counts, hazards = hazards, left = 0 }
 end
 
-function TreeWriter.write(root: string, paths: {string}, out: string, options: TreeWriter.Options): TreeWriter.Report | nil, string
+function TreeWriter.write(root: string, paths: {string}, out: string, options: TreeWriter.Options): TreeWriter.Report?, string
   local started = Clock.monotonic_ns()
   local held = 0
   for _, path in ipairs(paths) do
@@ -427,7 +427,7 @@ function TreeWriter.write(root: string, paths: {string}, out: string, options: T
     left = 0, nanoseconds = 0,
   }
   -- The steps after the translation read the two modules that hold the `where` clauses, as the tree has them.
-  local tags: {string: LangProof.Tags} | nil = nil
+  local tags: {string: LangProof.Tags}? = nil
   if options.raw ~= true then
     local ast, _ = Fs.read(root .. "/lang/ast.tl")
     local types, _ = Fs.read(root .. "/lang/types.tl")
@@ -486,7 +486,7 @@ function TreeWriter.write(root: string, paths: {string}, out: string, options: T
 end
 
 function TreeWriter.summary(report: TreeWriter.Report): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local written = #report.clean + #report.allowed
   out[#out + 1] = "read " .. String.counted(report.files, "file") .. ", " .. tostring(report.changed) ..
     " changed by the translation"
@@ -508,12 +508,12 @@ function TreeWriter.summary(report: TreeWriter.Report): {string}
   for _, path in ipairs(report.unstable) do
     out[#out + 1] = "  UNSTABLE " .. path .. ": translating the output changes it"
   end
-  local kinds: {string: integer} = {}
+  local kinds: mut {string: integer} = {}
   for _, line in ipairs(report.hazards) do
     local kind = line:match(".*%((%a+)%) ") or "other"
     kinds[kind] = (kinds[kind] or 0) + 1
   end
-  local hazard_parts: {string} = {}
+  local hazard_parts: mut {string} = {}
   for kind, n in pairs(kinds) do
     hazard_parts[#hazard_parts + 1] = kind .. " " .. tostring(n)
   end
@@ -522,14 +522,14 @@ function TreeWriter.summary(report: TreeWriter.Report): {string}
   end)
   out[#out + 1] = "hazards " .. tostring(#report.hazards) .. " (" .. table.concat(hazard_parts, ", ") ..
     "), skipped blocks left as written " .. tostring(report.left)
-  local rows: {string} = {}
+  local rows: mut {string} = {}
   for row in pairs(report.counts) do
     rows[#rows + 1] = row
   end
   table.sort(rows, function(a: string, b: string): boolean
     return a < b
   end)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, row in ipairs(rows) do
     parts[#parts + 1] = row .. " " .. tostring(report.counts[row] or 0)
   end
@@ -548,7 +548,7 @@ function TreeWriter.main(argv: {string}): integer
   local root = "."
   local again = false
   local raw = false
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   local index = 3
   while argv[index] ~= nil do
     local word = assert(argv[index])
@@ -592,7 +592,7 @@ function TreeWriter.main(argv: {string}): integer
   for _, line in ipairs(TreeWriter.summary(report)) do
     print(line)
   end
-  return (#report.refused == 0 and #report.unstable == 0) and 0 or 1
+  return if (#report.refused == 0 and #report.unstable == 0) then 0 else 1 end
 end
 
 return TreeWriter

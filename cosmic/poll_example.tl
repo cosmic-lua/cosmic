@@ -117,7 +117,7 @@ end
 function Example.kill()
   local lease = { released = false }
   local record Lease
-    metamethod __close: function(Lease)
+    __close: function(Lease)
   end
   local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end }
   Poll.run(function()

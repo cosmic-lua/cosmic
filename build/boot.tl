@@ -64,7 +64,7 @@ local function stamp_text(staged: Staged, carried: string, records: string): str
     modules_shared = tostring(staged.modules_shared),
     elapsed_ms = tostring(staged.elapsed_ms),
   }
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, field in ipairs(stamp_fields) do
     lines[#lines + 1] = field .. "=" .. values[field]
   end
@@ -79,8 +79,8 @@ local record Stamp
 end
 
 --- The stamp `text` is, if it is one for `records`; else nil and why.
-local function read_stamp(text: string, records: string): Stamp | nil, string
-  local values: {string:string} = {}
+local function read_stamp(text: string, records: string): Stamp?, string
+  local values: mut {string:string} = {}
   for field, value in text:gmatch("([%a_]+)=(%x+)\n") do
     values[field] = value
   end
@@ -108,7 +108,7 @@ end
 --- raw cores matter. Says why on failure, returning nil.
 local function stage(root: string, seed_dir: string, compiler_source: string,
                      working: build_paths.Layout, output: build_paths.Layout,
-                     started: integer): Staged | nil
+                     started: integer): Staged?
   local made, mkdir_trouble = Fs.mkdirs(output.bin)
   if not made then
     log:complain("boot: " .. mkdir_trouble)
@@ -178,7 +178,7 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
   -- fork's builds it again ([`build.reboot`]). Only the tree's own compile is the new checker's: the bridge that runs this
   -- compiles `build.*` up to here with the fork's checker the seed carries, and `build.zig`'s `seedCompiler` and
   -- checker/SEED_DIFFERS stay the fork's until the switch (doc/plans/strict-teal.md, "the switch").
-  local pool: importer.Workers | nil = nil
+  local pool: importer.Workers? = nil
   if grammar ~= "new" then
     pool = workers.pool(workers.boot_spec(root, seed_dir))
   else
@@ -210,7 +210,7 @@ local function stage(root: string, seed_dir: string, compiler_source: string,
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
   local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
-    result.cached, written and "PASS" or "FAIL")
+    result.cached, if written then "PASS" else "FAIL" end)
   if not written then
     local _, _ = work.close(handle)
     log:complain("boot: " .. write_trouble)
@@ -256,7 +256,7 @@ end
 local function assemble(manifest_records: string, images: {string:string},
                         selected_configuration: integer,
                         output: build_paths.Layout,
-                        expected?: string): integer | nil
+                        expected?: string): integer?
   local database, read_trouble = Fs.read(output.carried)
   if database == nil then
     log:complain("boot: " .. read_trouble)
@@ -336,7 +336,7 @@ local function boot(root: string, argv: {string},
     first = first + 1
   end
   --- The command line's slot `n`, counted as a whole boot's.
-  local function slot(n: integer): string | nil
+  local function slot(n: integer): string?
     return argv[n + first - 4]
   end
   local host = slot(4)
@@ -367,11 +367,11 @@ local function boot(root: string, argv: {string},
     return 1
   end
 
-  local targets: {string} = {}
-  local images: {string:string} = {}
-  local host_id: string | nil = nil
-  local host_os: string | nil = nil
-  local host_arch: string | nil = nil
+  local targets: mut {string} = {}
+  local images: mut {string:string} = {}
+  local host_id: string? = nil
+  local host_os: string? = nil
+  local host_arch: string? = nil
   for line in records:gmatch("[^\n]+") do
     local id, configuration_id, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -383,7 +383,7 @@ local function boot(root: string, argv: {string},
     -- The staging half never reads a raw core: it is the point of
     -- running it before the cores other than this process's own exist.
     if mode ~= "stage" then
-      local image: string | nil
+      local image: string?
       local failure = ""
       if host_only and target ~= host then
         image = artifact.placeholder(target)
@@ -474,7 +474,7 @@ local function boot(root: string, argv: {string},
     return 0
   end
   local staged: Staged
-  local expected: string | nil = nil
+  local expected: string? = nil
   if mode == "boot" then
     local made = stage(root, argv[3], compiler_source, working, output, started)
     if made == nil then return 1 end
@@ -501,7 +501,7 @@ local function boot(root: string, argv: {string},
   local total_ms = clock.elapsed_ms(started)
   if mode == "assemble" then total_ms = total_ms + staged.elapsed_ms end
   local _, _ = Fs.put(Fs.stderr, "boot: " .. plural.count(#targets, "target") ..
-      (host_only and " (the host's core only)" or "") .. ", " ..
+      (if host_only then " (the host's core only)" else "" end) .. ", " ..
       describe(staged) .. ", " ..
       plural.count(database_length, "database byte") .. ", " .. total_ms .. " ms\n")
   return 0

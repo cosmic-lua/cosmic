@@ -15,10 +15,10 @@ local record protocol
     --- The next message's body: nil and "" at the end between messages,
     --- nil and why for a stream that ends inside one or holds a header
     --- the protocol does not.
-    next: function(Frames): string | nil, string
+    next: function(Frames): string?, string
     --- The next message's body when the bytes read already hold all of
     --- it, without reading; nil otherwise, with nothing taken.
-    buffered: function(Frames): string | nil
+    buffered: function(Frames): string?
     --- Whether bytes of another message are read already, or have
     --- arrived to be read: the stream's `poll` is asked, without waiting.
     waiting: function(Frames): boolean
@@ -26,7 +26,7 @@ local record protocol
 
   --- What has arrived of a stream, read without waiting: nil and "" when
   --- nothing has, nil and why where the stream broke.
-  type Poll = function(): string | nil, string
+  type Poll = function(): string?, string
 
   -- What the server reads of the messages it is sent, each checked by its
   -- shape before it is read.
@@ -34,7 +34,7 @@ local record protocol
   --- A message's envelope: `id` and `params` are read by what the method
   --- says they are.
   record Message
-    method: string | nil
+    method: string?
     id: any
     params: any
   end
@@ -46,7 +46,7 @@ local record protocol
 
   record DocumentIdentifier
     uri: string
-    text: string | nil
+    text: string?
   end
 
   record ContentChange
@@ -56,8 +56,8 @@ local record protocol
   --- The params of every `textDocument/` method read.
   record DocumentParams
     textDocument: DocumentIdentifier
-    position: Position | nil
-    contentChanges: {ContentChange} | nil
+    position: Position?
+    contentChanges: {ContentChange}?
   end
 
   record WorkspaceFolder
@@ -65,27 +65,27 @@ local record protocol
   end
 
   record General
-    positionEncodings: {string} | nil
+    positionEncodings: {string}?
   end
 
   record DynamicRegistration
-    dynamicRegistration: boolean | nil
+    dynamicRegistration: boolean?
   end
 
   record WorkspaceCapabilities
-    didChangeWatchedFiles: DynamicRegistration | nil
+    didChangeWatchedFiles: DynamicRegistration?
   end
 
   record ClientCapabilities
-    general: General | nil
-    workspace: WorkspaceCapabilities | nil
+    general: General?
+    workspace: WorkspaceCapabilities?
   end
 
   record InitializeParams
-    rootUri: string | nil
-    rootPath: string | nil
-    workspaceFolders: {WorkspaceFolder} | nil
-    capabilities: ClientCapabilities | nil
+    rootUri: string?
+    rootPath: string?
+    workspaceFolders: {WorkspaceFolder}?
+    capabilities: ClientCapabilities?
   end
 
   -- What the server sends, encoded as it is.
@@ -124,7 +124,7 @@ local record protocol
     severity: integer
     source: string
     message: string
-    code: string | nil
+    code: string?
   end
 
   record MarkupContent
@@ -208,8 +208,8 @@ end
 
 --- What a reader of frames has read and not yet answered.
 local record FrameState
-  buffer: string
-  ended: boolean
+  mut buffer: string
+  mut ended: boolean
 end
 
 --- A message's header: where it ends (the byte its blank line starts at)
@@ -225,14 +225,14 @@ end
 
 --- The header `buffer` begins with: nil and "" while the bytes of its end
 --- have not all come, nil and why for one the protocol refuses.
-local function header_of(buffer: string): Header | nil, string
+local function header_of(buffer: string): Header?, string
   local finish = buffer:find("\r\n\r\n", 1, true)
   if finish == nil then
     if #buffer > MAX_HEADER then return nil, too_long() end
     return nil, ""
   end
   if finish - 1 > MAX_HEADER then return nil, too_long() end
-  local length: integer | nil = nil
+  local length: integer? = nil
   for line in buffer:sub(1, finish - 1):gmatch("[^\r\n]+") do
     local name, value = line:match("^([^:]+):%s*(.-)%s*$")
     if name == nil or value == nil then
@@ -259,11 +259,11 @@ end
 --- The messages `read` gives, one body at a time ([`protocol.Frames`]):
 --- `read` answers the next chunk of the stream, as a [`Stream.Reader`]'s
 --- `read` does, and `poll`, when given, what has arrived of it.
-function protocol.frames_of(read: function(): string | nil, string, poll?: protocol.Poll): protocol.Frames
+function protocol.frames_of(read: function(): string?, string, poll?: protocol.Poll): protocol.Frames
   local held: FrameState = { buffer = "", ended = false }
   --- The next chunk `read` gives: nil and "" at its end, nil and why
   --- where it breaks.
-  local function more(): string | nil, string
+  local function more(): string?, string
     if held.ended then return nil, "" end
     local chunk, trouble = read()
     if chunk == nil then
@@ -274,7 +274,7 @@ function protocol.frames_of(read: function(): string | nil, string, poll?: proto
   end
   --- The next message's header, read until its end is in the buffer:
   --- nil and "" at the stream's end between messages.
-  local function read_header(): Header | nil, string
+  local function read_header(): Header?, string
     while true do
       local found, trouble = header_of(held.buffer)
       if found ~= nil then return found, "" end
@@ -289,13 +289,13 @@ function protocol.frames_of(read: function(): string | nil, string, poll?: proto
     end
   end
   return {
-    next = function(_self: protocol.Frames): string | nil, string
+    next = function(_self: protocol.Frames): string?, string
       local header, trouble = read_header()
       if header == nil then return nil, trouble end
       -- The body's chunks are joined once, not one at a time: a body of
       -- many chunks would be copied once for each.
       local first = held.buffer:sub(header.finish + 4)
-      local parts: {string} = { first }
+      local parts: mut {string} = { first }
       local have = #first
       while have < header.length do
         local chunk, why = more()
@@ -310,7 +310,7 @@ function protocol.frames_of(read: function(): string | nil, string, poll?: proto
       held.buffer = joined:sub(header.length + 1)
       return joined:sub(1, header.length), ""
     end,
-    buffered = function(_self: protocol.Frames): string | nil
+    buffered = function(_self: protocol.Frames): string?
       local header, _ = header_of(held.buffer)
       if header == nil then return nil end
       local start = header.finish + 4
@@ -333,11 +333,11 @@ end
 --- The messages `reader` holds, one body at a time ([`protocol.Frames`]),
 --- and what has arrived of them, as `poll` says, when given.
 function protocol.frames(reader: Stream.Reader, poll?: protocol.Poll): protocol.Frames
-  return protocol.frames_of(function(): string | nil, string return reader:read() end, poll)
+  return protocol.frames_of(function(): string?, string return reader:read() end, poll)
 end
 
 --- The path a `file:` URI names, or nil for another scheme.
-function protocol.path_of(uri: string): string | nil
+function protocol.path_of(uri: string): string?
   local rest = uri:match("^file://[^/]*(/.*)$")
   if rest == nil then return nil end
   local path, _ = Url.unescape(rest)
@@ -349,7 +349,7 @@ end
 --- slashes collapsed, as the path reads with no symlink in it: what is a
 --- link is not asked, which would read the disk.
 local function segments(path: string): {string}, integer
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local depth = 0
   for segment in path:gmatch("[^/]+") do
     if segment == ".." then
@@ -365,7 +365,7 @@ end
 --- `path` below `root`, both read as [`segments`] reads them, or nil when
 --- it is not below it: `<root>/../x.tl` is not, and
 --- `<root>/../<root's name>/x.tl` and `<root>/./x.tl` are `x.tl`.
-function protocol.below(path: string, root: string): string | nil
+function protocol.below(path: string, root: string): string?
   local base, base_depth = segments(root)
   local full, depth = segments(path)
   if depth <= base_depth then return nil end
@@ -412,12 +412,12 @@ end
 
 --- The message `body` holds: nil and its answer where it is not JSON
 --- (-32700) or not a message (-32600).
-function protocol.message_of(body: string): protocol.Message | nil, string
+function protocol.message_of(body: string): protocol.Message?, string
   local decoded, trouble = Json.decode(body)
   if decoded == nil and trouble ~= "" then
     return nil, protocol.failure("null", PARSE_ERROR, trouble)
   end
-  local message, invalid: protocol.Message | nil, string = Shape.into(decoded, MESSAGE)
+  local message, invalid: protocol.Message?, string = Shape.into(decoded, MESSAGE)
   if message == nil then
     return nil, protocol.failure("null", protocol.INVALID_REQUEST, "not a message: " .. invalid)
   end
@@ -425,12 +425,12 @@ function protocol.message_of(body: string): protocol.Message | nil, string
 end
 
 --- The params of a `textDocument/` method, or nil and why they do not fit.
-function protocol.document_params(params: any): protocol.DocumentParams | nil, string
+function protocol.document_params(params: any): protocol.DocumentParams?, string
   return DOCUMENT_PARAMS:into(params)
 end
 
 --- The params of `initialize`, or nil and why they do not fit.
-function protocol.initialize_params(params: any): protocol.InitializeParams | nil, string
+function protocol.initialize_params(params: any): protocol.InitializeParams?, string
   return INITIALIZE_PARAMS:into(params)
 end
 

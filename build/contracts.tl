@@ -145,7 +145,7 @@ end
 --- `quieted`'s methods by the type id of their record, as the
 --- checker in `env` holds it: what `check` takes as `quiet`.
 function contracts.quiet_records(env: compiler.Env): {integer: {string: boolean}}
-  local out: {integer: {string: boolean}} = {}
+  local out: mut {integer: {string: boolean}} = {}
   for key, entry in pairs(rules.quiet_entries()) do
     local module, path = key:match("^(%S+) (%S+)$")
     if module ~= nil and path ~= nil then
@@ -159,7 +159,7 @@ end
 local position = receivers.position
 
 --- The type under a nominal, declaration, or generic.
-local function resolved(t: Type | nil): Type | nil
+local function resolved(t: Type?): Type?
   local at = t
   for _ = 1, 8 do
     if at == nil then return nil end
@@ -183,7 +183,7 @@ end
 --- type id of its record, to its module's name: what `check` takes as
 --- `bindings`.
 function contracts.binding_tables(env: compiler.Env): {integer: string}
-  local out: {integer: string} = {}
+  local out: mut {integer: string} = {}
   for _, module in ipairs(rules.binding_names()) do
     local found = resolved(receivers.record_named(env, module, ""))
     if found ~= nil and found.typeid ~= nil then out[found.typeid] = module end
@@ -192,7 +192,7 @@ function contracts.binding_tables(env: compiler.Env): {integer: string}
 end
 
 --- Whether `t` is `wanted`, or a union with a member that is.
-local function holds(t: Type | nil, wanted: string): boolean
+local function holds(t: Type?, wanted: string): boolean
   local r = resolved(t)
   if r == nil then return false end
   if r.typename == wanted then return true end
@@ -205,13 +205,13 @@ local function holds(t: Type | nil, wanted: string): boolean
   return false
 end
 
-local function typename(t: Type | nil): string
+local function typename(t: Type?): string
   local r = resolved(t)
   return r ~= nil and r.typename or ""
 end
 
 --- Whether a value of type `t` can be nil: a union with nil, or `any`.
-local function admits_nil(t: Type | nil): boolean
+local function admits_nil(t: Type?): boolean
   return holds(t, "nil") or holds(t, "any")
 end
 
@@ -222,7 +222,7 @@ local function fallible_results(members: {Type}): boolean
 end
 
 --- Whether a callee's type is a fallible function's.
-local function fallible_type(fn: Type | nil): boolean
+local function fallible_type(fn: Type?): boolean
   local f = resolved(fn)
   if f == nil or f.typename ~= "function" then return false end
   local rets = f.rets
@@ -250,14 +250,14 @@ end
 local none: {Node} = {}
 
 --- An expression list's, or a block's, own nodes.
-local function list_of(n: Node | nil): {Node}
+local function list_of(n: Node?): {Node}
   if n == nil then return none end
   return n
 end
 
 --- How a callee or a function's owner reads in a message: [`Fs.read`],
 --- `h:digest`, `helper`.
-local function spelled(e: Node | nil): string
+local function spelled(e: Node?): string
   if e == nil then return "a call" end
   local tk = e.tk
   if (e.kind == "variable" or e.kind == "identifier" or e.kind == "type_identifier") and
@@ -280,7 +280,7 @@ local function function_name(fn: Node): string
   if tk == nil then return "a function literal" end
   local fn_owner = fn.fn_owner
   if fn.kind == "record_function" and fn_owner ~= nil then
-    return spelled(fn_owner) .. (fn.is_method and ":" or ".") .. tk
+    return spelled(fn_owner) .. (if fn.is_method then ":" else "." end) .. tk
   end
   return tk
 end
@@ -288,10 +288,10 @@ end
 --- The exemptions a check found use for, by table, `"file:function"`
 --- each: one never used names nothing it excuses.
 local record Used
-  exempt: {string: boolean}
-  parsing: {string: boolean}
-  casts: {string: boolean}
-  modes: {string: boolean}
+  exempt: mut {string: boolean}
+  parsing: mut {string: boolean}
+  casts: mut {string: boolean}
+  modes: mut {string: boolean}
 end
 
 --- One walk of a checked module's tree, kept for every rule to read
@@ -332,7 +332,7 @@ local function index_of(root: Node): Index
     end
     return own
   end
-  local function go(n: Node, from: Node | nil)
+  local function go(n: Node, from: Node?)
     if kids[n] ~= nil then return end
     local own = split(n)
     order[#order + 1] = n
@@ -359,7 +359,7 @@ end
 --- bound to: `f` in `f = function`, `R.g` in `R.g = function`, and
 --- `t.g` in `local t = { g = function ... end }`.
 local function bound_names(root: Node): {Node: string}
-  local out: {Node: string} = {}
+  local out: mut {Node: string} = {}
   for _, statement in ipairs(list_of(root)) do
     if statement.kind == "assignment" or statement.kind == "local_declaration" then
       local exps = list_of(statement.exps)
@@ -400,7 +400,7 @@ end
 --- The name the exemption tables key the code of every node reached
 --- through `index.order` under ([`scope_of`]), by node.
 local function scope_names(index: Index, bound: {Node: string}): {Node: string}
-  local out: {Node: string} = {}
+  local out: mut {Node: string} = {}
   local parent = index.parent
   for _, n in ipairs(index.order) do
     local above = parent[n]
@@ -471,7 +471,7 @@ end
 --- hands the binding's whole answer on, errno and all.
 local function check_function(file: string, fn: Node, scope: string, exemptions: contracts.Exemptions,
                               types: {integer: Type}, used: Used,
-                              problems: {string}, stand_in: boolean, index: Index)
+                              problems: mut {string}, stand_in: boolean, index: Index)
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
   if rets == nil or tuple == nil or #tuple < 2 then return end
@@ -524,7 +524,7 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
       problems[#problems + 1] = string.format(
         "%s:%d: %s: a failure answers %s beside its reason, never a value; " ..
           "a success's reason is \"\"",
-        file, r.y, name, effect and "false" or "nil")
+        file, r.y, name, if effect then "false" else "nil" end)
     end
     if #exps ~= 2 or not is_empty_string(exps[2]) or not never_nil(exps[1], types) then
       all_values = false
@@ -545,7 +545,7 @@ local function result_count(n: Node, callees: {integer: Type}): integer
   local f = resolved(callees[position(e1.y, e1.x)])
   local rets = f ~= nil and f.rets or nil
   local members = rets ~= nil and rets.tuple or nil
-  return members ~= nil and #members or 0
+  return if members ~= nil then #members else 0 end
 end
 
 --- Whether a call hands its last argument's reason on: `assert`, or a
@@ -563,7 +563,7 @@ local function takes_reason(call: Node, count: integer, callees: {integer: Type}
   if members == nil then return false end
   -- A method call's receiver is the first parameter.
   local op = e1.op
-  local slot = count + 1 + ((e1.kind == "op" and op ~= nil and op.op == ":") and 1 or 0)
+  local slot = count + 1 + (if (e1.kind == "op" and op ~= nil and op.op == ":") then 1 else 0 end)
   local last = slot - 2 + result_count(list_of(call.e2)[count], callees)
   if last ~= #members or params.is_va or (f.min_arity or 0) < last then return false end
   return typename(members[slot]) == "string"
@@ -573,7 +573,7 @@ end
 --- a list bound to more names than it has expressions, the last value
 --- of a return, and the last argument of a call that takes a reason.
 local function keeping(index: Index, callees: {integer: Type}): {Node: boolean}
-  local kept: {Node: boolean} = {}
+  local kept: mut {Node: boolean} = {}
   for _, n in ipairs(index.reached) do
     if n.kind == "local_declaration" or n.kind == "assignment" then
       local exps, vars = list_of(n.exps), list_of(n.vars)
@@ -591,7 +591,7 @@ end
 
 --- Every call standing alone as a statement.
 local function standing(index: Index): {Node: boolean}
-  local out: {Node: boolean} = {}
+  local out: mut {Node: boolean} = {}
   for _, n in ipairs(index.reached) do
     if n.kind == "statements" then
       for _, statement in ipairs(list_of(n)) do out[statement] = true end
@@ -607,7 +607,7 @@ end
 --- whatever the owner is called.
 local function sys_stand_ins(index: Index, records: {integer: Type},
                              bindings: {integer: string}): {Node: boolean}
-  local out: {Node: boolean} = {}
+  local out: mut {Node: boolean} = {}
   for _, n in ipairs(index.reached) do
     if n.kind == "assignment" then
       local exps = list_of(n.exps)
@@ -655,12 +655,12 @@ local record Binding
   reason: boolean
   --- The name this one was bound to alone (`local a = err`), whose
   --- binding at that point says whether this one holds a reason.
-  alias: Node | nil
+  alias: Node?
 end
 
 --- A block's end, as one position; the end of the source when the
 --- parser stamped none (the module's own top-level block).
-local function block_end(block: Node | nil): integer
+local function block_end(block: Node?): integer
   local y, x = block ~= nil and block.yend or nil, block ~= nil and block.xend or nil
   if y == nil or x == nil then return math.maxinteger end
   return position(y, x)
@@ -668,7 +668,7 @@ end
 
 --- The index of the name a statement binds to a fallible call's reason:
 --- 2 in `local v, err = f()`; nil when the statement binds none.
-local function reason_slot(n: Node, callees: {integer: Type}): integer | nil
+local function reason_slot(n: Node, callees: {integer: Type}): integer?
   local exps = list_of(n.exps)
   local last = exps[#exps]
   if last == nil or #list_of(n.vars) <= #exps or not is_call(last) then return nil end
@@ -677,7 +677,7 @@ local function reason_slot(n: Node, callees: {integer: Type}): integer | nil
   return #exps + 1
 end
 
-local function is_name(n: Node | nil, name: string): boolean
+local function is_name(n: Node?, name: string): boolean
   return n ~= nil and n.kind == "variable" and n.tk == name
 end
 
@@ -688,7 +688,7 @@ local reshaping: {string: boolean} = { lower = true, upper = true }
 --- The name under what only wraps it -- `(err)`, `tostring(err)`,
 --- `err:lower()` -- or nil when `n` is no name so wrapped. It gives up,
 --- answering nil, past 8 wrappers.
-local function unwrapped(n: Node | nil): Node | nil
+local function unwrapped(n: Node?): Node?
   local at = n
   for _ = 1, 8 do
     if at == nil then return nil end
@@ -748,7 +748,7 @@ local function inspected(n: Node): {Node}
   local op = n.op
   if n.kind ~= "op" or op == nil then return none end
   if comparing[op.op] then
-    local out: {Node} = {}
+    local out: mut {Node} = {}
     local a, b = n.e1, n.e2
     if a == nil or b == nil then return out end
     local left, right = unwrapped(a), unwrapped(b)
@@ -766,11 +766,11 @@ local function inspected(n: Node): {Node}
   local receiver = callee.e1
   if how.op == ":" then
     local name = unwrapped(receiver)
-    return name ~= nil and { name } or none
+    return if name ~= nil then { name } else none end
   end
   if how.op == "." and is_name(receiver, "string") then
     local name = unwrapped(list_of(n.e2)[1])
-    return name ~= nil and { name } or none
+    return if name ~= nil then { name } else none end
   end
   return none
 end
@@ -802,13 +802,13 @@ end
 --- that one does.
 local function check_inspections(file: string, index: Index, callees: {integer: Type},
                                  scopes: {Node: string}, exemptions: contracts.Exemptions,
-                                 used: Used, problems: {string})
+                                 used: Used, problems: mut {string})
   local bindings: {string: {Binding}} = {}
-  local reads: {{Node}} = {}
+  local reads: mut {{Node}} = {}
   --- Binds `name_node`'s name from `at` on. A `local` or an assignment
   --- binds after its own right-hand side, which reads the binding
   --- before it.
-  local function bind(name_node: Node | nil, at: integer, ends: integer,
+  local function bind(name_node: Node?, at: integer, ends: integer,
                       declared: boolean, reason: boolean, alias?: Node)
     local name = name_node ~= nil and name_node.tk or nil
     if name_node == nil or name == nil or name == "_" then return end
@@ -819,7 +819,7 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
     }
   end
   local parent = index.parent
-  local ending: {Node: integer} = {}
+  local ending: mut {Node: integer} = {}
   for _, n in ipairs(index.order) do
     local kind = n.kind
     local above = parent[n]
@@ -900,7 +900,7 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
     end
     return false
   end
-  local flagged: {Node: boolean} = {}
+  local flagged: mut {Node: boolean} = {}
   for _, pair in ipairs(reads) do
     local read, via = pair[1], pair[2]
     if not flagged[via] and holds_reason(read.tk or "", position(read.y, read.x)) then
@@ -921,7 +921,7 @@ end
 -- wants the same binding-by-position tracking rule 6 does
 -- (check_inspections' Binding), shared rather than written again.
 local function handed_names(root: Node): {string: boolean}
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   for _, statement in ipairs(list_of(root)) do
     if statement.kind == "local_declaration" then
       local exps = list_of(statement.exps)
@@ -945,7 +945,7 @@ end
 --- chunk (`local extra: any = select(2, ...)`, then `extra as
 --- raw_hash`): a chunk's arguments have no type Teal can give them.
 local function check_casts(file: string, root: Node, index: Index, scopes: {Node: string},
-                           exemptions: contracts.Exemptions, used: Used, problems: {string})
+                           exemptions: contracts.Exemptions, used: Used, problems: mut {string})
   local handed = handed_names(root)
   for _, n in ipairs(index.order) do
     local within = scopes[n]
@@ -964,7 +964,7 @@ local function check_casts(file: string, root: Node, index: Index, scopes: {Node
           "%s:%d: %s: a cast tells the checker what it could not prove; " ..
             "tighten the declaration, narrow with `is`, or name the " ..
             "function in build/contracts.tl's casts with the reason",
-          file, n.y, within == "" and "the top level" or within)
+          file, n.y, if within == "" then "the top level" else within end)
       end
     end
   end
@@ -994,7 +994,7 @@ end
 --- alone at the top of a module that returns a constructor.
 local function joined(path: string, key: string, method: boolean): string
   if path == "" then return key end
-  return path .. (method and ":" or ".") .. key
+  return path .. (if method then ":" else "." end) .. key
 end
 
 --- Every function the record `export` holds, and every record declared
@@ -1014,7 +1014,7 @@ end
 local function exported_functions(export: any, root: string): {Exported}
   local out: {Exported} = {}
   local seen: {Type: boolean} = {}
-  local function walk(t: Type | nil, path: string)
+  local function walk(t: Type?, path: string)
     local r = resolved(t)
     if r == nil or seen[r] or (r.typename ~= "record" and r.typename ~= "interface") then
       return
@@ -1049,11 +1049,11 @@ end
 --- top-level statement stores into an exported field (`M.f = f`,
 --- `local M: T = { f = f }`, `return { f = f }`).
 local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported}
-  local named: {string: Exported} = {}
+  local named: mut {string: Exported} = {}
   for _, e in ipairs(exported) do named[dotted(e.name)] = e end
-  local locals: {string: Node} = {}
-  local out: {Node: Exported} = {}
-  local function stored(value: Node | nil, name: string)
+  local locals: mut {string: Node} = {}
+  local out: mut {Node: Exported} = {}
+  local function stored(value: Node?, name: string)
     local e = named[name]
     if value == nil or e == nil then return end
     local tk = value.tk
@@ -1105,7 +1105,7 @@ end
 
 --- Rule 10, over every exported function's declared results.
 local function check_exports(file: string, exported: {Exported}, exemptions: contracts.Exemptions,
-                             used: Used, problems: {string})
+                             used: Used, problems: mut {string})
   for _, e in ipairs(exported) do
     local rets = e.type.rets
     local results = rets ~= nil and rets.tuple or {}
@@ -1127,12 +1127,12 @@ end
 --- The fallible C binding `fn` calls itself, not from a function
 --- nested in it, as `module.name`; nil when it calls none.
 local function sys_call_in(fn: Node, index: Index, callees: {integer: Type},
-                           records: {integer: Type}, bindings: {integer: string}): string | nil
+                           records: {integer: Type}, bindings: {integer: string}): string?
   local found_body = fn.body
   if found_body == nil then return nil end
   local body: Node = found_body
   local seen: {Node: boolean} = {}
-  local function go(n: Node): string | nil
+  local function go(n: Node): string?
     if seen[n] then return nil end
     seen[n] = true
     local e1 = n.e1
@@ -1159,7 +1159,7 @@ end
 local function check_wrappers(file: string, nodes: {Node: Exported}, index: Index,
                               callees: {integer: Type},
                               records: {integer: Type}, bindings: {integer: string},
-                              exemptions: contracts.Exemptions, used: Used, problems: {string})
+                              exemptions: contracts.Exemptions, used: Used, problems: mut {string})
   for fn, e in pairs(nodes) do
     local rets = e.type.rets
     local results = rets ~= nil and rets.tuple or {}
@@ -1182,7 +1182,7 @@ end
 
 --- A type declaration's definition, with a generic's type arguments
 --- looked through.
-local function definition_of(typedecl: ast.TypeNode | nil): ast.TypeNode | nil
+local function definition_of(typedecl: ast.TypeNode?): ast.TypeNode?
   local def = typedecl ~= nil and typedecl.def or nil
   local t = def and def.t
   if def ~= nil and def.typename == "generic" and t ~= nil then
@@ -1194,7 +1194,7 @@ end
 --- The record a top-level `local record` (or `local type`) declares,
 --- by the name it binds.
 local function top_records(root: Node): {string: ast.TypeNode}
-  local out: {string: ast.TypeNode} = {}
+  local out: mut {string: ast.TypeNode} = {}
   for _, stmt in ipairs(list_of(root)) do
     local var, value = stmt.var, stmt.value
     if stmt.kind == "local_type" and var ~= nil and var.tk ~= nil and
@@ -1210,7 +1210,7 @@ end
 --- it returns one name, and the record that name holds: one a `local
 --- record` of that name declares, or the one a top-level `local` of it
 --- is declared as (`local layout: Layout = {...}`).
-local function returned(root: Node): string | nil, ast.TypeNode | nil
+local function returned(root: Node): string?, ast.TypeNode?
   local statements = list_of(root)
   local last = statements[#statements]
   if last == nil or last.kind ~= "return" then return nil, nil end
@@ -1237,7 +1237,7 @@ end
 --- repeats it: the rest, empty for the name outright, or starting with
 --- a capital. The case of the repeated part is not read, so
 --- `SQLiteHandle` repeats `Sqlite`; `Logger` does not repeat `Log`.
-local function repeated(owner: string, field: string): string | nil
+local function repeated(owner: string, field: string): string?
   if field:sub(1, #owner):lower() ~= owner:lower() then return nil end
   local rest = field:sub(#owner + 1)
   if rest == "" or rest:match("^%u") ~= nil then return rest end
@@ -1246,7 +1246,7 @@ end
 
 --- Rule 8: a type the returned record declares, at any depth, whose
 --- name repeats the module's.
-local function check_stutter(file: string, root: Node, problems: {string})
+local function check_stutter(file: string, root: Node, problems: mut {string})
   local returned_name, returned_def = returned(root)
   if returned_name == nil or returned_def == nil then return end
   local name, def: string, ast.TypeNode = returned_name, returned_def
@@ -1261,7 +1261,7 @@ local function check_stutter(file: string, root: Node, problems: {string})
           problems[#problems + 1] = string.format(
             "%s:%d: %s.%s: a type repeats its module's name, which every use " ..
               "already says; call it %s",
-            file, t.y, path, field, rest ~= "" and path .. "." .. rest or "by what it is")
+            file, t.y, path, field, if rest ~= "" then path .. "." .. rest else "by what it is" end)
         end
         local nested = definition_of(t)
         if nested ~= nil then visit(path .. "." .. field, nested) end
@@ -1334,7 +1334,7 @@ end
 --- function that is not a local one (`R.f(o.x)`). Such a mode goes
 --- unchecked rather than refused.
 local function check_modes(file: string, root: Node, index: Index, records: {integer: Type},
-                           exemptions: contracts.Exemptions, used: Used, problems: {string})
+                           exemptions: contracts.Exemptions, used: Used, problems: mut {string})
   local declared = string_fields(root)
   if next(declared) == nil then return end
   -- Each local function by its name, for a call to bind its parameters.
@@ -1342,7 +1342,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   -- The names each function binds, and those holding a field's value.
   local binds: {Node: {string: boolean}} = {}
   local holding: {Node: {string: Declared}} = {}
-  local function bind(scope: Node, name: string | nil, field: Declared | nil)
+  local function bind(scope: Node, name: string?, field: Declared?)
     if name == nil then return end
     local own = binds[scope] or {}
     own[name] = true
@@ -1354,7 +1354,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   -- The functions around the node being visited, innermost last; the
   -- chunk itself is the first.
   local stack: {Node} = { root }
-  local function scope_binding(name: string): Node | nil
+  local function scope_binding(name: string): Node?
     for i = #stack, 1, -1 do
       local own = binds[stack[i]]
       if own ~= nil and own[name] then return stack[i] end
@@ -1362,7 +1362,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
     return nil
   end
   local literals: {Declared: {string: boolean}} = {}
-  local function note(field: Declared, literal: Node | nil)
+  local function note(field: Declared, literal: Node?)
     local conststr = literal and literal.conststr
     if literal ~= nil and literal.kind == "string" and conststr ~= nil and
         conststr ~= "" then
@@ -1372,7 +1372,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
     end
   end
   --- The field whose value `e` is, if any.
-  local function field_of(e: Node | nil): Declared | nil
+  local function field_of(e: Node?): Declared?
     while e ~= nil and e.kind == "paren" do e = e.e1 end
     if e == nil then return nil end
     local op = e.op
@@ -1452,7 +1452,7 @@ local function check_modes(file: string, root: Node, index: Index, records: {int
   visit(root)
   visit(root)
   for field, set in pairs(literals) do
-    local spelled_set: {string} = {}
+    local spelled_set: mut {string} = {}
     for literal in pairs(set) do spelled_set[#spelled_set + 1] = string.format("%q", literal) end
     table.sort(spelled_set)
     local key = file .. ":" .. field.path
@@ -1475,7 +1475,7 @@ end
 --- stands a stub in for it, to be taken for cosmic's own, and the stub
 --- has none of them, so the entry would be stale in every such tree.
 local function stale(file: string, name: string, exemptions: {string: string},
-                     used: {string: boolean}, problems: {string})
+                     used: {string: boolean}, problems: mut {string})
   local prefix = file .. ":"
   local stubbed = "build/importer.tl:"
   for key in pairs(exemptions) do
@@ -1512,7 +1512,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
                          quiet?: {integer: {string: boolean}}, bindings?: {integer: string},
                          given?: contracts.Exemptions, export?: any): {string}
   local exemptions = given or rules.own_exemptions()
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   local types, callees = typed.every, typed.callees
   local records = typed.types
   --- Whether a statement calls a method of a quiet record.

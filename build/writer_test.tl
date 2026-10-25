@@ -666,7 +666,7 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
     local rows = assert(Sqlite.text_rows(db,
       "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
         "ORDER BY requires"))
-    local out: {string} = {}
+    local out: mut {string} = {}
     for index, row in ipairs(rows) do out[index] = row:text(1) end
     return table.concat(out, ",")
   end
@@ -777,7 +777,7 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   local before = assert(writer.signature(handle, result, "binary"))
   local real = Store.bytecode
-  Store.bytecode = function(name: string): string | nil, string
+  Store.bytecode = function(name: string): string?, string
     if name == "cosmic.mime" then return "an edited cosmic.mime" end
     return real(name)
   end

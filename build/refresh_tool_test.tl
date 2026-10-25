@@ -27,7 +27,7 @@ Test.policy{
 
 local zones <const> = "vendor/tzdata/zoneinfo"
 
-local datasets: {string:refresh.Dataset} = {}
+local datasets: mut {string:refresh.Dataset} = {}
 for _, dataset in ipairs(refresh.datasets) do
   datasets[dataset.name] = dataset
 end
@@ -37,7 +37,7 @@ end
 local function sdist(path: string, version: string, files: {string:string})
   local out = Stream.collect()
   local w = Tar.writer(out, { deterministic = true })
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(files) do
     names[#names + 1] = name
   end

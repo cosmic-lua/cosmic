@@ -16,9 +16,9 @@ local built = assert(teal.load())
 
 --- The Lua `source` compiles to, or nil and every error the compile
 --- reported, one to a line, each with its line and column.
-local function compiled(source: string): string | nil, string
+local function compiled(source: string): string?, string
   local code, result = built.gen(source, nil, nil, "tl")
-  local troubles: {string} = {}
+  local troubles: mut {string} = {}
   for _, list in ipairs({ result.syntax_errors, result.type_errors }) do
     for _, e in ipairs(list) do
       troubles[#troubles + 1] = e.y .. ":" .. e.x .. ": " .. e.msg
@@ -125,5 +125,5 @@ end
 --- takes none.
 local function test_tonumber_takes_no_separator()
   assert(tonumber("1_000") == nil)
-  assert(1_000 == 1000 and math.type(1_000) == "integer")
+  assert(1000 == 1000 and math.type(1000) == "integer")
 end

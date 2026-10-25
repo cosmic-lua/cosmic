@@ -19,7 +19,7 @@ local function keys_of(source: string, name: string): {string}, {string}
   local code, result = built.gen(source, env, nil, "tl")
   assert(code ~= nil and #result.syntax_errors == 0, "the program did not parse")
   assert(#result.type_errors == 0, result.type_errors[1] ~= nil and result.type_errors[1].msg or "")
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for _, entry in ipairs(trace) do
     local found, key = entry:match("^(.-)=(.*)$")
     if found == name then
@@ -31,8 +31,8 @@ end
 
 --- The different keys among `keys`.
 local function distinct(keys: {string}): {string}
-  local seen: {string:boolean} = {}
-  local out: {string} = {}
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
   for _, key in ipairs(keys) do
     if not seen[key] then
       seen[key] = true
@@ -206,7 +206,7 @@ local function test_a_global_is_g_and_its_name_in_every_file_of_an_environment()
   check("local a1, a2, a3 = 1, 2, 3\nglobal gl: integer = a1 + a2 + a3\nprint(gl)\n")
   local first = #trace
   check("local b1, b2, b3 = 1, 2, 3\nprint(gl + b1 + b2 + b3)\n")
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   for index, entry in ipairs(trace) do
     local name, key = entry:match("^(.-)=(.*)$")
     if name == "gl" then
@@ -224,8 +224,8 @@ local function test_a_global_is_g_and_its_name_in_every_file_of_an_environment()
 end
 
 local function test_no_two_bindings_of_a_file_share_a_key_and_none_equals_a_global_s()
-  local lines: {string} = {}
-  local reads: {string} = {}
+  local lines: mut {string} = {}
+  local reads: mut {string} = {}
   for i = 1, 170 do
     lines[#lines + 1] = ("local v%d = %d"):format(i, i)
     reads[#reads + 1] = "v" .. i
@@ -233,7 +233,7 @@ local function test_no_two_bindings_of_a_file_share_a_key_and_none_equals_a_glob
   lines[#lines + 1] = "print(utf8.char(65), " .. table.concat(reads, " + ") .. ")"
   local source = table.concat(lines, "\n") .. "\n"
   local _, trace = keys_of(source, "")
-  local owner: {string:string} = {}
+  local owner: mut {string:string} = {}
   local count = 0
   for _, entry in ipairs(trace) do
     local name, key = entry:match("^(.-)=(.*)$")

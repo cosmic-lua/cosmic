@@ -73,7 +73,7 @@ return a
 --- (a file to "" is left out).
 local function checkout(root: string, changed?: {string:string})
   assert(Fs.mkdirs(root))
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(project) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do
@@ -122,7 +122,7 @@ local function dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, sql))
   assert(db:close())
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
   return table.concat(lines, "\n")
 end
@@ -231,7 +231,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   local env, path = environment(tmp)
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
-  local keys: {string:string} = {}
+  local keys: mut {string:string} = {}
   local db = assert(Sqlite.open(build_dir(tmp .. "/first") .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
@@ -313,8 +313,8 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   -- Content of their own, so each writes three compiles.
   checkout(tmp .. "/one", { ["c.tl"] = project["c.tl"] .. "-- one\n" })
   checkout(tmp .. "/two", { ["c.tl"] = project["c.tl"] .. "-- two\n" })
-  local handles: {Child.Handle} = {}
-  local outputs: {integer} = {}
+  local handles: mut {Child.Handle} = {}
+  local outputs: mut {integer} = {}
   for index, name in ipairs({ "one", "two" }) do
     local fd = assert(Fs.open_write(tmp .. "/" .. name .. ".out"))
     outputs[index] = fd
@@ -326,7 +326,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   for index, handle in ipairs(handles) do
     local result, trouble = handle:wait(Clock.seconds(60))
     assert(Fs.close(outputs[index]))
-    local text = assert(Fs.read(tmp .. "/" .. (index == 1 and "one" or "two") .. ".out"))
+    local text = assert(Fs.read(tmp .. "/" .. (if index == 1 then "one" else "two" end) .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
     assert(text:find("(3 compiled, 0 cached;", 1, true), text)
     assert(not text:find("shared compiles: ", 1, true), text)

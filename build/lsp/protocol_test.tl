@@ -9,14 +9,14 @@ local framed = session_fixture.framed
 
 --- How far a [`trickle`] has read.
 local record Read
-  at: integer
+  mut at: integer
 end
 
 --- A stream's `read` that answers one byte of `data` a call, so a
 --- message arrives split at every place it can be.
-local function trickle(data: string): function(): string | nil, string
+local function trickle(data: string): function(): string?, string
   local read: Read = { at = 1 }
-  return function(): string | nil, string
+  return function(): string?, string
     if read.at > #data then return nil, "" end
     read.at = read.at + 1
     return data:sub(read.at - 1, read.at - 1), ""

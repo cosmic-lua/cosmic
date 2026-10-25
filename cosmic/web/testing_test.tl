@@ -18,7 +18,7 @@ local function echo(): Web.App
   return Web.app{ routes = {
     Web.route({ "GET", "POST", "PUT", "PATCH", "DELETE" }, "/echo", function(req: Web.Request): Web.Response
       local query = assert(req:query())
-      local pairs_: {string} = {}
+      local pairs_: mut {string} = {}
       for _, pair in ipairs(query.pairs) do pairs_[#pairs_ + 1] = pair.name .. "=" .. pair.value end
       return Web.json({ method = req.method, query = pairs_, body = req:text() or "", ct = req:header("content-type") or "",
         cookie = req:header("cookie") or "", length = req:header("content-length") or "" })
@@ -123,7 +123,7 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
   local function reader(): Stream.Reader
     local inner = Stream.from_string("streamed")
     return {
-      read = function(_self: Stream.Reader, max?: integer): string | nil, string
+      read = function(_self: Stream.Reader, max?: integer): string?, string
         return inner:read(max)
       end,
       close = function(_self: Stream.Reader): boolean, string
@@ -159,7 +159,7 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
       return { status = 204, body = "oops" }
     end),
     Web.get("/reader", function(_req: Web.Request): Web.Response
-      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): string | nil, string
+      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): string?, string
         return nil, ""
       end,
         close = function(_s: Stream.Reader): boolean, string
@@ -192,7 +192,7 @@ end
 
 local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_close()
   local DB: Web.Key<{string}> = Web.key("db")
-  local events: {string} = {}
+  local events: mut {string} = {}
   local function make(): Web.App
     return Web.app{
       routes = { Web.get("/", function(req: Web.Request): Web.Response
@@ -200,7 +200,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
         db[#db + 1] = "request"
         return Web.text(#db .. "")
       end) },
-      lifespan = function(app: Web.App): Web.Shutdown | nil, string
+      lifespan = function(app: Web.App): Web.Shutdown?, string
         events[#events + 1] = "start"
         app.state[DB] = events
         return function() events[#events + 1] = "stop" end, ""
@@ -224,7 +224,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
 end
 
 local function test_a_failed_lifespan_fails_the_first_request()
-  local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+  local app = Web.app{ routes = {}, lifespan = function(_app: Web.App): Web.Shutdown?, string
     return nil, "no database"
   end }
   assert(raised(function() Web.test_client(app):get("/") end):find("the lifespan failed: no database", 1, true))
@@ -234,7 +234,7 @@ local function test_a_lifespan_that_failed_is_run_again_by_the_next_request()
   local starts = { value = 0 }
   local app = Web.app{ routes = { Web.get("/", function(_req: Web.Request): Web.Response
     return Web.text("up")
-  end) }, lifespan = function(_app: Web.App): Web.Shutdown | nil, string
+  end) }, lifespan = function(_app: Web.App): Web.Shutdown?, string
     starts.value = starts.value + 1
     if starts.value == 1 then return nil, "not yet" end
     return function() end, ""

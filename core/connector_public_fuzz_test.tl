@@ -32,7 +32,7 @@ local NONE: {string} = {}
 local function span(cidr: string): {integer}, {integer}
   local address, bits = cidr:match("^(.-)/(%d+)$")
   local first = assert(Address.parse(address))
-  local last: {integer} = { table.unpack(first) }
+  local last: mut {integer} = { table.unpack(first) }
   local held = math.tointeger(tonumber(bits))
   for i = 1, #first do
     local kept = math.max(0, math.min(8, held - (i - 1) * 8))
@@ -45,7 +45,7 @@ end
 
 --- `bytes` moved by `delta` (a few, up or down), carrying between bytes.
 local function moved(bytes: {integer}, delta: integer): {integer}
-  local out: {integer} = { table.unpack(bytes) }
+  local out: mut {integer} = { table.unpack(bytes) }
   local carry = delta
   for i = #out, 1, -1 do
     local value = out[i] + carry
@@ -70,7 +70,7 @@ local function packed(bytes: {integer}): string
 end
 
 local function random_bytes(src: Fuzz.Source, count: integer): {integer}
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for i = 1, count do
     out[i] = src:int(0, 3) == 0 and src:int(0, 255) or Fuzz.pick(src, { 0, 1, 127, 128, 254, 255, src:int(0, 255) })
   end
@@ -93,7 +93,7 @@ local function gen_address(src: Fuzz.Source): string
     return packed(moved(src:int(0, 1) == 0 and first or last, src:int(-2, 2)))
   end
   if kind == 5 then
-    local inside: {integer} = {}
+    local inside: mut {integer} = {}
     for i = 1, #first do inside[i] = first[i] + src:int(0, last[i] - first[i]) end
     local at = src:int(0, #first * 8)
     if at >= 1 then
@@ -109,7 +109,7 @@ end
 
 local function spelled(bytes: {integer}): string
   if #bytes == 4 then return table.concat(bytes, ".") end
-  local groups: {string} = {}
+  local groups: mut {string} = {}
   for i = 1, 16, 2 do groups[#groups + 1] = ("%x"):format(bytes[i] * 256 + bytes[i + 1]) end
   return table.concat(groups, ":")
 end
@@ -134,7 +134,7 @@ local function read_whole(fd: integer, count: integer): string
 end
 
 local function decided(fd: integer, item: string): boolean
-  local family = item:byte(1) == 4 and 4 or 6
+  local family = if item:byte(1) == 4 then 4 else 6 end
   assert(sys.write(fd, string.pack(">I4I4I4I4I4", 3, 0xffffffff, 0, 0, family) .. item:sub(2)) == 36)
   local tag, errno = string.unpack(">I4I4", read_whole(fd, 8))
   assert(tag == 3, "the reply carries another tag: " .. tag)
@@ -154,7 +154,7 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
     name = "connector public classifier agrees with Address",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local list: {string} = {}
+      local list: mut {string} = {}
       while Fuzz.more(src, #list, 8) do list[#list + 1] = gen_address(src) end
       return Fuzz.pack(list)
     end,
@@ -169,11 +169,11 @@ local function test_the_connector_and_the_relay_s_check_agree_on_every_address(t
         local want = Address.check(text, 443, NONE, own)
         local got = decided(pair[1], item)
         if got ~= want then
-          return false, text .. ": the connector " .. (got and "allows" or "refuses") ..
-            " it and the relay's check " .. (want and "allows" or "refuses") .. " it"
+          return false, text .. ": the connector " .. (if got then "allows" else "refuses" end) ..
+            " it and the relay's check " .. (if want then "allows" else "refuses" end) .. " it"
         end
-        Fuzz.label(got and "allowed" or "refused")
-        Fuzz.label(length == 4 and "ipv4" or "ipv6")
+        Fuzz.label(if got then "allowed" else "refused" end)
+        Fuzz.label(if length == 4 then "ipv4" else "ipv6" end)
         if length == 16 and bytes[1] & 0xe0 ~= 0x20 then Fuzz.label("outside") end
         for _, mine in ipairs(own) do
           if table.concat(mine, ",") == table.concat(bytes, ",") then Fuzz.label("own") end

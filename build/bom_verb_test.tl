@@ -35,7 +35,7 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   assert(written.code == 0, written.stderr)
   local decoded, why = DOCUMENT:decode_into((assert(Fs.read(path))))
   assert(decoded ~= nil, tostring(why))
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   for _, component in ipairs(decoded.components) do
     names[component.name] = true
   end

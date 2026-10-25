@@ -18,10 +18,10 @@ local record GrammarMode
   end
 
   --- The mode `word` names: the fork's for nil and "", nil and why for a word that is none.
-  of: function(word: string | nil): Mode | nil, string
+  of: function(word: string?): Mode?, string
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.of`]).
-  mode: function(): Mode | nil, string
+  mode: function(): Mode?, string
 
   --- The tool string a compile in `mode` is keyed by, given the identity of the compiler `tool`: `tool` itself for the
   --- fork's mode, so that nothing a default run keys moves, and a digest of the tool and the mode for the new one.
@@ -30,7 +30,7 @@ local record GrammarMode
   tool: function(tool: string, mode: Mode, wraps?: boolean): string
 end
 
-function GrammarMode.of(word: string | nil): GrammarMode.Mode | nil, string
+function GrammarMode.of(word: string?): GrammarMode.Mode?, string
   if word == nil or word == "" or word == "teal" then
     return "teal"
   elseif word == "new" then
@@ -39,7 +39,7 @@ function GrammarMode.of(word: string | nil): GrammarMode.Mode | nil, string
   return nil, "COSMIC_GRAMMAR=" .. word .. ": the grammars are `teal` (the default) and `new`"
 end
 
-function GrammarMode.mode(): GrammarMode.Mode | nil, string
+function GrammarMode.mode(): GrammarMode.Mode?, string
   return GrammarMode.of(Env.get("COSMIC_GRAMMAR"))
 end
 
@@ -47,7 +47,7 @@ function GrammarMode.tool(tool: string, mode: GrammarMode.Mode, wraps?: boolean)
   if mode == "teal" then
     return tool
   end
-  return Hash.hex_sha256(tool .. (wraps == true and "\0grammar-new\0fact-wraps" or "\0grammar-new"))
+  return Hash.hex_sha256(tool .. (if wraps == true then "\0grammar-new\0fact-wraps" else "\0grammar-new" end))
 end
 
 return GrammarMode

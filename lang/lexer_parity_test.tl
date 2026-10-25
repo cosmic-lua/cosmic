@@ -25,7 +25,7 @@ local built = assert(teal.load())
 
 --- The words that are keywords here and names in the fork: the grammar's own and `extra`.
 local function reserved(extra: {string}): {string: boolean}
-  local out: {string: boolean} = {}
+  local out: mut {string: boolean} = {}
   for _, words in ipairs({ Lexer.added, extra }) do
     for _, word in ipairs(words) do
       out[word] = true

@@ -89,7 +89,7 @@ end
 --- child needs to run at all) and `more`. Skips the test where the start
 --- is refused for want of Landlock.
 local function under(tmp: string, program: string, more: {raw_process.Grant}, script: string): Outcome
-  local grants: {raw_process.Grant} = { { path = program, access = "rx" } }
+  local grants: mut {raw_process.Grant} = { { path = program, access = "rx" } }
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
   local outcome = start(tmp, program, grants, script)
   if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end

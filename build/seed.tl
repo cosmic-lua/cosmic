@@ -39,7 +39,7 @@ local record Seed
   record Program
     --- The Lua of the module `name`, nil and "" where the tree has no source for it (a binding of C, a declaration
     --- file), nil and why where it has one the compiler refuses.
-    module: function(name: string): Module | nil, string
+    module: function(name: string): Module?, string
   end
 
   --- Compiles `sources` together as `cosmic compile --grammar new` does ([`CompileGrammar.compile`]).
@@ -85,7 +85,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
   --- The source of each module asked for, and the names the tree has none of, so that a file is read once.
   local sources: {string: Driver.Source} = {}
   local absent: {string: boolean} = {}
-  build:provide(function(name: string): Driver.Source | nil
+  build:provide(function(name: string): Driver.Source?
     local held = sources[name]
     if held ~= nil then
       return held
@@ -101,7 +101,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     for _, file in ipairs(candidates(name)) do
       local read, _ = Fs.read(root .. "/" .. file)
       if read ~= nil then
-        local made = Driver.source(name, file, read, file:match("%.d%.tl$") ~= nil and "decl" or "tl")
+        local made = Driver.source(name, file, read, if file:match("%.d%.tl$") ~= nil then "decl" else "tl" end)
         sources[name] = made
         return made
       end
@@ -110,7 +110,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     return nil
   end)
   --- The Lua of `name`, its file; nil and why.
-  local function module(name: string): Seed.Module | nil, string
+  local function module(name: string): Seed.Module?, string
     local found = build:parsed(name)
     if found == nil then
       return nil, ""
@@ -120,7 +120,7 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
     if found.broken then
       local said = ""
       for _, p in ipairs(found.syntax) do
-        said = said .. (said == "" and "" or "\n") .. line_of(file, p)
+        said = said .. (if said == "" then "" else "\n" end) .. line_of(file, p)
       end
       return nil, said
     end

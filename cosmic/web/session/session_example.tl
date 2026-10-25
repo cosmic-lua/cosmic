@@ -41,7 +41,7 @@ function Example.flash()
         return Web.redirect("/")
       end),
       Web.get("/", function(req: Web.Request): Web.Response
-        local out: {string} = {}
+        local out: mut {string} = {}
         for _, each in ipairs(Session.of(req):take_flashes()) do out[#out + 1] = each.text end
         return Web.text(table.concat(out, ","))
       end),
@@ -51,7 +51,7 @@ function Example.flash()
   local client = Web.test_client(app)
   client:post("/save", { follow_redirects = true })
   local first = client:get("/"):text()
-  print(first == "" and "(none)" or first)
+  print(if first == "" then "(none)" else first end)
   assert(first == "" and client:get("/"):text() == "")
 end
 

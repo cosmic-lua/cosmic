@@ -106,8 +106,8 @@ end
 --- answers.
 local function test_many_modules_changed_on_disk_make_the_program_again()
   local root = project()
-  local requires: {string} = {}
-  local sum: {string} = {}
+  local requires: mut {string} = {}
+  local sum: mut {string} = {}
   for n = 1, 14 do
     local name = "mod" .. tostring(n)
     assert(Fs.write(root .. "/" .. name .. ".tl", "local record Api\n  n: integer\nend\nlocal api: Api = { n = " .. tostring(n) .. " }\nreturn api\n"))
@@ -116,7 +116,7 @@ local function test_many_modules_changed_on_disk_make_the_program_again()
   end
   local main = table.concat(requires, "\n") .. "\nlocal total: integer = " .. table.concat(sum, " + ") .. "\nreturn total\n"
   assert(Fs.write(root .. "/main.tl", main))
-  local watched: {string} = {}
+  local watched: mut {string} = {}
   for n = 1, 14 do watched[#watched + 1] = changed_on_disk(root, "mod" .. tostring(n) .. ".tl") end
   local ran = session_fixture.served_between(root, { { initialize(root), open(root, "main.tl", main) }, watched },
     function(_after: integer)
@@ -249,9 +249,9 @@ local function test_a_long_session_of_edits_holds_no_more_than_a_short_one()
   --- Every loop's edits alternate right and wrong, so the errors of an old reading are held too if they are.
   local function edit(n: integer)
     local right = n % 2 == 1
-    check.set_text(main, big_main(12, right and "integer" or "string", n))
+    check.set_text(main, big_main(12, if right then "integer" else "string" end, n))
     local told = check.diagnose(checker, main, "utf-16")
-    assert(#told == (right and 0 or 1), table.concat(told, "\n"))
+    assert(#told == (if right then 0 else 1 end), table.concat(told, "\n"))
   end
   --- Switching documents puts the one left back as its stub; the helper is retyped on disk, which the stage serves again.
   local function switch(n: integer)

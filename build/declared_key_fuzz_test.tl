@@ -34,8 +34,8 @@ local function is_map(name: string): boolean return name == "environment" or nam
 --- A spec as a generator draws it: each scalar a string or, for an
 --- optional one, absent (nil); each list of strings.
 local record Drawn
-  scalars: {string:string}
-  lists: {string:{string}}
+  scalars: mut {string:string}
+  lists: mut {string:{string}}
 end
 
 --- Bytes a framing would single out: separators a preimage or a value
@@ -48,7 +48,7 @@ local ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":", "\0" }
 local PATH_ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":" }
 
 local function draw_string(src: Fuzz.Source, alphabet: {string}, least: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   while #out < least or Fuzz.more(src, #out, 6) do out[#out + 1] = Fuzz.pick(src, alphabet) end
   return table.concat(out)
 end
@@ -59,8 +59,8 @@ end
 local function canonical(d: Drawn): Drawn
   local out: Drawn = { scalars = d.scalars, lists = {} }
   for _, name in ipairs({ "files", "reads", "hosts" }) do
-    local seen: {string:boolean} = {}
-    local set: {string} = {}
+    local seen: mut {string:boolean} = {}
+    local set: mut {string} = {}
     for _, entry in ipairs(d.lists[name]) do
       if entry ~= "" and not seen[entry] then
         seen[entry] = true
@@ -71,16 +71,16 @@ local function canonical(d: Drawn): Drawn
     out.lists[name] = set
   end
   for _, map in ipairs({ "environment", "requires" }) do
-    local values: {string:string} = {}
+    local values: mut {string:string} = {}
     local env = d.lists[map]
     for i = 1, #env - 1, 2 do
       -- The last value of a name given twice, as [`spec_of`] gives it.
       if env[i] ~= "" then values[env[i]] = env[i + 1] end
     end
-    local names: {string} = {}
+    local names: mut {string} = {}
     for name in pairs(values) do names[#names + 1] = name end
     table.sort(names)
-    local pairs_out: {string} = {}
+    local pairs_out: mut {string} = {}
     for _, name in ipairs(names) do
       pairs_out[#pairs_out + 1] = name
       pairs_out[#pairs_out + 1] = values[name]
@@ -93,10 +93,10 @@ end
 --- A drawn spec as one string: the same string for the same spec.
 local function pack(d: Drawn): string
   local c = canonical(d)
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for _, name in ipairs(SCALARS) do
     local value = c.scalars[name]
-    fields[#fields + 1] = value == nil and "-" or ("+" .. value)
+    fields[#fields + 1] = if value == nil then "-" else ("+" .. value) end
   end
   for _, name in ipairs(LISTS) do fields[#fields + 1] = Fuzz.pack(c.lists[name]) end
   return Fuzz.pack(fields)
@@ -117,7 +117,7 @@ local function copy(d: Drawn): Drawn
   local out: Drawn = { scalars = {}, lists = {} }
   for name, value in pairs(d.scalars) do out.scalars[name] = value end
   for name, list in pairs(d.lists) do
-    local each: {string} = {}
+    local each: mut {string} = {}
     for i, entry in ipairs(list) do each[i] = entry end
     out.lists[name] = each
   end
@@ -132,7 +132,7 @@ local function draw_spec(src: Fuzz.Source): Drawn
     end
   end
   for _, name in ipairs(LISTS) do
-    local list: {string} = {}
+    local list: mut {string} = {}
     local alphabet = is_map(name) and ALPHABET or PATH_ALPHABET
     while Fuzz.more(src, #list, 6) do list[#list + 1] = draw_string(src, alphabet, 1) end
     -- The environment is names and values in turn.
@@ -173,14 +173,14 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     -- A scalar drawn again, or one present or not.
     local name = Fuzz.pick(src, SCALARS)
     if OPTIONAL[name] and src:int(0, 1) == 1 then
-      out.scalars[name] = out.scalars[name] == nil and "" or nil
+      out.scalars[name] = if out.scalars[name] == nil then "" else nil end
     else
       out.scalars[name] = draw_string(src, ALPHABET, 0)
     end
   else
     local name = Fuzz.pick(src, LISTS)
     local list = out.lists[name]
-    local step = is_map(name) and 2 or 1
+    local step = if is_map(name) then 2 else 1 end
     if kind == 2 and #list > 0 then
       -- An entry split in two, or two joined.
       local at = src:int(1, #list)
@@ -216,14 +216,14 @@ end
 -- cases of build/declared_key_test.tl hold their contents and relative
 -- paths to the key alone.
 local function spec_of(d: Drawn, host: string): declared_key.Spec
-  local files: {string:boolean} = {}
+  local files: mut {string:boolean} = {}
   for _, file in ipairs(d.lists.files) do files[file] = true end
-  local hosts: {string} = {}
+  local hosts: mut {string} = {}
   for _, path in ipairs(d.lists.hosts) do hosts[#hosts + 1] = host .. "/" .. path end
-  local environment: {string:string} = {}
+  local environment: mut {string:string} = {}
   local env = d.lists.environment
   for i = 1, #env - 1, 2 do environment[env[i]] = env[i + 1] end
-  local required: {string:string} = {}
+  local required: mut {string:string} = {}
   local asked = d.lists.requires
   for i = 1, #asked - 1, 2 do required[asked[i]] = asked[i + 1] end
   local effective: test_inputs.Effective = {
@@ -259,7 +259,7 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
       local one = draw_spec(src)
       local shifted = src:int(0, 1) == 0
       local other = shifted and shift(src, one) or edit(src, one)
-      return Fuzz.pack({ shifted and "shift" or "edit", pack(one), pack(other) })
+      return Fuzz.pack({ if shifted then "shift" else "edit" end, pack(one), pack(other) })
     end,
     check = function(input: string): boolean, string
       local parts = Fuzz.unpack(input)
@@ -267,7 +267,7 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
         Fuzz.label("same")
         return true, ""
       end
-      Fuzz.label(parts[1] == "shift" and "shifted" or "edited")
+      Fuzz.label(if parts[1] == "shift" then "shifted" else "edited" end)
       local one = spelled(root, spec_of(unpack(parts[2]), host))
       local other = spelled(root, spec_of(unpack(parts[3]), host))
       if one == other then return false, "two specs spell one preimage" end

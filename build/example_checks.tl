@@ -48,12 +48,12 @@ local function problems_new(options: Pipeline.Options, name: string, source: str
 end
 
 --- What the checker says of `source` as the chunk `name`, one line each.
-local function problems(built: compiler, env: compiler.Env, options: Pipeline.Options | nil, name: string,
+local function problems(built: compiler, env: compiler.Env, options: Pipeline.Options?, name: string,
                         source: string): {string}
   if options ~= nil then
     return problems_new(options, name, source)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- As the build compiles it: a [`Shape.record_of`] call is resolved first.
   local resolved, refusal = shape_specs.resolve(built, env, name, name, source)
   if resolved == nil then
@@ -94,7 +94,7 @@ end
 
 --- The name a finding says is unknown (the fork's `unknown variable: X`, `unknown type: X`, the new checker's
 --- `` `X` is not declared (unknown_variable)``), or nil.
-local function unknown_name(finding: string): string | nil
+local function unknown_name(finding: string): string?
   return finding:match("unknown variable: ([%w_]+)") or finding:match("unknown type: ([%w_]+)") or
     finding:match("`([%w_]+)` is not declared %(unknown_[a-z]+%)")
 end
@@ -105,7 +105,7 @@ end
 --- included: that is an import, which the shown text carries by the
 --- names its function uses.
 local function declared_names(line: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   if line:match("^local%s") == nil or line:match("=%s*require%s*%(") ~= nil or
       line:match("^local%s+record%s+Example%f[^%w_]") ~= nil or
       line:match("^local%s+Example%f[^%w_]") ~= nil then
@@ -130,9 +130,9 @@ end
 --- example lacks: if a top-level helper declares it, it was too long
 --- to carry ([`build.analyzer`]); if `name` is `Example` and a helper
 --- calls `Example.x`, the copy has no such table. Nil for any other.
-local function helper_trouble(file: string, name: string): string | nil
+local function helper_trouble(file: string, name: string): string?
   local helper = ""
-  local sibling: string | nil = nil
+  local sibling: string? = nil
   for line in file:gmatch("[^\n]+") do
     local declared = declared_names(line)
     if #declared > 0 then
@@ -164,21 +164,21 @@ end
 ---   examples name is answered from it
 --- @param root the tree, whose example files are read for that
 local function examples(db: Sqlite.Handle, built: compiler,
-                        env: compiler.Env, options: Pipeline.Options | nil, root: string): {string}
+                        env: compiler.Env, options: Pipeline.Options?, root: string): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then
     return { "reading the examples: " .. trouble }
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(rows) do
     local where = row:text(1) .. ":" .. row:text(2) .. ": example " .. row:text(3)
     local file, _ = Fs.read(root .. "/" .. row:text(1))
     file = file or ""
-    local told: {string: boolean} = {}
+    local told: mut {string: boolean} = {}
     for _, line in ipairs(problems(built, env, options, where, chunk(row:text(3), row:text(4),
-        options ~= nil and "local record Example end " or "local Example = {} "))) do
+        if options ~= nil then "local record Example end " else "local Example = {} " end))) do
       local name = unknown_name(line)
       local said = name ~= nil and helper_trouble(file, name) or nil
       if said == nil then
@@ -198,12 +198,12 @@ end
 --- with `tmp` a string in scope, and a name it needs beyond that is
 --- still refused.
 local function guide(text: string, file: string, built: compiler,
-                     env: compiler.Env, options: Pipeline.Options | nil): {string}
+                     env: compiler.Env, options: Pipeline.Options?): {string}
   local entries, trouble = doctest.entries(text)
   if entries == nil then
     return { file .. ": " .. trouble }
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source
     if entry.companions then
@@ -218,7 +218,7 @@ local function guide(text: string, file: string, built: compiler,
 end
 
 --- The code a finding names: `(code): fix` ends the words of its message.
-local function code_of(line: string): string | nil
+local function code_of(line: string): string?
   return line:match("%(([%a][%w_]*)%): ")
 end
 
@@ -232,7 +232,7 @@ local record Told
 end
 
 --- The file and code a line is of, nil where it names no code (a helper too long to carry, a missing require of the text).
-local function told(line: string): Told | nil
+local function told(line: string): Told?
   local file = line:match("^([^:%s]+):%d+: example")
   if file == nil then
     return nil
@@ -252,7 +252,7 @@ end
 --- [`build.ceilings`]) allows: the findings of a code in an example file or a guide, all of them or none. A code over its pin
 --- is told whole with the count and the pin; a pin above the count is told to fall.
 local function held(lines: {string}, pins: {string: integer}): {string}
-  local found: {string: integer} = {}
+  local found: mut {string: integer} = {}
   for _, line in ipairs(lines) do
     local at = told(line)
     if at ~= nil and not at.summary then
@@ -260,10 +260,10 @@ local function held(lines: {string}, pins: {string: integer}): {string}
       found[key] = (found[key] or 0) + 1
     end
   end
-  local out: {string} = {}
-  local over: {string: boolean} = {}
+  local out: mut {string} = {}
+  local over: mut {string: boolean} = {}
   -- In the order the findings came, which is the order of the files.
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for _, line in ipairs(lines) do
     local at = told(line)
     if at == nil then
@@ -290,7 +290,7 @@ local function held(lines: {string}, pins: {string: integer}): {string}
 end
 
 --- The `examples` ceilings of the tree at `root`: none where it has no ceilings file, which a fixture's tree does not.
-local function pins_of(root: string): {string: integer} | nil, string
+local function pins_of(root: string): {string: integer}?, string
   local there, _ = Fs.exists(root .. "/" .. Ceilings.path)
   if there ~= true then
     return {}, ""
@@ -322,7 +322,7 @@ function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,
   if env == nil then
     return { env_trouble }
   end
-  local options: Pipeline.Options | nil = nil
+  local options: Pipeline.Options? = nil
   if mode == "new" then
     local made, made_trouble = require("build.pipeline").alone()
     if made == nil then

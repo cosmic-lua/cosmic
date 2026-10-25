@@ -69,9 +69,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return "local a = 1\nlocal x = a" .. (" + a"):rep(n * 100)
   end,
   ["a block of locals"] = function(n: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i = 1, n * 50 do
-      out[i] = "local v" .. i .. " = " .. (i > 1 and "v" .. (i - 1) or "1") .. "\n"
+      out[i] = "local v" .. i .. " = " .. (if i > 1 then "v" .. (i - 1) else "1" end) .. "\n"
     end
     return table.concat(out)
   end,
@@ -94,7 +94,7 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return ("print(late)\n"):rep(n * 50) .. ("local late = 1\n"):rep(n * 5)
   end,
   ["types declared later"] = function(n: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i = 1, n * 25 do
       out[i] = "local function f" .. i .. "(x: T" .. i .. "): T" .. i .. " end\n"
     end

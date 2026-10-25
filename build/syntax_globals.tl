@@ -32,14 +32,14 @@ local function has_candidate(chunk: Ast.Chunk): boolean
 end
 
 function Globals.found(chunk: Ast.Chunk): {Globals.Place}
-  local found: {Globals.Place} = {}
+  local found: mut {Globals.Place} = {}
   if not has_candidate(chunk) then
     return found
   end
   Node.walk(chunk, function(node: Ast.Node)
     local declared = Node.declared(node)
-    local scope: Ast.Scope | nil = nil
-    if node is Ast.Local then
+    local scope: Ast.Scope? = nil
+    if (node.kind == "Local") then
       scope = node.scope
     elseif declared ~= nil then
       scope = declared.scope

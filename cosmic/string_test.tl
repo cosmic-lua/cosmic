@@ -9,7 +9,7 @@ local function same(got: {string}, want: {string}): boolean
 end
 
 local function collected(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in String.lines(text) do out[#out + 1] = line end
   return out
 end

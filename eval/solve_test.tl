@@ -45,7 +45,7 @@ local function test_the_environment_keeps_only_what_the_cli_needs()
     CLAUDE_CODE_SYNC_SKILLS = "1", GH_TOKEN = "secret", PATH = "/opt/x/bin:/usr/bin",
   }
   local env = Solve.environment(host, "/r", { "/opt/node/bin" })
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(env) do names[#names + 1] = name end
   table.sort(names)
   assert(table.concat(names, " ") == "CLAUDE_CONFIG_DIR COSMIC_TEST_SANDBOX HOME HTTPS_PROXY PATH SSL_CERT_FILE TMPDIR",
@@ -57,7 +57,7 @@ end
 
 local function test_a_native_cli_is_given_alone_and_a_script_with_its_interpreter()
   local found: {string:string} = { node = "/opt/node/bin/node" }
-  local function find(name: string): string | nil return found[name] end
+  local function find(name: string): string? return found[name] end
   local native = assert(Solve.program("/opt/c/bin/claude", "\127ELF\2\1", find))
   assert(#native.reads == 1 and native.reads[1] == "/opt/c/bin/claude" and #native.path == 0)
   local script = assert(Solve.program("/usr/lib/node_modules/cc/cli.js",
@@ -77,7 +77,7 @@ local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
   local unveil = Solve.unveil("/r", program, reads, function(path: string): boolean
     return not missing[path]
   end)
-  local given: {string:boolean} = {}
+  local given: mut {string:boolean} = {}
   for _, path in ipairs(unveil.reads) do given[path] = true end
   for _, path in ipairs({ "/usr", "/etc", "/proc", "/dev/null", "/ca/bundle.crt",
       "/home/claude/.claude/remote/.oauth_token", "/opt/c/bin/claude", "/r/bin" }) do

@@ -85,7 +85,7 @@ local record PlaceTree
   --- The directory name for the commit and leg `env` holds, and the
   --- reason it was chosen, for the log; nil and why where an input is
   --- unset.
-  name: function(env: {string:string}): Placed | nil, string
+  name: function(env: {string:string}): Placed?, string
   --- Runs the command: `mode` is "", "--name" or "--restore". Answers the
   --- exit status: 2 for a missing input, 1 for a workspace linked
   --- elsewhere or a move that failed.
@@ -108,7 +108,7 @@ local function digest(text: string): string
   return Hash.hex_sha256(text)
 end
 
-function PlaceTree.name(env: {string:string}): PlaceTree.Placed | nil, string
+function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
   local sha, worker = env["GITHUB_SHA"] or "", env["COSMIC_WORKER"] or ""
   if sha == "" then return nil, "place-tree: GITHUB_SHA is not set" end
   if worker == "" then return nil, "place-tree: COSMIC_WORKER is not set" end

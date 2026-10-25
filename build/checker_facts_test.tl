@@ -39,24 +39,24 @@ end
 local record Api
   debug: boolean
   empty: function(): Facts
-  get: function(Facts | nil, string): Type | nil
-  has: function(Facts | nil, string): boolean
-  is_empty: function(Facts | nil): boolean
-  dropped: function(Facts | nil, string): Drop | nil
-  has_gone: function(Facts | nil): boolean
-  note: function(Facts | nil, string, Drop): Facts | nil
-  with: function(Facts | nil, string, Type): Facts | nil
-  without: function(Facts | nil, string, Drop): Facts | nil
-  without_prefix: function(Facts | nil, string, Drop): Facts | nil
-  without_field: function(Facts | nil, string, Drop): Facts | nil
-  without_paths: function(Facts | nil, Drop): Facts | nil
-  without_globals: function(Facts | nil, Drop): Facts | nil
-  meet: function(Facts | nil, Facts | nil, function(Type, Type): Type | nil): Facts | nil
-  restrict: function(Facts | nil, Facts | nil, function(Type, Type): boolean): Facts | nil
-  for_body: function(Facts | nil, (function(string): boolean), Drop): Facts | nil
+  get: function(Facts?, string): Type?
+  has: function(Facts?, string): boolean
+  is_empty: function(Facts?): boolean
+  dropped: function(Facts?, string): Drop?
+  has_gone: function(Facts?): boolean
+  note: function(Facts?, string, Drop): Facts?
+  with: function(Facts?, string, Type): Facts?
+  without: function(Facts?, string, Drop): Facts?
+  without_prefix: function(Facts?, string, Drop): Facts?
+  without_field: function(Facts?, string, Drop): Facts?
+  without_paths: function(Facts?, Drop): Facts?
+  without_globals: function(Facts?, Drop): Facts?
+  meet: function(Facts?, Facts?, function(Type, Type): Type?): Facts?
+  restrict: function(Facts?, Facts?, function(Type, Type): boolean): Facts?
+  for_body: function(Facts?, (function(string): boolean), Drop): Facts?
 end
 
-local loaded = { value = nil as Api | nil }
+local loaded = { value = nil as Api? }
 
 --- [`checker/facts.tl`], compiled by the carried compiler and loaded once.
 local function module(): Api
@@ -96,7 +96,7 @@ end
 
 --- The meet of two types: the sets' intersection, and an empty one is no
 --- type, which drops the key.
-local function unite(x: Type, y: Type): Type | nil
+local function unite(x: Type, y: Type): Type?
   local both = mask_of(x) & mask_of(y)
   if both == 0 then
     return nil
@@ -123,8 +123,8 @@ local FIELDS <const>: {string} = { "f", "g", "", "fx", "ff" }
 
 -- The model: what each operation is defined to give, written plainly.
 local record Model
-  t: {string:integer}
-  gone: {string:Drop}
+  t: mut {string:integer}
+  gone: mut {string:Drop}
 end
 
 local function model_copy(m: Model): Model
@@ -151,7 +151,7 @@ local function model_globals(m: Model): integer
 end
 
 --- Whether two models hold the same masks and the very same tombstones.
-local function model_equal(a: Model | nil, b: Model | nil): boolean
+local function model_equal(a: Model?, b: Model?): boolean
   if a == nil or b == nil then
     return a == nil and b == nil
   end
@@ -172,10 +172,10 @@ end
 
 --- Whether `f` is the model `m`: the same masks, the very same tombstones,
 --- and counts that are what the keys say. Answers what differs, or nil.
-local function differs(f: Facts | nil, m: Model | nil): string | nil
+local function differs(f: Facts?, m: Model?): string?
   if f == nil or m == nil then
     if f == nil and m == nil then return nil end
-    return f == nil and "dead, but the model is live" or "live, but the model is dead"
+    return if f == nil then "dead, but the model is live" else "live, but the model is dead" end
   end
   for id, ty in pairs(f.t) do
     if m.t[id] ~= mask_of(ty) then
@@ -202,7 +202,7 @@ end
 
 --- Whether two [`Facts`] hold the same keys with the same type objects, the
 --- same tombstone objects and the same counts.
-local function same_facts(a: Facts | nil, b: Facts | nil): boolean
+local function same_facts(a: Facts?, b: Facts?): boolean
   if a == nil or b == nil then
     return a == nil and b == nil
   end
@@ -223,7 +223,7 @@ local function same_facts(a: Facts | nil, b: Facts | nil): boolean
 end
 
 --- `m` with `id` set to `mask`, as `with` is defined.
-local function model_with(m: Model | nil, id: string, mask: integer): Model | nil
+local function model_with(m: Model?, id: string, mask: integer): Model?
   if m == nil then return nil end
   local out = model_copy(m)
   out.t[id] = mask
@@ -232,7 +232,7 @@ local function model_with(m: Model | nil, id: string, mask: integer): Model | ni
 end
 
 --- `m` without the keys `drops` says, each tombstoned with `why`.
-local function model_drop(m: Model | nil, drops: function(string): boolean, why: Drop): Model | nil
+local function model_drop(m: Model?, drops: function(string): boolean, why: Drop): Model?
   if m == nil then return nil end
   local out = model_copy(m)
   for id in pairs(m.t) do
@@ -247,7 +247,7 @@ end
 --- The components of an id, split at its dots: `"1.f"` is `1`, `f`;
 --- `""` is one empty component; `"1."` is `1` and an empty one.
 local function components(id: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local from = 1
   while true do
     local at = id:find(".", from, true)
@@ -293,7 +293,7 @@ local function earlier(x: Drop, y: Drop): Drop
 end
 
 --- The model of `meet`.
-local function model_meet(a: Model | nil, b: Model | nil): Model | nil
+local function model_meet(a: Model?, b: Model?): Model?
   if a == nil then return b end
   if b == nil then return a end
   local out: Model = { t = {}, gone = {} }
@@ -311,7 +311,7 @@ local function model_meet(a: Model | nil, b: Model | nil): Model | nil
 end
 
 --- The model of `restrict`.
-local function model_restrict(edge: Model | nil, back: Model | nil): Model | nil
+local function model_restrict(edge: Model?, back: Model?): Model?
   if edge == nil or back == nil then return edge end
   local out = model_copy(edge)
   for id, x in pairs(edge.t) do
@@ -342,7 +342,7 @@ local KINDS <const>: {string} = {
 }
 
 local function gen_program(src: Fuzz.Source): string
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   while Fuzz.more(src, #fields, 40) do
     local kind = src:int(1, #KINDS)
     local one = src:int(0, 3) == 0 and src:int(0, 6) or 1
@@ -355,8 +355,8 @@ local function gen_program(src: Fuzz.Source): string
 end
 
 local record Value
-  f: Facts | nil
-  m: Model | nil
+  f: Facts?
+  m: Model?
 end
 
 --- The operand `ref` counts back to in `values`.
@@ -379,22 +379,22 @@ end
 --- Returns the values the program made, the first an empty [`Facts`].
 local function run_program(api: Api, input: string, with_model: boolean): {Value}
   local first = api.empty()
-  local values: {Value} = { { f = first, m = { t = {}, gone = {} } } }
+  local values: mut {Value} = { { f = first, m = { t = {}, gone = {} } } }
   local made = { drops = 0 }
   local function drop(): Drop
     made.drops = made.drops + 1
     return { kind = "call", text = "d" .. tostring(made.drops), y = made.drops, x = 0, place = "" }
   end
   for _, field in ipairs(Fuzz.unpack(input)) do
-    local n: {integer} = {}
+    local n: mut {integer} = {}
     for digits in field:gmatch("%d+") do
       n[#n + 1] = assert(math.tointeger(tonumber(digits)))
     end
     local kind = KINDS[n[1]]
     local a, b = operand(values, n[2]), operand(values, n[3])
     local id = IDS[n[4] % #IDS + 1]
-    local result: Facts | nil
-    local model: Model | nil
+    local result: Facts?
+    local model: Model?
     local meets = false
     if kind == "with" then
       local mask = n[5] % 7 + 1
@@ -503,7 +503,7 @@ local function test_operations_agree_with_the_model(tmp: string)
 end
 
 --- Whether a write to `t` at `id` raises.
-local function refuses_write(t: {string:any}, id: string): boolean
+local function refuses_write(t: mut {string:any}, id: string): boolean
   local ok = pcall(function() t[id] = token(1) end)
   return not ok
 end
@@ -513,7 +513,7 @@ end
 local function frozen_in_debug(input: string): boolean, string
   local api = module()
   api.debug = true
-  local ok, trouble = pcall(function(): string | nil
+  local ok, trouble = pcall(function(): string?
     local values = run_program(api, input, true)
     for i, value in ipairs(values) do
       local f = value.f
@@ -566,7 +566,7 @@ end
 --- A copy of `f` built with the module's own operations: its types, then
 --- each tombstone by narrowing the key and dropping it again.
 local function rebuilt(api: Api, f: Facts): Facts
-  local out: Facts | nil = api.empty()
+  local out: Facts? = api.empty()
   for id, ty in pairs(f.t) do out = api.with(out, id, ty) end
   for id, w in pairs(f.gone) do
     out = api.with(out, id, token(1))
@@ -638,13 +638,13 @@ end
 --- A set of keys, and the drop that removes some: the keys are drawn from
 --- `IDS`, then one of a prefix and a field.
 local function gen_removal(src: Fuzz.Source): string
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   while Fuzz.more(src, #keys, 12) do
     keys[#keys + 1] = tostring(src:int(1, #IDS))
   end
   local by_prefix = src:int(0, 1) == 0
   local target = by_prefix and IDS[src:int(1, #IDS)] or FIELDS[src:int(1, #FIELDS)]
-  return Fuzz.pack({ by_prefix and "prefix" or "field", target, table.concat(keys, " ") })
+  return Fuzz.pack({ if by_prefix then "prefix" else "field" end, target, table.concat(keys, " ") })
 end
 
 local function removes_the_right_keys(input: string): boolean, string
@@ -652,8 +652,8 @@ local function removes_the_right_keys(input: string): boolean, string
   api.debug = false
   local parts = Fuzz.unpack(input)
   local by_prefix, target = parts[1] == "prefix", parts[2]
-  local f: Facts | nil = api.empty()
-  local held: {string:boolean} = {}
+  local f: Facts? = api.empty()
+  local held: mut {string:boolean} = {}
   for digits in parts[3]:gmatch("%d+") do
     local id = IDS[assert(math.tointeger(tonumber(digits)))]
     f = api.with(f, id, token(3))
@@ -707,15 +707,15 @@ local function test_prefix_and_field_remove_exactly_the_right_keys(tmp: string)
 end
 
 --- A fresh [`Facts`] holding each of `ids`, all of the widest type.
-local function held(api: Api, ids: {string}): Facts | nil
-  local f: Facts | nil = api.empty()
+local function held(api: Api, ids: {string}): Facts?
+  local f: Facts? = api.empty()
   for _, id in ipairs(ids) do f = api.with(f, id, token(7)) end
   return f
 end
 
 --- The keys of `f`, sorted.
-local function sorted_keys(f: Facts | nil): string
-  local keys: {string} = {}
+local function sorted_keys(f: Facts?): string
+  local keys: mut {string} = {}
   if f ~= nil then
     for id in pairs(f.t) do keys[#keys + 1] = id end
   end

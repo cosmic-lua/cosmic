@@ -30,7 +30,7 @@ local record plan
   --- what a build refuses that the parse tells; and whether a build stops
   --- there, checking nothing.
   record Planned
-    plan: build_module.Plan | nil
+    plan: build_module.Plan?
     refusals: {Refusal}
     halted: boolean
     --- What it requires and where, in order ([`ast.require_sites`]): none
@@ -49,7 +49,7 @@ local record plan
   --- it, nil where the compile handed it none, and what else the build
   --- refused.
   record Compiled
-    result: compiler.Result | nil
+    result: compiler.Result?
     refusals: {Refusal}
   end
 
@@ -118,7 +118,7 @@ end
 --- joins its contracts' ([`refusal_of`]): what a build prints, put where
 --- it says, since it answers them in no other shape.
 local function refusals_of(said: string): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   for line in said:gmatch("[^\n]+") do out[#out + 1] = plan.refusal_of(line) end
   return out
 end
@@ -139,8 +139,8 @@ end
 --- names nothing.
 local function sites_of(built: compiler, parsed: ast.Parsed): {Site}
   local tokens = parsed.tokens
-  local out: {Site} = {}
-  local seen: {string:boolean} = {}
+  local out: mut {Site} = {}
+  local seen: mut {string:boolean} = {}
   for i, token in ipairs(tokens) do
     local before = tokens[i - 1]
     if token.kind == "identifier" and token.tk == "require" and
@@ -155,7 +155,7 @@ local function sites_of(built: compiler, parsed: ast.Parsed): {Site}
         local quote = literal.tk:sub(1, 1)
         if (quote ~= '"' and quote ~= "'") or literal.tk:find("\\", 1, true) ~= nil then
           local found, _ = ast.require_sites(built, parsed)
-          local whole: {Site} = {}
+          local whole: mut {Site} = {}
           for _, site in ipairs(found or {}) do
             whole[#whole + 1] = { name = site.name, line = site.y, column = site.x }
           end
@@ -185,7 +185,7 @@ end
 --- build discounts as it does a generated module's.
 function plan.of(built: compiler, name: string, text: string, path: string, kind: string,
                  own_tree: boolean, generated: boolean): Planned
-  local refusals: {Refusal} = {}
+  local refusals: mut {Refusal} = {}
   local parsed, _ = ast.parse(built, text, name)
   if parsed == nil then
     return { plan = nil, refusals = refusals, halted = false, requires = {} }
@@ -205,7 +205,7 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
     refusals[#refusals + 1] = plan.refusal_of(misplaced)
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
-  local tests: {string} = {}
+  local tests: mut {string} = {}
   if kind == "test" then
     tests = analysis.tests
   elseif kind == "example" then
@@ -214,7 +214,7 @@ function plan.of(built: compiler, name: string, text: string, path: string, kind
   -- Only cosmic's own build reads a stub, of a standard-library module
   -- ([`compilation.generate`]); a source that returns nothing has none
   -- ([`build.derivation`]).
-  local made: stub.Made | nil = nil
+  local made: stub.Made? = nil
   if own_tree and kind == "module" and path:sub(1, 7) == "cosmic." and
       analysis.has_top_level_return then
     made = stub.made(parsed)
@@ -248,7 +248,7 @@ end
 --- The checker's reading of a text [`compilation.generate`] refused for
 --- the checker's errors, which it hands its renderer.
 local record Rendered
-  result: compiler.Result | nil
+  mut result: compiler.Result?
 end
 
 --- Compiles the text `spliced` of `compiled` in `env` as a build compiles
@@ -264,7 +264,7 @@ function plan.compiled(compiled: build_module.Plan, built: compiler, env: compil
                        spliced: string): plan.Compiled
   local rendered: Rendered = { result = nil }
   local kept = env.modules[compiled.path]
-  local function generate(): compilation.Generated | nil, string
+  local function generate(): compilation.Generated?, string
     return compilation.generate(compiled, built, env, typed, own_tree, true,
       function(_file: string, _source: string, seen: compiler.Result): string
         rendered.result = seen

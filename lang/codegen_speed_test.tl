@@ -76,9 +76,9 @@ local FORMS <const>: {string: function(n: integer): string} = {
     return "local a: any = 1\nlocal x = a is string" .. (" and a is integer"):rep(n * 50)
   end,
   ["a block of locals"] = function(n: integer): string
-    local out: {string} = {}
+    local out: mut {string} = {}
     for i = 1, n * 50 do
-      out[i] = "local v" .. i .. " = " .. (i > 1 and "v" .. (i - 1) or "1") .. "\n"
+      out[i] = "local v" .. i .. " = " .. (if i > 1 then "v" .. (i - 1) else "1" end) .. "\n"
     end
     return table.concat(out)
   end,

@@ -28,10 +28,10 @@ local signals: {string:integer} = {
 --- the commands of the chain running have said of their failures, said
 --- once the chain ends the script, and not where a `||` takes one up.
 local record Probe
-  guard: Signal.Guard | nil
-  trapped: integer
-  ignoring: boolean
-  troubles: {string}
+  mut guard: Signal.Guard?
+  mut trapped: integer
+  mut ignoring: boolean
+  mut troubles: mut {string}
 end
 
 local probe: Probe = { trapped = 0, ignoring = false, troubles = {} }
@@ -92,7 +92,7 @@ end
 
 --- `program`, with `argument` its one where there is one.
 local function argv_of(program: string, argument: string): {string}
-  local argv: {string} = { program }
+  local argv: mut {string} = { program }
   if argument ~= "" then argv[2] = argument end
   return argv
 end
@@ -110,10 +110,10 @@ end
 --- answers the status to end with, or nil to go on.
 local verbs: {string:function(string, string): integer} = {
   print = function(first: string, rest: string): integer
-    return put_all(1, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+    return put_all(1, (if rest ~= "" then first .. " " .. rest else first end) .. "\n")
   end,
   eprint = function(first: string, rest: string): integer
-    return put_all(2, (rest ~= "" and first .. " " .. rest or first) .. "\n")
+    return put_all(2, (if rest ~= "" then first .. " " .. rest else first end) .. "\n")
   end,
   write = function(path: string, text: string): integer
     local ok, trouble = Fs.write(path, text .. "\n")
@@ -151,7 +151,7 @@ local verbs: {string:function(string, string): integer} = {
     local names, trouble = Fs.list(path)
     if names == nil then return failed(path, trouble) end
     table.sort(names)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end
     return put_all(1, table.concat(lines))
   end,
@@ -288,7 +288,7 @@ local verbs: {string:function(string, string): integer} = {
       started[#started + 1] = handle
       count = count + 1
     end
-    return put_all(1, "started " .. count .. (refusal ~= "" and (" then " .. refusal) or "") .. "\n")
+    return put_all(1, "started " .. count .. (if refusal ~= "" then (" then " .. refusal) else "" end) .. "\n")
   end,
   ["fd-closed"] = function(word: string): integer
     local fd = number(word)
@@ -348,7 +348,7 @@ local verbs: {string:function(string, string): integer} = {
   end,
   ["env-of"] = function(name: string): integer
     local value = sys.getenv(name)
-    return put_all(1, value ~= nil and name .. "=" .. value .. "\n" or name .. " unset\n")
+    return put_all(1, if value ~= nil then name .. "=" .. value .. "\n" else name .. " unset\n" end)
   end,
   connect = function(path: string): integer
     local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Time.seconds(5) })
@@ -488,13 +488,13 @@ local verbs: {string:function(string, string): integer} = {
     return put_all(1, string.format("%o\n", st.mode & 0xfff))
   end,
   ["find-writable"] = function(root: string): integer
-    local lines: {string} = {}
-    local pending: {string} = { root }
+    local lines: mut {string} = {}
+    local pending: mut {string} = { root }
     while #pending > 0 do
       local directory = table.remove(pending)
       local entries, _ = sys.readdir(directory)
       if entries ~= nil then
-        local names: {string} = {}
+        local names: mut {string} = {}
         for name in pairs(entries) do names[#names + 1] = name end
         table.sort(names)
         for _, name in ipairs(names) do
@@ -530,7 +530,7 @@ end
 --- `line` split at each `&&` and `||` standing between blanks: its
 --- commands, and the operator before each but the first.
 local function chained(line: string): {string}, {string}
-  local commands, operators: {string}, {string} = {}, {}
+  local commands, operators: mut {string}, mut {string} = {}, {}
   local at = 1
   while true do
     local from, to, operator = line:find("%s+(([&|])%2)%s+", at)
@@ -586,14 +586,14 @@ local function run_script(script: string, args: {string}, dir: string): integer
   return 0
 end
 
-return function(argv: {string}): integer
+return function(argv: mut {string}): integer
   local executable, _ = Proc.executable()
   local self = executable or ""
   local beside, _ = Fs.read(self .. ".do")
   if beside == nil and argv[1] ~= nil then
     -- A script file whose `#!` line names it: its body.
     local st, _ = sys.stat(argv[1])
-    local text: string | nil = nil
+    local text: string? = nil
     if st ~= nil and st.kind == "file" then
       local read, _ = Fs.read(argv[1])
       text = read
@@ -604,8 +604,8 @@ return function(argv: {string}): integer
     end
   end
   local script = beside or argv[1] or ""
-  local first_arg = beside ~= nil and 1 or 2
-  local args: {string} = {}
+  local first_arg = if beside ~= nil then 1 else 2 end
+  local args: mut {string} = {}
   for i = first_arg, #argv do args[#args + 1] = argv[i] end
   local status = run_script(script, args, Fs.dirname(self))
   -- What `start` started runs on: ending here, rather than by returning,

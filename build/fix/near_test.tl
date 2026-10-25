@@ -18,7 +18,7 @@ end
 local function known_of(dir: string, files: {string: string},
                         wanted: {string}): {near.Known}, {string: near.Known}
   local found = assert(near.known({ fixture.database(dir, files) }))
-  local by_source: {string: near.Known} = {}
+  local by_source: mut {string: near.Known} = {}
   for _, entry in ipairs(found) do by_source[entry.source_symbol] = entry end
   for _, name in ipairs(wanted) do
     assert(by_source[name] ~= nil, name .. " is not among what the build offers")

@@ -48,7 +48,7 @@ end
 
 --- Stages and compiles the project at `root`: the Lua of each module by
 --- import path, or nil and what refused.
-local function compile(root: string, mode?: GrammarMode.Mode): {string: string} | nil, string
+local function compile(root: string, mode?: GrammarMode.Mode): {string: string}?, string
   local checker = mode or grammar
   local handle, open_trouble = work.open(root)
   if handle == nil then
@@ -68,7 +68,7 @@ local function compile(root: string, mode?: GrammarMode.Mode): {string: string} 
   if #result.refused > 0 then
     return nil, table.concat(result.refused, "\n")
   end
-  local lua: {string: string} = {}
+  local lua: mut {string: string} = {}
   for _, m in ipairs(result.modules) do
     lua[m.path] = m.lua
   end
@@ -76,7 +76,7 @@ local function compile(root: string, mode?: GrammarMode.Mode): {string: string} 
 end
 
 --- Writes `files` to the fresh project `case` of `tmp` and compiles it.
-local function project(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string} | nil, string
+local function project(tmp: string, case: string, files: {string: string}, mode?: GrammarMode.Mode): {string: string}?, string
   local root = tmp .. "/" .. case
   assert(Fs.mkdirs(root))
   write(root, files)
@@ -85,7 +85,7 @@ end
 
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
-local function load_module(lua: {string: string}, path: string, loaded?: {string: any}): any
+local function load_module(lua: {string: string}, path: string, loaded?: mut {string: any}): any
   loaded = loaded or {}
   local function req(name: string): any
     if name == "cosmic.html" then
@@ -289,7 +289,7 @@ local function test_a_records_module_that_returns_a_value_is_refused_by_the_fork
       "local data: Data = {}\nreturn data\n",
     ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title}}" })
   assert(lua == nil, "built a record's module that returns a value")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in trouble:gmatch("[^\n]+") do
     lines[#lines + 1] = line
   end

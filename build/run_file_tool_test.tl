@@ -113,8 +113,8 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
   }
   for _, case in ipairs(cases) do
     local name, files = case.name, case.files
-    local refusal = files["bad.tl"] == SYNTAX_ERROR and "bad.tl: bad.tl:1:21: syntax error" or
-      "bad.tl: the compiler refused it"
+    local refusal = if files["bad.tl"] == SYNTAX_ERROR then "bad.tl: bad.tl:1:21: syntax error" else
+      "bad.tl: the compiler refused it" end
     local result = run_in(tree_of(tmp, name, files), "good.tl")
     local said = tostring(result.stdout) .. tostring(result.stderr)
     assert(result.code == 1 and result.stdout == "", said)

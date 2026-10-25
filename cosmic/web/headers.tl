@@ -118,9 +118,9 @@ end
 --- `cache`, a Cache-Control value (nil for none), made unfit for a shared
 --- cache: `public` and `s-maxage` dropped and `private` added unless it or
 --- `no-store` is there.
-local function privately(cache: string | nil): string
+local function privately(cache: string?): string
   if cache == nil then return "private" end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local safe, dropped = false, false
   for directive in cache:gmatch("[^,]+") do
     local trimmed = directive:match("^%s*(.-)%s*$")
@@ -143,19 +143,19 @@ end
 --- @return Types.Middleware The middleware
 function Headers.middleware(opts?: Headers.Options): Types.Middleware
   opts = opts or {}
-  local fixed: {{string}} = {}
+  local fixed: mut {{string}} = {}
   if opts.nosniff ~= false then fixed[#fixed + 1] = { "X-Content-Type-Options", "nosniff" } end
-  local function add(name: string, value: string | nil, default: string)
+  local function add(name: string, value: string?, default: string)
     local text = plain(value == nil and default or value, name)
     if text ~= "" then fixed[#fixed + 1] = { name, text } end
   end
   add("Referrer-Policy", opts.referrer_policy, "strict-origin-when-cross-origin")
   local frame_options = opts.frame_options
-  local frame = frame_options == nil and "DENY" or frame_options
+  local frame = if frame_options == nil then "DENY" else frame_options end
   one_of(frame, { "DENY", "SAMEORIGIN", "" }, "frame_options")
   if frame ~= "" then fixed[#fixed + 1] = { "X-Frame-Options", frame } end
   local opts_coop = opts.coop
-  local coop = opts_coop == nil and "same-origin" or opts_coop
+  local coop = if opts_coop == nil then "same-origin" else opts_coop end
   one_of(coop, { "same-origin", "same-origin-allow-popups", "unsafe-none", "" }, "coop")
   if coop ~= "" then fixed[#fixed + 1] = { "Cross-Origin-Opener-Policy", coop } end
   local corp = opts.corp
@@ -165,7 +165,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
   end
   add("Permissions-Policy", opts.permissions_policy, "camera=(), microphone=(), geolocation=()")
 
-  local hsts: string | nil = nil
+  local hsts: string? = nil
   local opts_hsts = opts.hsts
   if opts_hsts ~= nil then
     local h = opts_hsts
@@ -175,17 +175,17 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     if h.preload and not (h.include_subdomains and h.max_age >= 31536000) then
       error("headers: hsts.preload needs include_subdomains and a max_age of a year (31536000) or more", 2)
     end
-    hsts = "max-age=" .. h.max_age .. (h.include_subdomains and "; includeSubDomains" or "") ..
-      (h.preload and "; preload" or "")
+    hsts = "max-age=" .. h.max_age .. (if h.include_subdomains then "; includeSubDomains" else "" end) ..
+      (if h.preload then "; preload" else "" end)
   end
 
   local policy = opts.csp
-  local csp_name = opts.csp_report_only and "Content-Security-Policy-Report-Only" or "Content-Security-Policy"
+  local csp_name = if opts.csp_report_only then "Content-Security-Policy-Report-Only" else "Content-Security-Policy" end
   if policy ~= nil then
-    local directives: {string:{string}} = {}
+    local directives: mut {string:{string}} = {}
     for name, sources in pairs(policy.directives) do directives[name] = sources end
     if directives["frame-ancestors"] == nil and frame ~= "" then
-      directives["frame-ancestors"] = { frame == "DENY" and "'none'" or "'self'" }
+      directives["frame-ancestors"] = { if frame == "DENY" then "'none'" else "'self'" end }
     end
     policy = { directives = directives }
     local ok, why = pcall(Csp.format, policy, "x")
@@ -196,7 +196,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
   end
   local draw = opts.nonce == true
   -- Without a nonce the policy is one string for every request.
-  local fixed_csp: string | nil = nil
+  local fixed_csp: string? = nil
   if policy ~= nil and not uses_nonce(policy) then fixed_csp = Csp.format(policy) end
 
   return function(inner: Types.Handler): Types.Handler
@@ -207,7 +207,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
       end
       req:set(Headers.NONCE, nonce)
       local res = inner(req)
-      local adds: {{string}} = {}
+      local adds: mut {{string}} = {}
       for _, each in ipairs(fixed) do
         if Response.header(res, each[1]) == nil then adds[#adds + 1] = each end
       end

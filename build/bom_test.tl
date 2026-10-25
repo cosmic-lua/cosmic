@@ -159,7 +159,7 @@ local record Checksum
   content: string
 end
 local record Reference
-  hashes: {Checksum} | nil
+  hashes: {Checksum}?
 end
 local record License
   expression: string
@@ -173,7 +173,7 @@ local record Component
   purl: string
   licenses: {License}
   externalReferences: {Reference}
-  pedigree: Pedigree | nil
+  pedigree: Pedigree?
 end
 local record Document
   bomFormat: string
@@ -237,7 +237,7 @@ end
 
 --- The words of an SPDX expression that name a license.
 local function ids_of(expression: string): {string:boolean}
-  local ids: {string:boolean} = {}
+  local ids: mut {string:boolean} = {}
   for word in expression:gmatch("[^%s()]+") do
     if word ~= "AND" and word ~= "OR" and word ~= "WITH" then
       ids[word] = true

@@ -26,7 +26,7 @@ end
 
 local function block(der: string, label: string): string
   local encoded = Codec.base64(der)
-  local lines: {string} = { label, ("="):rep(#label), "-----BEGIN CERTIFICATE-----" }
+  local lines: mut {string} = { label, ("="):rep(#label), "-----BEGIN CERTIFICATE-----" }
   for at = 1, #encoded, 64 do
     lines[#lines + 1] = encoded:sub(at, at + 63)
   end
@@ -43,8 +43,8 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
     name = "pem bundle",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local ders: {string} = {}
-      local blocks: {string} = { "## Bundle", "" }
+      local ders: mut {string} = {}
+      local blocks: mut {string} = { "## Bundle", "" }
       while Fuzz.more(src, #ders, 6) do
         local der = src:int(0, 2) == 0 and real or
           sequence(Fuzz.bytes(src, 300) .. ("c"):rep(src:int(0, 1) * 200))
@@ -65,13 +65,13 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
         return true, ""
       end
       Fuzz.label("parsed")
-      local ders: {string} = {}
+      local ders: mut {string} = {}
       for _, one in ipairs(found) do
         if one.der == "" then return false, "an empty certificate" end
         -- The TLS stack's own parse, on whatever bytes a bundle holds:
         -- an answer, never a raise.
         local readable, why = Http.check_certificate(one.der)
-        Fuzz.label(readable and "readable" or "unreadable")
+        Fuzz.label(if readable then "readable" else "unreadable" end)
         if not readable and why == "" then return false, "unreadable without a reason" end
         ders[#ders + 1] = one.der
       end

@@ -40,11 +40,11 @@ end
 --- What `keep` holds on to per file, in kilobytes over the file's text, after `FILES` files are each parsed and `keep`
 --- is given the parse and the text. It is counted after a full collection, so it is what `keep` returned and not the
 --- garbage of the parse.
-local function held_per_file(keep: function(parsed: ast.Parsed, source: string, older: Held | nil): Held): number
+local function held_per_file(keep: function(parsed: ast.Parsed, source: string, older: Held?): Held): number
   collectgarbage("collect")
   collectgarbage("collect")
   local base = collectgarbage("count")
-  local held: Held | nil = nil
+  local held: Held? = nil
   local text = 0
   for i = 1, FILES do
     local source = text_of(i)
@@ -61,7 +61,7 @@ local function held_per_file(keep: function(parsed: ast.Parsed, source: string, 
 end
 
 local function test_the_facts_of_a_file_hold_its_comments_and_not_its_syntax()
-  local held = held_per_file(function(parsed: ast.Parsed, source: string, older: Held | nil): Held
+  local held = held_per_file(function(parsed: ast.Parsed, source: string, older: Held?): Held
     return { facts = links.facts(parsed, source), older = older }
   end)
   assert(held < BUDGET, ("the facts of a file held %.0f KB over its text, over the budget of %d KB"):format(held, BUDGET))
@@ -70,7 +70,7 @@ end
 local function test_declarations_that_have_not_walked_the_scopes_are_over_the_budget()
   -- The budget is a bound with something on the other side of it: declarations that wait for the first comment to ask
   -- keep the tree to walk then, and are far over it.
-  local held = held_per_file(function(parsed: ast.Parsed, _source: string, older: Held | nil): Held
+  local held = held_per_file(function(parsed: ast.Parsed, _source: string, older: Held?): Held
     return { declarations = link_text.declarations(parsed), older = older }
   end)
   assert(held > 2 * BUDGET, ("declarations that keep the tree held only %.0f KB, which the budget of %d KB cannot tell from none"):

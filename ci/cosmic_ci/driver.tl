@@ -34,7 +34,7 @@ local function run(argv: {string}): integer
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
-  local command: {string} = { executable }
+  local command: mut {string} = { executable }
   for i = 4, #argv do
     local argument = argv[i]
     if argument ~= nil then command[#command + 1] = argument end
@@ -53,7 +53,7 @@ end
 
 local function summarize(_argv: {string}): integer
   local db_path = Context.database()
-  local lines: {string} = { "## Cosmic CI operations\n\n" }
+  local lines: mut {string} = { "## Cosmic CI operations\n\n" }
   local database_exists = Predicate.exists(db_path)
   if not database_exists then
     lines[#lines + 1] =
@@ -77,7 +77,7 @@ local function summarize(_argv: {string}): integer
     lines[#lines + 1] = "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n"
     lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
     for _, row in ipairs(rows) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for i = 1, 9 do cells[#cells + 1] = clean(row:text(i)) end
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
@@ -162,7 +162,7 @@ local commands: {string:Command} = {
 }
 
 return function(argv: {string}): integer
-  local dispatched: {string:Flags.Command} = {}
+  local dispatched: mut {string:Flags.Command} = {}
   for name, entry in pairs(commands) do
     local handler = entry.handler
     local options = entry.options

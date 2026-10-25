@@ -119,7 +119,7 @@ local function test_uses_lists_a_projects_links_to_the_standard_library(tmp: str
   assert(built.code == 0, built.stdout .. built.stderr)
   local result = cosmic(project, { "uses", "cosmic.fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local mine: {string} = {}
+  local mine: mut {string} = {}
   for line in result.stdout:gmatch("[^\n]+") do
     if line:match("^greet%.tl:") or line:match("^README%.md:") then mine[#mine + 1] = line end
   end
@@ -157,7 +157,7 @@ local function test_a_lookup_waits_for_no_run_holding_the_database(tmp: string)
     assert(took < Clock.seconds(10), table.concat(words, " ") .. " took " .. tostring(took) .. " ns")
     -- Said once a process, and both run in this one ([`build.invoke`]).
     local _, told = result.stderr:gsub("not waiting for it", "")
-    assert(told == (words[1] == "docs" and 1 or 0), result.stderr)
+    assert(told == (if words[1] == "docs" then 1 else 0 end), result.stderr)
     if words[1] == "docs" then
       assert(result.stdout:find("First words.", 1, true), result.stdout)
     else

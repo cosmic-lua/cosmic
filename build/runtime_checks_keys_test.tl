@@ -139,7 +139,7 @@ local function test_the_module_holding_the_hook_is_compiled_without_checks(tmp: 
   local result, trouble = importer.compile(handle, built, "keys-test", false, nil, nil, true)
   work.close(handle)
   assert(result ~= nil, trouble)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, m in ipairs(result.modules) do seen[m.path] = checks_in(m) end
   assert(seen.lib == true, "a module was not checked")
   assert(seen["build.test_worker"] == false, "the hook's module carries checks")
@@ -160,7 +160,7 @@ local function test_a_checked_compile_takes_no_pool(tmp: string)
       return true, ""
     end,
     compile = function(_: Sqlite.Handle, _: string, _: {importer.Module}, _: {string:boolean},
-                       _: boolean, _: boolean): importer.Ahead | nil, string
+                       _: boolean, _: boolean): importer.Ahead?, string
       return nil, ""
     end,
     close = function() closed.value = closed.value + 1 end,

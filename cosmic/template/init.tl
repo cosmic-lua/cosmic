@@ -171,11 +171,11 @@ local record Template
   record Options
     --- The dialects `{{use name}}` may name, in place of the built-in ones
     --- (`htmx`): each is the data [`dialect/htmx.tl`] holds. The built-in ones where absent.
-    dialects: {string: Template.Dialect} | nil
+    dialects: {string: Template.Dialect}?
     --- Whether the module is written in the new checker's grammar, which a project is held to with no ceiling to excuse a
     --- local array that is written or a module that returns a table literal: the output list is a `mut {string}` and the
     --- module returns a local of a record type that declares `render`. The fork's Teal where absent.
-    new_grammar: boolean | nil
+    new_grammar: boolean?
   end
 end
 
@@ -187,7 +187,7 @@ end
 --- @param options? Template.Options Dialects other than the built-in ones, and the grammar the module is written in
 --- @return string|nil The module source, with line N the template's line N
 --- @return string The reason, as `name:line:col: ...`, when the template is refused
-function Template.compile(src: string, name: string, options?: Template.Options): string | nil, string
+function Template.compile(src: string, name: string, options?: Template.Options): string?, string
   local registry = options ~= nil and options.dialects or dialect.registry
   local new_grammar = options ~= nil and options.new_grammar == true
   local template, why = parse.parse(src, name, registry)

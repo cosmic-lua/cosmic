@@ -183,9 +183,9 @@ local function test_a_lock_file_that_cannot_be_written_is_refused(tmp: string)
 end
 
 local record Held
-  fd: integer
-  said: string
-  count: integer
+  mut fd: integer
+  mut said: string
+  mut count: integer
 end
 
 --- A run kept waiting says so again every interval, naming the holder

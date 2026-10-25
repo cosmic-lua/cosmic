@@ -40,7 +40,7 @@ local record Generics
     --- The interfaces the declaration of `n` lists, with their arguments, as types.
     listed: function(n: Named): {Type}
     --- The element type of the array part of the record `n`, or nil.
-    array_part: function(n: Named): Type | nil
+    array_part: function(n: Named): Type?
   end
 
   --- Two types a variable has no one type for.
@@ -91,7 +91,7 @@ local record Generics
 
   --- The type of the parameter `index` (from 1): its exact type, else its lower bound, else its upper bound, else what
   --- the type expected said; nil where nothing fixed it. A bound that disagrees with the one chosen is a conflict.
-  value: function(s: Solver, index: integer): Type | nil
+  value: function(s: Solver, index: integer): Type?
 
   --- Whether a pattern still names a variable that [`Generics.value`] has no type for.
   unsolved: function(s: Solver, pattern: Type): boolean
@@ -111,13 +111,13 @@ local function walk(t: Type, level: integer, visit: function(index: integer))
   if t.open <= level then
     return
   end
-  if t is Types.Var then
+  if (t.tag == "var") then
     if t.depth == level then
       visit(t.index + 1)
     end
     return
   end
-  local inside = (t is Fn and #t.tparams > 0) and level + 1 or level
+  local inside = if ((t.tag == "fn") and #t.tparams > 0) then level + 1 else level end
   for _, part in ipairs(Types.parts(t)) do
     walk(part, inside, visit)
   end
@@ -133,7 +133,7 @@ end
 
 function Generics.unused(f: Fn): {integer}
   local used: {integer: boolean} = {}
-  local written: {Type} = {}
+  local written: mut {Type} = {}
   for _, p in ipairs(f.params) do
     written[#written + 1] = p.type
   end
@@ -159,7 +159,7 @@ function Generics.unused(f: Fn): {integer}
       used[index] = true
     end)
   end
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for i = 1, #f.tparams do
     if not used[i] then
       out[#out + 1] = i
@@ -190,7 +190,7 @@ local function conflict(s: Generics.Solver, index: integer, first: Type, second:
 end
 
 --- The type both `a` and `b` are below, or nil. `nil` and a type make that type optional.
-local function join(s: Generics.Solver, a: Type, b: Type): Type | nil
+local function join(s: Generics.Solver, a: Type, b: Type): Type?
   if a == b then
     return a
   elseif a.tag == "nil" then
@@ -206,7 +206,7 @@ local function join(s: Generics.Solver, a: Type, b: Type): Type | nil
 end
 
 --- The type that is below both `a` and `b`, or nil.
-local function meet(s: Generics.Solver, a: Type, b: Type): Type | nil
+local function meet(s: Generics.Solver, a: Type, b: Type): Type?
   if s.hooks.below(a, b) then
     return a
   elseif s.hooks.below(b, a) then
@@ -276,10 +276,10 @@ local function taint(s: Generics.Solver, pattern: Type)
 end
 
 --- The element and mutability of the array `t` is, or of the record's array part, or nil.
-local function array_of(s: Generics.Solver, t: Type): Type | nil, boolean
-  if t is Types.Array then
+local function array_of(s: Generics.Solver, t: Type): Type?, boolean
+  if (t.tag == "array") then
     return t.element, t.mut
-  elseif t is Named and not t.value then
+  elseif (t.tag == "named") and not t.value then
     local part = s.hooks.array_part(t)
     if part ~= nil then
       return part, false
@@ -293,8 +293,8 @@ local visit: function(s: Generics.Solver, pattern: Type, actual: Type, dir: Gene
 --- A union pattern with one member that names variables (`A?`, `{A} | string`): that member against what the type
 --- found has beside the members the pattern spells out.
 local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Type, dir: Generics.Direction, at: integer)
-  local open: Type | nil = nil
-  local plain: {Type} = {}
+  local open: Type? = nil
+  local plain: mut {Type} = {}
   for _, m in ipairs(pattern.members) do
     if m.open > 0 then
       if open ~= nil then
@@ -312,14 +312,14 @@ local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Typ
   if dir == "from" then
     -- The pattern flows to the type found: the member that names variables is below it, apart from the nil it adds.
     local target = actual
-    if pattern.nilable and actual is Types.Union and actual.nilable then
+    if pattern.nilable and (actual.tag == "union") and actual.nilable then
       target = s.store:non_nil(actual)
     end
     visit(s, open, target, dir, at)
     return
   end
-  local rest: {Type} = {}
-  local members = actual is Types.Union and actual.members or { actual }
+  local rest: mut {Type} = {}
+  local members = (actual.tag == "union") and actual.members or { actual }
   for _, m in ipairs(members) do
     local covered = false
     for _, p in ipairs(plain) do
@@ -329,7 +329,7 @@ local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Typ
       rest[#rest + 1] = m
     end
   end
-  if actual is Types.Union and actual.nilable and not pattern.nilable then
+  if (actual.tag == "union") and actual.nilable and not pattern.nilable then
     rest[#rest + 1] = s.store:atom("nil")
   end
   if #rest == 0 then
@@ -347,7 +347,7 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     taint(s, pattern)
     return
   end
-  if actual is Types.Union and not (pattern is Types.Var) and not (pattern is Types.Union) then
+  if (actual.tag == "union") and not ((pattern.tag == "var")) and not ((pattern.tag == "union")) then
     -- A union of shapes (`{integer} | {string}` for `{T}`) is each member in turn: the members give `T` the type they
     -- agree on, or conflict, and a member that nil makes of it is the argument check's to refuse.
     for _, m in ipairs(actual.members) do
@@ -355,13 +355,13 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     end
     return
   end
-  if pattern is Types.Var then
+  if (pattern.tag == "var") then
     if pattern.depth == 0 then
       bind(s, pattern.index + 1, actual, dir, at)
     end
-  elseif pattern is Types.Union then
+  elseif (pattern.tag == "union") then
     visit_union(s, pattern, actual, dir, at)
-  elseif pattern is Types.Array then
+  elseif (pattern.tag == "array") then
     local element, changes = array_of(s, actual)
     if element == nil then
       taint(s, pattern)
@@ -378,8 +378,8 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     else
       visit(s, pattern.element, element, dir, at)
     end
-  elseif pattern is Types.Map then
-    if not (actual is Types.Map) then
+  elseif (pattern.tag == "map") then
+    if not ((actual.tag == "map")) then
       taint(s, pattern)
     elseif pattern.mut then
       if actual.mut then
@@ -397,8 +397,8 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
       visit(s, pattern.key, actual.key, "both", at)
       visit(s, pattern.value, actual.value, dir, at)
     end
-  elseif pattern is Named then
-    if not (actual is Named) or actual.value ~= pattern.value then
+  elseif (pattern.tag == "named") then
+    if not ((actual.tag == "named")) or actual.value ~= pattern.value then
       taint(s, pattern)
     elseif actual.decl == pattern.decl then
       for i, p in ipairs(pattern.args) do
@@ -410,7 +410,7 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     elseif dir == "into" and pattern.decl.kind == "interface" then
       local found = false
       for _, listed in ipairs(s.hooks.listed(actual)) do
-        if listed is Named and listed.decl == pattern.decl then
+        if (listed.tag == "named") and listed.decl == pattern.decl then
           found = true
           for i, p in ipairs(pattern.args) do
             local a = listed.args[i]
@@ -427,8 +427,8 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
     else
       taint(s, pattern)
     end
-  elseif pattern is Fn then
-    if not (actual is Fn) or #actual.tparams > 0 or #pattern.tparams > 0 then
+  elseif (pattern.tag == "fn") then
+    if not ((actual.tag == "fn")) or #actual.tparams > 0 or #pattern.tparams > 0 then
       taint(s, pattern)
       return
     end
@@ -477,7 +477,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
   -- Matched in a solver of its own, so that nothing it finds conflicts with what the arguments said.
   local aside = Generics.new(s.store, s.fn, s.hooks)
   local target = expected
-  if target is Types.Union and not (pattern is Types.Union) then
+  if (target.tag == "union") and not ((pattern.tag == "union")) then
     target = s.store:non_nil(target)
   end
   visit(aside, pattern, target, "from", 0)
@@ -492,7 +492,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
     end
   end
   -- Arguments that have no type between them are both below the one the position wants.
-  local kept: {Generics.Conflict} = {}
+  local kept: mut {Generics.Conflict} = {}
   for _, c in ipairs(s.conflicts) do
     local want = s.hint[c.index] or s.fallback[c.index]
     if want ~= nil and not c.exact and s.hooks.below(c.first, want) and s.hooks.below(c.second, want) then
@@ -504,7 +504,7 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
   s.conflicts = kept
 end
 
-function Generics.value(s: Generics.Solver, index: integer): Type | nil
+function Generics.value(s: Generics.Solver, index: integer): Type?
   local exact, lower, upper = s.exact[index], s.lower[index], s.upper[index]
   if exact ~= nil then
     if lower ~= nil and not s.hooks.below(lower, exact) then

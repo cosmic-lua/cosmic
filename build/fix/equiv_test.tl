@@ -90,10 +90,10 @@ end
 --- tree holds opposite it and pass the second whatever it held.
 local function test_a_node_reached_by_two_routes_is_compared_on_both()
   local shared: {any:any} = { kind = "string", tk = "\"one\"" }
-  local before: {any:any} = { kind = "statements" }
+  local before: mut {any:any} = { kind = "statements" }
   before[1] = shared
   before[2] = shared
-  local after: {any:any} = { kind = "statements" }
+  local after: mut {any:any} = { kind = "statements" }
   after[1] = { kind = "string", tk = "\"one\"" }
   after[2] = { kind = "string", tk = "\"two\"" }
   local same, difference = equiv.same_tree(node(before), node(after))
@@ -104,9 +104,9 @@ end
 --- The pair guard still stops a real cycle; without it this call would
 --- not return.
 local function test_a_cycle_is_not_followed_forever()
-  local before: {any:any} = { kind = "statements" }
+  local before: mut {any:any} = { kind = "statements" }
   before["body"] = before
-  local after: {any:any} = { kind = "statements" }
+  local after: mut {any:any} = { kind = "statements" }
   after["body"] = after
   local same, difference = equiv.same_tree(node(before), node(after))
   assert(same, "a cycle was reported as a difference: " .. difference)

@@ -61,8 +61,8 @@ local record data
   record Form
     email: string
     age: string
-    email_error: string | nil
-    age_error: string | nil
+    email_error: string?
+    age_error: string?
   end
 end
 
@@ -97,7 +97,7 @@ end
 
 local record Signup
   email: string
-  age: integer | nil
+  age: integer?
 end
 local SIGNUP <const> = Shape.record_of("Signup")
 

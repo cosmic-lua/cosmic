@@ -53,7 +53,7 @@ verb_list.entries = {
 
 --- Every verb's spec, in help's order.
 function verb_list.specs(): {verb_spec.Spec}
-  local specs: {verb_spec.Spec} = {}
+  local specs: mut {verb_spec.Spec} = {}
   for _, entry in ipairs(verb_list.entries) do
     specs[#specs + 1] = entry.load()
   end
@@ -62,7 +62,7 @@ end
 
 --- The spec of the verb `name`, loading that verb's module alone, or nil
 --- when no listed verb has that name.
-function verb_list.find(name: string): verb_spec.Spec | nil
+function verb_list.find(name: string): verb_spec.Spec?
   for _, entry in ipairs(verb_list.entries) do
     if entry.name == name then
       return entry.load()

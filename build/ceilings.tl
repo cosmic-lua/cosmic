@@ -56,7 +56,7 @@ local record Ceilings
     stages: {string: {string: integer}}
     --- Whether the tree has no ceilings to be held to and none to raise: a project's. An error over a ceiling of 0 is then
     --- listed without the pin that is not there.
-    none: boolean | nil
+    none: boolean?
   end
 
   --- The path of the data file below the root of the tree.
@@ -65,10 +65,10 @@ local record Ceilings
   --- The ceilings `text` holds, or nil and what is wrong with it: a line of no section or of the wrong shape, a stage no
   --- check has, a count that is not a positive integer, a key that two lines give, and a key that can never be met: one
   --- of a stage that counts by code whose code is none of that stage's, or whose shape is not the stage's.
-  parse: function(text: string): Table | nil, string
+  parse: function(text: string): Table?, string
 
   --- The ceilings of the tree at `root` ([`Ceilings.path`]).
-  read: function(root: string): Table | nil, string
+  read: function(root: string): Table?, string
 
   --- The ceiling lines of `text` that a line follows directly, one line of message each with its place, or "" where there
   --- are none. A ceiling stands alone between blank lines (a comment may sit directly above the one it explains, and a
@@ -105,7 +105,7 @@ end
 Ceilings.path = "build/ceilings.txt"
 
 --- The codes of the errors each stage that counts by code counts.
-local function codes_of(stage: string): {string} | nil
+local function codes_of(stage: string): {string}?
   if stage == "lexed" then
     return Lexer.codes
   elseif stage == "translated" then
@@ -153,9 +153,9 @@ local STAGES <const>: {string: boolean} = {
   typed = true, untyped = true, checked = true, examples = true, testdata = true,
 }
 
-function Ceilings.parse(text: string): Ceilings.Table | nil, string
+function Ceilings.parse(text: string): Ceilings.Table?, string
   local out: Ceilings.Table = { stages = {}, none = nil }
-  local held: {string: integer} | nil = nil
+  local held: mut {string: integer}? = nil
   local stage = ""
   local number = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -171,7 +171,7 @@ function Ceilings.parse(text: string): Ceilings.Table | nil, string
         out.stages[name] = held
       else
         local key, count = line:match("^(%S.-)%s+(%d+)$")
-        local n: integer | nil = nil
+        local n: integer? = nil
         if count ~= nil then
           n = math.tointeger(tonumber(count))
         end
@@ -215,7 +215,7 @@ function Ceilings.crowded(text: string): string
   return out
 end
 
-function Ceilings.read(root: string): Ceilings.Table | nil, string
+function Ceilings.read(root: string): Ceilings.Table?, string
   local text, why = Fs.read(root .. "/" .. Ceilings.path)
   if text == nil then
     return nil, why
@@ -224,7 +224,7 @@ function Ceilings.read(root: string): Ceilings.Table | nil, string
 end
 
 function Ceilings.dead(root: string, ceilings: Ceilings.Table): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for stage, held in pairs(ceilings.stages) do
     if stage ~= "hazards" then
       for key in pairs(held) do
@@ -246,9 +246,9 @@ end
 
 function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}, pinned: {string: integer},
                        what: string, unpinned?: boolean): Ceilings.Held
-  local out: {string} = {}
-  local found: {string: integer} = {}
-  local by_code: {string: {Ceilings.Finding}} = {}
+  local out: mut {string} = {}
+  local found: mut {string: integer} = {}
+  local by_code: mut {string: {Ceilings.Finding}} = {}
   for _, e in ipairs(errors) do
     local held = by_code[e.code] or {}
     held[#held + 1] = e
@@ -277,8 +277,8 @@ function Ceilings.over(file: string, errors: {Ceilings.Finding}, codes: {string}
 end
 
 function Ceilings.fallen(found: {string: integer}, pinned: {string: integer}, where: string): {string}
-  local out: {string} = {}
-  local keys: {string} = {}
+  local out: mut {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(pinned) do
     keys[#keys + 1] = key
   end

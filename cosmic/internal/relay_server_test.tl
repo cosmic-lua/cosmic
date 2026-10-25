@@ -32,11 +32,11 @@ local record Origin
   address: Net.Address
   port: integer
   --- Every byte any connection sent it.
-  received: string
-  connections: integer
+  mut received: string
+  mut connections: integer
   --- Whether a connection ended what it sent.
-  eof: boolean
-  stop: function()
+  mut eof: boolean
+  mut stop: function()
 end
 
 --- Starts a server on a port of its own that runs `handle` for each
@@ -140,13 +140,13 @@ end
 local record Rig
   http: Net.Address
   socks: Net.Address
-  server: Relay.Serving
+  mut server: Relay.Serving
   --- The decision lines.
-  log: {string}
+  log: mut {string}
   --- The connections the connector was asked for, as "address:port".
-  asked: {string}
+  asked: mut {string}
   --- The timeouts the connector was given.
-  given: {integer}
+  given: mut {integer}
   listeners: {Net.Listener}
 end
 
@@ -154,7 +154,7 @@ end
 local function start(tmp: string, opts: Options): Rig
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, HOSTS))
-  local http, socks, mixed: Net.Listener | nil, Net.Listener | nil, Net.Listener | nil
+  local http, socks, mixed: Net.Listener?, Net.Listener?, Net.Listener?
   local at_http, at_socks: Net.Address, Net.Address
   local listeners: {Net.Listener}
   if opts.mixed then
@@ -169,17 +169,17 @@ local function start(tmp: string, opts: Options): Rig
   local redirect = opts.redirect or {}
   local resolve: Net.ResolveOptions = opts.resolve or { hosts_file = hosts }
   local spec: Relay.Spec = {
-    http = http, socks = socks, mixed = mixed ~= nil and { mixed } or nil, grants = opts.grants, upstream = opts.upstream,
+    http = http, socks = socks, mixed = if mixed ~= nil then { mixed } else nil end, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = resolve, own_addresses = opts.own_addresses, token = opts.token,
     unresolved = opts.unresolved,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
     end,
-    connector = opts.connector or function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+    connector = opts.connector or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
       rig.asked[#rig.asked + 1] = address .. ":" .. port
       rig.given[#rig.given + 1] = timeout_ns
-      return Net.connect(Net.tcp(redirect[address] ~= nil and "127.0.0.1" or address, redirect[address] or port),
+      return Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end, redirect[address] or port),
         { timeout_ns = timeout_ns })
     end,
   }
@@ -265,7 +265,7 @@ end
 
 --- The decision lines that hold `text`.
 local function lines_with(rig: Rig, text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(rig.log) do
     if line:find(text, 1, true) then
       out[#out + 1] = line
@@ -467,8 +467,8 @@ end
 --- A connector that fails the first address it is asked and connects the
 --- others to the loopback `port`, recording each address and the time it
 --- was given.
-local function first_fails_connector(how: string, port: integer, asked: {string}, given: {integer}): Relay.Connector
-  return function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+local function first_fails_connector(how: string, port: integer, asked: mut {string}, given: mut {integer}): Relay.Connector
+  return function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
     asked[#asked + 1] = address
     given[#given + 1] = timeout_ns
     if #asked == 1 then return nil, how end
@@ -511,7 +511,7 @@ local function test_a_name_none_of_whose_addresses_answer_is_refused_once_naming
   Poll.run(function()
     local asked, given: {string}, {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" },
-      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         return nil, "Connection refused"
@@ -534,7 +534,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
   Poll.run(function()
     local asked, given: {string}, {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" }, timeouts = { connect = Clock.ms(600) },
-      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         -- A host that never answers: the attempt lasts what it is given.
@@ -706,7 +706,7 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
     local outcome = "Connection refused"
     local rig = start(tmp, { grants = { "127.0.0.1:" .. port },
       timeouts = { connect = Clock.ms(750) },
-      connector = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         assert(timeout_ns == Clock.ms(750), "the connect timeout reaches the connector")
         assert(Poll.delay(Clock.ms(5)))
         return nil, outcome
@@ -980,7 +980,7 @@ local function test_a_connection_made_after_stop_is_closed(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port },
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         assert(Poll.delay(Clock.ms(150)))
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end })
@@ -1152,7 +1152,7 @@ local record Proxy
 end
 
 local function proxy(status: string): Proxy
-  local state: Proxy | nil
+  local state: Proxy?
   local server = origin(function(conn: Net.Conn, seen: Origin)
     local text = ""
     while not text:find("\r\n\r\n", 1, true) do
@@ -1257,7 +1257,7 @@ local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tm
     local up: Relay.Upstream = { host = "proxy.test", port = through.server.port, no_proxy = {},
       addresses = { "192.0.2.1", "127.0.0.1" } }
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         if address == "192.0.2.1" then return nil, "No route to host" end
@@ -1278,7 +1278,7 @@ local function test_an_upstream_proxy_none_of_whose_addresses_answer_is_refused_
     local up: Relay.Upstream = { host = "proxy.test", port = 3128, no_proxy = {}, addresses = { "192.0.2.1", "192.0.2.2" } }
     local asked: {string} = {}
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
-      connector = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         return nil, "Connection refused"
       end })
@@ -1353,7 +1353,7 @@ local function test_every_connection_has_one_decision_line(tmp: string)
     assert(status_line(head):find("^HTTP/1.1 405 plain HTTP is not relayed"), head)
     local _, _ = bad:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
-    local decided: {integer: integer} = {}
+    local decided: mut {integer: integer} = {}
     for _, line in ipairs(rig.log) do
       local id = line:match("^#(%d+) ")
       if id ~= nil and (line:find(": allowed ", 1, true) or line:find(": refused: ", 1, true)) then
@@ -1408,13 +1408,13 @@ local function test_stop_does_not_wait_for_a_request_that_is_not_finished(tmp: s
 end
 
 local function test_a_spec_that_is_no_spec_raises(tmp: string)
-  local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn | nil, string
+  local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn?, string
     return nil, ""
   end })
   assert(not ok, "start runs in a task")
   Poll.run(function()
     local listener = listen_here()
-    local function connector(): Net.Conn | nil, string
+    local function connector(): Net.Conn?, string
       return nil, "unused"
     end
     local record Case
@@ -1525,7 +1525,7 @@ local function test_a_connect_without_the_token_gets_407_and_reaches_nothing(tmp
       { "Proxy-Authorization: Basic" },
       { "Authorization: Basic " .. Codec.base64("u:" .. TOKEN) },
     }
-    local replies: {string} = {}
+    local replies: mut {string} = {}
     for _, headers in ipairs(cases) do
       local conn, head = connect_to(rig, "127.0.0.1:" .. server.port, headers)
       replies[#replies + 1] = head
@@ -1681,7 +1681,7 @@ local function test_connections_not_yet_authenticated_do_not_spend_the_cap(tmp: 
     local rig = start(tmp, { grants = { "127.0.0.1:" .. server.port }, token = TOKEN,
       limits = { connections = 1, total = 2 } })
     -- Connections that say nothing, and ones refused, on both listeners.
-    local idle: {Net.Conn} = {}
+    local idle: mut {Net.Conn} = {}
     for _ = 1, 5 do
       idle[#idle + 1] = dial(rig.http)
       idle[#idle + 1] = dial(rig.socks)

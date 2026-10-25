@@ -29,7 +29,7 @@ end
 --- The codes the `enum Code` of the module at `path` lists, in order, read from its text: the quoted words between the
 --- line that opens it and its closing `end`, less the comments.
 local function enum_of(path: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local inside = false
   for line in read(path):gmatch("[^\n]*") do
     if not inside then
@@ -52,11 +52,11 @@ end
 
 --- The codes of `list` that `other` lacks.
 local function missing_from(list: {string}, other: {string}): {string}
-  local held: {string: boolean} = {}
+  local held: mut {string: boolean} = {}
   for _, code in ipairs(other) do
     held[code] = true
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, code in ipairs(list) do
     if held[code] ~= true then
       out[#out + 1] = code
@@ -66,7 +66,7 @@ local function missing_from(list: {string}, other: {string}): {string}
 end
 
 local function strings(list: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, code in ipairs(list) do
     out[#out + 1] = code
   end
@@ -74,7 +74,7 @@ local function strings(list: {string}): {string}
 end
 
 local function emitted_codes(): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(ErrorCatalog.emitted()) do
     out[#out + 1] = e.code
   end
@@ -137,7 +137,7 @@ local function test_the_codes_each_module_lists_are_the_codes_of_its_enum_so_tha
 end
 
 local function test_a_code_two_stages_emit_has_one_row_under_the_stage_that_finds_it_first()
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, row in ipairs(ErrorCatalog.rows()) do
     assert(seen[row.code] ~= true, row.code .. " has two rows")
     seen[row.code] = true
@@ -253,7 +253,7 @@ local function test_the_words_of_a_rule_are_found_by_the_full_text_index()
   local found = assert(Sqlite.text_rows(db,
     "SELECT c.symbol FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid " ..
       "WHERE catalog_fts MATCH '\"array\" \"dense\"' AND c.kind = 'code' ORDER BY c.symbol"))
-  local symbols: {string} = {}
+  local symbols: mut {string} = {}
   for _, row in ipairs(found) do
     symbols[#symbols + 1] = row:text(1)
   end

@@ -78,7 +78,7 @@ local function test_repeated_connections_use_only_the_granted_address_and_port()
     greeted(pair[1])
     local port = assert(bound.port)
     for tag, request in ipairs({ { 0, port }, { 2, port }, { 1, 0 }, { 1, 65536 },
-        { 1, port == 65535 and 1 or port + 1 } }) do
+        { 1, if port == 65535 then 1 else port + 1 end } }) do
       assert(asked(pair[1], table_request(tag, request[1], request[2])) == sys.EPERM)
     end
     -- A table request that carries a family or an address is malformed.
@@ -119,7 +119,7 @@ local function test_wildcard_ports_remain_fixed_to_the_granted_numeric_address()
   assert(ended.code == 0)
 end
 local function wildcards(host: (function(integer): string), count: integer): {raw_process.ConnectorEndpoint}
-  local out: {raw_process.ConnectorEndpoint} = {}
+  local out: mut {raw_process.ConnectorEndpoint} = {}
   for i = 1, count do out[i] = { host = host(i), port = 0 } end
   return out
 end
@@ -187,7 +187,7 @@ end
 local function public_ask(fd: integer, address: string, port: integer, family?: integer, tail?: string): integer
   local bytes = assert(Address.parse(address))
   local padded = tail or string.rep("\0", 16 - #bytes)
-  return asked(fd, string.pack(">I4I4I4I4I4", 77, 0xffffffff, port, 0, family or (#bytes == 4 and 4 or 6)) ..
+  return asked(fd, string.pack(">I4I4I4I4I4", 77, 0xffffffff, port, 0, family or (if #bytes == 4 then 4 else 6 end)) ..
       string.char(table.unpack(bytes)) .. padded)
 end
 
@@ -293,9 +293,9 @@ end
 
 local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
   local pair = assert(process.connector_pair())
-  local many: {string} = {}
+  local many: mut {string} = {}
   for i = 1, 129 do many[i] = "10.0." .. (i - 1) .. ".0/24" end
-  local owns: {string} = {}
+  local owns: mut {string} = {}
   for i = 1, 257 do owns[i] = "10.1." .. (i // 256) .. "." .. (i % 256) end
   local lists: {raw_process.ConnectorPublic} = { { deny = { "10.0.0.0" } }, { deny = { "10.0.0.0/33" } }, { deny = { "::/129" } },
     { deny = { "10.0.0.0/" } }, { deny = { "10.0.0.0/8x" } }, { deny = { "10.0.0.0/0008" } },
@@ -316,8 +316,8 @@ local function test_index_zero_is_refused_by_every_connector()
   require_native_connector()
   for _, public in ipairs({ false, true }) do
     local pair = assert(process.connector_pair())
-    local child = assert(process.connector_start(public and {} or { { host = "127.0.0.1", port = 9 } },
-      pair[2], 500, public and { deny = {} } or nil))
+    local child = assert(process.connector_start(if public then {} else { { host = "127.0.0.1", port = 9 } } end,
+      pair[2], 500, if public then { deny = {} } else nil end))
     assert(sys.close(pair[2]))
     greeted(pair[1])
     for tag = 1, 2 do
@@ -338,7 +338,7 @@ end
 local function hung_port(): integer, {raw_socket.Socket}
   local listener = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
   local port = assert(socket.bound(listener:fd())).port
-  local held: {raw_socket.Socket} = { listener }
+  local held: mut {raw_socket.Socket} = { listener }
   for _ = 1, 6 do
     held[#held + 1] = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = port }))
   end
@@ -379,7 +379,7 @@ local function test_a_hung_connect_holds_up_no_other_and_replies_come_as_connect
   local began = Clock.monotonic_ns()
   assert(sys.write(pair[1], waiting_request(1, 1, hung, 400)) == 36)
   for tag = 2, 4 do assert(sys.write(pair[1], waiting_request(tag, 1, open, 0)) == 36) end
-  local order: {integer} = {}
+  local order: mut {integer} = {}
   for _ = 2, 4 do
     local tag, errno = reply(pair[1])
     assert(errno == 0, "tag " .. tag .. ": errno " .. errno)
@@ -434,7 +434,7 @@ local function test_a_connect_past_the_flight_is_answered_busy()
   local pair, child = start_public({ deny = {} }, 10000)
   local flight = socket.CONNECTOR_FLIGHT
   assert(flight == 64)
-  local requests: {string} = {}
+  local requests: mut {string} = {}
   for tag = 1, flight do
     requests[tag] = string.pack(">I4I4I4I4I4", tag, 0xffffffff, hung, 1000, 4) .. string.char(127, 0, 0, 1) ..
       string.rep("\0", 12)

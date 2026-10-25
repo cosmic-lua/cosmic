@@ -60,7 +60,7 @@ local record Layout
   text: string
   --- `source` with a line break in front of each statement or closing
   --- keyword that must start a line, or nil when none is due.
-  opened: string | nil
+  opened: string?
 end
 
 --- Write an already-parsed file back out, and say which line breaks
@@ -69,7 +69,7 @@ end
 --- @param source string The source that parse read
 --- @return Layout|nil The rendered source and the breaks it lacks, or nil when a construct is refused
 --- @return string What was refused, on failure
-local function laid_out(parsed: ast.Parsed, source: string): Layout | nil, string
+local function laid_out(parsed: ast.Parsed, source: string): Layout?, string
   local c: Ctx = {
     em = emit.new(source, parsed.tokens),
     source = source,
@@ -103,8 +103,8 @@ local function laid_out(parsed: ast.Parsed, source: string): Layout | nil, strin
   end
   stmt.block(c, parsed.node)
   if #c.refused > 0 then
-    local seen: {string:boolean} = {}
-    local named: {string} = {}
+    local seen: mut {string:boolean} = {}
+    local named: mut {string} = {}
     for _, what in ipairs(c.refused) do
       if not seen[what] then
         seen[what] = true
@@ -122,7 +122,7 @@ end
 --- @param source string The source that parse read
 --- @return string|nil The rendered source, or nil when a construct is refused
 --- @return string What was refused, on failure
-local function rendered(parsed: ast.Parsed, source: string): string | nil, string
+local function rendered(parsed: ast.Parsed, source: string): string?, string
   local layout, trouble = laid_out(parsed, source)
   if layout == nil then
     return nil, trouble
@@ -137,7 +137,7 @@ end
 --- @return string|nil The rendered source, or nil on a parse or refusal
 --- @return string Error message on failure
 local function render(built: compiler, source: string,
-                      name: string): string | nil, string
+                      name: string): string?, string
   local parsed, trouble = ast.parse(built, source, name)
   if parsed == nil then
     return nil, trouble
@@ -147,9 +147,9 @@ end
 
 local record RenderModule
   type Layout = Layout
-  laid_out: function(parsed: ast.Parsed, source: string): Layout | nil, string
-  render: function(built: compiler, source: string, name: string): string | nil, string
-  rendered: function(parsed: ast.Parsed, source: string): string | nil, string
+  laid_out: function(parsed: ast.Parsed, source: string): Layout?, string
+  render: function(built: compiler, source: string, name: string): string?, string
+  rendered: function(parsed: ast.Parsed, source: string): string?, string
 end
 
 local M: RenderModule = {

@@ -42,7 +42,7 @@ local function test_the_checker_names_the_spilling_assert()
     'local u: {integer} = { 2, assert(count()) }\nreturn { t, u }\n'
   local env = assert(built.new_env({}))
   local _, result = built.gen(src, env, nil, "tl")
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, e in ipairs(result.type_errors) do
     if e.msg == spill.message then found[#found + 1] = e.y .. ":" .. e.x end
   end

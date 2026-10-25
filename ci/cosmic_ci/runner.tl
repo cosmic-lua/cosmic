@@ -63,9 +63,9 @@ end
 --- none left open, when a file cannot be opened.
 local function prepare(request: Runner.Request): Child.Options, {integer}
   local record Opened
-    input?: integer
-    output?: integer
-    error?: integer
+    mut input?: integer
+    mut output?: integer
+    mut error?: integer
   end
   local fds_opened: Opened = {}
   local opened, open_failure = pcall(function(): boolean
@@ -78,7 +78,7 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
     return true
   end)
   local input_fd, output_fd, error_fd = fds_opened.input, fds_opened.output, fds_opened.error
-  local descriptors: {integer} = {}
+  local descriptors: mut {integer} = {}
   for _, fd in ipairs({ input_fd or -1, output_fd or -1, error_fd or -1 }) do
     if fd >= 0 then descriptors[#descriptors + 1] = fd end
   end
@@ -88,13 +88,13 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
     end
     error(open_failure)
   end
-  local limit: integer | nil = nil
+  local limit: integer? = nil
   local timeout_ns = request.timeout_ns
   if timeout_ns ~= nil and timeout_ns > 0 then limit = timeout_ns end
-  local fds: {integer:integer | string} | nil = nil
+  local fds: {integer:integer | string}? = nil
   local request_fds = request.fds
   if request_fds then
-    local copy: {integer:integer | string} = {}
+    local copy: mut {integer:integer | string} = {}
     for number, fd in pairs(request_fds) do copy[number] = fd end
     fds = copy
   end
@@ -116,9 +116,9 @@ end
 --- What a call run under `pcall` came to: what it raised, else its result,
 --- or why it answered none.
 local record Called
-  raised?: string
-  result?: Child.Result
-  trouble?: string
+  mut raised?: string
+  mut result?: Child.Result
+  mut trouble?: string
 end
 
 --- The outcome of a command that ran: how it ended, by `called`.
@@ -167,8 +167,8 @@ local function start(c: Runner.Context, phase: string, at?: integer): Recording
 end
 
 local function complete(recording: Recording, finished: integer, elapsed: integer,
-                        status: string, code: integer | nil, signal: integer | nil,
-                        timed_out: integer, detail: string | nil)
+                        status: string, code: integer?, signal: integer?,
+                        timed_out: integer, detail: string?)
   local c = recording.context
   State.complete(recording.database, recording.id, c.worker, c.run, c.attempt,
     recording.phase, finished, elapsed, status, code, signal, timed_out, detail)
@@ -178,12 +178,12 @@ end
 -- names on stderr.
 local function finish(recording: Recording, phase: string, outcome: Runner.Outcome)
   local result = outcome.result
-  local exit_code: integer | nil = nil
-  local signal: integer | nil = nil
+  local exit_code: integer? = nil
+  local signal: integer? = nil
   local timed_out = 0
   if result then
     exit_code, signal = result.code, result.signal
-    timed_out = result.timed_out and 1 or 0
+    timed_out = if result.timed_out then 1 else 0 end
   end
   complete(recording, recording.started + outcome.elapsed_ns, outcome.elapsed_ns,
     outcome.status, exit_code, signal, timed_out, outcome.trouble)
@@ -192,7 +192,7 @@ local function finish(recording: Recording, phase: string, outcome: Runner.Outco
   -- command that never started) is named where the failure is read.
   if outcome.status ~= "success" then
     local trouble = outcome.trouble
-    local why = trouble ~= nil and (": " .. trouble) or ""
+    local why = if trouble ~= nil then (": " .. trouble) else "" end
     local _, _ = Seams.calls().fs_put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
         tostring(outcome.code) .. ")" .. why .. "\n")
   end
@@ -200,7 +200,7 @@ end
 
 --- The outcome an attempt returned, kept where the function that runs it under `pcall` can set it.
 local record Made
-  outcome?: Runner.Outcome
+  mut outcome?: Runner.Outcome
 end
 
 -- Runs `attempt` as one operation named `phase`: a start event, then a
@@ -291,7 +291,7 @@ end
 --- waited on. Raises when the wait itself fails, the commands left running.
 function Runner.wait_any(commands: {Runner.Running}): Runner.Running
   assert(#commands > 0, "runner: no commands to wait for")
-  local handles: {Child.Handle} = {}
+  local handles: mut {Child.Handle} = {}
   for _, command in ipairs(commands) do
     if command.outcome then return command end
     local handle = command.handle
@@ -345,7 +345,7 @@ end
 --- as `operation` records a command: "success" when it returns true, and
 --- "error" with its message when it returns false or raises.
 function Runner.step(c: Runner.Context, phase: string,
-                     work: function(): boolean, string | nil): Runner.Outcome
+                     work: function(): boolean, string?): Runner.Outcome
   return recorded(c, phase, function(): Runner.Outcome
     local started = Clock.monotonic_ns()
     local ok, trouble = work()
@@ -360,7 +360,7 @@ end
 
 --- The status a phase's action answered, kept where the function that runs it under `pcall` can set it.
 local record Reached
-  code: integer
+  mut code: integer
 end
 
 --- Records a phase's integer exit status, including its nested operations.
@@ -374,8 +374,8 @@ function Runner.phase(c: Runner.Context, phase: string,
     reached.code = action()
   end)
   local code = reached.code
-  local status = code == 0 and "success" or (called and "exit" or "error")
-  local detail: string | nil = nil
+  local status = if code == 0 then "success" else (if called then "exit" else "error" end) end
+  local detail: string? = nil
   if not called then detail = tostring(answer) end
   local finished = Clock.monotonic_ns()
   complete(recording, finished, finished - recording.started,

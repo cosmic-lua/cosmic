@@ -1,11 +1,11 @@
 --- A queue of words, in the Teal both checkers read.
 local record Queue
   --- The words waiting, first in line first.
-  items: {string}
+  items: mut {string}
   --- Puts `word` at the end of the line.
   push: function(self: Queue, word: string)
   --- Takes the word at the front, nil when none waits.
-  pop: function(self: Queue): string | nil
+  pop: function(self: Queue): string?
   --- Puts the words waiting in order, the smallest first.
   sort: function(self: Queue)
   --- The words waiting, joined by commas.
@@ -16,7 +16,7 @@ local function push(self: Queue, word: string)
   table.insert(self.items, word)
 end
 
-local function pop(self: Queue): string | nil
+local function pop(self: Queue): string?
   return table.remove(self.items, 1)
 end
 

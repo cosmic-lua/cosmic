@@ -128,7 +128,7 @@ local record TermRelay
   --- ended, as [`Child.run`] does; nil and why where the relay cannot be
   --- set up (none of the streams a terminal, no pty, or the start failed). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
-  run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
+  run: function(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result?, string
   --- The text to write to the caller's terminal for the bytes `data` of a
   --- notes pipe that follow `held` (what an earlier call kept), and what to
   --- keep: the whole lines among them, each ending in CR LF, and the rest.
@@ -168,7 +168,7 @@ end
 --- wrote: macOS drops what the master has not read when the last slave
 --- descriptor closes.
 local record Slave
-  metamethod __close: function(Slave)
+  __close: function(Slave)
   fd: integer
 end
 
@@ -181,17 +181,17 @@ local slave_mt: metatable<Slave> = {
 --- What `run` puts back when it ends, however it does: held in a
 --- `<close>` variable, from the pty's start on.
 local record Restoring
-  metamethod __close: function(Restoring)
+  __close: function(Restoring)
   input: integer
   output: integer
   --- The pty's master, closed last.
   master: integer
   --- The descriptors of the caller's output that `run` made non-blocking,
   --- which are put back to blocking.
-  made_nonblocking: {integer}
+  made_nonblocking: mut {integer}
   --- The caller's termios as it was, or nil until `run` has put the
   --- terminal in raw mode.
-  saved: string | nil
+  mut saved: string?
   filter: TermFilter.Filter
 end
 
@@ -246,12 +246,12 @@ local function window(fd: integer): integer, integer
   return size.rows, size.columns
 end
 
-function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result | nil, string
+function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result?, string
   local input = terminal ~= nil and terminal.input or 0
   local output = terminal ~= nil and terminal.output or 1
   local errors = terminal ~= nil and terminal.error or 2
   local notes = terminal ~= nil and terminal.notes or nil
-  local streams: {integer} = {}
+  local streams: mut {integer} = {}
   for number, fd in ipairs({ input, output, errors }) do
     if sys.isatty(fd) then streams[#streams + 1] = number - 1 end
   end
@@ -264,7 +264,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local shown = input
   if sys.isatty(errors) then shown = errors end
   if sys.isatty(output) then shown = output end
-  local saved: string | nil
+  local saved: string?
   if keys then
     local state, saved_why = sys.tcgetattr(input)
     if state == nil then return nil, "terminal: " .. saved_why end
@@ -293,9 +293,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- The caller's output belongs to an open file shared with its shell and
   -- every process beside it: its mode is put back as found (`restoring`),
   -- and only a descriptor found blocking is touched.
-  local outputs: {integer} = { shown }
+  local outputs: mut {integer} = { shown }
   if notes ~= nil and errors ~= shown then outputs[2] = errors end
-  local found: {boolean} = {}
+  local found: mut {boolean} = {}
   for number, fd in ipairs(outputs) do
     local status, status_why = sys.fd_status(fd)
     if status == nil then return nil, "terminal: " .. status_why end
@@ -322,7 +322,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local keys_open = keys
   local signals = 0
   local seen_rows, seen_columns = window(shown)
-  local result: Child.Result | nil
+  local result: Child.Result?
   -- Where only stdin is a terminal, a write that fails (a terminal open
   -- for reading alone) loses an echo, and ends nothing.
   local echo_only = shown == input and not sys.isatty(output) and not sys.isatty(errors)
@@ -335,13 +335,13 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     fatal: boolean
   end
   local record Relaying
-    pending: string
-    master_open: boolean
-    failure: string | nil
-    queue: {Queued}
-    queued: integer
-    notes_open: boolean
-    note_tail: string
+    mut pending: string
+    mut master_open: boolean
+    mut failure: string?
+    mut queue: mut {Queued}
+    mut queued: integer
+    mut notes_open: boolean
+    mut note_tail: string
   end
   -- `pending` is what the master is yet to be written, `queue` what the
   -- caller is, `queued` the bytes in it; `failure` ends the run.
@@ -535,10 +535,10 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
       if relay.failure == nil and relay.queued < MOST_QUEUED then
         if out_budget > 0 then
           local count = relay_output()
-          out_budget = count > 0 and out_budget - count or 0
+          out_budget = if count > 0 then out_budget - count else 0 end
         elseif notes_budget > 0 then
           local count = relay_notes()
-          notes_budget = count > 0 and notes_budget - count or 0
+          notes_budget = if count > 0 then notes_budget - count else 0 end
         end
       end
       local reading = out_budget > 0 or notes_budget > 0

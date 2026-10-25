@@ -68,7 +68,7 @@ local record Pipeline
   type Mode = GrammarMode.Mode
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.mode`]).
-  mode: function(): Mode | nil, string
+  mode: function(): Mode?, string
 
   --- The tool string a compile in `mode` is keyed by ([`GrammarMode.tool`]).
   tool: function(tool: string, mode: Mode, wraps?: boolean): string
@@ -83,10 +83,10 @@ local record Pipeline
     types: boolean
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
-    standard: Driver.Provider | nil
+    standard: Driver.Provider?
     --- Whether the tree is a project outside cosmic's own: it has none of the mends cosmic's own tree needs
     --- ([`TreeProgram.index`]'s `steps`), and its checker is its own. Absent for cosmic's tree.
-    project: boolean | nil
+    project: boolean?
   end
 
   --- A build over the tree and its ceilings.
@@ -105,16 +105,16 @@ local record Pipeline
     given: {string: string}
     --- The stub of each standard-library module of the tree that a project's checker would read in its place, as a source that
     --- stands for the module and its aliases, made when the first is judged.
-    stubs: {string: Driver.Source} | nil
+    stubs: {string: Driver.Source}?
     --- The build that reads those stubs where it reads their sources, made when the first stub is judged.
-    stubbed: Driver.Build | nil
+    stubbed: Driver.Build?
   end
 
   --- The options for the tree at `root`: in cosmic's own tree the declarations and the ceilings it holds; in any other
   --- tree, a project's, the declarations of the standard library the tool carries ([`build.checker_declarations`]) and no
   --- ceiling, so that every error of the checker refuses. nil and why where the tree cannot be told, or the tool carries
   --- none of the declarations (a tool older than this one: boot it again).
-  options: function(root: string): Options | nil, string
+  options: function(root: string): Options?, string
 
   --- The options for a project outside cosmic's tree, whose globals are the declarations `texts` ([`Pipeline.options`] gives
   --- the ones the tool carries): no ceilings, so every error of the checker refuses.
@@ -122,22 +122,22 @@ local record Pipeline
 
   --- The options for a source that is no tree's (a lone file, a generated source): the declarations the tool carries
   --- ([`build.checker_declarations`]) and no ceilings. nil and why where the tool carries none.
-  alone: function(): Options | nil, string
+  alone: function(): Options?, string
 
   --- The Lua of the source `text`, which is the file `file`, checked as a module of its own that requires only what the
   --- binary carries ([`Pipeline.carried`]) and written for `options`: nil and every line the checker refuses it for. A
   --- warning is a refusal. Nothing is pinned but that a lone file returns its entry point, which no declaration describes: the
   --- contracts, the test tail and the record-field uses are the tree's compile alone.
-  lone: function(file: string, text: string, options: Options, tests?: boolean): string | nil, string
+  lone: function(file: string, text: string, options: Options, tests?: boolean): string?, string
 
   --- The modules the source `text`, the file `file`, requires by a literal name, in the order they stand (a type-only require
   --- among them): the syntax tree of the new checker's parse of the text, translated as the build reads it. nil and the
   --- refusal, in the checker's words, where the text does not parse.
-  requires: function(file: string, text: string): {string} | nil, string
+  requires: function(file: string, text: string): {string}?, string
 
   --- What [`Pipeline.checked_alone`] made of a source: its Lua, or the lines that refuse it, one problem each.
   record Alone
-    code: string | nil
+    code: string?
     lines: {string}
   end
 
@@ -156,7 +156,7 @@ local record Pipeline
 
   --- A build over the `inputs` of the working database `db`: the tree and what is written from it (the guides, the
   --- templates, the bindings of C).
-  build: function(db: Sqlite.Handle, options: Options): Built | nil, string
+  build: function(db: Sqlite.Handle, options: Options): Built?, string
 
   --- The modules the pipeline refuses though no ceiling is over: the file and the code of the first line of the refusal.
   --- A ceiling counts the errors of the checker; these are other refusals of `generate`. Each module fails to compile with the
@@ -188,13 +188,13 @@ local record Pipeline
   --- asks for the modules in the order they require one another: the build then holds the declarations of the modules it has
   --- written and the syntax of the one it is writing. The collector is generational from the first module.
   generate: function(m: Module, built: Built, facts?: boolean, judged?: boolean, hints?: function(): {Sqlite.Handle}, {boolean}):
-      Compilation.Generated | nil, string
+      Compilation.Generated?, string
 
   --- [`Pipeline.generate`] for a build the caller keeps across edits of a module (`cosmic lsp`'s session): the module is
   --- checked and judged as it is there, and it is neither retired nor written as bytecode (nor are its record-field uses read), so the caller may put
   --- another text in its place ([`Driver.Build.replace`]) and ask again. The calls of [`Shape.record_of`] are resolved by the caller. The
   --- types the checker kept of the module are let go once read.
-  review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Compilation.Generated | nil, string
+  review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Compilation.Generated?, string
 
   --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
@@ -211,7 +211,7 @@ local record Pipeline
   --- [`Pipeline.coded`] over the code the working database `db` stages, parsed, in place of the code the running binary
   --- carries: the identity of a boot, which runs the tree's own code under a bootstrap release that carries another. nil and
   --- why where the tree is not parsed.
-  coded_of: function(tool: string, db: Sqlite.Handle): string | nil, string
+  coded_of: function(tool: string, db: Sqlite.Handle): string?, string
 
   --- The digest of the ceilings that hold each file, by file, every stage together: the compile of a module is keyed by the
   --- one of its file, so that a pin that falls judges the module again. A file with no ceiling has none. A module written
@@ -227,7 +227,7 @@ local record Pipeline
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
   --- default), as [`ErrorCatalog.insert`] does.
-  catalog: function(db: Sqlite.Handle, schema: string): integer | nil, string
+  catalog: function(db: Sqlite.Handle, schema: string): integer?, string
 end
 
 Pipeline.mode = GrammarMode.mode
@@ -252,7 +252,7 @@ function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
   }
 end
 
-function Pipeline.alone(): Pipeline.Options | nil, string
+function Pipeline.alone(): Pipeline.Options?, string
   local carried, why = CheckerDeclarations.carried()
   if carried == nil then
     return nil, "COSMIC_GRAMMAR=new: this tool carries no declarations of the standard library (" .. why ..
@@ -262,7 +262,7 @@ function Pipeline.alone(): Pipeline.Options | nil, string
 end
 
 function Pipeline.unexpected(refused: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, line in ipairs(refused) do
     local file = line:match("^([^:\n]+):")
     if file == nil or RESIDUE[file] == nil then
@@ -272,7 +272,7 @@ function Pipeline.unexpected(refused: {string}): {string}
   return out
 end
 
-function Pipeline.options(root: string): Pipeline.Options | nil, string
+function Pipeline.options(root: string): Pipeline.Options?, string
   local own, own_why = tree.is_own(root)
   if own == nil then
     return nil, own_why
@@ -306,7 +306,7 @@ local function declared(name: string): boolean
 end
 
 function Pipeline.carried(): Driver.Provider
-  return Driver.standard(function(module: string): string | nil
+  return Driver.standard(function(module: string): string?
     local found = teal.standard_text(module)
     if found == nil then
       return nil
@@ -327,14 +327,14 @@ end
 
 --- What `inputs` of `db` stages for the new checker: the files and their text (the tree's own, and what is written from it),
 --- and the kind of each ([`Pipeline.over`]).
-local function entries_of(db: Sqlite.Handle): {{string}} | nil, {string: string}, string
+local function entries_of(db: Sqlite.Handle): {{string}}?, {string: string}, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
     return nil, {}, trouble
   end
-  local entries: {{string}} = {}
-  local kinds: {string: string} = {}
+  local entries: mut {{string}} = {}
+  local kinds: mut {string: string} = {}
   for _, row in ipairs(rows) do
     local file, path, kind, origin, source = row:text(1), row:text(2), row:text(3), row:text(4), row:text(5)
     if origin == "syscalls" then
@@ -353,7 +353,7 @@ local function entries_of(db: Sqlite.Handle): {{string}} | nil, {string: string}
   return entries, kinds, ""
 end
 
-function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.Built | nil, string
+function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.Built?, string
   local entries, kinds, trouble = entries_of(db)
   if entries == nil then
     return nil, trouble
@@ -363,15 +363,15 @@ end
 
 --- Where the identity of the code finds a module's source and what it requires.
 local record Reader
-  source: function(name: string): string | nil
+  source: function(name: string): string?
   requires: function(name: string): {string}
 end
 
 --- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
 local function identity(reader: Reader): string
-  local parts: {string} = {}
-  local seen: {string: boolean} = {}
-  local stack: {string} = { "build.pipeline" }
+  local parts: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  local stack: mut {string} = { "build.pipeline" }
   while #stack > 0 do
     local name = assert(table.remove(stack))
     if not seen[name] and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
@@ -391,7 +391,7 @@ end
 
 --- The code as the running binary carries it.
 local carried_code: Reader = {
-  source = function(name: string): string | nil
+  source = function(name: string): string?
     local source, _ = Store.source(name)
     return source
   end,
@@ -405,7 +405,7 @@ local carried_code: Reader = {
 --- not carry. A declaration is no code, and the binary answers no source for one.
 local function staged_code(db: Sqlite.Handle): Reader
   return {
-    source = function(name: string): string | nil
+    source = function(name: string): string?
       local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND kind <> 'decl' LIMIT 1", { { text = name } })
       if rows == nil then
         return nil
@@ -420,7 +420,7 @@ local function staged_code(db: Sqlite.Handle): Reader
       local rows, _ = Sqlite.text_rows(db,
         "SELECT DISTINCT r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
           "WHERE i.path = ?1 AND i.kind <> 'decl' ORDER BY r.name", { { text = name } })
-      local out: {string} = {}
+      local out: mut {string} = {}
       for _, row in ipairs(rows or {}) do
         out[#out + 1] = row:text(1)
       end
@@ -430,7 +430,7 @@ local function staged_code(db: Sqlite.Handle): Reader
 end
 
 function Pipeline.discounted(result: Driver.Outcome)
-  local kept: {Driver.Problem} = {}
+  local kept: mut {Driver.Problem} = {}
   for _, p in ipairs(result.scope_errors) do
     if not (p.code == "shadows" and p.msg:find("shadows the global `print`", 1, true) ~= nil) then
       kept[#kept + 1] = p
@@ -443,7 +443,7 @@ function Pipeline.coded(tool: string): string
   return Hash.hex_sha256(tool .. "\0" .. identity(carried_code))
 end
 
-function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string | nil, string
+function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   -- The requires of a source are rows the parse of it made, so a tree not parsed yet has none: the identity would be the
   -- pipeline's own source alone, and an edit to the checker would read as none.
   local rows, trouble = Sqlite.text_rows(db,
@@ -459,7 +459,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string | nil, strin
 end
 
 function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
-  local lines: {string: {string}} = {}
+  local lines: mut {string: {string}} = {}
   for stage, held in pairs(ceilings.stages) do
     for key, count in pairs(held) do
       local file = key:match("^(%S+)") or key
@@ -468,7 +468,7 @@ function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
       list[#list + 1] = stage .. " " .. key .. " " .. tostring(count)
     end
   end
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for file, list in pairs(lines) do
     table.sort(list)
     out[file] = Hash.hex_sha256(table.concat(list, "\n"))
@@ -476,7 +476,7 @@ function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
   return out
 end
 
-function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer | nil, string
+function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer?, string
   return ErrorCatalog.insert(db, schema)
 end
 
@@ -488,14 +488,14 @@ local function restore_collector(previous: string)
 end
 
 function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                         made: {Derivation.Source}, broken?: {Derivation.Broken}, project?: boolean): boolean, string
+                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, project?: boolean): boolean, string
   local entries, kinds, trouble = entries_of(db)
   if entries == nil then
     return false, trouble
   end
   local index = TreeProgram.index(entries, project ~= true, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
-  local by_file: {string: Driver.Source} = {}
+  local by_file: mut {string: Driver.Source} = {}
   for _, source in ipairs(index.sources) do
     local named = source.filename
     if source.pinned ~= "" then
@@ -530,7 +530,7 @@ function Pipeline.derive(db: Sqlite.Handle, built: compiler, fresh: {Derivation.
       -- A standard-library module's stub is written as the fork writes it, for the tools that read it with the fork (a fixture
       -- project a test compiles, the checker of a project built with the fork's tool); the new grammar's is made of the tree where
       -- it is judged.
-      local forked: Stub.Made | nil = nil
+      local forked: Stub.Made? = nil
       -- TODO: drop the fork's stub, and with it the load of the fork's compiler in a build or a lookup of cosmic's own tree, once
       -- the switch deletes the fork and its readers (doc/plans/strict-teal.md, "the switch").
       if one.file:sub(1, 7) == "cosmic/" then
@@ -564,7 +564,7 @@ local function stubs_of(built: Pipeline.Built): {string: Driver.Source}
   if held ~= nil then
     return held
   end
-  local texts: {string: string} = {}
+  local texts: mut {string: string} = {}
   for module, text in pairs(built.given) do
     texts[module] = text
   end
@@ -582,7 +582,7 @@ local function stubs_of(built: Pipeline.Built): {string: Driver.Source}
       end
     end
   end
-  local out: {string: Driver.Source} = {}
+  local out: mut {string: Driver.Source} = {}
   for module, text in pairs(texts) do
     local home = built.index.by_module[module]
     if home ~= nil then
@@ -628,7 +628,7 @@ end
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
 --- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
 local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
-                            kept?: boolean): Compilation.Generated | nil, string
+                            kept?: boolean): Compilation.Generated?, string
   local build = built.build
   if kept ~= true then
     if build:retired(m.path) then
@@ -648,7 +648,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if m.generated == true then
     Pipeline.discounted(result)
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if result.broken then
     -- A pin counts the errors of a translation that does not parse; there is no syntax tree to write Lua from.
     for _, p in ipairs(result.syntax) do
@@ -682,7 +682,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     return nil, m.file .. ": the generator wrote no Lua: " .. emitted.trouble
   end
   local refused = false
-  local references: {receivers.Reference} = {}
+  local references: mut {receivers.Reference} = {}
   -- What the fork holds a compile to besides the checker, over the type report of the module.
   local subject = Report.of(build.program, result)
   if subject == nil or not built.types then
@@ -737,13 +737,13 @@ end
 
 --- How many modules [`Pipeline.generate`] has written, for the probe's marks ([`Memprobe.mark`]).
 local record Written
-  modules: integer
+  mut modules: integer
 end
 
 local written: Written = { modules = 0 }
 
 function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
-                           hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated | nil, string
+                           hints?: function(): {Sqlite.Handle}, {boolean}): Compilation.Generated?, string
   -- Between two modules there is the garbage of one and the live data of the build. The generational collector frees the
   -- garbage of a module as it is made, where the default waits until the heap has doubled, and the memory it frees is not given
   -- back: the resident set of the run stays near the live data and not near the garbage. The caller writes modules until it is
@@ -763,13 +763,13 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   return made, ""
 end
 
-function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Compilation.Generated | nil, string
+function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Compilation.Generated?, string
   -- The collector is generational for the life of a session, as it is for a compile: see [`Pipeline.generate`].
   collectgarbage("generational")
   return generated_of(m, built, false, true, hints, true)
 end
 
-function Pipeline.requires(file: string, text: string): {string} | nil, string
+function Pipeline.requires(file: string, text: string): {string}?, string
   local index = Driver.index({ { file, text, "lone" } }, true, function(_: string): boolean
     return false
   end)
@@ -782,7 +782,7 @@ function Pipeline.requires(file: string, text: string): {string} | nil, string
   if first ~= nil then
     return nil, ErrorRender.line(file, first)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, required in ipairs(read.chunk.requires) do
     out[#out + 1] = required.module
   end
@@ -792,7 +792,7 @@ end
 function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
   -- A module of its own, named for nothing a `require` can say.
   local module = "lone"
-  local kind = tests == true and "test" or "main"
+  local kind = if tests == true then "test" else "main" end
   local built = Pipeline.over({ { file, text, module } }, { [file] = kind }, options)
   local build = built.build
   -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
@@ -805,7 +805,7 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
   if result == nil then
     return { code = nil, lines = { file .. ": the new checker's build has no module " .. module } }
   end
-  local told: {string} = {}
+  local told: mut {string} = {}
   if result.broken then
     for _, p in ipairs(result.syntax) do
       told[#told + 1] = ErrorRender.line(file, p)
@@ -832,7 +832,7 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
   return { code = emitted.code, lines = {} }
 end
 
-function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string | nil, string
+function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string?, string
   local made = Pipeline.checked_alone(file, text, options, tests)
   if made.code == nil then
     return nil, table.concat(made.lines, "\n")

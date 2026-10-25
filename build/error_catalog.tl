@@ -82,7 +82,7 @@ local record ErrorCatalog
   --- Writes a row per code to the `catalog` table of `db` (of the attached schema `schema`, "" for the main one), in the
   --- order of `rows`, and answers how many it wrote. The index of `catalog_fts` is rebuilt by the caller
   --- ([`build.schema`]'s `rebuild`) once the table is filled.
-  insert: function(db: Sqlite.Handle, schema: string): integer | nil, string
+  insert: function(db: Sqlite.Handle, schema: string): integer?, string
 end
 
 --- The module that emits the codes of a stage and the file that holds their rows.
@@ -168,7 +168,7 @@ end
 
 --- Every row of the four catalogs, with the stage its module emits it in.
 local function all_rows(): {ErrorCatalog.Row}
-  local out: {ErrorCatalog.Row} = {}
+  local out: mut {ErrorCatalog.Row} = {}
   for _, r in ipairs(SyntaxCodes.catalog) do
     out[#out + 1] = row_of(r.code, stage_of(r.stage), "error", r.rule, r.why, r.fix)
   end
@@ -185,13 +185,13 @@ local function all_rows(): {ErrorCatalog.Row}
 end
 
 function ErrorCatalog.rows(): {ErrorCatalog.Row}
-  local by_code: {string: ErrorCatalog.Row} = {}
+  local by_code: mut {string: ErrorCatalog.Row} = {}
   for _, r in ipairs(all_rows()) do
     if by_code[r.code] == nil then
       by_code[r.code] = r
     end
   end
-  local out: {ErrorCatalog.Row} = {}
+  local out: mut {ErrorCatalog.Row} = {}
   for _, e in ipairs(ErrorCatalog.emitted()) do
     local r = by_code[e.code]
     if r ~= nil then
@@ -202,12 +202,12 @@ function ErrorCatalog.rows(): {ErrorCatalog.Row}
 end
 
 function ErrorCatalog.check(emitted: {ErrorCatalog.Emitted}, rows: {ErrorCatalog.Row}): {string}
-  local out: {string} = {}
-  local codes: {string: boolean} = {}
+  local out: mut {string} = {}
+  local codes: mut {string: boolean} = {}
   for _, e in ipairs(emitted) do
     codes[e.code] = true
   end
-  local counts: {string: integer} = {}
+  local counts: mut {string: integer} = {}
   for _, r in ipairs(rows) do
     counts[r.code] = (counts[r.code] or 0) + 1
     if codes[r.code] ~= true then
@@ -242,7 +242,7 @@ function ErrorCatalog.text(row: ErrorCatalog.Row): string
   return words_of(row) .. " of " .. row.module .. "\nrule: " .. row.rule .. "\nwhy: " .. row.why .. "\nfix: " .. row.fix
 end
 
-function ErrorCatalog.insert(db: Sqlite.Handle, schema: string): integer | nil, string
+function ErrorCatalog.insert(db: Sqlite.Handle, schema: string): integer?, string
   local count = 0
   for _, r in ipairs(ErrorCatalog.rows()) do
     local ok, why = Sqlite.run(db,

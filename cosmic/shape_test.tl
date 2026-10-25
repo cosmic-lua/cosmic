@@ -13,7 +13,7 @@ local SERVER <const> = Shape.record({
   tls = Shape.optional(Shape.boolean),
 })
 
-local function must<T>(v: T | nil, err: string): T
+local function must<T>(v: T?, err: string): T
   assert(err == "", err)
   return v as T
 end
@@ -58,8 +58,8 @@ end
 -- the least first in both.
 local function test_a_map_reports_its_least_failing_key()
   local spec = Shape.map(Shape.string)
-  local forward: {string: integer} = {}
-  local backward: {string: integer} = {}
+  local forward: mut {string: integer} = {}
+  local backward: mut {string: integer} = {}
   for i = 1, 40 do forward["k" .. string.format("%02d", i)] = i end
   for i = 40, 1, -1 do backward["k" .. string.format("%02d", i)] = i end
   fails(forward, spec, "pointer \"/k01\": expected string, got integer")
@@ -282,7 +282,7 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   assert(l[1] == 1 and l[2] == nil and l[4] == 4 and #l ~= 5)
   fails(decoded, required, "pointer \"/1\": expected integer, got nothing")
   -- Keys 1, 3 and 5, with 3 a border of the table.
-  local gappy: {any: any} = { 1, 2, 3 }
+  local gappy: mut {any: any} = { 1, 2, 3 }
   gappy[2] = nil
   gappy[5] = 5
   fails(gappy, required, "pointer \"/1\": expected integer, got nothing")
@@ -299,7 +299,7 @@ end
 local function test_a_marked_array_with_a_stray_key_is_refused()
   local optional = Shape.list(Shape.optional(Shape.integer))
   local function marked(key: any): {any: any}
-    local t: {any: any} = Json.array({ 1 }) as {any: any}
+    local t: mut {any: any} = Json.array({ 1 }) as {any: any}
     t[key] = 2
     return t
   end
@@ -327,33 +327,33 @@ end
 local function test_decode_into_names_a_decode_error_as_json_does()
   local text = '{"host": '
   local _, want = Json.decode(text)
-  local s, err: Server | nil, string = Shape.decode_into(text, SERVER)
+  local s, err: Server?, string = Shape.decode_into(text, SERVER)
   assert(s == nil and err ~= "" and err == want, err)
 end
 
 local function test_decode_into_names_the_path_of_a_shape_failure()
-  local s, err: Server | nil, string = Shape.decode_into('{"host": "h", "port": "x"}', SERVER)
+  local s, err: Server?, string = Shape.decode_into('{"host": "h", "port": "x"}', SERVER)
   assert(s == nil)
   assert(err == "pointer \"/port\": expected integer, got string", err)
 end
 
 local function test_decode_into_forwards_the_decode_options()
   local text = "{host: 'h', /* why */ port: 1,}"
-  local plain, err: Server | nil, string = Shape.decode_into(text, SERVER)
+  local plain, err: Server?, string = Shape.decode_into(text, SERVER)
   assert(plain == nil and err ~= "")
   local s: Server = must(Shape.decode_into(text, SERVER, { json5 = true }))
   assert(s.host == "h" and s.port == 1)
   -- null_value cannot tell: `into` treats the sentinel as missing too.
   local list = Shape.list(Shape.list(Shape.integer))
-  local deep, derr: {{integer}} | nil, string = Shape.decode_into("[[1]]", list, { max_depth = 1 })
+  local deep, derr: {{integer}}?, string = Shape.decode_into("[[1]]", list, { max_depth = 1 })
   assert(deep == nil and derr ~= "" and derr:sub(1, 8) ~= "pointer ", derr)
   local ok: {{integer}} = must(Shape.decode_into("[[1]]", list, { max_depth = 2 }))
   assert(ok[1][1] == 1)
 end
 
 local function test_decode_into_null_text_is_nothing_to_check()
-  local s, err: Server | nil, string = Shape.decode_into("null", SERVER)
+  local s, err: Server?, string = Shape.decode_into("null", SERVER)
   assert(s == nil and err == "pointer \"\": expected record, got nothing", err)
-  local o, oerr: Server | nil, string = Shape.decode_into("null", Shape.optional(SERVER))
+  local o, oerr: Server?, string = Shape.decode_into("null", Shape.optional(SERVER))
   assert(o == nil and oerr == "", oerr)
 end

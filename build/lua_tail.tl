@@ -13,7 +13,7 @@ local record LuaTail
 
   --- The bytecode of `code` (compiled from the module `name`, whose source is `file`), checked to be the shape every target
   --- shares; nil and why where Lua refuses the chunk, said at the line of `file` it is on, or the host dumps another shape.
-  bytecode_of: function(code: string, name: string, file: string): string | nil, string
+  bytecode_of: function(code: string, name: string, file: string): string?, string
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -36,7 +36,7 @@ function LuaTail.with_test_tail(code: string, tests: {string}): string
   if #tests == 0 then
     return code
   end
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for _, name in ipairs(tests) do
     fields[#fields + 1] = name .. " = " .. name
   end
@@ -55,7 +55,7 @@ local function at_source_line(trouble: string, file: string): string
   return file .. ":" .. line .. ": " .. said
 end
 
-function LuaTail.bytecode_of(code: string, name: string, file: string): string | nil, string
+function LuaTail.bytecode_of(code: string, name: string, file: string): string?, string
   local chunk, load_trouble = load(code, "@" .. name, "t")
   if chunk == nil then
     -- TODO: tl's checker passes what Lua 5.5 refuses only here:

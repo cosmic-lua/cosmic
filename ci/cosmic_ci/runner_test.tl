@@ -15,7 +15,7 @@ local hang_guard = Clock.seconds(20)
 
 --- A number a stand-in or a callback sets.
 local record Count
-  value: integer
+  mut value: integer
 end
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
@@ -215,7 +215,7 @@ end
 
 --- A flag a callback sets.
 local record Flag
-  value: boolean
+  mut value: boolean
 end
 
 local function test_phase_rejects_a_candidate_database_before_its_action(tmp: string)

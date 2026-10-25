@@ -34,7 +34,7 @@ end
 --- nearest existing ancestor's so resolved with the rest appended: a base
 --- that is still to be made names the same directory from every working
 --- directory and through every link to it.
-local function named(path: string): string | nil, string
+local function named(path: string): string?, string
   local found, trouble = sys.realpath(path)
   if found ~= nil then return found, "" end
   local _, stat_trouble, errno = sys.stat(path)
@@ -46,7 +46,7 @@ local function named(path: string): string | nil, string
   local name = path:match("([^/]+)/*$") or ""
   if name == "." then return resolved, "" end
   if name == ".." then return Fs.dirname(resolved), "" end
-  return (resolved == "/" and "" or resolved) .. "/" .. name, ""
+  return (if resolved == "/" then "" else resolved end) .. "/" .. name, ""
 end
 
 --- Whether the directory at `path`, where there is one, is one to keep
@@ -73,7 +73,7 @@ end
 --- `root` is no directory, COSMIC_BUILD_HOME is set but not absolute, or
 --- the base or the directory is not this user's alone.
 function Project.directory(root: string, environment?: {string:string}):
-    Project.Location | nil, string
+    Project.Location?, string
   if root == "" then return nil, "project root is empty" end
   local canonical, root_trouble = sys.realpath(root)
   if canonical == nil then return nil, "project root " .. root .. ": " .. root_trouble end
@@ -103,7 +103,7 @@ function Project.directory(root: string, environment?: {string:string}):
   else
     home = given
   end
-  local where = cache and "build directory base " or "COSMIC_BUILD_HOME "
+  local where = if cache then "build directory base " else "COSMIC_BUILD_HOME " end
   local base, base_trouble = named(home)
   if base == nil then return nil, where .. base_trouble end
   local valid, trust_trouble = trusted(base)

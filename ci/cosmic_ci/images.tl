@@ -48,7 +48,7 @@ function Images.build_argv(env: {string:string}): {string}
   local image = required(env, "IMAGE")
   local arch = required(env, "ARCH")
   local sha = required(env, "GITHUB_SHA")
-  local argv: {string} = {
+  local argv: mut {string} = {
     "buildx", "build",
     "--platform", "linux/" .. arch, "--provenance=false",
     "--label", "org.opencontainers.image.source=" ..
@@ -70,7 +70,7 @@ end
 function Images.publish_argvs(name: string, actor: string, sha: string,
                               arches: string): Images.PublishArgvs
   local login: {string} = { "login", "ghcr.io", "-u", actor, "--password-stdin" }
-  local create: {string} = { "buildx", "imagetools", "create", "--tag",
+  local create: mut {string} = { "buildx", "imagetools", "create", "--tag",
     name .. ":" .. sha }
   for arch in arches:gmatch("[^ \t\n]+") do
     create[#create + 1] = name .. ":" .. sha .. "-" .. arch
@@ -82,7 +82,7 @@ end
 --- The digest `imagetools inspect` reports: the second field of the first
 --- line whose first is `Digest:`, as `awk '$1 == "Digest:"'` reads it,
 --- and nil unless it is a sha256 one.
-function Images.digest(output: string): string | nil
+function Images.digest(output: string): string?
   for line in output:gmatch("[^\n]*") do
     local first, second = line:match("^[ \t]*([^ \t]+)[ \t]*([^ \t]*)")
     if first == "Digest:" and second ~= nil then
@@ -96,7 +96,7 @@ end
 --- The environment docker runs in: the job's, less the token, which only
 --- the login's stdin carries.
 local function docker_environment(env: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(env) do
     if name ~= "TOKEN" then out[name] = value end
   end
@@ -113,7 +113,7 @@ local function docker(env: {string:string}, words: {string},
   -- A relative PATH entry names docker from the driver's cwd, not the
   -- checkout's root it runs in.
   found = assert(Fs.absolute(found))
-  local argv: {string} = { found }
+  local argv: mut {string} = { found }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local cwd = required(env, "GITHUB_WORKSPACE")
   local options: Child.Options

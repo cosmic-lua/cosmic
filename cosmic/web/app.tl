@@ -14,14 +14,14 @@ local Types = require("cosmic.web.types")
 
 --- The value of a `<close>` variable: only its `__close` matters.
 local record Closing
-  metamethod __close: function(Closing)
+  __close: function(Closing)
 end
 
 --- What a request's handler answered, where the closer of its bodies can
 --- read it: the closer is a function, and a function may write a field of
 --- what it holds but not assign a local of the code around it.
 local record Answered
-  reply?: Types.Response
+  mut reply?: Types.Response
 end
 
 local record App
@@ -65,7 +65,7 @@ local function loopback(address: Net.Address): boolean
 end
 
 --- What `fn` raised, or nil when it returned.
-local function raised_by(fn: function()): string | nil
+local function raised_by(fn: function()): string?
   local ok, err = pcall(function(): any
     fn()
     return nil
@@ -75,7 +75,7 @@ local function raised_by(fn: function()): string | nil
 end
 
 local function url_for(self: Types.App, name: string, params?: {string: string | integer},
-                       query?: {string:string}): string | nil, string
+                       query?: {string:string}): string?, string
   return self.router:reverse(name, params, query)
 end
 
@@ -119,11 +119,11 @@ function App.new(spec: Types.AppSpec): Types.App
       error("web: hubs holds only what has a close method", 2)
     end
   end
-  local trusted: {string:boolean} | nil = nil
+  local trusted: mut {string:boolean}? = nil
   local trusted_hosts = spec.trusted_hosts
   if trusted_hosts ~= nil then
     trusted = {}
-    local hosts: {string} = {}
+    local hosts: mut {string} = {}
     kept.trusted_hosts = hosts
     for i, host in ipairs(trusted_hosts) do
       local parsed = type(host) == "string" and Request.parse_host(host) or nil
@@ -156,7 +156,7 @@ function App.new(spec: Types.AppSpec): Types.App
   local stack = Middleware.compose(middleware, Errors.wrap(dispatch))
   app.handle = function(raw: Server.Request): Types.Response
     local parts: Request.Parts = { path = "/", segments = {}, trailing = false }
-    local outcome: Types.Outcome | nil = nil
+    local outcome: Types.Outcome? = nil
     if raw.path == "*" then
       outcome = Router.star(router, raw.method)
     else
@@ -236,7 +236,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   end
   app.stopped = false
   app.stream_limit = app.spec.max_streams or ((opts.limits or {}).connections or 256) // 2
-  local shutdown: Types.Shutdown | nil = nil
+  local shutdown: Types.Shutdown? = nil
   local lifespan = app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(app)
@@ -261,7 +261,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
           local trouble = raised_by(function() hub:close() end)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
         end
-        local open: {function()} = {}
+        local open: mut {function()} = {}
         for _, close in pairs(app.streams) do open[#open + 1] = close end
         for _, close in ipairs(open) do
           local trouble = raised_by(close)

@@ -101,7 +101,7 @@ local record analyzer
   record Analysis
     tests: {string}
     --- The chunk's `Test.policy { ... }` declaration, or nil for none.
-    inputs: PolicyRules.Declared | nil
+    inputs: PolicyRules.Declared?
     has_top_level_return: boolean
     --- The name the chunk's top-level `return` hands back, when it is a
     --- plain name (`return Fs`): what a reference through an alias of
@@ -123,7 +123,7 @@ end
 --- reduces to `""`, which [`catalog_of`] treats as nothing to catalog --
 --- there is no text a person's error could ever contain to match it
 --- against.
-local function static_text(node: ast.Node | nil): string
+local function static_text(node: ast.Node?): string
   if node == nil then
     return ""
   end
@@ -157,7 +157,7 @@ local function doc_bodies(run: {compiler.Comment}): {string}
   for _, c in ipairs(run) do
     if is_doc(c) then any = true end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, c in ipairs(run) do
     if is_doc(c) or not any then
       parts[#parts + 1] = comment_body(c)
@@ -183,11 +183,11 @@ end
 --- trailing the code before it ([`trails_code`]) is not part of the run
 --- it starts. One line per comment line, leaders stripped, so a
 --- paragraph break survives.
-local function doc_before(lines: {string}, all: {compiler.Comment} | nil, line: integer): string
+local function doc_before(lines: {string}, all: {compiler.Comment}?, line: integer): string
   if all == nil or #all == 0 then
     return ""
   end
-  local comments: {compiler.Comment} = {}
+  local comments: mut {compiler.Comment} = {}
   for _, c in ipairs(all) do
     if not trails_code(lines, c) then
       comments[#comments + 1] = c
@@ -204,7 +204,7 @@ local function doc_before(lines: {string}, all: {compiler.Comment} | nil, line: 
   while first > 1 and comments[first - 1].y == comments[first].y - 1 do
     first = first - 1
   end
-  local run: {compiler.Comment} = {}
+  local run: mut {compiler.Comment} = {}
   for index = first, #comments do
     run[#run + 1] = comments[index]
   end
@@ -249,7 +249,7 @@ local function module_doc(parsed: ast.Parsed): string, integer
       comments[last].y == first_stmt.y - 1 then
     return "", 1
   end
-  local run: {compiler.Comment} = {}
+  local run: mut {compiler.Comment} = {}
   for index = 1, last do
     run[#run + 1] = comments[index]
   end
@@ -276,11 +276,11 @@ end
 --- wrapped it.
 local function span_text(lines: {string}, y: integer, x: integer,
                          until_y: integer, until_x: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = y, until_y do
     local line = lines[line_no] or ""
     local from = line_no == y and x or 1
-    local to = line_no == until_y and until_x - 1 or #line
+    local to = if line_no == until_y then until_x - 1 else #line end
     parts[#parts + 1] = line:sub(from, to)
   end
   local joined = table.concat(parts, " ")
@@ -290,7 +290,7 @@ end
 --- A `record_function`'s owner spelled in full: a plain name (`Thing`)
 --- carries its own `tk`, and a nested record's (`Thing.Box`) is a chain
 --- of `.` operators the parser built from the declaration's names.
-local function owner_name(owner: ast.Node | nil): string
+local function owner_name(owner: ast.Node?): string
   if owner == nil then
     return ""
   end
@@ -315,12 +315,12 @@ local function symbol_of(stmt: ast.Node): string
   if stmt.kind == "local_function" then
     return tk or ""
   end
-  local sep = stmt.is_method and ":" or "."
+  local sep = if stmt.is_method then ":" else "." end
   return owner_name(stmt.fn_owner) .. sep .. (tk or "")
 end
 
 --- The tokens' index of the one at `y`, `x`, or nil when none starts there.
-local function token_at(tokens: {compiler.Token}, y: integer, x: integer): integer | nil
+local function token_at(tokens: {compiler.Token}, y: integer, x: integer): integer?
   local low, high = 1, #tokens
   while low <= high do
     local mid = (low + high) // 2
@@ -357,7 +357,7 @@ local function function_signature(lines: {string}, tokens: {compiler.Token},
   -- The head's own lines, each comment in it (a `--` one to its line's
   -- end, a `--[[ ]]` one over its own text) blanked out, so it cannot
   -- swallow the words after it once the lines are joined.
-  local head: {integer: string} = {}
+  local head: mut {integer: string} = {}
   for line_no = stmt.y, last.y do
     head[line_no] = lines[line_no] or ""
   end
@@ -374,11 +374,11 @@ local function function_signature(lines: {string}, tokens: {compiler.Token},
       end
     end
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = stmt.y, last.y do
     local line = head[line_no]
     local from = line_no == stmt.y and stmt.x or 1
-    local to = line_no == last.y and last.x + #last.tk - 1 or #line
+    local to = if line_no == last.y then last.x + #last.tk - 1 else #line end
     parts[#parts + 1] = line:sub(from, to)
   end
   -- A parameter list wrapped after its `(` or before its `)` reads as
@@ -414,7 +414,7 @@ end
 --- that inner function's own returns are not this function's failures.
 local function catalog_in_body(body: ast.Node, patterns: {ast.Node},
                                symbol: string): {analyzer.CatalogEntry}
-  local out: {analyzer.CatalogEntry} = {}
+  local out: mut {analyzer.CatalogEntry} = {}
   local inner = nodes_under_inner_functions(body)
   for _, pattern in ipairs(patterns) do
     for _, hit in ipairs(ast.find_all(body, pattern)) do
@@ -439,7 +439,7 @@ end
 --- inside another statement is reached through that statement's own
 --- entry, never here.
 local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.CatalogEntry}, string
-  local patterns: {ast.Node} = {}
+  local patterns: mut {ast.Node} = {}
   for _, source in ipairs({ "return nil, $MSG", "return false, $MSG", "return refuse($MSG)" }) do
     local pattern, trouble = ast.compile_pattern(built, source)
     if pattern == nil then
@@ -447,7 +447,7 @@ local function catalog_of(built: compiler, parsed: ast.Parsed): {analyzer.Catalo
     end
     patterns[#patterns + 1] = pattern
   end
-  local out: {analyzer.CatalogEntry} = {}
+  local out: mut {analyzer.CatalogEntry} = {}
   for _, stmt in ipairs(parsed.node) do
     local body = stmt.body
     if (stmt.kind == "local_function" or stmt.kind == "record_function") and
@@ -463,7 +463,7 @@ end
 
 --- The values of an enum, in a stable order: tl keeps them as a set.
 local function enum_values(def: ast.TypeNode): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local set = def.enumset
   if set == nil then
     return out
@@ -502,7 +502,7 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   -- Where a comment starts on each line the type spans: a comment inside
   -- a signature is left out, as it would swallow the words after it
   -- once the lines are joined.
-  local comment_at: {integer: integer} = {}
+  local comment_at: mut {integer: integer} = {}
   for at = first, #tokens do
     local token = tokens[at]
     local tk = token.tk
@@ -532,10 +532,10 @@ local function field_signature(lines: {string}, tokens: {compiler.Token},
   if end_token.y == field.y then
     return line_at(lines, field.y)
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = field.y, end_token.y do
     local line = lines[line_no] or ""
-    local to = line_no == end_token.y and end_token.x + #end_token.tk - 1 or #line
+    local to = if line_no == end_token.y then end_token.x + #end_token.tk - 1 else #line end
     local cut = comment_at[line_no]
     if cut ~= nil and line_no ~= end_token.y and cut - 1 < to then
       to = cut - 1
@@ -556,12 +556,12 @@ local record_docs: function(lines: {string}, tokens: {compiler.Token}, symbol: s
 --- their signature keeps the keyword, as the source spells it.
 local function fields_docs(lines: {string}, tokens: {compiler.Token}, symbol: string,
                            order: {string}, fields: {string: ast.TypeNode},
-                           field_comments: {string: {{compiler.Comment}}} | nil,
-                           metamethod: boolean, out: {analyzer.DocEntry})
+                           field_comments: {string: {{compiler.Comment}}}?,
+                           metamethod: boolean, out: mut {analyzer.DocEntry})
   for _, name in ipairs(order) do
     local field = fields[name]
     if field ~= nil then
-      local comments: {compiler.Comment} | nil = nil
+      local comments: {compiler.Comment}? = nil
       if field_comments ~= nil then
         local lists = field_comments[name]
         if lists ~= nil then
@@ -605,7 +605,7 @@ end
 --- record or enum recursing under its own name, then one per
 --- `metamethod` field, in its own order.
 record_docs = function(lines: {string}, tokens: {compiler.Token}, symbol: string,
-                       def: ast.TypeNode, out: {analyzer.DocEntry})
+                       def: ast.TypeNode, out: mut {analyzer.DocEntry})
   if def.typename == "enum" then
     local value_comments = def.value_comments
     for _, value in ipairs(enum_values(def)) do
@@ -655,7 +655,7 @@ end
 --- ([`examples_of`]) is left out too: it documents another module's
 --- symbol, not this one's.
 local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
-  local out: {analyzer.DocEntry} = {}
+  local out: mut {analyzer.DocEntry} = {}
   local opening, opening_line = module_doc(parsed)
   if #opening > 0 then
     out[#out + 1] = { symbol = "", source_symbol = "", exported = true,
@@ -667,7 +667,7 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {analyzer.DocEntry}
         stmt.kind == "global_function") and not is_example_function(stmt) then
       local symbol = symbol_of(stmt)
       out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
-        kind = stmt.is_method and "method" or "function",
+        kind = if stmt.is_method then "method" else "function" end,
         signature = function_signature(lines, parsed.tokens, stmt),
         text = doc_before(lines, stmt.comments, stmt.y), line = stmt.y }
     elseif stmt.kind == "local_type" or stmt.kind == "global_type" then
@@ -759,7 +759,7 @@ local function mark_reachable_types(entries: {analyzer.DocEntry}, surface: strin
       end
     end
   end
-  local searched: {analyzer.DocEntry: boolean} = {}
+  local searched: mut {analyzer.DocEntry: boolean} = {}
   local joined = true
   while joined do
     joined = false
@@ -796,11 +796,11 @@ end
 --- [`Fs.read`] and a renamed `Public.read` are the canonical member `read`.
 --- Declarations outside that returned surface stay indexed under their source
 --- spelling and are explicitly private.
-local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parsed,
-                                 export: string, returned: ast.Node | nil)
+local function canonicalize_docs(entries: mut {analyzer.DocEntry}, parsed: ast.Parsed,
+                                 export: string, returned: ast.Node?)
   local dot = export .. "."
   local colon = export .. ":"
-  local by_source: {string: {analyzer.DocEntry}} = {}
+  local by_source: mut {string: {analyzer.DocEntry}} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source_symbol
     by_source[source] = by_source[source] or {}
@@ -831,8 +831,8 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
   -- it, or "" when an expression is not one of the supported direct values.
   -- Assigning that binding into an export member copies the identity at that
   -- point; later reassignment of the local cannot retroactively change it.
-  local values: {string: string} = {}
-  local members: {string: string} = {}
+  local values: mut {string: string} = {}
+  local members: mut {string: string} = {}
   for _, stmt in ipairs(parsed.node) do
     local name = stmt.name
     local name_tk = name and name.tk
@@ -857,7 +857,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
       members[public_source] = public_source
     elseif stmt.kind == "assignment" and stmt_vars ~= nil then
       local targets = stmt_vars
-      local rhs_values: {string} = {}
+      local rhs_values: mut {string} = {}
       for index in ipairs(targets) do
         local exps = stmt.exps
         local rhs = exps ~= nil and exps[index] or nil
@@ -897,7 +897,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     end
   end
 
-  local public_sources: {string} = {}
+  local public_sources: mut {string} = {}
   for public_source in pairs(members) do public_sources[#public_sources + 1] = public_source end
   table.sort(public_sources)
   for _, public_source in ipairs(public_sources) do
@@ -905,7 +905,7 @@ local function canonicalize_docs(entries: {analyzer.DocEntry}, parsed: ast.Parse
     local implementations = implementation_name ~= "" and by_source[implementation_name] or nil
     local implementation = implementations ~= nil and implementations[#implementations] or nil
     local candidates = by_source[public_source] or {}
-    local public: analyzer.DocEntry | nil = nil
+    local public: analyzer.DocEntry? = nil
     -- A declared record field is the stable surface row. When a callable
     -- implementation is known it lends this row its docs and location; every
     -- overwritten callable declaration remains inspectable but private.
@@ -947,11 +947,11 @@ end
 --- it is trimmed rather than shown as part of the example.
 local function block_text(lines: {string}, y: integer, x: integer,
                           until_y: integer, until_x: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for line_no = y, until_y do
     local line = lines[line_no] or ""
     local from = line_no == y and x or 1
-    local to = line_no == until_y and (until_x - 1) or #line
+    local to = if line_no == until_y then (until_x - 1) else #line end
     parts[#parts + 1] = line:sub(from, to)
   end
   while #parts > 0 and (parts[#parts]:match("^%s*$") ~= nil or
@@ -972,7 +972,7 @@ local back_up: {string: boolean} = { if_parent = true }
 --- `x: Release`, `Fs` in [`Fs.Stat`]). Scoping follows the blocks
 --- [`scopes.walk`] does; a type's name is not scoped, since a local
 --- rarely shadows a type.
-local function uses_of(root: ast.Node, used: {string: boolean})
+local function uses_of(root: ast.Node, used: mut {string: boolean})
   local stack: {{string: boolean}} = { {} }
   local function bound(name: string): boolean
     for at = #stack, 1, -1 do
@@ -980,10 +980,10 @@ local function uses_of(root: ast.Node, used: {string: boolean})
     end
     return false
   end
-  local function bind(name: string | nil)
+  local function bind(name: string?)
     if name ~= nil then stack[#stack][name] = true end
   end
-  local function walk(n: ast.Node | nil)
+  local function walk(n: ast.Node?)
     if n == nil then return end
     local kind = n.kind
     if kind == "variable" then
@@ -1070,17 +1070,17 @@ local MAX_HELPER_TOTAL <const> = 30
 --- order. Their text is what an example needs above its function to be
 --- copied whole.
 local record Preamble
-  requires: {{string}}
-  calls: {string}
-  call_nodes: {ast.Node}
-  helpers: {Helper}
+  requires: mut {{string}}
+  calls: mut {string}
+  call_nodes: mut {ast.Node}
+  helpers: mut {Helper}
 end
 
 --- `code`, a statement's text cut at the next statement's start, less
 --- what belongs to that next statement: the `local` its position skips
 --- and the comment lines above it.
 local function own_text(code: string): string
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   for line in String.lines((code:gsub("%s*local%s*$", ""))) do
     kept[#kept + 1] = line
   end
@@ -1127,7 +1127,7 @@ local function preamble_of(lines: {string}, nodes: {ast.Node}): Preamble
     local stmt_op = stmt.op
     if stmt.kind == "local_function" or stmt.kind == "local_type" or
         stmt.kind == "local_declaration" then
-      local names: {string} = {}
+      local names: mut {string} = {}
       local stmt_name = stmt.name
       local stmt_name_tk = stmt_name and stmt_name.tk
       local stmt_var = stmt.var
@@ -1189,8 +1189,8 @@ local function preamble_text(pre: Preamble, body_node: ast.Node, first: boolean)
   -- Helpers the body names, and those they name in turn, until no
   -- more is asked for. One too long to carry is left out, and so is
   -- what only it names.
-  local carried: {boolean} = {}
-  local refused: {boolean} = {}
+  local carried: mut {boolean} = {}
+  local refused: mut {boolean} = {}
   local total = 0
   local changed = true
   while changed do
@@ -1212,13 +1212,13 @@ local function preamble_text(pre: Preamble, body_node: ast.Node, first: boolean)
       end
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, required in ipairs(pre.requires) do
     if used[required[1]] then
       out[#out + 1] = required[2]
     end
   end
-  local helpers: {string} = {}
+  local helpers: mut {string} = {}
   for at, helper in ipairs(pre.helpers) do
     if carried[at] then helpers[#helpers + 1] = helper.code end
   end
@@ -1248,7 +1248,7 @@ end
 --- alone: [`build.docs`] answers that at read time, by matching this text
 --- and source against a symbol's name.
 local function examples_of(lines: {string}, parsed: ast.Parsed): {analyzer.ExampleEntry}
-  local out: {analyzer.ExampleEntry} = {}
+  local out: mut {analyzer.ExampleEntry} = {}
   local nodes = parsed.node
   local pre = preamble_of(lines, nodes)
   for index, stmt in ipairs(nodes) do
@@ -1277,7 +1277,7 @@ end
 --- produce no edge rather than one guessed from spelling.
 local function references_of(parsed: ast.Parsed): {analyzer.Reference}, {scopes.Binding}
   local seen: {string: boolean} = {}
-  local out: {analyzer.Reference} = {}
+  local out: mut {analyzer.Reference} = {}
   local bindings = scopes.walk(parsed, function(module: string, name: string, line: integer)
     local id = module .. "\n" .. name .. "\n" .. line
     if not seen[id] then
@@ -1305,11 +1305,11 @@ end
 --- rows knows only the type's module. So is one declared with a type of
 --- its own (`local B: T = require("m")`), whose `B.X` is `T`'s.
 local function bound_of(bindings: {scopes.Binding}): {analyzer.Bound}
-  local count: {string: integer} = {}
+  local count: mut {string: integer} = {}
   for _, each in ipairs(bindings) do
     if each.top then count[each.name] = (count[each.name] or 0) + 1 end
   end
-  local out: {analyzer.Bound} = {}
+  local out: mut {analyzer.Bound} = {}
   for _, each in ipairs(bindings) do
     if each.top and each.module ~= "" and not each.annotated and count[each.name] == 1 then
       out[#out + 1] = { name = each.name, module = each.module }
@@ -1320,7 +1320,7 @@ end
 
 --- Whether `node` names [`Test.policy`] through one of `names`, the locals
 --- a chunk binds `require("cosmic.test")` to.
-local function names_policy(node: ast.Node | nil, names: {string:boolean}): boolean
+local function names_policy(node: ast.Node?, names: {string:boolean}): boolean
   local index = node ~= nil and node.kind == "op" and node.op or nil
   local base: ast.Node = node ~= nil and node.e1 or nil
   local member: ast.Node = node ~= nil and node.e2 or nil
@@ -1332,7 +1332,7 @@ local function names_policy(node: ast.Node | nil, names: {string:boolean}): bool
 end
 
 --- Whether `node` is `require("cosmic.test")`.
-local function requires_test(node: ast.Node | nil): boolean
+local function requires_test(node: ast.Node?): boolean
   local call = node ~= nil and node.kind == "op" and node.op or nil
   local callee: ast.Node = node ~= nil and node.e1 or nil
   local args: ast.Node = node ~= nil and node.e2 or nil
@@ -1343,7 +1343,7 @@ local function requires_test(node: ast.Node | nil): boolean
 end
 
 --- `node` as a string written plainly, or nil and why, naming `path`.
-local function plain_string(node: ast.Node, path: string): string | nil, string
+local function plain_string(node: ast.Node, path: string): string?, string
   local conststr = node.conststr
   if node.kind ~= "string" or conststr == nil then
     return nil, path .. " takes a string written out as a literal"
@@ -1360,7 +1360,7 @@ end
 
 --- The name an entry of a table literal is written with, in `name = ...`
 --- or `["name"] = ...`, or nil for an entry with none.
-local function entry_name(item: ast.Node): string | nil
+local function entry_name(item: ast.Node): string?
   local key = item.key
   local conststr = key and key.conststr
   if key ~= nil and item.key_parsed ~= "implicit" and conststr ~= nil then
@@ -1370,11 +1370,11 @@ local function entry_name(item: ast.Node): string | nil
 end
 
 --- The string literals of a list written out as a literal, or nil and why.
-local function string_list(node: ast.Node, path: string): {string} | nil, string
+local function string_list(node: ast.Node, path: string): {string}?, string
   if node.kind ~= "literal_table" then
     return nil, path .. " takes a list of string literals, written out"
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, item in ipairs(node) do
     local value = item.value
     if item.key_parsed ~= "implicit" or value == nil then
@@ -1389,9 +1389,9 @@ end
 
 --- The names and string literals of a table written out as a literal,
 --- or nil and why.
-local function string_map(node: ast.Node, path: string): {string:string} | nil, string
+local function string_map(node: ast.Node, path: string): {string:string}?, string
   if node.kind ~= "literal_table" then return nil, path .. " takes a table, written out" end
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for _, item in ipairs(node) do
     local name = entry_name(item)
     local value = item.value
@@ -1404,28 +1404,28 @@ local function string_map(node: ast.Node, path: string): {string:string} | nil, 
 end
 
 --- A `policy` table literal as [`PolicyData`], or nil and why.
-local function policy_data(node: ast.Node): PolicyData | nil, string
-  local profiles: {string} | nil
-  local isolate: {string} | nil
-  local promises: {string} | nil
-  local connect: {string} | nil
-  local loopback: {string} | nil
-  local env: {string} | nil
-  local requires: {string} | nil
-  local set_env: {string: string} | nil
-  local set_env_digests: {string: string} | nil
-  local grants: {{string: string}} | nil
-  local limits: {string: integer} | nil
-  local tmp: boolean | nil
-  local user: integer | nil
-  local group: integer | nil
-  local database: string | nil
-  local seen: {string:boolean} = {}
+local function policy_data(node: ast.Node): PolicyData?, string
+  local profiles: {string}?
+  local isolate: {string}?
+  local promises: {string}?
+  local connect: {string}?
+  local loopback: {string}?
+  local env: {string}?
+  local requires: {string}?
+  local set_env: {string: string}?
+  local set_env_digests: {string: string}?
+  local grants: {{string: string}}?
+  local limits: {string: integer}?
+  local tmp: boolean?
+  local user: integer?
+  local group: integer?
+  local database: string?
+  local seen: mut {string:boolean} = {}
   for _, item in ipairs(node) do
     local field = entry_name(item)
     local takes = field ~= nil and PolicyRules.kind_of(field) or nil
     if field == nil or takes == nil or item.value == nil then
-      return nil, (field ~= nil and ("has no field " .. field) or "has an entry with no name") ..
+      return nil, (if field ~= nil then ("has no field " .. field) else "has an entry with no name" end) ..
         "; it has " .. PolicyRules.field_list()
     end
     if seen[field] then return nil, field .. " is declared twice" end
@@ -1472,7 +1472,7 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
         group = number
       end
     elseif takes == "limits" then
-      local found_limits: {string: integer} = {}
+      local found_limits: mut {string: integer} = {}
       limits = found_limits
       if given.kind ~= "literal_table" then why = "limits takes a table, written out" end
       for _, entry in ipairs(given.kind == "literal_table" and given or {}) do
@@ -1488,7 +1488,7 @@ local function policy_data(node: ast.Node): PolicyData | nil, string
         end
       end
     else
-      local found_grants: {{string: string}} = {}
+      local found_grants: mut {{string: string}} = {}
       grants = found_grants
       if given.kind ~= "literal_table" then why = "grants takes a list of grants" end
       for i, entry in ipairs(given.kind == "literal_table" and given or {}) do
@@ -1528,14 +1528,14 @@ end
 --- value computed -- is refused. The policy is held to the rules its own
 --- fields are ([`Test.needs_of`]'s), and read as the declaration it
 --- stands for.
-local function inputs_of(parsed: ast.Parsed): PolicyRules.Declared | nil, string
+local function inputs_of(parsed: ast.Parsed): PolicyRules.Declared?, string
   local function at(node: ast.Node): string
     return (node.f or "") .. ":" .. tostring(node.y) .. ": test.policy: "
   end
-  local names: {string:boolean} = {}
-  local found: ast.Node | nil = nil
-  local callees: {ast.Node:boolean} = {}
-  local jump: ast.Node | nil = nil
+  local names: mut {string:boolean} = {}
+  local found: ast.Node? = nil
+  local callees: mut {ast.Node:boolean} = {}
+  local jump: ast.Node? = nil
   for _, stmt in ipairs(parsed.node) do
     local vars = stmt.vars
     local stmt_op = stmt.op
@@ -1599,10 +1599,10 @@ end
 --- order, whether it ends in a `return`, the name returned, and the
 --- value returned.
 local record Chunk
-  tests: {string}
-  has_return: boolean
-  export: string
-  returned?: ast.Node
+  tests: mut {string}
+  mut has_return: boolean
+  mut export: string
+  mut returned?: ast.Node
 end
 
 local function chunk_of(parsed: ast.Parsed): Chunk
@@ -1652,7 +1652,7 @@ end
 --- `source` is the text `parsed` came from, for the signatures the docs
 --- quote.
 function analyzer.analysis_of(built: compiler, parsed: ast.Parsed,
-                              source: string): analyzer.Analysis | nil, string
+                              source: string): analyzer.Analysis?, string
   local chunk = chunk_of(parsed)
   local names, has_return, export, returned = chunk.tests, chunk.has_return, chunk.export,
     chunk.returned
@@ -1711,7 +1711,7 @@ end
 --- @return Analysis | nil The analysis, or nil when `source` fails to lex or parse
 --- @return string Error message when nil
 function analyzer.analyze(built: compiler, source: string,
-                          name: string): analyzer.Analysis | nil, string
+                          name: string): analyzer.Analysis?, string
   local parsed, trouble = ast.parse(built, source, name)
   if parsed == nil then
     return nil, trouble

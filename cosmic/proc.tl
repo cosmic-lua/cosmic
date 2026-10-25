@@ -32,7 +32,7 @@ local record Proc
     kind: Kind
     --- The selected spelling when resolved, or the first regular file
     --- this process cannot execute. Nil when no candidate was found.
-    path: string | nil
+    path: string?
     --- Empty when resolved; the reason lookup refused otherwise.
     reason: string
   end
@@ -67,7 +67,7 @@ local ARTIFACT_FD <const> = 254
 local CORE_FD <const> = 255
 
 local record Cached
-  relaunch: Proc.Relaunch | nil
+  mut relaunch: Proc.Relaunch?
 end
 
 local cached: Cached = {}
@@ -89,7 +89,7 @@ end
 
 --- The logical path that directly relaunches this program. A portable program
 --- returns its artifact path rather than the private cached native core.
-function Proc.executable(): string | nil, string
+function Proc.executable(): string?, string
   local path, trouble = sys.executable()
   if path == nil then
     return nil, trouble
@@ -104,7 +104,7 @@ end
 --- resolve names before entering a sandbox or starting a child. The
 --- caller buffer grows up to 1 MiB; that limits neither libc's own
 --- allocation nor the time a directory service may take.
-function Proc.user(name: string): Proc.User | nil, string
+function Proc.user(name: string): Proc.User?, string
   local user, trouble = raw.user(name)
   if user == nil then return nil, trouble end
   return user, ""
@@ -129,7 +129,7 @@ end
 --- child's own arguments to `argv`, add `env` to its environment, and pass
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
-function Proc.relaunch(): Proc.Relaunch | nil, string
+function Proc.relaunch(): Proc.Relaunch?, string
   local relaunch = cached.relaunch
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
@@ -176,9 +176,9 @@ function Proc.find_result(name: string, path?: string): Proc.FindResult
     return { kind = "resolved", path = name, reason = "" }
   end
   local search = path or Env.get("PATH") or DEFAULT_PATH
-  local unrunnable: string | nil = nil
+  local unrunnable: string? = nil
   for dir in (search .. ":"):gmatch("([^:]*):") do
-    local candidate = (dir == "" and "." or dir) .. "/" .. name
+    local candidate = (if dir == "" then "." else dir end) .. "/" .. name
     local st, _ = sys.stat(candidate)
     if st ~= nil and st.kind == "file" then
       -- Asked of this process, as execvp asks: an execute bit only
@@ -201,7 +201,7 @@ end
 --- refusal. A slash-containing name passes through without being checked;
 --- an empty name raises. The refusal distinguishes no such program from
 --- a regular file this process cannot execute (a shell's 127 and 126).
-function Proc.find(name: string, path?: string): string | nil, string
+function Proc.find(name: string, path?: string): string?, string
   if name == "" then
     error("proc: find's name is empty", 2)
   end

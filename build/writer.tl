@@ -423,7 +423,7 @@ end
 --- The signature of the projection of `result`, whose links are
 --- `pending`, as the writer whose identity is `binary` would write it.
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
-                      binary: string): string | nil, string
+                      binary: string): string?, string
   local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
     { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
       text(pending.digest) })
@@ -437,8 +437,8 @@ end
 --- symbols: nothing in cosmic's own tree, whose projection documents its
 --- standard library itself; in a project, `given`, or the standard
 --- library of the binary running.
-local function library_for(root: string, given: link_index.Library | nil):
-    link_index.Library | nil, string
+local function library_for(root: string, given: link_index.Library?):
+    link_index.Library?, string
   local own, trouble = tree.is_own(root)
   if own == nil then
     return nil, trouble
@@ -454,8 +454,8 @@ end
 
 --- The links of the tree `handle` holds, waiting for its symbols
 --- ([`link_index.pending`]), with what they may name beside its own.
-local function pending_links(handle: work.Handle, given: link_index.Library | nil, by: string):
-    link_index.Pending | nil, string
+local function pending_links(handle: work.Handle, given: link_index.Library?, by: string):
+    link_index.Pending?, string
   local library, trouble = library_for(handle.root, given)
   if library == nil and trouble ~= "" then
     return nil, trouble
@@ -468,7 +468,7 @@ end
 --- @param library in a project, the standard library its links may
 --- name, in place of the running binary's ([`link_index.running`])
 function writer.signature(handle: work.Handle, result: importer.Result,
-                          binary: string, library?: link_index.Library): string | nil, string
+                          binary: string, library?: link_index.Library): string?, string
   local pending, trouble = pending_links(handle, library, binary)
   if pending == nil then
     return nil, trouble
@@ -524,8 +524,8 @@ local vendored_key <const> = "projection_vendored"
 --- tree at `root`, each by its bytes or `-` where it is not there: the
 --- tables they fill are a function of these and of those modules' code, which
 --- the writer's identity holds. Nil where a file is there and cannot be read.
-local function vendored_digest(root: string): string | nil
-  local function digest_of(path: string): string | nil
+local function vendored_digest(root: string): string?
+  local function digest_of(path: string): string?
     local there, _ = Fs.exists(path)
     if there == nil then
       return nil
@@ -548,7 +548,7 @@ local function vendored_digest(root: string): string | nil
 end
 
 --- Whether the first column of the first row of `rows` is `answer`.
-local function says(rows: Sqlite.Rows | nil, answer: string): boolean
+local function says(rows: Sqlite.Rows?, answer: string): boolean
   if rows == nil then
     return false
   end
@@ -558,7 +558,7 @@ end
 
 --- Whether the first column of the first row of `rows` is `1`: the answer
 --- of a `SELECT` of a condition, false where there was none.
-local function holds(rows: Sqlite.Rows | nil): boolean
+local function holds(rows: Sqlite.Rows?): boolean
   return says(rows, "1")
 end
 
@@ -671,7 +671,7 @@ local function project(handle: work.Handle,
   end
   local usable = based and usable_base(db, by, result.tool)
   local reusing = usable and find_reused(db)
-  local statements: {string} = {}
+  local statements: mut {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
@@ -836,7 +836,7 @@ end
 --- a tool it rebuilt is never taken for one the tree's writer wrote
 --- ([`build.reboot`]).
 local function running(handle: work.Handle, identities: identity.Identities,
-                       tree_code: boolean): string | nil, string
+                       tree_code: boolean): string?, string
   local boot_hash = Store.meta("boot_hash")
   if boot_hash == nil or tree_code then
     return identities.writer
@@ -877,7 +877,7 @@ end
 --- the read fails.
 --- @param compiler the compiler identity a build in this process
 --- compiles under ([`rebuild.compiled_by`])
-function writer.other_code(db: Sqlite.Handle, compiler: string): string | nil, string
+function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   -- "" for a row it lacks, a value no identity is.
   local function value(key: string): string
     return "coalesce((SELECT value FROM meta WHERE key = '" .. key .. "'), '')"
@@ -998,7 +998,7 @@ function writer.write_result(handle: work.Handle, out: string,
   local took = false
   local directory = build_paths.resolve(handle.root).directory
   if Fs.within(out, directory) then
-    local taken, lock_trouble: boolean | nil, string
+    local taken, lock_trouble: boolean?, string
     if reader ~= nil then
       taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
       if taken == nil and lock_trouble == "" then
@@ -1204,7 +1204,7 @@ local carry: {string} = {
 --- `compiled_by`, one of which every rebuild moves.
 function writer.carried(whole: string, out: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
-    local statements: {string} = {}
+    local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do
       statements[#statements + 1] = statement
     end

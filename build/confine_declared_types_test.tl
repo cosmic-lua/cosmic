@@ -59,12 +59,12 @@ local function tunnels(userinfo?: string)
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
-        (userinfo ~= nil and (userinfo .. "@") or "") .. "127.0.0.1:" .. assert(listener.address.port) }
+        (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. assert(listener.address.port) }
     local client = Poll.spawn(function()
       code.value = connect.run({ "host.example", "80" }, {
-        getenv = function(name: string): string | nil return variables[name] end,
+        getenv = function(name: string): string? return variables[name] end,
         err = function(_line: string) end,
-        read = function(): string | nil, string
+        read = function(): string?, string
           while waiting.value == "" and not ended.value do
             local ok, why = Poll.delay(Clock.ms(1))
             if not ok then return nil, why end

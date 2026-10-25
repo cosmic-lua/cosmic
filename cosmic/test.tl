@@ -303,9 +303,9 @@ end
 local record Declared
   --- The files of the parent directory this module's policy declared
   --- ([`Needs.parent`]), by their relative paths.
-  parents: {string:boolean}
+  mut parents: mut {string:boolean}
   --- Where the one `policy` call came from, once it has come.
-  called_at: string | nil
+  mut called_at: string?
 end
 
 local declared: Declared = { parents = {} }
@@ -428,8 +428,8 @@ local PROMISE_FIELDS <const>: {string:string} = {
 }
 
 --- `value` as a list of strings, or nil and why, naming `field`.
-local function strings_of(field: string, value: any): {string} | nil, string
-  local out: {string} = {}
+local function strings_of(field: string, value: any): {string}?, string
+  local out: mut {string} = {}
   if value is {any:any} then
     local count = 0
     for i, item in pairs(value) do
@@ -445,8 +445,8 @@ local function strings_of(field: string, value: any): {string} | nil, string
 end
 
 --- `value` as a table of names to strings, or nil and why, naming `field`.
-local function names_of(field: string, value: any): {string:string} | nil, string
-  local out: {string:string} = {}
+local function names_of(field: string, value: any): {string:string}?, string
+  local out: mut {string:string} = {}
   if value is {any:any} then
     for k, v in pairs(value) do
       if not (k is string and v is string) then
@@ -460,8 +460,8 @@ local function names_of(field: string, value: any): {string:string} | nil, strin
 end
 
 --- `value` as a [`Policy`]'s grants, or nil and why.
-local function grants_of(value: any): {Test.Grant} | nil, string
-  local out: {Test.Grant} = {}
+local function grants_of(value: any): {Test.Grant}?, string
+  local out: mut {Test.Grant} = {}
   if not value is {any} then return nil, "grants takes a list of grants" end
   for i, given in ipairs(value) do
     local at = "grants[" .. i .. "]"
@@ -486,7 +486,7 @@ local function grants_of(value: any): {Test.Grant} | nil, string
 end
 
 --- `value` as a [`Policy`]'s limits, or nil and why.
-local function limits_of(value: any): Test.Limits | nil, string
+local function limits_of(value: any): Test.Limits?, string
   local out: Test.Limits = {}
   if value is {any:any} then
     for key, field in pairs(value) do
@@ -511,7 +511,7 @@ end
 
 --- What was handed to `policy` as a [`Policy`], or nil and why, naming
 --- the field.
-local function policy_of(given: any): Test.Policy | nil, string
+local function policy_of(given: any): Test.Policy?, string
   if not given is {any:any} then
     return nil, "takes a table, got " .. type(given)
   end
@@ -590,15 +590,15 @@ end
 --- @param given any What `policy` was handed, or the build read of it
 --- @return Needs|nil The `needs` it stands for
 --- @return string Why there is none, naming the field
-function Test.needs_of(given: any): Test.Needs | nil, string
+function Test.needs_of(given: any): Test.Needs?, string
   local policy, why = policy_of(given)
   if policy == nil then return nil, why end
   local out: Test.Needs = {}
   local reads: {string} = {}
-  local host: {string} = {}
-  local caches: {string} = {}
-  local parents: {string} = {}
-  local flags: {string:boolean} = {}
+  local host: mut {string} = {}
+  local caches: mut {string} = {}
+  local parents: mut {string} = {}
+  local flags: mut {string:boolean} = {}
   local bin = false
   for _, profile in ipairs(policy.profiles or {}) do
     local flag = PROFILE_FLAGS[profile]
@@ -674,7 +674,7 @@ function Test.needs_of(given: any): Test.Needs | nil, string
     return nil, "tmp = false " .. NOT_YET .. "; every test has a temporary directory today"
   end
   if policy.user ~= nil or policy.group ~= nil then
-    return nil, (policy.user ~= nil and "user" or "group") .. " is refused: the harness " ..
+    return nil, (if policy.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
   if bin and not flags.cosmic then
@@ -684,8 +684,8 @@ function Test.needs_of(given: any): Test.Needs | nil, string
   out.tool = flags.cosmic and bin or nil
   out.lua = flags.cosmic and not bin or nil
   if out.lua then
-    local beside = out.store and "o/cosmic.db" or flags.system and "system" or
-      #caches > 0 and "/cache/" .. caches[1] or nil
+    local beside = if out.store then "o/cosmic.db" elseif flags.system then "system" elseif
+      #caches > 0 then "/cache/" .. caches[1] else nil end
     if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
   end
   out.system, out.nests = flags.system, flags.nests

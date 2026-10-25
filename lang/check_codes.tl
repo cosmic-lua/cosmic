@@ -207,7 +207,7 @@ local record Codes
   catalog: {Row}
 
   --- The row of `code`, from this catalog or that of [`lang.declarations`].
-  row: function(code: Code): Row | nil
+  row: function(code: Code): Row?
 end
 
 Codes.codes = {
@@ -668,7 +668,7 @@ Codes.catalog = {
     fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files" },
 }
 
-function Codes.row(code: Codes.Code): Codes.Row | nil
+function Codes.row(code: Codes.Code): Codes.Row?
   for _, r in ipairs(Codes.catalog) do
     if r.code == code then
       return r

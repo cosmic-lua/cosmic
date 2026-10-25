@@ -180,55 +180,55 @@ end
 --- What one parse keeps. A function assigns a field of it, not a local of the
 --- module, so that every function reads the one `S`.
 local record State
-  tokens: Lexer.Tokens
+  mut tokens: Lexer.Tokens
   --- The arrays of `tokens`, which the parser reads far oftener than the record.
-  kinds: {Lexer.Kind}
-  texts: {string}
-  ys: {integer}
-  yends: {integer: integer}
+  mut kinds: {Lexer.Kind}
+  mut texts: {string}
+  mut ys: {integer}
+  mut yends: {integer: integer}
   --- The index of the `$EOF$` token, which a look past the end finds.
-  last: integer
+  mut last: integer
   --- The index of the current token, and its text and kind, which the parser
   --- reads far oftener than the token.
-  pos: integer
-  text: string
-  kind: Lexer.Kind
-  errors: {Parser.Error}
+  mut pos: integer
+  mut text: string
+  mut kind: Lexer.Kind
+  mut errors: mut {Parser.Error}
   --- The name of the source in each error.
-  name: string
+  mut name: string
   --- Whether the dialect is `decl`.
-  decl: boolean
+  mut decl: boolean
   --- The index of a `>>` token whose first `>` has closed a list.
-  half: integer
+  mut half: integer
   --- The code of the error at each token, which is not reported twice.
-  reported: {integer: Parser.Code}
+  mut reported: mut {integer: Parser.Code}
   --- The tokens a `local` or `function` begins a line at, when needed, and the steps spent searching them.
-  beside: {integer}
-  beside_work: integer
+  mut beside: {integer}
+  mut beside_work: integer
   --- Whether the nesting limit has been passed: what follows is reported no further.
-  muted: boolean
+  mut muted: boolean
   --- How many blocks, expressions and types the production being parsed is inside.
-  nesting: integer
+  mut nesting: integer
   --- How many `match` arms of the function being parsed it is inside, the
   --- token the innermost began at, and the brackets open between that token
   --- and `scan_at`, which only moves forward.
-  arms: integer
+  mut arms: integer
   --- How many table constructors of the function being parsed it is inside.
-  tables: integer
-  arm_from: integer
+  mut tables: integer
+  mut arm_from: integer
   --- The token of a second arm on a line, which ends the expression before it.
-  arm_same: integer
-  scan_at: integer
-  scan_depth: integer
+  mut arm_same: integer
+  mut scan_at: integer
+  mut scan_depth: integer
   --- How many blocks the current one is inside, from 1 in the chunk.
-  depth: integer
+  mut depth: integer
   --- The loops the production being parsed is inside, outermost first, and
   --- how many of them belong to the functions around the current one.
-  loops: {Loop}
-  loop_base: integer
+  mut loops: mut {Loop}
+  mut loop_base: integer
   --- The literal requires so far, and the node each is of, whose ids are set once the tree is numbered.
-  requires: {Ast.Require}
-  require_nodes: {Ast.Node}
+  mut requires: mut {Ast.Require}
+  mut require_nodes: mut {Ast.Node}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -240,19 +240,19 @@ local S: State = {
   require_nodes = {},
 }
 
-local ADDED <const>: {string: boolean} = {}
+local ADDED <const>: mut {string: boolean} = {}
 for _, word in ipairs(Lexer.added) do
   ADDED[word] = true
 end
 
-local DECL_WORD <const>: {string: boolean} = {}
+local DECL_WORD <const>: mut {string: boolean} = {}
 for _, word in ipairs(Lexer.declaration_words) do
   DECL_WORD[word] = true
 end
 
 --- The reserved words that may stand where a field name does: the ones the
 --- grammar adds, and `goto` and `global`. The tree writes no other.
-local FIELD_WORD <const>: {string: boolean} = { ["goto"] = true, ["global"] = true }
+local FIELD_WORD <const>: mut {string: boolean} = { ["goto"] = true, ["global"] = true }
 for word in pairs(ADDED) do
   FIELD_WORD[word] = true
 end
@@ -556,7 +556,7 @@ end
 --- them. A `limit` above 0 stops it at the token that passes that many bytes, and
 --- ends it with an ellipsis.
 local function source_text(first: integer, last: integer, limit: integer): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local size = 0
   local offsets = S.tokens.offset
   for i = first, last do
@@ -730,7 +730,7 @@ local function refuse_nil_union(members: {Ast.Type}, first: integer, last: integ
   if at == 0 then
     return
   end
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   local depth, from = 0, first
   for i = first, last + 1 do
     local t = S.texts[i]
@@ -783,7 +783,7 @@ local function finish_union(first: integer, head: Ast.Type): Ast.Type
   if S.text ~= "|" or arm_bar(false) then
     return head
   end
-  local members: {Ast.Type} = { head }
+  local members: mut {Ast.Type} = { head }
   while S.text == "|" and not arm_bar(false) do
     advance()
     local f = S.pos
@@ -801,7 +801,7 @@ end
 
 --- `Name`, `Name.Name`, ... as the strings of its path.
 local function parse_path(): {string}
-  local path: {string} = {}
+  local path: mut {string} = {}
   if S.kind ~= "identifier" then
     report("expected_name", S.pos, "expected a type name, found " .. shown(S.pos), "write the name of a type: `string`, `Reader`, `Stream.Reader`")
     return path
@@ -819,7 +819,7 @@ end
 --- A type argument list or a list of types: the types separated by `,`, a
 --- `,` ending the list where a parameter begins after it.
 local function parse_type_list(): {Ast.Type}
-  local list: {Ast.Type} = { parse_type() }
+  local list: mut {Ast.Type} = { parse_type() }
   while S.text == "," and not starts_parameter() do
     advance()
     list[#list + 1] = parse_type()
@@ -861,7 +861,7 @@ local function parse_function_type(): Ast.Type
   if S.text == "<" then
     typeparams = parse_typeparams()
   end
-  local params: {Ast.PType} = {}
+  local params: mut {Ast.PType} = {}
   if S.text ~= "(" then
     report("bare_function_type", S.pos, "a bare `function` is not a type: found " .. shown(S.pos) .. " where its parameters begin",
       "write the signature: `function(x: T): U`, and `function()` for a function with no parameters")
@@ -1015,7 +1015,7 @@ end
 --- The items of a return list that is not in parentheses, or of the part of one
 --- inside them (`parens`, where a `,` always continues the list).
 local function parse_rlist(parens: boolean): {Ast.RType}, boolean
-  local items: {Ast.RType} = { parse_rtype() }
+  local items: mut {Ast.RType} = { parse_rtype() }
   while S.text == "," and (parens or not starts_parameter()) do
     advance()
     if parens and S.text == ")" then
@@ -1034,7 +1034,7 @@ end
 
 parse_rets = function(): Ast.Rets
   local first = S.pos
-  local lists: {{Ast.RType}} = {}
+  local lists: mut {{Ast.RType}} = {}
   local variadic = false
   if S.text == "(" then
     local open = S.pos
@@ -1057,7 +1057,7 @@ parse_rets = function(): Ast.Rets
         end
         lists[#lists + 1] = more
       end
-    elseif #items == 1 and not variadic and (S.text == "?" or (S.text == "|" and not arm_bar(false))) and not (head is Ast.Narrows) then
+    elseif #items == 1 and not variadic and (S.text == "?" or (S.text == "|" and not arm_bar(false))) and not ((head.kind == "Narrows")) then
       lists[1] = { continue_type(open, head) }
     else
       lists[1] = items
@@ -1069,7 +1069,7 @@ parse_rets = function(): Ast.Rets
   end
   for _, list in ipairs(lists) do
     for _, item in ipairs(list) do
-      if item is Ast.Narrows and (#lists > 1 or #list > 1 or variadic) then
+      if (item.kind == "Narrows") and (#lists > 1 or #list > 1 or variadic) then
         report("narrowing_return", item.first, "a narrowing return is the whole return list: `" .. quoted_text(item.first, item.last) .. "` stands with others",
           "write the narrowing alone, `v is T` or `asserts v is T`, and return the other values by another function")
       end
@@ -1081,7 +1081,7 @@ end
 parse_typeparams = function(): {Ast.TypeParam}
   local open = S.pos
   advance()
-  local list: {Ast.TypeParam} = {}
+  local list: mut {Ast.TypeParam} = {}
   while true do
     local first = S.pos
     local name = binding("a type parameter")
@@ -1139,7 +1139,7 @@ local ITEM_START <const>: {string: boolean} = {
 }
 
 local function parse_explist(): {Ast.Exp}
-  local list: {Ast.Exp} = { parse_expression() }
+  local list: mut {Ast.Exp} = { parse_expression() }
   while S.text == "," do
     advance()
     list[#list + 1] = parse_expression()
@@ -1169,7 +1169,7 @@ local function parse_table(): Ast.Exp
   local open = S.pos
   advance()
   S.tables = S.tables + 1
-  local items: {Ast.Item} = {}
+  local items: mut {Ast.Item} = {}
   while S.text ~= "}" and S.kind ~= "$EOF$" do
     local first = S.pos
     if S.text == "[" then
@@ -1206,7 +1206,7 @@ end
 local function parse_if_expression(): Ast.Exp
   local first = S.pos
   advance()
-  local arms: {Ast.ExpArm} = {}
+  local arms: mut {Ast.ExpArm} = {}
   while true do
     local afirst = S.pos
     local cond = parse_expression()
@@ -1298,9 +1298,9 @@ end
 --- Records a call of `require` with one literal string, for the chunk's list.
 local function note_require(call: Ast.Call)
   local callee, args = call.callee, call.args
-  if callee is Ast.Name and callee.text == "require" and #args == 1 then
+  if (callee.kind == "Name") and callee.text == "require" and #args == 1 then
     local literal = args[1]
-    if literal is Ast.String then
+    if (literal.kind == "String") then
       S.requires[#S.requires + 1] = { module = literal.value, node = 0 }
       S.require_nodes[#S.require_nodes + 1] = call
     end
@@ -1464,7 +1464,7 @@ end
 --- The parameters up to the `)`: `name`, `name?`, `name: T`, `name?: T` and
 --- `...: T`.
 local function parse_params(): {Ast.Param}
-  local list: {Ast.Param} = {}
+  local list: mut {Ast.Param} = {}
   while S.text ~= ")" and S.kind ~= "$EOF$" do
     local first = S.pos
     if S.text == "..." then
@@ -1537,7 +1537,7 @@ end
 
 --- Whether a field of this name is declared again, with each declaration's
 --- type a function type only in a declaration file (the overloads).
-local function is_duplicate(seen: {string: boolean}, name: string, t: Ast.Type): boolean
+local function is_duplicate(seen: mut {string: boolean}, name: string, t: Ast.Type): boolean
   local is_function = base_of(t).kind == "TypeFunction"
   local before = seen[name]
   seen[name] = is_function and (before == nil or before)
@@ -1589,13 +1589,13 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
   end
   if name.name ~= "" and is_duplicate(seen, name.name, t) then
     report("duplicate_field", nfirst, "the field `" .. name.name .. "` is declared twice",
-      S.decl and "delete one, or give both a function type to declare overloads" or
-        "delete one; overloads, which repeat a function-typed field, are declared in a declaration file")
+      if S.decl then "delete one, or give both a function type to declare overloads" else
+        "delete one; overloads, which repeat a function-typed field, are declared in a declaration file" end)
   end
   return { kind = "FieldDecl", id = 0, first = first, last = end_of(), name = name, mut = mutable, omittable = omittable, type = t, doc = doc_of(first) }
 end
 
-local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
+local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Member
   local arms, tables = S.arms, S.tables
   S.arms, S.tables = 0, 0
   advance()
@@ -1613,10 +1613,10 @@ local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
     local declares_type = seen[name.name] == true and seen["\0method " .. name.name] ~= true
     if seen[name.name] ~= nil then
       report("duplicate_field", name.first, "the name `" .. name.name .. "` is declared twice in the class",
-        declares_type and
+        if declares_type then
           "delete the field and write its parameter and return types on the method; the receiver is `self`, so a field " ..
-          "`function(R, integer)` is `function " .. name.name .. "(self, x: integer)`" or
-          "rename or delete one; a method and a field, or two methods, cannot share a name")
+          "`function(R, integer)` is `function " .. name.name .. "(self, x: integer)`" else
+          "rename or delete one; a method and a field, or two methods, cannot share a name" end)
     end
     seen["\0method " .. name.name] = true
     seen[name.name] = false
@@ -1631,7 +1631,7 @@ local function parse_method(first: integer, seen: {string: boolean}): Ast.Member
     local p_name = p and p.name
     if not pathed and (p == nil or p_name == nil or p_name.name ~= "self" or p.type ~= nil) then
       report("method_needs_self", open, "the first parameter of a method is `self`, written without a type",
-        "write `function " .. name.name .. "(self" .. (#params > 0 and ", ..." or "") .. ")`")
+        "write `function " .. name.name .. "(self" .. (if #params > 0 then ", ..." else "" end) .. ")`")
     end
     if S.text == ":" then
       advance()
@@ -1651,7 +1651,7 @@ local CONTINUES_TYPE <const>: {string: boolean} = { ["."] = true, ["<"] = true, 
 
 local type Decl = Ast.Record | Ast.Interface | Ast.Class | Ast.Enum | Ast.TypeAlias | Ast.Import
 
-local parse_typedecl: function(first: integer, scope: Ast.Scope | nil): Decl
+local parse_typedecl: function(first: integer, scope: Ast.Scope?): Decl
 
 --- Whether the current token names a field, which a `:` or a `?:` after it shows.
 local function names_a_field(): boolean
@@ -1702,9 +1702,9 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
     return { kind = "Userdata", id = 0, first = first, last = first }
   elseif t == "function" then
     if owner ~= "class" then
-      report("method_in_record", first, (owner == "interface" and "an " or "a ") .. owner .. " holds fields only and cannot have a method with a body",
-        owner == "record" and "write `class` in place of `record`: a class holds its methods, `function name(self, ...) ... end`" or
-          "declare the method as a field: `name: function(self: I, ...): T`")
+      report("method_in_record", first, (if owner == "interface" then "an " else "a " end) .. owner .. " holds fields only and cannot have a method with a body",
+        if owner == "record" then "write `class` in place of `record`: a class holds its methods, `function name(self, ...) ... end`" else
+          "declare the method as a field: `name: function(self: I, ...): T`" end)
     end
     return parse_method(first, seen)
   elseif S.kind == "identifier" and DECL_WORD[t] and nxt_kind == "identifier" then
@@ -1725,7 +1725,7 @@ end
 --- or up to a statement that begins a line: a body that is not closed ends
 --- there, as `desc` is reported not closed.
 local function parse_members(owner: string, open: integer, desc: string): {Ast.Member}
-  local members: {Ast.Member} = {}
+  local members: mut {Ast.Member} = {}
   local seen: {string: boolean} = {}
   while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(open) do
     local before = S.pos
@@ -1740,7 +1740,7 @@ end
 
 --- The `is` of a declaration: one or, for an interface, several supertypes.
 local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
-  local supers: {Ast.TypeName} = {}
+  local supers: mut {Ast.TypeName} = {}
   local array: Ast.Type = nil
   if S.text ~= "is" then
     return supers, array
@@ -1769,7 +1769,7 @@ local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
     end
   end
   if S.text == "," then
-    report("several_supers", S.pos, (owner == "interface" and "an " or "a ") .. owner .. " implements one interface",
+    report("several_supers", S.pos, (if owner == "interface" then "an " else "a " end) .. owner .. " implements one interface",
       "write one interface after `is`; a new interface that extends both can be implemented instead")
     while S.text == "," do
       advance()
@@ -1782,11 +1782,11 @@ end
 --- The rest of a declaration of `word` (`record`, `interface`, `class` or
 --- `enum`) called `name`, which began at the token `first` and whose word is
 --- the token `at`.
-local function parse_declaration_body(word: string, first: integer, at: integer, scope: Ast.Scope | nil,
+local function parse_declaration_body(word: string, first: integer, at: integer, scope: Ast.Scope?,
                                       name: Ast.Binding): Decl
   local desc = "`" .. word .. " " .. name.name .. "`"
   if word == "enum" then
-    local values: {Ast.EnumValue} = {}
+    local values: mut {Ast.EnumValue} = {}
     while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do
       local vfirst = S.pos
       if S.kind == "string" then
@@ -1817,7 +1817,7 @@ local function parse_declaration_body(word: string, first: integer, at: integer,
   return { kind = "Class", id = 0, first = first, last = S.pos - 1, scope = scope, name = name, typeparams = typeparams, supers = supers, members = members }
 end
 
-parse_typedecl = function(first: integer, scope: Ast.Scope | nil): Decl
+parse_typedecl = function(first: integer, scope: Ast.Scope?): Decl
   local word = S.text
   local at = S.pos
   advance()
@@ -1834,7 +1834,7 @@ parse_typedecl = function(first: integer, scope: Ast.Scope | nil): Decl
   if S.kind == "identifier" and OLD_BODY[S.text] and not CONTINUES_TYPE[peek_text(1)] then
     local body_word = S.text
     report("old_type_declaration", S.pos, "`type " .. name.name .. " = " .. body_word .. "` is not in the grammar: " ..
-        (body_word == "enum" and "an " or "a ") .. body_word .. " is declared with its own word",
+        (if body_word == "enum" then "an " else "a " end) .. body_word .. " is declared with its own word",
       "write `" .. (scope or "local") .. " " .. body_word .. " " .. name.name .. " ... end`")
     local body_at = S.pos
     advance()
@@ -1901,7 +1901,7 @@ end
 
 local function parse_local(): Ast.Stat
   local first = S.pos
-  local scope: Ast.Scope = S.text == "global" and "global" or "local"
+  local scope: Ast.Scope = if S.text == "global" then "global" else "local" end
   advance()
   if scope == "global" and not S.decl then
     report("global_in_program", first, "`global` declares a global, which only a declaration file does",
@@ -1922,13 +1922,13 @@ local function parse_local(): Ast.Stat
   elseif S.kind == "identifier" and DECL_WORD[S.text] and peek_kind(1) == "identifier" then
     local decl = parse_typedecl(first, scope)
     -- A class, a record and an import are values in the Lua written for them.
-    if decl is Ast.Class or decl is Ast.Record or decl is Ast.Import then
+    if (decl.kind == "Class") or (decl.kind == "Record") or (decl.kind == "Import") then
       declared({ decl.name.name }, first)
     end
     return decl
   end
   local head_binding = parse_local_binding("a local")
-  local bindings: {Ast.Binding} = { head_binding }
+  local bindings: mut {Ast.Binding} = { head_binding }
   local closing = head_binding.attr == "close"
   while S.text == "," do
     advance()
@@ -1955,7 +1955,7 @@ local function parse_local(): Ast.Stat
     advance()
     values = parse_explist()
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for i, b in ipairs(bindings) do
     names[i] = b.name
   end
@@ -1967,7 +1967,7 @@ end
 local function parse_function_statement(): Ast.Stat
   local first = S.pos
   advance()
-  local path: {Ast.Name} = {}
+  local path: mut {Ast.Name} = {}
   local colon = false
   while true do
     local nfirst = S.pos
@@ -1998,7 +1998,7 @@ local function parse_function_statement(): Ast.Stat
     report("bare_function", first, "`function " .. joined .. "(...)` declares a global",
       "write `local function " .. joined .. "(...)`; a program's globals are the ones a declaration file declares")
   elseif #path > 2 then
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for i, n in ipairs(path) do
       parts[i] = n.text
     end
@@ -2034,32 +2034,32 @@ end
 --- The names a function binds itself: its parameters and the locals and loop
 --- variables of its body, not those of a function inside it.
 local function binds(fn: Ast.Fn): {string: boolean}
-  local names: {string: boolean} = {}
+  local names: mut {string: boolean} = {}
   for _, p in ipairs(fn.params) do
     local name = p.name
     if name ~= nil then
       names[name.name] = true
     end
   end
-  local stack: {Ast.Node} = { fn.body }
+  local stack: mut {Ast.Node} = { fn.body }
   while #stack > 0 do
     local node = table.remove(stack)
-    if node is Ast.Local then
+    if (node.kind == "Local") then
       for _, b in ipairs(node.bindings) do
         names[b.name] = true
       end
-    elseif node is Ast.LocalFunction then
+    elseif (node.kind == "LocalFunction") then
       names[node.name.name] = true
-    elseif node is Ast.ForNum then
+    elseif (node.kind == "ForNum") then
       names[node.var.name] = true
-    elseif node is Ast.ForIn then
+    elseif (node.kind == "ForIn") then
       for _, b in ipairs(node.vars) do
         names[b.name] = true
       end
-    elseif node is Ast.PatBind then
+    elseif (node.kind == "PatBind") then
       names[node.name.name] = true
     end
-    if not (node is Ast.Fn) then
+    if not ((node.kind == "Fn")) then
       Ast.children(node, function(child: Ast.Node)
         stack[#stack + 1] = child
       end)
@@ -2071,20 +2071,20 @@ end
 --- The first use in `tree` of a name in `names`, or nil. A function inside
 --- that binds the name itself, as a parameter or a local, reads its own.
 local function find_read(tree: Ast.Node, names: {string: boolean}): Ast.Name
-  local found: {Ast.Name} = {}
-  local stack: {Ast.Node} = { tree }
-  local masks: {{string: boolean}} = { {} }
+  local found: mut {Ast.Name} = {}
+  local stack: mut {Ast.Node} = { tree }
+  local masks: mut {{string: boolean}} = { {} }
   while #stack > 0 do
     local node = table.remove(stack)
     local mask = table.remove(masks)
-    if node is Ast.Name then
+    if (node.kind == "Name") then
       local best = found[1]
       if names[node.text] and not mask[node.text] and (best == nil or node.first < best.first) then
         found[1] = node
       end
     else
       local inner = mask
-      if node is Ast.Fn then
+      if (node.kind == "Fn") then
         inner = {}
         for k in pairs(mask) do
           inner[k] = true
@@ -2110,7 +2110,7 @@ local function parse_repeat(): Ast.Stat
   close_block(body, "until", first, "`repeat`")
   local cond = parse_expression()
   if loop.after_at > 0 then
-    local names: {string: boolean} = {}
+    local names: mut {string: boolean} = {}
     for _, n in ipairs(loop.after) do
       names[n] = true
     end
@@ -2131,7 +2131,7 @@ end
 local function parse_if(): Ast.Stat
   local first = S.pos
   advance()
-  local arms: {Ast.Arm} = {}
+  local arms: mut {Ast.Arm} = {}
   local else_body: Ast.Block = nil
   while true do
     local afirst = S.pos
@@ -2176,7 +2176,7 @@ local function parse_for(): Ast.Stat
     close_block(body, "end", first, "`for`")
     return { kind = "ForNum", id = 0, first = first, last = S.pos - 1, var = name, from = from, to = to, step = step, body = body }
   end
-  local vars: {Ast.Binding} = { name }
+  local vars: mut {Ast.Binding} = { name }
   while S.text == "," do
     advance()
     vars[#vars + 1] = binding("a loop variable")
@@ -2194,19 +2194,19 @@ local function parse_match(): Ast.Stat
   advance()
   local scrutinee = parse_prefix()
   local call: Ast.CallExp
-  if scrutinee is Ast.Call then
+  if (scrutinee.kind == "Call") then
     call = scrutinee
-  elseif scrutinee is Ast.MethodCall then
+  elseif (scrutinee.kind == "MethodCall") then
     call = scrutinee
   else
-    if not (scrutinee is Ast.Error) then
+    if not ((scrutinee.kind == "Error")) then
       report("match_needs_call", first + 1, "`match` takes a call, found `" .. quoted_text(first + 1, S.pos - 1) .. "`",
         "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on a value write an `if`")
     end
     call = { kind = "Error", id = 0, first = first + 1, last = S.pos - 1 }
   end
   expect("do", "after the call of a `match`", "write `match f() do | (true, v) then ... end`")
-  local arms: {Ast.MatchArm} = {}
+  local arms: mut {Ast.MatchArm} = {}
   -- Whether an arm so far matches every value: no arm after it can run.
   local caught = false
   if S.text ~= "|" then
@@ -2222,7 +2222,7 @@ local function parse_match(): Ast.Stat
         "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true` or `false`) to the end")
       caught = false
     end
-    local pats: {Ast.PatItem} = {}
+    local pats: mut {Ast.PatItem} = {}
     if expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
       while S.text ~= ")" and S.kind ~= "$EOF$" do
         local pfirst = S.pos
@@ -2243,11 +2243,11 @@ local function parse_match(): Ast.Stat
       close(")", open, "pattern")
     end
     local bools = 0
-    local bound: {string: boolean} = {}
+    local bound: mut {string: boolean} = {}
     for _, pat in ipairs(pats) do
-      if pat is Ast.PatBool then
+      if (pat.kind == "PatBool") then
         bools = bools + 1
-      elseif pat is Ast.PatBind then
+      elseif (pat.kind == "PatBind") then
         local bound_name = pat.name.name
         if bound[bound_name] and bound_name:sub(1, 1) ~= "_" then
           report("duplicate_binding", pat.first, "`" .. bound_name .. "` is bound twice in this arm",
@@ -2325,9 +2325,9 @@ local function parse_goto(): Ast.Stat
   if is_field_word() and S.ys[S.pos] == S.ys[first] then
     label = S.text
   end
-  report("label_or_goto", first, "`goto" .. (label and " " .. label or "") .. "` is not in the grammar",
-    label == "continue" and "write `continue" .. "`" or
-      "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an `if` around the code to skip, or move the code into a function and `return` from it")
+  report("label_or_goto", first, "`goto" .. (if label then " " .. label else "" end) .. "` is not in the grammar",
+    if label == "continue" then "write `continue" .. "`" else
+      "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an `if` around the code to skip, or move the code into a function and `return` from it" end)
   return skip_junk(first, false)
 end
 
@@ -2336,7 +2336,7 @@ local function parse_expression_statement(): Ast.Stat
   local first = S.pos
   local e = parse_prefix()
   if S.text == "=" or S.text == "," then
-    local targets: {Ast.Exp} = { e }
+    local targets: mut {Ast.Exp} = { e }
     while S.text == "," do
       advance()
       targets[#targets + 1] = parse_prefix()
@@ -2352,11 +2352,11 @@ local function parse_expression_statement(): Ast.Stat
     local values = parse_explist()
     return { kind = "Assign", id = 0, first = first, last = S.pos - 1, targets = targets, values = values }
   end
-  if e is Ast.Call then
+  if (e.kind == "Call") then
     return { kind = "CallStat", id = 0, first = first, last = S.pos - 1, call = e }
-  elseif e is Ast.MethodCall then
+  elseif (e.kind == "MethodCall") then
     return { kind = "CallStat", id = 0, first = first, last = S.pos - 1, call = e }
-  elseif e is Ast.Error then
+  elseif (e.kind == "Error") then
     return e
   end
   local b = base_of(e)
@@ -2380,11 +2380,11 @@ local DECLARATIONS <const>: {string: boolean} = {
 --- Whether `stat` is a `local x = require("m")`.
 local function is_require_local(stat: Ast.Local): boolean
   local value = stat.values[1]
-  if #stat.bindings ~= 1 or #stat.values ~= 1 or #stat.types > 0 or not (value is Ast.Call) then
+  if #stat.bindings ~= 1 or #stat.values ~= 1 or #stat.types > 0 or not ((value.kind == "Call")) then
     return false
   end
   local callee, literal = value.callee, value.args[1]
-  return callee is Ast.Name and callee.text == "require" and #value.args == 1 and literal is Ast.String
+  return (callee.kind == "Name") and callee.text == "require" and #value.args == 1 and (literal.kind == "String")
 end
 
 --- What a declaration file does not hold in `stat`, which is at the top level
@@ -2395,19 +2395,19 @@ local function declaration_problem(stat: Ast.Stat, top: boolean): string
   local kind = base_of(stat).kind
   if DECLARATIONS[kind] then
     return ""
-  elseif stat is Ast.Local then
+  elseif (stat.kind == "Local") then
     if stat.scope == "global" or is_require_local(stat) then
       return ""
     end
     return "a `local` of a declaration file is `local x = require(\"m\")`"
-  elseif stat is Ast.Return then
+  elseif (stat.kind == "Return") then
     local value = stat.values[1]
-    if top and #stat.values == 1 and value is Ast.Name then
+    if top and #stat.values == 1 and (value.kind == "Name") then
       return ""
     end
     return "a declaration file ends in one `return Name`, outside any block"
   end
-  return "a declaration file holds declarations, not " .. (kind == "CallStat" and "calls" or "this statement")
+  return "a declaration file holds declarations, not " .. (if kind == "CallStat" then "calls" else "this statement" end)
 end
 
 local LITERAL_KIND <const>: {string: boolean} = { string = true, integer = true, number = true }
@@ -2485,7 +2485,7 @@ end
 --- the file ends.
 parse_block = function(mode: integer): Ast.Block
   local first = S.pos
-  local stats: {Ast.Stat} = {}
+  local stats: mut {Ast.Stat} = {}
   if S.nesting >= MAX_NESTING then
     report("too_deep", first, "more than " .. MAX_NESTING .. " levels of nesting",
       "split the code: name an inner expression with a `local`, or move an inner block into a function")
@@ -2582,13 +2582,13 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   end
   -- A statement after a `return` that begins a line the open construct ended at is that
   -- construct's missing `end`, which is the error.
-  local unclosed: {integer: boolean} = {}
+  local unclosed: mut {integer: boolean} = {}
   for _, e in ipairs(errors) do
     if e.code == "unclosed" then
       unclosed[e.offset] = true
     end
   end
-  local kept: {Parser.Error} = {}
+  local kept: mut {Parser.Error} = {}
   for _, e in ipairs(errors) do
     if not (e.code == "statement_after_return" and unclosed[e.offset]) then
       kept[#kept + 1] = e

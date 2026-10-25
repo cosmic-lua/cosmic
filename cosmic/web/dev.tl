@@ -82,7 +82,7 @@ local record Dev
     --- Starts the program given its whole environment, in place of
     --- [`Child.start`] on `command` with that environment; for a program that
     --- needs more than an argument list. Nil and why where it cannot start.
-    start?: function(env: {string:string}): Child.Handle | nil, string
+    start?: function(env: {string:string}): Child.Handle?, string
     --- Directories whose files are watched (the working directory by
     --- default). A change to one's size or time, or an added or removed
     --- file, restarts the program.
@@ -209,7 +209,7 @@ local SCRIPT <const> = [==[
 ]==]
 
 --- The tag that loads the script, with `nonce` when the request drew one.
-local function tag(nonce: string | nil): string
+local function tag(nonce: string?): string
   if nonce == nil or nonce == "" then return '<script src="/_web/dev.js" defer></script>' end
   return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
 end
@@ -238,7 +238,7 @@ local function from_environment(): boolean
   return Env.get("COSMIC_WEB_DEV") == "1"
 end
 
-local function is_enabled(opts: Dev.Options | nil): boolean
+local function is_enabled(opts: Dev.Options?): boolean
   if opts ~= nil then
     local enabled = opts.enabled
     if enabled ~= nil then return enabled end
@@ -257,9 +257,9 @@ end
 --- A test of whether an entry is ignored, from `globs`; see
 --- [`Dev.SuperviseOptions`]'s `ignore`.
 local function ignorer(globs: {string}): function(rel: string, name: string): boolean
-  local names: {string} = {}
-  local paths: {string} = {}
-  local anchored: {string} = {}
+  local names: mut {string} = {}
+  local paths: mut {string} = {}
+  local anchored: mut {string} = {}
   for _, glob in ipairs(globs) do
     if glob:sub(1, 1) == "/" then
       anchored[#anchored + 1] = pattern_of(glob)
@@ -295,8 +295,8 @@ end
 --- `absent_ok`. A file that vanishes between the listing and its stat is
 --- left out, as it is a change.
 local function scan(roots: {string}, ignored: function(string, string): boolean,
-                    absent_ok?: boolean): {string:string} | nil, string
-  local found: {string:string} = {}
+                    absent_ok?: boolean): {string:string}?, string
+  local found: mut {string:string} = {}
   for _, root in ipairs(roots) do
     local files: {string} = {}
     local present, _ = Fs.exists(root)
@@ -321,7 +321,7 @@ end
 --- The paths that are in one of `before` and `after` and not the other or
 --- differ between them, sorted.
 local function changed(before: {string:string}, after: {string:string}): {string}
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path, state in pairs(after) do
     if before[path] ~= state then paths[#paths + 1] = path end
   end
@@ -340,13 +340,13 @@ local record Watch is Sse.EventSource
   roots: {string}
   ignored: function(string, string): boolean
   interval_ns: integer
-  last: {string:string} | nil
-  trouble: boolean
+  mut last: {string:string}?
+  mut trouble: boolean
   sink: Types.Sink
-  queue: {Sse.Event}
-  shut: boolean
+  queue: mut {Sse.Event}
+  mut shut: boolean
   notifier: Poll.Notifier
-  next: function(Watch, timeout_ns?: integer): Sse.Event | nil, string
+  next: function(Watch, timeout_ns?: integer): Sse.Event?, string
   close: function(Watch)
 end
 
@@ -356,9 +356,9 @@ local function event_for(paths: {string}): Sse.Event
   for _, path in ipairs(paths) do
     if not path:find("%.css$") then css = false end
   end
-  local shown: {string} = {}
+  local shown: mut {string} = {}
   for i = 1, math.min(#paths, LISTED) do shown[i] = paths[i] end
-  return Sse.text(css and "css" or "reload", table.concat(shown, "\n"))
+  return Sse.text(if css then "css" else "reload" end, table.concat(shown, "\n"))
 end
 
 --- Looks at the directory once, queueing an event for what moved.
@@ -380,8 +380,8 @@ local function look(self: Watch)
   if #paths > 0 then self.queue[#self.queue + 1] = event_for(paths) end
 end
 
-function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event | nil, string
-  local deadline: integer | nil = nil
+function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event?, string
+  local deadline: integer? = nil
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
     if self.queue[1] ~= nil then return table.remove(self.queue, 1), "" end
@@ -427,14 +427,14 @@ end
 --- `res` with the script's tag (what `tag` makes of `nonce`) before its
 --- last `</body>`, as a copy; `res` itself where it is no page of markup
 --- in a string, or has no end of body.
-local function injected(res: Types.Response, nonce: string | nil): Types.Response
+local function injected(res: Types.Response, nonce: string?): Types.Response
   local body = res.body
   if not body is string then return res end
   local kind = Response.header(res, "Content-Type")
   if kind == nil or not kind:lower():find("^text/html") then return res end
   if Response.header(res, "Content-Encoding") ~= nil then return res end
   local lowered = body:lower()
-  local at: integer | nil = nil
+  local at: integer? = nil
   local from = 1
   while true do
     local found = lowered:find("</body>", from, true)
@@ -443,7 +443,7 @@ local function injected(res: Types.Response, nonce: string | nil): Types.Respons
   end
   if at == nil then return res end
   local page = body:sub(1, at - 1) .. tag(nonce) .. body:sub(at)
-  local headers: {string: string | {string}} = {}
+  local headers: mut {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
   local copy: Types.Response = { status = res.status }
   for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end
@@ -492,13 +492,13 @@ local function reload(boot: string, static: string, interval_ns: integer): Types
 end
 
 --- The boot token for `opts`.
-local function boot_of(opts: Dev.Options | nil): string
+local function boot_of(opts: Dev.Options?): string
   local boot = opts and opts.boot
   if opts ~= nil and boot ~= nil then return boot end
   return Env.get("COSMIC_WEB_BOOT") or tostring(Clock.now_ns())
 end
 
-local function checked_options(opts: Dev.Options | nil, level: integer)
+local function checked_options(opts: Dev.Options?, level: integer)
   checked(opts, OPTION_FIELDS, "dev")
   if opts == nil then return end
   local enabled: any = opts.enabled
@@ -526,7 +526,7 @@ function Dev.app(spec: Types.AppSpec, opts?: Dev.Options): Types.App
   if type(spec) ~= "table" then error("web: app takes a table", 2) end
   local given: Dev.Options = opts or {}
   local hosts = spec.trusted_hosts or LOCAL_HOSTS
-  local stack: {Types.Middleware} = {
+  local stack: mut {Types.Middleware} = {
     reload(boot_of(opts), given.static or "static", given.interval_ns or DEFAULT_INTERVAL_NS),
   }
   for _, layer in ipairs(spec.middleware or {}) do stack[#stack + 1] = layer end
@@ -571,8 +571,8 @@ end
 --- The program [`Dev.supervise`] runs: its handle while it runs, and how
 --- many times it has started.
 local record Program
-  handle: Child.Handle | nil
-  boot: integer
+  mut handle: Child.Handle?
+  mut boot: integer
 end
 
 --- Runs the program and restarts it on a change until a SIGINT or SIGTERM
@@ -594,7 +594,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local interval_ns = given.interval_ns or SUPERVISE_INTERVAL_NS
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
-  local ignore: {string}
+  local ignore: mut {string}
   local given_ignore = given.ignore
   if given_ignore ~= nil then
     ignore = given_ignore
@@ -604,7 +604,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     ignore[#ignore + 1] = "/" .. (given.static or "static")
   end
   local ignored = ignorer(ignore)
-  local start: function(env: {string:string}): Child.Handle | nil, string
+  local start: function(env: {string:string}): Child.Handle?, string
   local given_start = given.start
   if given_start ~= nil then
     start = given_start
@@ -618,7 +618,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       if program == nil then return false, "web: dev: no program to run: " .. why end
       command = { program, "app.tl" }
     end
-    start = function(env: {string:string}): Child.Handle | nil, string
+    start = function(env: {string:string}): Child.Handle?, string
       return Child.start(command, { env = env })
     end
   end
@@ -672,7 +672,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
 
   -- A change is acted on once a look finds nothing further moved, so an
   -- editor's burst of writes (or a build's) restarts the program once.
-  local pending: {string} | nil = nil
+  local pending: {string}? = nil
   launch()
   while guard:cancelled() == 0 do
     local running = program.handle

@@ -51,18 +51,18 @@ end
 
 --- The value of each draw, in order: the input to replay them.
 function Shrink.values_of(draws: {Shrink.Draw}): {integer}
-  local out: {integer} = {}
+  local out: mut {integer} = {}
   for i, d in ipairs(draws) do out[i] = d.value end
   return out
 end
 
 --- What a shrink has found and spent so far.
 local record Search
-  best: {Shrink.Draw}
-  tries: integer
-  proposals: integer
-  cached: integer
-  improvements: integer
+  mut best: {Shrink.Draw}
+  mut tries: integer
+  mut proposals: integer
+  mut cached: integer
+  mut improvements: integer
 end
 
 --- The smallest failing draws found from `draws`, which must fail, and
@@ -76,11 +76,11 @@ end
 function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
                        max_tries: integer): Shrink.Shrunk
   local search: Search = { best = draws, tries = 0, proposals = 0, cached = 0, improvements = 0 }
-  local seen: {string: boolean} = {}
-  local settled: {integer: string} = {}
+  local seen: mut {string: boolean} = {}
+  local settled: mut {integer: string} = {}
 
   local function key(values: {integer}): string
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for i, value in ipairs(values) do parts[i] = string.pack("<i8", value) end
     return table.concat(parts)
   end
@@ -112,7 +112,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     local changed = false
     local i = #search.best - size + 1
     while i >= 1 and search.proposals < limit do
-      local values: {integer} = {}
+      local values: mut {integer} = {}
       for j, d in ipairs(search.best) do
         if j < i or j >= i + size then values[#values + 1] = d.value end
       end
@@ -131,7 +131,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     improved = false
     -- Coarse deletions cheaply remove large stretches. Try intervening
     -- lengths only after the cheap passes stop making progress.
-    local sizes: {integer: boolean} = {}
+    local sizes: mut {integer: boolean} = {}
     local size = #search.best
     -- Repetitive deletions must leave work for reducing draw values.
     local deletion_limit = search.proposals + (max_tries - search.proposals) // 2
@@ -207,7 +207,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
   end
   return { draws = search.best, tries = search.tries, cached = search.cached,
     improvements = search.improvements,
-    reason = search.proposals >= max_tries and "budget" or "exhausted" }
+    reason = if search.proposals >= max_tries then "budget" else "exhausted" end }
 end
 
 return Shrink

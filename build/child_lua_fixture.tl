@@ -32,7 +32,7 @@ end
 --- each test starts, where a shell would need the system's. Its argv and
 --- options are for [`Child.run`] or [`Child.start`].
 function child_lua_fixture.lua(chunk: string, args?: {string}, opts?: Child.Options): this_program.Program
-  local words: {string} = { "-e", chunk }
+  local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
   return this_program.program(words, opts)
 end

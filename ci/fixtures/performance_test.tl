@@ -80,7 +80,7 @@ end
 local function test_independent_fixture_histories_match_through_warmups_and_samples(tmp: string)
   local result = run(tmp, controller())
   assert(result.code == 2, diagnostic(result))
-  local metadata, metadata_trouble: Metadata | nil, string =
+  local metadata, metadata_trouble: Metadata?, string =
     METADATA:decode_into((assert(Fs.read(tmp .. "/results/metadata.json"))))
   assert(metadata ~= nil, metadata_trouble)
   assert(metadata.protocol == "fixed-sample-v3" and metadata.exploratory == true)
@@ -97,7 +97,7 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
     -- gives each COSMIC_BUILD_HOME=<fixture>-build), as build/paths.tl names it.
     local real = (assert(sys.realpath(tmp .. "/results")))
     local built = real .. "/" .. phase .. "-a-build/" .. Hash.hex_sha256(real .. "/" .. phase .. "-a")
-    local observations, observed_trouble: {Observation} | nil, string = Shape.decode_into(
+    local observations, observed_trouble: {Observation}?, string = Shape.decode_into(
       (assert(Fs.read(built .. "/perf/" .. phase .. "-uses.json"))), OBSERVATIONS)
     assert(observations ~= nil, observed_trouble)
     assert(#observations == 2 * (pairs_sampled + 3))
@@ -108,7 +108,7 @@ local function test_independent_fixture_histories_match_through_warmups_and_samp
       assert(before[5] == tostring(3 + iteration) and before[6] == before[5])
       assert(after[5] == tostring(4 + iteration) and after[6] == after[5])
       assert(after[1] == "0" and after[2] == "6" and after[3] == "0")
-      assert(observation.cwd == root .. "/" .. phase .. "-" .. (i % 2 == 1 and "a" or "b"))
+      assert(observation.cwd == root .. "/" .. phase .. "-" .. (if i % 2 == 1 then "a" else "b" end))
     end
   end
 end

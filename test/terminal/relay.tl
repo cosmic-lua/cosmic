@@ -34,7 +34,7 @@ local record Caller
   master: integer
   slave: integer
   before: string
-  shown: string
+  mut shown: string
 end
 
 --- Whether two termios states (opaque bytes from tcgetattr) are the same

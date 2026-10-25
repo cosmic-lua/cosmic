@@ -293,7 +293,7 @@ local function lower(text: string): string
 end
 
 --- The four decimal octets of `text`, or nil.
-local function octets(text: string): {integer} | nil
+local function octets(text: string): {integer}?
   local bytes = Grant.address(text)
   return bytes ~= nil and #bytes == 4 and bytes or nil
 end
@@ -304,7 +304,7 @@ end
 
 --- The sixteen bytes of `text`, an IPv6 address without brackets or a zone,
 --- or nil and why.
-local function ipv6_bytes(text: string): {integer} | nil, string
+local function ipv6_bytes(text: string): {integer}?, string
   local bytes = text:find(":", 1, true) and Grant.address(text) or nil
   if bytes == nil or #bytes ~= 16 then
     if text:find("[^%x:%.]") or not text:find(":", 1, true) then
@@ -317,7 +317,7 @@ end
 
 --- `text`, an IPv6 address without brackets or a zone, in RFC 5952's
 --- form, or nil and why.
-local function ipv6(text: string): string | nil, string
+local function ipv6(text: string): string?, string
   local bytes, bad = ipv6_bytes(text)
   if bytes == nil then
     return nil, bad
@@ -328,7 +328,7 @@ end
 local dns_name = Grant.name
 
 --- A host in the form a grant is matched in and its kind, or nil, nil and why.
-local function bare_host(text: string): string | nil, relay_wire.Kind | nil, string
+local function bare_host(text: string): string?, relay_wire.Kind?, string
   if ipv4(text) then
     return text, "ipv4", ""
   end
@@ -343,13 +343,13 @@ local port_of = Grant.port
 
 --- A `host:port` authority taken apart.
 local record Authority
-  host: string
-  kind: relay_wire.Kind
-  port: integer
+  mut host: string
+  mut kind: relay_wire.Kind
+  mut port: integer
 end
 
 --- `text` as a `host:port` authority, or nil and why.
-local function authority(text: string): Authority | nil, string
+local function authority(text: string): Authority?, string
   if text:find("@", 1, true) then
     return nil, "userinfo is not allowed in a CONNECT target"
   end
@@ -423,17 +423,17 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
   --- first byte of the line being read, and what the head has said so
   --- far.
   local record Reading
-    final: relay_wire.Connect | nil
+    final: relay_wire.Connect?
     seen: integer
     line_start: integer
     pieces: {string}
     after_cr: boolean
     first: boolean
     count: integer
-    authorization: string | nil
-    host: string | nil
-    kind: relay_wire.Kind | nil
-    port: integer | nil
+    authorization: string?
+    host: string?
+    kind: relay_wire.Kind?
+    port: integer?
   end
   local st: Reading = { seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
 
@@ -448,13 +448,13 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
   end
 
   local function line_refusal(): relay_wire.Connect
-    return finish(refused(("%s longer than %s"):format(st.first and "request line" or "header line",
-      String.counted(MAX_LINE, "byte")), st.first and 414 or 431))
+    return finish(refused(("%s longer than %s"):format(if st.first then "request line" else "header line" end,
+      String.counted(MAX_LINE, "byte")), if st.first then 414 else 431 end))
   end
 
   --- What a whole line, ending at position `at`, decides: an answer, or
   --- nil to go on.
-  local function line(content: string, at: integer): relay_wire.Connect | nil
+  local function line(content: string, at: integer): relay_wire.Connect?
     if st.first then
       st.first = false
       local method = content:match("^[^ \t]*")
@@ -613,7 +613,7 @@ local function read_greeting(buf: string, password: boolean): relay_wire.SocksGr
     return { status = "more", consumed = 0 }
   end
   local count = buf:byte(2)
-  local want = password and 2 or 0
+  local want = if password then 2 else 0 end
   if count == 0 then
     return { status = "refused", consumed = 0, method = 255, reason = "no authentication method offered" }
   end
@@ -626,8 +626,8 @@ local function read_greeting(buf: string, password: boolean): relay_wire.SocksGr
     end
   end
   return { status = "refused", consumed = 0, method = 255,
-    reason = password and "the sandbox's token needs username/password authentication (method 0x02)" or
-      "no-authentication (method 0x00) was not offered" }
+    reason = if password then "the sandbox's token needs username/password authentication (method 0x02)" else
+      "no-authentication (method 0x00) was not offered" end }
 end
 
 --- The reply to a greeting: the method chosen, or 255.
@@ -672,7 +672,7 @@ end
 --- The reply to a username and password: success, or failure, after which
 --- the connection closes.
 function relay_wire.socks_auth_reply(ok: boolean): string
-  return ok and "\1\0" or "\1\1"
+  return if ok then "\1\0" else "\1\1" end
 end
 
 --- The code of each [`relay_wire.SocksReply`].
@@ -730,7 +730,7 @@ local function read_request(buf: string): relay_wire.SocksRequest
     if size < 20 then
       return { status = "more", consumed = 0 }
     end
-    local g: {string} = {}
+    local g: mut {string} = {}
     for i = 0, 7 do
       g[#g + 1] = ("%x"):format(buf:byte(5 + 2 * i) * 256 + buf:byte(6 + 2 * i))
     end
@@ -783,8 +783,8 @@ end
 --- is fed and reads it again, which costs at most that many bytes a feed
 --- and nothing once it has answered.
 local record Held<T>
-  held: string
-  final: T | nil
+  mut held: string
+  mut final: T?
 end
 
 local function small_reader<T>(read: function(string): T, decided: function(T): boolean): function(string): T
@@ -849,7 +849,7 @@ end
 --- authentication (method 0) alone, or with `with_password` username and
 --- password (method 2) alone, which is what a relay with a token takes.
 function relay_wire.socks_client_greeting(with_password?: boolean): string
-  return with_password == true and "\5\1\2" or "\5\1\0"
+  return if with_password == true then "\5\1\2" else "\5\1\0" end
 end
 
 --- The username and password message (RFC 1929) a client sends once the
@@ -859,7 +859,7 @@ end
 --- @param password the password
 --- @return the message, or nil
 --- @return why, when there is none
-function relay_wire.socks_client_auth(user: string, password: string): string | nil, string
+function relay_wire.socks_client_auth(user: string, password: string): string?, string
   if user == "" then return nil, "the username is empty" end
   if password == "" then return nil, "the password is empty" end
   if #user > 255 then return nil, "the username is longer than 255 bytes" end
@@ -877,7 +877,7 @@ end
 --- @param port the port
 --- @return the request, or nil
 --- @return why, when there is none
-function relay_wire.socks_client_request(host: string, port: integer): string | nil, string
+function relay_wire.socks_client_request(host: string, port: integer): string?, string
   if math.type(port) ~= "integer" or port < 1 or port > 65535 then
     return nil, "the port is not a number from 1 to 65535"
   end
@@ -912,7 +912,7 @@ local function read_method_answer(buf: string, password: boolean): relay_wire.So
     return { status = "more", consumed = 0 }
   end
   local method = buf:byte(2)
-  local offered = password and 2 or 0
+  local offered = if password then 2 else 0 end
   if method == offered then
     return { status = "done", consumed = 2, method = method }
   elseif method == 255 then
@@ -938,7 +938,7 @@ local function read_auth_answer(buf: string): relay_wire.SocksAuthAnswer
 end
 
 --- The reply codes by number, from [`SOCKS_CODES`].
-local SOCKS_REPLIES <const>: {integer: relay_wire.SocksReply} = {}
+local SOCKS_REPLIES <const>: mut {integer: relay_wire.SocksReply} = {}
 for name, code in pairs(SOCKS_CODES) do
   SOCKS_REPLIES[code] = name
 end
@@ -1069,7 +1069,7 @@ local ENCRYPTED <const>: {integer: boolean} = { [0xfe0d] = true, [0xffce] = true
 
 --- The server name in the body of a ClientHello message (what follows its
 --- four-byte header), or nil and why not.
-local function hello_name(body: string): ServerName | nil, string
+local function hello_name(body: string): ServerName?, string
   local size = #body
   if size < 35 then
     return nil, "ClientHello shorter than its fixed fields"
@@ -1106,7 +1106,7 @@ local function hello_name(body: string): ServerName | nil, string
     return nil, "ClientHello extensions length does not reach the end of the hello"
   end
   at = at + 2
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   local found = ""
   local encrypted = false
   while at <= size do
@@ -1230,7 +1230,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
   --- complete records, by piece, and the size of the message once its
   --- four-byte header is in (`total`).
   local record Reading
-    final: relay_wire.Hello | nil
+    final: relay_wire.Hello?
     pending: {string}
     pending_len: integer
     need: integer
@@ -1238,7 +1238,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
     records: integer
     parts: {string}
     gathered: integer
-    total: integer | nil
+    total: integer?
   end
   local st: Reading = { pending = {}, pending_len = 0, need = 5, base = 0, records = 0, parts = {},
     gathered = 0 }
@@ -1251,7 +1251,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
 
   --- Takes the whole record at `data`'s `pos`, of `length` payload bytes:
   --- an answer once the hello is complete or refused, else nil.
-  local function take(data: string, pos: integer, length: integer): relay_wire.Hello | nil
+  local function take(data: string, pos: integer, length: integer): relay_wire.Hello?
     st.records = st.records + 1
     if st.records > MAX_RECORDS then
       return finish(malformed(("a ClientHello in more than %s"):format(String.counted(MAX_RECORDS, "record"))))

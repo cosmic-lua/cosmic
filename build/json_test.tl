@@ -11,13 +11,13 @@ local DOC <const> = [[
 ]]
 
 local record Ran
-  code: integer
-  out: string
-  err: string
+  mut code: integer
+  mut out: string
+  mut err: string
 end
 
 local function argv_of(words: {string}): {string}
-  local argv: {string} = { "json" }
+  local argv: mut {string} = { "json" }
   for index, word in ipairs(words) do argv[index + 1] = word end
   return argv
 end
@@ -33,7 +33,7 @@ local function run(words: {string}, stdin?: string): Ran
       return true, ""
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
-    stdin = function(): string | nil, string
+    stdin = function(): string?, string
       if stdin == nil then return nil, "no standard input in this test" end
       return stdin, ""
     end,
@@ -321,7 +321,7 @@ local function test_a_failed_write_exits_2_and_says_so(tmp: string)
   local code = json.run(argv_of({ file(tmp) }), {
     out = function(_: string): boolean, string return false, "No space left on device" end,
     err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
-    stdin = function(): string | nil, string return nil, "unused" end,
+    stdin = function(): string?, string return nil, "unused" end,
   })
   assert(code == 2, code)
   assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value)
@@ -329,7 +329,7 @@ local function test_a_failed_write_exits_2_and_says_so(tmp: string)
     local again = json.run(argv_of({ mode, file(tmp) }), {
       out = function(_: string): boolean, string return false, "closed" end,
       err = function(_: string) end,
-      stdin = function(): string | nil, string return nil, "unused" end,
+      stdin = function(): string?, string return nil, "unused" end,
     })
     assert(again == 2, mode)
   end
@@ -497,11 +497,11 @@ local function test_every_path_flat_prints_reads_back_to_its_leaf(tmp: string)
   local doc = file(tmp, ROUND_DOC)
   local flat = run({ "--flat", doc })
   assert(flat.code == 0, flat.err)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in flat.out:gmatch("[^\n]+") do lines[#lines + 1] = line end
   -- The 18 leaves of the document, none twice.
   assert(#lines == 18, #lines .. "\n" .. flat.out)
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   for _, line in ipairs(lines) do
     local path, value = split_flat(line)
     assert(not seen[path], "twice: " .. path)
@@ -564,7 +564,7 @@ local function test_flat_over_nested_matches_prints_each_leaf_once(tmp: string)
 end
 
 local function test_flat_of_many_nested_matches_prints_only_the_distinct_leaves(tmp: string)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for i = 1, 200 do parts[i] = '{"a": {"a": {"a": ' .. i .. '}}}' end
   local ran = run({ "--flat", "$..a", file(tmp, "[" .. table.concat(parts, ",") .. "]") })
   local lines = 0

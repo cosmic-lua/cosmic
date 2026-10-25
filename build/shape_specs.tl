@@ -59,25 +59,25 @@ local type Node = ast.Node
 --- neither names the array, map and enum members a spec is built from.
 local record Ty
   typename: string
-  typeid: integer | nil
+  typeid: integer?
   --- A nominal's type declaration, once resolved, and its definition
   --- when it has none.
-  found: Ty | nil
-  resolved: Ty | nil
+  found: Ty?
+  resolved: Ty?
   --- A nominal's type arguments: set only when it instantiates a generic.
-  typevals: {Ty} | nil
+  typevals: {Ty}?
   --- A typedecl's definition.
-  def: Ty | nil
-  fields: {string: Ty} | nil
+  def: Ty?
+  fields: {string: Ty}?
   --- The array part a record declares (`record R is {T}`), or an
   --- array's element.
-  elements: Ty | nil
-  keys: Ty | nil
-  values: Ty | nil
-  types: {Ty} | nil
-  enumset: {string: boolean} | nil
-  interface_list: {Ty} | nil
-  is_userdata: boolean | nil
+  elements: Ty?
+  keys: Ty?
+  values: Ty?
+  types: {Ty}?
+  enumset: {string: boolean}?
+  interface_list: {Ty}?
+  is_userdata: boolean?
 end
 
 --- A checked type object of tl's, as [`Ty`] reads it.
@@ -92,7 +92,7 @@ end
 
 --- The type under a nominal and a declaration, nil and why when there is
 --- none to read: an alias is followed, a generic is not.
-local function unwrapped(t: Ty): Ty | nil, string
+local function unwrapped(t: Ty): Ty?, string
   local at = t
   for _ = 1, 16 do
     local name = at.typename
@@ -125,18 +125,18 @@ local LEAVES <const>: {string: boolean} = {
 
 --- Names in byte order, as [`Shape.record`] keeps them.
 local function sorted(set: {string: any}): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(set) do names[#names + 1] = name end
   table.sort(names)
   return names
 end
 
-local spec_of: function(t: Ty, path: string, shape: string, holding: {integer: boolean}): string | nil, string
+local spec_of: function(t: Ty, path: string, shape: string, holding: {integer: boolean}): string?, string
 
 --- `T | nil` as `Shape.optional(T)`: the one union a spec has a word for.
 local function optional_of(at: Ty, path: string, shape: string,
-                           holding: {integer: boolean}): string | nil, string
-  local present: Ty | nil = nil
+                           holding: {integer: boolean}): string?, string
+  local present: Ty? = nil
   local missing = false
   for _, member in ipairs(at.types or {}) do
     if member.typename == "nil" then
@@ -157,7 +157,7 @@ local function optional_of(at: Ty, path: string, shape: string,
 end
 
 local function record_spec(at: Ty, path: string, shape: string,
-                           holding: {integer: boolean}): string | nil, string
+                           holding: mut {integer: boolean}): string?, string
   if at.is_userdata then
     return nil, path .. ": a userdata record has no shape"
   end
@@ -179,7 +179,7 @@ local function record_spec(at: Ty, path: string, shape: string,
     end
     holding[id] = true
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local fields = at.fields or {}
   for _, name in ipairs(sorted(fields)) do
     local member = fields[name]
@@ -201,7 +201,7 @@ end
 --- `t`, or nil and why it has none. `path` names where `t` is, for the
 --- message, and `holding` the records being read, which none may hold.
 spec_of = function(t: Ty, path: string, shape: string,
-                   holding: {integer: boolean}): string | nil, string
+                   holding: {integer: boolean}): string?, string
   local at, why = unwrapped(t)
   if at == nil then
     return nil, path .. ": " .. why
@@ -225,7 +225,7 @@ spec_of = function(t: Ty, path: string, shape: string,
     local key, key_why = unwrapped(keys)
     if key == nil or key.typename ~= "string" then
       return nil, path .. ": a map keyed by anything but a string has no shape" ..
-        (key_why ~= "" and " (" .. key_why .. ")" or "")
+        (if key_why ~= "" then " (" .. key_why .. ")" else "" end)
     end
     local inner, trouble = spec_of(values, path .. "{}", shape, holding)
     if inner == nil then return nil, trouble end
@@ -234,7 +234,7 @@ spec_of = function(t: Ty, path: string, shape: string,
     -- The checker keeps an enum as a set, so its declaration order is not
     -- there to read: the values go in byte order, as [`Shape.record`] keeps
     -- its fields, and a message that lists them is in that order.
-    local values: {string} = {}
+    local values: mut {string} = {}
     for _, name in ipairs(sorted(at.enumset or {})) do
       -- The checker keeps a value's source text, escapes unread, so a
       -- backslash would build a value the data never holds.
@@ -263,8 +263,8 @@ spec_of = function(t: Ty, path: string, shape: string,
 end
 
 --- The type `path` names inside `at`, a record: `Inner` or `Inner.More`.
-local function nested(at: Ty, path: string): Ty | nil
-  local here: Ty | nil = at
+local function nested(at: Ty, path: string): Ty?
+  local here: Ty? = at
   for name in path:gmatch("[^.]+") do
     if here == nil then return nil end
     local owner, _ = unwrapped(here)
@@ -309,8 +309,8 @@ end
 
 --- The record the call at `y`, `x` reads as `name`: the nearest declaration
 --- of that name above it whose block it is in, in the checked tree `root`.
-local function declared(root: Node, name: string, y: integer, x: integer): Ty | nil
-  local best: Declaration | nil = nil
+local function declared(root: Node, name: string, y: integer, x: integer): Ty?
+  local best: Declaration? = nil
   for _, candidate in ipairs(declarations(root, name)) do
     local above = candidate.y < y or (candidate.y == y and candidate.x < x)
     local inside = candidate.end_y == 0 or y < candidate.end_y or
@@ -324,7 +324,7 @@ local function declared(root: Node, name: string, y: integer, x: integer): Ty | 
 end
 
 --- The module `call` requires, when it is `require("name")`.
-local function required_name(call: Node | nil): string | nil
+local function required_name(call: Node?): string?
   if call == nil or call.kind ~= "op" then return nil end
   local op, callee, args = call.op, call.e1, call.e2
   if op == nil or op.op ~= "@funcall" or callee == nil or callee.kind ~= "variable" or
@@ -340,10 +340,10 @@ end
 --- binds (`local Fs = require("cosmic.fs")`, or `local type Fs = ...`).
 --- A module bound twice answers its first name.
 local function required(root: Node): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, statement in ipairs(root) do
-    local name: string | nil = nil
-    local alias: Node | nil = nil
+    local name: string? = nil
+    local alias: Node? = nil
     if statement.kind == "local_declaration" then
       local vars, exps = statement.vars, statement.exps
       if vars ~= nil and exps ~= nil and #vars == 1 and #exps == 1 then
@@ -364,7 +364,7 @@ end
 
 --- Where a call's name argument ends, as a byte offset into `source`: the
 --- close of a quoted string with no escape in it, which a name is.
-local function name_end(source: string, starts: {integer}, name: Node): integer | nil
+local function name_end(source: string, starts: {integer}, name: Node): integer?
   local at = ast.offset_of(starts, name.y, name.x)
   local quote = source:sub(at, at)
   if quote ~= '"' and quote ~= "'" then return nil end
@@ -385,7 +385,7 @@ end
 
 --- `name`, read as a record, or nil and why it is none.
 local function resolve(name: string, owned: Node, y: integer, x: integer,
-                       required_by: {string: string}, env: compiler.Env): Target | nil, string
+                       required_by: {string: string}, env: compiler.Env): Target?, string
   local first = name:match("^[^.]+")
   local own = declared(owned, first, y, x)
   if own ~= nil then
@@ -446,7 +446,7 @@ function shape_specs.splices(built: compiler, env: compiler.Env, file: string,
   end
   local pattern, pattern_trouble = ast.compile_pattern(built, "$S.record_of($N)")
   if pattern == nil then return { splices = none, refusal = pattern_trouble, line = 0 } end
-  local calls: {ast.Hit} = {}
+  local calls: mut {ast.Hit} = {}
   for _, hit in ipairs(ast.find_all(root, pattern)) do
     local on = hit.caps["_S"]
     if on ~= nil and on.kind == "variable" and on.tk == shape then
@@ -469,7 +469,7 @@ function shape_specs.splices(built: compiler, env: compiler.Env, file: string,
   end
 
   local starts = ast.line_starts(source)
-  local splices: {Splice} = {}
+  local splices: mut {Splice} = {}
   for _, hit in ipairs(calls) do
     local name = hit.caps["_N"]
     local where = ("%s:%d: %s.record_of"):format(file, hit.node.y, shape)
@@ -493,8 +493,8 @@ function shape_specs.splices(built: compiler, env: compiler.Env, file: string,
     end
     if at.typename ~= "record" then
       return { splices = none, line = hit.node.y, refusal = ("%s(%q): %s"):format(where, literal,
-        "it is " .. (at.typename == "enum" and "an enum, which " ..
-          shape .. ".one_of checks" or "a " .. at.typename .. ", not a record")) }
+        "it is " .. (if at.typename == "enum" then "an enum, which " ..
+          shape .. ".one_of checks" else "a " .. at.typename .. ", not a record" end)) }
     end
     local spec, refusal = spec_of(at, literal, shape, {})
     if spec == nil then
@@ -539,7 +539,7 @@ end
 --- @return string | nil the source to compile, or nil
 --- @return string "" or what was refused
 function shape_specs.resolve(built: compiler, env: compiler.Env, file: string,
-                             path: string, source: string): string | nil, string
+                             path: string, source: string): string?, string
   local found = shape_specs.splices(built, env, file, path, source)
   if found.refusal ~= "" then return nil, found.refusal end
   return shape_specs.spliced(source, found.splices), ""

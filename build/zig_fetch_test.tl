@@ -19,7 +19,7 @@ end
 
 --- The open descriptors of this process, each with what it names.
 local function descriptors(): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
   if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
@@ -86,8 +86,8 @@ local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 --- Answers each explicit outcome in turn, writing the successful file,
 --- and records calls, options and pauses. Only pauses and `per_call_ns`
 --- advance the clock.
-local function scripted(replies: {string:{Http.DownloadResult}}, calls: {string},
-                        sleeps: {integer}, per_call_ns?: integer, seen?: {Http.Options}): ZigFetch.Fetcher
+local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {string},
+                        sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {Http.Options}): ZigFetch.Fetcher
   local served: {string:integer} = {}
   local clock = { value = 0 }
   return {

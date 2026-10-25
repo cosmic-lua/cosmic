@@ -38,7 +38,7 @@ local built = assert(teal.load())
 
 --- Writes every entry of `files` (filename -> source) into a fresh
 --- project directory of its own, named after `case`.
-local function write_fixture(case: string, files: {string:string}): string | nil, string
+local function write_fixture(case: string, files: {string:string}): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
     return nil, trouble
@@ -59,7 +59,7 @@ end
 
 --- Stages and compiles one fixture run. Reopening the same root keeps its
 --- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result | nil, string
+local function compile_fixture(root: string): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -109,7 +109,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
       "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
       "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
   assert(#guidance == 1 and guidance[1]:text(1) == "Checks whether a path exists.")
-  local databases: {Sqlite.Handle} = { shipped }
+  local databases: mut {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
     databases[#databases + 1] = database
   end
@@ -296,7 +296,7 @@ local function test_a_closure_leaves_out_the_names_only_a_declaration_requires()
       "AND NOT EXISTS (SELECT 1 FROM imports i WHERE i.requires = d.requires) " ..
       "AND NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = d.requires)"))
   assert(#only > 0, "every name a declaration requires is a module the program holds")
-  local reached: {string:boolean} = {}
+  local reached: mut {string:boolean} = {}
   for _, name in ipairs(Store.closure({ "cosmic.json", "cosmic.archive" }, { types = true })) do
     reached[name] = true
   end
@@ -319,16 +319,16 @@ local function test_stored_edges_equal_the_parsed_ones()
     local source = assert(Store.source(name))
     local parsed = assert(ast.parse(built, source, name))
     local found = assert(ast.all_requires(built, parsed))
-    local set: {string:boolean} = {}
+    local set: mut {string:boolean} = {}
     for _, required in ipairs(found) do set[required] = true end
-    local wanted: {string} = {}
+    local wanted: mut {string} = {}
     for required in pairs(set) do wanted[#wanted + 1] = required end
     table.sort(wanted)
     local stored = assert(Sqlite.text_rows(binary,
       "SELECT requires FROM decl_imports WHERE path = ?1 AND requires <> '' " ..
         "ORDER BY requires",
       { { text = name } }))
-    local got: {string} = {}
+    local got: mut {string} = {}
     for index, edge in ipairs(stored) do got[index] = edge:text(1) end
     assert(table.concat(got, ",") == table.concat(wanted, ","),
       name .. ": stored " .. table.concat(got, ",") .. ", parsed " .. table.concat(wanted, ","))
@@ -360,12 +360,12 @@ end
 --- that reaches it, whether it requires that module or a module that
 --- does, by the stored edges; so does the same text served as the other.
 local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_it()
-  local function key_with(edited: string | nil, flipped?: boolean): string
+  local function key_with(edited: string?, flipped?: boolean): string
     local root = assert(write_fixture("embedded-edit" .. tostring(edited), {
       ["main.tl"] = 'local Json = require("cosmic.json")\nreturn Json\n',
     }))
     local standard_text = teal.standard_text
-    teal.standard_text = function(name: string): teal.Standard | nil
+    teal.standard_text = function(name: string): teal.Standard?
       local found = standard_text(name)
       if found ~= nil and name == edited then
         return { text = flipped and found.text or found.text .. "\n-- edited\n",

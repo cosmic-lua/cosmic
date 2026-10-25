@@ -179,7 +179,7 @@ local function build_verdicts(path: string): string
   if rows == nil then return "unreadable: " .. trouble end
   local verdicts = ""
   for i, row in ipairs(rows) do
-    verdicts = verdicts .. (i > 1 and " " or "") .. row:text(1)
+    verdicts = verdicts .. (if i > 1 then " " else "" end) .. row:text(1)
   end
   return verdicts
 end
@@ -232,7 +232,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   end
   local built = assert(teal.load())
   for _, succeeds in ipairs({ false, true }) do
-    local root = tmp .. (succeeds and "/valid" or "/failed")
+    local root = tmp .. (if succeeds then "/valid" else "/failed" end)
     assert(build_dir(root))
     local original = 'print("original")\n'
     assert(Fs.write(root .. "/main.tl", original))
@@ -527,7 +527,7 @@ end
 --- What a run wrote to its standard error, kept apart from what it wrote
 --- to its standard output.
 local record Said
-  err: string
+  mut err: string
 end
 
 --- How many rows of blame the working database of `root` keeps.

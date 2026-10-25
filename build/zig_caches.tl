@@ -17,8 +17,8 @@ end
 --- when set, else `tool` in this user's cosmic cache directory as
 --- [`Fs.cache_dir`] names it with `make = false`, so nothing is made, else
 --- what `fallback` names, nil where it names nothing.
-local function located(variable: string, tool: string, fallback: function(): string | nil,
-                       environment: {string:string}): string | nil
+local function located(variable: string, tool: string, fallback: function(): string?,
+                       environment: {string:string}): string?
   local given = environment[variable]
   if given ~= nil and given ~= "" then return given end
   local named, _ = Fs.cache_dir(tool, { environment = environment, make = false })
@@ -34,14 +34,14 @@ end
 --- directory ([`build.paths`]); each is left out where none of these
 --- names one, as zig then builds nothing for the tree.
 function zig_caches.paths(root: string, environment: {string:string}): {string}
-  local function in_build(name: string): function(): string | nil
-    return function(): string | nil
+  local function in_build(name: string): function(): string?
+    return function(): string?
       local directory, _ = build_paths.directory(root, environment)
       if directory == nil then return nil end
       return directory .. "/" .. name
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, path in ipairs({
       located("COSMIC_ZIG_GLOBAL_CACHE", "zig-global", in_build("zig-global"), environment) or "",
       located("COSMIC_ZIG_CACHE", "zig-project", in_build("zig-cache"), environment) or "",

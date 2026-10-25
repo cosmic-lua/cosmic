@@ -10,10 +10,10 @@ local key_parts = require("build.key_parts")
 --- Every byte alone, and strings of every length to 64 over a spread
 --- of bytes, hex-encode as [`Codec.hex`] does and decode back.
 local function test_hex_is_codec_hex_and_unhex_inverts_it()
-  local samples: {string} = { "" }
+  local samples: mut {string} = { "" }
   for byte = 0, 255 do samples[#samples + 1] = string.char(byte) end
   for length = 1, 64 do
-    local bytes: {string} = {}
+    local bytes: mut {string} = {}
     for i = 1, length do bytes[i] = string.char((i * 37 + length * 11) % 256) end
     samples[#samples + 1] = table.concat(bytes)
   end

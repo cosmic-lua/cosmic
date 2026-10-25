@@ -29,7 +29,7 @@ end
 
 --- The messages of `errors`, one to a line.
 local function shown(errors: {compiler.Error}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, e in ipairs(errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. tostring(e.code) .. " " .. e.msg
   end
@@ -402,7 +402,7 @@ end
 --- The not-assigned errors for `source`, which holds a `<close>` local: the
 --- file is checked for Lua 5.3, which refuses `<close>` itself.
 local function unassigned_errors(source: string): {compiler.Error}
-  local found: {compiler.Error} = {}
+  local found: mut {compiler.Error} = {}
   for _, e in ipairs(type_errors(source)) do
     if e.code == "not_assigned" then
       found[#found + 1] = e

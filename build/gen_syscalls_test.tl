@@ -48,7 +48,7 @@ local function docs(): {string: analyzer.DocEntry}
   assert(source ~= nil, trouble)
   local found, err = analyzer.analyze(built, source, "syscalls.d.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
-  local by_symbol: {string: analyzer.DocEntry} = {}
+  local by_symbol: mut {string: analyzer.DocEntry} = {}
   for _, entry in ipairs(found.docs) do
     by_symbol[entry.symbol] = entry
   end
@@ -108,7 +108,7 @@ end
 --- its own summary and mapped to its own header, not the syscall
 --- table's.
 local function test_a_target_names_its_own_record_and_header()
-  local process: gen_syscalls.Target | nil = nil
+  local process: gen_syscalls.Target? = nil
   for _, derivation in ipairs(gen_syscalls.targets) do
     if derivation.path == "cosmic.internal.process" then process = derivation.target end
   end
@@ -170,7 +170,7 @@ end
 --- exactly, in order: none missing, none extra, none out of place.
 local function test_constants_are_held_to_their_class()
   local function with(entries: {string}): string
-    local parts: {string} = {
+    local parts: mut {string} = {
       "/*",
       " * --- Closes a descriptor.",
       " * ---@param fd integer the descriptor",
@@ -272,7 +272,7 @@ end
 --- An alias whose block is malformed is refused, naming what is wrong.
 local function test_a_malformed_alias_is_refused()
   local function with(body: {string}): string
-    local parts: {string} = { "/*" }
+    local parts: mut {string} = { "/*" }
     for _, line in ipairs(body) do
       parts[#parts + 1] = " * ---" .. line
     end

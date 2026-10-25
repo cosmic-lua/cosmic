@@ -65,7 +65,7 @@ local function test_a_capture_in_a_value_position_binds_the_node()
   local cap = found[1].caps["_X"]
   assert(cap ~= nil and #cap.nodes == 1 and cap.first == cap.last - 2)
   local node = cap.nodes[1]
-  assert(node is Ast.Field and node.name == "z")
+  assert((node.kind == "Field") and node.name == "z")
 end
 
 local function test_a_capture_in_the_name_of_a_field_or_a_method_binds_its_token()

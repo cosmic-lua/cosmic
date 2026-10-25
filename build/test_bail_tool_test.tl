@@ -29,9 +29,9 @@ local function test_%s()
   assert(require("cosmic.fs").write(%q, "ran"))
   %s
 end
-]], name, name:sub(1, 2) == "b_" and 'require("cosmic.clock").sleep_ns(1000000000)' or "",
+]], name, if name:sub(1, 2) == "b_" then 'require("cosmic.clock").sleep_ns(1000000000)' else "" end,
       marks .. "/" .. name,
-      name:sub(1, 2) == "a_" and 'error("first test failed")' or "assert(true)")
+      if name:sub(1, 2) == "a_" then 'error("first test failed")' else "assert(true)" end)
   end
   assert(Fs.write(root .. "/suite/bail_test.tl", source))
   return root
@@ -47,7 +47,7 @@ local function invoke(root: string, output: string, words: {string},
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0"
   env.TMPDIR = Fs.dirname(output)
-  local argv: {string} = { "test", "--jobs", jobs or "1" }
+  local argv: mut {string} = { "test", "--jobs", jobs or "1" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
     cwd = root, env = env, stdout = fd, stderr = fd,

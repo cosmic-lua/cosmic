@@ -31,7 +31,7 @@ end
 function searchable.share(path: string): string
   local st, _ = sys.stat(path)
   if st ~= nil then
-    local _, _ = sys.chmod(path, st.mode & 4095 | (st.kind == "dir" and 7 or 6))
+    local _, _ = sys.chmod(path, st.mode & 4095 | (if st.kind == "dir" then 7 else 6 end))
   end
   return path
 end

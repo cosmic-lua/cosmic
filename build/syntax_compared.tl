@@ -74,7 +74,7 @@ end
 
 --- `source`, a file named `name`, translated, parsed and scoped against no globals; nil and why where the translation does
 --- not parse.
-local function translated(source: string, name: string): Read | nil, string
+local function translated(source: string, name: string): Read?, string
   local made = Translate.translate(source, name)
   local chunk, why = Node.parse(made.text, name)
   if chunk == nil then
@@ -88,12 +88,12 @@ local function joined(list: {string}): string
 end
 
 local function line_set(lines: {integer: boolean}): string
-  local numbers: {integer} = {}
+  local numbers: mut {integer} = {}
   for line in pairs(lines) do
     numbers[#numbers + 1] = line
   end
   table.sort(numbers)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, n in ipairs(numbers) do
     out[#out + 1] = tostring(n)
   end
@@ -111,7 +111,7 @@ local function first_difference(a: {string}, b: {string}): string
 end
 
 local function words(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for word in text:gmatch("%S+") do
     out[#out + 1] = word
   end
@@ -120,7 +120,7 @@ end
 
 --- The lines of `text` that hold anything.
 local function filled(text: string): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   local y = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     y = y + 1
@@ -132,9 +132,9 @@ local function filled(text: string): {integer: boolean}
 end
 
 --- The `module name line` of every reference through an alias, sorted, each once.
-local function sorted_unique(list: {string}): {string}
+local function sorted_unique(list: mut {string}): {string}
   table.sort(list)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, item in ipairs(list) do
     if out[#out] ~= item then
       out[#out + 1] = item
@@ -145,12 +145,12 @@ end
 
 --- The names in scope, as one string.
 local function scope_text(names: {string: string}): string
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for name in pairs(names) do
     keys[#keys + 1] = name
   end
   table.sort(keys)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, name in ipairs(keys) do
     out[#out + 1] = name .. "=" .. names[name]
   end
@@ -159,7 +159,7 @@ end
 
 --- The first token of each line, by line, as {x}.
 local function firsts(tokens: {{integer}}): {integer: integer}
-  local out: {integer: integer} = {}
+  local out: mut {integer: integer} = {}
   for _, t in ipairs(tokens) do
     if out[t[1]] == nil then
       out[t[1]] = t[2]
@@ -185,27 +185,27 @@ end
 --- The modules the calls `require($M)` with a literal name and the imports of `chunk` name, in source order, each once, found
 --- by the structural matcher.
 local function matched_requires(chunk: Ast.Chunk): {string}
-  local found: {Required} = {}
+  local found: mut {Required} = {}
   local pattern, _ = Match.compile("require($M)")
   if pattern ~= nil then
     for _, hit in ipairs(Rewrite.find_all(pattern, chunk)) do
       local named = hit.caps["_M"]
       local literal = named ~= nil and named.nodes[1] or nil
-      if literal ~= nil and literal is Ast.String then
+      if literal ~= nil and (literal.kind == "String") then
         found[#found + 1] = { first = Node.base(hit.node).first, module = literal.value }
       end
     end
   end
   Node.walk(chunk, function(node: Ast.Node)
-    if node is Ast.Import then
+    if (node.kind == "Import") then
       found[#found + 1] = { first = node.first, module = node.module }
     end
   end)
   table.sort(found, function(a: Required, b: Required): boolean
     return a.first < b.first
   end)
-  local seen: {string: boolean} = {}
-  local out: {string} = {}
+  local seen: mut {string: boolean} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(found) do
     if not seen[entry.module] then
       seen[entry.module] = true
@@ -218,7 +218,7 @@ end
 --- `lines` less the lines of the labels the fork's tree holds: the fork counts a label as a statement, whose line holds no
 --- instruction, and the translation of `goto continue` removes it.
 local function without_labels(parsed: ast.Parsed, lines: {integer: boolean}): {integer: boolean}
-  local out: {integer: boolean} = {}
+  local out: mut {integer: boolean} = {}
   for line in pairs(lines) do
     out[line] = true
   end
@@ -231,7 +231,7 @@ local function without_labels(parsed: ast.Parsed, lines: {integer: boolean}): {i
 end
 
 function Compared.file(built: compiler, file: string, source: string): Compared.Outcome
-  local differences: {string} = {}
+  local differences: mut {string} = {}
   local function differ(reader: string, how: string)
     differences[#differences + 1] = reader .. ": " .. how
   end
@@ -263,8 +263,8 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
     differ("match", first_difference(old_requires, matched))
   end
 
-  local old_globals: {string} = {}
-  local new_globals: {string} = {}
+  local old_globals: mut {string} = {}
+  local new_globals: mut {string} = {}
   for _, place in ipairs(fork_globals.found(parsed)) do
     old_globals[#old_globals + 1] = ("%d:%d"):format(place.line, place.column)
   end
@@ -281,10 +281,10 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
   local old_members: {string} = {}
   local new_members: {string} = {}
   local old_bindings = fork_scopes.walk(parsed, function(module: string, name: string, line: integer)
-    old_members[#old_members + 1] = module .. "." .. name .. (placed and ":" .. line or "")
+    old_members[#old_members + 1] = module .. "." .. name .. (if placed then ":" .. line else "" end)
   end)
   local new_bindings = Lexical.walk(chunk, scoped, function(module: string, name: string, line: integer)
-    new_members[#new_members + 1] = module .. "." .. name .. (placed and ":" .. line or "")
+    new_members[#new_members + 1] = module .. "." .. name .. (if placed then ":" .. line else "" end)
   end)
   old_members, new_members = sorted_unique(old_members), sorted_unique(new_members)
   if joined(old_members) ~= joined(new_members) then
@@ -294,14 +294,14 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
   -- The same bindings, from the same line to the same line (of a file whose lines the translation
   -- keeps; the lists of one that makes a class differ in the locals it removes and the `self` it adds). The fork binds the `...` of a function as
   -- a name, which nothing can refer to by a name in a comment.
-  local old_list: {string} = {}
+  local old_list: mut {string} = {}
   for _, each in ipairs(old_bindings) do
     if each.name ~= "..." then
       old_list[#old_list + 1] = binding_text(each.name, each.module, each.top, each.annotated, each.from, each.to,
         each.head)
     end
   end
-  local new_list: {string} = {}
+  local new_list: mut {string} = {}
   for _, each in ipairs(new_bindings) do
     new_list[#new_list + 1] = binding_text(each.name, each.module, each.top, each.annotated, each.from, each.to,
       each.head)
@@ -314,23 +314,23 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
     differ("scopes", "bindings " .. first_difference(old_list, new_list))
   elseif placed then
     -- What is in scope at the first token of some lines, with a comment's view of a statement below it.
-    local old_first: {{integer}} = {}
+    local old_first: mut {{integer}} = {}
     for _, t in ipairs(parsed.tokens) do
       old_first[#old_first + 1] = { t.y, t.x }
     end
-    local new_first: {{integer}} = {}
+    local new_first: mut {{integer}} = {}
     for i, y in ipairs(chunk.tokens.y) do
       new_first[#new_first + 1] = { y, Lexer.x(chunk.tokens, i) }
     end
     local old_at, new_at = firsts(old_first), firsts(new_first)
-    local probes: {integer} = {}
+    local probes: mut {integer} = {}
     for y in pairs(new_at) do
       if old_at[y] ~= nil then
         probes[#probes + 1] = y
       end
     end
     table.sort(probes)
-    local kept: {fork_scopes.Binding} = {}
+    local kept: mut {fork_scopes.Binding} = {}
     for _, each in ipairs(old_bindings) do
       if each.name ~= "..." then
         kept[#kept + 1] = each
@@ -343,7 +343,7 @@ function Compared.file(built: compiler, file: string, source: string): Compared.
         local a = scope_text(fork_scopes.in_scope(kept, y, old_at[y], heading))
         local b = scope_text(Lexical.in_scope(new_bindings, y, new_at[y], heading))
         if a ~= b then
-          differ("scopes", "line " .. y .. (heading and " as a heading" or "") .. ": `" .. a .. "` against `" .. b .. "`")
+          differ("scopes", "line " .. y .. (if heading then " as a heading" else "" end) .. ": `" .. a .. "` against `" .. b .. "`")
           break
         end
       end

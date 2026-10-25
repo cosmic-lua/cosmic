@@ -21,7 +21,7 @@ local record Derivation
     globals: {Globals.Place}
     --- The stub of a source that returns a value, nil for one that returns nothing (a test, as a rule): it is no module
     --- a checker reads in place of anything.
-    stub: Stub.Made | nil
+    stub: Stub.Made?
     --- The tests, the policy, the catalog, the docs, the examples, the references and the bound names.
     analysis: Analyzer.Analysis
     --- The links of its comments. A source that is generated from another (`mapped`) keeps none: they would name
@@ -33,7 +33,7 @@ local record Derivation
   --- cannot read. `mapped` says the source was derived rather than staged ([`build.derivation`]'s `Fresh`), so that
   --- its symbols stand at the lines of the file it was generated from where the source says them
   --- (`-- line <symbol> <line>`).
-  rows_of: function(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Rows | nil, string
+  rows_of: function(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Rows?, string
 
   --- Writes the rows of the source `source_hash`, the tree of which is `chunk`, as [`build.derivation`] writes them.
   --- `file` names the source in a failure. With `stub` a source that returns a value has that stub, and not the one the tree
@@ -48,8 +48,8 @@ local text = bind.text
 --- <line>` comments, which [`build.gen_syscalls`] writes. Its own lines say nothing about that file, so a symbol it
 --- does not name has no line: 0. nil when the source names none -- a source written by hand, or generated with no such
 --- map -- whose own lines stand.
-local function origin_lines(source: string): {string: integer} | nil
-  local lines: {string: integer} = {}
+local function origin_lines(source: string): {string: integer}?
+  local lines: mut {string: integer} = {}
   local any = false
   for each in source:gmatch("[^\n]+") do
     local symbol, line = each:match("^%-%- line ([%w_.]+) (%d+)$")
@@ -64,19 +64,19 @@ local function origin_lines(source: string): {string: integer} | nil
   return lines
 end
 
-function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Derivation.Rows | nil, string
+function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapped: boolean): Derivation.Rows?, string
   local scoped = Node.scope(chunk, file)
   local found, why = Analyzer.analysis_of(chunk, scoped, source, file)
   if found == nil then
     return nil, why
   end
-  local lines: {string: integer} | nil = nil
+  local lines: {string: integer}? = nil
   if mapped then
     lines = origin_lines(source)
   end
   local analysis = found
   if lines ~= nil then
-    local docs: {Analyzer.DocEntry} = {}
+    local docs: mut {Analyzer.DocEntry} = {}
     for _, entry in ipairs(found.docs) do
       docs[#docs + 1] = { symbol = entry.symbol, source_symbol = entry.source_symbol, exported = entry.exported,
         kind = entry.kind, signature = entry.signature, text = entry.text, line = lines[entry.symbol] or 0 }
@@ -85,7 +85,7 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
       export = found.export, catalog = found.catalog, docs = docs, examples = found.examples,
       references = found.references, bound = found.bound }
   end
-  local stub: Stub.Made | nil = nil
+  local stub: Stub.Made? = nil
   if found.has_top_level_return then
     stub = Stub.made(chunk)
   end
@@ -99,8 +99,8 @@ end
 
 --- The rows `test_inputs` keeps of one parse (see [`build.work`]): its `policy` declaration, as the `needs` it stands
 --- for, field by field.
-local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declared: Analyzer.Declared | nil): boolean, string
-  local rows: {{string}} = {}
+local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declared: Analyzer.Declared?): boolean, string
+  local rows: mut {{string}} = {}
   local function each(field: string, list: {string})
     for _, value in ipairs(list) do
       rows[#rows + 1] = { field, value }
@@ -152,7 +152,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     return true, ""
   end
   local ok, why = put("INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
-    { hash, { integer = found.has_top_level_return and 1 or 0 }, text(found.export) })
+    { hash, { integer = if found.has_top_level_return then 1 else 0 end }, text(found.export) })
   if not ok then
     return false, why
   end
@@ -185,7 +185,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     ok, why = put("INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, exported, kind, signature, text, " ..
         "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
       { hash, { integer = ordinal }, text(entry.symbol), text(entry.source_symbol),
-        { integer = entry.exported and 1 or 0 }, text(entry.kind), text(entry.signature), text(entry.text),
+        { integer = if entry.exported then 1 else 0 end }, text(entry.kind), text(entry.signature), text(entry.text),
         { integer = entry.line } })
     if not ok then
       return false, why
@@ -210,7 +210,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     ok, why = put("INSERT INTO links (source_hash, ordinal, line, column, form, doc, text, target, own, alias) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
       { hash, { integer = ordinal }, { integer = link.line }, { integer = link.column }, text(link.form),
-        { integer = entry.doc and 1 or 0 }, text(link.text), text(link.target), { integer = entry.own and 1 or 0 },
+        { integer = if entry.doc then 1 else 0 end }, text(link.text), text(link.target), { integer = if entry.own then 1 else 0 end },
         text(entry.alias) })
     if not ok then
       return false, why
@@ -241,7 +241,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
   end
   if stub ~= nil then
     return put("INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
-      { hash, text(stub.text), { integer = stub.pruned and 1 or 0 } })
+      { hash, text(stub.text), { integer = if stub.pruned then 1 else 0 end } })
   end
   return true, ""
 end

@@ -59,7 +59,7 @@ end
 --- Starts `probe` running `script` under `sandbox`, its output in a file of
 --- `tmp`'s: the pid, or nil and why and the errno (empty text and 0 beside a
 --- pid). Closes the file.
-local function start(tmp: string, probe: string, script: string, sandbox: raw_process.Sandbox): integer | nil, string, integer
+local function start(tmp: string, probe: string, script: string, sandbox: raw_process.Sandbox): integer?, string, integer
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, why, errno = process.spawn(probe, { probe, script }, nil, "/", nil, output, output,
     false, nil, sandbox)

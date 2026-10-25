@@ -471,7 +471,7 @@ end
 --- whose first non-blank is `#` is always a comment; the first line is
 --- the `#!` interpreter line and stays.
 local function without_comments(text: string): string
-  local kept: {string} = {}
+  local kept: mut {string} = {}
   for line in String.lines(text) do
     if #kept == 0 or not line:match("^%s*#") then kept[#kept + 1] = line end
   end

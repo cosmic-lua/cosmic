@@ -11,7 +11,7 @@ local Example = {}
 
 local record Signup
   email: string
-  age: integer | nil
+  age: integer?
   news: boolean
   tags: {string}
 end
@@ -68,7 +68,7 @@ end
 
 local record Note
   title: string
-  tags: {string} | nil
+  tags: {string}?
 end
 local NOTE <const> = Shape.record_of("Note")
 
@@ -108,7 +108,7 @@ function Example.check_spec()
 end
 
 local record Query
-  page: integer | nil
+  page: integer?
 end
 local PAGE <const> = Shape.record_of("Query")
 

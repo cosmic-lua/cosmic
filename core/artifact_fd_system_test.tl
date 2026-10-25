@@ -24,7 +24,7 @@ Test.policy{ profiles = { "system" }, grants = { { path = "o/cosmic.db", letters
 --- The descriptor this process retains on its artifact, or nil for a
 --- start from none, or where this worker is not held from running its
 --- core: one run unsandboxed, whose working directory is not /tree.
-local function held_artifact_fd(): integer | nil
+local function held_artifact_fd(): integer?
   if sys.getcwd() ~= "/tree" then return nil end
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end

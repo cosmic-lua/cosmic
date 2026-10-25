@@ -26,14 +26,14 @@ local RECORDED_BASE <const> = (assert(Fs.read(DATA .. "/base")):gsub("%s+$", "")
 --- no file: a diff that fails); any other call fails the test, its
 --- arguments said.
 local record Seen
-  lines: {string}
+  lines: mut {string}
 end
 
 local function recorded(scenario: string, seen: Seen): ChangedPaths.Git
   return function(argv: {string}, seconds: integer): ChangedPaths.Ran
     local line = table.concat(argv, " ")
     seen.lines[#seen.lines + 1] = line
-    assert(seconds == (argv[1] == "fetch" and 60 or 0), line .. " is cut off after " .. tostring(seconds) .. " s")
+    assert(seconds == (if argv[1] == "fetch" then 60 else 0 end), line .. " is cut off after " .. tostring(seconds) .. " s")
     if line == "fetch --quiet --no-tags --depth=1 origin " .. RECORDED_BASE then
       return { ok = true, output = "" }
     end
@@ -52,11 +52,11 @@ end
 --- What `changed-paths` wrote running with `base` as its base for the
 --- change recorded as `scenario`: the paths, nil for none, what it said
 --- to $GITHUB_OUTPUT, what it printed, and its status.
-local function named(tmp: string, scenario: string, base: string, limit?: string): string | nil, string, string, integer
+local function named(tmp: string, scenario: string, base: string, limit?: string): string?, string, string, integer
   local out = tmp .. "/changed"
   -- A list an earlier run left is no answer of this one's.
   assert(Fs.write(out, "stale\n"))
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code = ChangedPaths.changed_paths({ BASE = base, OUT = out, LIMIT = limit or "400" }, fake.host,
     recorded(scenario, { lines = {} }))
   local listed, _ = Fs.read(out)
@@ -104,7 +104,7 @@ local function test_what_it_cannot_name_whole_it_names_none(tmp: string)
   assert(failed_code == 0 and failed == nil and failed_said == "", tostring(failed) .. failed_said)
   assert(failed_printed == whole .. "could not list what changed since " .. RECORDED_BASE .. "\n", failed_printed)
   -- Where it cannot write the list, it names none.
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code2 = ChangedPaths.changed_paths({ BASE = RECORDED_BASE, OUT = tmp .. "/no/such/dir/changed" },
     fake.host, recorded("edited", { lines = {} }))
   assert(code2 == 0 and #fake.outputs == 0 and
@@ -121,7 +121,7 @@ local function test_a_step_without_its_settings_fails(tmp: string)
       { BASE = RECORDED_BASE, OUT = tmp .. "/changed", LIMIT = "many" },
       { BASE = RECORDED_BASE, OUT = tmp .. "/changed", FETCH_SECONDS = "-1" },
   }) do
-    local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+    local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
     local seen: Seen = { lines = {} }
     assert(ChangedPaths.changed_paths(env, fake.host, recorded("edited", seen)) == 2)
     assert(#seen.lines == 0 and #fake.outputs == 0, table.concat(seen.lines, "\n"))
@@ -131,7 +131,7 @@ end
 --- The fetch is cut off after FETCH_SECONDS, the diff never.
 local function test_the_fetch_waits_as_long_as_it_is_told(tmp: string)
   local waits: {integer} = {}
-  local fake = GithubFake.new(function(_path: string, _nth: integer): string | nil return nil end)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code = ChangedPaths.changed_paths({ BASE = RECORDED_BASE, OUT = tmp .. "/changed", FETCH_SECONDS = "7" },
     fake.host, function(_argv: {string}, seconds: integer): ChangedPaths.Ran
       waits[#waits + 1] = seconds

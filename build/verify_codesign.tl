@@ -52,7 +52,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       { "--verify", "--strict", "--verbose=2" },
       { "--display", "--verbose=4" },
   }) do
-    local argv: {string} = { tool }
+    local argv: mut {string} = { tool }
     for _, word in ipairs(args) do
       argv[#argv + 1] = word
     end

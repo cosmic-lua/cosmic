@@ -25,7 +25,7 @@ local function gen_source(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     return Fuzz.bytes(src, 120)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   if src:int(0, 15) == 0 then
     out[1] = "#!/bin/cosmic\n"
   end
@@ -46,7 +46,7 @@ local function test_the_tokens_tile_the_source_and_every_error_says_how_to_fix_i
       if not ok then
         return false, why
       end
-      Fuzz.label(#lexed.errors == 0 and "clean" or "refused")
+      Fuzz.label(if #lexed.errors == 0 then "clean" else "refused" end)
       for _, e in ipairs(lexed.errors) do
         Fuzz.label(e.code)
       end

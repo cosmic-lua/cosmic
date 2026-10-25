@@ -172,7 +172,7 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received = { value = nil as sys.TemporaryFile | nil }
+  local received = { value = nil as sys.TemporaryFile? }
   local opened = { value = 0 }
   local ended = under_every_failure(function()
     received.value = sys.open_temporary(path, 420)
@@ -209,7 +209,7 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received = { value = nil as raw_process.Pipe | nil }
+  local received = { value = nil as raw_process.Pipe? }
   local made = { value = 0 }
   local ended = under_every_failure(function()
     received.value = process.pipe()
@@ -457,7 +457,7 @@ local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\9
 --- an update, so input is kept back between updates, and answers what
 --- came out.
 local function decode_in_pieces(stream: Compress.Stream, packed: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local half = #packed // 2
   for _, piece in ipairs({ packed:sub(1, half), packed:sub(half + 1) }) do
     while true do
@@ -472,7 +472,7 @@ end
 
 local record Decoding
   name: string
-  make: function(): Compress.Stream | nil, string
+  make: function(): Compress.Stream?, string
   input: string
 end
 
@@ -480,20 +480,20 @@ end
 --- deflater, whenever an allocation fails: a refusal raises or answers
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
-  local packed: {string: string} = {}
+  local packed: mut {string: string} = {}
   for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
     local encoder = assert(Compress.deflater(format))
     packed[format] = assert(encoder:update(hello)) .. assert(encoder:finish())
   end
   local decodings: {Decoding} = {
     { name = "raw", input = packed.raw,
-      make = function(): Compress.Stream | nil, string return Compress.inflater("raw") end },
+      make = function(): Compress.Stream?, string return Compress.inflater("raw") end },
     { name = "zlib", input = packed.zlib,
-      make = function(): Compress.Stream | nil, string return Compress.inflater("zlib") end },
+      make = function(): Compress.Stream?, string return Compress.inflater("zlib") end },
     { name = "gzip", input = packed.gzip .. "trailing",
-      make = function(): Compress.Stream | nil, string return Compress.inflater("gzip") end },
+      make = function(): Compress.Stream?, string return Compress.inflater("gzip") end },
     { name = "xz", input = hello_xz .. "trailing",
-      make = function(): Compress.Stream | nil, string return Compress.xz_decoder() end },
+      make = function(): Compress.Stream?, string return Compress.xz_decoder() end },
     { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
   }
   collectgarbage("collect")
@@ -600,7 +600,7 @@ end
 --- a message, and leaves neither behind.
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
-  local wide: {string: any} = {}
+  local wide: mut {string: any} = {}
   for i = 1, 80 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
   -- An object too large for a set of its keys on the C stack, whose
   -- keys go through a Lua table, holding a key twice.
@@ -633,7 +633,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
   assert(whole == "json: out of memory", whole)
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for skip = 0, 16 do
     testing.fail_at("json_malloc", skip)
     local values, why = Json.decode_lines('1\n[2]')
@@ -695,7 +695,7 @@ local exchanges: {Exchange} = {
 --- collector's to close, as any dropped one is.
 local function exchange(options: Http.Options): string
   local response = assert(Http.open("http://cosmic.test/", options))
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
@@ -846,7 +846,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   local before = next_descriptor(tmp)
   for _, present in ipairs({ true, false }) do
     local ended = under_every_failure(function()
-      local opened = Sqlite.open_result(present and ":memory:" or tmp .. "/absent")
+      local opened = Sqlite.open_result(if present then ":memory:" else tmp .. "/absent" end)
       if present then
         assert(opened.handle ~= nil and opened.code == Sqlite.OK)
         assert(opened.handle:close())
@@ -910,7 +910,7 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = next_descriptor(tmp)
-  local received = { value = nil as sys.Pty | nil }
+  local received = { value = nil as sys.Pty? }
   local ended = under_every_failure(function()
     received.value = sys.openpty()
   end, function()

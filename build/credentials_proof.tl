@@ -11,7 +11,7 @@ end
 
 local function identity(): string
   local status = assert(Fs.read("/proc/self/status"))
-  local fields: {string} = {}
+  local fields: mut {string} = {}
   for _, name in ipairs({ "Uid", "Gid", "Groups", "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb", "NoNewPrivs" }) do
     fields[#fields + 1] = assert(status:match("\n" .. name .. ":([^\n]*)"), name)
   end

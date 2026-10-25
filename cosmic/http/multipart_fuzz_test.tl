@@ -24,8 +24,8 @@ local PREAMBLES <const>: {string} = { "", "", "This is a preamble.\r\n", "\r\n",
 --- A part as drawn, and what reading it back must give.
 local record Drawn
   name: string
-  filename?: string
-  content_type: string
+  mut filename?: string
+  mut content_type: string
   body: string
 end
 
@@ -51,10 +51,10 @@ end
 --- Draws one well-formed body: its text and the parts it holds.
 local function draw_body(src: Fuzz.Source, boundary: string): string, {Drawn}
   local delim = "\r\n--" .. boundary
-  local out: {string} = { Fuzz.pick(src, PREAMBLES) }
-  local drawn: {Drawn} = {}
+  local out: mut {string} = { Fuzz.pick(src, PREAMBLES) }
+  local drawn: mut {Drawn} = {}
   while Fuzz.more(src, #drawn, 6) do
-    local pieces: {string} = {}
+    local pieces: mut {string} = {}
     while Fuzz.more(src, #pieces, 6) do
       local which = src:int(0, 4)
       if which == 0 then
@@ -92,7 +92,7 @@ end
 local function drip(text: string, n: integer): Stream.Reader
   local inner = Stream.from_string(text)
   local r: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    read = function(_self: Stream.Reader, max?: integer): string?, string
       return inner:read(math.min(n, max or n))
     end,
     close = function(_self: Stream.Reader): boolean, string return inner:close() end,
@@ -101,9 +101,9 @@ local function drip(text: string, n: integer): Stream.Reader
 end
 
 local record Outcome
-  parts: {Drawn}
-  failure: string
-  total: integer
+  parts: mut {Drawn}
+  mut failure: string
+  mut total: integer
 end
 
 --- Reads every part of `text`, `chunk` bytes at a time from the source and
@@ -122,7 +122,7 @@ local function read_all(text: string, boundary: string, chunk: integer, step: in
       out.failure = why
       return out
     end
-    local pieces: {string} = {}
+    local pieces: mut {string} = {}
     local failure = ""
     while true do
       local data, trouble = part.body:read(step)
@@ -207,11 +207,11 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
     gen = function(src: Fuzz.Source): string
       local boundary = Fuzz.pick(src, BOUNDARIES)
       local text, drawn = draw_body(src, boundary)
-      local fields: {string} = { boundary, tostring(src:int(1, 80)), text }
+      local fields: mut {string} = { boundary, tostring(src:int(1, 80)), text }
       for _, d in ipairs(drawn) do
         fields[#fields + 1] = d.name
         local filename = d.filename
-        fields[#fields + 1] = filename ~= nil and ("F" .. filename) or "N"
+        fields[#fields + 1] = if filename ~= nil then ("F" .. filename) else "N" end
         fields[#fields + 1] = d.content_type
         fields[#fields + 1] = d.body
       end
@@ -222,9 +222,9 @@ local function test_parts_come_back_as_they_were_drawn(tmp: string)
       local f = Fuzz.unpack(input)
       local got = read_all(f[3], f[1], math.tointeger(tonumber(f[2])), 7)
       if got.failure ~= "" then return false, "refused: " .. got.failure end
-      local last: {Drawn} = {}
+      local last: mut {Drawn} = {}
       for i = 4, #f - 3, 4 do
-        local filename: string | nil = nil
+        local filename: string? = nil
         if f[i + 1]:sub(1, 1) == "F" then filename = f[i + 1]:sub(2) end
         last[#last + 1] = { name = f[i], filename = filename, content_type = f[i + 2], body = f[i + 3] }
       end

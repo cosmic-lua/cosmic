@@ -244,7 +244,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
   local policy = assert(test_policy.worker(own, bare))
   assert(policy.tmp == true)
-  local tmp_grant: Sandbox.Grant | nil = nil
+  local tmp_grant: Sandbox.Grant? = nil
   for _, grant in ipairs(policy.grants or {}) do
     local from = grant.from
     assert(from == nil or from ~= scratch, "a bind of the host's scratch directory")

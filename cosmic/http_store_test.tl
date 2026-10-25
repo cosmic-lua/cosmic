@@ -93,7 +93,7 @@ end
 --- `der` as PEM.
 local function pem(der: string): string
   local encoded = Codec.base64(der)
-  local lines: {string} = { "-----BEGIN CERTIFICATE-----" }
+  local lines: mut {string} = { "-----BEGIN CERTIFICATE-----" }
   for at = 1, #encoded, 64 do
     lines[#lines + 1] = encoded:sub(at, at + 63)
   end
@@ -207,7 +207,7 @@ end
 --- bundle to decide what replaces it.
 local function test_minimal_roots_are_carried()
   local databases = Store.databases()
-  local seen: {string:boolean} = {}
+  local seen: mut {string:boolean} = {}
   local own = assert(databases[#databases])
   for _, hex in ipairs(Http.minimal_roots()) do
     assert(hex:match("^%x+$") ~= nil and #hex == 64 and hex == hex:lower(), hex)

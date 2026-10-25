@@ -67,7 +67,7 @@ local record testing
   --- The running executable's path, as the core finds it for itself
   --- when given a buffer of `room` bytes (1 to 4096), or nil when it
   --- says the path does not fit.
-  executable_path: function(room: integer): string | nil
+  executable_path: function(room: integer): string?
 
   --- Whether `text`, a /proc/<pid>/mountinfo, lists the filesystem on
   --- `device` ("major:minor", as its third field writes it) as mounted
@@ -82,7 +82,7 @@ local record testing
 
   --- mount(2): `source`, `fstype` and `data` may be nil, for none, and
   --- `flags` is Linux's MS_* bits.
-  mount: function(source: string | nil, target: string, fstype: string | nil, flags: integer,
+  mount: function(source: string?, target: string, fstype: string?, flags: integer,
     data?: string): boolean, string, integer
 
   --- umount2(2), with Linux's MNT_* and UMOUNT_* `flags`.

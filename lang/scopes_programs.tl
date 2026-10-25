@@ -22,10 +22,10 @@ local POOL <const>: {string} = { "a", "b", "c", "d", "e", "f", "g", "h" }
 
 local record Gen
   draw: function(min: integer, max: integer): integer
-  out: {string}
+  out: mut {string}
   --- The names in scope as the draw sees them, innermost last, and whether each is a loop's control variable.
-  seen: {string}
-  readonly: {boolean}
+  seen: mut {string}
+  readonly: mut {boolean}
   options: Programs.Options
 end
 
@@ -95,7 +95,7 @@ local function gen_function(g: Gen, depth: integer)
   add(g, "(")
   for i = 1, g.draw(0, 2) do
     local name = pick(g, POOL)
-    add(g, i > 1 and "," or "", name)
+    add(g, if i > 1 then "," else "" end, name)
     declare(g, name, false)
   end
   add(g, ")", "\n")
@@ -105,7 +105,7 @@ local function gen_function(g: Gen, depth: integer)
 end
 
 gen_exp = function(g: Gen, depth: integer)
-  local k = g.draw(1, depth > 0 and 9 or 3)
+  local k = g.draw(1, if depth > 0 then 9 else 3 end)
   if k <= 3 then
     add(g, use(g))
   elseif k == 4 then
@@ -131,10 +131,10 @@ gen_exp = function(g: Gen, depth: integer)
 end
 
 local function gen_statement(g: Gen, depth: integer, loop: boolean)
-  local k = g.draw(1, depth > 0 and 13 or 4)
+  local k = g.draw(1, if depth > 0 then 13 else 4 end)
   local mark = #g.seen
   if k <= 3 then
-    local names: {string} = {}
+    local names: mut {string} = {}
     for i = 1, g.draw(1, 3) do
       names[i] = pick(g, POOL)
     end

@@ -22,7 +22,7 @@ Test.policy{}
 
 --- The library, lowered once, and how many programs it has checked, which name their modules.
 local record Counter
-  count: integer
+  mut count: integer
 end
 
 local check_in = Programs.runner()
@@ -34,7 +34,7 @@ local function count_lines(text: string): integer
 end
 
 --- Why an error is not one a reader could act on, or nil.
-local function malformed(code: string, msg: string, y: integer, x: integer, lines: integer): string | nil
+local function malformed(code: string, msg: string, y: integer, x: integer, lines: integer): string?
   if code == "" then
     return "no code: " .. msg
   end
@@ -48,7 +48,7 @@ local function malformed(code: string, msg: string, y: integer, x: integer, line
 end
 
 --- The first error of `run` that is not one a reader could act on, with what is wrong with it.
-local function unplaced(run: Programs.Run, lines: integer): string | nil
+local function unplaced(run: Programs.Run, lines: integer): string?
   for _, e in ipairs(run.scoped.errors) do
     local why = malformed(e.code, e.msg, e.y, e.x, lines)
     if why ~= nil then

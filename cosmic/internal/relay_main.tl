@@ -78,8 +78,8 @@ local function failed(why: string): integer
 end
 
 --- One line from standard input, without its newline, or nil and why.
-local function read_line(): string | nil, string
-  local chunks: {string} = {}
+local function read_line(): string?, string
+  local chunks: mut {string} = {}
   local size = 0
   while true do
     local data, why = sys.read(0, 4096)
@@ -109,7 +109,7 @@ local function until_end_of_input()
 end
 
 --- [`Relay.start`], answering a spec it refuses (it raises) as nil and why.
-local function started(spec: Relay.Spec): Relay.Serving | nil, string
+local function started(spec: Relay.Spec): Relay.Serving?, string
   local ok, server = pcall(Relay.start, spec)
   if not ok then return nil, tostring(server) end
   return server, ""
@@ -117,14 +117,14 @@ end
 
 --- `rows` as the endpoints [`Net`] takes.
 local function endpoints_of(rows: {Config.Endpoint}): {Net.Endpoint}
-  local out: {Net.Endpoint} = {}
+  local out: mut {Net.Endpoint} = {}
   for i, row in ipairs(rows) do out[i] = { host = row.host, port = row.port } end
   return out
 end
 
 --- `rows` as the table a connector was started with.
 local function table_of(rows: {Config.Endpoint}): {Connector.Endpoint}
-  local out: {Connector.Endpoint} = {}
+  local out: mut {Connector.Endpoint} = {}
   for i, row in ipairs(rows) do out[i] = { host = row.host, port = row.port } end
   return out
 end
@@ -132,7 +132,7 @@ end
 --- The connector `config` says the relay is handed, adopted: what
 --- [`Relay.handed`] takes, and the name servers' connector, or nil where
 --- none is handed. Nil and why where one cannot be adopted.
-local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector | nil, string
+local function adopted(config: Config.Config): Relay.Handed?, Net.Connector?, string
   local handed: Relay.Handed = {}
   if config.table ~= nil or config.public then
     local config_table = config.table
@@ -141,7 +141,7 @@ local function adopted(config: Config.Config): Relay.Handed | nil, Net.Connector
     if made == nil then return nil, nil, "the connector: " .. why end
     handed.connector = made
   end
-  local dns: Net.Connector | nil
+  local dns: Net.Connector?
   local name_servers = config.name_servers
   if name_servers ~= nil then
     local made, why = Connector.adopted(Config.name_server_fd, table_of(name_servers), false,
@@ -155,10 +155,10 @@ end
 --- What serving a relay leaves: the status to end with, the relay once it
 --- is serving, why it was lost if it was, and whether standard input ended.
 local record Run
-  status: integer
-  serving: Relay.Serving | nil
-  lost: string | nil
-  ended: boolean
+  mut status: integer
+  mut serving: Relay.Serving?
+  mut lost: string?
+  mut ended: boolean
 end
 
 --- Serves the relay `config` describes until standard input ends.
@@ -189,8 +189,8 @@ local function serve(config: Config.Config): integer
   end
   handed.lost = lose
   Poll.run(function()
-    local http, socks: Net.Listener | nil, Net.Listener | nil
-    local mixed: {Net.Listener} | nil
+    local http, socks: Net.Listener?, Net.Listener?
+    local mixed: mut {Net.Listener}?
     if config.direct then
       mixed = {}
       for i = 1, config.listeners or 0 do
@@ -219,13 +219,13 @@ local function serve(config: Config.Config): integer
       end
     end
     -- With no connector handed, nothing a grant opens can be reached.
-    local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn | nil, string
+    local connect: Relay.Connector = function(address: string, port: integer, _: integer): Net.Conn?, string
       return nil, "relay: no connector was handed for " .. address .. ":" .. port
     end
     if config.direct then
       -- The address is one the relay has checked; the profile lets it
       -- connect anywhere.
-      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end
     elseif handed.connector ~= nil then
@@ -235,7 +235,7 @@ local function serve(config: Config.Config): integer
     -- name fails with the starter's why: an address a grant names needs no
     -- lookup. Where nothing names a host, no name passes the grants to be
     -- looked up, and the starter gives no why.
-    local resolve: Net.ResolveOptions | nil
+    local resolve: Net.ResolveOptions?
     if dns ~= nil then
       resolve = { connector = dns, servers = endpoints_of(assert(config.name_servers)) }
     end
@@ -260,7 +260,7 @@ local function serve(config: Config.Config): integer
     local handed_connector = handed.connector
     if handed_connector ~= nil then local _, _ = handed_connector:close() end
     if dns ~= nil then local _, _ = dns:close() end
-    run.status = run.ended and 0 or failed(run.lost or "the relay's listeners ended")
+    run.status = if run.ended then 0 else failed(run.lost or "the relay's listeners ended") end
   end)
   return run.status
 end

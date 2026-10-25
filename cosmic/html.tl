@@ -191,7 +191,7 @@ end
 --- `entries` that is no sequence.
 ---
 ---     Html.raw_url_part(Html.url_query({ { "q", "a b" }, { "t", "x&y" } })) -- "q=a%20b&t=x%26y"
-function Html.url_query(entries: {{string}}): Html.SafeUrlPart | nil, string
+function Html.url_query(entries: {{string}}): Html.SafeUrlPart?, string
   local part, why = raw.url_query(entries)
   if part == nil then return nil, why end
   return part, ""
@@ -221,7 +221,7 @@ end
 --- where it cannot be encoded (a function, a cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
-function Html.json(value: any): Html.SafeJson | nil, string
+function Html.json(value: any): Html.SafeJson?, string
   local text, why = json.encode(value)
   if text == nil then return nil, "json: " .. why end
   return raw.trust_json(text), ""
@@ -229,7 +229,7 @@ end
 
 --- `text` as JSON text already encoded, if [`Json.check`] reads it.
 --- Answers `nil` and why otherwise.
-function Html.json_text(text: string): Html.SafeJson | nil, string
+function Html.json_text(text: string): Html.SafeJson?, string
   local ok, why = json.check(text)
   if not ok then return nil, "json: " .. why end
   return raw.trust_json(text), ""

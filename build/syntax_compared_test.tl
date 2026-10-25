@@ -218,7 +218,7 @@ local function analysis_plant(change: function(found: Analyzer.Analysis)): funct
   return function(): function()
     local held = Analyzer.analysis_of
     Analyzer.analysis_of = function(chunk: Ast.Chunk, scoped: Scopes.Scoped, text: string, name: string):
-        Analyzer.Analysis | nil, string
+        Analyzer.Analysis?, string
       local found, why = held(chunk, scoped, text, name)
       if found ~= nil then
         change(found)
@@ -278,7 +278,7 @@ local function test_every_dimension_of_the_comparison_reports_a_difference_in_it
     { reader = "references", file = "m.tl", text = TREE_FILE, plant = function(): function()
       local held = Lexical.walk
       Lexical.walk = function(chunk: Ast.Chunk, scoped: Scopes.Scoped,
-                              member: function(module: string, name: string, line: integer) | nil): {Lexical.Binding}
+                              member: (function(module: string, name: string, line: integer))?): {Lexical.Binding}
         if member ~= nil then
           member("cosmic.fs", "planted", 1)
         end
@@ -346,7 +346,7 @@ local function test_every_dimension_of_the_comparison_reports_a_difference_in_it
       end) },
     { reader = "analyzer examples", file = "a_test.tl", text = ANALYSIS_FILE, plant = analysis_plant(
       function(found: Analyzer.Analysis)
-        local lines: {string} = {}
+        local lines: mut {string} = {}
         for line in found.examples[1].source:gmatch("[^\n]+") do
           table.insert(lines, 1, line)
         end
@@ -373,7 +373,7 @@ local function test_every_dimension_of_the_comparison_reports_a_difference_in_it
       end) },
     { reader = "lines", file = "m.tl", text = TREE_FILE, plant = function(): function()
       local held = coverage.syntax_executable
-      coverage.syntax_executable = function(_source: string, _name: string): {integer: boolean} | nil, string
+      coverage.syntax_executable = function(_source: string, _name: string): {integer: boolean}?, string
         return { [1] = true }, ""
       end
       return function() coverage.syntax_executable = held end

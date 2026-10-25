@@ -158,7 +158,7 @@ function Example.mounts()
     }, { name = "api" }),
     Web.mount_handler("/static", function(req: Web.Request): Web.Response
       return Web.text("static " .. table.concat(req.segments, "/", 2))
-    end, { name = "static", reverse = function(prefix: string, params: {string:string}): string | nil, string
+    end, { name = "static", reverse = function(prefix: string, params: {string:string}): string?, string
       local path = params["path"]
       if path == nil then return nil, "static: a path is needed" end
       return prefix .. "/" .. path .. "?v=1", ""
@@ -281,7 +281,7 @@ function Example.client()
         return Web.text("welcome back")
       end),
     },
-    lifespan = function(app: Web.App): Web.Shutdown | nil, string
+    lifespan = function(app: Web.App): Web.Shutdown?, string
       local opened = true
       app.state["opened"] = opened
       return function() print("closed") end, ""

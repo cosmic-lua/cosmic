@@ -31,7 +31,7 @@ end
 
 --- What [`prove`] answered, kept where the function that runs it under `pcall` can read it.
 local record Ended
-  status: integer
+  mut status: integer
 end
 
 local function prove(argv: {string}): integer
@@ -41,7 +41,7 @@ local function prove(argv: {string}): integer
   local cached = assert(Fs.stat(program))
   local cache_digest = Hash.hex_sha256((assert(Fs.read(program))))
   local function runtime_scratch(): string
-    local names: {string} = {}
+    local names: mut {string} = {}
     for _, name in ipairs((assert(Fs.list("/tmp")))) do
       if name:match("^cosmic%-local%-runtime%.") then names[#names + 1] = name end
     end
@@ -102,7 +102,7 @@ printf 'error: fixture phase\n'
     assert(Fs.symlink(outside .. "/missing", root .. "/dangling"))
     assert(Fs.mkdirs(state))
     assert(Fs.symlink(outside, state .. "/external-link"))
-    local env: {string:string} = {}
+    local env: mut {string:string} = {}
     for name, value in pairs(Env.all()) do env[name] = value end
     env["GIT_AUTHOR_NAME"], env["GIT_COMMITTER_NAME"] = "Local proof", "Local proof"
     env["GIT_AUTHOR_EMAIL"], env["GIT_COMMITTER_EMAIL"] = "proof@example.invalid", "proof@example.invalid"

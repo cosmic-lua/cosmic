@@ -66,7 +66,7 @@ local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string
   assert(result ~= nil, trouble)
   local said = tostring(result.stdout) .. tostring(result.stderr)
   assert(result.ok, said)
-  local got: {string:string} = {}
+  local got: mut {string:string} = {}
   for name, outcome in said:gmatch("([%w_]+)=(%w+)") do got[name] = outcome end
   -- A host that gives the sandbox but refuses a namespace of its own, or
   -- the write of its ids (AppArmor's restriction), cannot be asked.

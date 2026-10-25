@@ -11,11 +11,11 @@ local sys = require("cosmic.sys")
 --- guard that holds it, in another module, writes none of its fields.
 local record State
   --- The stamp of the latest signal the guard read.
-  read: integer
+  mut read: integer
   --- The signal delivered since the guard's last take, 0 when none.
-  fresh: integer
+  mut fresh: integer
   --- Whether the guard has closed.
-  closed: boolean
+  mut closed: boolean
 end
 
 local record innermost_guard
@@ -60,18 +60,18 @@ end
 local type Held = innermost_guard.Held
 
 local record Open
-  innermost: Held | nil
+  mut innermost: Held?
 end
 
 local open: Open = {}
 
 --- The innermost open guard, or nil when none is open.
-function innermost_guard.active(): Held | nil
+function innermost_guard.active(): Held?
   return open.innermost
 end
 
 --- Makes `guard` the innermost open guard, or none with nil.
-function innermost_guard.set(guard: Held | nil)
+function innermost_guard.set(guard: Held?)
   open.innermost = guard
 end
 

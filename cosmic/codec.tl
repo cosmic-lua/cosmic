@@ -29,9 +29,9 @@ end
 
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
 --- table as its replacement, one lookup per byte.
-local hex_of: {string:string} = {}
+local hex_of: mut {string:string} = {}
 --- Every pair of hex digits, either case, to the byte it spells.
-local byte_of_hex: {string:string} = {}
+local byte_of_hex: mut {string:string} = {}
 do
   local digits = "0123456789abcdef"
   local upper = "0123456789ABCDEF"
@@ -60,7 +60,7 @@ end
 --- @param s string The hex text
 --- @return string | nil The decoded bytes, half as many
 --- @return string Why the text was refused, or "" when it was not
-function Codec.unhex(s: string): string | nil, string
+function Codec.unhex(s: string): string?, string
   if #s % 2 ~= 0 then
     return refuse(("hex text of odd length %d"):format(#s))
   end
@@ -76,9 +76,9 @@ end
 --- character's byte to its 6-bit value, and `class` is a pattern
 --- matching any character outside the alphabet.
 local record Alphabet
-  char: {integer:string}
-  pair: {integer:string}
-  value: {integer:integer}
+  char: mut {integer:string}
+  pair: mut {integer:string}
+  value: mut {integer:integer}
   class: string
 end
 
@@ -103,7 +103,7 @@ local URL <const> = alphabet(
 --- when `pad`.
 local function encode(a: Alphabet, s: string, pad: boolean): string
   local pair = a.pair
-  local out: {string} = {}
+  local out: mut {string} = {}
   local n = #s
   local k = 0
   local whole = n - n % 3
@@ -139,8 +139,8 @@ local BATCH <const> = 4096
 --- Bytes gather in a buffer and leave a batch at a time through one
 --- `string.char`: a string per group would intern millions of them.
 local function expand(value: {integer:integer}, s: string, whole: integer,
-                      out: {string}, k: integer): integer
-  local buf: {integer} = {}
+                      out: mut {string}, k: integer): integer
+  local buf: mut {integer} = {}
   for first = 1, whole, BATCH do
     local last = math.min(first + BATCH - 1, whole)
     local m = 0
@@ -159,7 +159,7 @@ end
 --- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
 --- must carry `=` padding to a multiple of four characters or must
 --- carry none.
-local function decode(a: Alphabet, s: string, padded: boolean, name: string): string | nil, string
+local function decode(a: Alphabet, s: string, padded: boolean, name: string): string?, string
   local n = #s
   if padded then
     if n % 4 ~= 0 then
@@ -181,7 +181,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(s:byte(at), at, name))
   end
   local value = a.value
-  local out: {string} = {}
+  local out: mut {string} = {}
   local whole = n - n % 4
   local k = expand(value, s, whole, out, 0)
   local left = n - whole
@@ -219,7 +219,7 @@ end
 --- @param s string The base64 text
 --- @return string | nil The decoded bytes
 --- @return string Why the text was refused, or "" when it was not
-function Codec.unbase64(s: string): string | nil, string
+function Codec.unbase64(s: string): string?, string
   return decode(STANDARD, s, true, "base64")
 end
 
@@ -238,7 +238,7 @@ end
 --- @param s string The base64url text
 --- @return string | nil The decoded bytes
 --- @return string Why the text was refused, or "" when it was not
-function Codec.unbase64url(s: string): string | nil, string
+function Codec.unbase64url(s: string): string?, string
   return decode(URL, s, false, "base64url")
 end
 

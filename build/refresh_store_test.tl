@@ -48,7 +48,7 @@ end
 local bundle <const> = "vendor/cacert/certdata.txt"
 local zones <const> = "vendor/tzdata/zoneinfo"
 
-local datasets: {string:refresh.Dataset} = {}
+local datasets: mut {string:refresh.Dataset} = {}
 for _, dataset in ipairs(refresh.datasets) do
   datasets[dataset.name] = dataset
 end
@@ -83,7 +83,7 @@ local function carried_pem(path: string): string
   local db = carried(path)
   local found = assert(Sqlite.rows(db, "SELECT label, der FROM ca_roots ORDER BY rowid"))
   assert(db:close())
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, row in ipairs(found) do
     local encoded = Codec.base64(row:blob(2))
     parts[#parts + 1] = row:text(1) .. "\n" .. ("="):rep(#row:text(1)) .. "\n-----BEGIN CERTIFICATE-----\n" ..
@@ -97,7 +97,7 @@ end
 local function sdist(path: string, version: string, files: {string:string})
   local out = Stream.collect()
   local w = Tar.writer(out, { deterministic = true })
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(files) do
     names[#names + 1] = name
   end
@@ -111,7 +111,7 @@ end
 
 --- Every vendored zone, by its path under the sdist's `src/tzdata/`.
 local function vendored_zones(): {string:string}
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for _, name in ipairs((assert(Fs.walk_following(zones)))) do
     files["zoneinfo/" .. name] = assert(Fs.read(zones .. "/" .. name))
   end
@@ -302,7 +302,7 @@ local R11 <const> = "30820506308202eea0030201020211008a7d3e13d62f30ef2386bd29076
 --- line each: the chain trusted makes it a name that does not match,
 --- refused something else.
 local function presenter(tmp: string, ders: {string}): string
-  local hexes: {string} = {}
+  local hexes: mut {string} = {}
   for i, der in ipairs(ders) do
     hexes[i] = '"' .. Codec.hex(der) .. '"'
   end
@@ -338,7 +338,7 @@ local function presented(path: string): {string}
   local ran = assert(Child.run({ path }, { stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) }))
   assert(ran.ok, tostring(ran.stderr))
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local stdout = assert(ran.stdout)
   for line in stdout:gmatch("[^\n]+") do
     lines[#lines + 1] = line

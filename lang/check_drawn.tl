@@ -6,13 +6,13 @@ local record Drawn
   --- The drawn program as the new grammar takes it: the labels `continue`, an array of integers, every field of a record
   --- literal given, and the body in a function so that its `return`s are a function's. Nil where the program has not the
   --- header (a cut that took part of it away).
-  adapted: function(source: string): string | nil
+  adapted: function(source: string): string?
 end
 
 --- The last declaration of the header every drawn program starts with.
 local HEADER_END <const> = "local function id(v: integer | nil): integer | nil\n  return v\nend\n"
 
-function Drawn.adapted(source: string): string | nil
+function Drawn.adapted(source: string): string?
   local text = source:gsub("local opts: {integer | nil}", "local opts: {integer}"):gsub("next%d+", "continue")
   text = text:gsub("local r: R = { a = 1, n = 0 }", "local r: R = { a = 1, b = nil, n = 0 }")
   text = text:gsub("local s: R = { b = 2, n = 0 }", "local s: R = { a = nil, b = 2, n = 0 }")

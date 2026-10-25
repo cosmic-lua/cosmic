@@ -13,7 +13,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 --- `cosmic fix`, with `--check` where `check`, in `root`, compiling with the checker `grammar` names, and what it said.
 local function fix_in(root: string, grammar: string, check: boolean): Child.Result, string
-  local words = check and { "fix", "--check" } or { "fix" }
+  local words = if check then { "fix", "--check" } else { "fix" } end
   local env = this_program.environment()
   env["COSMIC_GRAMMAR"] = grammar
   local started = this_program.program(words, { cwd = root, env = env,

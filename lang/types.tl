@@ -76,13 +76,13 @@
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
--- TODO: at the switch, replace each `where` clause with the single-member enum tag the plan's
--- tagged unions use, and write each test `t is Named`, `t is Types.Atom` (and the others of
--- this union, here and in the modules that import it) as a tag test or a `match`, in the same
--- change (doc/plans/strict-teal.md, "the switch"): the new code generator writes such a test
--- as one for a table once the clause is gone. The pinned release is the fork's, which
--- discriminates only by a `where` clause, so nothing earlier makes this due (lang/ast.tl has
--- the same gap).
+-- TODO: once the switch has landed (doc/plans/strict-teal.md, "the switch"), replace each blanked
+-- `where` clause of a record here with the single-member enum tag the plan's tagged unions use,
+-- and write each test `t.tag == "named"` and the others of this union (here and in the modules
+-- that import it) as a tag test or a `match`: the translation of the tree dropped the clauses
+-- and wrote each test `t is Named`, `t is Types.Atom` as a compare of `tag`, since the new code
+-- generator writes such a test as one for a table once the clause is gone (lang/ast.tl has the
+-- same gap).
 local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 
@@ -148,12 +148,12 @@ local record Types
   --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any` or
   --- `invalid` (what a type that failed to lower becomes). The tag is the name.
   record Atom is Base
-    where self.atom
+
   end
 
   --- A use of a declaration and its type arguments, or the declaration itself as a value.
   record Named is Base
-    where self.tag == "named"
+
     decl: Decl
     args: {Type}
     --- Whether it is the declaration used as a value (`Circle` in `Circle.make()`): the table of its
@@ -164,14 +164,14 @@ local record Types
 
   --- `{T}`, or `mut {T}` where `mut`.
   record Array is Base
-    where self.tag == "array"
+
     element: Type
     mut: boolean
   end
 
   --- `{K: V}`, or `mut {K: V}` where `mut`.
   record Map is Base
-    where self.tag == "map"
+
     key: Type
     value: Type
     mut: boolean
@@ -180,14 +180,14 @@ local record Types
   --- Two or more types, or one and `nil`. `members` are never `nil`, `never`, `any` or a
   --- union, hold at least one type, and are in digest order; `nilable` is the `nil`.
   record Union is Base
-    where self.tag == "union"
+
     members: {Type}
     nilable: boolean
   end
 
   --- A type variable ([`Types`] has the numbering).
   record Var is Base
-    where self.tag == "var"
+
     depth: integer
     index: integer
   end
@@ -236,7 +236,7 @@ local record Types
   --- A function type. `rets` is a set of alternatives: no repeats, in digest order, none with a
   --- `never` in it.
   record Fn is Base
-    where self.tag == "fn"
+
     tparams: {TParam}
     params: {Param}
     rest?: Type
@@ -263,7 +263,7 @@ local record Types
   --- A type parameter of a declaration.
   record DeclParam
     name: string
-    bound?: Type
+    mut bound?: Type
   end
 
   --- What a declaration holds besides its path: the type parameters, the types it lists after
@@ -271,13 +271,13 @@ local record Types
   --- or an enum's values; an alias's body is the type it names (`alias`), which is no `nil`-able type
   --- and mentions the alias only inside an array or a map.
   record Body
-    tparams: {DeclParam}
-    supers: {Type}
-    fields: {Field}
-    array?: Type
-    methods: {Method}
-    values: {string}
-    alias?: Type
+    tparams: mut {DeclParam}
+    mut supers: mut {Type}
+    fields: mut {Field}
+    mut array?: Type
+    methods: mut {Method}
+    values: mut {string}
+    mut alias?: Type
   end
 
   --- A declaration: a path and, once defined, a body. Its identity is the path.
@@ -293,14 +293,14 @@ local record Types
     --- The path as the text spells it.
     text: string
     --- How many type arguments a use takes, once the declaration or its maker says.
-    arity?: integer
-    body?: Body
+    mut arity?: integer
+    mut body?: Body
   end
 
   --- Gives the text of the declaration at a path ([`Types.encode_declaration`]), or nil where
   --- there is none. What a loader makes in the store while a decode that is then refused is
   --- gone with it: a type or declaration it kept is dead, and the store refuses it.
-  type Loader = function(module: string, name: string): string | nil
+  type Loader = function(module: string, name: string): string?
 
   --- What a decode did to the store apart from the types and declarations it made, to take back
   --- if it fails: it gave `decl` a body and an `arity`, added a use to the uses `pending` holds at
@@ -323,26 +323,26 @@ local record Types
   record Store
     -- The fields down to `depth` are the store's own.
     owner: integer
-    count: integer
+    mut count: integer
     --- Every type, by id.
-    types: {Type}
-    interned: {string: Type}
-    declared: {string: Decl}
-    list: {Decl}
+    types: mut {Type}
+    interned: mut {string: Type}
+    declared: mut {string: Decl}
+    list: mut {Decl}
     atoms: {string: Type}
-    loader: Loader | nil
+    loader: Loader?
     --- The uses of a declaration whose type parameters are not known yet, by its path, which
     --- `define` checks.
-    pending: {string: {Named}}
+    pending: mut {string: {Named}}
     --- What a decode has given a declaration, to take back if it fails.
-    journal: {Undo}
+    mut journal: mut {Undo}
     --- The declarations being decoded, by path, and in order.
-    building: {string: boolean}
-    building_order: {string}
+    building: mut {string: boolean}
+    building_order: mut {string}
     --- How deeply decoding is nested, across the declarations a loader answers, and how many
     --- decodes are open.
-    depth: integer
-    transactions: integer
+    mut depth: integer
+    mut transactions: integer
 
     integer: Type
     number: Type
@@ -382,18 +382,18 @@ local record Types
     --- itself, directly or through the declarations it lists.
     define: function(Store, decl: Decl, body: Body): Decl
     --- The declaration at a path, or nil.
-    find: function(Store, module: string, name: string): Decl | nil
+    find: function(Store, module: string, name: string): Decl?
     --- Every declaration, in the order they were declared.
     declarations: function(Store): {Decl}
     --- How many types the store holds.
     size: function(Store): integer
     --- The type canonical text `text` spells, or nil and why (a message that begins `types:`).
     --- It is in normal form whatever the text was. A refusal leaves the store as it was.
-    decode: function(Store, text: string): Type | nil, string
+    decode: function(Store, text: string): Type?, string
     --- The declaration text `text` spells, declared and defined here, or nil and why. A
     --- declaration the store holds is returned if the text has its body, and refused if not.
     --- A refusal leaves the store as it was.
-    decode_declaration: function(Store, text: string): Decl | nil, string
+    decode_declaration: function(Store, text: string): Decl?, string
   end
 
   --- The store of a check. `loader` is asked for a declaration that decoding meets and the
@@ -414,7 +414,7 @@ local record Types
   --- nil: `decl` itself where one of `supers` is `decl`. A declaration with no body lists
   --- nothing, so a cycle shows when its last declaration is defined. [`Store.define`] raises for
   --- a body whose `supers` have one.
-  listing_cycle: function(decl: Decl, supers: {Type}): Decl | nil
+  listing_cycle: function(decl: Decl, supers: {Type}): Decl?
 
   --- The type a recursive alias names, one level of it: for a [`Named`] of kind `alias`, the type its
   --- declaration names (which mentions the alias again only inside an array or a map), and for any other
@@ -511,9 +511,9 @@ end
 local function render_alt(alt: Alt, sub: function(Type): string): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return "((" .. (narrows.asserts and "asserts " or "is ") .. narrows.param .. " " .. sub(narrows.to) .. "))"
+    return "((" .. (if narrows.asserts then "asserts " else "is " end) .. narrows.param .. " " .. sub(narrows.to) .. "))"
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
     parts[#parts + 1] = sub(item)
   end
@@ -528,21 +528,21 @@ end
 --- text when `sub` is the text itself, the key of the store's table when it is the part's id, and
 --- what a digest hashes when it is the part's digest.
 local function render(t: Type, sub: function(Type): string): string
-  if t is Atom then
+  if (t.atom == true) then
     return t.tag
-  elseif t is Named then
-    local parts: {string} = { t.value and "(val " or "(ref ", t.decl.text }
+  elseif (t.tag == "named") then
+    local parts: mut {string} = { if t.value then "(val " else "(ref " end, t.decl.text }
     for _, a in ipairs(t.args) do
       parts[#parts + 1] = " " .. sub(a)
     end
     parts[#parts + 1] = ")"
     return table.concat(parts)
-  elseif t is Array then
-    return "(" .. (t.mut and "marray " or "array ") .. sub(t.element) .. ")"
-  elseif t is Map then
-    return "(" .. (t.mut and "mmap " or "map ") .. sub(t.key) .. " " .. sub(t.value) .. ")"
-  elseif t is Union then
-    local parts: {string} = { "(union" }
+  elseif (t.tag == "array") then
+    return "(" .. (if t.mut then "marray " else "array " end) .. sub(t.element) .. ")"
+  elseif (t.tag == "map") then
+    return "(" .. (if t.mut then "mmap " else "map " end) .. sub(t.key) .. " " .. sub(t.value) .. ")"
+  elseif (t.tag == "union") then
+    local parts: mut {string} = { "(union" }
     for _, m in ipairs(t.members) do
       parts[#parts + 1] = " " .. sub(m)
     end
@@ -551,21 +551,21 @@ local function render(t: Type, sub: function(Type): string): string
     end
     parts[#parts + 1] = ")"
     return table.concat(parts)
-  elseif t is Var then
+  elseif (t.tag == "var") then
     return "(var " .. t.depth .. " " .. t.index .. ")"
-  elseif not (t is Fn) then
+  elseif not ((t.tag == "fn")) then
     return ""
   end
   local f: Fn = t
-  local parts: {string} = { "(fn (tp" }
+  local parts: mut {string} = { "(fn (tp" }
   for _, tp in ipairs(f.tparams) do
     local bound = tp.bound
     parts[#parts + 1] = " " .. (bound ~= nil and sub(bound) or "_")
   end
   parts[#parts + 1] = ") ("
-  local params: {string} = {}
+  local params: mut {string} = {}
   for _, p in ipairs(f.params) do
-    params[#params + 1] = p.omittable and "(opt " .. sub(p.type) .. ")" or sub(p.type)
+    params[#params + 1] = if p.omittable then "(opt " .. sub(p.type) .. ")" else sub(p.type) end
   end
   local rest = f.rest
   if rest ~= nil then
@@ -581,16 +581,16 @@ local function render(t: Type, sub: function(Type): string): string
 end
 
 local function parts_of(t: Type): {Type}
-  local parts: {Type} = {}
-  if t is Named then
+  local parts: mut {Type} = {}
+  if (t.tag == "named") then
     parts = t.args
-  elseif t is Array then
+  elseif (t.tag == "array") then
     parts = { t.element }
-  elseif t is Map then
+  elseif (t.tag == "map") then
     parts = { t.key, t.value }
-  elseif t is Union then
+  elseif (t.tag == "union") then
     parts = t.members
-  elseif t is Fn then
+  elseif (t.tag == "fn") then
     for _, tp in ipairs(t.tparams) do
       local bound = tp.bound
       if bound ~= nil then
@@ -662,28 +662,28 @@ Types.encode = written
 --- What display carries down a type: the names of the type parameters in scope, outermost
 --- binder first.
 local record Names
-  binders: {{string}}
+  binders: mut {{string}}
   --- How many more types display writes; past it the rest is `...`.
-  budget: integer
+  mut budget: integer
   --- The root of the display, and the names of the declarations in it, which a type parameter
   --- does not take. Found when the first type parameter is named.
   root: Type
-  taken: {string: boolean} | nil
+  mut taken: {string: boolean}?
 end
 
 local NAME_LETTERS <const> = "TUVWXYZABCDEFGHIJKLMNOPQRS"
 
 --- The names of the declarations in `root`.
 local function declared_names(root: Type): {string: boolean}
-  local taken: {string: boolean} = {}
-  local seen: {integer: boolean} = {}
-  local stack: {Type} = { root }
+  local taken: mut {string: boolean} = {}
+  local seen: mut {integer: boolean} = {}
+  local stack: mut {Type} = { root }
   while #stack > 0 do
     local t = stack[#stack]
     stack[#stack] = nil
     if not seen[t.id] then
       seen[t.id] = true
-      if t is Named then
+      if (t.tag == "named") then
         -- The first name of a dotted one is what the text writes first.
         taken[t.decl.names[1]] = true
       end
@@ -700,7 +700,7 @@ end
 --- that while a declaration in the type has the name (or its first name), so that a type variable
 --- is never taken for a type. The letters have no `_`, so no two variables get one name.
 local function parameter_name(names: Names, level: integer, index: integer): string
-  local name = "P" .. index .. (level == 0 and "" or "_" .. level)
+  local name = "P" .. index .. (if level == 0 then "" else "_" .. level end)
   if index < #NAME_LETTERS then
     local letter = NAME_LETTERS:sub(index + 1, index + 1)
     name = level == 0 and letter or letter .. "_" .. level
@@ -728,13 +728,13 @@ local ATOM_RANK <const>: {string: integer} = {
 }
 
 local function rank(t: Type): integer
-  if t is Atom then
+  if (t.atom == true) then
     return ATOM_RANK[t.tag]
-  elseif t is Named then
+  elseif (t.tag == "named") then
     return 20
-  elseif t is Array or t is Map then
+  elseif (t.tag == "array") or (t.tag == "map") then
     return 30
-  elseif t is Var then
+  elseif (t.tag == "var") then
     return 40
   end
   return 50
@@ -745,12 +745,12 @@ local show: function(t: Type, names: Names, parenthesized: boolean): string
 --- `t` written before a comma: a function type is parenthesized, or the types after it would be
 --- taken for its returns. `last` says that nothing follows it in the list.
 local function show_element(t: Type, names: Names, last: boolean): string
-  return show(t, names, not last and t is Fn)
+  return show(t, names, not last and (t.tag == "fn"))
 end
 
 --- The types written in order, as `show` writes them in a list of type arguments.
 local function show_list(types: {Type}, names: Names): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, t in ipairs(types) do
     out[i] = show_element(t, names, i == #types)
   end
@@ -765,7 +765,7 @@ end
 --- The members of a union written as a union is, without its `nil`, in the order that reads best
 --- and that depends on the types alone.
 local function show_members(u: Union, names: Names): string
-  local items: {Ranked} = {}
+  local items: mut {Ranked} = {}
   for i, m in ipairs(u.members) do
     items[i] = { rank = rank(m), text = show(m, names, true) }
   end
@@ -775,7 +775,7 @@ local function show_members(u: Union, names: Names): string
     end
     return a.text < b.text
   end)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, item in ipairs(items) do
     out[i] = item.text
   end
@@ -784,7 +784,7 @@ end
 
 --- A type written as an optional parameter `name?: T` has it: `T` without its `nil`.
 local function show_without_nil(t: Type, names: Names, last: boolean): string
-  if t is Union then
+  if (t.tag == "union") then
     local u: Union = t
     if u.nilable then
       if #u.members == 1 then
@@ -799,7 +799,7 @@ end
 --- A return item, written so that a function type among a list's items does not take the rest
 --- of the list as its own returns.
 local function show_item(t: Type, names: Names): string
-  if t is Fn then
+  if (t.tag == "fn") then
     return "(" .. show(t, names, false) .. ")"
   end
   return show(t, names, false)
@@ -808,9 +808,9 @@ end
 local function show_alt(alt: Alt, names: Names): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return (narrows.asserts and "asserts " or "") .. "p" .. narrows.param .. " is " .. show(narrows.to, names, false)
+    return (if narrows.asserts then "asserts " else "" end) .. "p" .. narrows.param .. " is " .. show(narrows.to, names, false)
   end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
     parts[#parts + 1] = show_item(item, names)
   end
@@ -824,7 +824,7 @@ end
 --- The order the alternatives of a function are written in: by the ranks of their items, so
 --- that `(true, R)` comes before `(false, E)`, and then by their text.
 local function alt_order(alt: Alt, text: string): string
-  local ranks: {string} = {}
+  local ranks: mut {string} = {}
   for i, item in ipairs(alt.items) do
     ranks[i] = string.format("%02d", rank(item))
   end
@@ -838,7 +838,7 @@ end
 
 --- The returns of a function type, with their `: `, or "" where it answers nothing.
 local function show_rets(f: Fn, names: Names): string
-  local alts: {Ordered} = {}
+  local alts: mut {Ordered} = {}
   for _, alt in ipairs(f.rets) do
     local text = show_alt(alt, names)
     alts[#alts + 1] = { text = text, order = alt_order(alt, text) }
@@ -853,11 +853,11 @@ local function show_rets(f: Fn, names: Names): string
     -- parenthesized lists joined by `|`.
     local alt = f.rets[1]
     local only = alt.items[1]
-    local union_of_functions = only ~= nil and only is Union and not only.nilable
+    local union_of_functions = only ~= nil and (only.tag == "union") and not only.nilable
     if text:sub(1, 1) == "(" and (#alt.items > 1 or alt.tail ~= nil or union_of_functions) then
       text = "(" .. text .. ")"
     end
-    return text == "" and "" or ": " .. text
+    return if text == "" then "" else ": " .. text end
   end
   table.sort(alts, function(a: Ordered, b: Ordered): boolean
     return a.order < b.order
@@ -865,7 +865,7 @@ local function show_rets(f: Fn, names: Names): string
   -- TODO: spell an alternative that is empty or ends in `T...` among several, once the grammar's
   -- `plist` takes `()` and `(A, T...)` (doc/plans/new-checker-grammar.md, "types"): the text
   -- below parses to a syntax error until then.
-  local out: {string} = {}
+  local out: mut {string} = {}
   for i, alt in ipairs(alts) do
     out[i] = "(" .. alt.text .. ")"
   end
@@ -876,28 +876,28 @@ local function show_fn(f: Fn, names: Names): string
   local generic = #f.tparams > 0
   local header = "function"
   if generic then
-    local own: {string} = {}
+    local own: mut {string} = {}
     for i = 1, #f.tparams do
       own[i] = parameter_name(names, #names.binders, i - 1)
     end
     names.binders[#names.binders + 1] = own
-    local declared: {string} = {}
+    local declared: mut {string} = {}
     for i, tp in ipairs(f.tparams) do
       local bound = tp.bound
-      declared[i] = own[i] .. (bound ~= nil and " is " .. show(bound, names, false) or "")
+      declared[i] = own[i] .. (if bound ~= nil then " is " .. show(bound, names, false) else "" end)
     end
     header = header .. "<" .. table.concat(declared, ", ") .. ">"
   end
   -- A parameter the type must name is written `p<position>`: an optional one, and one a
   -- narrowing return names.
-  local named: {integer: boolean} = {}
+  local named: mut {integer: boolean} = {}
   for _, alt in ipairs(f.rets) do
     local narrows = alt.narrows
     if narrows ~= nil then
       named[narrows.param] = true
     end
   end
-  local params: {string} = {}
+  local params: mut {string} = {}
   local rest = f.rest
   for i, p in ipairs(f.params) do
     local last = rest == nil and i == #f.params
@@ -926,9 +926,9 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
   if names.budget < 0 then
     return "..."
   end
-  if t is Atom then
+  if (t.atom == true) then
     return t.tag
-  elseif t is Named then
+  elseif (t.tag == "named") then
     -- TODO: write the module before the name where two types in scope share it, once the
     -- checker's errors say what is in scope (doc/plans/new-checker-types.md, "errors").
     local text = t.decl.name
@@ -939,13 +939,13 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
       text = text .. " (declaration)"
     end
     return text
-  elseif t is Array then
-    return (t.mut and "mut " or "") .. "{" .. show(t.element, names, false) .. "}"
-  elseif t is Map then
+  elseif (t.tag == "array") then
+    return (if t.mut then "mut " else "" end) .. "{" .. show(t.element, names, false) .. "}"
+  elseif (t.tag == "map") then
     -- A function type as a key is parenthesized: its returns would take the `:` for their own.
     local key = t.key
-    return (t.mut and "mut " or "") .. "{" .. show(key, names, key is Fn) .. ": " .. show(t.value, names, false) .. "}"
-  elseif t is Union then
+    return (if t.mut then "mut " else "" end) .. "{" .. show(key, names, (key.tag == "fn")) .. ": " .. show(t.value, names, false) .. "}"
+  elseif (t.tag == "union") then
     local u: Union = t
     if u.nilable then
       if #u.members == 1 then
@@ -954,14 +954,14 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
       return "(" .. show_members(u, names) .. ")?"
     end
     local text = show_members(u, names)
-    return parenthesized and "(" .. text .. ")" or text
-  elseif t is Var then
+    return if parenthesized then "(" .. text .. ")" else text end
+  elseif (t.tag == "var") then
     local binder = names.binders[#names.binders - t.depth]
     local name = binder ~= nil and binder[t.index + 1] or nil
     return name or "?" .. t.depth .. "." .. t.index
-  elseif t is Fn then
+  elseif (t.tag == "fn") then
     local text = show_fn(t, names)
-    return parenthesized and "(" .. text .. ")" or text
+    return if parenthesized then "(" .. text .. ")" else text end
   end
   return ""
 end
@@ -992,19 +992,19 @@ local function measure(t: Type)
     weight = math.min(WEIGHT_CAP, weight + part.weight)
     height = math.max(height, part.height)
   end
-  if t is Var then
+  if (t.tag == "var") then
     open = t.depth + 1
-  elseif t is Array then
+  elseif (t.tag == "array") then
     changes = changes or t.mut
-  elseif t is Map then
+  elseif (t.tag == "map") then
     changes = changes or t.mut
-  elseif t is Fn then
+  elseif (t.tag == "fn") then
     -- The function's own variables are bound by it.
     open = #t.tparams > 0 and math.max(0, open - 1) or open
   end
   -- A view does not reach through a named type or a function.
   t.open = open
-  t.has_mut = changes and not (t is Named or t is Fn)
+  t.has_mut = changes and not ((t.tag == "named") or (t.tag == "fn"))
   t.weight = weight
   t.height = height + 1
 end
@@ -1038,23 +1038,23 @@ local function atom_of(store: Store, name: Tag): Type
 end
 
 local record Gathered
-  members: {Type}
-  seen: {integer: boolean}
-  nilable: boolean
-  any: boolean
-  invalid: boolean
+  members: mut {Type}
+  seen: mut {integer: boolean}
+  mut nilable: boolean
+  mut any: boolean
+  mut invalid: boolean
 end
 
 --- Adds `m`, or the members of the union it is, to what a union gathers.
 local function gather(g: Gathered, m: Type)
-  if m is Union then
+  if (m.tag == "union") then
     for _, inner in ipairs(m.members) do
       gather(g, inner)
     end
     if m.nilable then
       g.nilable = true
     end
-  elseif m is Atom and (m.tag == "nil" or m.tag == "any" or m.tag == "invalid" or m.tag == "never") then
+  elseif (m.atom == true) and (m.tag == "nil" or m.tag == "any" or m.tag == "invalid" or m.tag == "never") then
     local tag = m.tag
     if tag == "nil" then
       g.nilable = true
@@ -1092,14 +1092,14 @@ local function union_of(store: Store, members: {Type}): Type
     g.members[#g.members + 1] = store.boolean
   end
   local has_number, has_string, has_boolean = seen[store.number.id], seen[store.string.id], seen[store.boolean.id]
-  local kept: {Type} = {}
+  local kept: mut {Type} = {}
   for _, m in ipairs(g.members) do
     local covered = false
     if has_number and m.id == store.integer.id then
       covered = true
     elseif has_boolean and (m.id == yes.id or m.id == no.id) then
       covered = true
-    elseif has_string and m is Named then
+    elseif has_string and (m.tag == "named") then
       covered = m.decl.kind == "enum"
     end
     if not covered then
@@ -1129,7 +1129,7 @@ end
 
 --- Why a variable that `t` holds at `level` binders inside it, which is bound by the binder of
 --- `count` parameters just outside, has no parameter, or "". `seen` holds what was visited.
-local function unbound(t: Type, level: integer, count: integer, seen: {string: boolean}): string
+local function unbound(t: Type, level: integer, count: integer, seen: mut {string: boolean}): string
   if t.open <= level then
     return ""
   end
@@ -1138,13 +1138,13 @@ local function unbound(t: Type, level: integer, count: integer, seen: {string: b
     return ""
   end
   seen[mark] = true
-  if t is Var then
+  if (t.tag == "var") then
     if t.depth == level and t.index >= count then
       return "the variable " .. t.depth .. " " .. t.index .. " names a type parameter its binder lacks, which has " .. count
     end
     return ""
   end
-  local inside = level + ((t is Fn and #t.tparams > 0) and 1 or 0)
+  local inside = level + (if ((t.tag == "fn") and #t.tparams > 0) then 1 else 0 end)
   for _, part in ipairs(parts_of(t)) do
     local why = unbound(part, inside, count, seen)
     if why ~= "" then
@@ -1158,7 +1158,7 @@ end
 --- arguments.
 local function bound_ok(store: Store, bound: Type)
   owned(store, bound)
-  if not (bound is Named) or bound.decl.kind ~= "interface" or #bound.args > 0 then
+  if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
     error("types: a type parameter is bounded by an interface and no arguments, not " .. Types.display(bound), 3)
   end
 end
@@ -1194,7 +1194,7 @@ end
 
 Types.Store.optional = function(self: Store, t: Type): Type
   owned(self, t)
-  if t is Union and t.nilable then
+  if (t.tag == "union") and t.nilable then
     return t
   end
   return union_of(self, { t, self.atoms["nil"] })
@@ -1202,9 +1202,9 @@ end
 
 Types.Store.non_nil = function(self: Store, t: Type): Type
   owned(self, t)
-  if t is Atom and t.tag == "nil" then
+  if (t.atom == true) and t.tag == "nil" then
     return self.never
-  elseif t is Union and t.nilable then
+  elseif (t.tag == "union") and t.nilable then
     return union_of(self, t.members)
   end
   return t
@@ -1226,7 +1226,7 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boo
   if decl.owner ~= self.owner then
     error("types: a declaration of another store", 2)
   end
-  local copied: {Type} = {}
+  local copied: mut {Type} = {}
   for i, a in ipairs(args or {}) do
     owned(self, a)
     copied[i] = a
@@ -1255,20 +1255,20 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boo
 end
 
 --- The alternative as the store keeps it, or nil where it has a `never` in it and is no list.
-local function normal_alt(store: Store, alt: Alt): Alt | nil
+local function normal_alt(store: Store, alt: Alt): Alt?
   local narrows = alt.narrows
   if narrows ~= nil then
     owned(store, narrows.to)
     if narrows.param < 1 then
       error("types: a narrowing declaration names a parameter from 1", 3)
     end
-    local items: {Type} = {}
+    local items: mut {Type} = {}
     if not narrows.asserts then
       items[1] = store.boolean
     end
     return { items = items, narrows = { param = narrows.param, to = narrows.to, asserts = narrows.asserts } }
   end
-  local items: {Type} = {}
+  local items: mut {Type} = {}
   for i, item in ipairs(alt.items) do
     owned(store, item)
     if item.tag == "never" then
@@ -1292,7 +1292,7 @@ local record Keyed
 end
 
 Types.Store.fn = function(self: Store, spec: FnSpec): Type
-  local tparams: {TParam} = {}
+  local tparams: mut {TParam} = {}
   for i, tp in ipairs(spec.tparams or {}) do
     local bound = tp.bound
     if bound ~= nil then
@@ -1300,7 +1300,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
     end
     tparams[i] = { bound = bound }
   end
-  local params: {Param} = {}
+  local params: mut {Param} = {}
   for i, p in ipairs(spec.params or {}) do
     owned(self, p.type)
     local omittable = p.omittable or false
@@ -1310,7 +1310,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
   if rest ~= nil then
     owned(self, rest)
   end
-  local keyed: {Keyed} = {}
+  local keyed: mut {Keyed} = {}
   local given: {Alt} = spec.rets or { { items = {} } }
   for _, alt in ipairs(given) do
     local narrows = alt.narrows
@@ -1328,7 +1328,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
   table.sort(keyed, function(a: Keyed, b: Keyed): boolean
     return a.text < b.text
   end)
-  local rets: {Alt} = {}
+  local rets: mut {Alt} = {}
   local previous = ""
   for _, entry in ipairs(keyed) do
     if #rets == 0 or entry.text ~= previous then
@@ -1429,7 +1429,7 @@ Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string
     end
     return found
   end
-  local copied: {string} = {}
+  local copied: mut {string} = {}
   for i, n in ipairs(names) do
     copied[i] = n
   end
@@ -1442,12 +1442,12 @@ Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string
   return decl
 end
 
-Types.Store.find = function(self: Store, module: string, name: string): Decl | nil
+Types.Store.find = function(self: Store, module: string, name: string): Decl?
   return self.declared[path_key(module, name)]
 end
 
 Types.Store.declarations = function(self: Store): {Decl}
-  local out: {Decl} = {}
+  local out: mut {Decl} = {}
   for i, d in ipairs(self.list) do
     out[i] = d
   end
@@ -1455,7 +1455,7 @@ Types.Store.declarations = function(self: Store): {Decl}
 end
 
 function Types.unfold(t: Type): Type
-  if t is Named and t.decl.kind == "alias" then
+  if (t.tag == "named") and t.decl.kind == "alias" then
     local body = t.decl.body
     local named = body ~= nil and body.alias or nil
     if named ~= nil then
@@ -1465,11 +1465,11 @@ function Types.unfold(t: Type): Type
   return t
 end
 
-function Types.listing_cycle(decl: Decl, supers: {Type}): Decl | nil
-  local seen: {Decl: boolean} = {}
-  local stack: {Decl} = {}
+function Types.listing_cycle(decl: Decl, supers: {Type}): Decl?
+  local seen: mut {Decl: boolean} = {}
+  local stack: mut {Decl} = {}
   for _, super in ipairs(supers) do
-    if super is Named then
+    if (super.tag == "named") then
       stack[#stack + 1] = super.decl
     end
   end
@@ -1483,7 +1483,7 @@ function Types.listing_cycle(decl: Decl, supers: {Type}): Decl | nil
     if not seen[d] and body ~= nil then
       seen[d] = true
       for _, super in ipairs(body.supers) do
-        if super is Named then
+        if (super.tag == "named") then
           if super.decl == decl then
             return d
           end
@@ -1515,7 +1515,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     error("types: only an enum holds values", 3)
   end
   local made: Body = { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} }
-  local roots: {Type} = {}
+  local roots: mut {Type} = {}
   for i, tp in ipairs(body.tparams) do
     local bound = tp.bound
     if bound ~= nil then
@@ -1539,7 +1539,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   local through = Types.listing_cycle(decl, made.supers)
   if through ~= nil then
     error("types: " .. decl.name .. " lists itself" ..
-        (through ~= decl and ", through " .. through.name or ""), 3)
+        (if through ~= decl then ", through " .. through.name else "" end), 3)
   end
   for i, field in ipairs(body.fields) do
     owned(store, field.type)
@@ -1571,7 +1571,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     made.alias = named
     roots[#roots + 1] = named
   end
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for i, v in ipairs(body.values) do
     if seen[v] then
       error("types: the enum " .. decl.name .. " lists " .. v .. " twice", 3)
@@ -1632,7 +1632,7 @@ end
 -- Declaration text -----------------------------------------------------------------
 
 --- `(opt T)` for an omittable slot (a parameter or a field), or `T`.
-local function slot_text(type_: Type, omittable: boolean | nil): string
+local function slot_text(type_: Type, omittable: boolean?): string
   if omittable then
     return "(opt " .. written(type_) .. ")"
   end
@@ -1641,11 +1641,11 @@ end
 
 --- The text of `decl` with the body `body`.
 local function declaration_text(decl: Decl, body: Body): string
-  local parts: {string} = { "(decl ", decl.kind, " ", decl.text }
+  local parts: mut {string} = { "(decl ", decl.kind, " ", decl.text }
   parts[#parts + 1] = " (tparams"
   for _, tp in ipairs(body.tparams) do
     local bound = tp.bound
-    parts[#parts + 1] = " (tparam " .. quote(tp.name) .. (bound ~= nil and " " .. written(bound) or "") .. ")"
+    parts[#parts + 1] = " (tparam " .. quote(tp.name) .. (if bound ~= nil then " " .. written(bound) else "" end) .. ")"
   end
   parts[#parts + 1] = ") (supers"
   for _, super in ipairs(body.supers) do
@@ -1653,7 +1653,7 @@ local function declaration_text(decl: Decl, body: Body): string
   end
   parts[#parts + 1] = ") (fields"
   for _, field in ipairs(body.fields) do
-    parts[#parts + 1] = " (field " .. quote(field.name) .. (field.mut and " mut " or " ") ..
+    parts[#parts + 1] = " (field " .. quote(field.name) .. (if field.mut then " mut " else " " end) ..
       slot_text(field.type, field.omittable) .. ")"
   end
   parts[#parts + 1] = ") (elements"
@@ -1690,7 +1690,7 @@ end
 
 local record Reader
   text: string
-  at: integer
+  mut at: integer
   store: Store
 end
 
@@ -1750,7 +1750,7 @@ local function string_of(r: Reader): string
     fail(r, "a string was expected")
   end
   local text = r.text
-  local out: {string} = {}
+  local out: mut {string} = {}
   local from = r.at + 1
   while true do
     local stop = text:find('["\\]', from)
@@ -1787,7 +1787,7 @@ local function expect(r: Reader, word: string)
 end
 
 local read_type: function(r: Reader): Type
-local read_declaration: function(store: Store, text: string, module: string | nil, name: string | nil): Decl
+local read_declaration: function(store: Store, text: string, module: string?, name: string?): Decl
 
 --- One more level of nesting, which fails where there are too many.
 local function descend(r: Reader)
@@ -1831,7 +1831,7 @@ local function read_slot(r: Reader): Type, boolean
 end
 
 local function read_types(r: Reader): {Type}
-  local out: {Type} = {}
+  local out: mut {Type} = {}
   while peek(r) ~= ")" do
     out[#out + 1] = read_type(r)
   end
@@ -1840,9 +1840,9 @@ end
 
 local function read_alt(r: Reader): Alt
   open(r)
-  local items: {Type} = {}
-  local tail: Type | nil
-  local narrows: Types.Narrows | nil
+  local items: mut {Type} = {}
+  local tail: Type?
+  local narrows: Types.Narrows?
   while peek(r) ~= ")" do
     local word = head(r)
     if word == "..." then
@@ -1864,7 +1864,7 @@ end
 
 local function read_fn(r: Reader): Type
   expect(r, "tp")
-  local tparams: {TParam} = {}
+  local tparams: mut {TParam} = {}
   while peek(r) ~= ")" do
     skip(r)
     if r.text:match("^_%f[^%w_%.]", r.at) ~= nil then
@@ -1876,8 +1876,8 @@ local function read_fn(r: Reader): Type
   end
   close(r)
   open(r)
-  local params: {Param} = {}
-  local rest: Type | nil
+  local params: mut {Param} = {}
+  local rest: Type?
   while peek(r) ~= ")" do
     if head(r) == "rest" then
       expect(r, "rest")
@@ -1890,7 +1890,7 @@ local function read_fn(r: Reader): Type
   end
   close(r)
   expect(r, "rets")
-  local rets: {Alt} = {}
+  local rets: mut {Alt} = {}
   while peek(r) ~= ")" do
     rets[#rets + 1] = read_alt(r)
   end
@@ -1942,7 +1942,7 @@ read_type = function(r: Reader): Type
 end
 
 local function read_field_names(name: string): {string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for part in (name .. "."):gmatch("([^.]*)%.") do
     names[#names + 1] = part
   end
@@ -2018,7 +2018,7 @@ end
 
 --- Reads the declaration `text` spells, which has the path `module` and `name` where they are
 --- given, and defines it, or checks that the store defines it so.
-read_declaration = function(store: Store, text: string, module: string | nil, name: string | nil): Decl
+read_declaration = function(store: Store, text: string, module: string?, name: string?): Decl
   local r: Reader = { text = text, at = 1, store = store }
   check_utf8(r)
   descend(r)
@@ -2145,7 +2145,7 @@ local function attempt(store: Store, work: function()): string
   return message:sub(at)
 end
 
-Types.Store.decode = function(self: Store, text: string): Type | nil, string
+Types.Store.decode = function(self: Store, text: string): Type?, string
   local r: Reader = { text = text, at = 1, store = self }
   local read: {Type} = {}
   local why = attempt(self, function()
@@ -2162,7 +2162,7 @@ Types.Store.decode = function(self: Store, text: string): Type | nil, string
   return nil, why
 end
 
-Types.Store.decode_declaration = function(self: Store, text: string): Decl | nil, string
+Types.Store.decode_declaration = function(self: Store, text: string): Decl?, string
   local read: {Decl} = {}
   local why = attempt(self, function()
     read[1] = read_declaration(self, text, nil, nil)
@@ -2179,9 +2179,9 @@ local store_mt: metatable<Store> = { __index = Types.Store }
 
 function Types.new(loader?: Loader): Store
   counter.stores = counter.stores + 1
-  local atoms: {string: Type} = {}
-  local interned: {string: Type} = {}
-  local types: {Type} = {}
+  local atoms: mut {string: Type} = {}
+  local interned: mut {string: Type} = {}
+  local types: mut {Type} = {}
   for i, name in ipairs(ATOMS) do
     local made: Atom = {
       tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false,

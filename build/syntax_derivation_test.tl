@@ -24,7 +24,7 @@ end
 local function rows(db: Sqlite.Handle, statement: string): {string}
   local found, why = Sqlite.text_rows(db, statement)
   assert(found ~= nil, why)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(found) do
     out[#out + 1] = row:text(1)
   end
@@ -137,13 +137,13 @@ local TEST <const> = table.concat({
 
 --- The text of every row of the analysis tables the database holds, one string for each table.
 local function tables_of(db: Sqlite.Handle): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, name in ipairs(analysis_schema.tables) do
     local found, why = Sqlite.rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2")
     assert(found ~= nil, why)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, row in ipairs(found) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for index = 2, row:count() do
         local kind = row:kind(index)
         cells[#cells + 1] = kind == "integer" and tostring(row:integer(index)) or kind == "text" and row:text(index) or

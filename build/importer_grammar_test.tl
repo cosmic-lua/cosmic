@@ -57,13 +57,13 @@ local TEST <const> = table.concat({
 
 --- The rows of every analysis table of `db`, one string each.
 local function tables_of(db: Sqlite.Handle): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for _, name in ipairs(analysis_schema.tables) do
     local found, why = Sqlite.rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2")
     assert(found ~= nil, why)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, row in ipairs(found) do
-      local cells: {string} = {}
+      local cells: mut {string} = {}
       for index = 2, row:count() do
         local kind = row:kind(index)
         if kind == "integer" then
@@ -163,7 +163,7 @@ end
 --- and stand-ins for the standard library's declarations and the prelude it reads, which come late: the real ones
 --- take seconds to lower, and what these tests ask of the build does not read them.
 local function own_tree(files: {string: string}, ceilings: string): {string: string}
-  local out: {string: string} = {}
+  local out: mut {string: string} = {}
   for path, text in pairs(files) do
     out[path] = text
   end
@@ -193,7 +193,7 @@ end
 local function test_a_refused_module_is_told_with_the_checkers_words_and_the_run_goes_on(tmp: string)
   local handle = refusing_tree(tmp, "[checked]\ngood.tl export_not_declared 1\n")
   local result = assert(importer.compile(handle, built, "tool", false, nil, nil, false, "new"))
-  local compiled: {string: boolean} = {}
+  local compiled: mut {string: boolean} = {}
   for _, m in ipairs(result.modules) do
     compiled[m.path] = true
   end

@@ -72,7 +72,7 @@ local replacement <const> = "(assert($$$ARGS))"
 --- `source` with every `assert(...)` call whose own `(` sits at one of
 --- `at`'s positions wrapped in parentheses.
 function spill.wrap(built: compiler, source: string, name: string,
-                    at: {string:boolean}): string | nil, string
+                    at: {string:boolean}): string?, string
   local pattern, why = ast.compile_pattern(built, pattern_source)
   if pattern == nil then
     return nil, why
@@ -94,7 +94,7 @@ end
 --- Builds the tree at `root`: the sites its refusal names, and the
 --- refusal itself ("" when it builds); nil, and why, for a tree that
 --- cannot be built at all.
-function spill.check(root: string): spill.Built | nil, string
+function spill.check(root: string): spill.Built?, string
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return nil, own_trouble end
   local handle, open_trouble = work.open(root)

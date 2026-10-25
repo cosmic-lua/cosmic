@@ -117,7 +117,7 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   local slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   local core_slot = math.tointeger(tonumber(relaunch.env.COSMIC_PORTABLE_CORE_FD)) as integer
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e", probe }, {
     env = env, fds = { [slot] = opened, [core_slot] = relaunch.fds[core_slot] },
@@ -160,7 +160,7 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
     script[#script + 1] = string.format("do local fd, _, e = sys.open(%q, sys.O_RDONLY) " ..
         "print(fd and 'open' or e) if fd then sys.close(fd) end end", name)
   end
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local result = assert(Child.run({ relaunch.argv[1], "--artifact", copy, "-e",
@@ -275,7 +275,7 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   assert(Fs.write(plain, "text"))
   assert(sys.symlink(plain, link))
   local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   if policy ~= nil then policy.set_env = env end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
@@ -357,9 +357,9 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
   local copy_fd = assert(sys.open(copy, sys.O_RDONLY))
-  local env: {string: string} = {}
+  local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local fds: {integer: integer} = {}
+  local fds: mut {integer: integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
   local slot = math.tointeger(tonumber(env.COSMIC_PORTABLE_ARTIFACT_FD)) as integer
   fds[slot] = copy_fd

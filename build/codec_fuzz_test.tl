@@ -11,7 +11,7 @@ local codec = require("build.codec")
 local record Pair
   name: codec.Name
   encode: function(string): string
-  decode: function(string): string | nil, string
+  decode: function(string): string?, string
 end
 
 local PAIRS <const>: {Pair} = {
@@ -28,7 +28,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 1) == 0 then
     return Fuzz.bytes(src, 64)
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   while Fuzz.more(src, #out, 64) do
     local at = src:int(1, #TEXT)
     out[#out + 1] = TEXT:sub(at, at)
@@ -39,7 +39,7 @@ end
 --- Draws a cutting of the input: sizes of chunks, empty ones included,
 --- packed one byte each so that shrinking can cut any of them.
 local function gen_cuts(src: Fuzz.Source): string
-  local sizes: {string} = {}
+  local sizes: mut {string} = {}
   while Fuzz.more(src, #sizes, 24) do
     sizes[#sizes + 1] = string.char(src:int(0, 9))
   end
@@ -49,8 +49,8 @@ end
 --- What `coder` answers to `input` cut by the sizes `cuts` bytes give,
 --- then a byte at a time: the output, or nil and the reason, and
 --- whether a chunk was empty.
-local function run_cut(coder: codec.Coder, input: string, cuts: string): string | nil, string, boolean
-  local out: {string} = {}
+local function run_cut(coder: codec.Coder, input: string, cuts: string): string?, string, boolean
+  local out: mut {string} = {}
   local at, k = 1, 0
   local empty = false
   while at <= #input do
@@ -82,7 +82,7 @@ local function test_chunked_encoding_equals_the_whole_string(tmp: string)
         if got ~= p.encode(fields[1]) then
           return false, ("%q cut %q gave %q: %s"):format(fields[1], fields[2], tostring(got), why)
         end
-        Fuzz.label(#fields[1] % 3 == 0 and "whole groups" or "leftover")
+        Fuzz.label(if #fields[1] % 3 == 0 then "whole groups" else "leftover" end)
         if empty then Fuzz.label("empty chunk") end
         return true, ""
       end,
@@ -113,7 +113,7 @@ local function test_chunked_decoding_equals_the_whole_string(tmp: string)
           return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
             fields[1], fields[2], tostring(got), why, tostring(want), want_why)
         end
-        Fuzz.label(want == nil and "refused" or "accepted")
+        Fuzz.label(if want == nil then "refused" else "accepted" end)
         if empty then Fuzz.label("empty chunk") end
         return true, ""
       end,

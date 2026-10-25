@@ -177,7 +177,7 @@ end
 --- What `quieted` names, each as `<module> <symbol>`, sorted: every
 --- record, and every method as `<record>.<method>`.
 function rules.quieted_names(): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for key, entry in pairs(quieted) do
     out[#out + 1] = key
     for method in pairs(entry.methods) do

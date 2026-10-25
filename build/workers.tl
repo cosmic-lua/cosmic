@@ -54,12 +54,12 @@ end
 
 --- What a pool keeps as it starts, serves and ends its workers.
 local record PoolState
-  scratch: Fs.Scratch | nil
-  jobs_made: integer
-  started: boolean
-  started_at: integer
-  broken: boolean
-  running: {Process}
+  mut scratch: Fs.Scratch?
+  mut jobs_made: integer
+  mut started: boolean
+  mut started_at: integer
+  mut broken: boolean
+  mut running: mut {Process}
 end
 
 local record workers
@@ -110,9 +110,9 @@ end
 --- Its environment is this process's.
 local function again(args: {string}): {string}, {string:string}, {integer:integer}
   local launched, _ = Proc.relaunch()
-  local argv: {string} = {}
-  local env: {string:string} = {}
-  local fds: {integer:integer} = {}
+  local argv: mut {string} = {}
+  local env: mut {string:string} = {}
+  local fds: mut {integer:integer} = {}
   for name, value in pairs(Env.all()) do env[name] = value end
   if launched ~= nil then
     for _, word in ipairs(launched.argv) do argv[#argv + 1] = word end
@@ -321,9 +321,9 @@ local function made_pool(spec: workers.Spec, jobs?: integer): importer.Workers, 
     end,
     size = function(): integer
       if state.started then return alive() end
-      return state.broken and 0 or most
+      return if state.broken then 0 else most end
     end,
-    path = function(name: string): string | nil, string
+    path = function(name: string): string?, string
       local scratch = state.scratch
       if scratch == nil then return nil, "no workers are running" end
       state.jobs_made = state.jobs_made + 1
@@ -334,8 +334,8 @@ local function made_pool(spec: workers.Spec, jobs?: integer): importer.Workers, 
     -- worker's reply that takes a timeout of its own, which cosmic.stream's
     -- readers lack, so the build could end the phase and do its work.
     run = function(phase: string, job: string, count: integer): {string}
-      local answers: {string} = {}
-      local serving: {Process} = {}
+      local answers: mut {string} = {}
+      local serving: mut {Process} = {}
       for _, each in ipairs(state.running) do
         if each.alive and #serving < count then serving[#serving + 1] = each end
       end
@@ -386,7 +386,7 @@ local function made_pool(spec: workers.Spec, jobs?: integer): importer.Workers, 
     end,
     compile = function(db: Sqlite.Handle, root: string, order: {importer.Module},
                        wanted: {string:boolean}, own_tree: boolean,
-                       judged: boolean): importer.Ahead | nil, string
+                       judged: boolean): importer.Ahead?, string
       return worker.compile(pool, db, root, order, wanted, own_tree, judged)
     end,
     close = function()
@@ -415,7 +415,7 @@ end
 --- started by `ready`, which tell what they wait on through `say`; the caller closes it.
 function workers.checking(spec: workers.Spec, say: function(line: string)): workers.Checking
   local named = Env.get(variable)
-  local jobs: integer | nil = nil
+  local jobs: integer? = nil
   if named == nil or named == "" then jobs = math.max(Proc.cpu_count(), 1) end
   local phases, pool = made_pool(spec, jobs)
   return {

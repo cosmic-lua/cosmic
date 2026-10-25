@@ -50,7 +50,7 @@ end
 local function test_the_new_grammar_is_keyed_apart_from_the_fork_and_from_its_own_checked_run()
   assert(GrammarMode.tool("a", "new") == "a340d8fb401ad242f252858c92a6f1f4cb8242e94eb13d192dd79abc5fbb0f31")
   assert(GrammarMode.tool("a", "new", true) == "621455f4b8753f06c86c88f0c84841e3b89fc5ffc43cf1af5a5d91d40afdffb4")
-  local kinds: {string: string} = {}
+  local kinds: mut {string: string} = {}
   local count = 0
   for _, tool in ipairs({ "a", "b" }) do
     local keys: {string} = {
@@ -74,7 +74,7 @@ local function compiled_under(root: string, tool: string): {string}, integer
   local result = assert(importer.compile(handle, built, tool))
   local found = assert(Sqlite.text_rows(handle.db,
     "SELECT p.path, c.key, c.lua FROM plan p JOIN compiled c ON c.key = p.key ORDER BY p.path"))
-  local rows: {string} = {}
+  local rows: mut {string} = {}
   for _, row in ipairs(found) do
     rows[#rows + 1] = row:text(1) .. "\0" .. row:text(2) .. "\0" .. row:text(3)
   end

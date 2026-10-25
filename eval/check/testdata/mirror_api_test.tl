@@ -110,34 +110,33 @@ end
 
 --- A source of the test's own, held in memory: any mirror.Source is
 --- listed alike.
-local record Memory is mirror.Source
+local class Memory is mirror.Source
   files: {string: string}
-end
 
-function Memory:stat(path: string): mirror.Info | nil, string
-  if self.files[path] ~= nil then
-    return { kind = "file", size = #self.files[path] }
-  elseif path == "" or path == "sub" then
-    return { kind = "dir", size = 0 }
+  function stat(self, path: string): mirror.Info?, string
+    if self.files[path] ~= nil then
+      return { kind = "file", size = #self.files[path] }
+    elseif path == "" or path == "sub" then
+      return { kind = "dir", size = 0 }
+    end
+    return nil, "no " .. path
   end
-  return nil, "no " .. path
-end
 
-function Memory:list(path: string): {string} | nil, string
-  if path == "" then return { "sub", "z.txt" } end
-  if path == "sub" then return { "y.txt" } end
-  return nil, "not a directory: " .. path
-end
+  function list(self, path: string): {string}?, string
+    if path == "" then return { "sub", "z.txt" } end
+    if path == "sub" then return { "y.txt" } end
+    return nil, "not a directory: " .. path
+  end
 
-function Memory:read(path: string): string | nil, string
-  local data = self.files[path]
-  if data == nil then return nil, "no " .. path end
-  return data
+  function read(self, path: string): string?, string
+    local data = self.files[path]
+    if data == nil then return nil, "no " .. path end
+    return data
+  end
 end
 
 local function test_a_listing_of_any_source_is_what_serve_answers()
-  local memory: Memory = setmetatable({ files = { ["z.txt"] = "zulu\n", ["sub/y.txt"] = "y" } },
-    { __index = Memory })
+  local memory: Memory = { files = { ["z.txt"] = "zulu\n", ["sub/y.txt"] = "y" } }
   local text, why = mirror.listing(memory, "")
   assert(text ~= nil, why)
   local got = Json.decode(text)

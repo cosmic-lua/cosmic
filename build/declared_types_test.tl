@@ -103,7 +103,7 @@ local function test_a_fetch_checksum_fragment_is_as_declared()
     local url = "http://cosmic.test/data"
     local hex = string.rep("0", 64)
     local function run(words: {string}, script: {string}): integer
-      local argv: {string} = { "fetch" }
+      local argv: mut {string} = { "fetch" }
       for _, word in ipairs(words) do argv[#argv + 1] = word end
       return fetch.run(argv, {
         script = script,
@@ -132,16 +132,16 @@ end
 local function test_a_reference_naming_no_type_is_as_declared()
   honest("build.alias_members", function()
     local source: alias_members.Source<alias_members.Declared> = {
-      declared = function(_module: string, _name: string): alias_members.Declared | nil, string
+      declared = function(_module: string, _name: string): alias_members.Declared?, string
         return nil
       end,
-      exported = function(_module: string, _name: string): alias_members.Declared | nil, string
+      exported = function(_module: string, _name: string): alias_members.Declared?, string
         return nil
       end,
-      bound = function(_module: string, _name: string): string | nil, string
+      bound = function(_module: string, _name: string): string?, string
         return nil
       end,
-      under = function(_target: alias_members.Declared): {alias_members.Declared} | nil, string
+      under = function(_target: alias_members.Declared): {alias_members.Declared}?, string
         return {}
       end,
       as_member = function(_owner: alias_members.Declared, member: alias_members.Declared,

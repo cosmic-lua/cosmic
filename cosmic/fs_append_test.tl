@@ -42,7 +42,7 @@ local function test_append_open_failures_name_the_path(tmp: string)
     assert((result[2] as string):sub(1, #path + 2) == path .. ": ")
   end
   local real_open = sys.open
-  sys.open = function(_path: string, _flags: integer, _mode?: integer): integer | nil, string, integer
+  sys.open = function(_path: string, _flags: integer, _mode?: integer): integer?, string, integer
     return nil, "permission denied", sys.EACCES
   end
   local ok, why = Fs.append(tmp .. "/denied", "data")
@@ -56,7 +56,7 @@ local function test_append_completes_short_writes(tmp: string)
   assert(Fs.write(path, "before"))
   local real_write = sys.write
   local writes = { value = 0 }
-  sys.write = function(fd: integer, data: string): integer | nil, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer
     writes.value = writes.value + 1
     return real_write(fd, data:sub(1, 2))
   end
@@ -69,7 +69,7 @@ end
 local function test_append_zero_progress_closes_once(tmp: string)
   local real_write, real_close = sys.write, sys.close
   local closes = { value = 0 }
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     return 0, "", 0
   end
   sys.close = function(fd: integer): boolean, string, integer
@@ -89,7 +89,7 @@ local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: str
   local real_write, real_close = sys.write, sys.close
   local writes = { value = 0 }
   local closes = { value = 0 }
-  sys.write = function(fd: integer, data: string): integer | nil, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer
     writes.value = writes.value + 1
     if writes.value == 1 then return real_write(fd, data:sub(1, 2)) end
     return nil, "write refused", 0
@@ -128,7 +128,7 @@ local function test_append_raising_write_releases_descriptor_and_keeps_exception
   local real_write, real_close = sys.write, sys.close
   local closes = { value = 0 }
   local marker = {}
-  sys.write = function(_fd: integer, _data: string): integer | nil, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer
     error(marker)
   end
   sys.close = function(fd: integer): boolean, string, integer

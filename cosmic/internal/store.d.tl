@@ -25,16 +25,16 @@ local record store
 
   --- One module's compiled bytes, for a caller that must load the chunk
   --- in an environment of its own.
-  bytecode: function(name: string): string | nil, string
+  bytecode: function(name: string): string?, string
 
   --- One entry of the meta table, which is where the build records what
   --- it decided. Nil when no database holds that key.
-  meta: function(key: string): string | nil
+  meta: function(key: string): string?
 
   --- One module's Teal source, or a declaration's, from the binary's own
   --- database and no other: what a checker building another tree needs
   --- to type a `require` of this one's modules.
-  source: function(name: string): string | nil, string
+  source: function(name: string): string?, string
 
   --- Every database `require` searches, in search order, each as a
   --- borrowed [`cosmic.sqlite`] handle that reads only and never closes
@@ -48,24 +48,24 @@ local record store
   --- The names the binary's own `imports` table records a module
   --- requiring, sorted: none for a name it holds no row of. Nil and why
   --- when the query failed.
-  requires: function(name: string): {string} | nil, string
+  requires: function(name: string): {string}?, string
 
   --- One time zone's TZif file, by IANA name, from the binary's own
   --- database: nil and why when it carries no such zone or the query
   --- failed.
-  zoneinfo: function(name: string): string | nil, string
+  zoneinfo: function(name: string): string?, string
 
   --- Every time zone name the binary's own database carries, as a set,
   --- or nil and why when the query failed.
-  zone_names: function(): {string:boolean} | nil, string
+  zone_names: function(): {string:boolean}?, string
 
   --- Private retained-artifact capability. Only trusted build.artifact receives
   --- this raw table; cosmic.store deliberately exposes no wrapper for it.
-  trusted_prefix: function(): string | nil, string
+  trusted_prefix: function(): string?, string
 
   --- Private: the running core's exact bytes, checked against its manifest,
   --- which a host program is made from.
-  trusted_core: function(): Core | nil, string
+  trusted_core: function(): Core?, string
 end
 
 return store

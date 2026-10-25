@@ -52,7 +52,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
   assert(work.stage(handle, true))
   local shared = shared_compiles.for_build({ COSMIC_BUILD_CACHE = path })
   local meta = Store.meta
-  Store.meta = function(key: string): string | nil
+  Store.meta = function(key: string): string?
     if key == "boot_hash" then return nil end
     return meta(key)
   end
@@ -71,7 +71,7 @@ end
 --- A tree like `analyzer_tree` at `root`, with `changed` written over it.
 local function analyzer_checkout(root: string, changed?: {string:string})
   for _, dir in ipairs({ "build", "core" }) do assert(Fs.mkdirs(root .. "/" .. dir)) end
-  local files: {string:string} = {}
+  local files: mut {string:string} = {}
   for name, source in pairs(analyzer_tree) do files[name] = source end
   for name, source in pairs(changed or {}) do files[name] = source end
   for name, source in pairs(files) do assert(Fs.write(root .. "/" .. name, source)) end
@@ -146,7 +146,7 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
       "analyzer.n = ast.n + thing.n + extra.n\nreturn analyzer\n" }
   analyzer_checkout(tmp .. "/lacking", reaching)
   local _, lacking_named, lacking_rows = boot(tmp .. "/lacking", path)
-  local having: {string:string} = {
+  local having: mut {string:string} = {
     ["build/extra.tl"] = "local record extra\n  n: integer\nend\nextra.n = 4\nreturn extra\n",
   }
   for name, source in pairs(reaching) do having[name] = source end

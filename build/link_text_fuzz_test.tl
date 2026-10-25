@@ -26,7 +26,7 @@ local BLOCK_PIECES <const> = {
 }
 
 local function gen_text(src: Fuzz.Source): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local count = 0
   -- One input in four draws them, so the rest reach a reference.
   local blocks = src:int(0, 3) == 0
@@ -45,7 +45,7 @@ local FORMS <const>: {string: boolean} = {
 
 local function parse_holds(input: string): boolean, string
   local found = link_text.parse(input)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(input) do lines[#lines + 1] = line end
   if #found == 0 then
     Fuzz.label("none")
@@ -63,7 +63,7 @@ local function parse_holds(input: string): boolean, string
     end
     if link.target == "" then return false, "an empty target" end
   end
-  local shown: {string} = {}
+  local shown: mut {string} = {}
   for line in String.lines(link_text.without_code(input)) do shown[#shown + 1] = line end
   if #shown ~= #lines then return false, "without_code made " .. #lines .. " lines " .. #shown end
   for number, line in ipairs(shown) do

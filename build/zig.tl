@@ -99,10 +99,10 @@ local log = Log.new("bin/zig")
 --- lines. Each line is read as its first two words, so trailing blanks
 --- or a `\r` never become part of a value, and the first line naming a
 --- key wins over any later one.
-function Zig.read_pin(text: string): Zig.Pin | nil, string
+function Zig.read_pin(text: string): Zig.Pin?, string
   local version = ""
-  local shas: {string:string} = {}
-  local seen: {string:boolean} = {}
+  local shas: mut {string:string} = {}
+  local seen: mut {string:boolean} = {}
   for line in text:gmatch("[^\n]+") do
     local key, value = line:match("^([%w_.%-]+)%s+(%S+)")
     if key ~= nil and value ~= nil and seen[key] ~= true then
@@ -122,7 +122,7 @@ end
 
 --- `<arch>-<os>` from `uname(2)`'s raw `sysname` and `machine`,
 --- normalized to the names [`bin/zig.pin`] and zig's releases use.
-function Zig.host(sysname: string, machine: string): string | nil, string
+function Zig.host(sysname: string, machine: string): string?, string
   local os: string
   if sysname == "Linux" then
     os = "linux"
@@ -143,7 +143,7 @@ function Zig.host(sysname: string, machine: string): string | nil, string
 end
 
 --- The repository root, from this script's own path, Lua's `arg[0]`.
-function Zig.repo_root(script_path: string): string | nil, string
+function Zig.repo_root(script_path: string): string?, string
   local abs, trouble = Fs.absolute(script_path)
   if abs == nil then
     return nil, trouble
@@ -190,7 +190,7 @@ end
 --- a `ZIG_LIB_DIR` of the caller's).
 function Zig.build_args(root: string, project: string, output: string,
                         argv: {string}, cpus: integer, defines?: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
@@ -231,10 +231,10 @@ end
 --- this same core; one with no artifact to relaunch is started as
 --- [`Proc.executable`] names it.
 local function standalone(root: string, script: string,
-                          words: {string}): Child.Result | nil, string
-  local argv: {string} = {}
-  local env: {string:string} = Env.all()
-  local fds: {integer:integer | string} = {}
+                          words: {string}): Child.Result?, string
+  local argv: mut {string} = {}
+  local env: mut {string:string} = Env.all()
+  local fds: mut {integer:integer | string} = {}
   local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
@@ -264,7 +264,7 @@ end
 --- The fetch is [`build/zig_fetch.tl`]'s, run standalone from `root`,
 --- so nothing that downloads or unpacks is this file's to load.
 function Zig.ensure_installed(root: string, cache: string, install: string, pin: Zig.Pin,
-                              host: string): string | nil, string
+                              host: string): string?, string
   local zig = install .. "/zig"
   local installed, look_trouble = Fs.exists(zig)
   if installed == nil then
@@ -322,7 +322,7 @@ local INSTALL_SHA_DIGITS <const> = 16
 -- uses. That wants a way to tell an install another checkout's pin
 -- still names (a last-used stamp touched on each run, say) from one
 -- none does.
-function Zig.install_name(pin: Zig.Pin, host: string): string | nil, string
+function Zig.install_name(pin: Zig.Pin, host: string): string?, string
   local sha256 = pin.shas[host]
   if sha256 == nil then
     return nil, "names no sha256 for " .. host
@@ -338,7 +338,7 @@ end
 --- from a download the pin's sha256 was checked against when it was
 --- installed. Nil and why when the pin or the host cannot be read, or
 --- the pin names no well-formed sha256 for the host ([`install_name`]).
-function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, string
+function Zig.pinned_install(root: string, cache: string): Zig.Install?, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
     return nil, ptrouble
@@ -368,10 +368,10 @@ end
 --- A record edited, added or removed names a new library; the release
 --- it patches is named by the directory it sits in.
 function Zig.lib_key(records: {string:string}): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(records) do names[#names + 1] = name end
   table.sort(names)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, name in ipairs(names) do
     local bytes = records[name]
     if bytes ~= nil then
@@ -400,7 +400,7 @@ end
 -- TODO: drop patch/zig-lib/ and this function's call once bin/zig.pin
 -- names a zig whose library carries its fixes (cosmic-lua/zig's branches
 -- cache-same-contents-hit and build-root-path, not yet sent upstream).
-local function patched_lib(root: string, install: string): string | nil, string
+local function patched_lib(root: string, install: string): string?, string
   local dir = root .. "/patch/zig-lib"
   local present, present_trouble = Fs.exists(dir)
   if present == nil then
@@ -413,7 +413,7 @@ local function patched_lib(root: string, install: string): string | nil, string
   if names == nil then
     return nil, list_trouble
   end
-  local records: {string:string} = {}
+  local records: mut {string:string} = {}
   local any = false
   for _, name in ipairs(names) do
     if #name > 4 and name:sub(-4) == ".txt" then
@@ -455,7 +455,7 @@ end
 
 --- `COSMIC_ZIG` when set, with no install, otherwise the pinned release
 --- for this host, fetched if need be. Nil and why when it cannot be had.
-local function locate(root: string): Located | nil, string
+local function locate(root: string): Located?, string
   local env_zig = Env.get("COSMIC_ZIG")
   if env_zig ~= nil and env_zig ~= "" then
     return { zig = env_zig }, ""
@@ -483,7 +483,7 @@ end
 --- the test harness, which cannot load this file
 --- (build/zig_caches_test.tl holds the two together).
 local function located(variable: string, tool: string, fallback: string,
-                       environment: {string:string} | nil): string
+                       environment: {string:string}?): string
   local given = ""
   if environment ~= nil then
     given = environment[variable] or ""
@@ -522,7 +522,7 @@ end
 --- restores nor a sandboxed test is given ([`build.caches`]).
 function Zig.passthrough_environment(output: string,
                                      environment: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
   if (out["ZIG_GLOBAL_CACHE_DIR"] or "") == "" then
     out["ZIG_GLOBAL_CACHE_DIR"] = Zig.global_cache(output, environment)
@@ -549,7 +549,7 @@ end
 --- (cosmic_ci/zig_prune.tl).
 function Zig.build_environment(shared: string,
                                environment: {string:string}): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for name, value in pairs(environment) do out[name] = value end
   out["ZIG_GLOBAL_CACHE_DIR"] = shared
   out["ZIG_DEBUG_CMD"] = "1"
@@ -618,13 +618,13 @@ end
 --- size, modification and change times, inode and device: enough to see
 --- an edit or replacement, or a file added or removed, at the cost of a
 --- walk and a stat per file.
-function Zig.snapshot(root: string): {string:string} | nil, string
+function Zig.snapshot(root: string): {string:string}?, string
   -- A link is taken for what it leads to, as work.stage takes it.
   local walked, trouble = Fs.walk_following(root, unwatched)
   if walked == nil then
     return nil, trouble
   end
-  local seen: {string:string} = {}
+  local seen: mut {string:string} = {}
   for _, path in ipairs(walked) do
     if watches(path) then
       -- A file gone between the listing and the stat is simply absent.
@@ -642,7 +642,7 @@ end
 --- The paths two snapshots disagree on -- changed, added or removed --
 --- sorted.
 function Zig.changed(before: {string:string}, after: {string:string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for path, was in pairs(before) do
     if after[path] ~= was then
       out[#out + 1] = path
@@ -661,7 +661,7 @@ end
 --- moved, then how many more, and what happens next: the build is made
 --- again (`again`) or left to the caller.
 function Zig.race_report(paths: {string}, again?: boolean): string
-  local named: {string} = {}
+  local named: mut {string} = {}
   for i, path in ipairs(paths) do
     if i > 5 then break end
     named[#named + 1] = path
@@ -671,7 +671,7 @@ function Zig.race_report(paths: {string}, again?: boolean): string
     list = list .. " and " .. tostring(#paths - 5) .. " more"
   end
   return "sources changed during the build: " .. list ..
-    (again == true and "; building again" or "; run it again")
+    (if again == true then "; building again" else "; run it again" end)
 end
 
 local MS <const> = Clock.ms(1)
@@ -681,13 +681,13 @@ local PASS_ON_NS <const> = Clock.ms(250)
 --- What [`Zig.run`] shares with the function that watches its child.
 local record Signals
   --- The last signal taken but not yet passed on to the child, 0 when none.
-  pending: integer
+  mut pending: integer
 end
 
 --- What the watch of a child answered, kept where the function that runs it under `pcall` can read it.
 local record Supervised
-  result: Child.Result | nil
-  trouble: string
+  mut result: Child.Result?
+  mut trouble: string
 end
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
@@ -721,7 +721,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   -- declares [`Signal.Guard`] as a class: a `<close>` local must be one.
   local g = opened
   local signals: Signals = { pending = 0 }
-  local function supervise(): Child.Result | nil, string
+  local function supervise(): Child.Result?, string
     local h, trouble = Child.start(argv, { process_group = false, env = env })
     if h == nil then
       return nil, trouble
@@ -824,7 +824,7 @@ local MOST_BUILDS <const> = 3
 --- that cannot be taken first leaves the build unwatched rather than
 --- stopped. `command` makes the command line for each run, and `run` runs
 --- it and answers its status ([`Zig.run`] in zig's own environment).
-function Zig.watched_build(root: string, command: function(): {string} | nil,
+function Zig.watched_build(root: string, command: function(): {string}?,
                            run: function({string}): integer): integer
   local runs = 0
   while true do
@@ -867,7 +867,7 @@ end
 --- configuration without changing with the checkout.
 --- build.zig compiles every vendored file from these directories, each
 --- named by its contents, so its path is the same from every checkout.
-local function patch(root: string, project: string): string | nil, string
+local function patch(root: string, project: string): string?, string
   local made, make_trouble = Fs.mkdirs(project .. "/cosmic-vendor")
   if not made then return nil, make_trouble end
   local directory, directory_trouble = Fs.absolute(project)
@@ -938,7 +938,7 @@ end
 --- is doing, as build/rebuild_lock.tl's `holder` names them.
 function Zig.holder(output: string): string
   local text, _ = Fs.read(output .. holder_name)
-  local pid: integer | nil = nil
+  local pid: integer? = nil
   local what = doing["rebuild"] or ""
   if text ~= nil then
     local number, named = text:match("^(%d+)\n(%l*)\n?$")
@@ -961,7 +961,7 @@ end
 --- Begins the lock's transaction on `db`, waiting up to `wait_ns`:
 --- "held", "busy" when another run holds it, or nil and why for any
 --- other failure.
-local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string | nil, string
+local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string?, string
   db:busy_timeout(wait_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
   if begun.cancelled == true then
@@ -982,7 +982,7 @@ end
 --- fcntl locks.
 local record Lock
   fd: integer
-  db: Sqlite.Handle | nil
+  mut db: Sqlite.Handle?
 end
 
 -- TODO: make [`Lock`] a class with `function __close(self)`, hold it in a `<close>` local and drop the `pcall` of
@@ -996,7 +996,7 @@ local function release(lock: Lock)
   local _, _ = sys.close(lock.fd)
 end
 
-local function take(lock: Lock, path: string, wait_ns: integer): string | nil, string
+local function take(lock: Lock, path: string, wait_ns: integer): string?, string
   local started = Clock.monotonic_ns()
   local flocked, trouble, errno = sys.flock(lock.fd, "exclusive", Clock.ceil(wait_ns, MS))
   if not flocked then
@@ -1024,7 +1024,7 @@ end
 
 --- What [`Zig.with_lock`]'s callback answered, kept where the function that runs it under `pcall` can read it.
 local record Outcome
-  status: integer
+  mut status: integer
 end
 
 --- Takes the boot's lock, or accepts a parent's handoff only when it
@@ -1081,7 +1081,7 @@ function Zig.with_lock(output: string, environment: {string:string},
       local written, _ = Fs.write(aside, tostring(Proc.pid()) .. "\nrebuild\n")
       if written then local _, _ = Fs.rename(aside, out .. holder_name) end
     end
-    local env: {string:string} = {}
+    local env: mut {string:string} = {}
     for key, value in pairs(environment) do env[key] = value end
     env[handed_variable] = path
     return run(env)
@@ -1125,13 +1125,13 @@ function Zig.enter(argv: {string}, script: string): integer
   end
   local resolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if resolved.kind ~= "resolved" then
-    local status = resolved.kind == "not_executable" and 126 or 127
-    log:complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
+    local status = if resolved.kind == "not_executable" then 126 else 127 end
+    log:complain(zig .. ": " .. (if status == 127 then "not found" else "permission denied" end))
     return status
   end
 
   local program = assert(resolved.path)
-  local given: {string} = {}
+  local given: mut {string} = {}
   for _, word in ipairs(argv) do
     given[#given + 1] = word
   end
@@ -1155,7 +1155,7 @@ function Zig.enter(argv: {string}, script: string): integer
   local output = ""
   if given[1] == "build" or not (named("COSMIC_ZIG_GLOBAL_CACHE", "zig-global") and
       named("COSMIC_ZIG_CACHE", "zig-project")) then
-    local words = given[1] == "build" and { "--prepare", root } or { root }
+    local words = if given[1] == "build" then { "--prepare", root } else { root } end
     local selected, selection_trouble = standalone(root, "build/paths.tl", words)
     if selected == nil or not selected.ok then
       local why = "build/paths.tl failed"
@@ -1176,13 +1176,13 @@ function Zig.enter(argv: {string}, script: string): integer
     -- vendored file edited while they are is caught as any source is.
     local function build(env?: {string:string}): integer
       local zig_env = Zig.build_environment(shared, env or environment)
-      return Zig.watched_build(root, function(): {string} | nil
+      return Zig.watched_build(root, function(): {string}?
         local manifest, patch_trouble = patch(root, project)
         if manifest == nil then
           log:complain(patch_trouble)
           return nil
         end
-        local build_argv: {string} = { program }
+        local build_argv: mut {string} = { program }
         for _, a in ipairs(Zig.build_args(root, project, output,
             given, Proc.cpu_count(),
             { "-Dpatched=" .. manifest })) do
@@ -1198,7 +1198,7 @@ function Zig.enter(argv: {string}, script: string): integer
     end
     return build()
   end
-  local exec_argv: {string} = { zig }
+  local exec_argv: mut {string} = { zig }
   for _, a in ipairs(Zig.build_args(root, project, output, given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a

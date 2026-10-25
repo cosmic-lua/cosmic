@@ -10,14 +10,14 @@ local digest = require("build.digest")
 --- over a spread of bytes (across SHA-256's 64-byte block and its
 --- padding's edge at 55 and 56), every byte in order, and a megabyte.
 local function samples(): {string}
-  local out: {string} = { "" }
+  local out: mut {string} = { "" }
   for byte = 0, 255 do out[#out + 1] = string.char(byte) end
   for length = 1, 130 do
-    local bytes: {string} = {}
+    local bytes: mut {string} = {}
     for i = 1, length do bytes[i] = string.char((i * 37 + length * 11) % 256) end
     out[#out + 1] = table.concat(bytes)
   end
-  local all: {string} = {}
+  local all: mut {string} = {}
   for byte = 0, 255 do all[#all + 1] = string.char(byte) end
   out[#out + 1] = table.concat(all)
   out[#out + 1] = table.concat(all):rep(4096)

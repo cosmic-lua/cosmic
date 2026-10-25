@@ -14,10 +14,10 @@ local QUEUE <const> = "gh-readonly-queue/main/pr-7-fedcba"
 local START <const> = GithubFake.start()
 
 --- A run, as the API lists it: of `event`, else merge_group.
-local function run(id: string, status: string, conclusion: string | nil, sha: string, branch: string,
+local function run(id: string, status: string, conclusion: string?, sha: string, branch: string,
                    event?: string): string
   return '{"id":' .. id .. ',"event":"' .. (event or "merge_group") .. '","status":"' .. status .. '","conclusion":' ..
-    (conclusion and ('"' .. conclusion .. '"') or "null") .. ',"head_sha":"' .. sha ..
+    (if conclusion then ('"' .. conclusion .. '"') else "null" end) .. ',"head_sha":"' .. sha ..
     '","head_branch":"' .. branch .. '","html_url":"https://github.com/o/r/actions/runs/' .. id .. '"}'
 end
 
@@ -29,7 +29,7 @@ end
 --- The API's list of a run's artifacts: each of `names`, those in
 --- `expired` expired.
 local function artifacts(names: {string}, expired: {string: boolean}): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for i, name in ipairs(names) do
     items[#items + 1] = '{"id":' .. tostring(i) .. ',"name":"' .. name .. '","expired":' ..
       tostring(expired[name] == true) .. "}"
@@ -49,15 +49,15 @@ local SUITE <const> = "run the leg's suite"
 --- given, the status of its step SUITE (after the step that finds the
 --- run ahead, queued or not).
 local function jobs(...: string): string
-  local items: {string} = {}
+  local items: mut {string} = {}
   for _, job in ipairs({ ... }) do
     local status, name, ago, suite = job:match("^(%S+) (%S+) ?(%d*) ?(%S*)$")
-    local started = ago ~= "" and ('"' .. Time.format_rfc3339((START - assert(math.tointeger(tonumber(ago)))) * 1000000000,
-      nil, { digits = 0 }) .. '"') or "null"
+    local started = if ago ~= "" then ('"' .. Time.format_rfc3339((START - assert(math.tointeger(tonumber(ago)))) * 1000000000,
+      nil, { digits = 0 }) .. '"') else "null" end
     local steps = ""
     if suite ~= "" then
       steps = ',"steps":[{"name":"find the run ahead in the queue","status":"' ..
-        (suite == "queued" and "in_progress" or "completed") .. '"},{"name":"' .. SUITE ..
+        (if suite == "queued" then "in_progress" else "completed" end) .. '"},{"name":"' .. SUITE ..
         '","status":"' .. assert(suite) .. '"}]'
     end
     items[#items + 1] = '{"name":"' .. assert(name) .. '","status":"' .. assert(status) .. '","started_at":' .. started .. steps .. "}"
@@ -80,15 +80,15 @@ end
 
 --- How many run listings have been asked for.
 local record Asked
-  value: integer
+  mut value: integer
 end
 
 local function serve(spec: Spec): GithubFake.Fake
   local runs_asked: Asked = { value = 0 }
   local kept: {string: integer} = {}
-  local failing: {string: boolean} = {}
+  local failing: mut {string: boolean} = {}
   for _, id in ipairs(spec.fail_once or {}) do failing[id] = true end
-  return GithubFake.new(function(path: string, _nth: integer): string | nil
+  return GithubFake.new(function(path: string, _nth: integer): string?
     local id = path:match("/runs/(%d+)/artifacts")
     if id ~= nil then
       if failing[id] == true then
@@ -259,7 +259,7 @@ local KEPT <const> = artifacts({ "ci-driver-a", "verdicts-a", "verdicts-b" }, {}
 --- sets more of the environment: the fake, and the status.
 local function ahead(base: string, spec: Spec, extra?: {string: string}): GithubFake.Fake, integer
   local fake = serve(spec)
-  local env: {string: string} = { REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a",
+  local env: mut {string: string} = { REPOSITORY = "o/r", BASE = base, JOB = "a", ARTIFACT = "verdicts-a",
     WAIT_SECONDS = "1", WITHIN_SECONDS = "5" }
   for name, value in pairs(extra or {}) do env[name] = value end
   return fake, QueueSeed.ahead(env, fake.host)

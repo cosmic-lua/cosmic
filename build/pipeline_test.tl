@@ -77,7 +77,7 @@ local function module_of(path: string, file: string, kind: string, source: strin
 end
 
 --- What the pipeline answers for one module `source` of the file `m.tl`, under the ceilings `pins`.
-local function generated(source: string, pins?: string, kind?: string, tests?: {string}): compilation.Generated | nil, string
+local function generated(source: string, pins?: string, kind?: string, tests?: {string}): compilation.Generated?, string
   local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = kind or "module" }, options(pins or ""))
   return Pipeline.generate(module_of("m", "m.tl", kind or "module", source, tests or {}), pipeline)
 end
@@ -254,7 +254,7 @@ local function test_a_module_the_build_lacks_is_refused_by_name()
 end
 
 local function test_the_steps_of_the_proof_are_made_to_the_three_files_and_to_the_tests_of_their_records()
-  local entries: {{string}} = {}
+  local entries: mut {{string}} = {}
   for _, file in ipairs({ "lang/ast.tl", "lang/types.tl", "cosmic/removed_example.tl" }) do
     entries[#entries + 1] = { file, (assert(Fs.read(file))) }
   end
@@ -267,7 +267,7 @@ local function test_the_steps_of_the_proof_are_made_to_the_three_files_and_to_th
   assert(not ast.text:find("\n  where ", 1, true) and not types.text:find("\n    where ", 1, true))
   -- the example keeps the forms no step makes (a method outside its class, a tuple type): it is counted, not compiled
   local example = assert(pipeline.build:parsed("cosmic.removed_example"))
-  local codes: {string} = {}
+  local codes: mut {string} = {}
   for _, p in ipairs(example.syntax) do
     codes[#codes + 1] = p.code
   end
@@ -534,7 +534,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
   assert(importer.derive(handle, false, built))
   local pipeline = assert(Pipeline.build(handle.db, options("")))
   local modules = assert(compilation.collect(handle.db))
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, m in ipairs(modules) do
     seen[m.path] = true
     if m.path == "m" or m.path == "m_test" then
@@ -560,7 +560,7 @@ end
 --- functions that fail.
 local function fork_says(source: string): string
   local said = Fixture.fork(Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n")
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, line in ipairs(said.problems) do
     lines[#lines + 1] = (line:gsub("^x%.tl:(%d+):", "m.tl:%1:"))
   end
@@ -644,7 +644,7 @@ end
 local function test_a_test_or_an_example_or_a_generated_module_is_not_held_to_the_discipline()
   local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
   for _, kind in ipairs({ "test", "example" }) do
-    local made, why = generated(text, "", kind, kind == "test" and { "test_none" } or {})
+    local made, why = generated(text, "", kind, if kind == "test" then { "test_none" } else {} end)
     assert(made ~= nil or why:find("error slot", 1, true) == nil, tostring(why))
   end
 end
@@ -862,7 +862,7 @@ local function test_into_answers_the_records_type_and_no_annotation_can_say_anot
   end
   local carried = options("[checked]\nm.tl export_not_declared 1\n")
   carried.standard = Pipeline.carried()
-  local function compiled(annotation: string): compilation.Generated | nil, string
+  local function compiled(annotation: string): compilation.Generated?, string
     local source = with_annotation(annotation)
     local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, carried)
     return Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline)

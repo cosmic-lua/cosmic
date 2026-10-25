@@ -12,7 +12,7 @@ end
 --- `build/` both exist, and `build/` holds the importer itself rather
 --- than just a directory of that name. `cosmic.*` is reserved to this
 --- one tree; nothing else may claim it, by directory or by import path.
-function tree.is_own(root: string): boolean | nil, string
+function tree.is_own(root: string): boolean?, string
   local core, trouble = Fs.is_dir(root .. "/core")
   if core == nil then return nil, trouble end
   if not core then return false, "" end

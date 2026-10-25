@@ -78,7 +78,7 @@ local record Channel
     --- the queue is closed and every item has been taken: a closed queue
     --- still gives up what it holds first. Nil and [`Poll.TIMEOUT`] or
     --- [`Poll.CANCELLED`] otherwise.
-    receive: function(self: Queue<T>, timeout_ns?: integer): T | nil, string
+    receive: function(self: Queue<T>, timeout_ns?: integer): T?, string
     --- Closes the queue: every task waiting to send or receive wakes, a
     --- [`send`] after it fails, and a [`receive`] drains what is queued
     --- and then answers [`Channel.CLOSED`]. Closing again does nothing.
@@ -110,18 +110,18 @@ local DEFAULT_CAPACITY <const> = 256
 
 local record State<T>
   is Channel.Queue<T>
-  items: {integer: T}
-  first: integer
-  count: integer
+  items: mut {integer: T}
+  mut first: integer
+  mut count: integer
   capacity: integer
   overflow: Channel.Overflow
-  is_closed: boolean
-  drops: integer
+  mut is_closed: boolean
+  mut drops: integer
   not_empty: Poll.Notifier
   not_full: Poll.Notifier
   send: function(self: State<T>, item: T, timeout_ns?: integer): boolean, string
   try_send: function(self: State<T>, item: T): boolean, string
-  receive: function(self: State<T>, timeout_ns?: integer): T | nil, string
+  receive: function(self: State<T>, timeout_ns?: integer): T?, string
   close: function(self: State<T>)
   len: function(self: State<T>): integer
   closed: function(self: State<T>): boolean
@@ -190,12 +190,12 @@ end
 function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, string
   need_item(item)
   Poll.checked_ns(timeout_ns, "channel", "timeout_ns", 2)
-  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
+  local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while true do
     local result = offer(self, item)
     if result == "queued" then return true, "" end
     if result == "closed" then return false, Channel.CLOSED end
-    local left: integer | nil = nil
+    local left: integer? = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
       if left <= 0 then return false, Poll.TIMEOUT end
@@ -205,12 +205,12 @@ function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, 
   end
 end
 
-function State.receive<T>(self: State<T>, timeout_ns?: integer): T | nil, string
+function State.receive<T>(self: State<T>, timeout_ns?: integer): T?, string
   Poll.checked_ns(timeout_ns, "channel", "timeout_ns", 2)
-  local deadline = timeout_ns ~= nil and Clock.monotonic_ns() + timeout_ns or nil
+  local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while self.count == 0 do
     if self.is_closed then return nil, Channel.CLOSED end
-    local left: integer | nil = nil
+    local left: integer? = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
       if left <= 0 then return nil, Poll.TIMEOUT end

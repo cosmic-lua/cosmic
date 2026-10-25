@@ -32,7 +32,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 local function test_a_degenerate_grant_raises(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local function raises(grants: any, extra?: {string:any}): boolean
-    local sandbox: {string:any} = { grants = grants }
+    local sandbox: mut {string:any} = { grants = grants }
     for key, value in pairs(extra or {}) do sandbox[key] = value end
     return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
       sandbox as raw_process.Sandbox)

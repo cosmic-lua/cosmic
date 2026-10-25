@@ -307,7 +307,7 @@ end
 
 --- Starts `sandbox` with the stand-in, with no script of weight: the pid,
 --- or nil and why the start failed (empty text beside a pid).
-local function start(probe: string, sandbox: raw_process.Sandbox): integer | nil, string
+local function start(probe: string, sandbox: raw_process.Sandbox): integer?, string
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
   local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
     nil, sandbox)

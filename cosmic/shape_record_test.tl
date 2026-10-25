@@ -5,7 +5,7 @@
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 
-local type Level = enum
+local enum Level
   "debug"
   "info"
   "warn"
@@ -13,7 +13,7 @@ end
 
 local record Address
   street: string
-  floor: integer | nil
+  floor: integer?
 end
 
 --- One field of every kind a spec can be read off.
@@ -22,9 +22,9 @@ local record Profile
   age: integer
   score: number
   admin: boolean
-  nickname: string | nil
+  nickname: string?
   address: Address
-  previous: Address | nil
+  previous: Address?
   tags: {string}
   scores: {number}
   places: {Address}

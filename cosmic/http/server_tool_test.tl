@@ -47,7 +47,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local items: {string:string} = {}
-  local result = { value = nil as Child.Result | nil }
+  local result = { value = nil as Child.Result? }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply
@@ -106,7 +106,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local targets: {string} = {}
-  local result = { value = nil as Child.Result | nil }
+  local result = { value = nil as Child.Result? }
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     handle = function(req: Server.Request): Server.Reply

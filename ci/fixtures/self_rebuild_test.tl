@@ -113,7 +113,7 @@ end
 
 --- A count, kept where the closure that adds to it can write.
 local record Tally
-  value: integer
+  mut value: integer
 end
 
 --- How many compiles `path` holds, and how many of them a build took
@@ -194,7 +194,7 @@ end
 -- as every source file in the tree does: joining the result with "\n" and
 -- appending one final "\n" reproduces it.
 local function split_lines(text: string): {string}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while true do
     local newline = text:find("\n", at, true)
@@ -213,7 +213,7 @@ end
 -- edit unapplied.
 local function insert_after(lines: {string}, marker: string,
                             extra: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local found = false
   for _, line in ipairs(lines) do
     out[#out + 1] = line

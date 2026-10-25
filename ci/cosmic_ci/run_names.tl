@@ -29,7 +29,7 @@ local DATA <const> = Shape.record_of("RunNames.Names")
 
 --- What has been read of the file: the data once it is.
 local record Read
-  data?: RunNames.Names
+  mut data?: RunNames.Names
 end
 
 local read: Read = {}

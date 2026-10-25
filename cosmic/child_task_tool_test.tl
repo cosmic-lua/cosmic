@@ -24,8 +24,8 @@ local type Searcher = function(string): any, any
 --- The functions of cosmic.child these tests call, of one copy of the module. A copy loaded again is no value of the
 --- module's record, so a test reads the two functions it calls and not the module.
 local record Entry
-  run: function(argv: {string}, opts?: Child.Options): Child.Result | nil, string
-  start: function(argv: {string}, opts?: Child.Options): Child.Handle | nil, string
+  run: function(argv: {string}, opts?: Child.Options): Child.Result?, string
+  start: function(argv: {string}, opts?: Child.Options): Child.Handle?, string
 end
 
 --- cosmic.child loaded again, over a copy of the raw table it is handed
@@ -35,7 +35,7 @@ local function reloaded(alter: function({string: any})): Entry
   for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then
-      local copy: {string: any} = {}
+      local copy: mut {string: any} = {}
       for name, value in pairs(extra as {string: any}) do copy[name] = value end -- cast: to copy a table by name
       alter(copy)
       local loaded = loader as function(string, any): Entry -- cast: the loader the store's searcher answers
@@ -50,7 +50,7 @@ end
 --- each exit every few milliseconds instead.
 local function without_exit_watch(): Entry
   return reloaded(function(copy: {string: any})
-    copy.exit_watch = function(_pid: integer): integer | nil, string, integer
+    copy.exit_watch = function(_pid: integer): integer?, string, integer
       return nil, "no exit watch here", sys.ENOSYS
     end
   end)
@@ -102,7 +102,7 @@ end
 --- whose child's exit has no descriptor, which looks for it in turn.
 local function test_a_run_in_a_task_lets_the_others_run()
   for _, module in ipairs(both()) do
-    local r = { value = nil as Child.Result | nil }
+    local r = { value = nil as Child.Result? }
     local ticks = ticking(function()
       r.value = assert(module.run(lua(sleep(300) .. 'print("done")', { stdout = "capture" })))
     end)
@@ -124,21 +124,21 @@ end
 --- is not measured here: a whole suite run on a macOS runner has taken
 --- some 6 ms over it.
 local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
-  local ends = { value = nil as raw_process.Pipe | nil }
-  local type Watch = function(integer): integer | nil, string, integer
-  local watch = { value = nil as Watch | nil }
+  local ends = { value = nil as raw_process.Pipe? }
+  local type Watch = function(integer): integer?, string, integer
+  local watch = { value = nil as Watch? }
   local module = reloaded(function(copy: {string: any})
     local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe`
     watch.value = copy.exit_watch as Watch -- cast: the raw table's `exit_watch`
     local made = assert(pipe())
     ends.value = made
-    copy.exit_watch = function(_pid: integer): integer | nil, string, integer
+    copy.exit_watch = function(_pid: integer): integer?, string, integer
       return made.reader, "", 0
     end
   end)
   local pipe_ends = assert(ends.value, "the module was reloaded")
   local exit_watch = assert(watch.value, "the module was reloaded")
-  local waited = { value = nil as Child.Result | nil }
+  local waited = { value = nil as Child.Result? }
   local early = { value = false }
   Poll.run(function()
     -- Not grouped: a grouped start makes an adopting process, whose waits
@@ -177,8 +177,8 @@ local function test_every_child_started_here_has_an_exit_watch()
   local given = { value = 0 }
   local refused = { value = "" }
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer | nil, string, integer
+    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer?, string, integer
       local fd, why, errno = watch(pid)
       if fd ~= nil then given.value = given.value + 1 else refused.value = why end
       if fd == nil then return nil, why, errno end
@@ -207,8 +207,8 @@ end
 local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited_for()
   local asked = { value = 0 }
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer | nil, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer | nil, string, integer
+    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch`
+    copy.exit_watch = function(pid: integer): integer?, string, integer
       asked.value = asked.value + 1
       local fd, _, _ = watch(pid)
       if fd ~= nil then
@@ -233,7 +233,7 @@ end
 --- A wait with a timeout ends the child at it, the other task ticking
 --- meanwhile.
 local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
-  local timed = { value = nil as Child.Result | nil }
+  local timed = { value = nil as Child.Result? }
   local ticks = ticking(function()
     local h <close> = assert(Child.start(lua(sleep(100000))))
     timed.value = assert(h:wait(Clock.ms(200)))
@@ -247,10 +247,10 @@ end
 --- the child running for its handle; a run's, having ended its child.
 local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
   for _, module in ipairs(both()) do
-    local waited = { value = nil as string | nil }
-    local running = { value = nil as boolean | nil }
-    local ran = { value = nil as string | nil }
-    local took = { value = nil as integer | nil }
+    local waited = { value = nil as string? }
+    local running = { value = nil as boolean? }
+    local ran = { value = nil as string? }
+    local took = { value = nil as integer? }
     Poll.run(function()
       local h <close> = assert(module.start(lua(sleep(100000))))
       local waiter = Poll.spawn(function()
@@ -315,12 +315,12 @@ end
 local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
   local report = tmp .. "/pid"
   for _, module in ipairs(both()) do
-    local ran = { value = nil as string | nil }
-    local waited = { value = nil as string | nil }
+    local ran = { value = nil as string? }
+    local waited = { value = nil as string? }
     local during = { value = 0 }
-    local run_pid = { value = nil as integer | nil }
-    local killed_pid = { value = nil as integer | nil }
-    local killed_answer = { value = nil as string | nil }
+    local run_pid = { value = nil as integer? }
+    local killed_pid = { value = nil as integer? }
+    local killed_answer = { value = nil as string? }
     Poll.run(function()
       local done = false
       local ticks = { value = 0 }
@@ -405,7 +405,7 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
   local report = tmp .. "/raised"
   local poll = sys.poll
   local raised = { value = false }
-  sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer} | nil, string, integer
+  sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
     if Fs.exists(report) then
       raised.value = true
       error("poll refused", 0)
@@ -428,7 +428,7 @@ end
 
 --- The signals this process catches, as Linux's /proc says; nil
 --- elsewhere.
-local function caught_signals(): string | nil
+local function caught_signals(): string?
   local status, _ = Fs.read("/proc/self/status")
   if status == nil then return nil end
   return status:match("SigCgt:%s*(%x+)")
@@ -440,8 +440,8 @@ end
 local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: string)
   local report = tmp .. "/pid"
   local before = caught_signals()
-  local pid = { value = nil as integer | nil }
-  local answer = { value = nil as string | nil }
+  local pid = { value = nil as integer? }
+  local answer = { value = nil as string? }
   Poll.run(function()
     local victim = Poll.spawn(function()
       local _, _ = Child.run(lua(holding_term(report)))
@@ -466,7 +466,7 @@ end
 local function test_streams_in_a_task_let_the_others_run()
   for _, module in ipairs(both()) do
     local got: {string} = {}
-    local fed = { value = nil as Child.Result | nil }
+    local fed = { value = nil as Child.Result? }
     local input = string.rep("0123456789", 20000)
     local ticks = ticking(function()
       local h <close> = assert(module.start(lua(
@@ -497,13 +497,13 @@ end
 --- Waits for any of several handles in a task end at the first exit,
 --- the other task ticking meanwhile; cancelled, they answer CANCELLED.
 local function test_wait_any_in_a_task_ends_at_the_first_exit()
-  local first = { value = nil as integer | nil }
-  local cancelled = { value = nil as string | nil }
+  local first = { value = nil as integer? }
+  local cancelled = { value = nil as string? }
   local ticks = ticking(function()
     local slow <close> = assert(Child.start(lua(sleep(100000))))
     local quick <close> = assert(Child.start(lua(sleep(200))))
     local done = assert(Child.wait_any({ slow, quick }))
-    first.value = done.pid == quick.pid and 1 or 2
+    first.value = if done.pid == quick.pid then 1 else 2 end
     local waiter = Poll.spawn(function()
       local none, why = Child.wait_any({ slow })
       assert(none == nil)
@@ -572,8 +572,8 @@ end
 --- takes its number next.
 local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tmp: string)
   local victim = tmp .. "/victim"
-  local wrote = { value = nil as boolean | nil }
-  local why = { value = nil as string | nil }
+  local wrote = { value = nil as boolean? }
+  local why = { value = nil as string? }
   Poll.run(function()
     -- The child outlives the write, and its handle's close ends it: one
     -- that exited first would fail the write with EPIPE instead.
@@ -619,14 +619,14 @@ end
 --- both ask `try_wait`, or one waits while the other closes.
 local function test_two_tasks_settle_one_child_once()
   local answers: {Child.Result} = {}
-  local closed = { value = nil as boolean | nil }
+  local closed = { value = nil as boolean? }
   Poll.run(function()
     local h <close> = assert(Child.start(lua("return 3")))
     assert(assert(h:wait(Clock.seconds(30))).code == 3)
     local again <close> = assert(Child.start(lua("return 4")))
     -- Exited, its status unclaimed: so both `try_wait`s find it finished.
     exited_unreaped(again)
-    local tasks: {Poll.Task} = {}
+    local tasks: mut {Poll.Task} = {}
     for i = 1, 2 do
       tasks[i] = Poll.spawn(function()
         local t = assert(again:try_wait())

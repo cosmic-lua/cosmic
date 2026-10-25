@@ -31,9 +31,9 @@ end
 --- `given`, a `max_depth`, when it is an integer from `least` to `most`
 --- (no upper bound when `most` is nil); otherwise raises, naming the
 --- caller `level` frames above the function that calls this one.
-local function checked_depth(given: any, least: integer, most: integer | nil, level: integer): integer
+local function checked_depth(given: any, least: integer, most: integer?, level: integer): integer
   if not (given is integer) or given < least or (most ~= nil and given > most) then
-    local range = most ~= nil and "from " .. least .. " to " .. most or "of at least " .. least
+    local range = if most ~= nil then "from " .. least .. " to " .. most else "of at least " .. least end
     error("json: max_depth must be an integer " .. range, level + 1)
   end
   return given
@@ -68,7 +68,7 @@ end
 ---     end
 ---     -- $.a[0] = 1
 ---     -- $.a[1].b = []
-function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json.Match} | nil, string
+function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json.Match}?, string
   local limit = Json.default_depth
   local root: Json.Steps = {}
   if opts ~= nil then
@@ -86,7 +86,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
     leaves[#leaves + 1] = { steps = table.move(steps, 1, #steps, 1, {}), value = v }
   end
   -- Walks `v`, answering why it cannot be read, if it cannot.
-  local function walk(v: any, depth: integer): string | nil
+  local function walk(v: any, depth: integer): string?
     if not (v is {any:any}) then
       leaf(v)
       return nil
@@ -105,14 +105,14 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
     end
     open[v] = true
     local before = #leaves
-    local function child(step: string | integer, member: any): string | nil
+    local function child(step: string | integer, member: any): string?
       if member == nil then return nil end
       steps[#steps + 1] = step
       local why = walk(member, depth + 1)
       steps[#steps] = nil
       return why
     end
-    local failed: string | nil = nil
+    local failed: string? = nil
     if shape == "array" then
       for i = 1, extent do
         failed = child(i, t[i])
@@ -141,10 +141,10 @@ end
 --- starts `$[` only before a name that is no word or a position, and
 --- holds a `'` only where a name does, so a word-and-index path needs no
 --- escape in single quotes. nil and why for a step [`Json.path`] refuses.
-local function shorthand(steps: Json.Steps): string | nil, string
+local function shorthand(steps: Json.Steps): string?, string
   local checked, bad = Json.path(steps)
   if checked == nil then return nil, bad end
-  local parts: {string} = { "$" }
+  local parts: mut {string} = { "$" }
   for _, step in ipairs(steps) do
     if step is string then
       if step:match("^[%a_][%w_]*$") then
@@ -169,7 +169,7 @@ end
 --- place ends at the first ` = ` outside a quoted name. nil and a
 --- message naming the place by its JSON Pointer when `value` cannot be
 --- encoded, or a step is no step [`Json.path`] writes.
-function json_query.flat_line(steps: Json.Steps, value: any): string | nil, string
+function json_query.flat_line(steps: Json.Steps, value: any): string?, string
   local path, bad = shorthand(steps)
   if path == nil then return nil, bad end
   local text, err = Json.encode_any(value)
@@ -179,15 +179,15 @@ end
 
 --- What the values seen at one place look like, merged.
 local record Node
-  scalars: {string:boolean}
-  objects: integer
-  fields: {string:Node}
-  seen: {string:integer}
-  arrays: integer
-  shortest: integer
-  longest: integer
-  elements?: Node
-  cut: boolean
+  scalars: mut {string:boolean}
+  mut objects: integer
+  fields: mut {string:Node}
+  seen: mut {string:integer}
+  mut arrays: integer
+  mut shortest: integer
+  mut longest: integer
+  mut elements?: Node
+  mut cut: boolean
 end
 
 local function new_node(): Node
@@ -251,21 +251,21 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
 end
 
 local function sorted_keys<T>(t: {string:T}): {string}
-  local keys: {string} = {}
+  local keys: mut {string} = {}
   for key in pairs(t) do keys[#keys + 1] = key end
   table.sort(keys)
   return keys
 end
 
 local function render(node: Node): string
-  local parts: {string} = sorted_keys(node.scalars)
+  local parts: mut {string} = sorted_keys(node.scalars)
   if node.objects > 0 then
     if node.cut then
       parts[#parts + 1] = "{...}"
     else
-      local members: {string} = {}
+      local members: mut {string} = {}
       for _, name in ipairs(sorted_keys(node.fields)) do
-        local optional = node.seen[name] < node.objects and "?" or ""
+        local optional = if node.seen[name] < node.objects then "?" else "" end
         members[#members + 1] = (name:match("^[%a_][%w_]*$") and name or Json.quote(name)) .. optional .. ": " .. render(node.fields[name])
       end
       parts[#parts + 1] = "{" .. table.concat(members, ", ") .. "}"

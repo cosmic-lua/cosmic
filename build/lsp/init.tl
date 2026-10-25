@@ -97,7 +97,7 @@ end
 
 --- The address `--listen` names: `port` alone is the loopback's, and a
 --- host is a numeric IPv4 address or an IPv6 one in brackets.
-local function listen_address(word: string): Net.Address | nil
+local function listen_address(word: string): Net.Address?
   local host, port = word:match("^%[(.+)%]:(%d+)$")
   if host ~= nil and not ipv6(host) then return nil end
   if host == nil then
@@ -129,7 +129,7 @@ end
 --- What has arrived on standard input, read through `reader`
 --- without waiting ([`protocol.Poll`]).
 local function polled_input(reader: Stream.Reader): protocol.Poll
-  return function(): string | nil, string
+  return function(): string?, string
     local ready, _ = Poll.readable(0, 0)
     if not ready then return nil, "" end
     return reader:read()
@@ -138,7 +138,7 @@ end
 
 --- What has arrived on `conn`, read without waiting ([`protocol.Poll`]).
 local function polled_conn(conn: Net.Conn): protocol.Poll
-  return function(): string | nil, string
+  return function(): string?, string
     conn:set_timeout(0)
     local chunk, why = conn:read()
     conn:set_timeout(nil)
@@ -152,8 +152,8 @@ end
 
 --- The connections a listener has open, closed as it stops.
 local record Open
-  conns: {Net.Conn: boolean}
-  stopping: boolean
+  conns: mut {Net.Conn: boolean}
+  mut stopping: boolean
 end
 
 --- How long a connection has to end once the server stops, after its
@@ -198,7 +198,7 @@ local function listen(root: string, listeners: {Net.Address}): integer
     -- stop closes every one, or none would end.
     on_stop = function(_server: Net.Server)
       open.stopping = true
-      local conns: {Net.Conn} = {}
+      local conns: mut {Net.Conn} = {}
       for conn in pairs(open.conns) do conns[#conns + 1] = conn end
       for _, conn in ipairs(conns) do
         local _, _ = conn:close()
@@ -217,7 +217,7 @@ end
 --- live listener's, whose full backlog fails a connect as one nothing
 --- listens at does, so it is never taken for one left behind. Anything
 --- else at `path` is left for the listen to refuse.
-local function socket_taken(path: string): string | nil
+local function socket_taken(path: string): string?
   local st, _ = Fs.stat(path)
   if st == nil or st.kind ~= "socket" then return nil end
   return path .. " is a socket file already; remove it if no server is running there"
@@ -238,7 +238,7 @@ local function run(argv: {string}): integer
     return bare.refused
   end
   local none: {string} = {}
-  local listeners: {Net.Address} = {}
+  local listeners: mut {Net.Address} = {}
   for _, word in ipairs(parsed.all["--listen"] or none) do
     local address = listen_address(word)
     if address == nil then

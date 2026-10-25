@@ -2,9 +2,9 @@
 local Perf = require("build.perf")
 
 local function population(delta: number, count?: integer): {Perf.Pair}
-  local samples: {Perf.Pair} = {}
+  local samples: mut {Perf.Pair} = {}
   for i = 1, count or 200 do
-    local a = i % 2 == 0 and 99 or 101
+    local a = if i % 2 == 0 then 99 else 101 end
     samples[i] = { a = a, b = 200 - a + delta }
   end
   return samples
@@ -35,7 +35,7 @@ local function test_biased_calibration_is_inconclusive()
 end
 
 local function test_positive_interval_inside_noise_is_not_a_pass()
-  local shifted: {Perf.Pair} = {}
+  local shifted: mut {Perf.Pair} = {}
   for i = 1, 200 do shifted[i] = { a = 100, b = 100.5 } end
   local measured = Perf.compare(population(0), shifted)
   assert(measured.delta.low > 0 and measured.delta.low < measured.noise)
@@ -63,7 +63,7 @@ local function test_distribution_has_independently_computed_binomial_ranks()
   }
   for _, case in ipairs(cases) do
     local n = case[1]
-    local values: {number} = {}
+    local values: mut {number} = {}
     for i = 1, n do values[i] = n + 1 - i end
     local distribution = Perf.distribution(values)
     assert(values[1] == n and distribution.median == (n + 1) / 2)
@@ -79,8 +79,8 @@ local function test_distribution_has_independently_computed_binomial_ranks()
 end
 
 local function test_noisier_candidate_needs_review_even_if_faster()
-  local candidate: {Perf.Pair} = {}
-  for i = 1, 200 do candidate[i] = { a = 100, b = i % 2 == 0 and 40 or 60 } end
+  local candidate: mut {Perf.Pair} = {}
+  for i = 1, 200 do candidate[i] = { a = 100, b = if i % 2 == 0 then 40 else 60 end } end
   local measured = Perf.compare(population(0), candidate)
   assert(measured.delta.high < 0 and measured.tail_delta < 0)
   assert(measured.status == "inconclusive" and has_reason(measured.reasons, "increased_dispersion"))
@@ -88,13 +88,13 @@ end
 
 local function test_small_samples_are_exploratory_and_ties_are_valid()
   for _, n in ipairs({ 30, 100, 199 }) do
-    local samples: {Perf.Pair} = {}
+    local samples: mut {Perf.Pair} = {}
     for i = 1, n do samples[i] = { a = 100, b = 100 } end
     local measured = Perf.compare(samples, samples)
     assert(measured.status == "inconclusive" and has_reason(measured.reasons, "exploratory_sample_count"))
     if n == 30 then assert(has_reason(measured.reasons, "unbounded_tail_interval")) end
   end
-  local equal: {number} = {}
+  local equal: mut {number} = {}
   for i = 1, 2000 do equal[i] = 7 end
   local measured = Perf.distribution(equal)
   assert(measured.low == 7 and measured.high == 7 and measured.p95_interval.high == 7)
@@ -112,10 +112,10 @@ local function test_finite_median_midpoint_does_not_overflow()
 end
 
 local function test_positive_tail_inside_its_own_noise_cannot_pass()
-  local calibration, candidate: {Perf.Pair}, {Perf.Pair} = {}, {}
+  local calibration, candidate: mut {Perf.Pair}, mut {Perf.Pair} = {}, {}
   for i = 1, 200 do
     calibration[i] = { a = i, b = 201 - i }
-    candidate[i] = { a = 100, b = i <= 180 and 90 or 105 }
+    candidate[i] = { a = 100, b = if i <= 180 then 90 else 105 end }
   end
   local measured = Perf.compare(calibration, candidate)
   local low, noise = measured.tail_interval.low, measured.tail_noise
@@ -125,9 +125,9 @@ local function test_positive_tail_inside_its_own_noise_cannot_pass()
 end
 
 local function test_biased_tail_calibration_is_not_excused_by_median()
-  local calibration, candidate: {Perf.Pair}, {Perf.Pair} = {}, {}
+  local calibration, candidate: mut {Perf.Pair}, mut {Perf.Pair} = {}, {}
   for i = 1, 200 do
-    calibration[i] = { a = 100, b = i <= 180 and 100 or 105 }
+    calibration[i] = { a = 100, b = if i <= 180 then 100 else 105 end }
     candidate[i] = { a = 100, b = 100 }
   end
   local measured = Perf.compare(calibration, candidate)
@@ -136,9 +136,9 @@ local function test_biased_tail_calibration_is_not_excused_by_median()
 end
 
 local function test_overflowing_derived_bounds_are_refused()
-  local samples: {Perf.Pair} = {}
+  local samples: mut {Perf.Pair} = {}
   for i = 1, 200 do
-    local value = i <= 190 and -1e308 or 1e308
+    local value = if i <= 190 then -1e308 else 1e308 end
     samples[i] = { a = value, b = value }
   end
   assert(not pcall(Perf.compare, samples, samples))

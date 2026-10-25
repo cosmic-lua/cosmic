@@ -26,7 +26,7 @@ local function pinned(name: string): string
   return (assert(("\n" .. text):match("\nversion (%S+)")))
 end
 
-local datasets: {string:refresh.Dataset} = {}
+local datasets: mut {string:refresh.Dataset} = {}
 for _, dataset in ipairs(refresh.datasets) do
   datasets[dataset.name] = dataset
 end
@@ -77,7 +77,7 @@ end
 --- no release is none.
 local function test_the_newest_nss_release_is_read_from_its_tags()
   local function refs(...: string): string
-    local items: {string} = {}
+    local items: mut {string} = {}
     for i, tag in ipairs({ ... }) do
       items[i] = '{"ref": "refs/tags/' .. tag .. '", "object": {}}'
     end

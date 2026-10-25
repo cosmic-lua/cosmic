@@ -13,7 +13,7 @@ local Clock = require("cosmic.clock")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function fix(root: string, check: boolean, paths?: {string}): string
-  local args: {string} = { "fix" }
+  local args: mut {string} = { "fix" }
   if check then args[#args + 1] = "--check" end
   for _, path in ipairs(paths or {}) do args[#args + 1] = path end
   local started = this_program.program(args, { cwd = root,

@@ -51,7 +51,7 @@ end
 local function test_guard_wait_takes_a_signal_in_a_task()
   local outer = assert(Signal.guard())
   local inner = assert(Signal.guard())
-  local got: {string} = {}
+  local got: mut {string} = {}
   Poll.run(function()
     local function waiter(g: Signal.Guard, name: string): Poll.Task
       return Poll.spawn(function()

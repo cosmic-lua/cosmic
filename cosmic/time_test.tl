@@ -369,7 +369,7 @@ end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
 local function test_a_text_that_stops_says_where_and_what_it_wanted()
-  local function why(parse: function(string): (integer | nil, string), text: string): string
+  local function why(parse: function(string): (integer?, string), text: string): string
     local got, reason = parse(text)
     assert(got == nil, text)
     assert(reason:sub(1, 6) == "time: ", reason)
@@ -393,7 +393,7 @@ end
 --- Every failure this module answers opens `time: `, once: a moment out
 --- of range, a field, a calendar rule, a parser's, a duration's.
 local function test_a_returned_failure_names_the_module_once()
-  local function named(why: string | nil, rest: string)
+  local function named(why: string?, rest: string)
     assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
     local _, count = why:gsub("time: ", "")
     assert(count == 1, why)

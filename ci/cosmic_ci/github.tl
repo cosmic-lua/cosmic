@@ -34,7 +34,7 @@ local record Github
     --- commit `base`'s: false where it cannot say.
     moved: function(base: string): boolean
   end
-  type Fetch = function(path: string, paginate: boolean, seconds: integer): {string} | nil, string
+  type Fetch = function(path: string, paginate: boolean, seconds: integer): {string}?, string
   type Delete = function(path: string, seconds: integer): boolean, string
   --- [`Host`]'s `fetch` and `delete`, over `client`: a GET whose JSON is
   --- checked to be an object, a listing's pages following the `Link`
@@ -54,20 +54,20 @@ local record Github
   say: function(host: Host, line: string)
   --- `host.fetch`, with the reason a failed lookup gives printed, so a
   --- step's log says why it asked again.
-  ask: function(host: Host, path: string, paginate: boolean, seconds: integer): {string} | nil
+  ask: function(host: Host, path: string, paginate: boolean, seconds: integer): {string}?
   --- Whether `base`'s build/harness_epoch.tl differs from the checkout's
   --- HEAD's, asked of git through `git`, which runs a git command line and
   --- answers its exit status (nil where it could not run). Only a
   --- difference answers true: no git, a base it does not hold, or any
   --- other refusal is no sign that it moved.
-  harness_moved: function(git: function(argv: {string}): integer | nil, base: string): boolean
+  harness_moved: function(git: function(argv: {string}): integer?, base: string): boolean
 end
 
 function Github.is_commit(text: string): boolean
   return #text == 40 and text:match("^[0-9a-f]+$") ~= nil
 end
 
-function Github.ask(host: Github.Host, path: string, paginate: boolean, seconds: integer): {string} | nil
+function Github.ask(host: Github.Host, path: string, paginate: boolean, seconds: integer): {string}?
   local pages, why = host.fetch(path, paginate, seconds)
   if pages == nil then host.print("lookup failed: " .. why) end
   return pages
@@ -78,14 +78,14 @@ function Github.say(host: Github.Host, line: string)
   host.summary(line)
 end
 
-function Github.harness_moved(git: function(argv: {string}): integer | nil, base: string): boolean
+function Github.harness_moved(git: function(argv: {string}): integer?, base: string): boolean
   if git({ "cat-file", "-e", base .. "^{commit}" }) ~= 0 then return false end
   -- `:/` names the path from the repository's root, where the driver runs in ci/.
   return git({ "diff", "--quiet", base, "HEAD", "--", ":/build/harness_epoch.tl" }) == 1
 end
 
 function Github.over(client: GithubApi.Client): Github.Over
-  local function fetch(path: string, paginate: boolean, seconds: integer): {string} | nil, string
+  local function fetch(path: string, paginate: boolean, seconds: integer): {string}?, string
     if paginate then return GithubApi.pages(client, path, seconds) end
     local text, why = GithubApi.get(client, path, seconds)
     if text == nil then return nil, why end
@@ -108,9 +108,9 @@ end
 -- would, which costs a stale verdict at worst, never a failed run.
 function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
   local git, _ = Proc.find("git", env["PATH"] or "")
-  local function run_git(argv: {string}): integer | nil
+  local function run_git(argv: {string}): integer?
     if git == nil then return nil end
-    local words: {string} = { git }
+    local words: mut {string} = { git }
     for _, word in ipairs(argv) do words[#words + 1] = word end
     local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "null", stderr = "null" })
     if result == nil then return nil end
@@ -122,7 +122,7 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     over = Github.over(client)
   else
     over = {
-      fetch = function(_path: string, _paginate: boolean, _seconds: integer): {string} | nil, string
+      fetch = function(_path: string, _paginate: boolean, _seconds: integer): {string}?, string
         return nil, absent
       end,
       delete = function(_path: string, _seconds: integer): boolean, string

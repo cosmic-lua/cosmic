@@ -57,7 +57,7 @@ end
 
 --- What has been read of the file: the data once it is.
 local record Read
-  data?: Data
+  mut data?: Data
 end
 
 local read: Read = {}

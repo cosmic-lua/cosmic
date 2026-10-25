@@ -28,8 +28,8 @@ local function host_target_row(targets_path: string, work: string,
   end
   local sysname = host_uname("-s", "sysname")
   local arch = host_uname("-m", "arch")
-  local found_id: string | nil = nil
-  local found_name: string | nil = nil
+  local found_id: string? = nil
+  local found_name: string? = nil
   for line in Fixture.read(targets_path):gmatch("[^\n]+") do
     local id, _configuration, _kind, name, uname_os, uname_arch = line:match(
       "^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -57,7 +57,7 @@ end
 --- tree's, so neither is followed.
 function RuntimeSetup.closure(root: string, entry: string): {string}
   local seen: {string:boolean} = {}
-  local out: {string} = {}
+  local out: mut {string} = {}
   local function visit(relative: string)
     if seen[relative] == true then return end
     seen[relative] = true

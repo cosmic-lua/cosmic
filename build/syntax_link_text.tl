@@ -30,7 +30,7 @@ local record SyntaxLinkText
 end
 
 function SyntaxLinkText.comments_of(tokens: Lexer.Tokens): {LinkText.Comment}
-  local comments: {LinkText.Comment} = {}
+  local comments: mut {LinkText.Comment} = {}
   for token = 1, #tokens.kind do
     for _, comment in ipairs(tokens.comments[token] or {}) do
       local text = comment.text
@@ -59,26 +59,26 @@ local function declare_members(prefix: string, members: {Ast.Member}, depth: int
   end
   for _, member in ipairs(members) do
     local declared = Node.declared(member)
-    if member is Ast.FieldDecl then
+    if (member.kind == "FieldDecl") then
       local name = member.name.name
       declare(prefix .. "." .. name, true, false)
       local field_type = member.type
       if name:sub(1, 2) ~= "__" then
-        declare(name, field_type is Ast.TypeFunction, false)
+        declare(name, (field_type.kind == "TypeFunction"), false)
       end
-    elseif member is Ast.Method then
+    elseif (member.kind == "Method") then
       declare(prefix .. "." .. member.name.name, true, false)
       declare(member.name.name, true, false)
     elseif declared ~= nil then
       local name = declared.name.name
       declare(prefix .. "." .. name, true, false)
       declare(name, true, false)
-      if member is Ast.Record or member is Ast.Interface or member is Ast.Class then
+      if (member.kind == "Record") or (member.kind == "Interface") or (member.kind == "Class") then
         -- The fork's reader looks through no generic type, so the members of one are not declared.
         if #member.typeparams == 0 then
           declare_members(prefix .. "." .. name, member.members, depth + 1, declare)
         end
-      elseif member is Ast.Enum then
+      elseif (member.kind == "Enum") then
         for _, value in ipairs(member.values) do
           declare(prefix .. "." .. name .. "." .. value.value, true, false)
         end
@@ -106,18 +106,18 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     end
   end
   -- A statement of the chunk's own block is at the top; one nested in a body is not.
-  local at_top: {integer: boolean} = {}
+  local at_top: mut {integer: boolean} = {}
   for _, stat in ipairs(chunk.body.stats) do
     at_top[Node.base(stat).id] = true
   end
   for _, stat in ipairs(chunk.body.stats) do
     local declared = Node.declared(stat)
     if declared ~= nil and declared.scope ~= "global" then
-      if stat is Ast.Record or stat is Ast.Interface or stat is Ast.Class then
+      if (stat.kind == "Record") or (stat.kind == "Interface") or (stat.kind == "Class") then
         if #stat.typeparams == 0 then
           declare_members(declared.name.name, stat.members, 0, declare)
         end
-      elseif stat is Ast.Enum then
+      elseif (stat.kind == "Enum") then
         for _, value in ipairs(stat.values) do
           declare(declared.name.name .. "." .. value.value, true, false)
         end
@@ -126,32 +126,32 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
   end
   Node.walk(chunk.body, function(node: Ast.Node)
     local here = at_top[Node.base(node).id] == true
-    if node is Ast.Local then
+    if (node.kind == "Local") then
       for _, binding in ipairs(node.bindings) do
         declare(binding.name, false, true)
       end
-    elseif node is Ast.LocalFunction then
+    elseif (node.kind == "LocalFunction") then
       declare(node.name.name, here, true)
-    elseif node is Ast.Function then
-      local path: {string} = {}
+    elseif (node.kind == "Function") then
+      local path: mut {string} = {}
       for i, name in ipairs(node.path) do
         path[i] = name.text
       end
       declare(table.concat(path, "."), here, false)
       declare(path[#path], here, false)
-    elseif node is Ast.ForNum then
+    elseif (node.kind == "ForNum") then
       declare(node.var.name, false, true)
-    elseif node is Ast.ForIn then
+    elseif (node.kind == "ForIn") then
       for _, var in ipairs(node.vars) do
         declare(var.name, false, true)
       end
-    elseif node is Ast.Param then
+    elseif (node.kind == "Param") then
       -- A parameter is held by its scope; only a typed one is looked for.
       local param = node.name
       if param ~= nil and (node.type ~= nil or node.optional) then
         declare(param.name, false, true)
       end
-    elseif node is Ast.PType then
+    elseif (node.kind == "PType") then
       local param = node.name
       if param ~= nil then
         declare(param, false, true)
@@ -159,20 +159,20 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
     else
       local declared = Node.declared(node)
       if declared ~= nil and declared.scope == "local" then
-        declare(declared.name.name, here and not (node is Ast.Import), true)
+        declare(declared.name.name, here and not ((node.kind == "Import")), true)
       end
     end
   end)
   -- The words a comment is read at: the token each comment's line stands before, and whether it is a doc comment's.
-  local before: {integer: integer} = {}
-  local doc: {integer: boolean} = {}
+  local before: mut {integer: integer} = {}
+  local doc: mut {integer: boolean} = {}
   for token = 1, #chunk.tokens.kind do
     for _, comment in ipairs(chunk.tokens.comments[token] or {}) do
       before[comment.y] = token
       doc[comment.y] = comment.text:match("^%-%-%-") ~= nil
     end
   end
-  local module_level: {string: boolean} = {}
+  local module_level: mut {string: boolean} = {}
   for name in pairs(top) do
     if inner[name] == nil then
       module_level[name] = true
@@ -219,8 +219,8 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
       return known
     end
     local in_scope = Lexical.in_scope(held(), y, x, doc_line)
-    local here: {string: boolean} = setmetatable({}, { __index = everywhere })
-    local aliases: {string: string} = {}
+    local here: mut {string: boolean} = setmetatable({}, { __index = everywhere })
+    local aliases: mut {string: string} = {}
     -- A name bound here is no alias of the top level's, whatever it is bound to.
     for name, module in pairs(top_aliases) do
       if in_scope[name] == nil then
@@ -241,13 +241,13 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
 end
 
 function SyntaxLinkText.found(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: string): {LinkText.Found}
-  local out: {LinkText.Found} = {}
+  local out: mut {LinkText.Found} = {}
   if not LinkText.may_link(source) then
     return out
   end
   local comments = SyntaxLinkText.comments_of(chunk.tokens)
-  local doc: {integer: boolean} = {}
-  local column: {integer: integer} = {}
+  local doc: mut {integer: boolean} = {}
+  local column: mut {integer: integer} = {}
   for _, comment in ipairs(comments) do
     doc[comment.line] = comment.doc
     column[comment.line] = comment.column

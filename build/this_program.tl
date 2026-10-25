@@ -36,7 +36,7 @@ this_program.runtime_environment = {
 --- test, not into the host's temporary directory. The core hands a child
 --- the directory its coverage goes to whatever environment it is given.
 function this_program.environment(): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   local own = confine.test_directory()
   for _, name in ipairs(this_program.runtime_environment) do
     if name == "TMPDIR" and own ~= nil then
@@ -92,24 +92,24 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
     error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
         "child's whole environment", 2)
   end
-  local relaunch: Proc.Relaunch | nil
+  local relaunch: Proc.Relaunch?
   if given.policy == nil then
     local found, _ = Proc.relaunch()
     relaunch = found
   end
-  local argv: {string} = {}
+  local argv: mut {string} = {}
   if relaunch ~= nil then
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
   else
     argv[1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local env: {string:string} | nil
+  local env: mut {string:string}?
   if given.policy == nil then
     env = {}
     for name, value in pairs(given.env or Env.all()) do env[name] = value end
   end
-  local fds: {integer:integer | string} = {}
+  local fds: mut {integer:integer | string} = {}
   for number, fd in pairs(given.fds or {}) do fds[number] = fd end
   if relaunch ~= nil and env ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end

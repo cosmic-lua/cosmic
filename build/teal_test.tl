@@ -26,7 +26,7 @@ Test.policy{ grants = {
 --- capsule finds the written value, not the compiler's own.
 local function test_lazy_write_lands_on_the_compiler()
   local built = teal.lazy()
-  local marker = function(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  local marker = function(_name: string, _search_all: boolean): string?, compiler.Handle?
     return nil
   end
   built.search_module = marker
@@ -47,10 +47,10 @@ end
 local function test_lazy_capsules_are_independent()
   local first = teal.lazy()
   local second = teal.lazy()
-  local function one(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  local function one(_name: string, _search_all: boolean): string?, compiler.Handle?
     return nil
   end
-  local function other(_name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  local function other(_name: string, _search_all: boolean): string?, compiler.Handle?
     return nil
   end
   first.search_module = one
@@ -62,9 +62,9 @@ end
 --- The field names of `record Error` and the members of `enum ErrorCode`
 --- in the source text `text`, whose declarations sit `indent` deep.
 local function error_declarations(text: string, indent: string): {string:boolean}, {string:boolean}
-  local fields: {string:boolean} = {}
-  local codes: {string:boolean} = {}
-  local inside: string | nil = nil
+  local fields: mut {string:boolean} = {}
+  local codes: mut {string:boolean} = {}
+  local inside: string? = nil
   for line in (text .. "\n"):gmatch("(.-)\n") do
     if line == indent .. "record Error" then
       inside = "record"
@@ -89,7 +89,7 @@ end
 
 --- Whether `a` and `b` hold the same names; the first that one holds
 --- and the other lacks, otherwise.
-local function same_names(a: {string:boolean}, b: {string:boolean}): boolean, string | nil
+local function same_names(a: {string:boolean}, b: {string:boolean}): boolean, string?
   for name in pairs(a) do
     if not b[name] then
       return false, name
@@ -106,7 +106,7 @@ end
 --- Holds every error and warning in `result` to the fields `record Error`
 --- declares, so a field misspelt at any site the checker sets it is caught
 --- by whichever test reaches the site.
-local function vet(result: compiler.Result | nil)
+local function vet(result: compiler.Result?)
   if result == nil then
     return
   end
@@ -124,9 +124,9 @@ end
 --- the callers that name none share inside one test. Loading a compiler builds the checker's standard globals again,
 --- which cost more than most of the programs a test gives it; `gen` with no environment makes a fresh one for each
 --- program, so no program meets another's types. A test that sets what a compiler holds loads one of its own.
-local generate: function(built: compiler | nil, source: string): string | nil, compiler.Result = (function(): function(built: compiler | nil, source: string): string | nil, compiler.Result
+local generate: function(built: compiler?, source: string): string?, compiler.Result = (function(): function(built: compiler?, source: string): string?, compiler.Result
   local held: {compiler} = {}
-  return function(built: compiler | nil, source: string): string | nil, compiler.Result
+  return function(built: compiler?, source: string): string?, compiler.Result
     if built == nil and held[1] == nil then
       held[1] = assert(teal.load(true))
     end
@@ -145,7 +145,7 @@ local integer_msg = "in assignment: got number, expected integer"
 --- ` | `.
 local function members_of(shown: string): {string}
   local bare = shown:gsub(" %(inferred at [^)]*%)$", "")
-  local found: {string} = {}
+  local found: mut {string} = {}
   for member in (bare .. " | "):gmatch("(.-) | ") do
     found[#found + 1] = member
   end
@@ -187,11 +187,11 @@ end
 --- The refusal of the key `key` of the record shown `subject`, read
 --- through the variable `variable` (nil for an expression that is none),
 --- whose value fields are `fields`.
-local function invalid_key(key: string, variable: string | nil, subject: string,
+local function invalid_key(key: string, variable: string?, subject: string,
                            fields?: {string}): compiler.Error
   local e = blank("invalid_key")
   e.key, e.variable, e.subject, e.fields = key, variable, subject, fields
-  e.subject_kind = subject:match("^record ") ~= nil and "record" or "nominal"
+  e.subject_kind = if subject:match("^record ") ~= nil then "record" else "nominal" end
   e.resolved_kind = "record"
   return e
 end
@@ -235,7 +235,7 @@ end
 --- What [`teal.replacement`] says for the first "got number, expected
 --- integer" the checker reports for `source`, and where: nil when it
 --- reports none, or the hint is nil.
-local function hint_for(source: string): string | nil, string
+local function hint_for(source: string): string?, string
   local built = assert(teal.load(true))
   local _, result = generate(built, source)
   for _, e in ipairs(result ~= nil and result.type_errors or {}) do
@@ -366,7 +366,7 @@ end
 --- What the parser refuses in `source`, each as "line:column message".
 local function syntax_errors(source: string): {string}
   local _, result = generate(nil, source)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(assert(result).syntax_errors) do
     out[#out + 1] = e.y .. ":" .. e.x .. " " .. e.msg
   end
@@ -406,12 +406,12 @@ local function test_a_call_after_a_string_spanning_lines()
   local tokens, errs = built.lex("f [[a\nbc]]\n(g)(1)\n", "t.tl")
   built.parse_program(tokens, errs, "t.tl")
   assert(#errs == 0, tostring(errs[1] and errs[1].msg))
-  local inserted: compiler.Token | nil = nil
+  local inserted: compiler.Token? = nil
   for _, t in ipairs(tokens) do
     if t.tk == ";" then inserted = t end
   end
   assert(inserted ~= nil and inserted.y == 2 and inserted.x == 5,
-    inserted and inserted.y .. ":" .. inserted.x or "no ';'")
+    if inserted then inserted.y .. ":" .. inserted.x else "no ';'" end)
 end
 
 --- A function type's return types end before a `,` and a parameter
@@ -586,7 +586,7 @@ end
 
 --- `line` 2000 times, each `N` in it the line's number.
 local function repeated(line: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for k = 1, 2000 do
     parts[#parts + 1] = (line:gsub("N", tostring(k)))
   end
@@ -660,10 +660,10 @@ end
 --- What [`teal.replacement`] says for the first diagnostic the checker
 --- reports for `source` (an error or a warning) whose message is
 --- `msg`: "no such diagnostic" when it reports none.
-local function replacement_for(source: string, msg: string): string | nil
+local function replacement_for(source: string, msg: string): string?
   local _, result = generate(nil, source)
   local found = result ~= nil
-  for _, group in ipairs(found and { result.type_errors, result.warnings } or {}) do
+  for _, group in ipairs(if found then { result.type_errors, result.warnings } else {} end) do
     for _, e in ipairs(group) do
       if e.msg == msg then
         return teal.replacement(e, source)
@@ -890,7 +890,7 @@ end
 --- how many more it has; a module record described rather than named
 --- (`record Module`) is named by its variable.
 local function test_a_missing_field_lists_a_bounded_few()
-  local names: {string} = {}
+  local names: mut {string} = {}
   for i = 12, 1, -1 do
     names[#names + 1] = string.format("f%02d", i)
   end
@@ -920,7 +920,7 @@ local function test_a_loop_control_variable_is_read_only()
   }) do
     local errors = type_errors(source)
     assert(#errors == 1 and errors[1].y == 4 and errors[1].msg == refused,
-      source .. (errors[1] and errors[1].y .. ": " .. errors[1].msg or "no error"))
+      source .. (if errors[1] then errors[1].y .. ": " .. errors[1].msg else "no error" end))
   end
   for _, source in ipairs({
       "local xs: {integer} = {}\nfor _, item in ipairs(xs) do item = item + 1; print(item) end\n",
@@ -1039,10 +1039,10 @@ end
 
 --- Holds the checker to reporting `msg` for `source`, and
 --- [`teal.replacement`] to answering it `want`.
-local function answers(source: string, msg: string, want: string | nil)
+local function answers(source: string, msg: string, want: string?)
   local got = replacement_for(source, msg)
   if got == "no such diagnostic" then
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     for _, e in ipairs(type_errors(source)) do seen[#seen + 1] = e.msg end
     error("no '" .. msg .. "' among: " .. table.concat(seen, "; "))
   end
@@ -1164,7 +1164,7 @@ local function test_a_module_type_is_told_to_nest_inside_the_record()
 end
 
 --- What [`teal.replacement`] says of the first syntax error in `source`.
-local function syntax_hint(source: string): string | nil
+local function syntax_hint(source: string): string?
   local _, result = generate(nil, source)
   local e = assert(assert(result).syntax_errors[1], source)
   assert(e.code == "expected_one_of", e.msg)
@@ -1202,7 +1202,7 @@ end
 local function refusals(source: string): {string}
   local ok, code, result = pcall(generate, nil, source)
   assert(ok, tostring(code))
-  local out: {string} = {}
+  local out: mut {string} = {}
   local checked = assert(result)
   for _, group in ipairs({ checked.syntax_errors, checked.type_errors }) do
     for _, e in ipairs(group) do
@@ -1481,7 +1481,7 @@ local function test_never_agrees_when_nested()
   for _, pair in pairs(kinds) do
     for _, place in ipairs({ "param", "return" }) do
       local function declared(t: string): string
-        return place == "param" and "function(p: " .. t .. ")" or "function(): " .. t
+        return if place == "param" then "function(p: " .. t .. ")" else "function(): " .. t end
       end
       for _, direction in ipairs({ { 1, 2 }, { 2, 1 } }) do
         local source = prelude .. "local function probe(a: " .. declared(pair[direction[1]]) ..
@@ -1590,7 +1590,7 @@ end
 --- which says nothing of why a never-function has no value: the hint
 --- says it never returns. A function that merely returns nothing gets none.
 local function test_a_never_call_has_no_value_to_assign()
-  local function hint(source: string): string | nil
+  local function hint(source: string): string?
     local found = type_errors(source)[1]
     assert(found ~= nil and found.code == "no_initial_value" and found.variable == "x",
       source .. (found and found.msg or "accepted"))
@@ -1783,11 +1783,11 @@ end
 local function checker_says(source: string): {string}
   local built = assert(teal.load(true))
   local _, result = generate(built, source)
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, group in ipairs({ assert(result).syntax_errors, result.type_errors }) do
     for _, e in ipairs(group) do
       local instead = teal.replacement(e, source)
-      out[#out + 1] = e.msg .. (instead ~= nil and " -- " .. instead or "")
+      out[#out + 1] = e.msg .. (if instead ~= nil then " -- " .. instead else "" end)
     end
   end
   return out
@@ -2661,8 +2661,8 @@ local function diagnostics(source: string, code: compiler.ErrorCode, five_four?:
   assert(ok and result ~= nil, source)
   vet(result)
   local declared = error_declarations(assert(Fs.read("build/compiler.d.tl")), "  ")
-  local found: {compiler.Error} = {}
-  local seen: {string} = {}
+  local found: mut {compiler.Error} = {}
+  local seen: mut {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group) do
       if e.code == code then
@@ -2698,7 +2698,7 @@ local function test_the_declared_error_matches_the_checkers()
 end
 
 --- Whether `found` holds the strings `want`, in order.
-local function listed(found: {string} | nil, ...: string): boolean
+local function listed(found: {string}?, ...: string): boolean
   local want = { ... }
   if found == nil or #found ~= #want then
     return false

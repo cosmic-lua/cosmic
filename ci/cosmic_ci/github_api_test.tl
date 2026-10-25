@@ -10,15 +10,15 @@ local CREATED <const> = Shape.record_of("Created")
 
 --- A count a closure adds to, and a flag it raises.
 local record Tally
-  value: integer
+  mut value: integer
 end
 local record Flag
-  value: boolean
+  mut value: boolean
 end
 
 --- What a download answers, with the fields it leaves out said so.
 local function download_result(kind: Http.DownloadKind, reason: string,
-                               status: integer | nil): Http.DownloadResult
+                               status: integer?): Http.DownloadResult
   return { kind = kind, reason = reason, status = status, algorithm = nil,
     expected = nil, actual = nil }
 end
@@ -31,7 +31,7 @@ end
 
 --- What a download hook was given.
 local record Captured
-  options?: Http.Options
+  mut options?: Http.Options
 end
 
 -- The live client's transport runs over [`cosmic.http`]'s `script`, whose
@@ -52,7 +52,7 @@ end
 local function live(script: {{string}}, env?: {string:string},
                     download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
   local sent: {string} = {}
-  local given: {string:string} = {}
+  local given: mut {string:string} = {}
   for name, value in pairs(env or {}) do given[name] = value end
   if given["GH_TOKEN"] == nil then given["GH_TOKEN"] = token end
   if given["GITHUB_API_URL"] == nil then given["GITHUB_API_URL"] = "http://api.test/" end
@@ -270,7 +270,7 @@ local function test_an_object_is_the_decoded_answer_or_why_not()
   local text, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
   assert(text ~= nil, why)
   assert(assert(CREATED:decode_into(text)).id == 9)
-  local refused_text: string | nil
+  local refused_text: string?
   refused_text, why = GithubApi.object(client, "POST", "repos/o/r/releases", { tag_name = "t" })
   assert(refused_text == nil and why == "POST repos/o/r/releases: HTTP 422: Validation Failed", why)
   refused_text, why = GithubApi.object(client, "GET", "repos/o/r/releases/1")
@@ -297,7 +297,7 @@ local function test_a_client_without_an_upload_origin_uploads_nothing()
   local sent: Tally = { value = 0 }
   local client: GithubApi.Client = { base = "http://api.test",
     fetch = function(_url: string, _path: string): boolean, string return false, "no download" end,
-    send = function(_request: GithubApi.Request): GithubApi.Reply | nil, string
+    send = function(_request: GithubApi.Request): GithubApi.Reply?, string
       sent.value = sent.value + 1
       return { status = 201, headers = {}, body = "" }, ""
     end }
@@ -449,7 +449,7 @@ end
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
   local clock: Tally = { value = 0 }
   local timeouts: {integer} = {}
-  local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
+  local function send(request: GithubApi.Request): GithubApi.Reply?, string
     timeouts[#timeouts + 1] = assert(request.timeout_ns)
     clock.value = clock.value + cost_ns
     local number = #timeouts

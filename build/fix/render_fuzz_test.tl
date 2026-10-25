@@ -21,9 +21,9 @@ local built = assert(teal.load())
 --- far, and what the enclosing function and loop allow.
 local record Gen
   src: Fuzz.Source
-  marks: integer
-  vararg: boolean
-  loop: boolean
+  mut marks: integer
+  mut vararg: boolean
+  mut loop: boolean
 end
 
 local NAMES <const> = { "a", "b", "x", "y", "t", "M", "_", "n1", "value", "self",
@@ -120,9 +120,9 @@ end
 local function sep(g: Gen): string
   local k = g.src:int(0, 11)
   if k == 0 then return " " end
-  if k == 1 then return chance(g, 2) and "; " or " " .. long_comment(g) .. " ; " end
+  if k == 1 then return if chance(g, 2) then "; " else " " .. long_comment(g) .. " ; " end end
   if k == 2 then return ";\n" .. indent(g) end
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   if chance(g, 5) then parts[#parts + 1] = " " .. line_comment(g) end
   parts[#parts + 1] = "\n"
   local lines = 0
@@ -183,7 +183,7 @@ end
 --- A list of up to `max` expressions, each after a comma, the first
 --- always there.
 local function exprs(g: Gen, d: integer, max: integer): string
-  local out: {string} = { expr(g, d) }
+  local out: mut {string} = { expr(g, d) }
   while Fuzz.more(g.src, #out, max) do
     out[#out + 1] = tight(g) .. "," .. gap(g) .. expr(g, d)
   end
@@ -245,21 +245,21 @@ end
 
 --- A parameter list and return types.
 local function signature(g: Gen): string, boolean
-  local names: {string} = {}
-  local kinds: {integer} = {}
+  local names: mut {string} = {}
+  local kinds: mut {integer} = {}
   local optional = false
   while Fuzz.more(g.src, #names, 4) do
     local p = pick(g, NAMES)
     if p == "self" or p == "_" then p = "p" .. #names end
     -- Only an optional parameter may follow an optional one.
-    local k = g.src:int(optional and 3 or 1, 3)
+    local k = g.src:int(if optional then 3 else 1 end, 3)
     optional = k == 3
     names[#names + 1] = p
     kinds[#kinds + 1] = k
   end
   -- A typed parameter is a function type only where what follows it is
   -- no bare name, which its return list would take in.
-  local params: {string} = {}
+  local params: mut {string} = {}
   for i, p in ipairs(names) do
     local listed = kinds[i + 1] == 1
     if kinds[i] == 2 then
@@ -270,7 +270,7 @@ local function signature(g: Gen): string, boolean
     params[#params + 1] = p
   end
   local vararg = chance(g, 4)
-  if vararg then params[#params + 1] = chance(g, 2) and "..." or "...: any" end
+  if vararg then params[#params + 1] = if chance(g, 2) then "..." else "...: any" end end
   local out = generics(g) .. "(" .. tight(g)
   for i, p in ipairs(params) do
     if i > 1 then out = out .. tight(g) .. "," .. gap(g) end
@@ -299,7 +299,7 @@ local function body(g: Gen, d: integer): string
 end
 
 local function table_constructor(g: Gen, d: integer): string
-  local out: {string} = { "{" }
+  local out: mut {string} = { "{" }
   local n = 0
   while Fuzz.more(g.src, n, 5) do
     out[#out + 1] = n == 0 and tight(g) or gap(g)
@@ -328,7 +328,7 @@ end
 --- A sum of many terms on one line, longer than any width a line keeps
 --- to.
 local function long_line(g: Gen): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- Twelve names reach past any width whichever are drawn.
   for i = 1, 12 do
     out[i] = pick(g, NAMES)
@@ -368,7 +368,7 @@ end
 --- One or more names, each with an attribute or not, and a type list
 --- of as many types or none.
 local function declared(g: Gen): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   repeat
     local n = pick(g, NAMES)
     if chance(g, 4) then n = n .. pick(g, { " ", "  ", "" }) .. pick(g, ATTRIBUTES) end
@@ -376,12 +376,12 @@ local function declared(g: Gen): string
   until not Fuzz.more(g.src, #names, 3)
   local out = ""
   for i, n in ipairs(names) do
-    out = out .. (i > 1 and tight(g) .. "," .. gap(g) or "") .. n
+    out = out .. (if i > 1 then tight(g) .. "," .. gap(g) else "" end) .. n
   end
   if chance(g, 3) then
     out = out .. tight(g) .. ":" .. gap(g)
     for i = 1, #names do
-      out = out .. (i > 1 and "," .. gap(g) or "") .. typ(g, i < #names)
+      out = out .. (if i > 1 then "," .. gap(g) else "" end) .. typ(g, i < #names)
     end
   end
   return out
@@ -389,7 +389,7 @@ end
 
 --- A record's, an interface's or an enum's body, down to its `end`.
 local function record_body(g: Gen, d: integer, is_enum: boolean): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local n = 0
   while Fuzz.more(g.src, n, 4) do
     n = n + 1
@@ -422,7 +422,7 @@ end
 local function type_declaration(g: Gen, d: integer, is_global: boolean): string
   local k = g.src:int(1, 9)
   if k == 1 then
-    local implements = chance(g, 4) and " is I" or ""
+    local implements = if chance(g, 4) then " is I" else "" end
     return "record R" .. generics(g) .. implements .. record_body(g, d, false)
   end
   if k == 2 then return "enum E" .. record_body(g, 0, true) end
@@ -493,7 +493,7 @@ local function statement(g: Gen, d: integer): string
   end
   if k == 13 and d > 0 then
     g.loop = true
-    local step = chance(g, 2) and (tight(g) .. "," .. gap(g) .. expr(g, 0)) or ""
+    local step = if chance(g, 2) then (tight(g) .. "," .. gap(g) .. expr(g, 0)) else "" end
     local out = "for" .. gap(g) .. "i" .. gap(g) .. "=" .. gap(g) .. expr(g, d - 1) .. tight(g) .. "," ..
       gap(g) .. expr(g, d - 1) .. step .. gap(g) .. "do" .. block(g, d - 1) .. "end"
     g.loop = was_loop
@@ -511,7 +511,7 @@ local function statement(g: Gen, d: integer): string
   if k == 17 then return "::" .. tight(g) .. "top" .. tight(g) .. "::" end
   if k == 18 and g.loop then return "break" end
   if k <= 20 then
-    local targets: {string} = {}
+    local targets: mut {string} = {}
     repeat
       local target, called = prefix(g, d)
       -- A call is no place to assign to.
@@ -525,9 +525,9 @@ local function statement(g: Gen, d: integer): string
 end
 
 block = function(g: Gen, d: integer): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   local n = 0
-  while Fuzz.more(g.src, n, d >= 2 and 6 or 3) do
+  while Fuzz.more(g.src, n, if d >= 2 then 6 else 3 end) do
     n = n + 1
     out[#out + 1] = sep(g) .. statement(g, d)
   end
@@ -553,7 +553,7 @@ end
 --- What [`build.fix.source`] makes of `input`: nil, and true, when the
 --- input does not parse or is refused by name; nil, false and why when
 --- it is refused for any other reason, which is a renderer's failure.
-local function fixed(input: string): string | nil, boolean, string
+local function fixed(input: string): string?, boolean, string
   local parsed, _ = ast.parse(built, input, "fuzz.tl")
   if parsed == nil then
     Fuzz.label("unparsed")
@@ -580,7 +580,7 @@ end
 
 --- Every `@n@` mark in `text`, counted.
 local function marks(text: string): {string: integer}
-  local out: {string: integer} = {}
+  local out: mut {string: integer} = {}
   for m in text:gmatch("@%d+@") do out[m] = (out[m] or 0) + 1 end
   return out
 end

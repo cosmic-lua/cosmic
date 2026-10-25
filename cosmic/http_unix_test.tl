@@ -19,12 +19,12 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "
 
 --- What the client's run came to, once it has.
 local record Ran
-  value: Child.Result | nil
+  mut value: Child.Result?
 end
 
 --- The requests a server saw, as "target @host" joined by "|".
 local record Seen
-  text: string
+  mut text: string
 end
 
 --- Serves on a socket file in `tmp` while the program runs `client` as a
@@ -39,7 +39,7 @@ local function across(tmp: string, client: string): string, string
     listeners = { Net.unix(tmp .. "/s.sock") },
     on_stop = function(_: Net.Server) end,
     handle = function(req: Server.Request): Server.Reply
-      seen.text = seen.text .. (seen.text == "" and "" or "|") .. req.target .. " @" .. (req.headers["host"] or "")
+      seen.text = seen.text .. (if seen.text == "" then "" else "|" end) .. req.target .. " @" .. (req.headers["host"] or "")
       if req.path == "/moved" then
         return { status = 302, headers = { Location = "/final" } }
       end

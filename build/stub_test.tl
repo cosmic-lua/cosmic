@@ -26,7 +26,7 @@ end
 
 --- The lines of `text`, each without its trailing spaces.
 local function lines(text: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in text:gmatch("([^\n]*)\n") do
     out[#out + 1] = (line:gsub("%s+$", ""))
   end
@@ -36,7 +36,7 @@ end
 --- A checker environment that answers each module `modules` names with
 --- its text, and nothing else.
 local function environment(modules: {string:string}): compiler.Env
-  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+  built.search_module = function(name: string, _search_all: boolean): string?, compiler.Handle?
     local text = modules[name]
     if text == nil then
       return nil
@@ -201,8 +201,8 @@ end
 
 --- What the checker says of `program` when each standard-library module
 --- is answered by `text_of` its name.
-local function said(program: string, text_of: function(string): string | nil): {string}
-  built.search_module = function(name: string, _search_all: boolean): string | nil, compiler.Handle | nil
+local function said(program: string, text_of: function(string): string?): {string}
+  built.search_module = function(name: string, _search_all: boolean): string?, compiler.Handle?
     local text = name:sub(1, 7) == "cosmic." and text_of(name) or nil
     if text == nil then
       return nil
@@ -212,7 +212,7 @@ local function said(program: string, text_of: function(string): string | nil): {
   local env = assert(built.new_env({ defaults = teal.defaults() }))
   teal.strip(env)
   local checked = built.check_string(program, env, "app.tl", "tl")
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, e in ipairs(checked.type_errors) do
     out[#out + 1] = tostring(e.filename) .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
   end
@@ -233,11 +233,11 @@ local function test_a_project_misusing_the_web_types_is_told_the_same_from_stubs
     "local r: Web.Response = Web.json({}, { status = 'ok' })",
     "app:nope()",
     "return app")
-  local from_sources = said(program, function(name: string): string | nil
+  local from_sources = said(program, function(name: string): string?
     local text, _ = Store.source(name)
     return text
   end)
-  local from_stubs = said(program, function(name: string): string | nil
+  local from_stubs = said(program, function(name: string): string?
     -- A declaration's stub is the declaration less its comments, as
     -- its source is all the checker reads of it either way.
     local text, _ = Store.source(name)
@@ -342,7 +342,7 @@ local function reading_of(text: string): string
   local out = ""
   local last_y = 0
   for _, token in ipairs(parsed.tokens) do
-    out = out .. (token.y > last_y and "\n" or "") .. token.tk .. "\0"
+    out = out .. (if token.y > last_y then "\n" else "" end) .. token.tk .. "\0"
     local _, breaks = token.tk:gsub("\n", "")
     last_y = token.y + breaks
   end

@@ -17,7 +17,7 @@ Test.policy{ grants = {
 --- root of the tree, a directory ending in "/", with what a `#` starts and blank lines left out; only the files of
 --- `build/` where `build_only`.
 local function listed_islands(build_only: boolean): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for line in (assert(Fs.read("ci/islands.txt"))):gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" and (not build_only or path:sub(1, 6) == "build/") then out[#out + 1] = path end
@@ -44,7 +44,7 @@ end
 --- island, and so is a file that build/zig.tl runs standalone (`standalone(root, "build/patch.tl", ...)`) on that
 --- release's own binary; each island of `build/` is run so.
 local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_build()
-  local run: {string: boolean} = {}
+  local run: mut {string: boolean} = {}
   local text = (assert(Fs.read("build/zig.tl")))
   for _, name in ipairs((assert(Fs.list("bin")))) do
     text = text .. "\n" .. (Fs.read("bin/" .. name) or "")
@@ -58,7 +58,7 @@ local function test_the_scripts_run_on_the_pinned_release_are_the_islands_of_bui
   for _, path in ipairs({ "build/patch.tl", "build/paths.tl", "build/zig_fetch.tl" }) do
     assert(run[path] == true, "build/zig.tl no longer runs " .. path .. ", which this test looks for")
   end
-  local listed: {string: boolean} = {}
+  local listed: mut {string: boolean} = {}
   for _, path in ipairs(listed_islands(true)) do
     listed[path] = true
   end
@@ -76,7 +76,7 @@ local function test_each_island_of_build_has_only_the_forms_blocked_names_that_t
   for _, path in ipairs(listed_islands(true)) do
     local text = (assert(Fs.read(path)))
     local made = Grammar.compile({ { path = path, relative = path, text = text, declaration = false } })
-    local found: {string: integer} = {}
+    local found: mut {string: integer} = {}
     local written = false
     for _, compiled in ipairs(made) do
       for _, e in ipairs(compiled.syntax_errors) do

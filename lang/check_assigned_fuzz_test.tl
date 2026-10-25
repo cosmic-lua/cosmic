@@ -26,18 +26,18 @@ Test.policy{}
 --- Reads the drawn bytes one at a time; past the end every byte is 0.
 local record Recipe
   bytes: string
-  at: integer
+  mut at: integer
   -- How many statements the program may still hold.
-  left: integer
+  mut left: integer
   -- Labels made so far, which name the next, and likewise the locals.
-  labels: integer
-  locals: integer
+  mut labels: integer
+  mut locals: integer
   -- The local the statements being drawn assign and read: the innermost declared without a value.
-  current: string
+  mut current: string
   -- The labels some `continue` has been drawn for: a loop nothing continues in has no label to write.
-  jumped: {string:boolean}
+  jumped: mut {string:boolean}
   -- The loops (by their label) some `break` has been drawn for.
-  broke: {string:boolean}
+  broke: mut {string:boolean}
 end
 
 local function draw(r: Recipe, n: integer): integer
@@ -48,8 +48,8 @@ end
 --- The two texts of one program: the new grammar the checker is asked about and the Lua that is run, in which the
 --- `continue` is the `goto` of the fork's Teal.
 local record Program
-  teal: {string}
-  lua: {string}
+  teal: mut {string}
+  lua: mut {string}
 end
 
 local function emit(p: Program, teal_line: string, lua_line?: string)
@@ -255,10 +255,10 @@ local MOST_STEPS <const> = 400
 --- What a run of the oracle keeps: whether a read found `x` unassigned, the choices made and the steps taken so far, and
 --- the choices this run is to make.
 local record Oracle
-  bad: boolean
-  made: integer
-  steps: integer
-  choices: {boolean}
+  mut bad: boolean
+  mut made: integer
+  mut steps: integer
+  mut choices: {boolean}
 end
 
 --- The functions the Lua body is run over.
@@ -310,7 +310,7 @@ local function reads_unassigned(code: string): boolean
       if not choose() then
         return 0
       end
-      return choose() and 2 or 1
+      return if choose() then 2 else 1 end
     end,
     -- The path ends.
     stop = function()
@@ -319,7 +319,7 @@ local function reads_unassigned(code: string): boolean
   }
   local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t", hooks as table))
   local run = chunk() as function()
-  local pending: {{boolean}} = { {} }
+  local pending: mut {{boolean}} = { {} }
   local runs = 0
   while #pending > 0 and not o.bad do
     o.choices = assert(table.remove(pending))
@@ -329,7 +329,7 @@ local function reads_unassigned(code: string): boolean
     assert(runs < 20000, "the oracle ran too long")
     -- Every call past the choices given took the first way: take the other at each of them in turn.
     for at = #o.choices + 1, math.min(o.made, MOST_CHOICES) do
-      local longer: {boolean} = {}
+      local longer: mut {boolean} = {}
       for i = 1, at - 1 do
         longer[i] = o.choices[i] == true
       end
@@ -360,7 +360,7 @@ local function program_of(input: string): string, string
 end
 
 local record Counter
-  count: integer
+  mut count: integer
 end
 
 local check_in = Programs.runner()
@@ -381,21 +381,21 @@ local function check(input: string): boolean, string
     refused = true
   end
   local bad = reads_unassigned(code)
-  Fuzz.label(refused and "refused" or "accepted")
+  Fuzz.label(if refused then "refused" else "accepted" end)
   if source:find("continue", 1, true) then Fuzz.label("jumps") end
   if source:find("while true", 1, true) then Fuzz.label("endless") end
   if source:find("return x end", 1, true) then Fuzz.label("closures") end
   if source:find("local y", 1, true) then Fuzz.label("loop locals") end
   if refused ~= bad then
-    return false, (refused and "refused a program no way of which reads x before it is assigned\n" or
-      "accepted a program some way of which reads x before it is assigned\n") .. source
+    return false, (if refused then "refused a program no way of which reads x before it is assigned\n" else
+      "accepted a program some way of which reads x before it is assigned\n" end) .. source
   end
   return true, ""
 end
 
 --- Ninety-six bytes, each any, which a program is read from.
 local function draw_bytes(src: Fuzz.Source): string
-  local chars: {string} = {}
+  local chars: mut {string} = {}
   for i = 1, 96 do chars[i] = string.char(src:int(0, 255)) end
   return table.concat(chars)
 end

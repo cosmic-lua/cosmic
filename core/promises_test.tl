@@ -183,7 +183,7 @@ local numbers: {string: {integer}} = {
   ["fchmodat2"] = { 452, 452 },
 }
 
-local type Insn = record
+local record Insn
   code: integer
   jt: integer
   jf: integer
@@ -195,7 +195,7 @@ end
 local function decode(program: string): {Insn}
   assert(#program > 0 and #program % 8 == 0, "a program is whole instructions")
   assert(#program // 8 <= 4096, "the kernel takes 4096 instructions at most")
-  local insns: {Insn} = {}
+  local insns: mut {Insn} = {}
   for at = 1, #program, 8 do
     local jt, jf = string.byte(program, at + 2, at + 3)
     insns[#insns + 1] = {
@@ -263,7 +263,7 @@ local function verdict(value: integer): string
   return string.format("0x%x", value)
 end
 
-local type Case = record
+local record Case
   name: string
   want: string
   args: {integer}
@@ -285,7 +285,7 @@ local function holds(promises: {string}, arch: string, cases: {Case},
     local number = arch == "x86_64" and both[1] or both[2]
     if number ~= nil then
       local got = verdict(run(insns, AUDIT[arch], number, case.args))
-      local shown: {string} = {}
+      local shown: mut {string} = {}
       for _, value in ipairs(case.args) do shown[#shown + 1] = tostring(value) end
       assert(got == case.want, string.format("%s: %s(%s) on %s with {%s} is %s, not %s",
         table.concat(promises, "+"), case.name, tostring(number), arch,
@@ -336,7 +336,7 @@ local NESTED: {string} = {
 }
 
 local function never(): {Case}
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   for _, name in ipairs(NEVER) do cases[#cases + 1] = call(name, "EPERM") end
   for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
   return cases
@@ -488,7 +488,7 @@ local function test_jit_grants_executable_memory()
 end
 
 local function test_fork_grants_processes_but_no_namespace()
-  local refused: {Case} = {}
+  local refused: mut {Case} = {}
   for _, flag in ipairs(NAMESPACES) do
     refused[#refused + 1] = call("clone", "EPERM", flag | SIGCHLD)
     refused[#refused + 1] = call("clone", "EPERM", flag | THREAD)
@@ -509,7 +509,7 @@ local function test_fork_grants_processes_but_no_namespace()
 end
 
 local function test_without_fork_a_clone_must_be_a_thread()
-  local missing: {Case} = {}
+  local missing: mut {Case} = {}
   for _, drop in ipairs({ 0x100, 0x400, 0x800, 0x10000 }) do
     missing[#missing + 1] = call("clone", "EPERM", THREAD & ~drop)
   end
@@ -563,7 +563,7 @@ local NEST_REFUSED: {integer} = { 0x02000000, 0x04000000, 0x80 }
 
 local function test_nest_grants_the_calls_a_sandbox_is_built_with()
   local pid = 4242
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   local everything = 0
   for _, flag in ipairs(NEST_NAMESPACES) do
     cases[#cases + 1] = call("unshare", "allow", flag)
@@ -611,14 +611,14 @@ local function test_nest_grants_the_calls_a_sandbox_is_built_with()
   cases[#cases + 1] = call("clone", "EPERM", 0x10000000 | SIGCHLD)
   cases[#cases + 1] = call("clone", "allow", THREAD)
   holds_on_both({ "nest" }, cases, { pid = pid })
-  local still: {Case} = {}
+  local still: mut {Case} = {}
   for _, name in ipairs(NEVER) do still[#still + 1] = call(name, "EPERM") end
   holds_on_both({ "nest" }, still)
   holds_on_both({ "nest", "fork" }, still)
 end
 
 local function test_nest_beside_fork_lets_a_process_start_in_the_namespaces()
-  local cases: {Case} = {
+  local cases: mut {Case} = {
     call("fork", "allow"), call("clone", "allow", SIGCHLD), call("clone", "allow", THREAD),
     -- A sandbox's init is cloned as the sibling of the process that starts it.
     call("clone", "allow", 0x4000 | 0x100 | 0x8000 | SIGCHLD),
@@ -658,7 +658,7 @@ local function test_nest_adds_the_interface_flag_ioctls_and_no_other()
 end
 
 local function test_the_namespace_calls_are_refused_without_nest()
-  local cases: {Case} = {}
+  local cases: mut {Case} = {}
   for _, name in ipairs(NESTED) do cases[#cases + 1] = call(name, "EPERM") end
   cases[#cases + 1] = call("unshare", "EPERM", 0x10000000)
   cases[#cases + 1] = call("setrlimit", "EPERM")
@@ -881,7 +881,7 @@ end
 local function test_every_call_gets_an_answer()
   for _, arch in ipairs(ARCHES) do
     for mask = 0, 15 do
-      local promises: {string} = {}
+      local promises: mut {string} = {}
       if mask & 1 ~= 0 then promises[#promises + 1] = "fork" end
       if mask & 2 ~= 0 then promises[#promises + 1] = "jit" end
       if mask & 4 ~= 0 then promises[#promises + 1] = "fattr" end

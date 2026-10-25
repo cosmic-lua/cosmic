@@ -31,11 +31,11 @@ local record RemovedFix
   end
 
   --- The index of the token that begins at `offset` in `tokens`, or nil.
-  token_at: function(tokens: Lexer.Tokens, offset: integer): integer | nil
+  token_at: function(tokens: Lexer.Tokens, offset: integer): integer?
 
   --- The words to write instead for the error `code` at `offset` (`length` bytes) of the module `source`, whose types are
   --- `types`; nil where the error is not about a removed name, and where [`cosmic.removed`] cannot be loaded.
-  fix: function(source: Source, code: string, offset: integer, length: integer, types: {string}): string | nil
+  fix: function(source: Source, code: string, offset: integer, length: integer, types: {string}): string?
 end
 
 --- What this reads of [`cosmic.removed`].
@@ -52,7 +52,7 @@ end
 local catalog_module <const> = "cosmic.removed"
 
 --- [`cosmic.removed`], or nil where it cannot be loaded (a test that does not require it).
-local function catalog(): Catalog | nil
+local function catalog(): Catalog?
   local ok, loaded = pcall(require, catalog_module)
   if not ok or not (loaded is {string: any}) then
     return nil
@@ -66,7 +66,7 @@ local function catalog(): Catalog | nil
   return nil
 end
 
-function RemovedFix.token_at(tokens: Lexer.Tokens, offset: integer): integer | nil
+function RemovedFix.token_at(tokens: Lexer.Tokens, offset: integer): integer?
   local offsets = tokens.offset
   local low, high = 1, #offsets
   while low <= high do
@@ -97,7 +97,7 @@ end
 
 --- The name a field or a member may have at the token `at`: an identifier, or a word the grammar reserves that a field may
 --- be called (`t.type`). nil where the token is neither.
-local function name_at(tokens: Lexer.Tokens, at: integer): string | nil
+local function name_at(tokens: Lexer.Tokens, at: integer): string?
   local kind = kind_at(tokens, at)
   if kind == "identifier" or kind == "keyword" then
     return text_at(tokens, at)
@@ -107,7 +107,7 @@ end
 
 --- The module that `name` is bound to, by `local name = require("module")`, among the bindings `visible` at the error: nil
 --- where it is bound to no module, or to nothing.
-local function module_of(visible: {string: Scopes.Var}, name: string): string | nil
+local function module_of(visible: {string: Scopes.Var}, name: string): string?
   local v = visible[name]
   if v == nil or v.module == "" then
     return nil
@@ -118,7 +118,7 @@ end
 --- The name of the type the first of `types` is, where it is a whole name (`Hash`, `Hash?`): the record of a module is
 --- named as the module is, and a record nested in it ([`Fs.Stat`]) is another record, whose fields the module's removed
 --- members were not. nil for any other.
-local function type_name(types: {string}): string | nil
+local function type_name(types: {string}): string?
   for _, first in ipairs(types) do
     return first:match("^([%a_][%w_]*)%??$")
   end
@@ -126,7 +126,7 @@ local function type_name(types: {string}): string | nil
 end
 
 --- `os.getenv`, an `os` the program does not declare, with the field read through it.
-local function removed_global(removed: Catalog, tokens: Lexer.Tokens, at: integer): string | nil
+local function removed_global(removed: Catalog, tokens: Lexer.Tokens, at: integer): string?
   local name = text_at(tokens, at)
   if removed.names[name] == nil then
     return nil
@@ -139,7 +139,7 @@ local function removed_global(removed: Catalog, tokens: Lexer.Tokens, at: intege
 end
 
 --- `require("io")`.
-local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: integer): string | nil
+local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: integer): string?
   if text_at(tokens, at) ~= "require" or kind_at(tokens, at + 1) ~= "(" or kind_at(tokens, at + 2) ~= "string" then
     return nil
   end
@@ -151,7 +151,7 @@ local function removed_module(removed: Catalog, tokens: Lexer.Tokens, at: intege
 end
 
 --- A field, a method or a type `head.key` (or `head:key`, `head["key"]`) that `module` no longer has.
-local function removed_member(removed: Catalog, module: string | nil, head: string, sep: string, key: string): string | nil
+local function removed_member(removed: Catalog, module: string?, head: string, sep: string, key: string): string?
   if module == nil then
     return nil
   end
@@ -167,7 +167,7 @@ end
 
 --- A boolean given as an argument where a record now goes: the record `wanted` names (`Sqlite.OpenOptions?`), the token
 --- before the value at `at` being the `(` or `,` that an argument follows.
-local function removed_argument(removed: Catalog, source: RemovedFix.Source, at: integer, types: {string}): string | nil
+local function removed_argument(removed: Catalog, source: RemovedFix.Source, at: integer, types: {string}): string?
   local before = text_at(source.tokens, at - 1)
   local got = types[1]
   local wanted = types[2]
@@ -202,13 +202,13 @@ local record Access
   sep: string
   key: string
   --- The module a `require` call names, nil where the head is a name.
-  module: string | nil
+  module: string?
   --- The byte after the last token of the read, for `.` and `[`; a method call goes on to its arguments.
   ends: integer
 end
 
 --- The read at `at`, or nil where the tokens are not one of the four forms.
-local function access_at(tokens: Lexer.Tokens, at: integer): Access | nil
+local function access_at(tokens: Lexer.Tokens, at: integer): Access?
   local first_text = text_at(tokens, at)
   local first_kind = kind_at(tokens, at)
   if first_kind == "" then
@@ -251,7 +251,7 @@ end
 --- A field, a method or a type read in the tokens at `at` that a module no longer has: the type of a variable that holds
 --- a value of the module's own record is read through its own name (`local h: Hash`), and a type is named by a capital.
 local function removed_through(removed: Catalog, source: RemovedFix.Source, code: string, at: integer, length: integer,
-                               types: {string}): string | nil
+                               types: {string}): string?
   local tokens = source.tokens
   local access = access_at(tokens, at)
   local first = tokens.offset[at]
@@ -285,7 +285,7 @@ local function removed_through(removed: Catalog, source: RemovedFix.Source, code
 end
 
 function RemovedFix.fix(source: RemovedFix.Source, code: string, offset: integer, length: integer, types: {string}):
-    string | nil
+    string?
   local tokens = source.tokens
   local at = RemovedFix.token_at(tokens, offset)
   if at == nil then

@@ -79,7 +79,7 @@ local record Word
   literal: boolean
   spaced: boolean
   quoted: boolean
-  arith: boolean
+  mut arith: boolean
 end
 
 --- Whether a quoted piece holds a regex's or an expression's
@@ -91,7 +91,7 @@ end
 --- The word starting at `from` and where it ends: at whitespace or one
 --- of `;|&<>`, outside quotes.
 local function read_word(src: string, from: integer): Word, integer
-  local buf: {string} = {}
+  local buf: mut {string} = {}
   local literal, spaced, quoted = true, false, false
   local i, n = from, #src
   while i <= n do
@@ -107,7 +107,7 @@ local function read_word(src: string, from: integer): Word, integer
       end
       local close = i + 1
       while close <= n and src:sub(close, close) ~= ch do
-        close = close + (escapes and src:sub(close, close) == "\\" and 2 or 1)
+        close = close + (if escapes and src:sub(close, close) == "\\" then 2 else 1 end)
       end
       local piece = src:sub(i + 1, close - 1)
       literal = literal and not is_prose(piece)
@@ -130,7 +130,7 @@ end
 
 --- A command as [`lex`] reads it: the words so far.
 local record Command
-  words: {Word}
+  mut words: mut {Word}
 end
 
 --- The simple commands of a shell script as lists of words. Comments
@@ -142,8 +142,8 @@ local function lex(src: string): {{Word}}
   local commands: {{Word}} = {}
   -- The command being read: its words so far.
   local reading: Command = { words = {} }
-  local delims: {string} = {}
-  local dashed: {boolean} = {}
+  local delims: mut {string} = {}
+  local dashed: mut {boolean} = {}
   local arith = false
   local i, n = 1, #src
   local function flush()
@@ -251,7 +251,7 @@ end
 
 --- What follows `$HOME`, `${HOME}` or `~user` in `word` and the part that
 --- was, when it starts with one; else nil.
-local function home_rest(word: string): Home | nil
+local function home_rest(word: string): Home?
   for _, home in ipairs({ "${HOME}", "$HOME" }) do
     if word == home or String.starts_with(word, home .. "/") then
       return { rest = word:sub(#home + 1), home = "~" }
@@ -280,7 +280,7 @@ end
 --- `IFS=/`); nor a bare `VAR=$HOME`, which names the variable's value
 --- without opening anything; nor prose, a quoted word with whitespace
 --- that does not start like a path.
-local function candidate(word: Word): string | nil
+local function candidate(word: Word): string?
   if not word.literal then
     return nil
   end
@@ -367,16 +367,16 @@ end
 --- scripts are not read; nor is `"$(...)"` inside double quotes; nor
 --- is a relative path after a `cd` to somewhere else, taken for one in
 --- the project.
-local function shell_words(src: string, found: {string}, nested: boolean)
+local function shell_words(src: string, found: mut {string}, nested: boolean)
   for _, words in ipairs(lex(src)) do
     local first = after_wrappers(words, 1)
     local head = words[first]
     local program = head ~= nil and head.text:match("[^/]*$") or ""
     local letters = script_flags[program]
-    local skipped: {integer: boolean} = {}
-    local scripts: {string} = {}
+    local skipped: mut {integer: boolean} = {}
+    local scripts: mut {string} = {}
     local flagged, filed = false, false
-    local bare: integer | nil = nil
+    local bare: integer? = nil
     if letters ~= nil then
       local k = first + 1
       while k <= #words do
@@ -402,7 +402,7 @@ local function shell_words(src: string, found: {string}, nested: boolean)
         skipped[bare] = true
       end
     elseif program == "eval" then
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       for k = first + 1, #words do
         parts[#parts + 1] = words[k].text
       end
@@ -436,7 +436,7 @@ end
 --- an older commit does (`test: PASS (...)`): at the start of a line, or
 --- anywhere with `anywhere`.
 local function says_passed(text: string, anywhere: boolean): boolean
-  local lead = anywhere and "" or "\n"
+  local lead = if anywhere then "" else "\n" end
   local within = lead .. text
   return within:find(lead .. "test: PASS", 1, true) ~= nil or
     within:find(lead .. "test: %d+ tests? passed in ") ~= nil
@@ -447,7 +447,7 @@ end
 --- test)`, `out=$(cosmic test)` and `sh -c '...'` have it.
 local function runs_cosmic_test(command: string, nested: boolean): boolean
   for _, words in ipairs(lex(command)) do
-    local texts: {string} = {}
+    local texts: mut {string} = {}
     for k, word in ipairs(words) do
       texts[k] = bare_word(word.text)
     end
@@ -470,7 +470,7 @@ end
 --- `path` with its `.` and `..` segments resolved and slashes
 --- collapsed, as an absolute path; a `..` at the root stays there.
 local function normalize(path: string): string
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
       table.remove(parts)
@@ -500,7 +500,7 @@ end
 --- (its pattern is a regex, its glob may name a place); Bash a command, whose words are read as a
 --- shell would split them.
 function Summarize.paths(name: string, input: {string: any}, project: string): {string}
-  local raw: {string} = {}
+  local raw: mut {string} = {}
   local function field(key: string): string
     local value = input[key]
     return value is string and value or ""
@@ -518,7 +518,7 @@ function Summarize.paths(name: string, input: {string: any}, project: string): {
     raw[2] = field("notebook_path")
     raw[3] = field("path")
   end
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, path in ipairs(raw) do
     if path ~= "" then
       found[#found + 1] = resolve(path, project)
@@ -551,7 +551,7 @@ end
 --- home directory, another arena), "tmp" for the rest of /tmp, which the
 --- sandbox gives the solver a private copy of, "outside" for any other
 --- path; nil for one in the arena or a system location.
-local function tier_of(path: string, arena: string, repo: string): string | nil
+local function tier_of(path: string, arena: string, repo: string): string?
   if Fs.within(path, arena) then
     return nil
   end
@@ -572,7 +572,7 @@ local function tier_of(path: string, arena: string, repo: string): string | nil
   if is_system(path) then
     return nil
   end
-  return Fs.within(path, "/tmp") and "tmp" or "outside"
+  return if Fs.within(path, "/tmp") then "tmp" else "outside" end
 end
 
 --- A value as text, for a field whose value need not be a string.
@@ -626,9 +626,9 @@ end
 --- The report for a transcript's text, one line per fact, given the
 --- arena and repository as absolute paths.
 function Summarize.report(transcript: string, arena: string, repo: string): string
-  local calls: {Call} = {}
-  local results: {string: Answer} = {}
-  local result: {string: any} | nil = nil
+  local calls: mut {Call} = {}
+  local results: mut {string: Answer} = {}
+  local result: {string: any}? = nil
   -- Lines end as Python's universal newlines end them.
   for line in transcript:gsub("\r\n?", "\n"):gmatch("[^\n]+") do
     local event = decode(line)
@@ -656,7 +656,7 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
             local body = part["content"]
             local text: string
             if body is {any} then
-              local pieces: {string} = {}
+              local pieces: mut {string} = {}
               for _, piece in ipairs(body) do
                 pieces[#pieces + 1] = piece is {string: any} and as_text(piece["text"]) or ""
               end
@@ -677,11 +677,11 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
 
   local failed, docs_misses, journal_writes = 0, 0, 0
-  local first_green: integer | nil = nil
-  local breach: {string: boolean} = {}
-  local sandbox_tmp: {string: boolean} = {}
-  local outside: {string: boolean} = {}
-  local tainted: {string: boolean} = {}
+  local first_green: integer? = nil
+  local breach: mut {string: boolean} = {}
+  local sandbox_tmp: mut {string: boolean} = {}
+  local outside: mut {string: boolean} = {}
+  local tainted: mut {string: boolean} = {}
   for index, call in ipairs(calls) do
     local answer = results[call.id]
     local text = answer ~= nil and answer.text or ""
@@ -722,13 +722,13 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
     end
   end
 
-  local out: {string} = {}
+  local out: mut {string} = {}
   if result ~= nil then
     local turns = result["num_turns"]
     local ms = result["duration_ms"]
     local cost = result["total_cost_usd"]
     out[#out + 1] = string.format("turns=%s tools=%d minutes=%.1f cost=$%.2f",
-      turns == nil and "null" or as_text(turns), #calls,
+      if turns == nil then "null" else as_text(turns) end, #calls,
       (ms is number and ms or 0) / 60000, cost is number and cost or 0)
   else
     out[#out + 1] = string.format(
@@ -736,10 +736,10 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
   end
   out[#out + 1] = string.format(
     "failed_calls=%d docs_misses=%d first_green_test_call=%s journal_writes=%d",
-    failed, docs_misses, first_green == nil and "null" or tostring(first_green),
+    failed, docs_misses, if first_green == nil then "null" else tostring(first_green) end,
     journal_writes)
   local function sorted(set: {string: boolean}): {string}
-    local list: {string} = {}
+    local list: mut {string} = {}
     for key in pairs(set) do
       list[#list + 1] = key
     end
@@ -785,7 +785,7 @@ local function run(argv: {string}, program: string): integer
     return 2
   end
   local parent = transcript:match("^(.*)/[^/]*$") or "."
-  local arena, atrouble = Fs.absolute(parent == "" and "/" or parent)
+  local arena, atrouble = Fs.absolute(if parent == "" then "/" else parent end)
   if arena == nil then
     complain(atrouble)
     return 2

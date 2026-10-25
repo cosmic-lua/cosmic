@@ -26,20 +26,20 @@ local record AstModule
   type Refusal = Refusal
   type RewriteResult = RewriteResult
   type Site = Site
-  parse: function(built: compiler, source: string, name: string): Parsed | nil, string
-  vararg_name_hint: function(source: string, e: compiler.Error): string | nil
+  parse: function(built: compiler, source: string, name: string): Parsed?, string
+  vararg_name_hint: function(source: string, e: compiler.Error): string?
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  each_child_node: function(node: Node, skipped: {string: boolean} | nil, visit: function(Node))
+  each_child_node: function(node: Node, skipped: {string: boolean}?, visit: function(Node))
   span_start: function(node: Node, memo?: {Node: {integer}}): Position
-  compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
+  compile_pattern: function(built: compiler, pattern_src: string): Node?, string
   find_all: function(ast: Node, pattern: Node): {Hit}
-  all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string
-  require_sites: function(built: compiler, parsed: Parsed): {Site} | nil, string
+  all_requires: function(built: compiler, parsed: Parsed): {string}?, string
+  require_sites: function(built: compiler, parsed: Parsed): {Site}?, string
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
-  replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
+  replacement: string, keep?: function(Node): boolean): RewriteResult?, string
 end
 
 local M: AstModule = {

@@ -27,7 +27,7 @@ local record link_text
     --- Where it points.
     target: string
     --- A reference's or a definition's label.
-    label: string | nil
+    label: string?
   end
 
   --- A stretch of one file's comment text, markers taken off, and the
@@ -37,7 +37,7 @@ local record link_text
   record Block
     line: integer
     text: string
-    starts: {integer} | nil
+    starts: {integer}?
   end
 
   --- A code span of a text that no link holds, as [`plain_spans`] finds
@@ -85,7 +85,7 @@ local record link_text
     lines: {string}
     doc: boolean
     column?: integer
-    starts: {integer} | nil
+    starts: {integer}?
   end
 
   --- A link a Teal source's comments hold, as the build records it:
@@ -110,7 +110,7 @@ end
 --- ends at "\n". The text files of [`build.link_files`] are read by it, as the
 --- comments of a Teal source's tokens are by their own offsets.
 function link_text.line_starts(source: string): {integer}
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   local pos = 1
   while true do
     local nl = source:find("\n", pos, true)
@@ -151,7 +151,7 @@ end
 --- The `]` that closes the `[` at `at`, brackets nested, code spans and
 --- escapes passed over; nil when the end of its paragraph, the byte
 --- `limit`, comes first.
-local function closing_bracket(text: string, at: integer, limit: integer): integer | nil
+local function closing_bracket(text: string, at: integer, limit: integer): integer?
   local depth = 1
   local j = at + 1
   while j < limit and j <= #text do
@@ -197,7 +197,7 @@ end
 --- The run that opens a fenced code block at the start of `content`:
 --- three or more backticks, with none in the info string after them,
 --- or three or more tildes.
-local function fence_opener(content: string): string | nil
+local function fence_opener(content: string): string?
   local ticks = content:match("^```+")
   if ticks ~= nil then
     return content:find("`", #ticks + 1, true) == nil and ticks or nil
@@ -272,11 +272,11 @@ end
 --- (`continues`): the line break after its last line, or one past the
 --- text's end. A line that is no paragraph's (a heading) is one alone.
 local function paragraph_ends(text: string, continues: {integer: boolean}): function(integer): integer
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   for at in text:gmatch("()\n") do
     starts[#starts + 1] = at + 1
   end
-  local ends: {integer} = {}
+  local ends: mut {integer} = {}
   local stop = #text + 1
   for number = #starts, 1, -1 do
     ends[number] = stop
@@ -305,7 +305,7 @@ local function without_inline_comments(text: string, continues: {integer: boolea
     return text
   end
   local ends = paragraph_ends(text, continues)
-  local pieces: {string} = {}
+  local pieces: mut {string} = {}
   local from = 1
   local at = text:find("[\\`<]", 1)
   while at ~= nil do
@@ -315,7 +315,7 @@ local function without_inline_comments(text: string, continues: {integer: boolea
     elseif c == "`" then
       at = past_code_span(text, at, ends(at))
     elseif text:sub(at, at + 3) == "<!--" then
-      local stop: integer | nil
+      local stop: integer?
       if text:sub(at + 4, at + 4) == ">" then
         stop = at + 4
       elseif text:sub(at + 4, at + 5) == "->" then
@@ -365,8 +365,8 @@ end
 --- Left out, as the tree does not need them: HTML blocks other than a
 --- comment, and a quote begun inside a list item (`1. > x`).
 local function visible_of(text: string): string, {integer: boolean}
-  local lines: {string} = {}
-  local least: integer | nil = nil
+  local lines: mut {string} = {}
+  local least: integer? = nil
   for line in String.lines(text) do
     lines[#lines + 1] = line
     if line:find("%S") ~= nil then
@@ -376,19 +376,19 @@ local function visible_of(text: string): string, {integer: boolean}
       end
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   -- The open fence's run, the column its container's content starts at
   -- and the quote it is in.
-  local fence: string | nil = nil
+  local fence: string? = nil
   local fence_base, fence_depth = 0, 0
   -- Whether an HTML comment block is open, and its container's column
   -- and quote as a fence's.
   local in_comment = false
   local comment_base, comment_depth = 0, 0
   -- Each line that goes on with the paragraph of the line before it.
-  local continues: {integer: boolean} = {}
+  local continues: mut {integer: boolean} = {}
   -- The column each open list item's content starts at, innermost last.
-  local items: {integer} = {}
+  local items: mut {integer} = {}
   local paragraph = false
   local quotes = 0
   for number, line in ipairs(lines) do
@@ -497,7 +497,7 @@ local function visible_of(text: string): string, {integer: boolean}
         end
       end
     end
-    out[number] = hidden and "" or line
+    out[number] = if hidden then "" else line end
   end
   return without_inline_comments(table.concat(out, "\n"), continues), continues
 end
@@ -510,7 +510,7 @@ end
 
 --- The target a shortcut's text names: the text when it is one code
 --- span alone, without its backticks.
-function link_text.shortcut_target(inner: string): string | nil
+function link_text.shortcut_target(inner: string): string?
   local ticks = inner:match("^`+")
   if ticks == nil or #inner <= 2 * #ticks or inner:sub(-#ticks) ~= ticks then
     return nil
@@ -528,7 +528,7 @@ end
 --- most a quoted title. Nil when it cannot be one -- a space in it, a
 --- pattern's or an expression's characters, a `%` that does not open a
 --- percent-escape -- and the brackets before it are prose.
-local function destination(raw: string): string | nil
+local function destination(raw: string): string?
   raw = String.trim(raw)
   local target, rest = raw:match("^<([^<>\n]*)>(.*)$")
   if target == nil then
@@ -556,9 +556,9 @@ end
 --- definition it holds, in order of the line each is on, and each code
 --- span no link holds, added to `spans` when it is given. Every form but
 --- the three a link takes is passed over.
-local function scan(text: string, continues: {integer: boolean}, spans?: {link_text.Span}): {link_text.Link}
+local function scan(text: string, continues: {integer: boolean}, spans?: mut {link_text.Span}): {link_text.Link}
   local ends = paragraph_ends(text, continues)
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   for at in text:gmatch("()\n") do
     starts[#starts + 1] = at + 1
   end
@@ -574,9 +574,9 @@ local function scan(text: string, continues: {integer: boolean}, spans?: {link_t
     return at - starts[line_of(at)] + 1
   end
 
-  local out: {link_text.Link} = {}
-  local defined: {string: string} = {}
-  local definition_lines: {integer: boolean} = {}
+  local out: mut {link_text.Link} = {}
+  local defined: mut {string: string} = {}
+  local definition_lines: mut {integer: boolean} = {}
   for number, start in ipairs(starts) do
     local label, target = text:match("^[ \t]*%[([^%]\n]+)%]:[ \t]*(%S+)", start)
     -- A footnote (`[^1]: ...`) defines no link.
@@ -594,7 +594,7 @@ local function scan(text: string, continues: {integer: boolean}, spans?: {link_t
 
   --- The link opened by the `[` at `at`, added to `out`; the index to
   --- go on from, or nil when the bracket is prose.
-  local function link_at(at: integer): integer | nil
+  local function link_at(at: integer): integer?
     local before = at > 1 and text:sub(at - 1, at - 1) or ""
     if before:match("[%w_%]%)%%]") ~= nil then
       return nil
@@ -665,7 +665,7 @@ local function scan(text: string, continues: {integer: boolean}, spans?: {link_t
     local c = text:sub(at, at)
     if definition_lines[line_of(at)] then
       local next_line = text:find("\n", at, true)
-      at = next_line ~= nil and next_line + 1 or #text + 1
+      at = if next_line ~= nil then next_line + 1 else #text + 1 end
     elseif c == "\\" then
       at = at + 2
     elseif c == "`" then
@@ -710,11 +710,11 @@ function link_text.plain_spans(text: string): {link_text.Span}
   local visible, continues = visible_of(text)
   local found: {link_text.Span} = {}
   scan(visible, continues, found)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in String.lines(visible) do
     lines[#lines + 1] = line
   end
-  local out: {link_text.Span} = {}
+  local out: mut {link_text.Span} = {}
   for _, span in ipairs(found) do
     local line = lines[span.line] or ""
     local before = line:sub(1, span.column - 1)
@@ -734,7 +734,7 @@ end
 --- A Teal or Lua line comment's text, after `--` and any more dashes;
 --- nil for a long comment (`--[[ ... ]]`), which holds code set aside
 --- rather than prose.
-local function teal_comment(text: string): {string} | nil
+local function teal_comment(text: string): {string}?
   if text:match("^%-%-%[=*%[") ~= nil then
     return nil
   end
@@ -743,8 +743,8 @@ end
 
 --- The block [`link_text.blocks_of`] is joining comments into.
 local record Joining
-  lines: {string}
-  starts: {integer}
+  mut lines: mut {string}
+  mut starts: mut {integer}
 end
 
 --- Comments on consecutive lines, joined into blocks: a definition
@@ -791,7 +791,7 @@ end
 --- Every link and definition in `blocks`, each on the line of the file
 --- it is on.
 function link_text.in_blocks(blocks: {link_text.Block}): {link_text.Link}
-  local out: {link_text.Link} = {}
+  local out: mut {link_text.Link} = {}
   for _, block in ipairs(blocks) do
     for _, link in ipairs(link_text.parse(block.text)) do
       link.line = link.line + block.line - 1
@@ -804,7 +804,7 @@ end
 --- The line comments `tokens`, Teal `source`'s token stream, carry, in
 --- the order of their lines.
 function link_text.comments_of(tokens: {compiler.Token}, source: string): {link_text.Comment}
-  local comments: {link_text.Comment} = {}
+  local comments: mut {link_text.Comment} = {}
   local line_starts = ast.line_starts(source)
   for _, token in ipairs(tokens) do
     for _, comment in ipairs(token.comments or {}) do
@@ -842,7 +842,7 @@ end
 --- read one: a target with no anchor shaped as a name or a dotted path
 --- (`read`, [`Fs.read`], `Box:grow`), a call's `()` left off; nil
 --- for one that is no name.
-function link_text.name_of(target: string): string | nil
+function link_text.name_of(target: string): string?
   if target:find("#", 1, true) ~= nil then
     return nil
   end
@@ -864,7 +864,7 @@ local KEYWORDS <const>: {string: boolean} = {
 }
 
 --- Whether the token `tk` is a name.
-local function is_name(tk: string | nil): boolean
+local function is_name(tk: string?): boolean
   return tk ~= nil and tk:match("^[%a_][%w_]*$") ~= nil and not KEYWORDS[tk]
 end
 
@@ -919,12 +919,12 @@ function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_tex
   local names: {string: boolean} = {}
   local top: {string: boolean} = {}
   local inner: {string: boolean} = {}
-  local function declare(name: string | nil, at_top: boolean, scoped: boolean)
+  local function declare(name: string?, at_top: boolean, scoped: boolean)
     if name == nil or name == "" then return end
     if not scoped then names[name] = true end
     if at_top then top[name] = true else inner[name] = true end
   end
-  local function declare_type(prefix: string, t: ast.TypeNode | nil, depth: integer)
+  local function declare_type(prefix: string, t: ast.TypeNode?, depth: integer)
     if t == nil or depth > 16 then return end
     local shape: ast.TypeNode = t.def or t
     local fields: {string: ast.TypeNode} = shape.fields or {}
@@ -953,8 +953,8 @@ function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_tex
   end
   -- The token each comment's line stands before, and whether it is a
   -- doc comment's line.
-  local before: {integer: compiler.Token} = {}
-  local doc: {integer: boolean} = {}
+  local before: mut {integer: compiler.Token} = {}
+  local doc: mut {integer: boolean} = {}
   for at, token in ipairs(tokens) do
     local tk = token.tk
     local at_top = token.x == 1
@@ -1026,7 +1026,7 @@ function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_tex
       end
     end
   end
-  local module_level: {string: boolean} = {}
+  local module_level: mut {string: boolean} = {}
   for name in pairs(top) do
     if not inner[name] then module_level[name] = true end
   end
@@ -1063,12 +1063,12 @@ function link_text.declarations(parsed: ast.Parsed, settled?: boolean): link_tex
     local token = before[line]
     local y, x = token ~= nil and token.y or line, token ~= nil and token.x or 0
     local doc_line = doc[line] == true
-    local place = scopes.position(y, x) * 2 + (doc_line and 1 or 0)
+    local place = scopes.position(y, x) * 2 + (if doc_line then 1 else 0 end)
     local known = seen[place]
     if known ~= nil then return known end
     local in_scope = scopes.in_scope(scoped(), y, x, doc_line)
-    local here: {string: boolean} = setmetatable({}, { __index = everywhere })
-    local aliases: {string: string} = {}
+    local here: mut {string: boolean} = setmetatable({}, { __index = everywhere })
+    local aliases: mut {string: string} = {}
     for name, module in pairs(top_aliases) do aliases[name] = module end
     for name, module in pairs(in_scope) do
       here[name] = true
@@ -1089,12 +1089,12 @@ function link_text.unlinked(text: string): string
   if not link_text.may_link(text) then
     return text
   end
-  local starts: {integer} = { 1 }
+  local starts: mut {integer} = { 1 }
   for at in text:gmatch("()\n") do
     starts[#starts + 1] = at + 1
   end
-  local cut: {integer: boolean} = {}
-  local dropped: {integer: boolean} = {}
+  local cut: mut {integer: boolean} = {}
+  local dropped: mut {integer: boolean} = {}
   for _, link in ipairs(scan(visible_of(text))) do
     if link.form == "definition" then
       if link_text.shortcut_target(link.label or "") ~= nil then dropped[link.line] = true end
@@ -1109,13 +1109,13 @@ function link_text.unlinked(text: string): string
       end
     end
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   local number = 0
   for line in String.lines(text) do
     number = number + 1
     if not dropped[number] then
       local start = starts[number]
-      local kept: {string} = {}
+      local kept: mut {string} = {}
       local from = 1
       for at = 1, #line do
         if cut[start + at - 1] then
@@ -1141,14 +1141,14 @@ end
 --- carries.
 function link_text.found(built: compiler, root: ast.Node, source: string,
                          name: string): {link_text.Found}
-  local out: {link_text.Found} = {}
+  local out: mut {link_text.Found} = {}
   if not link_text.may_link(source) then
     return out
   end
   local tokens, _ = built.lex(source, name)
   local comments = link_text.comments_of(tokens, source)
-  local doc: {integer: boolean} = {}
-  local column: {integer: integer} = {}
+  local doc: mut {integer: boolean} = {}
+  local column: mut {integer: integer} = {}
   for _, comment in ipairs(comments) do
     doc[comment.line] = comment.doc
     column[comment.line] = comment.column

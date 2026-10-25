@@ -29,14 +29,14 @@ end
 --- SIGINT and SIGTERM held for this process until it closes; see
 --- [`Signal.guard`].
 local record Guard is Innermost.Held
-  metamethod __close: function(Guard)
+  __close: function(Guard)
   --- What the guard has read of the signals: the stamp it last read, which a signal moves, whether it has closed, and
   --- the signal delivered since the last take. Internal: [`cosmic.child`]'s waits read it, and no caller reads or writes it.
   state: Innermost.State
   --- The signal delivered last, 0 until one is.
-  _signal: integer
+  mut _signal: integer
   --- Why the dispositions could not be restored, "" when they were.
-  _trouble: string
+  mut _trouble: string
   --- The last SIGINT or SIGTERM caught, or 0 until one is. It is kept
   --- after the guard closes.
   cancelled: function(Guard): integer
@@ -51,7 +51,7 @@ local record Guard is Innermost.Held
   --- Closes the guard as `close` does, but keeps the last signal caught
   --- instead of delivering it, and answers that signal, or 0. Nil and
   --- why when the dispositions cannot be restored.
-  release: function(Guard): integer | nil, string
+  release: function(Guard): integer?, string
   --- In a task of [`Poll.run`], waits for a signal to take, and takes
   --- it; 0 and why once `timeout_ns` passes or the task is cancelled
   --- first, or the guard is closed.
@@ -95,7 +95,7 @@ end
 Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
   if not Poll.in_task() then error("signal: g:wait waits in a task of Poll.run", 2) end
   Poll.checked_ns(timeout_ns, "signal", "timeout_ns", 2)
-  local deadline: integer | nil
+  local deadline: integer?
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
     -- Asked before each wait and after each wake, never from the
@@ -103,7 +103,7 @@ Guard.wait = function(self: Guard, timeout_ns?: integer): integer, string
     local signal = self:take()
     if signal ~= 0 then return signal, "" end
     if self.state.closed then return 0, "signal: the guard is closed" end
-    local left: integer | nil
+    local left: integer?
     if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
     local woken, why = Poll.readable(raw.child_signal_fd(), left)
     if not woken then return 0, why end
@@ -165,7 +165,7 @@ Guard.close = function(self: Guard): boolean, string
   return true, ""
 end
 
-Guard.release = function(self: Guard): integer | nil, string
+Guard.release = function(self: Guard): integer?, string
   if self.state.closed then
     if self._trouble ~= "" then return nil, self._trouble end
     return self._signal, ""
@@ -196,7 +196,7 @@ end
 --- Opens a guard, the innermost of those open. The guard is made, and
 --- given its place, before the core opens it, so nothing between that
 --- and the answer allocates.
-local function opened(): Guard | nil, string
+local function opened(): Guard?, string
   local g = make_guard()
   open_guards[#open_guards + 1] = g
   local stamp, trouble = raw.guard_child_signals()
@@ -264,7 +264,7 @@ end
 --- and why, where the process has no descriptor left for the pipe
 --- `g:wait` waits on. In [`Poll.run`], a wait another task began while no
 --- guard was open is not ended by the signals of one opened after it.
-function Signal.guard(): Guard | nil, string
+function Signal.guard(): Guard?, string
   return opened()
 end
 

@@ -21,7 +21,7 @@ local head <const> = "local record R\n  n: integer\nend\nlocal function use(_: a
 
 --- The messages of `errors`, one to a line.
 local function shown(errors: {compiler.Error}): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, e in ipairs(errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. tostring(e.code) .. " " .. e.msg
   end
@@ -172,7 +172,7 @@ local function test_the_hint_names_its_table_apart_from_the_variable()
     local errors = type_errors(source)
     assert(#errors == 1, shown(errors))
     local hint = assert(teal.replacement(errors[1], source), errors[1].msg)
-    local table_name = name == "held" and "box" or "held"
+    local table_name = if name == "held" then "box" else "held" end
     assert(hint:find("(`local " .. table_name .. " = { " .. name .. " = <the value> }`, then `" ..
         table_name .. "." .. name .. " = ...` in the function)", 1, true), hint)
   end

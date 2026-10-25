@@ -37,7 +37,7 @@ local statement: function(Ctx, Node)
 --- @return integer The 1-based line
 --- @return integer The 1-based column
 local function begins_at(c: Ctx, s: Node): integer, integer
-  local anchor: Node | nil = nil
+  local anchor: Node? = nil
   local back = 0
   local kind = s.kind
   if kind == "local_declaration" or kind == "global_declaration" then
@@ -70,7 +70,7 @@ end
 --- token before the next statement, or before the token closing the
 --- block (its keyword, or the end of the file), walked back over the
 --- run. Nil when no `;` stands there.
-local function semicolon(c: Ctx, body: Node, i: integer): compiler.Token | nil
+local function semicolon(c: Ctx, body: Node, i: integer): compiler.Token?
   local j: integer
   local next_one = body[i + 1]
   if next_one ~= nil then
@@ -182,7 +182,7 @@ end
 --- @param c Ctx
 --- @param from integer|nil The construct's own opening token
 --- @param word string
-local function keyword(c: Ctx, from: integer | nil, word: string)
+local function keyword(c: Ctx, from: integer?, word: string)
   local at = from ~= nil and typescan.word_after(c.scan, from, word) or 0
   local t = c.scan.tokens[at]
   if t == nil then
@@ -208,7 +208,7 @@ local function closes(c: Ctx, n: Node, word: string): boolean
   -- The recorded end is the keyword's last column; a comment is placed
   -- against its first.
   local xend = n.xend
-  ctx_mod.lead_to_closer(c, y, xend ~= nil and xend - #word + 1 or 1, c.margin, c.shift)
+  ctx_mod.lead_to_closer(c, y, if xend ~= nil then xend - #word + 1 else 1 end, c.margin, c.shift)
   emit.put(c.em, word)
   if word == "end" then
     ctx_mod.ended(c, n, inline)
@@ -453,7 +453,7 @@ statement = function(c: Ctx, n: Node)
       ctx_mod.refuse(c, "a global function with no name")
       return
     end
-    emit.text(c.em, n.implicit_global_function and "function" or "global function")
+    emit.text(c.em, if n.implicit_global_function then "function" else "global function" end)
     ctx_mod.lead(c, name, " ")
     emit.text(c.em, name.tk or "")
     signature_and_body(c, n, name)
@@ -476,7 +476,7 @@ statement = function(c: Ctx, n: Node)
     emit.text(c.em, "function")
     ctx_mod.lead(c, owner, " ")
     expr.expression(c, owner)
-    emit.put(c.em, n.is_method and ":" or ".")
+    emit.put(c.em, if n.is_method then ":" else "." end)
     ctx_mod.lead(c, name, "")
     emit.text(c.em, name.tk or "")
     signature_and_body(c, n, name)

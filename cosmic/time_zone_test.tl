@@ -222,7 +222,7 @@ end
 --- database, a TZif file, a TZ string, a calendar moment in a gap -- open
 --- `time: ` once.
 local function test_a_zone_failure_names_the_module_once()
-  local function named(why: string | nil, rest: string)
+  local function named(why: string?, rest: string)
     assert(why ~= nil and why:sub(1, 6) == "time: ", tostring(why))
     local _, count = why:gsub("time: ", "")
     assert(count == 1, why)
@@ -285,7 +285,7 @@ local function tzif(version: string, times: {integer}, indices: {integer}, types
   local function block(wide: boolean): string
     local parts = { "TZif", version, ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, #times, #types, #chars) }
-    for _, t in ipairs(times) do parts[#parts + 1] = string.pack(wide and ">i8" or ">i4", t) end
+    for _, t in ipairs(times) do parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, t) end
     for _, i in ipairs(indices) do parts[#parts + 1] = string.char(i) end
     for _, t in ipairs(types) do parts[#parts + 1] = string.pack(">i4BB", t[1], t[2], t[3]) end
     parts[#parts + 1] = chars
@@ -385,8 +385,8 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   local function file(count: integer, near: boolean): string
     local types = near and string.pack(">i4BB", 3600, 0, 4):rep(count) or
       string.pack(">i4BB", 0, 0, 0):rep(count)
-    local abbreviations = near and "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" or
-      ("A"):rep(count * 6 - 1) .. "\0"
+    local abbreviations = if near then "UTC\0CET\0" .. ("A"):rep(count * 6 - 9) .. "\0" else
+      ("A"):rep(count * 6 - 1) .. "\0" end
     return table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
   end
@@ -417,7 +417,7 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     read(few, near)
     read(many, near)
     local few_ns, many_ns = math.maxinteger, math.maxinteger
-    local ratio: number | nil
+    local ratio: number?
     for _ = 1, 30 do
       few_ns = math.min(few_ns, read(few, near))
       many_ns = math.min(many_ns, read(many, near))
@@ -675,7 +675,7 @@ local function test_between_holds_across_folds_and_skipped_days()
     local z, from, to = zone(case.zone), at(case.from), at(case.to)
     for _, pair in ipairs({ { from, to }, { to, from } } as {{integer}}) do
       local d = Time.between(pair[1], pair[2], z)
-      local dir = pair[2] > pair[1] and 1 or -1
+      local dir = if pair[2] > pair[1] then 1 else -1 end
       local text = Time.format_duration(d)
       assert((d.years or 0) * dir >= 0 and (d.months or 0) * dir >= 0 and (d.days or 0) * dir >= 0 and
           (d.ns or 0) * dir >= 0,

@@ -25,7 +25,7 @@ end
 
 local function test_int_stays_within_its_bounds_and_reaches_both()
   local src = Rand.new(7)
-  local seen: {integer: boolean} = {}
+  local seen: mut {integer: boolean} = {}
   for _ = 1, 1000 do
     local v = src:int(-3, 3)
     assert(v >= -3 and v <= 3, "out of range: " .. v)
@@ -40,7 +40,7 @@ end
 local function test_uniform_draws_within_range_from_any_bit_source()
   local src = Rand.new(11)
   local function draw(): integer return src:int(math.mininteger, math.maxinteger) end
-  local seen: {integer: integer} = {}
+  local seen: mut {integer: integer} = {}
   for _ = 1, 3000 do
     local v = Rand.uniform(draw, 0, 2)
     assert(v >= 0 and v <= 2, "out of range: " .. v)

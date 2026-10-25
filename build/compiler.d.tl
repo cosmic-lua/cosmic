@@ -122,85 +122,85 @@ local record compiler
     msg: string
     -- The kind of a warning (`unused`, `redeclaration`, `hint`, ...); nil
     -- for an error.
-    tag: string | nil
+    tag: string?
     -- Where the checker keeps an error while it sorts them.
-    i: integer | nil
+    i: integer?
     -- For a key a record lacks (`invalid key ...`): the record's value
     -- fields, unordered.
-    fields: {string} | nil
+    fields: {string}?
     -- Nil where the error was not made by the checker.
-    code: ErrorCode | nil
+    code: ErrorCode?
 
     -- Where a value was wanted, as the message names it: "argument",
     -- "return", "self", or "in local declaration", "in assignment" and
     -- the like. `context_name` is the variable or field the message
     -- also names there, and `index` the position of an argument.
-    context: string | nil
-    context_name: string | nil
-    index: integer | nil
+    context: string?
+    context_name: string?
+    index: integer?
     -- Whether words the message puts between its context and the error
     -- itself (a field that did not match, a type parameter) make the
     -- context something other than where the value was wanted.
-    nested: boolean | nil
+    nested: boolean?
     -- The type parameter a type was refused for.
-    type_parameter: string | nil
+    type_parameter: string?
     -- The method of a record declared against an interface, and the
     -- record that declares it, when the error is that signature's.
-    signature_of: string | nil
-    declared_in: string | nil
+    signature_of: string?
+    declared_in: string?
     -- For a field a record and its interface disagree on: which of them
     -- declares it read-only, `record` or `interface`.
-    readonly_in: string | nil
+    readonly_in: string?
     -- The kind (typename) of the record-like type a key was refused.
-    resolved_kind: string | nil
+    resolved_kind: string?
 
     -- The types an error is about, as the checker shows them. A
     -- `*_members` list holds the members of a union (a type that is none
     -- holds itself), each shown alone; `got_kind` and `subject_kind` say
     -- what the type is (its typename), and `expected_names` the names of
     -- a nominal one.
-    got: string | nil
-    got_kind: string | nil
-    got_members: {string} | nil
-    expected: string | nil
-    expected_members: {string} | nil
-    expected_names: {string} | nil
-    subject: string | nil
-    subject_kind: string | nil
-    members: {string} | nil
-    left: string | nil
-    left_members: {string} | nil
-    left_is_generic_function: boolean | nil
-    right: string | nil
-    right_members: {string} | nil
+    got: string?
+    got_kind: string?
+    got_members: {string}?
+    expected: string?
+    expected_members: {string}?
+    expected_names: {string}?
+    subject: string?
+    subject_kind: string?
+    members: {string}?
+    left: string?
+    left_members: {string}?
+    left_is_generic_function: boolean?
+    right: string?
+    right_members: {string}?
 
     -- The names the error mentions.
-    key: string | nil
-    variable: string | nil
-    operator: string | nil
-    names: {string} | nil
-    type_arguments: {string} | nil
-    expected_tokens: {string} | nil
+    key: string?
+    variable: string?
+    operator: string?
+    names: {string}?
+    type_arguments: {string}?
+    expected_tokens: {string}?
 
     -- What a declaration that is hidden or unused declares: "variable",
     -- "argument", "function" or "type".
-    declares: string | nil
+    declares: string?
 
     -- Whether the declaration a name hides is in the program itself.
-    declared_before: boolean | nil
+    declared_before: boolean?
 
     -- The callee of a call, as written ([`Json.decode`], `obj:get`), and
     -- whether it never returns.
-    callee: string | nil
-    callee_never: boolean | nil
+    callee: string?
+    callee_never: boolean?
 
     -- A call's arguments: how many it was given, how many its callee
     -- takes when that is one number, and the largest number it names.
-    given: integer | nil
-    expects: integer | nil
-    expects_most: integer | nil
+    given: integer?
+    expects: integer?
+    expects_most: integer?
     -- Whether `msg` has had advice appended.
-    advised: boolean | nil
+    advised: boolean?
 
     -- For a refusal of a place whose narrowing was dropped: the place
     -- (`r.n`), what dropped it (`assignment`, `write`, `call`,
@@ -208,20 +208,20 @@ local record compiler
     -- For a use of a field or a global a test of narrowed nothing (`also`
     -- is `narrowing_not_local`): the place, `field`, `global` or `captured`,
     -- the place (or the assignment `g = ...`) as written, and where the test is.
-    dropped_place: string | nil
-    dropped_kind: string | nil
-    dropped_by: string | nil
+    dropped_place: string?
+    dropped_kind: string?
+    dropped_by: string?
     -- A name for the local to copy the place to (`also` is
     -- `narrowing_not_local`): one that no name in scope, global, builtin,
     -- keyword or later declaration of the function around it has.
-    dropped_copy: string | nil
+    dropped_copy: string?
     -- A second code the error carries beside `code`: `narrowing_not_local`
     -- on a use that reads a place a test of narrowed nothing.
-    also: ErrorCode | nil
-    dropped_y: integer | nil
-    dropped_x: integer | nil
+    also: ErrorCode?
+    dropped_y: integer?
+    dropped_x: integer?
     -- For a loop's refusal: the kind of the drop its pass ran.
-    dropped_via: string | nil
+    dropped_via: string?
 
     -- For a local read before it is assigned: whether the read is a
     -- function literal that names it, what may call that function before
@@ -229,28 +229,28 @@ local record compiler
     -- `return`, `never` or `scope`, at `ran_y`, `ran_x` unless it is the end
     -- of the scope), and the statement a path went by that skipped the
     -- assignment (`branch`, `if` or `loop`), and where.
-    closure: boolean | nil
-    ran_kind: string | nil
-    ran_y: integer | nil
-    ran_x: integer | nil
-    skipped_kind: string | nil
-    skipped_y: integer | nil
-    skipped_x: integer | nil
+    closure: boolean?
+    ran_kind: string?
+    ran_y: integer?
+    ran_x: integer?
+    skipped_kind: string?
+    skipped_y: integer?
+    skipped_x: integer?
 
     -- For a function literal that assigns a local declared outside it: where
     -- that local is declared.
-    declared_y: integer | nil
-    declared_x: integer | nil
+    declared_y: integer?
+    declared_x: integer?
     -- For a `goto` or a label that is not a continue: where the `goto` is
     -- and where the label it names is.
-    goto_y: integer | nil
-    goto_x: integer | nil
-    label_y: integer | nil
-    label_x: integer | nil
+    goto_y: integer?
+    goto_x: integer?
+    label_y: integer?
+    label_x: integer?
     -- For a `goto` of a `repeat` that jumps past a local its `until` can
     -- see: where the local is declared.
-    local_y: integer | nil
-    local_x: integer | nil
+    local_y: integer?
+    local_x: integer?
   end
 
   -- TODO: declare `ast`, `type`, [`Env.modules`], the reporter's
@@ -293,18 +293,18 @@ local record compiler
   -- A record global's type: its fields as a table and in declaration
   -- order.
   record GlobalType
-    fields: {string:any} | nil
-    field_order: {string} | nil
+    fields: {string:any}?
+    field_order: {string}?
   end
 
   -- The declaration of a record global, whose `def` is its type.
   record GlobalDeclaration
-    def: GlobalType | nil
+    def: GlobalType?
   end
 
   -- One global of the checker's environment.
   record Global
-    t: GlobalDeclaration | nil
+    t: GlobalDeclaration?
   end
 
   record Env
@@ -321,11 +321,11 @@ local record compiler
     loaded_order: {string}
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see [`build.receivers`].
-    report_types: boolean | nil
+    report_types: boolean?
     -- When set, the checker appends `name=key` to it for each variable it
     -- finds: the name and the key of the binding it stands for, so that a
     -- test sees which binding a name was read as.
-    key_trace: {string} | nil
+    key_trace: {string}?
     reporter: any
   end
 
@@ -344,7 +344,7 @@ local record compiler
     kind: string
     y: integer
     x: integer
-    comments: {Comment} | nil
+    comments: {Comment}?
   end
 
   -- How the checker finds a module it has not been given: the name it
@@ -352,13 +352,13 @@ local record compiler
   -- `read("*a")` and then closes. An ordinary field, so the build
   -- replaces it with one that answers from the staged tree; the
   -- compiler's own finds nothing.
-  search_module: function(name: string, search_all: boolean): string | nil, Handle | nil
+  search_module: function(name: string, search_all: boolean): string?, Handle?
 
-  new_env: function(Options): Env | nil, string
+  new_env: function(Options): Env?, string
   -- The Lua source for a Teal source, and what the checker found. The
   -- code is nil when the input did not parse.
   gen: function(input: string, env?: Env, options?: any,
-                language?: string): string | nil, Result
+                language?: string): string?, Result
   -- Checks `input` as the module `filename`: every position the checker
   -- records (a type's, an error's) carries that name, which is how it
   -- tells one module's types from another's. [`gen`] checks under the
@@ -368,7 +368,7 @@ local record compiler
                          language: string): Result
   -- The Lua source for the syntax tree a [`check_string`] answers, nil
   -- and why when it cannot be written.
-  generate: function(ast: any, target: string, options: any): string | nil, string
+  generate: function(ast: any, target: string, options: any): string?, string
   -- Lexes `source` into its token stream plus any lex errors. `lex`
   -- itself never fails outright: unlexable bytes still come back as
   -- (possibly partial) tokens, with the trouble recorded in the second

@@ -94,13 +94,13 @@ local function test_the_checker_refuses_the_removed_package_fields()
     -- A checked environment keeps the errors it found.
     local fresh = assert(teal.environment_for(built, db, "/nonexistent"))
     local result = built.check_string(source, fresh, "removed_package", "tl")
-    local found: compiler.Error | nil = nil
+    local found: compiler.Error? = nil
     for _, e in ipairs(result.type_errors) do
       if e.code == "invalid_key" and e.key == field and e.variable == "package" then
         found = e
       end
     end
-    local seen: {string} = {}
+    local seen: mut {string} = {}
     for _, e in ipairs(result.type_errors) do seen[#seen + 1] = e.msg end
     assert(found ~= nil, field .. " was not refused: " .. table.concat(seen, "; "))
     assert(teal.replacement(found, source) == Removed.message("package", field), found.msg)

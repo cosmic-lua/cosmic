@@ -536,7 +536,7 @@ local module: Module = {
 --- and a run-time failure both show. For a name with no entry, it says
 --- only that the name is not available, or where to look.
 function module.message(name: string, field?: string): string
-  local dotted = field ~= nil and name .. "." .. field or name
+  local dotted = if field ~= nil then name .. "." .. field else name end
   local instead = field ~= nil and module.replacements[dotted] or nil
   if instead ~= nil then
     return dotted .. " is not available: " .. instead

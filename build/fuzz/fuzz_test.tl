@@ -178,7 +178,7 @@ end
 -- or more, so the simplest failing list is that one value, alone.
 local function test_shrink_cuts_and_lowers_draws()
   local function fails(values: {integer}): boolean, {shrink.Draw}
-    local used: {shrink.Draw} = {}
+    local used: mut {shrink.Draw} = {}
     local failed = false
     for i, v in ipairs(values) do
       used[i] = { min = 0, max = 100, value = v }
@@ -186,7 +186,7 @@ local function test_shrink_cuts_and_lowers_draws()
     end
     return failed, used
   end
-  local draws: {shrink.Draw} = {}
+  local draws: mut {shrink.Draw} = {}
   for i, v in ipairs({ 3, 90, 2, 55, 1 }) do draws[i] = { min = 0, max = 100, value = v } end
   local shrunk = shrink.shrink(draws, fails, 1000)
   local best, tries = shrunk.draws, shrunk.tries
@@ -359,7 +359,7 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   end
   local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
-  local first: string | nil
+  local first: string?
   for i = 1, #seen do
     if seen[i]:find("\0", 1, true) then
       first = seen[i]
@@ -426,7 +426,7 @@ end
 local function test_shrinking_cuts_elements_from_the_middle()
   local err = report({ name = "in order", iters = 300,
     gen = function(src: Fuzz.Source): string
-      local parts: {string} = {}
+      local parts: mut {string} = {}
       while Fuzz.more(src, #parts, 40) do
         parts[#parts + 1] = Fuzz.pick(src, { "a", "b", "c", "d" }) .. string.char(src:int(0, 9) + 48)
       end

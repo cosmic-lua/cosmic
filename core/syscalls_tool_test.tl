@@ -50,7 +50,7 @@ local process = raw_behind("cosmic.child") as raw_process -- cast: the table cor
 --- the relaunch's are, and none "capture", which only [`cosmic.child`]
 --- reads.
 local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for number, fd in pairs(started.options.fds or {}) do
     if fd is integer then
       fds[number] = fd
@@ -77,7 +77,7 @@ end
 --- What a confined `probe` is given to read: itself, and /proc and
 --- /dev/null where this host has them.
 local function probe_reads(probe: string): {string}
-  local reads: {string} = { probe }
+  local reads: mut {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end
   end
@@ -137,7 +137,7 @@ sys.nanosleep(30 * 1000000000)
   local child = assert(math.tointeger(tonumber(said:match("^(%d+)\n"))), said)
   -- This process adopted it: it ends by the kernel's SIGKILL, its
   -- namespace's end, within seconds, where it would sleep on for 30.
-  local ended: raw_process.ChildStatus | nil = nil
+  local ended: raw_process.ChildStatus? = nil
   by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Clock.seconds(5)
   while ended == nil and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
     local status = assert(process.waitpid(child, true))
@@ -204,7 +204,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   -- as a link to that, under the name given; a file can be given as well
   -- as a directory: /dev/null alone of /dev, and the program alone of
   -- the directory it is in.
-  local reads: {string} = { tmp .. "/link" }
+  local reads: mut {string} = { tmp .. "/link" }
   for _, path in ipairs(probe_reads(probe)) do reads[#reads + 1] = path end
   local report = create(tmp .. "/report")
   local pid, trouble, errno = process.spawn(probe, { probe,
@@ -231,7 +231,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local private = tmp .. "/private"
   assert(sys.mkdir(private, 0x1c0))
   assert(sys.mkdir(private .. "/inner", 0x1ed))
-  local mirrored: {string} = { "/proc", private .. "/inner" }
+  local mirrored: mut {string} = { "/proc", private .. "/inner" }
   for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
   -- Whether a file is writable, by opening it to append, which writes
   -- nothing (`writable`), not by its mode, which says nothing of the mount.
@@ -256,19 +256,19 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   -- link, the link -- which it can write to; /proc its own, whose
   -- processes' entries it writes, so it can confine a child in turn;
   -- or, where the kernel refuses it one, the host's, read-only whole.
-  local under_tmp: {string:boolean} = {}
+  local under_tmp: mut {string:boolean} = {}
   for _, path in ipairs(mirrored) do
     for _, name in ipairs({ path, (assert(sys.realpath(path))) }) do
       local top = name:match("^/tmp/([^/]+)")
       if top ~= nil then under_tmp[top] = true end
     end
   end
-  local listed: {string} = {}
+  local listed: mut {string} = {}
   for name in pairs(under_tmp) do listed[#listed + 1] = name .. "\n" end
   table.sort(listed)
   local common = "fd\n700\n" .. table.concat(listed) .. "t\n"
   local own = confine.own_proc_given()
-  assert(seen == common .. (own and "own-proc\nown-writable\n" or "host-proc\nown-read-only\n") ..
+  assert(seen == common .. (if own then "own-proc\nown-writable\n" else "host-proc\nown-read-only\n" end) ..
       "sys-read-only\n", seen)
   local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
@@ -348,7 +348,7 @@ end
 local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local probe = probe_in(tmp)
   local reads = probe_reads(probe)
-  local user = sys.getuid() == 65533 and 65531 or 65533
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
   local root = may_run_as(user)
   -- A setuid-root copy of the probe, where this process may make one.
   local setuid = tmp .. "/setuid-probe"
@@ -362,7 +362,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   -- Undumpable while it starts the child, where it may map the user:
   -- a caller not root that is undumpable could not open its child's
   -- maps (they are root's then), whether it gives a user or not.
-  local was: integer | nil = nil
+  local was: integer? = nil
   if root then
     was = assert(sys.dumpable())
     assert(sys.dumpable(0) == 0)
@@ -421,7 +421,7 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   assert(sys.write(inside, "secret\n") == 7)
   sys.close(inside)
   local real = assert(sys.realpath(dir))
-  local user = sys.getuid() == 65533 and 65531 or 65533
+  local user = if sys.getuid() == 65533 then 65531 else 65533 end
   -- `proc` takes a user as `unveil` does: a caller that may not map it
   -- has the start refused, never the arguments.
   local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil,
@@ -466,7 +466,7 @@ local function test_an_unveiled_child_takes_up_to_the_most_paths_and_no_more(tmp
     for i = 1, count - base do listing = listing .. "\n" .. many .. "/f" .. tostring(i) end
     return String.split(listing, "\n")
   end
-  local function run(reads: {string}, report: integer): integer | nil, string, integer
+  local function run(reads: {string}, report: integer): integer?, string, integer
     local sandbox: raw_process.Sandbox = { unveil = { reads = reads }, offline = true }
     local last = assert(reads[#reads])
     return process.spawn(probe, { probe,
@@ -509,7 +509,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   assert(sys.write(written, "in") == 2)
   sys.close(written)
   local real_tree = assert(sys.realpath(tree))
-  local given: {string} = { tree }
+  local given: mut {string} = { tree }
   for _, path in ipairs(reads) do given[#given + 1] = path end
   -- The program is bound at a name of its own: its own, beneath this
   -- test's directory, would be beneath /tmp too, where `scratch` is.
@@ -555,7 +555,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   -- host's state, and mounted read-only, given to write as it may be:
   -- the stand-in, a native program, finds itself in it, and its own pid
   -- there is the host's, not the 2 its own namespace gives it.
-  local without_proc: {string} = {}
+  local without_proc: mut {string} = {}
   for _, path in ipairs(reads) do
     if path ~= "/proc" then without_proc[#without_proc + 1] = path end
   end
@@ -604,7 +604,7 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
   local status, said = ran as raw_process.ChildStatus, output as string -- cast: pcall answers `any`
   assert(status.code == 0, said)
   assert(alive, "the confined child killed a process outside it: " .. said)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in said:gmatch("[^\n]+") do lines[#lines + 1] = line end
   assert(lines[1]:match("^Pid:%s*2$") and lines[2] == "spared", said)
   if lines[4] ~= "cosmic-init" then
@@ -612,7 +612,7 @@ local function test_an_unveiled_child_sees_and_signals_only_its_own_processes(tm
     return -- the host's /proc
   end
   assert(lines[3] == "unseen", said)
-  local listed: {integer:boolean} = {}
+  local listed: mut {integer:boolean} = {}
   for i = 5, #lines do
     local entry = lines[i]
     local number = math.tointeger(tonumber(entry))
@@ -694,7 +694,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   -- Only a procfs of its own shows its namespace's processes alone: its
   -- init and itself, and no orphan, reaped or not.
   if confine.own_proc_given() then
-    local processes: {string} = {}
+    local processes: mut {string} = {}
     for line in said:gmatch("[^\n]+") do
       if line:match("^%d+$") or line == "cosmic-init" then processes[#processes + 1] = line end
     end
@@ -776,11 +776,11 @@ end
 --- worker's), its /proc has no /proc/sys to give.
 local function test_proc_given_to_write_changes_nothing_of_the_host_s(tmp: string)
   local probe = probe_in(tmp)
-  local without: {string} = {}
+  local without: mut {string} = {}
   for _, path in ipairs(probe_reads(probe)) do
     if path ~= "/proc" then without[#without + 1] = path end
   end
-  local writes: {string} = { "/proc" }
+  local writes: mut {string} = { "/proc" }
   if sys.stat("/proc/sys/kernel") ~= nil then writes[2] = "/proc/sys/kernel" end
   local report = create(tmp .. "/written")
   local pid, trouble, errno = process.spawn(probe, { probe,
@@ -809,7 +809,7 @@ end
 --- loaded host, landing on a run or two, does not.
 local function test_a_confined_child_is_started_and_waited_for_quickly(tmp: string)
   local probe = probe_in(tmp)
-  local times: {integer} = {}
+  local times: mut {integer} = {}
   for _ = 1, 5 do
     local started = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
     local status = run_confined(tmp, probe, "exit 0")

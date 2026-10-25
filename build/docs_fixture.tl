@@ -41,7 +41,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   for _, statement in ipairs(work.schema) do
     assert(db:exec(statement))
   end
-  local paths: {string} = {}
+  local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)
   for _, path in ipairs(paths) do

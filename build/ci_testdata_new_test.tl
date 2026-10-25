@@ -55,7 +55,7 @@ local function test_findings_are_held_to_the_ceilings_of_the_testdata_stage(dir:
   assert(Fs.mkdirs(root .. "/ci/testdata"))
   assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
   local function pinned(count: integer): string
-    local line = count > 0 and "ci/testdata/bad.tl not_assignable " .. tostring(count) .. "\n" or ""
+    local line = if count > 0 then "ci/testdata/bad.tl not_assignable " .. tostring(count) .. "\n" else "" end
     assert(Fs.write(root .. "/build/ceilings.txt", "[testdata]\n" .. line))
     return table.concat(tree_checks.ci_testdata(root, (assert(teal.load())), "new"), "\n")
   end

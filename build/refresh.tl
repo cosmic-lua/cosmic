@@ -83,10 +83,10 @@ local record refresh
     --- (`--<name>`) that names a file to read it from.
     name: string
     --- The newest release upstream, fetched into the directory given.
-    fetch: function(scratch: string): refresh.Source | nil, string
+    fetch: function(scratch: string): refresh.Source?, string
     --- The release in the file at `path`, read and checked; `scratch`
     --- is a directory it may unpack into.
-    read: function(path: string, scratch: string): refresh.Release | nil, string
+    read: function(path: string, scratch: string): refresh.Release?, string
   end
 
   --- Which of an archive's files a vendored tree keeps, as its PIN
@@ -134,7 +134,7 @@ local months <const>: {string:string} = {
 --- `YYYY-MM-DD` -- what names it on curl.se -- read from the line
 --- `## Certificate data from Mozilla as of: Thu Aug 13 03:12:01 2026 GMT`
 --- at its head; nil when it has no such line.
-function refresh.cacert_date(pem: string): string | nil
+function refresh.cacert_date(pem: string): string?
   local month, day, year = pem:match(
     "\n## Certificate data from Mozilla as of: %a+ (%a+) +(%d%d?) [%d:]+ (%d%d%d%d) GMT")
   if month == nil or months[month] == nil then
@@ -150,7 +150,7 @@ end
 --- The URL of the page after this one, by the `Link` header GitHub
 --- answers a paginated listing with (`<url>; rel="next"`), or nil on the
 --- last page.
-function refresh.next_page(link: string | nil): string | nil
+function refresh.next_page(link: string?): string?
   if link == nil then
     return nil
   end
@@ -165,8 +165,8 @@ end
 --- The newest NSS release among the tags `refs` lists (GitHub's
 --- matching-refs JSON): the `NSS_<major>_<minor>[_<patch>]_RTM` tag of the
 --- greatest version, or nil when it lists none.
-function refresh.newest_nss(refs: string): string | nil
-  local newest: string | nil = nil
+function refresh.newest_nss(refs: string): string?
+  local newest: string? = nil
   local best = -1
   for tag in refs:gmatch('"ref"%s*:%s*"refs/tags/(NSS_[%d_]+_RTM)"') do
     local major, minor, patch = tag:match("^NSS_(%d+)_(%d+)_?(%d*)_RTM$")
@@ -198,7 +198,7 @@ local INDEX <const> = Shape.record_of("Index")
 
 --- The newest sdist of `tzdata` PyPI's JSON description names: its
 --- version, URL and sha256.
-function refresh.tzdata_release(text: string): refresh.Source | nil, string
+function refresh.tzdata_release(text: string): refresh.Source?, string
   local index, trouble = INDEX:decode_into(text)
   if index == nil then
     return nil, "PyPI's description of tzdata: " .. trouble
@@ -235,7 +235,7 @@ function refresh.fetching(): Http.Options
 end
 
 --- The body `url` answers, refusing anything but a 2xx.
-local function fetch_text(url: string): string | nil, string
+local function fetch_text(url: string): string?, string
   local got, trouble = Http.get(url, refresh.fetching())
   if got == nil then
     return nil, url .. ": " .. trouble
@@ -248,11 +248,11 @@ end
 
 local cacert: refresh.Dataset = {
   name = "cacert",
-  fetch = function(scratch: string): refresh.Source | nil, string
+  fetch = function(scratch: string): refresh.Source?, string
     -- Every page: GitHub lists at most 100 refs a page, in name order,
     -- and the newest release is not the last name.
-    local pages: {string} = {}
-    local page: string | nil = nss_tags
+    local pages: mut {string} = {}
+    local page: string? = nss_tags
     while page ~= nil do
       if #pages == 50 then
         return nil, nss_tags .. ": lists more than 50 pages of tags"
@@ -286,7 +286,7 @@ local cacert: refresh.Dataset = {
     end
     return { path = path, url = url, version = tag, sha256 = Hash.hex_sha256(text) }, ""
   end,
-  read = function(path: string, _scratch: string): refresh.Release | nil, string
+  read = function(path: string, _scratch: string): refresh.Release?, string
     local text, trouble = Fs.read(path)
     if text == nil then
       return nil, trouble
@@ -302,9 +302,9 @@ local cacert: refresh.Dataset = {
     -- loads them: left out here too, and named, so a bundle with one
     -- root this build cannot read still refreshes the rest. A bundle
     -- with none it can read would leave a binary trusting nothing.
-    local distinct: {string:boolean} = {}
-    local readable: {roots.Root} = {}
-    local left_out: {string} = {}
+    local distinct: mut {string:boolean} = {}
+    local readable: mut {roots.Root} = {}
+    local left_out: mut {string} = {}
     local count = 0
     for i, one in ipairs(found) do
       local ok, why = Http.check_certificate(one.der)
@@ -355,7 +355,7 @@ local cacert: refresh.Dataset = {
 
 local revocations: refresh.Dataset = {
   name = "onecrl",
-  fetch = function(scratch: string): refresh.Source | nil, string
+  fetch = function(scratch: string): refresh.Source?, string
     local text, trouble = fetch_text(onecrl_feed .. "?_expected=0")
     if text == nil then
       return nil, trouble
@@ -372,7 +372,7 @@ local revocations: refresh.Dataset = {
     return { path = path, url = onecrl_feed .. "?_expected=" .. timestamp, version = timestamp,
       sha256 = Hash.hex_sha256(text) }, ""
   end,
-  read = function(path: string, _scratch: string): refresh.Release | nil, string
+  read = function(path: string, _scratch: string): refresh.Release?, string
     local text, trouble = Fs.read(path)
     if text == nil then
       return nil, trouble
@@ -398,7 +398,7 @@ local revocations: refresh.Dataset = {
 
 local tzdata: refresh.Dataset = {
   name = "tzdata",
-  fetch = function(scratch: string): refresh.Source | nil, string
+  fetch = function(scratch: string): refresh.Source?, string
     local index, trouble = fetch_text(tzdata_index)
     if index == nil then
       return nil, trouble
@@ -421,13 +421,13 @@ local tzdata: refresh.Dataset = {
   -- A system zoneinfo holds its aliases as links (and some a `posix ->
   -- .` loop), so reading one wants [`Fs.walk_following`], as
   -- work.read_zoneinfo walks, not [`Fs.walk`], which lists no link.
-  read = function(path: string, scratch: string): refresh.Release | nil, string
+  read = function(path: string, scratch: string): refresh.Release?, string
     local entries, trouble = Archive.list(path)
     if entries == nil then
       return nil, path .. ": " .. trouble
     end
     -- The sdist's one top directory names its version.
-    local version: string | nil = nil
+    local version: string? = nil
     for _, entry in ipairs(entries) do
       local path_in = entry.path
       while path_in:sub(1, 2) == "./" do
@@ -456,7 +456,7 @@ local tzdata: refresh.Dataset = {
     if extracted == nil then
       return nil, path .. ": " .. extract_trouble
     end
-    local zones: {string:string} = {}
+    local zones: mut {string:string} = {}
     local count = 0
     for entry, under in pairs(files) do
       local data, read_trouble = Fs.read(into .. "/" .. entry)
@@ -488,7 +488,7 @@ local tzdata: refresh.Dataset = {
 refresh.datasets = { cacert, revocations, tzdata }
 
 --- What the binary records of the release it carries of `name`.
-local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
+local function recorded(db: Sqlite.Handle, name: string): {string}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
@@ -508,7 +508,7 @@ end
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
 --- records it. Answers one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
-                     scratch: string): string | nil, string
+                     scratch: string): string?, string
   local bytes, trouble = Fs.read(source.path)
   if bytes == nil then
     return nil, trouble
@@ -549,7 +549,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   if not made then
     return nil, made_trouble
   end
-  local change = sha256 == was[3] and version .. " (as it was)" or was[1] .. " -> " .. version
+  local change = if sha256 == was[3] then version .. " (as it was)" else was[1] .. " -> " .. version end
   local line = ("%s %s, %s"):format(dataset.name, change, plural.count(release.count, "row"))
   for _, why in ipairs(release.left_out) do
     line = line .. "\n  left out " .. why
@@ -572,7 +572,7 @@ end
 --- -- one built before cosmic carried it, whose core reads none -- is
 --- passed over, saying so; else that refuses the refresh.
 function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
-                        sources: {string:string}, every?: boolean): {string} | nil, string
+                        sources: {string:string}, every?: boolean): {string}?, string
   local bytes, trouble = Fs.read(binary)
   if bytes == nil then
     return nil, trouble
@@ -608,7 +608,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       local _, _ = db:close()
       return why
     end
-    local skipped: {string:boolean} = {}
+    local skipped: mut {string:boolean} = {}
     if every == true then
       for _, dataset in ipairs(chosen) do
         local has, has_trouble = Sqlite.text_rows(db, "SELECT 1 FROM components WHERE name = ?1",
@@ -622,7 +622,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
         end
       end
     end
-    local applying: {refresh.Dataset} = {}
+    local applying: mut {refresh.Dataset} = {}
     for _, dataset in ipairs(chosen) do
       if skipped[dataset.name] == nil then
         applying[#applying + 1] = dataset
@@ -712,12 +712,12 @@ local function run(argv: {string}): integer
   if out == nil then
     return refuse("-o names the file to write")
   end
-  local by_name: {string:refresh.Dataset} = {}
+  local by_name: mut {string:refresh.Dataset} = {}
   for _, dataset in ipairs(refresh.datasets) do
     by_name[dataset.name] = dataset
   end
-  local wanted: {string:boolean} = {}
-  local sources: {string:string} = {}
+  local wanted: mut {string:boolean} = {}
+  local sources: mut {string:string} = {}
   for _, word in ipairs(parsed.words) do
     if by_name[word] == nil then
       return refuse("no such dataset: " .. word)
@@ -737,7 +737,7 @@ local function run(argv: {string}): integer
     end
   end
   -- Neither a name nor a file: every dataset, from upstream.
-  local chosen: {refresh.Dataset} = {}
+  local chosen: mut {refresh.Dataset} = {}
   for _, dataset in ipairs(refresh.datasets) do
     if next(wanted) == nil or wanted[dataset.name] then
       chosen[#chosen + 1] = dataset

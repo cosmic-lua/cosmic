@@ -106,8 +106,8 @@ local crypto_include_dirs: {string} = {
 --- paths are relative to the root when the compiler runs there, so the
 --- tree's own headers are named as its own ([`core/guard.h`]).
 local function include_dirs(root: string, cwd: string): {string}
-  local prefix = cwd == root and "" or root .. "/"
-  local out: {string} = {}
+  local prefix = if cwd == root then "" else root .. "/" end
+  local out: mut {string} = {}
   for _, dir in ipairs({
       "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
       "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
@@ -166,7 +166,7 @@ c.variants = {
 
 --- The compiler's command line for `file` under `variant`.
 local function command(root: string, file: string, cwd: string, variant: c.Variant): {string}
-  local out: {string} = {
+  local out: mut {string} = {
     root .. "/bin/zig", "cc", "-target", variant.target,
     "-E", "-o", "/dev/null", "-Xclang", "-ast-dump",
     "-fno-color-diagnostics", "-std=c11", "-Wno-unused-command-line-argument",
@@ -201,7 +201,7 @@ local passed <const> = {
 
 --- The environment `passed` names, as this process has it.
 local function environment(): {string:string}
-  local out: {string:string} = {}
+  local out: mut {string:string} = {}
   for _, name in ipairs(passed) do
     local value = Env.get(name)
     if value ~= nil then out[name] = value end
@@ -230,13 +230,13 @@ end
 --- none. Withheld, every compile runs build/zig.tl checked afresh: about
 --- 0.8 s on the release ci/cosmic-driver.pin names, so a check of a few
 --- files under each variant took seconds more than its compiles.
-local function standalone_compiles(variables: {string:string}): string | nil
+local function standalone_compiles(variables: {string:string}): string?
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   return dir
 end
 
 local function toolchain(root: string, variables: {string:string}):
-    string | nil, {string}
+    string?, {string}
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do
     local value = variables[name]
     if value ~= nil and value ~= "" then return nil, {} end
@@ -246,7 +246,7 @@ local function toolchain(root: string, variables: {string:string}):
   if cache == nil then return nil, {} end
   local install, _ = Zig.pinned_install(root, cache)
   if install == nil then return nil, {} end
-  local runs_from: {string} = { install.path }
+  local runs_from: mut {string} = { install.path }
   -- The bootstrap cosmic, cached by the digest the pin's third line
   -- names (bin/cosmic-bootstrap), and where its launcher finds its core.
   local digest = (pin or ""):match("^[^\n]*\n[^\n]*\n(%x+)")
@@ -271,10 +271,10 @@ end
 
 --- Every C file under `dir`, `.c` and `.h`, relative to it and sorted:
 --- what a walk for links finds of cosmic's own C ([`link_files.checked`]).
-function c.sources(dir: string): {string} | nil, string
+function c.sources(dir: string): {string}?, string
   local files, trouble = link_files.walk(dir)
   if files == nil then return nil, trouble end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, file in ipairs(files) do
     if link_files.checked(file, true) == "c" then out[#out + 1] = file end
   end
@@ -285,16 +285,16 @@ end
 --- core/process.h) declare each binding returns; a header that is not
 --- there declares nothing.
 local function declared_in(root: string): {string: rules.Declared}
-  local out: {string: rules.Declared} = {}
+  local out: mut {string: rules.Declared} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do
     local header, _ = Fs.read(root .. "/" .. derivation.target.header)
-    local found: gen_syscalls.Declarations | nil = nil
+    local found: gen_syscalls.Declarations? = nil
     if header ~= nil then
       local read, _ = gen_syscalls.read(header)
       found = read
     end
     for _, call in ipairs(found ~= nil and found.calls or {}) do
-      local descriptors: {integer} = {}
+      local descriptors: mut {integer} = {}
       for i, parameter in ipairs(call.parameters) do
         if gen_syscalls.descriptor(parameter) then
           descriptors[#descriptors + 1] = i
@@ -310,18 +310,18 @@ end
 
 --- What a memo keeps of a compile's outcome: the findings, and what the unit defines and refers to.
 local function encoded(findings: {rules.Finding}, unit: rules.Unit): string
-  local rows: {{string}} = {}
+  local rows: mut {{string}} = {}
   for _, f in ipairs(findings) do
     rows[#rows + 1] = { "F", f.file, tostring(f.line), f.rule, f.within, f.message }
   end
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(unit.defines) do names[#names + 1] = name end
   table.sort(names, function(a: string, b: string): boolean return a < b end)
   for _, name in ipairs(names) do
     local place = unit.defines[name] or { file = "", line = 0 }
     rows[#rows + 1] = { "D", name, place.file, tostring(place.line) }
   end
-  local referred: {string} = {}
+  local referred: mut {string} = {}
   for name in pairs(unit.refers) do referred[#referred + 1] = name end
   table.sort(referred, function(a: string, b: string): boolean return a < b end)
   for _, name in ipairs(referred) do
@@ -336,8 +336,8 @@ local function field(fields: {string}, i: integer): string
 end
 
 --- The findings and unit of `file` that `text` encodes ([`encoded`]), or nil where it does not read.
-local function decoded(file: string, text: string): {rules.Finding} | nil, rules.Unit | nil
-  local findings: {rules.Finding} = {}
+local function decoded(file: string, text: string): {rules.Finding}?, rules.Unit?
+  local findings: mut {rules.Finding} = {}
   local unit: rules.Unit = { file = file, defines = {}, refers = {} }
   for _, fields in ipairs(check_memo.decode(text)) do
     local kind = fields[1]
@@ -357,13 +357,13 @@ end
 
 --- What `declared` says as text, in an order that does not change: a part of what a compile's outcome is made of.
 local function declared_text(declared: {string: rules.Declared}): string
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(declared) do names[#names + 1] = name end
   table.sort(names, function(a: string, b: string): boolean return a < b end)
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local d = declared[name] or { count = 0, fallible = false, effect = false, descriptors = {} }
-    local at: {string} = {}
+    local at: mut {string} = {}
     for _, position in ipairs(d.descriptors) do at[#at + 1] = tostring(position) end
     parts[#parts + 1] = name .. " " .. tostring(d.count) .. " " .. tostring(d.fallible) .. " " .. tostring(d.effect) ..
       " " .. table.concat(at, ",")
@@ -372,7 +372,7 @@ local function declared_text(declared: {string: rules.Declared}): string
 end
 
 --- What checking `file` came to, and what it defines and refers to.
-local function outcome(root: string, file: string, result: Child.Result | nil, trouble: string,
+local function outcome(root: string, file: string, result: Child.Result?, trouble: string,
                        declared: {string: rules.Declared}, limit: integer):
     c.Outcome, rules.Unit
   if result == nil then
@@ -398,7 +398,7 @@ local function whole(cwd: string, files: {string}): boolean
   -- unjudged, and every file named is still checked on its own.
   local all, _ = c.sources(cwd)
   if all == nil then return false end
-  local named: {string: boolean} = {}
+  local named: mut {string: boolean} = {}
   for _, file in ipairs(files) do
     while file:sub(1, 2) == "./" do file = file:sub(3) end
     named[file] = true
@@ -415,8 +415,8 @@ end
 --- tree's own, beside the including file or in core/; one it cannot read is
 --- taken to differ. `memo` keeps what each path answered.
 local function sensitive(root: string, cwd: string, file: string, variant: c.Variant,
-                         memo: {string: boolean}): boolean
-  local function visit(path: string, stack: {string: boolean}): boolean
+                         memo: mut {string: boolean}): boolean
+  local function visit(path: string, stack: mut {string: boolean}): boolean
     if memo[path] ~= nil then return memo[path] end
     if stack[path] then return false end
     stack[path] = true
@@ -466,14 +466,14 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     {c.Outcome}
   cwd = cwd or root
   local declared = declared_in(root)
-  local outcomes: {c.Outcome} = {}
-  local units: {integer: rules.Unit} = {}
+  local outcomes: mut {c.Outcome} = {}
+  local units: mut {integer: rules.Unit} = {}
   local which: {Child.Handle: integer} = {}
   -- One compile per file under the first variant, and one per file under
   -- each of the others the file's tree can differ in.
-  local jobs: {c.Job} = {}
-  local ran: {integer: {integer}} = {}
-  local memo: {integer: {string: boolean}} = {}
+  local jobs: mut {c.Job} = {}
+  local ran: mut {integer: {integer}} = {}
+  local memo: mut {integer: {string: boolean}} = {}
   for i, _ in ipairs(files) do
     ran[i] = { 1 }
     jobs[#jobs + 1] = { file = i, variant = 1 }
@@ -487,7 +487,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       end
     end
   end
-  local results: {integer: c.Outcome} = {}
+  local results: mut {integer: c.Outcome} = {}
   local env = environment()
   local install, runs_from = toolchain(root, env)
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
@@ -506,11 +506,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   local function absolute(path: string): string
     return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
   end
-  local dirs: {string} = {}
+  local dirs: mut {string} = {}
   for _, dir in ipairs(include_dirs(root, cwd)) do dirs[#dirs + 1] = absolute(dir) end
   -- The key each compile's outcome is kept under, for those whose inputs can be known and that the memo lacks; those it
   -- holds are answered here.
-  local keys: {integer: string} = {}
+  local keys: mut {integer: string} = {}
   local stored = false
   if store ~= nil and install ~= nil then
     local prepared, _ = check_memo.prepare(store, "c")
@@ -520,7 +520,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local salt = check_memo.salt(root, { "build/c/init.tl", "build/c/rules.tl", "build/c/tree.tl", "build/c/inputs.tl",
       "build/check_memo.tl", "build/gen_syscalls.tl", "build/plural.tl" }, "c 1")
     local context = root .. "\0" .. cwd .. "\0" .. tostring(limit or dump_limit) .. "\0" .. declared_text(declared)
-    local readers: {integer: inputs.Reader} = {}
+    local readers: mut {integer: inputs.Reader} = {}
     for j, job in ipairs(jobs) do
       local file = assert(files[job.file])
       local words = command(root, file, cwd, assert(c.variants[job.variant]))
@@ -533,7 +533,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       if read ~= nil then
         local key = check_memo.key(salt, "c", context .. "\0" .. read)
         local text = check_memo.get(store, "c", key)
-        local findings, unit: {rules.Finding} | nil, rules.Unit | nil
+        local findings, unit: {rules.Finding}?, rules.Unit?
         if text ~= nil then
           findings, unit = decoded(file, text)
         end
@@ -547,7 +547,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     end
   end
   local function compile()
-    local running: {Child.Handle} = {}
+    local running: mut {Child.Handle} = {}
     local next_job = 1
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
@@ -589,7 +589,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           if store ~= nil and made_key ~= nil and made_findings ~= nil then
             check_memo.put(store, "c", made_key, encoded(made_findings, unit))
           end
-          local still: {Child.Handle} = {}
+          local still: mut {Child.Handle} = {}
           for _, handle in ipairs(running) do
             if handle ~= done then still[#still + 1] = handle end
           end
@@ -621,7 +621,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     for _, path in ipairs(runs_from) do give(path) end
     for _, dir in ipairs(include_dirs(root, cwd)) do give(absolute(dir)) end
     for _, file in ipairs(files) do give(Fs.dirname(absolute(file))) end
-    local writes: {string} = { deps }
+    local writes: mut {string} = { deps }
     local kept = standalone_compiles(env)
     if kept ~= nil then writes[#writes + 1] = kept end
     confine.declaring({ reads = reads, writes = writes }, compile)
@@ -648,11 +648,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   -- to is read as referred to by none in the first variant, and a header
   -- function only the other variants' files refer to is not flagged. This
   -- waits on rules.single_file taking one unit per variant and file.
-  local first_unit: {integer: rules.Unit} = {}
-  local at: {string: rules.Finding} = {}
+  local first_unit: mut {integer: rules.Unit} = {}
+  local at: mut {string: rules.Finding} = {}
   for i, file in ipairs(files) do
-    local variants: {string} = {}
-    local findings: {rules.Finding} = {}
+    local variants: mut {string} = {}
+    local findings: mut {rules.Finding} = {}
     local out: c.Outcome = { file = file, variants = variants }
     outcomes[i] = out
     for _, v in ipairs(ran[i]) do
@@ -669,7 +669,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       local reported = result.findings
       if reported == nil then
         out.findings = nil
-        out.trouble = (v == 1 and "" or name .. ": ") .. assert(result.trouble)
+        out.trouble = (if v == 1 then "" else name .. ": " end) .. assert(result.trouble)
         break
       end
       if v == 1 then
@@ -694,8 +694,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if out.trouble ~= nil then out.findings = nil end
   end
   if is_whole then
-    local every: {rules.Unit} = {}
-    local by_file: {string: c.Outcome} = {}
+    local every: mut {rules.Unit} = {}
+    local by_file: mut {string: c.Outcome} = {}
     for i = 1, #files do
       if first_unit[i] ~= nil then every[#every + 1] = first_unit[i] end
       by_file[outcomes[i].file] = outcomes[i]
@@ -716,11 +716,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       end
     end
   end
-  local seen: {string: boolean} = {}
+  local seen: mut {string: boolean} = {}
   for _, o in ipairs(outcomes) do
     local o_findings = o.findings
     if o_findings ~= nil then
-      local kept: {rules.Finding} = {}
+      local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
         local key = f.file .. ":" .. f.line .. ":" .. f.rule
         if not seen[key] then
@@ -736,7 +736,7 @@ end
 
 --- `source`, a C file, in the layout [`build.c.layout`] holds; or nil and
 --- why, when laying it out would change more than whitespace.
-function c.laid_out(source: string): string | nil, string
+function c.laid_out(source: string): string?, string
   return layout.rendered(source)
 end
 

@@ -42,7 +42,7 @@ local record GithubApi
     body: string
   end
   --- Sends `request`; the answer, or nil and why none came.
-  type Send = function(Request): Reply | nil, string
+  type Send = function(Request): Reply?, string
   --- Downloads `url`, a link the API gave, to `path`: true, or false and why.
   type Fetch = function(url: string, path: string): boolean, string
   record Client
@@ -78,7 +78,7 @@ end
 
 --- How many scripted replies [`GithubApi.live`] has handed out.
 local record Handed
-  calls: integer
+  mut calls: integer
 end
 
 local default_base <const> = "https://api.github.com"
@@ -99,12 +99,12 @@ local upload_ns <const> = Clock.seconds(600)
 --- scheme, host and port do: the port is the scheme's default where the
 --- URL names none, and an IPv6 host is bracketed. Nil and why for a URL
 --- that does not parse or has a scheme with no default port.
-local function origin_of(url: string): string | nil, string
+local function origin_of(url: string): string?, string
   local parts, why = Url.parse(url)
   if parts == nil then return nil, why end
   local port = parts.port or default_ports[parts.scheme]
   if port == nil then return nil, "the scheme " .. parts.scheme .. " has no default port" end
-  local host = parts.host:find(":", 1, true) and ("[" .. parts.host .. "]") or parts.host
+  local host = if parts.host:find(":", 1, true) then ("[" .. parts.host .. "]") else parts.host end
   return parts.scheme .. "://" .. host .. ":" .. tostring(port), ""
 end
 
@@ -117,12 +117,12 @@ end
 --- Where `base`'s API takes release uploads: the origin and the path that
 --- precedes `/repos/`. An `api.` host's sibling is `uploads.`; any other
 --- host (Enterprise Server) serves them itself under /api/uploads.
-local function uploads_of(base: string): Uploads | nil, string
+local function uploads_of(base: string): Uploads?, string
   local parts, why = Url.parse(base)
   if parts == nil then return nil, why end
   local host, prefix = parts.host, "/api/uploads"
   if host:sub(1, 4) == "api." then host, prefix = "uploads." .. host:sub(5), "" end
-  local authority = host:find(":", 1, true) and ("[" .. host .. "]") or host
+  local authority = if host:find(":", 1, true) then ("[" .. host .. "]") else host end
   local port = parts.port
   if port then authority = authority .. ":" .. tostring(port) end
   local origin, trouble = origin_of(parts.scheme .. "://" .. authority)
@@ -155,7 +155,7 @@ end
 --- A client of the API for `env`: its token from `GH_TOKEN`, else
 --- `GITHUB_TOKEN`, and its address from `GITHUB_API_URL` (api.github.com
 --- by default). Nil and why where there is no token.
-function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.Client | nil, string
+function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.Client?, string
   local token = env["GH_TOKEN"]
   if token == nil or token == "" then token = env["GITHUB_TOKEN"] end
   if token == nil or token == "" then
@@ -174,13 +174,13 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   assert(uploads ~= nil, uploads_trouble)
   local upload_origin, upload_path = uploads.origin, uploads.path
   local made: Handed = { calls = 0 }
-  local function script(): {string} | nil
+  local function script(): {string}?
     made.calls = made.calls + 1
     local scripted = test and test.script
     return scripted and scripted[made.calls] or nil
   end
 
-  local function send(request: GithubApi.Request): GithubApi.Reply | nil, string
+  local function send(request: GithubApi.Request): GithubApi.Reply?, string
     -- The token is the one thing this function must not hand to any other host.
     local target, _ = origin_of(request.url)
     if target ~= api_origin and not (request.upload == true and target == upload_origin) then
@@ -194,7 +194,7 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
         return nil, "refusing to send the token to " .. request.url
       end
     end
-    local headers: {string:string} = {}
+    local headers: mut {string:string} = {}
     for name, value in pairs(request.headers) do headers[name] = value end
     headers["Authorization"] = "Bearer " .. token
     headers["Accept"] = headers["Accept"] or "application/vnd.github+json"
@@ -255,7 +255,7 @@ end
 --- none or its status is not 2xx, the why naming the request, the
 --- status and GitHub's message. A request that takes longer than
 --- `seconds` (a minute where nil) fails.
-function GithubApi.get(client: GithubApi.Client, path: string, seconds?: integer): string | nil, string
+function GithubApi.get(client: GithubApi.Client, path: string, seconds?: integer): string?, string
   local reply, why = client.send(request_for(client, "GET", path, seconds))
   if reply == nil then return nil, "GET " .. path .. ": " .. why end
   if not succeeded(reply) then return nil, refused("GET", path, reply) end
@@ -263,7 +263,7 @@ function GithubApi.get(client: GithubApi.Client, path: string, seconds?: integer
 end
 
 --- The URL the `Link` header's `rel="next"` names, nil where it has none.
-local function next_link(link: string | nil): string | nil
+local function next_link(link: string?): string?
   for target, params in (link or ""):gmatch("<([^>]*)>([^<]*)") do
     for param in params:gmatch("[^;,]+") do
       if param:match('^%s*rel%s*=%s*"?next"?%s*$') then return target end
@@ -283,12 +283,12 @@ local max_pages <const> = 1000
 --- and never receives the token. `seconds` (a minute where nil) bounds
 --- the whole listing: each request gets the time left of it, and none
 --- starts once it has run out.
-function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integer): {string} | nil, string
-  local pages: {string} = {}
+function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integer): {string}?, string
+  local pages: mut {string} = {}
   local now = client.now_ns or Clock.monotonic_ns
   local deadline = now() + (seconds and Clock.seconds(seconds) or request_ns)
   local url = request_for(client, "GET", path, seconds).url
-  local seen: {string:boolean} = { [url] = true }
+  local seen: mut {string:boolean} = { [url] = true }
   local limit = tostring(max_pages)
   for number = 1, max_pages do
     local label = path
@@ -330,7 +330,7 @@ end
 --- refusal, or nil and why none came. A request that takes longer than
 --- `seconds` (a minute where nil) fails.
 function GithubApi.request(client: GithubApi.Client, method: string, path: string, value?: any,
-                           seconds?: integer): GithubApi.Reply | nil, string
+                           seconds?: integer): GithubApi.Reply?, string
   local request = request_for(client, method, path, seconds)
   if value ~= nil then
     local body, trouble = Json.encode_any(value)
@@ -348,7 +348,7 @@ end
 --- is none, its status is not 2xx or its body is no object, the why naming
 --- the request, the status and GitHub's message.
 function GithubApi.object(client: GithubApi.Client, method: string, path: string, value?: any,
-                          seconds?: integer): string | nil, string
+                          seconds?: integer): string?, string
   local reply, why = GithubApi.request(client, method, path, value, seconds)
   if reply == nil then return nil, why end
   if not succeeded(reply) then return nil, refused(method, path, reply) end
@@ -419,7 +419,7 @@ function GithubApi.download(client: GithubApi.Client, path: string, to: string,
   end
   local location = reply.headers["location"]
   local status = tostring(reply.status)
-  local parts: Url.Parts | nil = nil
+  local parts: Url.Parts? = nil
   if location ~= nil then
     local parsed, _ = Url.parse(location)
     parts = parsed

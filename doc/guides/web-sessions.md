@@ -76,7 +76,7 @@ function Greet.app(options: Session.Options): Web.App
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
         local session = Session.of(req)
-        local lines: {string} = {}
+        local lines: mut {string} = {}
         for _, note in ipairs(session:take_flashes()) do lines[#lines + 1] = note.text end
         lines[#lines + 1] = "name: " .. (session:get_string("name") or "")
         return Web.text(table.concat(lines, "\n"))
@@ -138,7 +138,7 @@ local Web = require("cosmic.web")
 local log = Log.new("visits")
 
 --- The session store the environment asks for.
-local function store(): Session.Store | nil, string
+local function store(): Session.Store?, string
   local path = Env.get("VISITS_DB")
   if path ~= nil then
     local db, why = Sqlite.open(path)

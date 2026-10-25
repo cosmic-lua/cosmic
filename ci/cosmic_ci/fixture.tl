@@ -17,7 +17,7 @@ local default_child_timeout_ns <const> = Clock.seconds(30)
 --- Where this fixture's children build, once [`Fixture.builds_beneath`]
 --- names it; nil until then, for them to build where the environment says.
 local record Builds
-  home?: string
+  mut home?: string
 end
 
 local builds: Builds = {}
@@ -247,7 +247,7 @@ end
 --- host, as doc/testing.md asks of a test's own `cosmic test`.
 function Fixture.environment_of(base: {string:string},
                                 extra?: {string:string}): {string:string}
-  local environment: {string:string} = {}
+  local environment: mut {string:string} = {}
   for _, name in ipairs(INHERITED) do
     local inherited = base[name]
     if inherited ~= nil then environment[name] = inherited end
@@ -269,8 +269,8 @@ end
 
 --- What a read run under `pcall` took.
 local record Taken
-  text?: string
-  trouble?: string
+  mut text?: string
+  mut trouble?: string
 end
 
 local function preview(path: string): string
@@ -312,7 +312,7 @@ end
 --- the descriptor it is keyed by, in the child only.
 --- The outcome of a call run under `pcall`.
 local record Done
-  outcome?: Fixture.Outcome
+  mut outcome?: Fixture.Outcome
 end
 
 function Fixture.call_with_descriptors(label: string, argv: {string},
@@ -369,9 +369,9 @@ function Fixture.contains(path: string, expected: string)
 end
 
 function Fixture.targets(path: string): {Fixture.Target}
-  local targets: {Fixture.Target} = {}
-  local pairs_seen: {string:boolean} = {}
-  local names_seen: {string:boolean} = {}
+  local targets: mut {Fixture.Target} = {}
+  local pairs_seen: mut {string:boolean} = {}
+  local names_seen: mut {string:boolean} = {}
   local contents = Fixture.read(path)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
       not contents:find("\n\n", 1, true),
@@ -400,13 +400,13 @@ function Fixture.targets(path: string): {Fixture.Target}
 end
 
 function Fixture.inspection(path: string): Fixture.Inspection
-  local prefix_length: integer | nil = nil
-  local manifest_offset: integer | nil = nil
-  local manifest_length: integer | nil = nil
-  local database_offset: integer | nil = nil
-  local database_length: integer | nil = nil
-  local declared_count: integer | nil = nil
-  local entries: {string:Fixture.Entry} = {}
+  local prefix_length: integer? = nil
+  local manifest_offset: integer? = nil
+  local manifest_length: integer? = nil
+  local database_offset: integer? = nil
+  local database_length: integer? = nil
+  local declared_count: integer? = nil
+  local entries: mut {string:Fixture.Entry} = {}
   local count = 0
   local contents = Fixture.small(path, 8192)
   assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
@@ -452,7 +452,7 @@ function Fixture.inspection(path: string): Fixture.Inspection
 end
 
 function Fixture.entry(inspection: Fixture.Inspection, target: integer,
-                       configuration: integer): Fixture.Entry | nil
+                       configuration: integer): Fixture.Entry?
   return inspection.entries[tostring(target) .. ":" .. tostring(configuration)]
 end
 

@@ -37,7 +37,7 @@ end
 --- name, and the build's own [`build.codec`], whose [`verb.encoder`] the
 --- qualifier `Codec` also names as a module's last name.
 local function tree(extra?: {string: string}): {string: string}
-  local files: {string: string} = {
+  local files: mut {string: string} = {
     ["cosmic/net.tl"] = module("net", "Net"),
     ["cosmic/http.tl"] = module("http", "Http"),
     ["cosmic/codec.tl"] = module("codec", "Codec"),
@@ -69,7 +69,7 @@ end
 --- The page `query` answers, as `cosmic docs` prints it: every entry's
 --- lines in turn.
 local function page(view: docs.View, found: docs.Lookup): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, entry in ipairs(found) do
     for _, line in ipairs((assert(docs.render(view, entry)))) do
       out[#out + 1] = line

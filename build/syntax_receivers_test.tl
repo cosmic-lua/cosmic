@@ -113,7 +113,7 @@ local TOLD <const> = table.concat({
 local MODULES <const>: {string: string} = { zipx = ZIPX, tally = TALLY, decoy = DECOY, told = TOLD }
 
 local function uses_of(said: Fixture.Said): string
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, u in ipairs(said.refs) do
     out[#out + 1] = u.module .. " " .. u.member .. " " .. u.line
   end
@@ -197,7 +197,7 @@ local function test_the_lines_the_port_cannot_see_a_use_on_and_the_places_a_know
   local subject = Fixture.subject(text, MODULES)
   local blind = Receivers.blind(subject)
   assert(#blind == 1 and blind[1] == line(5), table.concat(blind, " "))
-  local wanted: {string: boolean} = {}
+  local wanted: mut {string: boolean} = {}
   wanted[tostring(line(3)) .. " name"] = true
   wanted[tostring(line(5)) .. " size"] = true
   wanted[tostring(line(3)) .. " other"] = true
@@ -226,7 +226,7 @@ local function test_a_string_method_on_an_enum_value_is_no_use_of_the_enum()
   local modules: {string: string} = { enumx = module }
   local text = Fixture.PRELUDE .. "local E = require('enumx')\nlocal t = E.make()\nuse(t.kind, t.kind:sub(1, 1), t.kind:upper())\n"
   local said = Fixture.port(text, modules)
-  local found: {string} = {}
+  local found: mut {string} = {}
   for _, u in ipairs(said.refs) do
     found[#found + 1] = u.module .. " " .. u.member
   end
@@ -392,7 +392,7 @@ local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_anoth
   local found = uses_of(Fixture.fork(text, modules))
   local want = ""
   for _, types in ipairs({ "a", "b", "c", "d", "e", "f" }) do
-    want = want .. (want == "" and "" or "\n") .. types .. "_types Def.name " .. tostring(line(3))
+    want = want .. (if want == "" then "" else "\n" end) .. types .. "_types Def.name " .. tostring(line(3))
   end
   assert(found == want, found)
 end

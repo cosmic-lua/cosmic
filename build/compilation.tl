@@ -39,7 +39,7 @@ local record compilation
   --- The keys of `modules` made from nothing kept ([`compilation.dependency_keys`]
   --- without its memos): what each is a function of, which a test holds the
   --- memos to.
-  full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys} | nil, string
+  full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
 end
 
 local type Keys = compilation.Keys
@@ -47,13 +47,13 @@ local text = bind.text
 
 --- What `test_inputs` holds, by source hash: each [`Test.policy`]
 --- declaration, as the [`Test.Needs`] it stands for.
-local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared} | nil, string
+local function test_inputs_by_hash(db: Sqlite.Handle): {string:analyzer.Declared}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
-  local declared: {string:analyzer.Declared} = {}
+  local declared: mut {string:analyzer.Declared} = {}
   for _, row in ipairs(rows) do
     local hash, field, value = row:text(1), row:text(2), row:text(3)
     local one = declared[hash]
@@ -100,14 +100,14 @@ end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
-                             table_name: string): {string:{string}} | nil, string
+                             table_name: string): {string:{string}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
-  local out: {string:{string}} = {}
+  local out: mut {string:{string}} = {}
   for _, row in ipairs(rows) do
     local list = out[row:text(1)]
     if list == nil then
@@ -127,14 +127,14 @@ end
 
 --- The interface key of a module ([`compilation.interface_keys`]), or nil
 --- and why.
-local type Interfaced = function(Module): string | nil, string
+local type Interfaced = function(Module): string?, string
 
 --- The names the standard-library module `name` requires, from the
 --- `decl_imports` rows of the binary's own database, where
 --- [`Store.source`] reads it. Nil and why when that database has no row
 --- of it: every database the program runs on carries each module's, a
 --- sealed one too (build/test_key.tl's `sealed_fill`, [`Store.seal`]).
-local function embedded_edges(name: string): {string} | nil, string
+local function embedded_edges(name: string): {string}?, string
   local databases = Store.databases()
   local rows, trouble = Sqlite.text_rows(databases[#databases],
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
@@ -145,7 +145,7 @@ local function embedded_edges(name: string): {string} | nil, string
   if #rows == 0 then
     return nil, name .. ": the program's database records no edges of it (decl_imports)"
   end
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, row in ipairs(rows) do
     if row:text(1) ~= "" then
       out[#out + 1] = row:text(1)
@@ -165,15 +165,15 @@ end
 --- load, by slot, and how a name is looked up in them.
 local record Graph
   dependencies: {string:Dependency}
-  resolve: function(string, string): Dependency | nil, string
+  resolve: function(string, string): Dependency?, string
 end
 
-local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph | nil, string
+local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, string
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
     return nil, requires_trouble
   end
-  local dependencies: {string:Dependency} = {}
+  local dependencies: mut {string:Dependency} = {}
   local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
       "ORDER BY path, kind = 'decl' DESC")
@@ -201,7 +201,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph | n
   --- keyed by what the checker reads of it, a stub or a source, and by
   --- which: a project compiled against one is never taken for one compiled
   --- against the other. Nil, and why or "" for no node at all.
-  local function resolve(slot: string, name: string): Dependency | nil, string
+  local function resolve(slot: string, name: string): Dependency?, string
     local dependency = dependencies[slot]
     if dependency == nil then
       if name:sub(1, 7) ~= "cosmic." then
@@ -217,7 +217,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph | n
         return nil, edges_trouble
       end
       dependency = {
-        kind = served.stubbed and "embedded stub" or "embedded",
+        kind = if served.stubbed then "embedded stub" else "embedded" end,
         source_hash = Hash.hex_sha256(served.text),
         requires = embedded_requires,
       }
@@ -245,10 +245,10 @@ end
 --- dependency's file decides nothing of this compile.
 local function identify_in(known: Graph, name: string, file: string,
                            tool: string, line_of: function(string, Dependency): string):
-    Keys | nil, string
+    Keys?, string
   local dependencies, resolve = known.dependencies, known.resolve
   local seen: {string:boolean} = {}
-  local graph: {string} = {}
+  local graph: mut {string} = {}
   local function visit(slot: string, display: string): boolean, string
     if seen[slot] then
       return true, ""
@@ -299,12 +299,12 @@ end
 --- project imports it ([`teal.standard_text`]). Each module's
 --- [`Keys`], by path.
 local function compute_keys(db: Sqlite.Handle, modules: {Module},
-                            tool: string): {string:Keys} | nil, string
+                            tool: string): {string:Keys}?, string
   local graph, trouble = dependency_graph(db, modules)
   if graph == nil then
     return nil, trouble
   end
-  local out: {string:Keys} = {}
+  local out: mut {string:Keys} = {}
   for _, m in ipairs(modules) do
     local keys, identify_trouble = identify_in(graph, m.path, m.file, tool, source_line)
     if keys == nil then
@@ -333,7 +333,7 @@ end
 
 --- `list` sorted by bytes, as a list of its own.
 local function sorted(list: {string}): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for _, one in ipairs(list) do out[#out + 1] = one end
   table.sort(out, by_bytes)
   return out
@@ -343,9 +343,9 @@ end
 --- (`line_of` is its way of spelling a node), made when first asked for and
 --- kept. Nil and why where a name cannot be resolved, "" for no node.
 local function fragments_in(known: Graph, line_of: function(string, Dependency): string):
-    function(string): Fragment | nil, string
+    function(string): Fragment?, string
   local made: {string:Fragment} = {}
-  return function(slot: string): Fragment | nil, string
+  return function(slot: string): Fragment?, string
     local kept = made[slot]
     if kept ~= nil then return kept, "" end
     -- `visit`'s display name: the slot less the mark of an implementation.
@@ -353,8 +353,8 @@ local function fragments_in(known: Graph, line_of: function(string, Dependency):
     if slot:sub(1, 1) == "\0" then display = slot:sub(2) end
     local dependency, resolve_trouble = known.resolve(slot, display)
     if dependency == nil then return nil, resolve_trouble end
-    local lines: {string} = { line_of(slot, dependency) }
-    local children: {string} = {}
+    local lines: mut {string} = { line_of(slot, dependency) }
+    local children: mut {string} = {}
     for _, required in ipairs(dependency.requires) do
       local child, child_trouble = known.resolve(required, required)
       if child == nil and child_trouble ~= "" then return nil, child_trouble end
@@ -385,17 +385,17 @@ end
 --- What the last [`fast_keys`] kept under `tool`: each module's keys by path
 --- and each node's fragment digest by slot, or nil where it kept none. Both
 --- are written together and replaced together, in one transaction.
-local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys} | nil, {string:string} | nil
+local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys}?, {string:string}?
   local modules, _ = Sqlite.text_rows(db,
     "SELECT path, file, key, graph FROM key_memo WHERE tool = ?1", { text(tool) })
   local slots, _ = Sqlite.text_rows(db,
     "SELECT slot, digest FROM key_frags WHERE tool = ?1", { text(tool) })
   if modules == nil or slots == nil or #modules == 0 or #slots == 0 then return nil, nil end
-  local keys: {string:KeptKeys} = {}
+  local keys: mut {string:KeptKeys} = {}
   for _, row in ipairs(modules) do
     keys[row:text(1)] = { file = row:text(2), key = row:text(3), graph = row:text(4) }
   end
-  local digests: {string:string} = {}
+  local digests: mut {string:string} = {}
   for _, row in ipairs(slots) do digests[row:text(1)] = row:text(2) end
   return keys, digests
 end
@@ -454,12 +454,12 @@ end
 --- Nil, to be made by [`compute_keys`], where a name has a byte
 --- that does not hold to that, or the tree cannot be read as it reads it,
 --- which it then says in its own words.
-local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys} | nil
+local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?
   local graph, _ = dependency_graph(db, modules)
   if graph == nil then return nil end
   local fragment_of = fragments_in(graph, source_line)
-  local made: {string:Fragment} = {}
-  local pending: {string} = {}
+  local made: mut {string:Fragment} = {}
+  local pending: mut {string} = {}
   for _, m in ipairs(modules) do pending[#pending + 1] = "\0" .. m.path end
   local head = 1
   while head <= #pending do
@@ -475,7 +475,7 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
     end
   end
   -- A name with a byte below a newline after its first is not one the order of the slots holds for.
-  local slots: {string} = {}
+  local slots: mut {string} = {}
   for slot, _ in pairs(made) do
     if slot:find("[\0-\10]", 2) ~= nil then return nil end
     slots[#slots + 1] = slot
@@ -484,10 +484,10 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
 
   local kept, digests = kept_graph(db, tool)
   -- The nodes that differ from the kept ones, and each that reaches one.
-  local affected: {string:boolean} = {}
+  local affected: mut {string:boolean} = {}
   if kept ~= nil and digests ~= nil then
-    local leading: {string:{string}} = {}
-    local queue: {string} = {}
+    local leading: mut {string:{string}} = {}
+    local queue: mut {string} = {}
     for slot, fragment in pairs(made) do
       for _, child in ipairs(fragment.children) do
         local list = leading[child]
@@ -517,18 +517,18 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
     end
   end
 
-  local out: {string:Keys} = {}
+  local out: mut {string:Keys} = {}
   local made_any = kept == nil
   for _, m in ipairs(modules) do
     local root = "\0" .. m.path
-    local before: KeptKeys | nil = nil
+    local before: KeptKeys? = nil
     if kept ~= nil then before = kept[m.path] end
     if before ~= nil and affected[root] ~= true and before.file == m.file then
       out[m.path] = { key = before.key, graph = before.graph }
     else
       made_any = true
-      local seen: {string:boolean} = {}
-      local stack: {string} = { root }
+      local seen: mut {string:boolean} = {}
+      local stack: mut {string} = { root }
       local top = 1
       while top <= #stack do
         local slot = stack[top]
@@ -543,7 +543,7 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
           end
         end
       end
-      local texts: {string} = {}
+      local texts: mut {string} = {}
       for _, slot in ipairs(ordered) do
         local fragment = made[slot]
         if seen[slot] == true and fragment ~= nil then texts[#texts + 1] = fragment.text end
@@ -562,7 +562,7 @@ end
 --- path and source hash decide the graph it is in), every `requires`
 --- row (what each source hash imports), and each module's own path,
 --- file, kind and source hash. Nil where the database will not say.
-local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: string): string | nil
+local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: string): string?
   local rows, _ = Sqlite.text_rows(db,
     "SELECT coalesce((SELECT lower(hex(sha256(group_concat(path || char(1) || kind || char(1) || " ..
       "source_hash, char(10) ORDER BY path, kind, source_hash)))) FROM inputs WHERE kind <> 'vendor'), ''), " ..
@@ -571,7 +571,7 @@ local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: stri
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
-  local parts: {string} = { "keys-memo-1", tool, row:text(1), row:text(2) }
+  local parts: mut {string} = { "keys-memo-1", tool, row:text(1), row:text(2) }
   for _, m in ipairs(modules) do
     parts[#parts + 1] = m.path .. "\1" .. m.file .. "\1" .. m.kind .. "\1" .. m.source_hash
   end
@@ -586,12 +586,12 @@ local kept_fingerprints <const> = 4
 --- The keys `keys_memo` holds under `fingerprint`, one line a module
 --- (path, key, graph, tab-separated), where they name exactly `modules`.
 local function remembered_keys(db: Sqlite.Handle, fingerprint: string,
-                               modules: {Module}): {string:Keys} | nil
+                               modules: {Module}): {string:Keys}?
   local rows, _ = Sqlite.text_rows(db, "SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
-  local out: {string:Keys} = {}
+  local out: mut {string:Keys} = {}
   local count = 0
   for path, key, graph in row:text(1):gmatch("([^\t\n]+)\t([^\t\n]+)\t([^\t\n]+)\n") do
     out[path] = { key = key, graph = graph }
@@ -608,7 +608,7 @@ end
 --- `kept_fingerprints`. A failure costs only the next run's compute.
 local function keep_keys(db: Sqlite.Handle, fingerprint: string, modules: {Module},
                          keys: {string:Keys})
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, m in ipairs(modules) do
     local one = keys[m.path]
     if one == nil then return end
@@ -627,7 +627,7 @@ end
 --- The memo is `keys_memo` of the working database, keyed by
 --- [`keys_fingerprint`], which holds everything the computation reads.
 function compilation.dependency_keys(db: Sqlite.Handle, modules: {Module},
-                                     tool: string): {string:Keys} | nil, string
+                                     tool: string): {string:Keys}?, string
   local fingerprint = keys_fingerprint(db, modules, tool)
   if fingerprint ~= nil then
     local kept = remembered_keys(db, fingerprint, modules)
@@ -654,7 +654,7 @@ compilation.full_keys = compute_keys
 --- that is no test's has none. What a module it requires reads, the
 --- test declares.
 function compilation.policy_refusal(file: string, kind: string,
-                                    inputs: analyzer.Declared | nil): string | nil
+                                    inputs: analyzer.Declared?): string?
   if inputs == nil or kind == "test" or kind == "example" then
     return nil
   end
@@ -665,7 +665,7 @@ end
 
 --- Every module the derived tree holds ([`build.importer.derive`]), with what
 --- its parse found.
-function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
+function compilation.collect(db: Sqlite.Handle): {Module}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
       "p.has_return, s.source_hash IS NOT NULL, " ..
@@ -693,7 +693,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
   if declared == nil then
     return nil, inputs_trouble
   end
-  local out: {Module} = {}
+  local out: mut {Module} = {}
   for _, row in ipairs(rows) do
     local path, file, kind, origin = row:text(1), row:text(2), row:text(3), row:text(4)
     local source, source_hash, has_return = row:text(5), row:text(6), row:text(7)
@@ -718,7 +718,7 @@ function compilation.collect(db: Sqlite.Handle): {Module} | nil, string
       key = "",
       graph_key = "",
       lua = "",
-      stub = row:text(8) == "1" and { text = row:text(9), pruned = row:text(10) == "1" } or nil,
+      stub = if row:text(8) == "1" then { text = row:text(9), pruned = row:text(10) == "1" } else nil end,
     }
   end
   return out, ""
@@ -726,8 +726,8 @@ end
 
 --- The modules in an order where nothing is compiled before what it
 --- imports. A cycle is reported rather than looped on.
-function compilation.ordered(modules: {Module}): {Module} | nil, string
-  local by_path: {string:Module} = {}
+function compilation.ordered(modules: {Module}): {Module}?, string
+  local by_path: mut {string:Module} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
   end
@@ -773,11 +773,11 @@ end
 --- rather than turning the warning off for the whole file.
 local function discount_test_warnings(result: compiler.Result,
                                       tests: {string}): compiler.Result
-  local names: {string:boolean} = {}
+  local names: mut {string:boolean} = {}
   for _, name in ipairs(tests) do
     names[name] = true
   end
-  local kept: {compiler.Error} = {}
+  local kept: mut {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
     local unused = w.code == "unused" and w.declares == "function" and w.variable or nil
     if unused == nil or not names[unused] then
@@ -798,7 +798,7 @@ end
 --- [`discount_test_warnings`] but applies more widely: to any module
 --- `m.generated` marks, not only to functions a scan of `m` found.
 local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
-  local kept: {compiler.Error} = {}
+  local kept: mut {compiler.Error} = {}
   for _, w in ipairs(result.warnings) do
     if not (w.code == "shadows" and w.declares == "variable" and w.variable == "print" and
         not w.declared_before) then
@@ -850,7 +850,7 @@ local function held_to_stub(m: Module, built: compiler, env: compiler.Env,
   end
   local stubbed = built.check_string(made.text, env, m.file .. " (stub)", "tl")
   local refusal = (stubbed.syntax_errors or {})[1] or (stubbed.type_errors or {})[1]
-  local trouble: string | nil = nil
+  local trouble: string? = nil
   if refusal ~= nil then
     trouble = refusal.y .. ":" .. refusal.x .. ": " .. refusal.msg
   else
@@ -890,7 +890,7 @@ end
 --- statement that type needs none of, with the modules those statements
 --- require.
 --- @param keys each module's [`compilation.Keys`], by path
-local function verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string | nil
+local function verified_stub(db: Sqlite.Handle, keys: {string:Keys}, path: string): string?
   local named = keys[path]
   if named == nil then
     return nil
@@ -923,8 +923,8 @@ end
 --- nil, and nil for every path unless `serving`.
 --- @param keys each module's [`compilation.Keys`], by path
 function compilation.stub_lookup(db: Sqlite.Handle, keys: {string:Keys},
-                                 serving: boolean): function(string): string | nil
-  return function(path: string): string | nil
+                                 serving: boolean): function(string): string?
+  return function(path: string): string?
     if not serving then
       return nil
     end
@@ -960,7 +960,7 @@ local function hold_one(db: Sqlite.Handle, built: compiler, env: compiler.Env,
     stub.difference(source_type, stubbed.type) == nil
   local ok, why = Sqlite.run(db,
     "INSERT OR REPLACE INTO stub_holds (key, stub, held) VALUES (?1, ?2, ?3)",
-    { text(named.key), text(stub_hash(stub_text)), { integer = held and 1 or 0 } })
+    { text(named.key), text(stub_hash(stub_text)), { integer = if held then 1 else 0 end } })
   if not ok then
     return false, why
   end
@@ -1025,7 +1025,7 @@ end
 --- or one a declaration stands in front of, is not.
 --- @param env what the run has compiled so far, or nil before any module was
 --- @param keys each module's [`compilation.Keys`], by path
-function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler.Env | nil,
+function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler.Env?,
                                keys: {string:Keys}, path: string): boolean
   local named = keys[path]
   if named == nil then
@@ -1036,7 +1036,7 @@ function compilation.stub_held(db: Sqlite.Handle, built: compiler, env: compiler
       "WHERE i.kind = 'module' AND i.path = ?1 " ..
       "AND NOT EXISTS (SELECT 1 FROM inputs d WHERE d.path = i.path AND d.kind = 'decl')",
     { text(path) })
-  local first: Sqlite.Row | nil = nil
+  local first: Sqlite.Row? = nil
   if rows ~= nil then first = rows[1] end
   if first == nil then
     return false
@@ -1080,7 +1080,7 @@ end
 --- @return the interface key of a module, by it: nil and why where the tree cannot be read
 function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: string,
                                     keys: {string:Keys}, judge: function(string): boolean):
-    Interfaced | nil, string
+    Interfaced?, string
   local made_graph, trouble = dependency_graph(db, modules)
   if made_graph == nil then
     return nil, trouble
@@ -1095,7 +1095,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   end
   -- What a dependent keys on of a stub is its tokens, not where they stand
   -- ([`stub.canonical`]); the verdict on the stub stays under its exact text.
-  local stubs: {string:StubHashes} = {}
+  local stubs: mut {string:StubHashes} = {}
   for _, row in ipairs(rows) do
     local body = row:text(2)
     stubs[row:text(1)] = { exact = stub_hash(body), shape = stub_hash(stub.canonical(body)) }
@@ -1104,7 +1104,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
   if verdicts == nil then
     return nil, verdicts_trouble
   end
-  local kept: {string:boolean} = {}
+  local kept: mut {string:boolean} = {}
   for _, row in ipairs(verdicts) do
     kept[row:text(1) .. "\0" .. row:text(2)] = row:text(3) == "1"
   end
@@ -1135,7 +1135,7 @@ function compilation.interface_keys(db: Sqlite.Handle, modules: {Module}, tool: 
     end
     return source_line(slot, dependency)
   end
-  local interfaced: Interfaced = function(m: Module): string | nil, string
+  local interfaced: Interfaced = function(m: Module): string?, string
     local made, identify_trouble = identify_in(graph, m.path, m.file,
       "interface-2 " .. tool, line_of)
     if made == nil then
@@ -1163,7 +1163,7 @@ end
 --- rows a parse kept ([`build.globals`]) for every source, a `.d.tl`
 --- and a compile that stands in a cache included, so the refusal is made
 --- before any module is compiled, and does not depend on that order.
-function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
+function compilation.refuse_globals(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
@@ -1174,7 +1174,7 @@ function compilation.refuse_globals(db: Sqlite.Handle): string | nil, string
   if #rows == 0 then
     return nil, ""
   end
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for _, row in ipairs(rows) do
     lines[#lines + 1] = compilation.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
         row:text(3))
@@ -1193,7 +1193,7 @@ end
 function compilation.generate(m: Module, built: compiler, env: compiler.Env,
                               typed: receivers.State, own_tree: boolean, judged: boolean,
                               render: function(string, string, compiler.Result): string,
-                              resolved?: string, unreferenced?: boolean): compilation.Generated | nil, string
+                              resolved?: string, unreferenced?: boolean): compilation.Generated?, string
   local source = ""
   if resolved ~= nil then
     source = resolved
@@ -1226,7 +1226,7 @@ function compilation.generate(m: Module, built: compiler, env: compiler.Env,
     error(outcome, 0)
   end
   local result = assert(outcome, "the checker answered no result")
-  local code: string | nil = nil
+  local code: string? = nil
   local result_ast = result.ast
   if result_ast ~= nil and #result.syntax_errors == 0 then
     local written, write_trouble = built.generate(result_ast, env.defaults.gen_target, nil)
@@ -1317,7 +1317,7 @@ end
 
 --- A discovered test or example that cannot hand its functions back.
 --- Checked before cache lookup, so a former cached compile cannot hide it.
-function compilation.refusal(m: Module): string | nil
+function compilation.refusal(m: Module): string?
   if m.kind == "test" and collides_with_test_tail(m) then
     return m.file .. ": a test file may not both " ..
       "define test_* functions and return its own value; remove the " ..
@@ -1337,7 +1337,7 @@ function compilation.vendor_key(source: string, tool: string): string
 end
 
 --- Dumped only when the vendor key missed the local compile cache.
-function compilation.vendor_bytecode(source: string): string | nil, string
+function compilation.vendor_bytecode(source: string): string?, string
   local chunk, trouble = load(source, "@vendor.tl", "t")
   if chunk == nil then
     return nil, "the vendored compiler would not load: " .. tostring(trouble)
@@ -1354,11 +1354,11 @@ end
 --- ([`build.writer`]), which a self-rebuild must write the same as a boot
 --- does. Named apart from [`build.importer.analyzer_identity`] because its rows ride on
 --- compiles, which only a change to this code must redo.
-function compilation.receivers_identity(db: Sqlite.Handle): string | nil, string
+function compilation.receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   for _, name in ipairs({ "build.receivers", "build.contracts" }) do
-    local source: string | nil
+    local source: string?
     if booting then
       local rows, trouble = Sqlite.text_rows(db,
         "SELECT source FROM inputs WHERE path = ?1", { text(name) })

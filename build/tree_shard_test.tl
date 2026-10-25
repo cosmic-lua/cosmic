@@ -13,7 +13,7 @@ Test.policy{ profiles = { "cosmic" } }
 
 --- The files of a tree of `count` files, each with a source of its own.
 local function files_of(count: integer): {{string}}
-  local files: {{string}} = {}
+  local files: mut {{string}} = {}
   for at = 1, count do
     files[#files + 1] = { "f" .. tostring(at) .. ".tl", "local x = " .. tostring(at) }
   end
@@ -21,14 +21,14 @@ local function files_of(count: integer): {{string}}
 end
 
 --- Shards of `size` workers that serve in this process, and the files each was asked for.
-local function shards_of(size: integer, dir: string, asked: {string}, lost?: boolean): tree_shard.Shards
+local function shards_of(size: integer, dir: string, asked: mut {string}, lost?: boolean): tree_shard.Shards
   local built = assert(teal.load())
   return {
     ready = function(_bytes: integer): boolean return true end,
     size = function(): integer return size end,
-    path = function(name: string): string | nil, string return dir .. "/" .. name, "" end,
+    path = function(name: string): string?, string return dir .. "/" .. name, "" end,
     run = function(_phase: string, job: string, count: integer): {string}
-      local why: {string} = {}
+      local why: mut {string} = {}
       for index = 1, count do
         if lost == true then
           why[index] = "lost"

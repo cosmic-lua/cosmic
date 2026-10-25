@@ -28,7 +28,7 @@ local _ = require("cosmic.removed")
 
 --- [`standalone.compile`] with its cache in the test's own directory, not
 --- this user's: a read of that one is no input a verdict can hold.
-local function compile(tmp: string, file: string, source: string): standalone.Main | nil, string
+local function compile(tmp: string, file: string, source: string): standalone.Main?, string
   -- Vendor Lua lines contribute no tree coverage; checker diagnostics
   -- carry the source's own positions independently of those lines. The
   -- fork's words are what these tests hold, whatever the suite's mode.
@@ -37,7 +37,7 @@ local function compile(tmp: string, file: string, source: string): standalone.Ma
 end
 
 --- [`standalone.compile`] with the new checker ([`build.pipeline`]), its cache in the test's own directory too.
-local function compile_new(tmp: string, file: string, source: string): standalone.Main | nil, string
+local function compile_new(tmp: string, file: string, source: string): standalone.Main?, string
   return standalone.compile(file, source, { XDG_CACHE_HOME = tmp .. "/cache" }, nil, "new")
 end
 
@@ -185,7 +185,7 @@ return { renamed, unknown, removed }
   assert(trouble:find("module not found", 1, true) == nil, trouble)
   assert(trouble:find("old.tl:2:27: unknown type Z.ZipReader " ..
       "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
-  local lines: {string:string} = {}
+  local lines: mut {string:string} = {}
   for line in trouble:gmatch("[^\n]+") do
     local where = line:match("^(old%.tl:%d+:%d+):")
     if where ~= nil then lines[where] = line end

@@ -16,7 +16,7 @@ end
 --- "not" with anything that says "is not available"). Deliberately
 --- short: the English function words cosmic's own messages use, not a
 --- general-purpose list.
-local stopwords: {string:boolean} = {}
+local stopwords: mut {string:boolean} = {}
 for _, word in ipairs({
     "a", "an", "the", "is", "are", "was", "were", "be",
     "to", "of", "in", "on", "at", "for", "and", "or",
@@ -29,7 +29,7 @@ end
 --- The significant words of `text`, in order: its runs of ASCII letters
 --- and digits, lowercased, less `stopwords`.
 local function significant(text: string): {string}
-  local found: {string} = {}
+  local found: mut {string} = {}
   for word in text:gmatch("[%w]+") do
     local lower = word:lower()
     if not stopwords[lower] then
@@ -47,15 +47,15 @@ end
 --- message is a literal prefix of a real one, so it is the message's
 --- words that are sought in the row's, and `bm25` ranks a row sharing
 --- more, or rarer, words first. At most sixteen words, and under 1024 bytes.
-local function catalog_query(message: string): string | nil
-  local terms: {string} = {}
+local function catalog_query(message: string): string?
+  local terms: mut {string} = {}
   local used = #"message: ()"
   for _, word in ipairs(significant(message)) do
     if #terms == 16 then
       break
     end
     local term = '"' .. word .. '"'
-    local needed = #term + (#terms > 0 and 4 or 0)
+    local needed = #term + (if #terms > 0 then 4 else 0 end)
     if used + needed >= 1024 then
       break
     end
@@ -74,11 +74,11 @@ end
 --- ordinary word such as "files". Distinct and whole, because a word
 --- said three times is one word, and "os" is not in "cosmic".
 local function shared_words(message: string, candidate: string): integer
-  local present: {string:boolean} = {}
+  local present: mut {string:boolean} = {}
   for word in candidate:gmatch("[%w]+") do
     present[word:lower()] = true
   end
-  local counted: {string:boolean} = {}
+  local counted: mut {string:boolean} = {}
   local shared = 0
   for _, word in ipairs(significant(message)) do
     if present[word] and not counted[word] then
@@ -94,7 +94,7 @@ end
 --- `@param`/`@return` line left out, since those describe the signature,
 --- not the failure.
 local function guidance_lines(head: string, text: string): string
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   local at = 1
   while at <= #text do
     local newline = text:find("\n", at, true)
@@ -142,7 +142,7 @@ end
 --- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
 --- has none: the catalog is for the messages cosmic's own code raises.
 --- [`Errors.guidance`] asks each database the store holds in turn.
-function Errors.guidance_in(handle: Sqlite.Handle, message: string): string | nil
+function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if lua_wrote(message) then
     return nil
   end
@@ -189,7 +189,7 @@ end
 --- method, only as its metatable's `__index`; or R declares `set`
 --- (an interface's method, a function-typed field) and nothing defines
 --- it. The message tells the two apart by nothing, so both are named.
-function Errors.hint(message: string): string | nil
+function Errors.hint(message: string): string?
   local method = message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)\n") or
     message:match("^[^\n]*attempt to call a nil value %(method '([%a_][%w_]*)'%)$")
   if method == nil then
@@ -208,7 +208,7 @@ end
 --- the error it matches, the doc comment of the function the message
 --- came from; or nil when none matches it. The core prints it for an
 --- error nothing caught.
-function Errors.guidance(message: string): string | nil
+function Errors.guidance(message: string): string?
   local hint = Errors.hint(message)
   if hint ~= nil then
     return "cosmic: hint: " .. hint .. "\n"

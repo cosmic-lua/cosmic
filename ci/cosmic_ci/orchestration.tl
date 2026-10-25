@@ -70,7 +70,7 @@ local record Orchestration
   suite_run: function(extra?: {string:string}): SuiteRun
   suite_verdicts: function(env: {string:string}, name: string): string
   darwin_modules: function(text: string): {string}
-  darwin_words: function(words: {string}, modules: {string}): {string} | nil
+  darwin_words: function(words: {string}, modules: {string}): {string}?
   native_ran_every: function(text: string, code: integer): boolean
   replay: function(out: string, err: string, to_out?: integer, to_err?: integer): boolean
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
@@ -191,7 +191,7 @@ local git_timeout_ns <const> = Clock.seconds(60)
 --- Runs git in the checkout at `root`, never asking for credentials
 --- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
 --- printed, or nil and why it failed, its own stderr among it.
-local function git(root: string, words: {string}): string | nil, string
+local function git(root: string, words: {string}): string?, string
   local argv = { "/usr/bin/env", "git", "-C", root }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local env = Maps.with(Env.all(), { GIT_TERMINAL_PROMPT = "0" })
@@ -211,7 +211,7 @@ end
 --- The git object `revision:path` names in the checkout at `root`, or
 --- nil and why where there is none: no such commit here, or no such
 --- file in it.
-local function blob(root: string, revision: string, path: string): string | nil, string
+local function blob(root: string, revision: string, path: string): string?, string
   local out, trouble = git(root, { "rev-parse", "--verify", revision .. ":" .. path })
   if out == nil then return nil, trouble end
   local object = out:match("^(%x+)\n?$")
@@ -242,7 +242,7 @@ function Orchestration.harness_moved(root: string, base: string): Orchestration.
     was, was_trouble = blob(root, base, epoch_file)
     if was == nil then
       return { moved = true, why = "cannot read " .. base .. "'s " .. epoch_file .. ": " .. was_trouble ..
-          (fetch_trouble ~= "" and ("; " .. fetch_trouble) or "") }
+          (if fetch_trouble ~= "" then ("; " .. fetch_trouble) else "" end) }
     end
   end
   if was ~= now then
@@ -300,7 +300,7 @@ end
 --- suites run the tree's own tool, which parses the flag, never the
 --- pinned release the driver itself runs on.
 function Orchestration.test_words(env: {string:string}): {string}
-  local words: {string} = { "test" }
+  local words: mut {string} = { "test" }
   if not Orchestration.stands(env) then words[#words + 1] = "--all" end
   if env["COSMIC_CI_EVENT"] == "merge_group" then words[#words + 1] = "--bail" end
   return words
@@ -376,7 +376,7 @@ end
 --- decides what the suite does (`stands`, [`test_words`], `shares`) before
 --- this, from the environment it was given.
 function Orchestration.forget_run(env: {string:string}): {string:string}
-  local names: {string} = {}
+  local names: mut {string} = {}
   for name in pairs(env) do
     if names_the_run(name) then names[#names + 1] = name end
   end
@@ -428,7 +428,7 @@ end
 
 --- `words`, a suite's `cosmic test` line, with `--census` after `test`, for the key parts its row says.
 local function with_census(words: {string}, shard?: string): {string}
-  local out: {string} = {}
+  local out: mut {string} = {}
   for at, word in ipairs(words) do
     out[#out + 1] = word
     if at == 1 then out[#out + 1] = "--census" end
@@ -453,7 +453,7 @@ local record Context
 end
 
 --- The environment variable `name`, or nil when it is unset or empty.
-local function named(name: string): string | nil
+local function named(name: string): string?
   local value = Env.get(name)
   if value == "" then return nil end
   return value
@@ -464,7 +464,7 @@ local function request_for(c: Context, command: {string}, timeout: integer,
                            error_output?: string): Runner.Context, Runner.Request
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
-  local child_environment: {string:string} = {}
+  local child_environment: mut {string:string} = {}
   for name, value in pairs(env or environment()) do child_environment[name] = value end
   -- bin/zig shares one project cache among checkouts unless told otherwise
   -- (build/zig.tl). A candidate uses the zig-cache under
@@ -476,7 +476,7 @@ local function request_for(c: Context, command: {string}, timeout: integer,
   -- CI saves the seed's as it stands.
   if (child_environment["COSMIC_ZIG_CACHE"] or "") == "" then
     local seed = named("COSMIC_ZIG_CACHE_SEED")
-    child_environment["COSMIC_ZIG_CACHE"] = seed and seed .. "/zig-cache" or BuildPaths.directory(c.root, child_environment) .. "/zig-cache"
+    child_environment["COSMIC_ZIG_CACHE"] = if seed then seed .. "/zig-cache" else BuildPaths.directory(c.root, child_environment) .. "/zig-cache" end
   end
   -- The driver boots the candidate itself; a tool that finds its core
   -- stale is a fault to report, not one to boot past (build/reboot.tl).
@@ -741,7 +741,7 @@ local suite_test_timeout_s <const> = "10"
 --- Copies the files of `source` (modules, and where `data` the JSON
 --- files beside them that the modules read) to `destination`.
 local function copy_flat_dir(source: string, destination: string, data: boolean)
-  local names: {string} = {}
+  local names: mut {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
     assert((name:match("%.tl$") ~= nil or (data and name:match("%.json$") ~= nil)) and
         assert(Fs.stat(source .. "/" .. name)).kind == "file",
@@ -762,7 +762,7 @@ end
 --- project, named by its path, so the fixture before at the same path
 --- would otherwise leave its build and what [`place`] put there.
 function Orchestration.fixture_project(driver: string, work: string, group?: string): string
-  local project = work .. "/fixture-project" .. (group and "-" .. group or "")
+  local project = work .. "/fixture-project" .. (if group then "-" .. group else "" end)
   local driver_namespace = Fs.dirname(driver)
   local fixtures_source = Fs.dirname(driver_namespace) .. "/fixtures"
   assert(Fs.remove_tree(project))
@@ -884,7 +884,7 @@ end
 function Orchestration.fixture_run(source: string, env: {string:string}, tmpdir: string,
                                    compiles: string): {string:string}
   local sandboxed = SANDBOXED_FIXTURES[source] == true
-  local verdicts: string | nil = nil
+  local verdicts: string? = nil
   if sandboxed then verdicts = Orchestration.suite_verdicts(env, "fixtures") end
   return Orchestration.fixture(env, tmpdir, compiles, verdicts)
 end
@@ -950,7 +950,7 @@ end
 
 --- What a fixture group has prepared, once it has started.
 local record FixtureHeld
-  prepared?: Prepared
+  mut prepared?: Prepared
 end
 
 --- Makes the fixture `spec`'s project (a group's own where `group` is
@@ -1064,8 +1064,8 @@ local function checked_suite(c: Context, target: string, work: string,
                              decoder: string): integer
   local sanitized = BuildPaths.directory(c.root) .. "/sanitized"
   local targets_path = sanitized .. "/targets.tsv"
-  local target_id: string | nil = nil
-  local checked_target: string | nil = nil
+  local target_id: string? = nil
+  local checked_target: string? = nil
   local target_records = read(targets_path)
   for line in target_records:gmatch("[^\n]+") do
     local id, configuration, name =
@@ -1178,8 +1178,8 @@ local function checked_suite(c: Context, target: string, work: string,
     local stale = Orchestration.suite_verdicts(Env.all(), "checked")
     if stale ~= "0" and exists(stale) then
       local removed, trouble = Fs.remove(stale)
-      local _, _ = Fs.put(Fs.stderr, removed and ("checked suite: removed this leg's " .. stale .. "\n") or
-          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n"))
+      local _, _ = Fs.put(Fs.stderr, if removed then ("checked suite: removed this leg's " .. stale .. "\n") else
+          ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n") end)
     end
     if target == "aarch64-macos" then
       local diagnostics = work .. "/checked-diagnostics"
@@ -1223,16 +1223,16 @@ local function checked_suite(c: Context, target: string, work: string,
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever its build directory holds.
-  local checked_argv: {string} = { cosmic }
+  local checked_argv: mut {string} = { cosmic }
   local gathering = Env.get("COSMIC_CI_CHECKED_SUITE") == "gather"
   local share = named("COSMIC_CI_CHECKED_SHARD")
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
-    COSMIC_CI_GATHER = gathering and "1" or "" })
+    COSMIC_CI_GATHER = if gathering then "1" else "" end })
   local checked_environment = checked_run.env
   local checked_words = with_census(checked_run.words)
-  local shard_words: {string} = share ~= nil and { "--shard", share } or {}
+  local shard_words: {string} = if share ~= nil then { "--shard", share } else {} end
   for _, words in ipairs({ checked_words, shard_words }) do
     for _, word in ipairs(words) do
       checked_argv[#checked_argv + 1] = word
@@ -1268,7 +1268,7 @@ end
 
 --- The status of a snapshot, kept where the function that takes it under `pcall` can set it.
 local record Snapped
-  status: integer
+  mut status: integer
 end
 
 local function snapshot(c: Context, diagnostics: string, label: string,
@@ -1335,7 +1335,7 @@ local function suite(c: Context, name: string, executable: string,
   local values = Maps.with(run.env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
   -- Its key parts said, as the checked suite's are, for its row.
   local words = with_census(run.words, shard)
-  local argv: {string} = { executable }
+  local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ns, c.root, values)
@@ -1409,7 +1409,7 @@ local function boot(p: PlatformContext): integer
   -- COSMIC_ZIG_CACHE_FROM names, a developer's shared one.
   local seed = named("COSMIC_ZIG_CACHE_SEED")
   local from = named("COSMIC_ZIG_CACHE_FROM")
-  local cache = seed and seed .. "/zig-cache" or from
+  local cache = if seed then seed .. "/zig-cache" else from end
   -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
   if cache ~= nil and not is_dir(cache) then
@@ -1443,7 +1443,7 @@ local darwin_list <const> = "ci/darwin-tests.txt"
 --- The test modules `text`, a darwin list's, names: one path a line,
 --- with what a `#` starts and blank lines left out.
 function Orchestration.darwin_modules(text: string): {string}
-  local modules: {string} = {}
+  local modules: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local path = String.trim((line:gsub("#.*$", "")))
     if path ~= "" then modules[#modules + 1] = path end
@@ -1459,12 +1459,12 @@ end
 --- keyed by declarations stands on macOS for the key a Linux leg
 --- reached, whose run never took the macOS branch its code has. Nil on
 --- a run of every test already (the scheduled run, the backstop).
-function Orchestration.darwin_words(words: {string}, modules: {string}): {string} | nil
+function Orchestration.darwin_words(words: {string}, modules: {string}): {string}?
   if #modules == 0 then return nil end
   for _, word in ipairs(words) do
     if word == "--all" then return nil end
   end
-  local out: {string} = { "test", "--all", "--census" }
+  local out: mut {string} = { "test", "--all", "--census" }
   for _, word in ipairs(words) do
     if word == "--bail" then out[#out + 1] = word end
   end
@@ -1516,7 +1516,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
     end
   end
   local values = Maps.with(darwin_run.env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
-  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
@@ -1534,7 +1534,7 @@ end
 --- tests (`*declared_types_test.tl`, which a later directory's change adds files
 --- to without touching CI), by their path in the checkout.
 function Orchestration.declared_types_files(root: string): {string}
-  local files: {string} = {}
+  local files: mut {string} = {}
   for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
     local walked, _ = Fs.walk(root .. "/" .. directory)
     local found = walked or {}
@@ -1561,7 +1561,7 @@ local function phase_declared_types(p: PlatformContext): integer
     local _, _ = Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
     return 1
   end
-  local argv: {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
+  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
   for _, file in ipairs(files) do argv[#argv + 1] = file end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/declared-types-test.out"
@@ -1580,7 +1580,7 @@ end
 --- promises it, the sanitized core's instruments, which a run on the release core lacks: a held run would fail every test
 --- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
 local function release_promises(values: {string:string}): {string:string}
-  local promised: {string} = {}
+  local promised: mut {string} = {}
   for name in (values["COSMIC_TEST_PROMISES"] or ""):gmatch("[^,]+") do
     if name ~= "checked" then promised[#promised + 1] = name end
   end
@@ -1637,7 +1637,7 @@ local function phase_rehearsal(p: PlatformContext): integer
   })
   local words = rehearsal_run.words
   local values = release_promises(rehearsal_run.env)
-  local argv: {string} = { cosmic }
+  local argv: mut {string} = { cosmic }
   for _, word in ipairs(words) do
     -- A queue run bails on its first failure, which fails it whatever the rest says. The rehearsal judges every failure of the
     -- whole suite against the list, so a test it never ran would read as one that did not fail.
@@ -1660,7 +1660,7 @@ local function phase_rehearsal(p: PlatformContext): integer
     return 1
   end
   local failed = Rehearsal.failures(read_or_empty(out))
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for _, line in ipairs(Rehearsal.judge(allowed, failed)) do problems[#problems + 1] = line end
   -- The suite ran on the tool the rehearsal booted with the new checker, not on one built again for the run.
   local errors = p.local_diagnostics .. "/rehearsal-test.err"
@@ -1673,7 +1673,7 @@ local function phase_rehearsal(p: PlatformContext): integer
   for _, line in ipairs(problems) do
     local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
   end
-  return #problems == 0 and 0 or 1
+  return if #problems == 0 then 0 else 1 end
 end
 
 --- What the tool booted with the new checker says of itself: it was compiled by the tool string that mode records (the
@@ -1713,7 +1713,7 @@ local function phase_rehearsal_project(p: PlatformContext): integer
   local c = p.operation
   local cosmic = BuildPaths.directory(p.root) .. "/bin/cosmic"
   mkdir(p.local_diagnostics)
-  local problems: {string} = {}
+  local problems: mut {string} = {}
   for _, name in ipairs(Rehearsal.projects()) do
     local copy = p.work .. "/rehearsal-" .. name
     local copied = step(c, "copy the project " .. name, function(): boolean, string
@@ -1737,7 +1737,7 @@ local function phase_rehearsal_project(p: PlatformContext): integer
   for _, line in ipairs(problems) do
     local _, _ = Fs.put(Fs.stderr, "rehearsal: " .. line .. "\n")
   end
-  return #problems == 0 and 0 or 1
+  return if #problems == 0 then 0 else 1 end
 end
 
 --- The examples and guides of the tree, which a user copies, compiled by the new checker as files alone and held to the findings
@@ -1866,7 +1866,7 @@ end
 local function format_command(root: string): {string}
   local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
   local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
-  local text: string | nil = nil
+  local text: string? = nil
   if listed ~= "" then
     local found, trouble = Fs.read(listed)
     text = found
@@ -1981,7 +1981,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = fixture_test(c, work, "product-verification", "product",
     product_test_timeout_ns, {
       COSMIC_FIXTURE_TARGET = target,
-      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+      COSMIC_FIXTURE_CODESIGN = if target == "aarch64-macos" then "true" else "false" end,
     }, { { kind = "product", from = product },
       { kind = "format", from = contract .. "/format" } })
   if s ~= 0 then return s end
@@ -2130,7 +2130,7 @@ function Orchestration.seed_compiles(env: {string:string},
     if kind == "dir" then path = Fs.dirname(source) end
     -- A link to the directory is followed, as shared_compiles' `private`
     -- follows it; one to the file is not.
-    local st, stat_trouble: sys.Stat | nil, string = nil, ""
+    local st, stat_trouble: sys.Stat?, string = nil, ""
     if kind == "file" then
       st, stat_trouble = sys.lstat(path)
     else
@@ -2138,7 +2138,7 @@ function Orchestration.seed_compiles(env: {string:string},
     end
     if st == nil then return false, path .. ": " .. stat_trouble end
     if st.kind ~= kind then
-      return false, path .. ": not a " .. (kind == "dir" and "directory" or kind)
+      return false, path .. ": not a " .. (if kind == "dir" then "directory" else kind end)
     end
     if st.uid ~= sys.getuid() then return false, path .. ": owned by another user" end
     if st.mode & 0x12 ~= 0 then
@@ -2171,8 +2171,8 @@ end
 --- Where the lanes of [`Orchestration.run_groups`] stand: the last group's
 --- status and the index of the next low group to start.
 local record Progress
-  status: integer
-  next_low: integer
+  mut status: integer
+  mut next_low: integer
 end
 
 --- Runs `high`, then each of `low`, one after another, and returns the first
@@ -2427,8 +2427,8 @@ end
 local function provenance_impl(c: Context, products: string): integer
   local entries = assert(Fs.list(products))
   local count = 0
-  local expected: integer|nil = nil
-  local baseline: string|nil = nil
+  local expected: integer? = nil
+  local baseline: string? = nil
   for _, name in ipairs(entries) do
     if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name

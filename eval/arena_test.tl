@@ -105,15 +105,15 @@ local function implementing_everything(task: string): link_resolve.Context
   end
   return {
     root = "/p",
-    kind = function(path: string): string | nil
+    kind = function(path: string): string?
       if path == "/p" then return "dir" end
       if path == "/p/" .. task .. ".tl" then return "file" end
       return nil
     end,
-    read = function(_: string): string | nil return nil end,
-    real = function(path: string): string | nil return path end,
-    unbuilt = function(): string | nil return nil end,
-    symbols = function(query: string): {link_resolve.Symbol} | nil, string
+    read = function(_: string): string? return nil end,
+    real = function(path: string): string? return path end,
+    unbuilt = function(): string? return nil end,
+    symbols = function(query: string): {link_resolve.Symbol}?, string
       local module, symbol = query:match("^([^.:]+)[.:](.+)$")
       if module == task then return declared(task, symbol), "" end
       if module ~= nil and module:match("^%u") ~= nil then
@@ -121,7 +121,7 @@ local function implementing_everything(task: string): link_resolve.Context
       end
       return {}, ""
     end,
-    member = function(module: string, member: string): {link_resolve.Symbol} | nil, string
+    member = function(module: string, member: string): {link_resolve.Symbol}?, string
       if module ~= task then return {}, "" end
       return declared(module, member), ""
     end,
@@ -152,7 +152,7 @@ local function test_fix_links_nothing_in_any_task()
   local tasks = assert(Fs.list("eval/task"))
   table.sort(tasks)
   assert(#tasks > 0)
-  local troubles: {string} = {}
+  local troubles: mut {string} = {}
   for _, name in ipairs(tasks) do
     local task = name:match("^(.+)%.md$")
     if task ~= nil then

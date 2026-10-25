@@ -17,7 +17,7 @@ local function main()
   local made, why = ForkRefusals.read()
   assert(made ~= nil, why)
   assert(#made.trouble == 0, table.concat(made.trouble, "\n"))
-  local kept: {string: Verdicts.Refusal} = {}
+  local kept: mut {string: Verdicts.Refusal} = {}
   local there, _ = Fs.exists(PATH)
   if there == true then
     local old, trouble = Verdicts.read_refusals((assert(Fs.read(PATH))))
@@ -26,7 +26,7 @@ local function main()
       kept[each.id] = each
     end
   end
-  local list: {Verdicts.Refusal} = {}
+  local list: mut {Verdicts.Refusal} = {}
   for _, each in ipairs(made.refusals) do
     local before = kept[each.id]
     local reason, because = "", ""

@@ -34,7 +34,7 @@ end
 --- `EXPR as $T`)? A nominal type spelled like a capture is one.
 --- @param t any A parsed type node (a cast's `casttype`), or nil
 --- @return string|nil The capture name (`_T`), or nil when `t` is not one
-local function capture_name(t: any): string | nil
+local function capture_name(t: any): string?
   if t == nil then
     return nil
   end
@@ -70,7 +70,7 @@ local function render(t: any): string
   local tn = tv["typename"]
   if tn == "nominal" then
     local names = type_array(tv["names"])
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for _, nm in ipairs(names) do
       parts[#parts + 1] = tostring(nm)
     end
@@ -81,7 +81,7 @@ local function render(t: any): string
     return "{" .. render(tv["keys"]) .. ": " .. render(tv["values"]) .. "}"
   elseif tn == "union" then
     local types = type_array(tv["types"])
-    local parts: {string} = {}
+    local parts: mut {string} = {}
     for _, one in ipairs(types) do
       parts[#parts + 1] = render(one)
     end
@@ -90,7 +90,7 @@ local function render(t: any): string
   return tostring(tn)
 end
 
-local function matched(pv: {any: any}, nv: {any: any}, caps: {string: Node},
+local function matched(pv: {any: any}, nv: {any: any}, caps: mut {string: Node},
                        capture_predicates: {any: string}): boolean
   local cap = capture_name(pv["casttype"])
   if not cap then
@@ -110,7 +110,7 @@ local function matched(pv: {any: any}, nv: {any: any}, caps: {string: Node},
 end
 
 local record MatchCastModule
-  capture_name: function(t: any): string | nil
+  capture_name: function(t: any): string?
 
   -- TODO: rename `match`, so that [`build.ast.match_cast.match`] does not repeat the module's name. Nothing blocks
   -- it: it touches its one call, in build/ast/match.tl, and the local function `matched` that

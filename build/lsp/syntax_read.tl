@@ -56,7 +56,7 @@ end
 --- The tokens of `text`, the file `file`, each with its place, in order, as the key of what a module serves ([`build.lsp.dependents`]) is
 --- made of: none of the comments or the whitespace between them.
 function syntax_read.token_parts(text: string, file: string): {string}
-  local parts: {string} = {}
+  local parts: mut {string} = {}
   local tokens = Lexer.lex(text, file).tokens
   for k, kind in ipairs(tokens.kind) do
     if kind ~= "$EOF$" then
@@ -73,7 +73,7 @@ function syntax_read.splices(build: Driver.Build, name: string, text: string, pa
                              count: function()): shape_specs.Found
   if text:find("record_of(", 1, true) ~= nil then count() end
   local found = ShapeSpecs.splices(build, path, name, text)
-  local splices: {shape_specs.Splice} = {}
+  local splices: mut {shape_specs.Splice} = {}
   for _, one in ipairs(found.splices) do
     splices[#splices + 1] = { at = one.at, text = one.text }
   end
@@ -85,7 +85,7 @@ end
 --- the module is not checked and its own errors show only where it is open. The fork checked the document against the
 --- module's type and flagged the use. `listed` says which modules the stage lists: the binary's own are not looked at.
 local function broken(pipeline: Pipeline.Built, sites: {Site}, listed: function(name: string): boolean): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   for _, site in ipairs(sites) do
     if listed(site.name) then
       pipeline.build:lower({ site.name })
@@ -104,7 +104,7 @@ end
 
 --- `text` with each of `splices` put in, as [`shape_specs.spliced`] does.
 function syntax_read.applied(text: string, splices: {shape_specs.Splice}): string
-  local converted: {ShapeSpecs.Splice} = {}
+  local converted: mut {ShapeSpecs.Splice} = {}
   for _, one in ipairs(splices) do converted[#converted + 1] = { at = one.at, text = one.text } end
   return ShapeSpecs.spliced(text, converted)
 end
@@ -115,13 +115,13 @@ end
 --- report a text in the new grammar as its syntax errors.
 function syntax_read.plan_of(name: string, text: string, path: string, kind: string, own_tree: boolean,
                              generated: boolean): Planned
-  local refusals: {Refusal} = {}
+  local refusals: mut {Refusal} = {}
   local chunk, why = Node.parse(text, name)
   if chunk == nil then
     refusals[1] = plan.refusal_of(why)
     return { plan = nil, refusals = refusals, halted = true, requires = {} }
   end
-  local requires: {Site} = {}
+  local requires: mut {Site} = {}
   for _, site in ipairs(Node.require_sites(chunk)) do
     requires[#requires + 1] = { name = site.name, line = site.y, column = site.x }
   end
@@ -139,13 +139,13 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     refusals[#refusals + 1] = plan.refusal_of(misplaced)
     return { plan = nil, refusals = refusals, halted = true, requires = requires }
   end
-  local tests: {string} = {}
+  local tests: mut {string} = {}
   if kind == "test" then
     tests = analysis.tests
   elseif kind == "example" then
     for _, example in ipairs(analysis.examples) do tests[#tests + 1] = example.name end
   end
-  local made: build_stub.Made | nil = nil
+  local made: build_stub.Made? = nil
   if own_tree and kind == "module" and path:sub(1, 7) == "cosmic." and analysis.has_top_level_return then
     local stubbed = SyntaxStub.made(chunk)
     made = { text = stubbed.text, pruned = stubbed.pruned }
@@ -183,7 +183,7 @@ end
 
 --- The refusals of the lines `lines`, one each but for the lines that count errors ([`counts_errors`]).
 local function refusals_of_lines(lines: {string}): {Refusal}
-  local out: {Refusal} = {}
+  local out: mut {Refusal} = {}
   for _, line in ipairs(lines) do
     if not counts_errors(line) then out[#out + 1] = plan.refusal_of(line) end
   end
@@ -193,7 +193,7 @@ end
 --- The refusals of `trouble`, what [`Pipeline.review`] answers for a module it refuses: the header line it puts before the
 --- checker's lines is dropped, and each line left is one refusal.
 local function refusals_of_generated(trouble: string): {Refusal}
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   for line in trouble:gmatch("[^\n]+") do
     if lines[1] ~= nil or line:match(": the compiler refused it$") == nil then
       lines[#lines + 1] = line
@@ -220,7 +220,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
   local build = pipeline.build
   build:lower({ compiled.path })
   local outcome = build:result(compiled.path, true)
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   if outcome == nil then
     return { result = nil, refusals = {} }
   elseif outcome.broken then
