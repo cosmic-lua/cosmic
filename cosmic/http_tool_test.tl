@@ -161,7 +161,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local got, trouble = Http.request(argv[1], argv[2], { body = argv[3] })
-  Fs.put(Fs.stdout, got ~= nil and tostring(got.status) .. " " .. got.body or trouble)
+  Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else trouble end)
   return 0
 end
 ]]))

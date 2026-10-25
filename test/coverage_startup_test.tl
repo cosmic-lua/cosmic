@@ -30,12 +30,12 @@ local loaded = true
 local function holds_load_line(): string
   local session = assert(Coverage.start())
   local hits = assert(Coverage.stop(session))
-  return (hits["windows"] or {})[4] and "held" or "missed"
+  return if (hits["windows"] or {})[4] then "held" else "missed" end
 end
 
 return function(): integer
   assert(loaded)
-  local seen = Env.get("COSMIC_COVERAGE_STARTUP") ~= nil and "seen" or "unseen"
+  local seen = if Env.get("COSMIC_COVERAGE_STARTUP") ~= nil then "seen" else "unseen" end
   local first = holds_load_line()
   print(seen, first, holds_load_line())
   return 0

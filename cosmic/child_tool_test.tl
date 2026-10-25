@@ -99,7 +99,7 @@ end
 return function(argv: {string}): integer
   Fs.close(11)
   local invalid = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
-  if invalid then invalid:close(); return 20 end
+  if invalid then invalid:close() return 20 end
   -- A file of its own, not /dev/null: a child whose fd 0 exec closed
   -- starts with /dev/null there, and would read nothing.
   assert(Fs.close(0))
@@ -108,7 +108,7 @@ return function(argv: {string}): integer
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
     "return Fs.take(0, 64) == ... and 0 or 1", "stdin's own"),
     { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
-  return result.ok and 0 or 21
+  return if result.ok then 0 else 21 end
 end
 ]]))
   local stdin = tmp .. "/stdin"
@@ -299,9 +299,9 @@ return function(argv: {string}): integer
       end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    local answers: {string} = {}
-    for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
-        function(): Child.Result | nil, string return untimed:wait() end }) do
+    local answers: mut {string} = {}
+    for _, wait in ipairs({ function(): Child.Result?, string return timed:wait(0) end,
+        function(): Child.Result?, string return untimed:wait() end }) do
       local r, trouble = wait()
       answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
     end
@@ -351,7 +351,7 @@ local function this(chunk: string): {string}
   return words
 end
 return function(argv: {string}): integer
-  local answers: {string} = {}
+  local answers: mut {string} = {}
   local guard = assert(Signal.guard())
   local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Clock.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..

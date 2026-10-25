@@ -31,7 +31,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local base = argv[1]
-  local said: {string} = {}
+  local said: mut {string} = {}
   local missing = assert(Http.get(base .. "/items/a"))
   said[#said + 1] = missing.status .. " " .. missing.body
   local put = assert(Http.request("PUT", base .. "/items/a", { body = "first value" }))
@@ -96,7 +96,7 @@ local function test_a_name_joined_unescaped_reaches_the_server_escaped(tmp: stri
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local said: {string} = {}
+  local said: mut {string} = {}
   for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
     local got = assert(Http.get(argv[1] .. "/" .. name))
     said[#said + 1] = got.status .. " " .. got.body

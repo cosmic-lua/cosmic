@@ -123,14 +123,14 @@ return function(argv: {string}): integer
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
       local line = assert(Stream.lines(conn):read())
-      seen.started = true
+      seen["started"] = true
       assert(Poll.delay(Clock.ms(100)))
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("slow\n"))
-      while not seen.started do assert(Poll.delay(Clock.ms(1))) end
+      while not seen["started"] do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       local answer = assert(Stream.lines(conn):read())

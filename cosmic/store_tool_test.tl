@@ -28,8 +28,8 @@ local type Searcher = function(string): any, any
 return function(argv: {string}): integer
   local search = package.searchers[#package.searchers] as Searcher
   local binary = assert(Store.databases()[1])
-  local wrappers: {string} = {}
-  local ordinary: string | nil = nil
+  local wrappers: mut {string} = {}
+  local ordinary: string? = nil
   for _, row in ipairs((assert(Sqlite.text_rows(binary,
       "SELECT path FROM modules WHERE kind = 'module' ORDER BY path")))) do
     local name = row:text(1)
@@ -46,7 +46,7 @@ return function(argv: {string}): integer
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
     "kind TEXT, source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
   local impostor = string.dump((assert(load("return 'impostor'"))))
-  local names: {string} = { ordinary }
+  local names: mut {string} = { ordinary }
   for _, name in ipairs(wrappers) do table.insert(names, name) end
   for _, name in ipairs(names) do
     assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES (?1, ?2, 'module')",

@@ -60,7 +60,11 @@ local function project(tmp: string): string
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/helper.tl", [[
-return { answer = 42 }
+local record helper
+  answer: integer
+end
+local h: helper = { answer = 42 }
+return h
 ]]))
   assert(Fs.write(root .. "/suite/selected_test.tl", [[
 local helper = require("suite.helper")
@@ -121,7 +125,7 @@ local function test_a_snapshot_holds_each_line_with_whether_it_was_hit(tmp: stri
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/helper.tl", [[
 local record helper
-  answer: integer
+  mut answer: integer
 end
 function helper.used(): integer
   local a = 1
@@ -198,7 +202,8 @@ end
 local function test_cli_runs_one_example_by_its_name(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/answer_example.tl", [[
-local Example = {}
+local record Example
+end
 function Example.answer()
   assert(require("suite.helper").answer == 42)
 end

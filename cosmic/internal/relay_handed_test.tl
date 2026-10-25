@@ -259,7 +259,7 @@ local SandboxRelay = require("cosmic.internal.relay_start")
 return function(argv: {string}): integer
   local dns_port = assert(math.tointeger(tonumber(argv[1])))
   local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }
-  local lines: {string} = {}
+  local lines: mut {string} = {}
   Poll.run(function()
     local proxy = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local serving = Poll.spawn(function()
@@ -295,7 +295,7 @@ return function(argv: {string}): integer
     local relay = Relay.start({
       http = http, grants = { "api.test:443", "direct.test:443" }, upstream = up, resolve = resolve,
       log = function(_: string) end,
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn | nil, string
+      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end,
     })

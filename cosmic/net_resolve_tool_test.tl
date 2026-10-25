@@ -78,16 +78,18 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(assert(math.tointeger(argv[3]))) }
-  if argv[2] ~= "" then
-    opts.servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } }
+  local timeout_ns = Clock.ms(assert(math.tointeger(argv[3])))
+  local port = argv[2] or ""
+  local opts: Net.ResolveOptions = { timeout_ns = timeout_ns }
+  if port ~= "" then
+    opts = { timeout_ns = timeout_ns, servers = { { host = "127.0.0.1", port = assert(math.tointeger(port)) } } }
   end
-  local found, why = Net.resolve(argv[1], opts)
-  local lines: {string} = {}
+  local found, why = Net.resolve(argv[1] or "", opts)
+  local lines: mut {string} = {}
   for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.family .. " " .. resolved.address end
   table.sort(lines)
-  if found == nil then lines[1] = "error " .. why end
-  Fs.put(Fs.stdout, table.concat(lines, "\n"))
+  if found == nil then lines = { "error " .. why } end
+  local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
 end
 ]]
@@ -100,9 +102,9 @@ local Net = require("cosmic.net")
 local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
   local guard = assert(Signal.guard())
-  local found, why = Net.resolve(argv[1],
+  local found, why = Net.resolve(argv[1] or "",
     { servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } } })
-  Fs.put(Fs.stdout, found == nil and "error " .. why or "found")
+  local _, _ = Fs.put(Fs.stdout, if found == nil then "error " .. why else "found" end)
   assert(guard:release())
   return 0
 end

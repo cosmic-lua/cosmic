@@ -110,15 +110,16 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local RelayStart = require("cosmic.internal.relay_start")
+local Config = require("cosmic.internal.relay_config")
 return function(argv: {string}): integer
-  local request: RelayStart.NameServerOptions = { servers = {} }
-  local asked = assert(request.servers)
-  local servers: {Net.Endpoint} = {}
-  for text in argv[2]:gmatch("[^,]+") do
+  local asked: mut {Config.Endpoint} = {}
+  local servers: mut {Net.Endpoint} = {}
+  for text in (argv[2] or ""):gmatch("[^,]+") do
     local port = assert(math.tointeger(tonumber(text)))
     asked[#asked + 1] = { host = "127.0.0.1", port = port }
     servers[#servers + 1] = { host = "127.0.0.1", port = port }
   end
+  local request: RelayStart.NameServerOptions = { servers = asked }
   local dns: Net.Connector
   if argv[3] == "relay" then
     local plan = assert(RelayStart.name_servers(request))
@@ -126,22 +127,22 @@ return function(argv: {string}): integer
   else
     dns = assert(Net.connector(servers, { timeout_ns = Clock.ms(assert(math.tointeger(tonumber(argv[3])))) }))
   end
-  local said: {string} = {}
-  local took: {string} = {}
+  local said: mut {string} = {}
+  local took: mut {string} = {}
   for round = 1, 2 do
     local began = Clock.monotonic_ns()
-    local limit = round == 1 and argv[4] ~= nil and Clock.ms(assert(math.tointeger(tonumber(argv[4])))) or
-      Clock.seconds(5)
-    local found, why = Net.resolve(argv[1], { timeout_ns = limit, connector = dns, servers = servers })
+    local limit = if round == 1 and argv[4] ~= nil then Clock.ms(assert(math.tointeger(tonumber(argv[4])))) else
+      Clock.seconds(5) end
+    local found, why = Net.resolve(argv[1] or "", { timeout_ns = limit, connector = dns, servers = servers })
     took[#took + 1] = tostring((Clock.monotonic_ns() - began) // 1000000)
-    local lines: {string} = {}
+    local lines: mut {string} = {}
     for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.address end
     table.sort(lines)
-    said[#said + 1] = found == nil and "error " .. why or table.concat(lines, ",")
+    said[#said + 1] = if found == nil then "error " .. why else table.concat(lines, ",") end
   end
   assert(dns:close())
   said[#said + 1] = table.concat(took, ",")
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]

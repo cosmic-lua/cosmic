@@ -35,7 +35,7 @@ local function test_a_started_process_reports_its_c(tmp: string)
   assert(Fs.write(tmp .. "/child/child.tl", [[
 local Env = require("cosmic.env")
 return function(): integer
-  print(Env.get("COSMIC_COVERAGE_CHILDREN") == nil and "unseen" or "seen")
+  print(if Env.get("COSMIC_COVERAGE_CHILDREN") == nil then "unseen" else "seen" end)
   return 0
 end
 ]]))
@@ -57,16 +57,16 @@ return function(argv: {string}): integer
   -- but for how to start the core and where to build its file: only the
   -- core can carry the directory.
   local relaunch = Proc.relaunch()
-  local words: {string} = {}
-  for _, word in ipairs(relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }) do
+  local words: mut {string} = {}
+  for _, word in ipairs(if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end) do
     words[#words + 1] = word
   end
   words[#words + 1] = argv[2]
-  local env: {string:string} = {}
-  for name, value in pairs(relaunch ~= nil and relaunch.env or {}) do env[name] = value end
-  env.COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME")
+  local env: mut {string:string} = {}
+  for name, value in pairs(if relaunch ~= nil then relaunch.env else {} end) do env[name] = value end
+  env["COSMIC_BUILD_HOME"] = Env.get("COSMIC_BUILD_HOME")
   local r = assert(Child.run(words, { env = env,
-    fds = relaunch ~= nil and relaunch.fds or {}, cwd = argv[3], stdout = "capture",
+    fds = if relaunch ~= nil then relaunch.fds else {} end, cwd = argv[3], stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
@@ -123,26 +123,26 @@ local record Status
   code: integer
 end
 local record Process
-  spawn: function(string, {string}, {string:string}, string, integer | nil, integer | nil, integer | nil, boolean,
+  spawn: function(string, {string}, {string:string}, string, integer?, integer?, integer?, boolean,
     {integer:integer}, any): integer, string, integer
   waitpid: function(integer, boolean): Status
 end
 return function(argv: {string}): integer
-  local reports, reads: string, {string} = argv[1], {}
+  local reports, reads: string, mut {string} = argv[1], {}
   for path in argv[2]:gmatch("[^\n]+") do reads[#reads + 1] = path end
   Coverage.children(reports)
-  local process: Process | nil = nil
+  local process: Process? = nil
   for _, searcher in ipairs(package.searchers as {Searcher}) do
     local loader, extra = searcher("cosmic.child")
     if type(loader) == "function" and type(extra) == "table" then process = extra as Process end
   end
   assert(process ~= nil, "no searcher hands cosmic.child's raw module")
   local relaunch = assert(Proc.relaunch())
-  local words: {string} = {}
+  local words: mut {string} = {}
   for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
   words[#words + 1] = "-e"
   words[#words + 1] = "return 0"
-  local fds: {integer:integer} = {}
+  local fds: mut {integer:integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
   local own = sys.stat("/proc/sys") == nil
   local pid, trouble, errno = process.spawn(words[1], words, relaunch.env, "/", nil, nil, nil,
@@ -150,7 +150,7 @@ return function(argv: {string}): integer
   if pid == nil then
     local unconfinable = errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC
-    print((unconfinable and "unconfinable " or own and "refused " or "host-proc ") .. trouble)
+    print((if unconfinable then "unconfinable " elseif own then "refused " else "host-proc " end) .. trouble)
     return 0
   end
   print("exited " .. tostring(process.waitpid(pid, false).code))
