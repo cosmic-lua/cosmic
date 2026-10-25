@@ -287,11 +287,12 @@ local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()
     assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: read's max_bytes must be positive$") ~= nil,
       tostring(why))
   end
-  local shut, shut_why: boolean, any = pcall(function()
-    local _, _ = accepted:shutdown("sideways")
-  end)
-  assert(not shut and tostring(shut_why):find(
-    '^cosmic%.net_test:%d+: net: how must be "read", "write" or "both"$') ~= nil, tostring(shut_why))
+  -- A wrong `how` does not compile (net_shutdown_test.tl); a caller the
+  -- checker does not read, here a chunk loaded by hand, still gets this raise.
+  local unchecked = assert(load("local conn = ...; local ok = conn:shutdown('sideways'); return ok", "=unchecked"))
+  local shut, shut_why: boolean, any = pcall(function() local _ = unchecked(accepted) end)
+  assert(not shut and tostring(shut_why) == 'unchecked:1: net: how must be "read", "write" or "both"',
+    tostring(shut_why))
   assert(accepted:shutdown("read"), "a refused call must not end the direction")
 end
 

@@ -5627,7 +5627,7 @@ cosmic/internal/relay_resolv.tl close_not_closable 1
 
 cosmic/net.tl close_not_closable 1
 
-cosmic/net_example.tl close_not_closable 12
+cosmic/net_example.tl close_not_closable 10
 
 cosmic/net_resolve_through_test.tl close_not_closable 14
 
@@ -10282,7 +10282,7 @@ cosmic/http/server_example.tl close_not_closable 1
 
 cosmic/http_example.tl close_not_closable 1
 
-cosmic/net_example.tl close_not_closable 12
+cosmic/net_example.tl close_not_closable 10
 
 cosmic/poll_example.tl cast_refused 1
 

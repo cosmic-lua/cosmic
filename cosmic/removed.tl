@@ -356,7 +356,7 @@ local module: Module = {
       "failure; a config whose author wants every mistake runs again after fixing each (" ..
       shape .. ")",
     ["cosmic.shape.Failure"] = "Shape.into(value, spec) answers the first failure as one " ..
-      "message, its place first (`pointer \"/rows/1/id\": expected string, got integer`) (" ..
+      "message, its place first (`$.rows[1].id: want string, got integer`) (" ..
       shape .. ")",
     ["cosmic.shape.either"] = "use Shape.one_of(...) for literal alternatives, or call " ..
       "Shape.into once for each form the value may take and keep the first that answers " ..
