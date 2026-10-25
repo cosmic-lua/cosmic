@@ -1,18 +1,17 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local ast = require("build.ast")
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local links = require("build.links")
-local teal = require("build.teal")
+local Node = require("build.syntax_node")
+local SyntaxLinks = require("build.syntax_links")
+local SyntaxLinkText = require("build.syntax_link_text")
 local String = require("cosmic.string")
 
 --- The docs fixture builds its database with the tree's own code.
 Test.policy{ grants = { { path = "core", letters = "r" } } }
-
-local built = assert(teal.load())
 
 --- Lines as one text.
 local function lines(...: string): string
@@ -294,7 +293,7 @@ end
 
 --- What [`links.check`] finds in `source`, a file of `kind` at `path`.
 local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
-  return links.check(link_resolve.resolver(context), path, path, kind, source, built)
+  return SyntaxLinks.check(link_resolve.resolver(context), path, path, kind, source)
 end
 
 local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
@@ -493,9 +492,9 @@ local function test_a_link_is_recorded_by_the_scope_it_is_in()
     "",
     "-- [`Fs.read`] by [`step`].",
     "return a")
-  local parsed_source = assert(ast.parse(built, source, "a.tl"))
+  local chunk = assert(Node.parse(source, "a.tl"))
   local got: mut {string} = {}
-  for _, found in ipairs(link_text.found(built, parsed_source.node, source, "a.tl")) do
+  for _, found in ipairs(SyntaxLinkText.found(chunk, Node.scope(chunk, "a.tl"), source)) do
     got[#got + 1] = found.link.line .. " " .. found.link.target .. " " .. tostring(found.own) ..
       " " .. found.alias
   end
@@ -575,7 +574,7 @@ local function test_symbols_go_unchecked_in_a_project_not_built()
   local context = world({}, {}, {}, {}, "not built")
   local resolver = link_resolve.resolver(context)
   local source = lines("local x = 1", "-- [`x`], [`M.thing`] and [gone](gone.md)", "return x")
-  same(links.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source, built), {
+  same(SyntaxLinks.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source), {
     "/p/a.tl:2: link: gone.md does not resolve (no declaration, symbol or file by that name)",
   })
   assert(resolver.unchecked == 1, tostring(resolver.unchecked))
@@ -887,7 +886,7 @@ end
 --- and what it says it linked.
 local function rewritten(context: link_resolve.Context, path: string, kind: string,
                          source: string): string, {string}
-  local out = links.rewrite(link_resolve.resolver(context), path, path, kind, source, built)
+  local out = SyntaxLinks.rewrite(link_resolve.resolver(context), path, path, kind, source)
   return out.source, out.linked
 end
 

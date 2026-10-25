@@ -1,4 +1,4 @@
---- The Lua standard library's declarations, [`checker/stdlib.d.tl`], keep
+--- The Lua standard library's declarations, `checker/stdlib.d.tl`, keep
 --- the types they were declared with. Moving them out of the checker, or
 --- editing the file, must not change what the checker makes of a standard
 --- library name, so each name below is pinned as the checker prints it: a

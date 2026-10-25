@@ -1,4 +1,4 @@
---- Reachability, [`checker/flow.tl`]: which statements end their block.
+--- Reachability, `checker/flow.tl`: which statements end their block.
 --- The module is compiled here by the compiler the tree carries and run
 --- over programs that compiler has checked, so a node is marked as it is
 --- when the checker asks about it. The cases pin what is decided today,
@@ -33,7 +33,7 @@ end
 local built = { value = nil as compiler? }
 local flow = { value = nil as Flow? }
 
---- The carried compiler, and [`checker/flow.tl`] compiled by it and loaded.
+--- The carried compiler, and `checker/flow.tl` compiled by it and loaded.
 local function setup(): compiler, Flow
   local value = built.value
   local flow_value = flow.value
@@ -50,7 +50,7 @@ local function setup(): compiler, Flow
   return built.value, flow.value
 end
 
---- [`checker/flow.tl`] as loaded.
+--- `checker/flow.tl` as loaded.
 local function flow_module(): Flow
   local _, loaded = setup()
   return loaded

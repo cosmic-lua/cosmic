@@ -5,7 +5,6 @@
 
 local ExampleChecks = require("build.example_checks")
 local Fs = require("cosmic.fs")
-local teal = require("build.teal")
 local tree_checks = require("build.tree_checks")
 
 return function(_argv: {string}): integer
@@ -14,18 +13,12 @@ return function(_argv: {string}): integer
     print(root_trouble)
     return 2
   end
-  -- A compiler of its own, as `cosmic fix` takes one for this check.
-  local built, built_trouble = teal.load()
-  if built == nil then
-    print(built_trouble)
-    return 2
-  end
-  local db, projection_trouble = tree_checks.projection(root, "new")
+  local db, projection_trouble = tree_checks.projection(root)
   if db == nil then
     print(projection_trouble)
     return 2
   end
-  local found = ExampleChecks.run(db, root, built, nil, "new")
+  local found = ExampleChecks.run(db, root)
   local _, _ = db:close()
   for _, line in ipairs(found) do
     print(line)

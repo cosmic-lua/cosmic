@@ -65,12 +65,12 @@ end
 
 function SyntaxLinks.check(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
                            source: string, facts?: Links.Facts): {string}
-  return Links.check_by(reader, resolver, file, absolute, kind, source, facts)
+  return Links.check(reader, resolver, file, absolute, kind, source, facts)
 end
 
 function SyntaxLinks.rewrite(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
                              source: string, facts?: Links.Facts): Links.Rewritten
-  return Links.rewrite_by(reader, resolver, file, absolute, kind, source, facts)
+  return Links.rewrite(reader, resolver, file, absolute, kind, source, facts)
 end
 
 return SyntaxLinks

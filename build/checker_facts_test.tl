@@ -1,4 +1,4 @@
---- Facts, [`checker/facts.tl`]: an immutable map from a place's id to its
+--- Facts, `checker/facts.tl`: an immutable map from a place's id to its
 --- narrowed type. The module is compiled here by the compiler the tree
 --- carries. Property tests draw a program of operations on [`Facts`] and run
 --- it against a model, a plain table of ids to masks and tombstones, held
@@ -58,7 +58,7 @@ end
 
 local loaded = { value = nil as Api? }
 
---- [`checker/facts.tl`], compiled by the carried compiler and loaded once.
+--- `checker/facts.tl`, compiled by the carried compiler and loaded once.
 local function module(): Api
   local value = loaded.value
   if value ~= nil then

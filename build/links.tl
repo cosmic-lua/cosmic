@@ -78,14 +78,11 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local ast = require("build.ast")
 local docs = require("build.docs")
-local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
-local type compiler = require("build.compiler")
 local String = require("cosmic.string")
 
 local record links
@@ -118,67 +115,23 @@ local record links
     mut redefined: boolean
   end
 
-  --- How [`check_by`] and [`rewrite_by`] read a file named `name`, of `kind`
-  --- ([`link_files.kind_of`]): its comments in blocks, and what it
-  --- declares. Teal is read off a tree, the fork's or the new grammar's
+  --- How [`links.check`] and [`links.rewrite`] read a file named `name`, of `kind`
+  --- ([`build.link_files.kind_of`]): its comments in blocks, and what it
+  --- declares. Teal is read off the new grammar's tree
   --- ([`build.syntax_links`]).
   record Reader
     blocks: function(kind: string, source: string, name: string): {link_text.Block}
     declarations: function(kind: string, source: string, name: string): Known
   end
 
-  check_by: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
-                     source: string, facts?: Facts): {string}
-  rewrite_by: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
-                       source: string, facts?: Facts): Rewritten
+  check: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
+                  source: string, facts?: Facts): {string}
+  rewrite: function(reader: Reader, resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
+                    source: string, facts?: Facts): Rewritten
 end
 
 local type Known = links.Known
 local type Rewritten = links.Rewritten
-
---- The comment text of `source`, a file of `kind`
---- ([`link_files.kind_of`]), in blocks. Teal is lexed with `built`,
---- which `name` is given to.
-local function comment_blocks(kind: string, source: string, built: compiler, name: string): {link_text.Block}
-  if kind == "teal" then
-    return link_text.blocks_of(link_text.teal_comments(built, source, name))
-  end
-  return link_files.blocks(kind, source)
-end
-
---- What `source`, a file of `kind`, declares: the first step of
---- resolution ([`link_files.declarations`] for any file but Teal's).
---- Teal that does not parse declares nothing.
-local function declarations(kind: string, source: string, built: compiler, name: string): Known
-  if kind == "teal" then
-    local parsed, _ = ast.parse(built, source, name)
-    if parsed == nil then
-      local nothing: link_text.Declared = { names = {}, aliases = {} }
-      return { at = function(_: integer): link_text.Declared return nothing end, module_level = {},
-        parsed = false }
-    end
-    local found = link_text.declarations(parsed)
-    return { at = found.at, module_level = found.module_level, parsed = true }
-  end
-  local found = link_files.declarations(kind, source)
-  return { at = found.at, module_level = found.module_level, parsed = true }
-end
-
--- TODO: drop [`fork_reader`] and the `built` argument of `check` and `rewrite`, and rename [`check_by`] and [`rewrite_by`],
--- once the switch deletes the fork's compiler: [`build.syntax_links`] reads Teal off the new tree
--- (doc/plans/strict-teal.md, "the switch").
-
---- The fork's way of reading a file: Teal lexed and parsed with `built`.
-local function fork_reader(built: compiler): links.Reader
-  return {
-    blocks = function(kind: string, source: string, name: string): {link_text.Block}
-      return comment_blocks(kind, source, built, name)
-    end,
-    declarations = function(kind: string, source: string, name: string): Known
-      return declarations(kind, source, built, name)
-    end,
-  }
-end
 
 --- The path from the directory `from` to `to`, both from the root.
 local function relative_path(from: string, to: string): string
@@ -229,29 +182,11 @@ local function misdefined(resolver: link_resolve.Resolver, absolute: string, lin
     " is " .. what .. expected
 end
 
---- The facts of Teal `source`, parsed to `parsed`, for `check` and
---- `rewrite`.
-function links.facts(parsed: ast.Parsed, source: string): links.Facts
-  local found = link_text.declarations(parsed, true)
-  return {
-    source = source,
-    blocks = link_text.blocks_of(link_text.comments_of(parsed.tokens, source)),
-    known = { at = found.at, module_level = found.module_level, parsed = true, everywhere = found.everywhere },
-  }
-end
-
---- What is wrong with the links of `source`, a file of `kind` at the
---- absolute path `absolute`, each as `file:line: link: ...` with `file`
---- as it was named. Nothing when it holds no link, or every link
---- resolves to one thing.
-function links.check(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
-                     source: string, built: compiler, facts?: links.Facts): {string}
-  return links.check_by(fork_reader(built), resolver, file, absolute, kind, source, facts)
-end
-
---- [`links.check`] with the file read by `reader`.
-function links.check_by(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
-                        kind: string, source: string, facts?: links.Facts): {string}
+--- What is wrong with the links of `source`, a file of `kind` at the absolute path `absolute`, each as
+--- `file:line: link: ...` with `file` as it was named, the file read by `reader`. Nothing when it holds no link, or every
+--- link resolves to one thing.
+function links.check(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
+                     kind: string, source: string, facts?: links.Facts): {string}
   if facts ~= nil and facts.source ~= source then
     facts = nil
   end
@@ -326,14 +261,8 @@ end
 --- declares its symbol. That block is rewritten whole each time: a
 --- definition no link uses goes, and one that names another file than
 --- its label is set right.
-function links.rewrite(resolver: link_resolve.Resolver, file: string, absolute: string, kind: string,
-                       source: string, built: compiler, facts?: links.Facts): Rewritten
-  return links.rewrite_by(fork_reader(built), resolver, file, absolute, kind, source, facts)
-end
-
---- [`links.rewrite`] with the file read by `reader`.
-function links.rewrite_by(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
-                          kind: string, source: string, facts?: links.Facts): Rewritten
+function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, file: string, absolute: string,
+                       kind: string, source: string, facts?: links.Facts): Rewritten
   local out: Rewritten = { source = source, linked = {}, redefined = false }
   if source:find("`", 1, true) == nil then
     return out

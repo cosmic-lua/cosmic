@@ -1,25 +1,14 @@
 --- Where the Teal sources of the tree put a literal plural noun after a number (`#rows .. " tests"`, `"%d files"`): the
---- sites [`build.tree_checks`]'s `plurals` refuses, read off either tree. [`PluralSites.of_fork`] reads the fork's
---- ([`build.ast`]), [`PluralSites.of_chunk`] the new checker's ([`lang.ast`]); [`build.syntax_compared`] holds the second to
---- the first over every file of the tree.
----
--- TODO: delete [`of_fork`] and the fork's helpers below, and read [`of_chunk`] from the tree as written, once the switch deletes
--- the fork and the translation ([`lang.translate`]) it reads through (doc/plans/strict-teal.md, "the switch").
+--- sites [`build.tree_checks`]'s `plurals` refuses, read off the tree of the new checker ([`lang.ast`]) as the file is
+--- written.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
-local ast = require("build.ast")
-
-local type ForkNode = ast.Node
 
 local record PluralSites
-  --- Every literal plural noun in the fork's tree `parsed` that follows a number, as `{line, noun, snippet, fix}`: after a
-  --- value that is not provably a string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`, `(a - b) .. " rows"`,
-  --- any name, field or call), or after a `%d` in a literal.
-  of_fork: function(parsed: ast.Parsed): {{string}}
-
-  --- The same sites of the tree `chunk` of the new grammar ([`Node.parse`]), in source order. A line is the one the fork
-  --- gives it for a source the translation leaves its lines in.
+  --- Every literal plural noun in the tree `chunk` ([`Node.parse`]) that follows a number, as `{line, noun, snippet, fix}`,
+  --- in source order: after a value that is not provably a string, by `..` (`#rows .. " tests"`, `tostring(n) .. " files"`,
+  --- `(a - b) .. " rows"`, any name, field or call), or after a `%d` in a literal.
   of_chunk: function(chunk: Ast.Chunk): {{string}}
 
   --- `sites` as one line each, to compare two readings of a tree: the noun and the snippet of each, and its line first
@@ -115,62 +104,7 @@ local function format_site(y: integer, noun: string): {string}
   return { tostring(y), noun, "%d " .. noun, "print `plural.noun(n, singular)` beside the number" }
 end
 
---- Whether `node` is a number by its shape: a length, `tostring(...)`, a
---- literal, or arithmetic (parenthesized or not).
-local function counted(node: ForkNode): boolean
-  local inner = node
-  local e1 = node.e1
-  if node.kind == "paren" and e1 ~= nil then inner = e1 end
-  local info = inner.op
-  if inner.kind == "integer" or inner.kind == "number" then return true end
-  if inner.kind ~= "op" or info == nil then return false end
-  if info.op == "#" then return true end
-  if info.op == "@funcall" then
-    local callee = inner.e1
-    return callee ~= nil and callee.tk == "tostring"
-  end
-  return info.op == "+" or info.op == "-" or info.op == "*" or info.op == "//" or
-    info.op == "%" or info.op == "/"
-end
-
---- Whether `node` is a `..`.
-local function is_concat(node: ForkNode): boolean
-  local info = node.op
-  return node.kind == "op" and info ~= nil and info.op == ".."
-end
-
---- The literal string a concatenation starts with, whether its
---- operand is that string or a chain of `..` that begins with one.
-local function leading_literal(node: ForkNode): string?
-  if node.kind == "string" then return node.conststr end
-  local e1 = node.e1
-  if is_concat(node) and e1 ~= nil then return leading_literal(e1) end
-  return nil
-end
-
-function PluralSites.of_fork(parsed: ast.Parsed): {{string}}
-  local sites: {{string}} = {}
-  ast.walk(parsed.node, function(node: ForkNode)
-    local left, right = node.e1, node.e2
-    local conststr = node.conststr
-    if is_concat(node) and left ~= nil and right ~= nil and left.kind ~= "string" and
-        not is_concat(left) then
-      local literal = leading_literal(right)
-      local noun = literal ~= nil and plural_after_space(literal, counted(left)) or nil
-      if literal ~= nil and noun ~= nil then
-        sites[#sites + 1] = concat_site(right.y, noun, literal)
-      end
-    elseif node.kind == "string" and conststr ~= nil and conststr:find("%%d ") then
-      for _, noun in ipairs(format_plurals(conststr)) do
-        sites[#sites + 1] = format_site(node.y, noun)
-      end
-    end
-  end)
-  return sites
-end
-
---- Whether `node` is a number by its shape, as [`counted`] reads the fork's tree: a length, `tostring(...)`, a literal, or
---- arithmetic (parenthesized or not).
+--- Whether `node` is a number by its shape: a length, `tostring(...)`, a literal, or arithmetic (parenthesized or not).
 local function counted_exp(node: Ast.Exp): boolean
   local inner = node
   if (node.kind == "Paren") then inner = node.inner end
@@ -192,8 +126,8 @@ local function is_concat_exp(node: Ast.Exp): boolean
   return (node.kind == "Binary") and node.op == ".."
 end
 
---- The text of the string `node` as the source writes it between its quotes or long brackets, which is what the fork's tree
---- holds of it: an escape stays as written, and the line break that opens a long string stays.
+--- The text of the string `node` as the source writes it between its quotes or long brackets: an escape stays as written,
+--- and the line break that opens a long string stays.
 local function written_text(chunk: Ast.Chunk, node: Ast.String): string
   local written = Lexer.token(chunk.tokens, Node.base(node).first).text
   if node.long then
@@ -203,15 +137,16 @@ local function written_text(chunk: Ast.Chunk, node: Ast.String): string
   return written:sub(2, -2)
 end
 
---- The literal string a concatenation starts with, as [`leading_literal`] reads the fork's tree.
+--- The literal string a concatenation starts with, whether its operand is that string or a chain of `..` that begins with
+--- one.
 local function leading_literal_exp(chunk: Ast.Chunk, node: Ast.Exp): string?
   if (node.kind == "String") then return written_text(chunk, node) end
   if (node.kind == "Binary") and node.op == ".." then return leading_literal_exp(chunk, node.left) end
   return nil
 end
 
---- The line the fork gives `node`: that of its first token, and for an operator that of the operator itself, which the
---- fork's tree puts a binary node at.
+--- The line of `node`: that of its first token, and for an operator that of the operator itself, which is the line a
+--- concatenation is reported at.
 local function line_of(chunk: Ast.Chunk, node: Ast.Exp): integer
   if (node.kind == "Binary") then
     local operator = Node.base(node.left).last + 1

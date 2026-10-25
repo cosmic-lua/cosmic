@@ -260,7 +260,7 @@ local function test_a_function_that_names_a_local_is_a_read_once_code_may_run_it
       read_msg .. " (the function made here names it, and the call at 7:" .. tostring(made.ran_x) ..
       " may run it first: assign it before that call)" .. rewrite)
   -- An assignment in a function is not one for the code around it, and is
-  -- refused for it ([`checker/captures.tl`]).
+  -- refused for it (`checker/captures.tl`).
   captured("local x: integer\nlocal function set() x = 1 end\nset()\nuse(x)", "x")
   captured("local x: integer\nuse(function() x = 1 end)\nuse(x)", "x")
   captured("local x: integer\nlocal ok = pcall(function() x = 1 end)\nuse(ok)", "x")

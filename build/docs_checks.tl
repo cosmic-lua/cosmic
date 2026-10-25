@@ -226,7 +226,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       elseif line:match("^  %S") ~= nil then
         inherited = false
       elseif inherited and line:match("^    [%a_]") ~= nil then
-        local name = line:match("^    ([%w_]+)")
+        -- A field a record writes is listed with its `mut`.
+        local name = line:match("^    mut ([%w_]+)") or line:match("^    ([%w_]+)")
         local asked = entry.source_symbol .. "." .. name
         local reached = lookup(asked)
         local found = false

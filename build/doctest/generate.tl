@@ -452,7 +452,7 @@ end
   end
 
   -- Where each example opens in the doc, which `cosmic docs` shows in
-  -- place of this file's own lines ([`build.derivation`]'s `origin_lines`).
+  -- place of this file's own lines ([`build.syntax_derivation`]'s `origin_lines`).
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then

@@ -1,19 +1,15 @@
 --- Tests of [`build.syntax_links`] and [`build.syntax_link_text`]: the links of a Teal source, read off the new tree, are
---- what [`build.links`] finds and rewrites in it with the fork's.
+--- what [`build.links`] finds and rewrites in it.
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local LinkText = require("build.link_text")
-local Links = require("build.links")
 local Node = require("build.syntax_node")
 local SyntaxLinkText = require("build.syntax_link_text")
 local SyntaxLinks = require("build.syntax_links")
 local Test = require("cosmic.test")
 local link_resolve = require("build.link_resolve")
-local teal = require("build.teal")
 
 Test.policy{ grants = { { path = "core", letters = "r" } } }
-
-local built = assert(teal.load(true))
 
 local function lines(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
@@ -126,23 +122,17 @@ local SOURCES: {string} = {
     "return Queue"),
 }
 
-local function test_the_links_of_a_source_are_checked_and_rewritten_as_the_forks_are()
+local function test_the_links_of_a_source_are_checked_and_rewritten()
   local checked = 0
   local linked = 0
   for index, source in ipairs(SOURCES) do
     local path = "/p/a" .. index .. ".tl"
-    local old = Links.check(link_resolve.resolver(linking_world()), path, path, "teal", source, built)
     local new = SyntaxLinks.check(link_resolve.resolver(linking_world()), path, path, "teal", source)
-    assert(table.concat(old, "\n") == table.concat(new, "\n"), index .. ":\n" .. table.concat(old, "\n") .. "\nagainst\n" ..
-        table.concat(new, "\n"))
     checked = checked + #new
-    local was = Links.rewrite(link_resolve.resolver(linking_world()), path, path, "teal", source, built)
     local now = SyntaxLinks.rewrite(link_resolve.resolver(linking_world()), path, path, "teal", source)
-    assert(was.source == now.source and table.concat(was.linked, "\n") == table.concat(now.linked, "\n") and
-        was.redefined == now.redefined, index .. ": " .. now.source)
     linked = linked + #now.linked
   end
-  -- Something was found to be wrong and something was linked, so that neither is compared empty with empty.
+  -- Something was found to be wrong and something was linked.
   assert(checked >= 3, tostring(checked))
   assert(linked >= 5, tostring(linked))
 end
@@ -164,13 +154,6 @@ local function test_a_facts_value_read_once_answers_check_and_rewrite()
   assert(table.concat(SyntaxLinks.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source, facts), "\n") ==
       table.concat(SyntaxLinks.check(resolver, "/p/a.tl", "/p/a.tl", "teal", source), "\n"))
   assert(facts.known.module_level["helper"] == true and facts.known.module_level["Box"] == true)
-end
-
-local function test_a_markdown_file_is_read_as_the_fork_reads_it()
-  local source = lines("# A guide", "", "See [`Known.thing`] and [the code](build/x.tl).")
-  local path = "/p/doc/guide.md"
-  assert(table.concat(SyntaxLinks.check(link_resolve.resolver(linking_world()), path, path, "markdown", source), "\n") ==
-      table.concat(Links.check(link_resolve.resolver(linking_world()), path, path, "markdown", source, built), "\n"))
 end
 
 --- The comments of a source are read from the tokens, where each starts in the file.

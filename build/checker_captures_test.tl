@@ -1,5 +1,5 @@
 --- A function literal does not assign a local declared outside it
---- ([`checker/captures.tl`]): the checker refuses each such assignment with
+--- (`checker/captures.tl`): the checker refuses each such assignment with
 --- the code `captured_assigned`, and [`build.teal`] tells the rewrite. Each
 --- form of function (a literal, a `local function`, `function f()`, a record
 --- function or method) is held on both sides: one that assigns an outside

@@ -16,7 +16,7 @@
 --- discipline holds). A difference is a line that starts with the dimension's name.
 --
 -- TODO: run the port by hand over the modules the discipline holds whose translation does not parse ([`lang/ast.tl`], [`lang/types.tl`]
--- and one more, which [`tree_checks.typed`] leaves out with `[translated]`), once their `[translated]` pins reach 0: until then the
+-- and one more, which `tree_checks.typed` leaves out with `[translated]`), once their `[translated]` pins reach 0: until then the
 -- first run of the port on them is at the switch.
 --
 -- TODO: delete this module with the fork's [`build.receivers`] and [`build.contracts`] at the switch, when the build compiles

@@ -275,7 +275,7 @@ function link_files.declarations(kind: string, source: string): link_text.Declar
 end
 
 --- The links of `source`, a Markdown, C or Zig file of `kind`, as the
---- build records a module's ([`link_text.found`]): every link but a
+--- build records a module's (`link_text.found`): every link but a
 --- definition, whose target a reference link carries, each at the
 --- column of its file its `[` is at. A name no file declares a first
 --- part of is no alias here: only Teal requires a module.

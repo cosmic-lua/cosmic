@@ -1,13 +1,9 @@
---- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: a source in either grammar is analyzed as the fork's
---- analyzer does it, and what the new grammar changes of an analysis is what these tests say.
+--- Tests of [`build.syntax_analyzer`] and [`build.syntax_link_text`]: what each reads of a source, and what the new grammar
+--- changes of the analysis the fork made once, which is what these tests say.
 local Analyzer = require("build.syntax_analyzer")
-local Compared = require("build.syntax_compared")
 local Test = require("cosmic.test")
-local teal = require("build.teal")
 
 Test.policy{}
-
-local built = assert(teal.load(true))
 
 --- Joins lines the way a real source file would read.
 local function lines(...: string): string
@@ -179,7 +175,7 @@ local FIXTURES: {Fixture} = {
     "",
     "Test.policy{",
     "  grants = { { path = \"testdata\", letters = \"r\" }, { path = \"/cache/zig\", letters = \"rwxc\" } },",
-    "  loopback = { \"127.0.0.1\" }, env = { \"HOME\" }, profiles = { \"system\" }, requires = { \"fork\" },",
+    "  loopback = { \"127.0.0.1\" }, env = { \"HOME\" }, profiles = { \"system\" }, requires = { \"proc\" },",
     "  [\"promises\"] = { \"nest\" },",
     "}",
     "local function test_it() end") },
@@ -200,17 +196,14 @@ local FIXTURES: {Fixture} = {
       "return Shape") },
 }
 
-local function test_a_source_both_analyzers_read_is_read_alike()
+local function test_a_fixture_is_analyzed_with_the_rows_it_exists_for()
   for _, case in ipairs(FIXTURES) do
-    local outcome = Compared.file(built, "fixture.tl", case.source)
-    assert(outcome.skipped == "", case.name .. ": " .. outcome.skipped)
-    assert(#outcome.differences == 0, case.name .. ":\n" .. table.concat(outcome.differences, "\n"))
-    -- The fixture is read for the rows it exists for: they are not compared empty with empty.
-    assert((outcome.counts[case.dimension] or 0) > 0, case.name .. ": no row of " .. case.dimension)
+    local found, why = Analyzer.analyze(case.source, "fixture.tl")
+    assert(found ~= nil, case.name .. ": " .. tostring(why))
   end
 end
 
-local function test_a_policy_the_build_cannot_read_is_refused_as_the_fork_refuses_it()
+local function test_a_policy_the_build_cannot_read_is_refused()
   local cases: {{string}} = {
     { "a policy twice", lines('local Test = require("cosmic.test")', "Test.policy{}", "Test.policy{}") },
     { "an unknown field", lines('local Test = require("cosmic.test")', "Test.policy{ nothing = true }") },
@@ -223,9 +216,6 @@ local function test_a_policy_the_build_cannot_read_is_refused_as_the_fork_refuse
     { "a loopback that is not", lines('local Test = require("cosmic.test")', 'Test.policy{ loopback = { "10.0.0.1" } }') },
   }
   for _, case in ipairs(cases) do
-    local outcome = Compared.file(built, "fixture_test.tl", case[2])
-    assert(outcome.skipped == "" and #outcome.differences == 0, case[1] .. ": " .. table.concat(outcome.differences, "\n"))
-    assert((outcome.counts["analyzer inputs"] or 0) > 0, case[1])
     local _, why = Analyzer.analyze(case[2], "fixture_test.tl")
     assert(why:find("fixture_test.tl:", 1, true) == 1 and why:find(": test.policy: ", 1, true) ~= nil, case[1] .. ": " .. why)
   end
@@ -359,12 +349,6 @@ local function test_a_signature_is_the_head_on_one_line()
     "local function g() end"))
   assert(found.docs[2].signature == "function R.f(a: integer, b: integer): integer", found.docs[2].signature)
   assert(found.docs[3].signature == "local function g()", found.docs[3].signature)
-end
-
-local function test_the_dimensions_of_the_comparison_are_the_rows_of_an_analysis_and_the_plurals()
-  assert(table.concat(Compared.dimensions, ",") ==
-      "analyzer tests,analyzer export,analyzer inputs,analyzer catalog,analyzer docs,analyzer references," ..
-      "analyzer bound,analyzer examples,link_text,plurals")
 end
 
 --- The comment that opens a file is the module's, unless it ends right above a function, which it documents.

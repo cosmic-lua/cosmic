@@ -5,11 +5,11 @@
 --- The result is the raw spliced source: byte-exact wherever no hit
 --- landed, the template's bytes where one did, nothing reflowed.
 --- Rendering belongs to the caller. [`build.fix`] parses the spliced
---- source again and writes the file through [`build.fix.render`], and
+--- source again and writes the file through `build.fix.render`, and
 --- rendering here as well would render twice.
 ---
 --- A `keep` predicate narrows the hits before anything is spliced;
---- [`build.fix.spill`] uses it to name its sites by position.
+--- `build.fix.spill` uses it to name its sites by position.
 ---
 --- One pass over one file: no fixpoint (a rewrite that creates a new
 --- match), no project-wide loop. A rewrite that would delete a comment

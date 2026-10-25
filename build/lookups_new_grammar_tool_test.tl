@@ -321,7 +321,7 @@ end
 
 --- `text` with the words the translation of a Teal source to the new grammar changes set to the source's: a signature the new
 --- checker reads is the translation's (`T | nil` is `T?`, a field the program changes is `mut`), as it is in every row of the
---- analysis ([`build.syntax_compared_analysis`] compares them by the words they hold).
+--- analysis (`build.syntax_compared_analysis` compares them by the words they hold).
 local function spelled(text: string): string
   return (text:gsub("mut ", ""):gsub("(%S+) | nil", "%1?"))
 end

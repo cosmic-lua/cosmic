@@ -18,9 +18,9 @@ local LIBRARY <const> = Programs.library .. "\nglobal record package\n  loaded: 
 
 --- The problems of the module `m`, whose text is `text`, with the modules `stubs` (by name) it requires.
 local function problems_of(text: string, stubs?: {string: string}): {Driver.Problem}
-  local index = Driver.index({ { "m.tl", text } }, false, nothing)
+  local index = Driver.index({ { "m.tl", text } }, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))
@@ -34,9 +34,9 @@ local function problems_of_each(texts: {string}, stubs?: {string: string}): {{Dr
   for i, text in ipairs(texts) do
     files[#files + 1] = { "m" .. tostring(i) .. ".tl", text }
   end
-  local index = Driver.index(files, false, nothing)
+  local index = Driver.index(files, nothing)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", LIBRARY, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))

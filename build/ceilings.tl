@@ -2,17 +2,16 @@
 --- in [`build/ceilings.txt`] and not as Teal compiled into the tool. A ceiling only falls: a rewrite removes the places it
 --- counts and lowers the number, and a file that goes over one is refused.
 ---
---- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stages
---- `generated`, `read`, `typed` and `untyped` a file and a count, and for `hazards` a name and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
+--- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
+--- `untyped` a file and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
 --- says what brings them to zero. Each ceiling line stands alone between blank lines ([`Ceilings.crowded`]), so two pull
 --- requests that move neighbouring pins merge. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
---- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module (`scoped`
---- for a module in the new grammar, `translated` for one that is the fork's Teal, translated): the tree's check of a file and
---- the build's refuse the same count, with the same words.
---- `examples` is the check of the examples a reader copies ([`build.example_checks`]), held in the new mode alone: a key is an
+--- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module: the
+--- tree's check of a file and the build's refuse the same count, with the same words.
+--- `examples` is the check of the examples a reader copies ([`build.example_checks`]): a key is an
 --- example file or a guide and a code of any stage, and a count is the findings of that code in all of its examples.
 ---
---- `testdata` is the check of the Teal under `ci/testdata` ([`build.tree_checks`]'s `ci_testdata`), held in the new mode alone:
+--- `testdata` is the check of the Teal under `ci/testdata` ([`build.tree_checks`]'s `ci_testdata`):
 --- a key is a file and a code of any stage, and a count is the findings of that code in the file.
 ---
 --- A ceiling is read at the start of a run, from the file or from a database the file filled; a caller that has neither
@@ -20,22 +19,14 @@
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
 local Fs = require("cosmic.fs")
-local Lexer = require("lang.lexer")
-local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
 
 local record Ceilings
   --- The stages a ceiling may name, in the order of the file.
   enum Stage
-    "lexed"
-    "translated"
     "scoped"
     "declared"
-    "hazards"
-    "generated"
-    "read"
-    "typed"
     "untyped"
     "checked"
     "examples"
@@ -51,7 +42,7 @@ local record Ceilings
     fix: string
   end
 
-  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `generated`, `read`, `typed` and `untyped`) to its count.
+  --- The ceilings of each stage, by stage: a key (`<file> <code>`, or `<file>` for `untyped`) to its count.
   record Table
     stages: {string: {string: integer}}
     --- Whether the tree has no ceilings to be held to and none to raise: a project's. An error over a ceiling of 0 is then
@@ -77,7 +68,7 @@ local record Ceilings
   crowded: function(text: string): string
 
   --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
-  --- the tree finds no error in a file that is not there. `hazards` names none.
+  --- the tree finds no error in a file that is not there.
   dead: function(root: string, ceilings: Table): {string}
 
   --- The ceilings of `stage` in `ceilings`: empty for a stage the table has none of.
@@ -106,11 +97,7 @@ Ceilings.path = "build/ceilings.txt"
 
 --- The codes of the errors each stage that counts by code counts.
 local function codes_of(stage: string): {string}?
-  if stage == "lexed" then
-    return Lexer.codes
-  elseif stage == "translated" then
-    return Parser.codes
-  elseif stage == "scoped" then
+  if stage == "scoped" then
     return Scopes.codes
   elseif stage == "declared" then
     return Declarations.codes
@@ -149,8 +136,7 @@ local function unmeetable(stage: string, key: string): string
 end
 
 local STAGES <const>: {string: boolean} = {
-  lexed = true, translated = true, scoped = true, declared = true, hazards = true, generated = true, read = true,
-  typed = true, untyped = true, checked = true, examples = true, testdata = true,
+  scoped = true, declared = true, untyped = true, checked = true, examples = true, testdata = true,
 }
 
 function Ceilings.parse(text: string): Ceilings.Table?, string
@@ -226,13 +212,11 @@ end
 function Ceilings.dead(root: string, ceilings: Ceilings.Table): {string}
   local out: mut {string} = {}
   for stage, held in pairs(ceilings.stages) do
-    if stage ~= "hazards" then
-      for key in pairs(held) do
-        local file = key:match("^(%S+)")
-        local there, _ = Fs.exists(root .. "/" .. file)
-        if file ~= nil and there ~= true then
-          out[#out + 1] = key .. ": pinned in [" .. stage .. "], and the tree has no file " .. file
-        end
+    for key in pairs(held) do
+      local file = key:match("^(%S+)")
+      local there, _ = Fs.exists(root .. "/" .. file)
+      if file ~= nil and there ~= true then
+        out[#out + 1] = key .. ": pinned in [" .. stage .. "], and the tree has no file " .. file
       end
     end
   end

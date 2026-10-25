@@ -32,11 +32,11 @@ local function build_of(files: {string: string}): Driver.Build
   table.sort(entries, function(a: {string}, b: {string}): boolean
     return a[1] < b[1]
   end)
-  local index = Driver.index(entries, false, function(_file: string): boolean
+  local index = Driver.index(entries, function(_file: string): boolean
     return false
   end)
   local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, false, {}) },
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
     adjust = nil, external = {}, types = false,
   })
   build:provide(Driver.files(index))

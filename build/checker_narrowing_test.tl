@@ -1,4 +1,4 @@
---- Places and guards, [`checker/narrowing.tl`]: what a test tells of a
+--- Places and guards, `checker/narrowing.tl`: what a test tells of a
 --- local or a field of one, and what an assignment makes of it. The
 --- first half runs the module, compiled here by the compiler the tree
 --- carries, against a stand-in for the checker's types. The second half
@@ -76,7 +76,7 @@ end
 local built = { value = nil as compiler? }
 local narrowing = { value = nil as Narrowing? }
 
---- The carried compiler, and [`checker/narrowing.tl`] compiled by it and
+--- The carried compiler, and `checker/narrowing.tl` compiled by it and
 --- loaded.
 local function setup(): compiler, Narrowing
   local value = built.value
@@ -101,7 +101,7 @@ local function setup(): compiler, Narrowing
   return built.value, narrowing.value
 end
 
---- [`checker/narrowing.tl`] as loaded.
+--- `checker/narrowing.tl` as loaded.
 local function module(): Narrowing
   local _, loaded = setup()
   return loaded
@@ -495,7 +495,7 @@ local function test_a_union_of_members_joined_by_any_of_keeps_the_last_pair()
   setup()
   -- `x is string | number | nil` is built as `(x is number) or (x is nil)`
   -- once the first member is lost: the known limit
-  -- [`checker/narrowing.tl`] holds a TODO for.
+  -- `checker/narrowing.tl` holds a TODO for.
   local x = module().local_place("x")
   local types = { x = union(string_t, number, nothing) }
   local guard = module().any_of(here, module().type_is(here, x, number), module().type_is(here, x, nothing))
@@ -833,7 +833,7 @@ local function test_unnarrowed_field_type_test_and_left_of_and()
   unnarrowed("print(q.a and q.a + 1 + (touch(q) and q.a + 1 or 0))")
 end
 
---- The limit [`checker/narrowing.tl`] holds a TODO for: `is` on a field.
+--- The limit `checker/narrowing.tl` holds a TODO for: `is` on a field.
 local function test_is_on_a_field_is_not_narrowed_yet()
   refused("if q.a is number then print(1) end", "1: can only use 'is' on variables")
 end

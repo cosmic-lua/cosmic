@@ -2,7 +2,7 @@
 --- and written to its `links` table ([the schema](schema.tl)) as the
 --- projection is written ([`build.writer`]).
 ---
---- A parse records each link as written ([`link_text.found`]), keyed by
+--- A parse records each link as written (`link_text.found`), keyed by
 --- its source's hash like every other row a parse keeps; so does the
 --- stage for each Markdown, C and Zig file `cosmic fix` checks the links
 --- of ([`build.work`]'s `linked`), whose rows name no module. What a
@@ -164,7 +164,7 @@ local text = bind.text
 --- -- preferring a paired declaration, as the documented interface does
 --- ([`build.writer`]'s `insert_docs`), each under the module its docs name -- in file and
 --- line order. The compiler a boot puts in, which [`build.derivation`] names
---- [`checker/tl.tl`], is the tree's by no link: it is that file's Lua.
+--- `checker/tl.tl`, is the tree's by no link: it is that file's Lua.
 --- Then every link the stage read of a file that is no module (`linked`).
 local raw_links =
   "SELECT m.path, i.file, l.line, l.column, l.form, " ..

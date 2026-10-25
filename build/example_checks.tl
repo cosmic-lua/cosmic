@@ -19,26 +19,21 @@
 --- doctest has no notion of a companion written into the current
 --- directory instead.
 ---
---- With the new checker (`COSMIC_GRAMMAR=new`, [`build.grammar_mode`]) an example is compiled by it as a file alone
---- ([`build.pipeline`]'s `lone`): the standard library is the declarations the tool carries, and a finding is the checker's,
---- in the layout of the old ones. What the examples still write in a form only the new grammar reads is pinned per file and
+--- An example is compiled by the new checker as a file alone ([`build.pipeline`]'s `checked_alone`): the standard library
+--- is the declarations the tool carries. What the examples still write that the checker refuses is pinned per file and
 --- code under `[examples]` in [`build/ceilings.txt`], so that it can only fall.
 local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Sqlite = require("cosmic.sqlite")
 local doctest = require("build.doctest")
-local shape_specs = require("build.shape_specs")
-local standalone = require("build.standalone")
 local symbols = require("build.symbols")
 local type Pipeline = require("build.pipeline")
-local type compiler = require("build.compiler")
 
 local record example_checks
 end
 
 --- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown.
-local function problems_new(options: Pipeline.Options, name: string, source: string): {string}
+local function problems(options: Pipeline.Options, name: string, source: string): {string}
   local made = require("build.pipeline").checked_alone(name, source, options)
   -- Each line is the checker's, `name:line:column: what is wrong (code): the fix`, the line a line of the text as shown.
   if made.code ~= nil then
@@ -47,40 +42,13 @@ local function problems_new(options: Pipeline.Options, name: string, source: str
   return made.lines
 end
 
---- What the checker says of `source` as the chunk `name`, one line each.
-local function problems(built: compiler, env: compiler.Env, options: Pipeline.Options?, name: string,
-                        source: string): {string}
-  if options ~= nil then
-    return problems_new(options, name, source)
-  end
-  local out: mut {string} = {}
-  -- As the build compiles it: a [`Shape.record_of`] call is resolved first.
-  local resolved, refusal = shape_specs.resolve(built, env, name, name, source)
-  if resolved == nil then
-    out[1] = name .. ": " .. refusal
-    return out
-  end
-  local code, result = built.gen(resolved, env, nil, "tl")
-  if result ~= nil then
-    for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
-      for _, e in ipairs(group or {}) do
-        out[#out + 1] = name .. ": " .. e.msg .. " (line " .. e.y .. " of the text as shown)"
-      end
-    end
-  end
-  if code == nil and #out == 0 then
-    out[1] = name .. ": the compiler refused it"
-  end
-  return out
-end
-
 --- A stored example source ([`build.analyzer.ExampleEntry.source`]: the
 --- `require` lines it needs, the function) as a chunk that runs alone:
 --- `local Example = {}` where the function begins, and a call of it.
 --- Lines are kept, so a complaint's line is a line of the text shown,
---- less the one `local Example` takes at the function. `declared` is what makes the table: `{}` in the fork's Teal, and in the
---- new grammar's, which refuses a literal with no type to make it from, a record of that name.
-local function chunk(name: string, source: string, declared: string): string
+--- less the one `local Example` takes at the function. The table is a record of that name, since a literal with no type to
+--- make it from is refused.
+local function chunk(name: string, source: string): string
   -- The function's `function` starts a line: a match inside a comment
   -- or a string of a call carried above it is not the boundary.
   local at = source:find("^function Example%.") or source:find("\nfunction Example%.")
@@ -89,14 +57,12 @@ local function chunk(name: string, source: string, declared: string): string
   end
   local head = at ~= nil and source:sub(1, at - 1) or ""
   local rest = at ~= nil and source:sub(at) or source
-  return head .. declared .. rest .. "\nExample." .. name .. "()\n"
+  return head .. "local record Example end " .. rest .. "\nExample." .. name .. "()\n"
 end
 
---- The name a finding says is unknown (the fork's `unknown variable: X`, `unknown type: X`, the new checker's
---- `` `X` is not declared (unknown_variable)``), or nil.
+--- The name a finding says is unknown (`` `X` is not declared (unknown_variable)``), or nil.
 local function unknown_name(finding: string): string?
-  return finding:match("unknown variable: ([%w_]+)") or finding:match("unknown type: ([%w_]+)") or
-    finding:match("`([%w_]+)` is not declared %(unknown_[a-z]+%)")
+  return finding:match("`([%w_]+)` is not declared %(unknown_[a-z]+%)")
 end
 
 --- The names a top-level line of an example file declares as a helper
@@ -128,7 +94,7 @@ end
 
 --- What an example file (its text) says about `name`, a name a shown
 --- example lacks: if a top-level helper declares it, it was too long
---- to carry ([`build.analyzer`]); if `name` is `Example` and a helper
+--- to carry; if `name` is `Example` and a helper
 --- calls `Example.x`, the copy has no such table. Nil for any other.
 local function helper_trouble(file: string, name: string): string?
   local helper = ""
@@ -160,11 +126,8 @@ end
 --- Every public example's rendered source, compiled as it is copied.
 --- A name the text lacks that its file declares as a helper is said to
 --- be one too long to carry.
---- @param env the checker's environment: `require` of a module the
----   examples name is answered from it
 --- @param root the tree, whose example files are read for that
-local function examples(db: Sqlite.Handle, built: compiler,
-                        env: compiler.Env, options: Pipeline.Options?, root: string): {string}
+local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: string): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
@@ -177,8 +140,7 @@ local function examples(db: Sqlite.Handle, built: compiler,
     local file, _ = Fs.read(root .. "/" .. row:text(1))
     file = file or ""
     local told: mut {string: boolean} = {}
-    for _, line in ipairs(problems(built, env, options, where, chunk(row:text(3), row:text(4),
-        if options ~= nil then "local record Example end " else "local Example = {} " end))) do
+    for _, line in ipairs(problems(options, where, chunk(row:text(3), row:text(4)))) do
       local name = unknown_name(line)
       local said = name ~= nil and helper_trouble(file, name) or nil
       if said == nil then
@@ -197,8 +159,7 @@ end
 --- project's entry, whose code reads them through `tmp`: it compiles
 --- with `tmp` a string in scope, and a name it needs beyond that is
 --- still refused.
-local function guide(text: string, file: string, built: compiler,
-                     env: compiler.Env, options: Pipeline.Options?): {string}
+local function guide(text: string, file: string, options: Pipeline.Options): {string}
   local entries, trouble = doctest.entries(text)
   if entries == nil then
     return { file .. ": " .. trouble }
@@ -210,7 +171,7 @@ local function guide(text: string, file: string, built: compiler,
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
     local where = file .. ":" .. entry.line .. ": example"
-    for _, line in ipairs(problems(built, env, options, where, source .. "\n")) do
+    for _, line in ipairs(problems(options, where, source .. "\n")) do
       out[#out + 1] = line
     end
   end
@@ -304,46 +265,24 @@ end
 
 --- Both of the above over the tree at `root`: the projection `db`'s
 --- examples and each of `guides` (default [`symbols.guides`], read from
---- `doc/guides/<name>.md`).
---- @param built a compiler, its own: the check points it at this binary's sources
---- @param grammar the checker that compiles the examples: the one `COSMIC_GRAMMAR` names where not given. The new one's
----   findings are those over the tree's `[examples]` ceilings, and the ceilings above the findings.
-function example_checks.run(db: Sqlite.Handle, root: string, built: compiler,
-                            guides?: {string}, grammar?: GrammarMode.Mode): {string}
-  local mode = grammar
-  if mode == nil then
-    local chosen, chosen_trouble = GrammarMode.mode()
-    if chosen == nil then
-      return { chosen_trouble }
-    end
-    mode = chosen
+--- `doc/guides/<name>.md`). The findings are those over the tree's `[examples]` ceilings, and the ceilings above the
+--- findings.
+function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}): {string}
+  local options, options_trouble = require("build.pipeline").alone()
+  if options == nil then
+    return { options_trouble }
   end
-  local env, env_trouble = standalone.environment(built)
-  if env == nil then
-    return { env_trouble }
-  end
-  local options: Pipeline.Options? = nil
-  if mode == "new" then
-    local made, made_trouble = require("build.pipeline").alone()
-    if made == nil then
-      return { made_trouble }
-    end
-    options = made
-  end
-  local out = examples(db, built, env, options, root)
+  local out = examples(db, options, root)
   for _, name in ipairs(guides or symbols.guides) do
     local file = "doc/guides/" .. name .. ".md"
     local text, read_trouble = Fs.read(root .. "/" .. file)
     if text == nil then
       out[#out + 1] = read_trouble
     else
-      for _, line in ipairs(guide(text, file, built, env, options)) do
+      for _, line in ipairs(guide(text, file, options)) do
         out[#out + 1] = line
       end
     end
-  end
-  if mode ~= "new" then
-    return out
   end
   local pins, pins_trouble = pins_of(root)
   if pins == nil then
