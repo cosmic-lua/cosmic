@@ -151,7 +151,7 @@ local not_source: {string:boolean} = {
 
 --- The fixture of forms the new grammar refuses on purpose (a project written in them is refused in the new checker's words,
 --- `rehearsal-project`'s test): never a file to read.
-local refused_on_purpose <const>: string = "testdata/rehearsal/fork_only"
+local refused_on_purpose <const>: string = "testdata/projects/fork_only"
 
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry

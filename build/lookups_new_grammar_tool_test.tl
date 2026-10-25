@@ -1,16 +1,15 @@
 --- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them with the new checker
 --- (`COSMIC_GRAMMAR=new`): a lookup builds the project as it stands before it answers ([`build.rebuild`]), and that build reads the
 --- sources with the new checker's syntax tree, so a symbol declared with `mut` or `name?: T` is found, and so is a call through
---- a method. The project is the fixture of [`build.new_grammar_project`].
+--- a method. The project is the project of testdata/projects/new_grammar.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local NewGrammarProject = require("build.new_grammar_project")
 local this_program = require("build.this_program")
 
---- The program itself, which this test starts, and the project of testdata/rehearsal it reads.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/rehearsal", letters = "r" } } }
+--- The program itself, which this test starts, and the project of testdata/projects it reads.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
 
 --- A module of the fixture's project that declares what only the new grammar spells: `mut width` and `label?: string`, and a
 --- method, `grow`, that a value of the nested record `Shapes.Box` is called through (a call through a value is found by its
@@ -181,7 +180,7 @@ end
 --- then keeps up to date, and the module `shapes` added after, so that only a lookup has seen it.
 local function started(tmp: string, name: string): string
   local root = tmp .. "/" .. name
-  assert(NewGrammarProject.write(root))
+  assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   local result, out, err = ran(root, tmp, "new", { "test" })
   assert(result.ok, out .. err)
   assert(Fs.write(root .. "/shapes.tl", SHAPES))
@@ -319,16 +318,16 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   assert(mended_err:find("not rebuilt", 1, true) == nil, mended_err)
 end
 
---- A copy of the project of testdata/rehearsal under `tmp`, built by `cosmic test`.
+--- A copy of the project of testdata/projects under `tmp`, built by `cosmic test`.
 local function rehearsal_project(tmp: string): string
   local root = tmp .. "/rehearsal"
-  assert(Fs.copy_tree("testdata/rehearsal/project", root))
+  assert(Fs.copy_tree("testdata/projects/project", root))
   local result, out, err = ran(root, tmp, "new", { "test" })
   assert(result.ok, out .. err)
   return root
 end
 
---- Every row the build recorded of the project of testdata/rehearsal, the symbols documented and the uses, in one
+--- Every row the build recorded of the project of testdata/projects, the symbols documented and the uses, in one
 --- question, and what `docs` and `uses` say of it, each finding something: the rows carry their file and line, in order.
 local function test_the_rows_and_lookups_of_the_rehearsal_project_are_answered(tmp: string)
   local root = rehearsal_project(tmp)

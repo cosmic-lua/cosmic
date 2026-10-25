@@ -16,7 +16,6 @@ local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
-local NewGrammarProject = require("build.new_grammar_project")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -29,7 +28,7 @@ local build_paths = require("build.paths")
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" },
-    { path = "testdata/rehearsal", letters = "r" } },
+    { path = "testdata/projects", letters = "r" } },
 }
 
 --- `root`'s build directory ([`build.paths`]), made, with `root` made
@@ -504,7 +503,7 @@ end
 --- the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs. The fork does not read it.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"
-  assert(NewGrammarProject.write(root))
+  assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   local names, trouble = embed.tree(root, true, nil, "new")
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
   local r = assert(Child.run({ build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
@@ -516,7 +515,7 @@ end
 --- project has none to raise. The fork builds it.
 local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   local root = tmp .. "/fork_only"
-  assert(Fs.copy_tree("testdata/rehearsal/fork_only", root))
+  assert(Fs.copy_tree("testdata/projects/fork_only", root))
   assert(Fs.mkdirs(root .. "/cmd/x"))
   assert(Fs.write(root .. "/cmd/x/main.tl", "return function(): integer return 0 end\n"))
   local names, trouble = embed.tree(root, true, nil, "new")

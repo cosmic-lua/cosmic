@@ -1,21 +1,20 @@
 --- A project written in the new grammar (`mut`, a class, function fields called as `queue:push(word)`, `T?`) with a template
---- and an example, as the tool runs it: the fixture of [`build.new_grammar_project`]. It is tested, its coverage is counted
+--- and an example, as the tool runs it: the project of testdata/projects/new_grammar. It is tested, its coverage is counted
 --- from the syntax tree, a planted error is refused with the checker's fix, and the words speak of no pin: a project has no
 --- ceilings to raise. `cosmic build` of the same project is in build/embed_tool_test.tl.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local NewGrammarProject = require("build.new_grammar_project")
 local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the project it builds.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" } } }
 
 --- A copy of the fixture under `tmp`, a tree of its own for the run `name`.
 local function copy_of(tmp: string, name: string): string
   local root = tmp .. "/" .. name
-  assert(NewGrammarProject.write(root))
+  assert(Fs.copy_tree("testdata/projects/new_grammar", root))
   return root
 end
 

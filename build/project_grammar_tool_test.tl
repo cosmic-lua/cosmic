@@ -1,7 +1,7 @@
 --- A project outside cosmic's tree, built and tested with the new checker (`COSMIC_GRAMMAR=new`) as the tool runs it: its
 --- globals are the declarations of the standard library the tool carries ([`build.checker_declarations`]), since the project has
---- no `checker/` to read them from. The project of testdata/rehearsal/project is written in the grammar and passes; the one of
---- testdata/rehearsal/fork_only is written in forms the new grammar refuses, and is refused with the new checker's words and fix.
+--- no `checker/` to read them from. The project of testdata/projects/project is written in the grammar and passes; the one of
+--- testdata/projects/fork_only is written in forms the new grammar refuses, and is refused with the new checker's words and fix.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -12,14 +12,14 @@ local this_program = require("build.this_program")
 
 --- The program itself, which this test starts, and the two projects it builds.
 Test.policy{ profiles = { "cosmic" }, grants = {
-  { path = "o/bin", letters = "rx" }, { path = "testdata/rehearsal", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
+  { path = "o/bin", letters = "rx" }, { path = "testdata/projects", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
   { path = "lang/prelude.d.tl", letters = "r" },
 } }
 
---- A copy of the project `name` of testdata/rehearsal under `tmp`, a tree of its own for a run in `grammar`.
+--- A copy of the project `name` of testdata/projects under `tmp`, a tree of its own for a run in `grammar`.
 local function copy_of(tmp: string, name: string, grammar: string): string
   local root = tmp .. "/" .. name .. "-" .. grammar
-  assert(Fs.copy_tree("testdata/rehearsal/" .. name, root))
+  assert(Fs.copy_tree("testdata/projects/" .. name, root))
   return root
 end
 
