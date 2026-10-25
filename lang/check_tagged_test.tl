@@ -1,6 +1,6 @@
 --- Tests of tagged unions in [`lang.check`] ("tagged unions" in doc/plans/strict-teal.md): a union of records whose
---- one field has an enum in each member, no value of which is in two members, is told apart by `==` on that field, and a
---- chain of tests that covers every member ends a function. Every program the checker takes is also run as the Lua [`lang.codegen`]
+--- one field has an enum in each member, no value of which is in two members, is told apart by `==` on that field, and
+--- a chain of tests that covers every member ends a function. Every program the checker takes is also run as the Lua [`lang.codegen`]
 --- writes, with each narrowed read checked against the members the tag selected ([`Programs.execute`]).
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
@@ -247,4 +247,37 @@ local function test_an_assert_of_a_test_of_the_tag_narrows_what_follows_it()
   refused("local function wrong(s: Shape, t: Shape): integer\n  assert(t.kind == \"circle\")\n  return s.radius\nend\n", "field_unknown")
   -- What `assert` narrowed is lost by an assignment, as a test's is.
   refused("local s = circle()\nassert(s.kind == \"circle\")\ns = square()\nprint(s.radius)\n", "field_unknown")
+end
+
+local function test_a_literal_is_told_apart_by_a_field_only_where_every_candidate_has_an_enum_in_it()
+  local head = [[
+local enum KA "a" end
+local enum KB "b" end
+local enum M "x" "y" end
+local record A
+  kind: KA
+  mode: M
+end
+local record B
+  kind: KB
+  mode?: M
+end
+local type U = A | B
+]]
+  -- `mode` selects nothing, since `B` may omit it, and `kind` does.
+  assert(type_of("local v: U = { mode = \"x\", kind = \"b\" }\nlocal t = v\n", "t", head) == "B")
+  assert(type_of("local v: U = { kind = \"a\", mode = \"y\" }\nlocal t = v\n", "t", head) == "A")
+end
+
+local function test_the_narrowed_read_of_a_member_with_several_tag_values_carries_all_of_them()
+  local x = Programs.execute(MANY .. "local f = curved(\"oval\")\nif f.kind == \"oval\" then\n  print(f.radius)\nend\n", true)
+  assert(x.ran and x.fault == nil, Programs.codes(x.run))
+  local found = false
+  for _, n in ipairs(x.run.result.narrowed) do
+    if n.tag == "kind" then
+      local tags = table.concat(n.tags or {}, ",")
+      found = found or tags == "circle,oval"
+    end
+  end
+  assert(found, "no read of the tag with both values")
 end

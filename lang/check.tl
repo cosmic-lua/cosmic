@@ -1674,28 +1674,32 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   if #candidates == 1 then
     return candidates[1]
   end
-  -- A tag: a named item whose string value is a value of the enum a member's field of that name has. Another member with
-  -- the value too is `untagged_union` where the union is declared, and leaves the literal ambiguous here.
+  -- A tag: a named item whose string value is a value of the enum a member's field of that name has, where every
+  -- candidate has an enum there, as a tag is. Another member with the value too is `untagged_union` where the union is
+  -- declared, and leaves the literal ambiguous here.
   for _, item in ipairs(e.items) do
     local name = item_name(item)
     local value = (item.kind == "Named") and peel(item.value) or (item.kind == "Keyed") and peel(item.value) or nil
     if name ~= nil and value ~= nil and (value.kind == "String") then
       local tagged: mut {Type} = {}
+      local everywhere = true
       for _, m in ipairs(candidates) do
         local field = (m.tag == "named") and plain_field(ctx, m, name) or nil
         local t = field ~= nil and field.type or nil
-        local body = t ~= nil and (t.tag == "named") and t.decl.body or nil
-        local has = false
-        if body ~= nil then
+        local body = t ~= nil and (t.tag == "named") and t.decl.kind == "enum" and t.decl.body or nil
+        if body == nil then
+          everywhere = false
+        else
+          local has = false
           for _, v in ipairs(body.values) do
             has = has or v == value.value
           end
-        end
-        if has then
-          tagged[#tagged + 1] = m
+          if has then
+            tagged[#tagged + 1] = m
+          end
         end
       end
-      if #tagged == 1 then
+      if everywhere and #tagged == 1 then
         return tagged[1]
       end
     end
