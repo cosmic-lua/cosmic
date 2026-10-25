@@ -38,7 +38,7 @@ return function(argv: {string}): integer
   local caught = guard:cancelled()
   assert(guard:close())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
-  assert(Fs.write(argv[1], tostring(caught)))
+  assert(Fs.write((argv[1] or ""), tostring(caught)))
   return 0
 end
 ]]))

@@ -30,19 +30,19 @@ local function test_the_client_and_the_server_agree(tmp: string)
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
-  local base = argv[1]
+  local base = (argv[1] or "")
   local said: mut {string} = {}
   local missing = assert(Http.get(base .. "/items/a"))
-  said[#said + 1] = missing.status .. " " .. missing.body
+  said[#said + 1] = tostring(missing.status) .. " " .. missing.body
   local put = assert(Http.request("PUT", base .. "/items/a", { body = "first value" }))
-  said[#said + 1] = put.status .. " " .. put.body
+  said[#said + 1] = tostring(put.status) .. " " .. put.body
   local got = assert(Http.get(base .. "/items/a?x=1"))
-  said[#said + 1] = got.status .. " " .. got.body .. " " .. got.headers["content-type"]
+  said[#said + 1] = tostring(got.status) .. " " .. got.body .. " " .. (got.headers["content-type"] or "")
   local head = assert(Http.request("HEAD", base .. "/items/a"))
-  said[#said + 1] = head.status .. " [" .. head.body .. "] " .. head.headers["content-length"]
+  said[#said + 1] = tostring(head.status) .. " [" .. head.body .. "] " .. (head.headers["content-length"] or "")
   local gone = assert(Http.request("DELETE", base .. "/items/a"))
   said[#said + 1] = tostring(gone.status)
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]))
@@ -98,10 +98,10 @@ local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local said: mut {string} = {}
   for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
-    local got = assert(Http.get(argv[1] .. "/" .. name))
-    said[#said + 1] = got.status .. " " .. got.body
+    local got = assert(Http.get((argv[1] or "") .. "/" .. name))
+    said[#said + 1] = tostring(got.status) .. " " .. got.body
   end
-  Fs.put(Fs.stdout, table.concat(said, "\n"))
+  local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
 end
 ]]))
@@ -153,12 +153,12 @@ return function(argv: {string}): integer
     handle = function(_req: Server.Request): Server.Reply return { status = 200, body = "up" } end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       -- Written whole, then renamed in, so the test never reads half a port.
-      assert(Fs.write(argv[1] .. ".tmp", tostring(addresses[1].port)))
-      assert(Fs.rename(argv[1] .. ".tmp", argv[1]))
+      assert(Fs.write((argv[1] or "") .. ".tmp", tostring(assert(addresses[1]).port)))
+      assert(Fs.rename((argv[1] or "") .. ".tmp", (argv[1] or "")))
     end,
   }
   if not ok then
-    Fs.put(Fs.stderr, why)
+    local _, _ = Fs.put(Fs.stderr, why)
     return 1
   end
   return 0

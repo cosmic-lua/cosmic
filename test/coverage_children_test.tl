@@ -51,22 +51,26 @@ local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
-  Coverage.children(argv[1])
+  Coverage.children((argv[1] or ""))
   -- This program again, past its launcher, as `this_program.program`
   -- starts it (a file run cannot reach build/), in an empty environment
   -- but for how to start the core and where to build its file: only the
   -- core can carry the directory.
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local words: mut {string} = {}
-  for _, word in ipairs(if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end) do
-    words[#words + 1] = word
-  end
-  words[#words + 1] = argv[2]
   local env: mut {string:string} = {}
-  for name, value in pairs(if relaunch ~= nil then relaunch.env else {} end) do env[name] = value end
-  env["COSMIC_BUILD_HOME"] = Env.get("COSMIC_BUILD_HOME")
+  local fds: mut {integer:integer} = {}
+  if relaunch ~= nil then
+    for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    for target, source in pairs(relaunch.fds) do fds[target] = source end
+  else
+    words[#words + 1] = assert(Proc.executable())
+  end
+  words[#words + 1] = (argv[2] or "")
+  env["COSMIC_BUILD_HOME"] = assert(Env.get("COSMIC_BUILD_HOME"))
   local r = assert(Child.run(words, { env = env,
-    fds = if relaunch ~= nil then relaunch.fds else {} end, cwd = argv[3], stdout = "capture",
+    fds = fds, cwd = (argv[3] or ""), stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, tostring(r.stderr))
   print(assert(r.stdout):match("^(%a+)"))
@@ -115,28 +119,14 @@ local function test_processes_confined_apart_report_apart(tmp: string)
     if Fs.exists(path) then reads[#reads + 1] = path end
   end
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
+local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-local type Searcher = function(string): any, any
-local record Status
-  code: integer
-end
-local record Process
-  spawn: function(string, {string}, {string:string}, string, integer?, integer?, integer?, boolean,
-    {integer:integer}, any): integer, string, integer
-  waitpid: function(integer, boolean): Status
-end
 return function(argv: {string}): integer
-  local reports, reads: string, mut {string} = argv[1], {}
-  for path in argv[2]:gmatch("[^\n]+") do reads[#reads + 1] = path end
+  local reports, reads: string, mut {string} = (argv[1] or ""), {}
+  for path in (argv[2] or ""):gmatch("[^\n]+") do reads[#reads + 1] = path end
   Coverage.children(reports)
-  local process: Process? = nil
-  for _, searcher in ipairs(package.searchers as {Searcher}) do
-    local loader, extra = searcher("cosmic.child")
-    if type(loader) == "function" and type(extra) == "table" then process = extra as Process end
-  end
-  assert(process ~= nil, "no searcher hands cosmic.child's raw module")
   local relaunch = assert(Proc.relaunch())
   local words: mut {string} = {}
   for _, word in ipairs(relaunch.argv) do words[#words + 1] = word end
@@ -144,16 +134,15 @@ return function(argv: {string}): integer
   words[#words + 1] = "return 0"
   local fds: mut {integer:integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
-  local own = sys.stat("/proc/sys") == nil
-  local pid, trouble, errno = process.spawn(words[1], words, relaunch.env, "/", nil, nil, nil,
-    false, fds, { unveil = { reads = reads, writes = { reports } }, offline = true })
-  if pid == nil then
-    local unconfinable = errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
-      errno == sys.EINVAL or errno == sys.ENOSPC
-    print((if unconfinable then "unconfinable " elseif own then "refused " else "host-proc " end) .. trouble)
+  local proc_sys, _ = sys.stat("/proc/sys")
+  local own = proc_sys == nil
+  local r, trouble = Child.run(words, { env = relaunch.env, fds = fds, cwd = "/", process_group = false,
+    sandbox = { unveil = { reads = reads, writes = { reports } }, offline = true } })
+  if r == nil then
+    print("refused " .. (if own then "own" else "host" end) .. " " .. trouble)
     return 0
   end
-  print("exited " .. tostring(process.waitpid(pid, false).code))
+  print("exited " .. tostring(r.code))
   return 0
 end
 ]]))
@@ -167,7 +156,12 @@ end
   -- confines nothing (no user namespaces for this user, or no Linux:
   -- ENOSYS), as the sandbox's other tests take it: skipped where the
   -- platform could confine (Test.skip).
-  if said:find("^host%-proc ") or said:find("^unconfinable ") then
+  local own_proc, trouble = said:match("^refused (%a+) (.-)\n$")
+  local unconfinable = false
+  for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
+    if trouble == "child: start: " .. sys.errno_message(errno) then unconfinable = true end
+  end
+  if own_proc ~= nil and (own_proc == "host" or unconfinable) then
     if assert(sys.uname()).sysname == "Linux" then
       Test.skip("the parent could not confine its child: " .. said)
     end

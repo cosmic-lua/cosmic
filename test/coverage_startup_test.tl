@@ -30,7 +30,7 @@ local loaded = true
 local function holds_load_line(): string
   local session = assert(Coverage.start())
   local hits = assert(Coverage.stop(session))
-  return if (hits["windows"] or {})[4] then "held" else "missed" end
+  return if (hits["windows"] or {})[4] == true then "held" else "missed" end
 end
 
 return function(): integer

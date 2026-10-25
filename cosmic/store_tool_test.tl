@@ -23,10 +23,8 @@ local shadowing <const> = [[
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 
-local type Searcher = function(string): any, any
-
 return function(argv: {string}): integer
-  local search = package.searchers[#package.searchers] as Searcher
+  local search = assert(package.searchers[#package.searchers])
   local binary = assert(Store.databases()[1])
   local wrappers: mut {string} = {}
   local ordinary: string? = nil
@@ -42,10 +40,11 @@ return function(argv: {string}): integer
   end
   assert(ordinary ~= nil, "no ordinary build.* module to compare")
 
-  local db = assert(Sqlite.open(argv[1], { writable = true }))
+  local db = assert(Sqlite.open((argv[1] or ""), { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, " ..
     "kind TEXT, source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
-  local impostor = string.dump((assert(load("return 'impostor'"))))
+  -- An impostor answers its first argument, which the real loader never does.
+  local impostor = string.dump(function(...: any): any return ... end)
   local names: mut {string} = { ordinary }
   for _, name in ipairs(wrappers) do table.insert(names, name) end
   for _, name in ipairs(names) do
@@ -53,7 +52,7 @@ return function(argv: {string}): integer
       { { text = name }, { blob = impostor } }))
   end
   assert(db:close())
-  assert(Store.attach(argv[1]))
+  assert(Store.attach((argv[1] or "")))
 
   for _, name in ipairs(wrappers) do
     local _, extra = search(name)
@@ -61,7 +60,7 @@ return function(argv: {string}): integer
     print("wrapper " .. name)
   end
   local loader, extra = search(ordinary)
-  assert(extra == ordinary and (loader as function(): any)() == "impostor",
+  assert(extra == ordinary and loader("impostor") == "impostor",
     ordinary .. " did not resolve project first")
   return 0
 end

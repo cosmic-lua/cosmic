@@ -257,7 +257,7 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local SandboxRelay = require("cosmic.internal.relay_start")
 return function(argv: {string}): integer
-  local dns_port = assert(math.tointeger(tonumber(argv[1])))
+  local dns_port = assert(math.tointeger(tonumber((argv[1] or ""))))
   local servers: {Net.Endpoint} = { { host = "127.0.0.1", port = dns_port } }
   local lines: mut {string} = {}
   Poll.run(function()
